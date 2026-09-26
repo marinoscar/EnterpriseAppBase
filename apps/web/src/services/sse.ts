@@ -59,6 +59,9 @@
  * at all.
  */
 
+import { ApiError } from './api';
+import { readMaintenanceBlock, reportMaintenanceBlock } from './maintenance';
+
 // =============================================================================
 // The parser — pure, synchronous, and free of both DOM and network
 // =============================================================================
@@ -609,4 +612,153 @@ export function connectSse(options: SseOptions): SseConnection {
       controller?.abort();
     },
   };
+}
+
+// =============================================================================
+// postSse — one POSTed request, one streamed answer (issue #425, epic #419)
+// =============================================================================
+
+/**
+ * Options for {@link postSse}.
+ */
+export interface PostSseOptions<T> {
+  /** Absolute or base-relative URL — resolve it against `API_BASE_URL`. */
+  url: string;
+  /** JSON-serialised as the request body. */
+  body: unknown;
+  /** The full `Authorization` header value (`Bearer …`), or null for none. */
+  authorization: () => string | null;
+  /** Renew the access token after a 401. Called at most once per request. */
+  reauthenticate: () => Promise<unknown>;
+  /**
+   * One parsed frame: its `event:` name and its `data:` parsed as JSON (the raw
+   * string when it is not JSON). Comment lines (`: ping`) never arrive here.
+   */
+  onFrame: (event: string, data: T) => void;
+  /** Aborting resolves the promise quietly — cancelling is not an error. */
+  signal?: AbortSignal;
+}
+
+/**
+ * POST a JSON body and stream the `text/event-stream` answer, frame by frame.
+ *
+ * `connectSse` above is the wrong tool for a request/response stream and is
+ * deliberately left alone: it is GET-only, and it RECONNECTS — right for a
+ * notification feed that should live as long as the tab, exactly wrong for
+ * "generate one answer to this prompt", where a reconnect would re-submit the
+ * prompt and bill the user twice. So this is the other shape:
+ *
+ * - ONE request. No reconnect, ever. The promise resolves when the server ends
+ *   the stream.
+ * - ONE 401 retry, through `reauthenticate` — the same single refresh-and-retry
+ *   `ApiService.request` does, so an access token that expired just before the
+ *   click does not surface as an error. A second 401 rejects.
+ * - A NON-2xx REJECTS WITH `ApiError`, the error every other call site already
+ *   catches, with `code`/`details` parsed from the JSON error body. The server
+ *   runs every gate (AI disabled, no key, model not enabled) BEFORE the first
+ *   byte precisely so those failures arrive here as ordinary JSON errors; a
+ *   failure AFTER streaming began arrives as a frame (`event: error`) instead,
+ *   and is the caller's to handle. A 503 maintenance block is reported to the
+ *   maintenance gate on the way past, exactly as `ApiService.toError` does.
+ * - ABORT RESOLVES. A caller that aborts (a Stop button, an unmount) asked for
+ *   the stream to end; rejecting would make every such caller write a catch
+ *   that ignores `AbortError`.
+ *
+ * Same parser as `connectSse` (`SseParser`), same credential posture (a real
+ * `Authorization` header, never a token in the URL — see this file's header).
+ */
+export async function postSse<T>(options: PostSseOptions<T>): Promise<void> {
+  const { url, body, authorization, reauthenticate, onFrame, signal } = options;
+  const payload = JSON.stringify(body ?? {});
+
+  const send = (): Promise<Response> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+    const auth = authorization();
+    if (auth) headers.Authorization = auth;
+    return fetch(url, {
+      method: 'POST',
+      headers,
+      body: payload,
+      signal,
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  };
+
+  try {
+    let response = await send();
+
+    if (response.status === 401) {
+      await response.body?.cancel().catch(() => {});
+      await reauthenticate();
+      response = await send();
+    }
+
+    if (!response.ok) {
+      throw await toStreamError(response);
+    }
+
+    if (!response.body) return;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const parser = new SseParser();
+
+    const deliver = (frames: SseFrame[]) => {
+      for (const frame of frames) {
+        onFrame(frame.event, parseFrameData<T>(frame.data));
+      }
+    };
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        deliver(parser.push(decoder.decode(value, { stream: true })));
+      }
+      // Flush a final frame the server ended without a trailing newline on.
+      deliver(parser.push(decoder.decode() + '\n\n'));
+    } finally {
+      reader.releaseLock();
+    }
+  } catch (err) {
+    if (signal?.aborted || isAbortError(err)) return;
+    throw err;
+  }
+}
+
+function parseFrameData<T>(data: string): T {
+  try {
+    return JSON.parse(data) as T;
+  } catch {
+    return data as unknown as T;
+  }
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    (err as { name: unknown }).name === 'AbortError'
+  );
+}
+
+async function toStreamError(response: Response): Promise<ApiError> {
+  const errorBody = (await response.json().catch(() => ({}))) as {
+    message?: string;
+    code?: string;
+    details?: unknown;
+  };
+  const block = readMaintenanceBlock(response.status, errorBody);
+  if (block) reportMaintenanceBlock(block);
+  return new ApiError(
+    errorBody.message || `Stream responded ${response.status}`,
+    response.status,
+    errorBody.code,
+    errorBody.details,
+  );
 }

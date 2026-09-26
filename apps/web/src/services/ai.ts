@@ -38,7 +38,8 @@
  * in the body's `success` and per-check `status`. A caller that reads only
  * the status code reports success for every rejected key.
  */
-import { api } from './api';
+import { api, API_BASE_URL } from './api';
+import { postSse } from './sse';
 
 // =============================================================================
 // Shared vocabulary
@@ -430,6 +431,80 @@ export async function listUsableAiModels(): Promise<UsableAiModel[]> {
 
 export async function createAiResponse(req: AiResponseRequest): Promise<AiResponse> {
   return api.post<AiResponse>('/ai/responses', req);
+}
+
+/** Callbacks for {@link streamAiResponse}. Every one is optional. */
+export interface AiStreamHandlers {
+  /** Every event, in order, before the typed callbacks below. */
+  onEvent?: (event: AiStreamEvent) => void;
+  /** Each `output_text.delta` — append to the visible answer. */
+  onTextDelta?: (delta: string) => void;
+  /** Each `reasoning_summary.delta`. */
+  onReasoningDelta?: (delta: string) => void;
+  /** The final `response.completed`. */
+  onCompleted?: (response: AiResponse) => void;
+  /** An `error` event — a failure AFTER streaming began. */
+  onError?: (code: AiErrorCode, message: string) => void;
+}
+
+/** Where the stream is POSTed, resolved against the same base as every call. */
+export const AI_STREAM_URL = `${API_BASE_URL}/ai/responses/stream`;
+
+/**
+ * `POST /ai/responses/stream` — one prompt, one streamed answer, via
+ * `postSse` (no reconnect: a reconnect would re-submit the prompt).
+ *
+ * Resolves with the completed {@link AiResponse}, or `null` when the stream
+ * ended without one (an `error` event, delivered to `onError`, or `signal`
+ * aborted — aborting is not an error). REJECTS with `ApiError` when a gate
+ * refused the request before the first byte (`AI_DISABLED`,
+ * `AI_KEY_REQUIRED`, `AI_MODEL_NOT_ENABLED`, …) — the same error, with the
+ * same `code`, the non-streaming call would have thrown.
+ */
+export async function streamAiResponse(
+  req: AiResponseRequest,
+  handlers: AiStreamHandlers = {},
+  signal?: AbortSignal,
+): Promise<AiResponse | null> {
+  let completed: AiResponse | null = null;
+
+  await postSse<Record<string, unknown>>({
+    url: AI_STREAM_URL,
+    body: req,
+    authorization: () => {
+      const token = api.getAccessToken();
+      return token ? `Bearer ${token}` : null;
+    },
+    reauthenticate: () => api.refreshToken(),
+    signal,
+    onFrame: (eventName, data) => {
+      // The frame's `event:` line is authoritative for the type; the JSON
+      // body carries the rest (and usually repeats `type`).
+      const payload = typeof data === 'object' && data !== null ? data : {};
+      const event = { ...payload, type: eventName } as AiStreamEvent;
+
+      handlers.onEvent?.(event);
+      switch (event.type) {
+        case 'output_text.delta':
+          handlers.onTextDelta?.(event.delta);
+          break;
+        case 'reasoning_summary.delta':
+          handlers.onReasoningDelta?.(event.delta);
+          break;
+        case 'response.completed':
+          completed = event.response;
+          handlers.onCompleted?.(event.response);
+          break;
+        case 'error':
+          handlers.onError?.(event.code, event.message);
+          break;
+        default:
+          break;
+      }
+    },
+  });
+
+  return completed;
 }
 
 export async function createAiRun(req: AiResponseRequest): Promise<AiRunStarted> {
