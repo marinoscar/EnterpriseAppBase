@@ -39,6 +39,7 @@ import { z } from 'zod';
 import { JobClaimService } from '../../src/jobs/job-claim.service';
 import { JobLeaseService } from '../../src/jobs/job-lease.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { JobTerminalService } from '../../src/jobs/job-terminal.service';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
@@ -54,6 +55,7 @@ const { describeWithDb } = resolveDbSuite('node-lease-boundary.db.spec');
 describeWithDb('The node lease boundary (real Postgres)', () => {
   let prisma: PrismaClient;
   let nodes: NodesService;
+  let reaper: JobStuckService;
 
   const PREFIX = `test.lease-boundary.${process.pid}.`;
   const OWNER_EMAIL = `${PREFIX}owner@example.test`;
@@ -150,6 +152,25 @@ describeWithDb('The node lease boundary (real Postgres)', () => {
       new NodeOffloadService(registry, {
         getNodesPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
       } as unknown as SystemSettingsService)
+    );
+
+    // The REAL reaper, for the reap-and-reclaim cases below: they need a
+    // genuine `pending` REQUEUE between a node's two slots (phase 2), not a
+    // give-up (phase 1) — so it runs its OWN config with a budget of 3,
+    // deliberately different from the suite-wide `maxAttempts: 1` above
+    // (which exists for the persist-throw test's "not retriable" assertion
+    // and would otherwise fail this row permanently on its very first reap).
+    reaper = new JobStuckService(
+      prismaService,
+      { get: (key: string) => (key === 'jobs.maxAttempts' ? 3 : undefined) } as unknown as ConfigService,
+      {
+        getJobsPolicy: async () => ({
+          history: { retentionDays: 30, purgeEnabled: true },
+          stuckThresholdMinutes: 30,
+        }),
+      } as unknown as SystemSettingsService,
+      registry,
+      new EventEmitter2()
     );
   });
 
@@ -278,5 +299,96 @@ describeWithDb('The node lease boundary (real Postgres)', () => {
     // The claim is released exactly as any other terminal write releases it.
     expect(row.claimedByNodeId).toBeNull();
     expect(row.leaseExpiresAt).toBeNull();
+  });
+
+  // ===========================================================================
+  // Reap-and-reclaim by the SAME node, in a second slot (#364 / #477)
+  // ===========================================================================
+  //
+  // Both cases below drive the SAME sequence — slot 1 claims, stalls, is
+  // reaped and requeued by the REAL reaper, and slot 2 (the SAME node)
+  // re-claims the row — and then have slot 1 submit a result. They differ in
+  // exactly one thing: whether slot 1 quotes the claim token it was
+  // originally handed. That one fact is the entire difference between "409,
+  // dropped" and the accepted #364 ambiguity the file header documents:
+  // WITHOUT a token, `assertJobHeldByNode` cannot tell slot 1 from slot 2 —
+  // both are "this node, running, unexpired lease" — so slot 1's stale result
+  // is accepted and applied to the row slot 2 is now the legitimate holder of.
+  // This is a known, documented gap for an un-upgraded node, not a new defect
+  // this suite discovers; asserting it explicitly is what keeps a future
+  // change to `assertJobHeldByNode` from silently closing (or widening) it
+  // without anyone noticing which direction it moved.
+
+  it('409s lease_not_held when slot 1 submits its OLD claim token after the SAME node reclaimed the row in slot 2', async () => {
+    const firstClaim = await claimOne(OK_TYPE);
+    const firstToken = firstClaim.claimToken as string;
+
+    await expireLease(firstClaim.id);
+    await expect(reaper.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    const [secondClaim] = await nodes.claimJobs(ownerId, nodeId, {
+      types: [OK_TYPE],
+    } as ClaimJobsDto);
+    expect(secondClaim.id).toBe(firstClaim.id);
+    expect(secondClaim.claimedByNodeId).toBe(nodeId);
+    expect(secondClaim.claimToken).not.toBe(firstToken);
+
+    const before = await prisma.job.findUniqueOrThrow({ where: { id: firstClaim.id } });
+
+    let caught: unknown;
+    try {
+      await nodes.submitResult(ownerId, nodeId, firstClaim.id, {
+        type: OK_TYPE,
+        result: { ok: true },
+        claimToken: firstToken,
+      } as NodeJobResultDto);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ConflictException);
+    expect((caught as ConflictException).getResponse()).toMatchObject({
+      details: { jobId: firstClaim.id, nodeId, reason: 'lease_not_held' },
+    });
+
+    // Slot 2's row is completely untouched by slot 1's refused submission.
+    const after = await prisma.job.findUniqueOrThrow({ where: { id: firstClaim.id } });
+    expect(after).toEqual(before);
+    expect(after.status).toBe('running');
+    expect(after.claimToken).toBe(secondClaim.claimToken);
+  });
+
+  it('#364-ACCEPTED AMBIGUITY: an un-upgraded slot 1 quoting NO token settles slot 2’s live claim instead of being refused', async () => {
+    const firstClaim = await claimOne(OK_TYPE);
+
+    await expireLease(firstClaim.id);
+    await expect(reaper.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    const [secondClaim] = await nodes.claimJobs(ownerId, nodeId, {
+      types: [OK_TYPE],
+    } as ClaimJobsDto);
+    expect(secondClaim.id).toBe(firstClaim.id);
+    expect(secondClaim.claimedByNodeId).toBe(nodeId);
+
+    // Slot 1's node build predates #364 and sends no `claimToken` at all —
+    // exactly `assertJobHeldByNode`'s documented backward-compatibility case:
+    // "a caller that quotes no token is never failed by this clause, whatever
+    // the row happens to carry." `claimedByNodeId` alone cannot distinguish
+    // slot 1 from slot 2, so this call is accepted.
+    const settlement = await nodes.submitResult(ownerId, nodeId, firstClaim.id, {
+      type: OK_TYPE,
+      result: { ok: true },
+      // `claimToken` intentionally omitted.
+    } as NodeJobResultDto);
+
+    expect(settlement.outcome).toBe('succeeded');
+
+    // The row slot 2 was legitimately still running is now settled — by
+    // slot 1's stale request, under slot 2's OWN current claim token, because
+    // `assertJobHeldByNode` re-reads the row fresh and `heldClaimWhere` then
+    // matches on whatever claim is actually current.
+    const row = await prisma.job.findUniqueOrThrow({ where: { id: firstClaim.id } });
+    expect(row.status).toBe('succeeded');
+    expect(row.claimToken).toBeNull();
   });
 });

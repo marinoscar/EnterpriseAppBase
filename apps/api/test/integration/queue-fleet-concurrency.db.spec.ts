@@ -61,6 +61,9 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JobClaimService } from '../../src/jobs/job-claim.service';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
+import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
+import { JOB_SETTLED_EVENT } from '../../src/jobs/events/job-settled.event';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
@@ -248,5 +251,83 @@ describeWithDb('Two executors and the reaper, against real Postgres', () => {
     // A third sweep is a no-op: the row already settled, and the reaper's
     // `WHERE status = 'running'` no longer matches it.
     await expect(reaper.resetStuck()).resolves.toEqual({ reset: 0, failed: 0 });
+  });
+
+  // ===========================================================================
+  // (c) A stale settle racing the reaper's own give-up (issue #477)
+  // ===========================================================================
+
+  it('emits exactly one job.settled when the first claimer’s stale settle races the reaper’s give-up', async () => {
+    // THE RACE #477 MAKES SAFE: the executor that claimed this row is about to
+    // report back (with the identical claim it was originally handed) at
+    // almost the same instant the reaper decides its budget is spent and
+    // fails it itself. Whichever one gets there first must win outright, and
+    // between them there must be exactly one `job.settled` — never zero
+    // (the row must not be left un-announced) and never two (the #468
+    // duplicate this guard also closes).
+    const type = nextType();
+    const MAX_ATTEMPTS = 1;
+
+    const config = {
+      get: (key: string) => (key === 'jobs.maxAttempts' ? MAX_ATTEMPTS : undefined),
+    } as unknown as ConfigService;
+
+    const settings = {
+      getJobsPolicy: async () => ({
+        history: { retentionDays: 30, purgeEnabled: true },
+        stuckThresholdMinutes: 30,
+      }),
+    } as unknown as SystemSettingsService;
+
+    const events = new EventEmitter2();
+    const settledIds: string[] = [];
+    events.on(JOB_SETTLED_EVENT, (event: { job: { id: string } }) =>
+      settledIds.push(event.job.id)
+    );
+
+    const registry = new JobHandlerRegistry();
+    const reaper = new JobStuckService(clientA as unknown as PrismaService, config, settings, registry, events);
+    const terminal = new JobTerminalService(
+      clientA as unknown as PrismaService,
+      config,
+      new ProviderThrottleService(config),
+      events,
+      registry
+    );
+
+    await clientA.job.create({ data: { type, reason: 'backfill' } });
+
+    // The REAL claim, charging attempts -> 1, AT the one-attempt budget, so
+    // the row is reaper-give-up-eligible the instant its lease lapses.
+    const [claimed] = await claimerA.claim({
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    });
+    expect(claimed.attempts).toBe(MAX_ATTEMPTS);
+
+    // The executor's lease lapses (fixture setup only — no real sleep needed,
+    // exactly as the round-2 case above backdates via a direct update).
+    await clientA.job.update({
+      where: { id: claimed.id },
+      data: { leaseExpiresAt: new Date(Date.now() - 1_000) },
+    });
+
+    // The reaper gives up on it FIRST.
+    await expect(reaper.resetStuck()).resolves.toMatchObject({ reset: 0, failed: 1 });
+
+    // ...and only THEN does the abandoned executor's own conclusion arrive,
+    // carrying the exact claim (`claimToken`/`claimedByNodeId`) it was
+    // originally handed. It must find nothing left to settle.
+    await expect(terminal.completeSucceeded(claimed)).resolves.toBe('claim-lost');
+
+    const final = await clientA.job.findUniqueOrThrow({ where: { id: claimed.id } });
+    expect(final.status).toBe('failed');
+    expect(final.lastError).toContain('Abandoned by its executor');
+
+    // Exactly one settlement in total, whichever side actually won the race.
+    expect(settledIds).toEqual([claimed.id]);
   });
 });
