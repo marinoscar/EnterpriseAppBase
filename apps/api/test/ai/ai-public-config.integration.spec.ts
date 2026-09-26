@@ -200,6 +200,15 @@ describe('Public AI config and kill switch', () => {
           { id: 'anthropic', displayName: 'Anthropic', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
           // Gemini (#447): likewise registered, off, and stateless.
           { id: 'gemini', displayName: 'Google Gemini', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
+          // #448: the two OpenAI-family adapters — registered, off, and declared stateless.
+          { id: 'azure-openai', displayName: 'Azure OpenAI', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
+          {
+            id: 'openai-compatible',
+            displayName: 'OpenAI-compatible',
+            enabled: false,
+            hasOrgKey: true,
+            supportsPreviousResponseId: false,
+          },
         ],
       });
       expect(res.text).not.toContain(ORG_KEY);
