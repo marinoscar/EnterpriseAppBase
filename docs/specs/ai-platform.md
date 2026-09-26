@@ -655,6 +655,17 @@ scan for `units`), so they always add up; the `(created_at)` and
 Rows are kept `ai.usageRetentionDays` (default 180 — twice the longest
 report window) and then deleted by the daily `ai.usage.purge` job (§9).
 
+**Reading it back (UI, #444).** Two surfaces render the #443 aggregates, both
+through `services/ai.ts` (`getAiUsage`, `getMyAiUsage` — every usage type lives
+there) and `hooks/useAiUsage.ts`. The admin **AI Usage** card
+(`/admin/settings/ai/usage`, `ai_config:read`, `feature: 'ai'`, appended to the
+AI group) shows totals, the organization-key share (`keySource: 'org'`),
+requests per day and a breakdown by user, model, provider or key source over
+7/30/90 days; it reads `groupBy=day` plus the chosen breakdown, so two requests
+per range. The user's own last 30 days by model is a **Usage section of
+`/settings/ai`** — not a tab (Settings UI Pattern rule 2). The day chart is a
+dependency-free bar chart with a Chart/Table toggle, never the only view.
+
 Audit rows (written directly through Prisma — there is no dedicated audit
 service in this codebase, the same pattern `StorageConfigAdminService.audit`
 already uses) record every administrative and key-management act, never the

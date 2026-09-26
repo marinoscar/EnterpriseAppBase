@@ -166,7 +166,7 @@ controllers below, not assumed:
 | `nodes:read` | the worker-node admin controller — `PERMISSIONS.NODES_READ` |
 | `db_backup:read` | the database-backup controller — `PERMISSIONS.DB_BACKUP_READ` |
 | `broadcasts:read` | `notifications/broadcasts/broadcasts.controller.ts` — `PERMISSIONS.BROADCASTS_READ` |
-| `ai_config:read` | `ai/config/ai-admin.controller.ts` — `PERMISSIONS.AI_CONFIG_READ` (the `AI` and `AI Models` cards, the fourth `ADMIN_SECTIONS` group, epic #419) |
+| `ai_config:read` | `ai/config/ai-admin.controller.ts` — `PERMISSIONS.AI_CONFIG_READ` (the `AI`, `AI Models` and `AI Usage` cards, the fourth `ADMIN_SECTIONS` group, epics #419/#420) |
 | `ai:use` | `ai/keys/user-ai-keys.controller.ts` — `PERMISSIONS.AI_USE` (the per-user `AI Keys` card in `USER_SETTINGS_SECTIONS`; seeded to all three roles, unlike every other row in this table) |
 
 The reason this has to be a mirror and never an invented string is what a
