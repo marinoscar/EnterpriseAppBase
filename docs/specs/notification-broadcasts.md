@@ -5,9 +5,9 @@
 > narrowing-only channel selection and `notifyNow()`, #322 the broadcast email
 > and browser templates, #323 the `admin.broadcast.start` /
 > `admin.broadcast.chunk` fan-out handlers, #324 the admin API, #325 the
-> admin page, composer and visual baselines). Database-level tests for the
-> claim compare-and-swap and the audience under concurrency are tracked
-> separately as #326 — see [Verification](#verification).
+> admin page, composer and visual baselines). #326 added the database-level
+> suite for the claim compare-and-swap and the audience under concurrency —
+> see [Verification](#verification).
 >
 > Implemented in `apps/api/prisma/schema.prisma` (the `NotificationBroadcast`
 > model and `NotificationBroadcastStatus` enum),
@@ -630,19 +630,22 @@ screen.
 | `audience()` counts with the same `audienceWhere()` the fan-out pages with | `broadcasts.service.spec.ts`, `describe('audience')` |
 | The approximate delivery breakdown windows by event key and `[startedAt, finishedAt ?? now]`, and is empty before `startedAt` exists | `broadcasts.service.spec.ts`, `describe('get')` |
 | Every state-changing route writes an audit event with identifiers and shape, **never the composed body** | `broadcasts.service.spec.ts` — each of `create`/`cancel`/`remove`/`sendTest`'s `'audits … without the body'` cases |
+| 250 active + 10 inactive seeded users: the dispatched set equals exactly the active users with `createdAt` ≤ `audienceCutoff` (recomputed from the DB), inactive excluded, `recipientsDispatched` matches, status ends `sent`, ≥2 chunks ran | `apps/api/test/broadcasts/broadcast-fanout.db.spec.ts`, real Postgres only, run by `npm run test:db` |
+| A user created after `audienceCutoff` is excluded from the audience | `broadcast-fanout.db.spec.ts` |
+| Two concurrent `start` executions on two separate `PrismaClient` connections, overlapped with `Promise.all`, resolve to exactly one winner: `startedAt`/`audienceCutoff` stamped once, the loser resolves as a no-op, exactly one chunk job row is enqueued | `broadcast-fanout.db.spec.ts` |
+| Replaying the same chunk job after its cursor has advanced pages only the window after the cursor, never earlier ids | `broadcast-fanout.db.spec.ts` |
+| A cancel landing between two chunk jobs stops the fan-out | `broadcast-fanout.db.spec.ts` |
+| A cancel committed while a chunk is mid-dispatch: the in-flight send completes, but the terminal compare-and-swap cannot flip `canceled` to `sent` — `finishedAt` stays null and no successor is enqueued | `broadcast-fanout.db.spec.ts` |
 
-**What is not yet proven, honestly.** The compare-and-swap's *atomicity* —
-that two concurrent `start` executions against the same broadcast really do
-resolve to exactly one winner, that a chunk racing a cancel really cannot
-flip `canceled` back to `sent` — is a property of Postgres row locking, not
-of the handler code. Every spec listed above runs against a **mocked**
-Prisma client, which can only show that the correct statement (status in the
-`WHERE`) was constructed; it cannot demonstrate that the statement is
-atomic under real concurrency, because a mock has no locking to observe.
-Issue #326 tracks the database-level suite
-(`apps/api/test/notifications/broadcasts/broadcast-fanout.db.spec.ts`, not
-yet written) that seeds real rows, runs two overlapping `start` executions
-and a cancel racing a chunk against a real Postgres instance, and asserts on
-the outcome rather than the SQL shape. Until #326 lands, that specific
-claim — the one whose failure mode is a duplicated announcement in every
-user's inbox — rests on the reasoning in §4, not on an executed test.
+**What this still doesn't prove.** `broadcast-fanout.db.spec.ts` drives the
+real `BroadcastStartHandler` and `BroadcastChunkHandler` against a real
+Postgres instance, through a real `JobsService` — only `notifyNow` and the
+handler registry are stubbed — so the compare-and-swap's atomicity and the
+audience's keyset paging are now exercised under real row locking, not
+inferred from a mocked statement's shape. Two limits remain, and are worth
+stating precisely rather than papering over: it proves the outcome under
+**two** overlapping executions on **one** Postgres instance, not what an
+arbitrary number of concurrent executions or a multi-replica deployment
+would do; and because `NotificationsService` is stubbed, it proves **who is
+dispatched to** (the recipient set, the counts, the cursor), not that an
+email or a push notification actually arrives in an inbox or a browser.
