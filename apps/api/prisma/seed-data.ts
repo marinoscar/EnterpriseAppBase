@@ -227,10 +227,18 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'user_settings:read',
     'user_settings:write',
     'storage:read',
-    // #423, epic #419 — same `ai:use`-only grant as Contributor, for the
-    // identical reason: using AI with one's own key is not a configuration
-    // authority.
-    'ai:use',
+    // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
+    // is the DEFAULT role every new user lands in (see `ROLES` above and
+    // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto
+    // it meant every fresh signup could call AI with no explicit grant. That
+    // is fine under `byok` (no key, no calls succeed) but wrong under
+    // `byok_with_org_fallback`: a brand-new Viewer would silently spend the
+    // deployment's own org key the first time they touched an AI surface,
+    // with no administrator having decided that person should be able to.
+    // An administrator who wants a specific Viewer (or all of them) to use
+    // AI grants it back explicitly — a `role_permissions` row for
+    // `('viewer', 'ai:use')` — or promotes the account to Contributor, which
+    // already carries the grant.
   ],
 };
 

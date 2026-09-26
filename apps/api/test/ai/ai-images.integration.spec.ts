@@ -40,7 +40,7 @@ describe('AI images over HTTP (#437)', () => {
 
   beforeEach(async () => {
     t.reset();
-    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    const holder = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
     token = holder.accessToken;
   });
 
@@ -160,7 +160,7 @@ describe('AI images over HTTP (#437)', () => {
 
     it("another user's image run is a 404", async () => {
       const started = await generate({ model: HARNESS_IMAGE_MODEL, prompt: 'x' }).expect(202);
-      const other = await createMockTestUser(t.context, { id: HARNESS_OTHER_USER, roleName: 'viewer' });
+      const other = await createMockTestUser(t.context, { id: HARNESS_OTHER_USER, roleName: 'contributor' });
 
       await request(server())
         .get(`/api/ai/runs/${started.body.data.runId}`)

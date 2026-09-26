@@ -52,7 +52,7 @@ describe('AI usage aggregates HTTP API Integration', () => {
 
   beforeEach(async () => {
     t.reset();
-    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'viewer' });
+    alice = await createMockTestUser(t.context, { id: HARNESS_USER, roleName: 'contributor' });
     admin = await createMockTestUser(t.context, { id: HARNESS_OTHER_USER, roleName: 'admin' });
     queryRaw = t.context.prismaMock.$queryRaw as unknown as jest.Mock;
     queryRaw.mockResolvedValue([]);

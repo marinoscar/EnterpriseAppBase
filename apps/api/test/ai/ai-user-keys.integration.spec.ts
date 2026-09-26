@@ -236,12 +236,21 @@ describe('User AI keys and usable models Integration', () => {
     });
 
     it.each([
-      ['viewer', createMockViewerUser],
       ['contributor', createMockContributorUser],
       ['admin', createMockAdminUser],
-    ] as const)('every seeded role (%s) may use AI', async (_role, make) => {
+    ] as const)('every role granted ai:use (%s) may use AI', async (_role, make) => {
       const user = await make(context);
       await request(server()).get('/api/ai/keys').set(authHeader(user.accessToken)).expect(200);
+    });
+
+    it('a viewer, who no longer holds ai:use, is refused (#499)', async () => {
+      const viewer = await createMockViewerUser(context);
+      const res = await request(server())
+        .get('/api/ai/keys')
+        .set(authHeader(viewer.accessToken))
+        .expect(403);
+
+      expect(res.body.code).toBe('FORBIDDEN');
     });
   });
 
@@ -254,7 +263,7 @@ describe('User AI keys and usable models Integration', () => {
     let bob: TestUser;
 
     beforeEach(async () => {
-      alice = await createMockViewerUser(context);
+      alice = await createMockContributorUser(context);
       bob = await createMockContributorUser(context);
     });
 
@@ -423,7 +432,7 @@ describe('User AI keys and usable models Integration', () => {
     let alice: TestUser;
 
     beforeEach(async () => {
-      alice = await createMockViewerUser(context);
+      alice = await createMockContributorUser(context);
     });
 
     it('is enabled ∩ reachable with the user key; deprecated and disabled excluded', async () => {

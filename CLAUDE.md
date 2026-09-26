@@ -806,11 +806,16 @@ requires `ai:use`. See
   each into a permission seeded far more broadly for unrelated settings
 - `ai:use` - May call AI with the caller's own key (or the org fallback key, when the
   deployment's key policy allows it): every consumer-facing route under `/api/ai/*` except
-  the always-open `GET /api/ai/config`. Seeded to **all three roles** — using AI with a key
-  the caller themselves supplied is not an administrative act, the same posture managing
-  one's own settings or storage objects already takes. Deliberately **not** folded into
-  `ai_config:*`: an administrator must be able to grant "may use AI" broadly while keeping
-  "may reconfigure the AI platform for the whole deployment" Admin-only — see
+  the always-open `GET /api/ai/config`. Seeded to **Admin and Contributor, deliberately NOT
+  Viewer** (issue #499) — using AI with a key the caller themselves supplied is not an
+  administrative act, the same posture managing one's own settings or storage objects
+  already takes, but Viewer is the DEFAULT role every new signup lands in, and a default
+  grant meant a brand-new account could spend the deployment's own org key under
+  `byok_with_org_fallback` with no administrator having decided that. An administrator
+  grants `ai:use` back to a specific Viewer (a `role_permissions` row) or promotes the
+  account to Contributor. Deliberately **not** folded into `ai_config:*`: an administrator
+  must be able to grant "may use AI" broadly while keeping "may reconfigure the AI platform
+  for the whole deployment" Admin-only — see
   [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) §11
 
 ## Database Tables
@@ -990,9 +995,10 @@ The cards gate writes internally (`ai_config:write`) rather than by a second
 card permission, the same reachability-vs-content posture every other group
 in this file takes. The per-user counterpart is the `AI Keys` card in
 `USER_SETTINGS_SECTIONS` (`/settings/ai`, `permission: 'ai:use'`,
-`feature: 'ai'`) — `ai:use` is seeded to all three roles, so this card is
-gated by a real, withholdable grant rather than by role, and hidden while AI
-is off by the identical `feature` mechanism. See
+`feature: 'ai'`) — `ai:use` is seeded to Admin and Contributor, deliberately
+not Viewer (issue #499), so this card is gated by a real, withholdable grant
+rather than by role, and hidden while AI is off by the identical `feature`
+mechanism. See
 [`docs/specs/ai-platform.md`](docs/specs/ai-platform.md) and the MANDATORY AI
 Platform Rules above.
 
