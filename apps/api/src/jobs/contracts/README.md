@@ -1,7 +1,7 @@
 # Job contracts
 
 The result shapes a **worker node** may post back, one file per node-eligible
-job type (epic #254, issue #269).
+job type.
 
 A node computes off-machine and POSTs a result to
 `POST /api/nodes/{id}/jobs/{jobId}/result`. The server validates that body

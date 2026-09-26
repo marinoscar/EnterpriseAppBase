@@ -1,7 +1,7 @@
 # Job Handlers
 
 This directory contains job handler implementations for the background job
-queue (epic #254). One class per job type; the queue itself never changes.
+queue. One class per job type; the queue itself never changes.
 
 ## Overview
 
@@ -199,7 +199,7 @@ node-eligible: drop both members.
 
 ### What a node-eligible handler looks like
 
-`example-checksum.handler.ts` is the worked example (#269). It is the same
+`example-checksum.handler.ts` is the worked example. It is the same
 four steps above plus the two members, and it is worth reading alongside this
 section because it is a live implementation rather than a sketch. The shape:
 
@@ -406,7 +406,7 @@ whether this ever reaches a node at all.
 ### Vetoing an admin delete (`canDelete`, optional)
 
 Most handlers need nothing here: any non-`running` row of their type may be
-deleted from the admin Jobs page, exactly as before #480. Implement
+deleted from the admin Jobs page. Implement
 `canDelete(job)` only when a **non-terminal** row of this type is load-bearing
 for state your feature keeps outside the `jobs` table — a row whose deletion
 would strand that state with nothing left to advance it:
@@ -440,7 +440,7 @@ the 409's `message` verbatim — or `null` to allow the delete. Three rules:
   when you cannot say "yes", say "no".
 
 `broadcast-job-delete-guard.ts` (shared by `BroadcastStartHandler` and
-`BroadcastChunkHandler`, #480) is the worked example: it refuses while the
+`BroadcastChunkHandler`) is the worked example: it refuses while the
 job is non-terminal and its broadcast is `scheduled` or `sending` — the
 pending row is what advances that broadcast, and deleting it would strand it
 with nothing left to do so. See
@@ -454,13 +454,13 @@ See `example-echo.handler.ts` — a server-only handler that logs its payload
 and returns. It is deliberately trivial and side-effect free, and it is a live
 implementation of the contract rather than a comment about one.
 
-See `example-checksum.handler.ts` (#269) for the node-eligible counterpart: it
+See `example-checksum.handler.ts` for the node-eligible counterpart: it
 streams a `StorageObject`, computes its SHA-256 and byte count, and stores them
 in the object's `metadata`. It is deliberately generic — provider-agnostic, no
 native dependency, and useful rather than a toy — and it is the type that makes
 a worker node's claim return anything at all.
 
-For a handler that does real work, see `job-history-purge.handler.ts` (#263):
+For a handler that does real work, see `job-history-purge.handler.ts`:
 the queue's own housekeeping, and the same four steps applied to a settings
 read, a batched loop and a transaction. Its scheduling half lives in
 `../tasks/job-history-purge.task.ts` and shows the other end of the recipe — a
@@ -480,4 +480,4 @@ observable, retried on the queue's budget, and executed on a worker slot.
 | `../../nodes/node-data-plane.service.ts` | The presigned download/upload routes a node uses |
 | `../jobs.module.ts` | Where the registry and the example handlers are provided |
 | `docs/specs/job-queue.md` | The design spec: decisions, rejected alternatives |
-| `docs/specs/worker-nodes.md` | The node planes: control (#268) and data (#269) |
+| `docs/specs/worker-nodes.md` | The node planes: control and data |
