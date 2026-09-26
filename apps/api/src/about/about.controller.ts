@@ -110,6 +110,12 @@ export class AboutController {
       '`deployInfoPath` is the exact path that was read, and on an `absent` answer it is the ' +
       'actionable fact — the file may simply be at a different path, on an unattached bind ' +
       'mount, or from a run that stopped before writing it.\n\n' +
+      '**Deployment details (issue #392).** `lastCommand`, `bindPort`, `proxy`, `host` and ' +
+      '`history` (successful runs, newest first, at most 20) are also read from the document, ' +
+      'leniently: an invalid sub-field is `null` and an invalid history entry is dropped. `host` ' +
+      'and `proxy.certificateExpiresAt` are as the CLI observed them when it wrote the file, not ' +
+      'live. `runtime` (`processStartedAt`, `nodeVersion`, `environment`) is the one live object, ' +
+      'describing this API process.\n\n' +
       'Requires `system_settings:read`.',
   })
   @ApiResponse({
