@@ -11,6 +11,8 @@ import {
 import {
   userProfileSettingsSchema,
   userProfileSettingsPatchSchema,
+  userAiSettingsSchema,
+  userAiSettingsPatchSchema,
 } from '../../common/schemas/settings.schema';
 
 // Full replacement (PUT)
@@ -25,6 +27,9 @@ export const updateUserSettingsSchema = z.object({
   dataTables: dataTablesSchema.optional(),
   navigation: navigationSchema.optional(),
   notifications: notificationsSchema.optional(),
+  // AI preferences (#423, epic #419). Same "omit to store nothing" PUT rule
+  // as the namespaces above.
+  ai: userAiSettingsSchema.optional(),
 });
 
 export class UpdateUserSettingsDto extends createZodDto(
@@ -49,6 +54,10 @@ export const patchUserSettingsSchema = z.object({
   //      preferences page sends when a toggle returns to its default; writing
   //      the default value instead would pin the user to it forever.
   notifications: notificationsPatchSchema.nullable().optional(),
+  // `ai: null` clears the whole namespace; `ai: { defaultModel: null }`
+  // clears just the selection while leaving the namespace present. Same
+  // two-level shape `dataTables`/`navigation` use above.
+  ai: userAiSettingsPatchSchema.nullable().optional(),
 });
 
 export class PatchUserSettingsDto extends createZodDto(

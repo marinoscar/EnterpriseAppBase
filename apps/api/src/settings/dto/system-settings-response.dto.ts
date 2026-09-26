@@ -79,6 +79,30 @@ export const systemSettingsResponseSchema = z.object({
     // chosen" from "I chose virtual-host style". See `systemStorageSchema`.
     forcePathStyle: z.boolean().nullable(),
   }),
+  // #423, epic #419, umbrella #418 — the AI platform policy, published for
+  // the same reason the operations namespaces and `storage` above are: a
+  // block this response omits is a block no client can echo back in a PUT.
+  //
+  // THERE IS NO API KEY FIELD AND THERE MUST NEVER BE ONE. A user's own key
+  // is `UserAiKey.secret`, in its own table; an org-wide fallback key belongs
+  // in the encrypted credential store. See
+  // `common/schemas/settings.schema.ts` for the full argument and its
+  // compile-time proof.
+  ai: z.object({
+    enabled: z.boolean(),
+    keyPolicy: z.enum(['byok', 'byok_with_org_fallback']),
+    providers: z.object({
+      openai: z.object({
+        enabled: z.boolean(),
+        baseUrl: z.string().optional(),
+      }),
+    }),
+    defaults: z.object({
+      maxOutputTokensCap: z.number().optional(),
+      allowBackgroundRuns: z.boolean(),
+    }),
+    logPromptContent: z.boolean(),
+  }),
   updatedAt: z.iso.datetime(),
   updatedBy: z
     .object({

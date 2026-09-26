@@ -306,4 +306,32 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     // to `DEFAULT_SYSTEM_SETTINGS` (test/prisma/seed-data.spec.ts guards it).
     forcePathStyle: null,
   },
+  // #423, epic #419, umbrella #418. OFF, and INERT, matching every namespace
+  // above it that ships ahead of its own consumers: `enabled: false` means a
+  // fresh deployment gains no AI capability nobody asked for merely because
+  // this namespace exists. `byok` is the default key policy — every call
+  // uses its caller's own saved key, with no deployment-wide fallback to
+  // secure. `allowBackgroundRuns: true` mirrors `jobs.history.purgeEnabled`
+  // being the one "on" value above: the queue is this application's normal
+  // way of doing anything that takes a while. `logPromptContent: false` is a
+  // deliberate privacy default — prompt text may carry a user's own
+  // sensitive input.
+  //
+  // Must stay byte-identical to the API's `DEFAULT_SYSTEM_SETTINGS`, which
+  // `test/prisma/seed-data.spec.ts` pins. NO API KEY IS SEEDED HERE, and none
+  // can be: a user's own key is `UserAiKey.secret`, in its own table; an
+  // org-wide fallback key belongs in the encrypted credential store.
+  ai: {
+    enabled: false,
+    keyPolicy: 'byok',
+    providers: {
+      openai: {
+        enabled: false,
+      },
+    },
+    defaults: {
+      allowBackgroundRuns: true,
+    },
+    logPromptContent: false,
+  },
 };
