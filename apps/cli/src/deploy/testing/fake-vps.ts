@@ -120,6 +120,11 @@ export function defaultRoutes(): FakeRoute[] {
     { match: ['git', 'status', '--porcelain'], answer: '' },
     { match: ['git'], answer: '' },
     { match: ['docker', 'compose'], answer: '' },
+    // The proxy-container check (#390): the shared proxy is up.
+    {
+      match: ['docker', 'inspect', '--type', 'container', '--format', '{{.State.Running}}'],
+      answer: 'true',
+    },
     { match: ['docker'], answer: '' },
     { match: ['npm'], answer: '' },
   ];

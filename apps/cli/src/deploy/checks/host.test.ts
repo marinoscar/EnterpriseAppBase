@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../executor.js';
-import { HOST_CHECKS, evaluateDf } from './host.js';
+import { HOST_CHECKS, evaluateDf, probe } from './host.js';
 import { ALL_CHECKS, requiredChecks } from './index.js';
 import {
   checksPassed,
@@ -482,5 +482,289 @@ describe('resource checks', () => {
 
     expect(result.status).toBe('warn');
     expect(result.remedy).toContain('proxy');
+  });
+});
+
+describe('probe (exported for source.ts and database.ts)', () => {
+  /** Unlike the module-level `fakeRunCommand`, this one forwards `options` too. */
+  function fakeRunCommandWithOptions(
+    respond: (argv: readonly string[], options: RunCommandOptions) => { exitCode: number; stdout?: string; stderr?: string } | undefined,
+  ): typeof import('../executor.js').runCommand {
+    return (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
+      const canned = respond(argv, options) ?? { exitCode: 127, stderr: `${argv[0]}: command not found` };
+      const result: CommandResult = {
+        argv: [...argv],
+        cwd: options.cwd,
+        exitCode: canned.exitCode,
+        stdout: canned.stdout ?? '',
+        stderr: canned.stderr ?? '',
+        durationMs: 1,
+        timedOut: false,
+      };
+      if (result.exitCode !== 0) throw new CommandFailedError(result.stderr || 'failed', result);
+      return result;
+    }) as typeof import('../executor.js').runCommand;
+  }
+
+  it('forwards a custom env, REPLACING rather than merging with the child\'s default', async () => {
+    const seen: Array<NodeJS.ProcessEnv | undefined> = [];
+    const result = await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.env);
+          return { exitCode: 0, stdout: 'ok' };
+        }),
+      },
+      ['git', 'ls-remote', 'https://example.test/o/r', 'HEAD'],
+      { env: { CUSTOM: '1' } },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(seen[0]).toEqual({ CUSTOM: '1' });
+  });
+
+  it('omits env entirely (the executor default) when none is given', async () => {
+    const seen: Array<NodeJS.ProcessEnv | undefined> = [];
+    await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.env);
+          return { exitCode: 0 };
+        }),
+      },
+      ['docker', '--version'],
+    );
+
+    expect(seen[0]).toBeUndefined();
+  });
+
+  it('honours a custom timeoutMs, defaulting to 20s', async () => {
+    const seen: Array<number | undefined> = [];
+    await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.timeoutMs);
+          return { exitCode: 0 };
+        }),
+      },
+      ['git', '--version'],
+      { timeoutMs: 30_000 },
+    );
+    await probe(
+      {
+        runCommand: fakeRunCommandWithOptions((_argv, options) => {
+          seen.push(options.timeoutMs);
+          return { exitCode: 0 };
+        }),
+      },
+      ['git', '--version'],
+    );
+
+    expect(seen).toEqual([30_000, 20_000]);
+  });
+
+  it('never throws: a failing command comes back as ok: false with stdout/stderr', async () => {
+    const result = await probe(
+      { runCommand: fakeRunCommand(() => ({ exitCode: 1, stderr: 'nope' })) },
+      ['does-not-matter'],
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toBe('nope');
+  });
+});
+
+describe('proxy-container check', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'infra-proxy-1',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+
+  it('skips under --skip-proxy, before even looking at the runtime', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: containerRuntime, skipProxy: true }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('--skip-proxy');
+  });
+
+  it('skips when the proxy runs on the host, not in a container', async () => {
+    const result = await find('proxy-container').run(
+      context({ proxyRuntime: { ...containerRuntime, mode: 'host' } }),
+    );
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('runs on the host');
+  });
+
+  it('skips when the proxy runtime is unknown', async () => {
+    const result = await find('proxy-container').run(context({ proxyRuntime: undefined }));
+
+    expect(result.status).toBe('skip');
+    expect(result.detail).toContain('unknown');
+  });
+
+  it('passes when the container is running', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 0, stdout: 'true' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('infra-proxy-1 is running');
+  });
+
+  it('FAILS, naming the container, when it exists but is stopped', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 0, stdout: 'false' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('exists but is not running');
+    expect(result.remedy).toContain('docker start infra-proxy-1');
+  });
+
+  it('FAILS with a distinct remedy when no such container exists', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 1, stderr: 'Error: No such container: infra-proxy-1' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('no container named infra-proxy-1');
+    expect(result.remedy).toContain('docker compose up -d');
+    expect(result.remedy).toContain('--proxy-container');
+  });
+
+  it('FAILS with the raw inspect error for anything else', async () => {
+    const result = await find('proxy-container').run(
+      context({
+        proxyRuntime: containerRuntime,
+        runCommand: fakeRunCommand((argv) =>
+          argv.join(' ').startsWith('docker inspect')
+            ? { exitCode: 1, stderr: 'permission denied' }
+            : HEALTHY(argv),
+        ),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('permission denied');
+  });
+
+  it('is REQUIRED only in container mode, with a domain, and not --skip-proxy; RECOMMENDED otherwise', () => {
+    const check = HOST_CHECKS.find((candidate) => candidate.id === 'proxy-container');
+    expect(check).toBeDefined();
+
+    expect(
+      check?.severityFor?.(context({ proxyRuntime: containerRuntime, domain: 'app.example.test' })),
+    ).toBe('required');
+    expect(
+      check?.severityFor?.(
+        context({ proxyRuntime: containerRuntime, domain: 'app.example.test', skipProxy: true }),
+      ),
+    ).toBe('recommended');
+    expect(check?.severityFor?.(context({ proxyRuntime: containerRuntime, domain: undefined }))).toBe(
+      'recommended',
+    );
+    expect(
+      check?.severityFor?.(
+        context({ proxyRuntime: { ...containerRuntime, mode: 'host' }, domain: 'app.example.test' }),
+      ),
+    ).toBe('recommended');
+  });
+});
+
+describe('requiredChecks(ALL_CHECKS, ctx): context-driven promotion across the whole registry', () => {
+  const containerRuntime = {
+    mode: 'container' as const,
+    container: 'infra-proxy-1',
+    certRoot: '/etc/letsencrypt',
+    webroot: '/var/www/certbot',
+  };
+
+  it('proxy-root / proxy-conf-writable / acme-webroot / certbot-installed / proxy-container are ALL excluded under --skip-proxy', () => {
+    const ctx = context({
+      skipProxy: true,
+      proxyRuntime: containerRuntime,
+      domain: 'app.example.test',
+    });
+
+    const ids = new Set(requiredChecks(ALL_CHECKS, ctx).map((check) => check.id));
+
+    for (const id of ['proxy-root', 'proxy-conf-writable', 'acme-webroot', 'certbot-installed', 'proxy-container']) {
+      expect(ids.has(id)).toBe(false);
+    }
+  });
+
+  it('the same proxy checks ARE required with no --skip-proxy (host mode, a domain given)', () => {
+    const ctx = context({ domain: 'app.example.test' });
+
+    const ids = new Set(requiredChecks(ALL_CHECKS, ctx).map((check) => check.id));
+
+    for (const id of ['proxy-root', 'proxy-conf-writable', 'acme-webroot', 'certbot-installed']) {
+      expect(ids.has(id)).toBe(true);
+    }
+  });
+
+  it('proxy-container becomes required only in container mode WITH a domain and without --skip-proxy', () => {
+    expect(
+      requiredChecks(
+        ALL_CHECKS,
+        context({ proxyRuntime: containerRuntime, domain: 'app.example.test' }),
+      ).some((check) => check.id === 'proxy-container'),
+    ).toBe(true);
+
+    expect(
+      requiredChecks(ALL_CHECKS, context({ proxyRuntime: containerRuntime, domain: undefined })).some(
+        (check) => check.id === 'proxy-container',
+      ),
+    ).toBe(false);
+
+    expect(
+      requiredChecks(
+        ALL_CHECKS,
+        context({ proxyRuntime: { ...containerRuntime, mode: 'host' }, domain: 'app.example.test' }),
+      ).some((check) => check.id === 'proxy-container'),
+    ).toBe(false);
+  });
+
+  it('gh-installed/gh-authenticated are promoted into the required subset exactly when the HTTPS GitHub clone has no credential', () => {
+    const needsGh = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false });
+    const hasCredential = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: true });
+    const notGithub = context({ repoUrl: 'git@github.com:acme/widgets.git' });
+    const unknown = context();
+
+    const needsGhIds = requiredChecks(ALL_CHECKS, needsGh).map((c) => c.id);
+    expect(needsGhIds).toContain('gh-installed');
+    expect(needsGhIds).toContain('gh-authenticated');
+
+    for (const ctx of [hasCredential, notGithub, unknown]) {
+      const ids = requiredChecks(ALL_CHECKS, ctx).map((c) => c.id);
+      expect(ids).not.toContain('gh-installed');
+      expect(ids).not.toContain('gh-authenticated');
+    }
   });
 });

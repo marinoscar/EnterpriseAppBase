@@ -4,7 +4,14 @@ import { basename, join } from 'node:path';
 import { CLI_NAME } from '../branding.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
-import { ALL_CHECKS, checksPassed, requiredChecks, runChecks } from './checks/index.js';
+import {
+  ALL_CHECKS,
+  checksPassed,
+  gitCredentialStateFor,
+  requiredChecks,
+  runChecks,
+  type CheckContext,
+} from './checks/index.js';
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
 import { writeEnvFile } from './env-file.js';
 import { isDeployment } from './deployment-evidence.js';
@@ -24,7 +31,7 @@ import {
   type ProxyTarget,
   type ResolvedProxyRuntime,
 } from './proxy.js';
-import { ensureCheckout, resolveRepoTarget, type RepoTarget } from './repo.js';
+import { ensureCheckout, resolveRepoTarget, resolveRepoUrl, type RepoTarget } from './repo.js';
 import {
   DEPLOY_STATE_VERSION,
   readState,
@@ -290,7 +297,19 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           for (const path of created) context.journal.line(`Created ${path}`);
         }
 
-        const checkContext = {
+        // The repository `checkout` will clone, by the same precedence, and
+        // whether git can already read it. Probed ONCE here because it decides
+        // whether gh-installed/gh-authenticated are required (#390): an HTTPS
+        // GitHub URL git cannot read would otherwise stop the clone at an
+        // authentication prompt, after this preflight said it was fine.
+        const repoUrl = await resolveRepoUrl({
+          cwd: context.options.cwd ?? process.cwd(),
+          runCommand: context.runCommand,
+          ...(context.options.repo === undefined ? {} : { repoFlag: context.options.repo }),
+        });
+        const gitCredentialed = await gitCredentialStateFor(repoUrl, context.runCommand);
+
+        const checkContext: CheckContext = {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
@@ -302,6 +321,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           ...(context.options.domain === undefined
             ? {}
             : { domain: context.options.domain }),
+          ...(repoUrl === undefined ? {} : { repoUrl }),
+          ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
+          ...(context.options.skipProxy === true ? { skipProxy: true } : {}),
         };
 
         const results = await runChecks(requiredChecks(ALL_CHECKS, checkContext), checkContext);

@@ -159,6 +159,31 @@ export async function resolveRepoTarget(
   return { url: normaliseRepoUrl(origin), ref, source: 'git-remote' };
 }
 
+/**
+ * Only the repository URL, by the same precedence as `resolveRepoTarget`
+ * (flag, then recorded state, then the checkout's `origin`), for callers that
+ * need to know WHERE the code comes from but not which ref -- the doctor
+ * checks that ask whether git can authenticate to it.
+ *
+ * Never throws and resolves no ref, so it runs no more git than it has to:
+ * `undefined` when nothing names a repository. Normalised, so it carries no
+ * embedded credential.
+ */
+export async function resolveRepoUrl(
+  options: Omit<ResolveRepoOptions, 'refFlag' | 'state'> & {
+    state?: Pick<DeployState, 'repoUrl'> | undefined;
+  },
+): Promise<string | undefined> {
+  if (options.repoFlag !== undefined) return normaliseRepoUrl(options.repoFlag);
+  if (options.state?.repoUrl !== undefined) return normaliseRepoUrl(options.state.repoUrl);
+
+  const root = findGitRoot(options.cwd);
+  if (root === undefined) return undefined;
+
+  const origin = await git({ cwd: root, runCommand: options.runCommand }, ['remote', 'get-url', 'origin']);
+  return origin === undefined || origin === '' ? undefined : normaliseRepoUrl(origin);
+}
+
 async function defaultRefFor(
   options: ResolveRepoOptions,
   _url: string,

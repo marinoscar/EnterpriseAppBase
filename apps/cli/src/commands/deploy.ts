@@ -7,6 +7,7 @@ import { CLI_NAME } from '../branding.js';
 import {
   ALL_CHECKS,
   checksPassed,
+  gitCredentialStateFor,
   runChecks,
   summarise,
   type CheckContext,
@@ -20,6 +21,7 @@ import {
   type HealthReport,
   type ProbeResult,
 } from '../deploy/health.js';
+import { resolveRepoUrl } from '../deploy/repo.js';
 import { readState } from '../deploy/state.js';
 import { readAbout, renderAbout } from '../deploy/about.js';
 import { readAnswersFile } from '../deploy/answers-file.js';
@@ -118,6 +120,8 @@ export interface DoctorCommandOptions {
   domain?: string | undefined;
   proxyContainer?: string | undefined;
   proxyMode?: string | undefined;
+  /** Repository to check access to; defaults to the record, then this checkout's origin. */
+  repo?: string | undefined;
   json?: boolean | undefined;
   color: boolean;
 }
@@ -160,6 +164,10 @@ export function registerDeployCommand(
     .option('--domain <domain>', 'Public domain; enables the DNS and TLS checks')
     .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
     .option('--proxy-mode <mode>', PROXY_MODE_HELP)
+    .option(
+      '--repo <url>',
+      'Repository whose access to check (default: the recorded one, then this checkout\'s origin)',
+    )
     .option('--json', 'Print a machine-readable report on stdout')
     .option('--no-color', 'Disable colour even on a terminal')
     .addHelpText(
@@ -760,11 +768,23 @@ export async function runDoctorCommand(
     runCommand: run,
   });
 
+  // Where the code comes from, and whether git can already read it: decides
+  // whether the gh checks are required (#390). `git ls-remote` is read-only.
+  const repoUrl = await resolveRepoUrl({
+    cwd: process.cwd(),
+    runCommand: run,
+    ...(options.repo === undefined ? {} : { repoFlag: options.repo }),
+    ...(recorded === undefined ? {} : { state: recorded }),
+  });
+  const gitCredentialed = await gitCredentialStateFor(repoUrl, run);
+
   const context: CheckContext = {
     runCommand: run,
     deployRoot: app.deployRoot,
     proxyRoot: options.proxyRoot,
     proxyRuntime,
+    ...(repoUrl === undefined ? {} : { repoUrl }),
+    ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     ...(readEnvironment(app.deployRoot) ?? {}),

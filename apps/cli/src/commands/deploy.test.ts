@@ -671,3 +671,58 @@ describe('--proxy-mode / --proxy-container are validated as usage errors', () =>
     expect(result.error).toBeUndefined();
   });
 });
+
+// =============================================================================
+// `doctor --repo` (#390): the flag wins over everything else `resolveRepoUrl`
+// would otherwise fall back to, and never touches git when it is given.
+// =============================================================================
+describe('appctl deploy doctor --repo', () => {
+  function capturingCheck(seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }>): Check {
+    return {
+      id: 'capture',
+      title: 'capture',
+      severity: 'recommended',
+      async run(context) {
+        seen.push({ repoUrl: context.repoUrl, gitCredentialed: context.gitCredentialed });
+        return { status: 'pass', detail: 'ok' };
+      },
+    };
+  }
+
+  it('sets CheckContext.repoUrl from --repo, normalised, without running git', async () => {
+    const seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }> = [];
+
+    const result = await runDoctor(['--repo', 'https://example.test/o/r.git'], [capturingCheck(seen)]);
+
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual([{ repoUrl: 'https://example.test/o/r', gitCredentialed: undefined }]);
+  });
+
+  it('probes git credential state (via the injected runCommand) for an HTTPS GitHub --repo', async () => {
+    const seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }> = [];
+    const lsRemoteFails: typeof import('../deploy/executor.js').runCommand = (async (
+      argv: readonly string[],
+    ) => {
+      throw new Error(`${argv[0] ?? ''}: command not found`);
+    }) as typeof import('../deploy/executor.js').runCommand;
+
+    const result = await runDoctor(['--repo', 'https://github.com/acme/widgets'], [capturingCheck(seen)], {
+      runCommand: lsRemoteFails,
+    });
+
+    expect(result.error).toBeUndefined();
+    // git ls-remote fails (no real network/process in this test), so the
+    // clone is judged unable to authenticate -- exactly the state that
+    // promotes gh-installed/gh-authenticated to required.
+    expect(seen).toEqual([{ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false }]);
+  });
+
+  it('leaves gitCredentialed unset for a non-HTTPS-GitHub --repo (never probed)', async () => {
+    const seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }> = [];
+
+    const result = await runDoctor(['--repo', 'git@github.com:acme/widgets.git'], [capturingCheck(seen)]);
+
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual([{ repoUrl: 'git@github.com:acme/widgets', gitCredentialed: undefined }]);
+  });
+});
