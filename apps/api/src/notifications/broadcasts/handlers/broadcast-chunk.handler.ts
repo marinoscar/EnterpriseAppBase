@@ -250,6 +250,7 @@ import {
   BROADCAST_SUBJECT_TYPE,
   audienceWhere,
 } from '../broadcast-audience';
+import { broadcastJobDeleteRefusal } from '../broadcast-job-delete-guard';
 
 /**
  * The handler key, and therefore the `Job.type` every chunk row carries.
@@ -354,6 +355,16 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
   onModuleInit(): void {
     this.registry.register(this);
     this.throttle.registerProviderKey(this.type, BROADCAST_EMAIL_PROVIDER_KEY);
+  }
+
+  /**
+   * Refuses the admin delete of a still-runnable job whose broadcast is
+   * `scheduled` or `sending` (#480): that row is what advances the broadcast,
+   * and deleting it strands the broadcast. See `broadcast-job-delete-guard.ts`
+   * — both broadcast handlers answer through the same function.
+   */
+  canDelete(job: Job): Promise<string | null> {
+    return broadcastJobDeleteRefusal(this.prisma, job);
   }
 
   /**

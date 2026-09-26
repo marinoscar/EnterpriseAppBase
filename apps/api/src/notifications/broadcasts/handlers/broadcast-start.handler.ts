@@ -89,6 +89,7 @@ import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
 import { JobsService } from '../../../jobs/jobs.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BROADCAST_SUBJECT_TYPE, audienceWhere } from '../broadcast-audience';
+import { broadcastJobDeleteRefusal } from '../broadcast-job-delete-guard';
 import { BROADCAST_CHUNK_TYPE } from './broadcast-chunk.handler';
 
 /**
@@ -121,6 +122,16 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
   /** Self-registration — the only wiring a handler needs. */
   onModuleInit(): void {
     this.registry.register(this);
+  }
+
+  /**
+   * Refuses the admin delete of a still-runnable job whose broadcast is
+   * `scheduled` or `sending` (#480): that row is what advances the broadcast,
+   * and deleting it strands the broadcast. See `broadcast-job-delete-guard.ts`
+   * — both broadcast handlers answer through the same function.
+   */
+  canDelete(job: Job): Promise<string | null> {
+    return broadcastJobDeleteRefusal(this.prisma, job);
   }
 
   /**

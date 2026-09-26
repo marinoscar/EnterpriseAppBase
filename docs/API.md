@@ -1775,6 +1775,14 @@ Deletes the row.
 **Error Cases:**
 - 400 Bad Request - The job is `running` and cannot be deleted
 - 404 Not Found - Job not found
+- 409 Conflict - The job's owning feature refused the delete. `details.reason` is `owner_refused` (the owner said no — e.g. the job's broadcast is still `scheduled` or `sending`) or `owner_check_failed` (the owner could not answer; retry later). `message` is the owner's reason, meant for the operator.
+
+```json
+{
+  "message": "Broadcast 3f2a...c1 is 'sending'; deleting this job would leave it stuck with nothing to advance it. Cancel the broadcast instead of deleting its job.",
+  "details": { "jobId": "a1b2...", "status": "pending", "reason": "owner_refused" }
+}
+```
 
 ---
 

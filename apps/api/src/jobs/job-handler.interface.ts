@@ -382,4 +382,50 @@ export interface JobHandler {
    * column that could hold it. See `IssuedJobSecret`.
    */
   readonly nodeSecretBroker?: JobSecretBroker;
+
+  /**
+   * May an administrator delete THIS job row, right now? (#480)
+   *
+   * Returns a human-readable REASON TO REFUSE, or `null` to allow. The reason
+   * is shown to the operator verbatim (it becomes the 409's `message`), so
+   * write it as an instruction: what is wrong and what to do instead.
+   *
+   * OPTIONAL, AND OMITTING IT IS THE NORMAL ANSWER. A handler without it gets
+   * exactly what every type had before #480: any non-running row may be
+   * deleted. Implement it only when a NON-TERMINAL row of this type is load-
+   * bearing for state the feature owns outside the `jobs` table — a row whose
+   * deletion would strand that state with nothing left to advance it.
+   *
+   * ⚠ WHY THE HANDLER ANSWERS AND NOT THE ADMIN SERVICE. A delete is not a
+   * settlement: no `job.settled` fires, so no listener a feature has attached
+   * to the queue's lifecycle ever learns the row is gone. The only moment the
+   * feature can object is BEFORE the delete, and the only party that knows
+   * whether it should is the feature. The rejected alternative — an
+   * `if (type === BROADCAST_CHUNK_TYPE) …` in `JobAdminService` reading
+   * `notification_broadcasts` — is the central dispatch table this file's
+   * header exists to abolish, and it would make the jobs module depend on a
+   * feature's schema. Same argument as `nodeOffloadEnabled`: a POLICY question
+   * the owning feature answers, so the queue stays free of feature knowledge.
+   *
+   * ⚠ CONSULTED BY ONE PATH ONLY: `JobAdminService.remove`
+   * (`DELETE /api/admin/jobs/:id`). The history purge never asks, because it
+   * deletes only terminal rows, and a terminal row is history, never
+   * machinery. An implementation should therefore answer `null` for a job
+   * whose own status is terminal (`succeeded`/`failed`) — deleting history is
+   * always fine — and object only to a row that could still run.
+   *
+   * ⚠ A CHEAP READ, NEVER A WRITE. It runs inside an admin HTTP request,
+   * before the delete and outside any transaction; it must not mutate
+   * anything (in particular, it must not "helpfully" cancel the feature's own
+   * state — the operator asked to delete a job, not to cancel a broadcast).
+   * It is advisory against a concurrent state change by construction: the
+   * delete that follows is guarded only against the row becoming `running`.
+   *
+   * ⚠ A THROW REFUSES THE DELETE (fail closed). The admin service logs the
+   * error and answers the same 409 with a generic reason
+   * (`details.reason: 'owner_check_failed'`). Deleting is irreversible and a
+   * refusal is not — an operator can simply try again — so when the owner
+   * cannot say "yes", the answer is "no".
+   */
+  canDelete?(job: Job): Promise<string | null>;
 }

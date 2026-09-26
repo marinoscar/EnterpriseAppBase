@@ -105,6 +105,57 @@ describe('BroadcastStartHandler', () => {
     expect(handler.persistNodeResult).toBeUndefined();
   });
 
+  // ===========================================================================
+  // canDelete (#480) — delegates to broadcastJobDeleteRefusal
+  // ===========================================================================
+
+  describe('canDelete', () => {
+    it('returns the shared guard\'s refusal reason for a scheduled broadcast', async () => {
+      const { handler, findUnique } = makeHandler({
+        broadcast: { id: BROADCAST_ID, status: 'scheduled' },
+      });
+
+      const result = await handler.canDelete(startJob);
+
+      expect(findUnique).toHaveBeenCalledWith({
+        where: { id: BROADCAST_ID },
+        select: { id: true, status: true },
+      });
+      expect(result).toEqual(expect.stringContaining(BROADCAST_ID));
+      expect(result).toEqual(expect.stringContaining('scheduled'));
+    });
+
+    it('returns the shared guard\'s refusal reason for a sending broadcast', async () => {
+      const { handler } = makeHandler({
+        broadcast: { id: BROADCAST_ID, status: 'sending' },
+      });
+
+      const result = await handler.canDelete(startJob);
+
+      expect(result).toEqual(expect.stringContaining('sending'));
+    });
+
+    it('returns null for a terminal job even when the broadcast is still scheduled', async () => {
+      const { handler } = makeHandler({
+        broadcast: { id: BROADCAST_ID, status: 'scheduled' },
+      });
+
+      const result = await handler.canDelete({ ...startJob, status: 'succeeded' } as Job);
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null once the broadcast has been cancelled', async () => {
+      const { handler } = makeHandler({
+        broadcast: { id: BROADCAST_ID, status: 'canceled' },
+      });
+
+      const result = await handler.canDelete(startJob);
+
+      expect(result).toBeNull();
+    });
+  });
+
   it('is a no-op when the job carries no subject', async () => {
     const { handler, findUnique } = makeHandler();
 

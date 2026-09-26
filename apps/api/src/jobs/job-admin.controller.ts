@@ -289,12 +289,25 @@ export class JobAdminController {
     description:
       'Removes the row. Refused for a running job: deleting it would not stop its executor, ' +
       'which would then finish, find no row to write to, and leave work that ran with no record ' +
-      'that it existed — while its freed deduplication key let a duplicate be enqueued.',
+      'that it existed — while its freed deduplication key let a duplicate be enqueued. Also ' +
+      'refused (409) when the feature that owns the job vetoes it: a pending broadcast start or ' +
+      'chunk job whose broadcast is still `scheduled` or `sending` is what advances that ' +
+      'broadcast, and deleting it would strand it — cancel the broadcast instead. Terminal ' +
+      '(succeeded/failed) jobs are never vetoed.',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiResponse({ status: 204, description: 'Job deleted' })
   @ApiResponse({ status: 400, description: 'The job is running and cannot be deleted' })
   @ApiResponse({ status: 404, description: 'Job not found' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'The job\'s owning feature refused the delete. `message` is the owner\'s reason, written ' +
+      'for the operator; `details` is `{ jobId, status, reason }` where `reason` is ' +
+      '`owner_refused` (the owner said no — e.g. the job\'s broadcast is still scheduled or ' +
+      'sending) or `owner_check_failed` (the owner could not answer, so the delete is refused ' +
+      'rather than risked; retry later).',
+  })
   async remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     await this.jobs.remove(id);
   }

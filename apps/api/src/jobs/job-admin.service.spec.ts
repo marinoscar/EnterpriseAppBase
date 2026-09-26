@@ -29,6 +29,7 @@ import { JobClock } from './job-clock';
 import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
 import { stuckRunningWhere } from './job-stuck.service';
 import type { JobStuckService } from './job-stuck.service';
+import type { JobHandlerRegistry } from './job-handler.registry';
 import type { PrismaService } from '../prisma/prisma.service';
 import { jobListQuerySchema } from './dto/job-list-query.dto';
 
@@ -64,6 +65,8 @@ interface Harness {
     leaseHorizon: jest.Mock;
     resetStuck: jest.Mock;
   };
+  /** `get(type)` answers `undefined` (no handler) unless a test overrides it. */
+  registry: { get: jest.Mock };
   /** Moves the pinned clock forward. */
   advance(ms: number): void;
 }
@@ -91,6 +94,8 @@ function makeService(overrides: Partial<Harness['job']> = {}): Harness {
     resetStuck: jest.fn().mockResolvedValue({ reset: 0, failed: 0 }),
   };
 
+  const registry = { get: jest.fn().mockReturnValue(undefined) };
+
   const clock: JobClock = {
     now: () => currentMs,
     sleep: async () => undefined,
@@ -100,10 +105,12 @@ function makeService(overrides: Partial<Harness['job']> = {}): Harness {
     service: new JobAdminService(
       { job } as unknown as PrismaService,
       stuck as unknown as JobStuckService,
+      registry as unknown as JobHandlerRegistry,
       clock
     ),
     job,
     stuck,
+    registry,
     advance: (ms: number) => {
       currentMs += ms;
     },
@@ -846,5 +853,152 @@ describe('JobAdminService.remove', () => {
     });
 
     await expect(service.remove(id)).rejects.toThrow(BadRequestException);
+  });
+
+  // =========================================================================
+  // The owner's veto (#480): JobHandler.canDelete
+  // =========================================================================
+
+  describe('the owner veto', () => {
+    /** A non-running row, so `remove` reaches `assertOwnerAllowsDelete`. */
+    const pendingRow = { id, status: 'pending', type: 'admin.broadcast.chunk' };
+
+    it('409s with owner_refused when canDelete returns a reason, and never deletes', async () => {
+      const { service, job, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+      });
+      const canDelete = jest.fn().mockResolvedValue('Broadcast bcast-1 is \'sending\'; cancel it instead.');
+      registry.get.mockReturnValue({ canDelete });
+
+      await expect(service.remove(id)).rejects.toThrow(ConflictException);
+      expect(job.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('gives the exact 409 body shape for owner_refused', async () => {
+      const { service, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+      });
+      const reason = 'Broadcast bcast-1 is \'sending\'; cancel it instead.';
+      registry.get.mockReturnValue({ canDelete: jest.fn().mockResolvedValue(reason) });
+
+      await expect(service.remove(id)).rejects.toMatchObject({
+        response: {
+          message: reason,
+          details: { jobId: id, status: 'pending', reason: 'owner_refused' },
+        },
+      });
+    });
+
+    it('deletes when canDelete answers null', async () => {
+      const { service, job, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      });
+      registry.get.mockReturnValue({ canDelete: jest.fn().mockResolvedValue(null) });
+
+      await service.remove(id);
+
+      expect(job.deleteMany).toHaveBeenCalledWith({ where: { id, status: { not: 'running' } } });
+    });
+
+    it('409s with owner_check_failed and logs when canDelete throws, and never deletes', async () => {
+      const { service, job, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+      });
+      registry.get.mockReturnValue({
+        canDelete: jest.fn().mockRejectedValue(new Error('db unreachable')),
+      });
+      const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+
+      await expect(service.remove(id)).rejects.toMatchObject({
+        response: {
+          details: { jobId: id, status: 'pending', reason: 'owner_check_failed' },
+        },
+      });
+      expect(job.deleteMany).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+    });
+
+    it('is a 409 (ConflictException), not a 500, when canDelete throws', async () => {
+      const { service, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+      });
+      registry.get.mockReturnValue({ canDelete: jest.fn().mockRejectedValue(new Error('boom')) });
+      jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
+
+      await expect(service.remove(id)).rejects.toThrow(ConflictException);
+    });
+
+    it('deletes when the type has no registered handler at all', async () => {
+      const { service, job, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      });
+      registry.get.mockReturnValue(undefined);
+
+      await service.remove(id);
+
+      expect(job.deleteMany).toHaveBeenCalled();
+    });
+
+    it('deletes when the registered handler has no canDelete member', async () => {
+      const { service, job, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      });
+      registry.get.mockReturnValue({ process: jest.fn() }); // no canDelete
+
+      await service.remove(id);
+
+      expect(job.deleteMany).toHaveBeenCalled();
+    });
+
+    it('never calls canDelete for a running job — the 400 short-circuits first', async () => {
+      const { service, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue({ id, status: 'running', type: 'admin.broadcast.chunk' }),
+      });
+      const canDelete = jest.fn();
+      registry.get.mockReturnValue({ canDelete });
+
+      await expect(service.remove(id)).rejects.toThrow(BadRequestException);
+      expect(canDelete).not.toHaveBeenCalled();
+    });
+
+    it('404s before ever consulting the registry', async () => {
+      const { service, registry } = makeService();
+
+      await expect(service.remove(id)).rejects.toThrow(NotFoundException);
+      expect(registry.get).not.toHaveBeenCalled();
+    });
+
+    it('reads the full row (no `select`), so canDelete can see the whole job', async () => {
+      const { service, job, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(pendingRow),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      });
+      registry.get.mockReturnValue({ canDelete: jest.fn().mockResolvedValue(null) });
+
+      await service.remove(id);
+
+      expect(job.findUnique).toHaveBeenCalledWith({ where: { id } });
+      expect(job.findUnique.mock.calls[0][0]).not.toHaveProperty('select');
+    });
+
+    it('passes the full row straight through to canDelete', async () => {
+      const fullRow = row({ id, status: 'failed', type: 'admin.broadcast.start', subjectId: 'bcast-9' });
+      const { service, registry } = makeService({
+        findUnique: jest.fn().mockResolvedValue(fullRow),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      });
+      const canDelete = jest.fn().mockResolvedValue(null);
+      registry.get.mockReturnValue({ canDelete });
+
+      await service.remove(id);
+
+      expect(canDelete).toHaveBeenCalledWith(fullRow);
+      expect(registry.get).toHaveBeenCalledWith('admin.broadcast.start');
+    });
   });
 });
