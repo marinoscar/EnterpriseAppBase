@@ -168,7 +168,7 @@ describe('Public AI config and kill switch', () => {
         .set(authHeader(viewer.accessToken))
         .expect(200);
 
-      expect(res.body.data).toEqual({ enabled: false, keyPolicy: 'byok', providers: [] });
+      expect(res.body.data).toEqual({ enabled: false, keyPolicy: 'byok', allowBackgroundRuns: false, providers: [] });
     });
 
     it('lists providers with hasOrgKey when AI is on, and never a key or hint', async () => {
@@ -184,6 +184,7 @@ describe('Public AI config and kill switch', () => {
       expect(res.body.data).toEqual({
         enabled: true,
         keyPolicy: 'byok_with_org_fallback',
+        allowBackgroundRuns: true,
         providers: [{ id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true }],
       });
       expect(res.text).not.toContain(ORG_KEY);

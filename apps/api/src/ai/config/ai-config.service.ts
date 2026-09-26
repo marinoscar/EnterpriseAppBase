@@ -177,7 +177,8 @@ export class AiConfigService implements OnModuleInit {
     const policy = await this.resolve();
 
     if (!policy.enabled) {
-      return { enabled: false, keyPolicy: policy.keyPolicy, providers: [] };
+      // Nothing is available while AI is off — background runs included.
+      return { enabled: false, keyPolicy: policy.keyPolicy, allowBackgroundRuns: false, providers: [] };
     }
 
     const providers = await Promise.all(
@@ -194,7 +195,12 @@ export class AiConfigService implements OnModuleInit {
       }),
     );
 
-    return { enabled: true, keyPolicy: policy.keyPolicy, providers };
+    return {
+      enabled: true,
+      keyPolicy: policy.keyPolicy,
+      allowBackgroundRuns: policy.defaults.allowBackgroundRuns,
+      providers,
+    };
   }
 
   /**

@@ -36,6 +36,11 @@ export const aiPublicConfigSchema = z.object({
   /** The platform kill switch. When false, hide every AI surface. */
   enabled: z.boolean(),
   keyPolicy: z.enum(AI_KEY_POLICIES),
+  /**
+   * `ai.defaults.allowBackgroundRuns` — whether `POST /api/ai/runs` accepts a
+   * request (#433). Always false while `enabled` is false.
+   */
+  allowBackgroundRuns: z.boolean(),
   /** Every registered provider; empty while `enabled` is false. */
   providers: z.array(aiPublicProviderSchema),
 });

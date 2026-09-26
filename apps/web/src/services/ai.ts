@@ -87,9 +87,10 @@ export interface AiPublicConfig {
   /** Empty while `enabled` is false. */
   providers: { id: string; displayName: string; enabled: boolean; hasOrgKey: boolean }[];
   /**
-   * `defaults.allowBackgroundRuns`, when the API surfaces it here (#434).
-   * Optional: absent means "unknown" — the playground offers background runs
-   * and handles a refusal, and only hides them on an explicit `false`.
+   * `defaults.allowBackgroundRuns` (#433): whether `POST /ai/runs` accepts a
+   * request; always `false` while `enabled` is false. Optional so an older API
+   * that omits it still works — absent means "unknown": the playground offers
+   * background runs, handles a refusal, and hides them only on `false`.
    */
   allowBackgroundRuns?: boolean;
 }
@@ -346,6 +347,8 @@ export interface AiRun {
   modelId: string;
   output: AiResponse | null;
   errorCode: string | null;
+  /** A safe, generic description of the failure once `failed`. */
+  errorMessage: string | null;
   createdAt: string;
   completedAt: string | null;
 }
