@@ -313,6 +313,17 @@ export class AiService {
       throw error;
     }
 
+    // An adapter that reports a failure as its very FIRST event has streamed
+    // nothing yet: that is a refusal, not a mid-stream failure, and it is
+    // answered the same way as one that threw.
+    if (!first.done && first.value.type === 'error') {
+      const { code, message } = first.value;
+
+      await iterator.return?.();
+      await tracker.finish({ status: 'failed', errorCode: code });
+      throw new AiError(code, message);
+    }
+
     return this.relay(first, iterator, tracker, opts);
   }
 
