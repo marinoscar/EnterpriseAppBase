@@ -132,6 +132,28 @@ export const PERMISSIONS = [
     description:
       'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket',
   },
+
+  // AI platform (#423, epic #419, umbrella #418). THREE permissions, not two
+  // — see `src/common/constants/roles.constants.ts` for the full argument.
+  // `ai_config:*` gates the DEPLOYMENT-WIDE policy (whether AI is on, the key
+  // policy, per-provider config) and reaches every user at once, the same
+  // "distinct blast radius" reasoning `storage_config:*`/`push:*`/
+  // `broadcasts:*`/`nodes:*` above each make. `ai:use` is the opposite axis —
+  // may THIS caller invoke AI at all, with THEIR OWN saved key — and changes
+  // nothing about anyone else's access or the deployment's configuration.
+  {
+    name: 'ai_config:read',
+    description: 'View the deployment-wide AI platform policy',
+  },
+  {
+    name: 'ai_config:write',
+    description:
+      'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults',
+  },
+  {
+    name: 'ai:use',
+    description: 'Call AI models using a saved key',
+  },
 ] as const;
 
 // Role to permissions mapping
@@ -182,17 +204,33 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     // the entire point of a separate pair.
     'storage_config:read',
     'storage_config:write',
+    // #423, epic #419 — ADMIN gets all three AI permissions: the two
+    // deployment-wide config ones (same "narrow, operational surface" posture
+    // as `storage_config:*`/`push:*`/`broadcasts:*`/`nodes:*` above) AND
+    // `ai:use`, since an administrator should not need a second grant to use
+    // a capability they can also configure.
+    'ai_config:read',
+    'ai_config:write',
+    'ai:use',
   ],
   contributor: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
     'storage:write',
+    // #423, epic #419 — `ai:use` only, never `ai_config:*`: a Contributor may
+    // call AI with their own saved key, and has no say over whether AI is
+    // enabled for anyone else or under which policy.
+    'ai:use',
   ],
   viewer: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
+    // #423, epic #419 — same `ai:use`-only grant as Contributor, for the
+    // identical reason: using AI with one's own key is not a configuration
+    // authority.
+    'ai:use',
   ],
 };
 
@@ -305,5 +343,33 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     // `null` means "use this vendor's convention" and must stay byte-identical
     // to `DEFAULT_SYSTEM_SETTINGS` (test/prisma/seed-data.spec.ts guards it).
     forcePathStyle: null,
+  },
+  // #423, epic #419, umbrella #418. OFF, and INERT, matching every namespace
+  // above it that ships ahead of its own consumers: `enabled: false` means a
+  // fresh deployment gains no AI capability nobody asked for merely because
+  // this namespace exists. `byok` is the default key policy — every call
+  // uses its caller's own saved key, with no deployment-wide fallback to
+  // secure. `allowBackgroundRuns: true` mirrors `jobs.history.purgeEnabled`
+  // being the one "on" value above: the queue is this application's normal
+  // way of doing anything that takes a while. `logPromptContent: false` is a
+  // deliberate privacy default — prompt text may carry a user's own
+  // sensitive input.
+  //
+  // Must stay byte-identical to the API's `DEFAULT_SYSTEM_SETTINGS`, which
+  // `test/prisma/seed-data.spec.ts` pins. NO API KEY IS SEEDED HERE, and none
+  // can be: a user's own key is `UserAiKey.secret`, in its own table; an
+  // org-wide fallback key belongs in the encrypted credential store.
+  ai: {
+    enabled: false,
+    keyPolicy: 'byok',
+    providers: {
+      openai: {
+        enabled: false,
+      },
+    },
+    defaults: {
+      allowBackgroundRuns: true,
+    },
+    logPromptContent: false,
   },
 };

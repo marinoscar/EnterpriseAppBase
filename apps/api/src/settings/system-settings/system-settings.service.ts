@@ -20,6 +20,7 @@ import {
   systemDatabaseBackupSchema,
   systemMaintenanceSchema,
   systemStorageSchema,
+  systemAiSchema,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
   type SystemMaintenanceValue,
@@ -27,6 +28,7 @@ import {
   type SystemNodesValue,
   type SystemDatabaseBackupValue,
   type SystemStorageValue,
+  type SystemAiValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -355,6 +357,13 @@ export class SystemSettingsService {
         systemStorageSchema,
         DEFAULT_SYSTEM_SETTINGS.storage,
       ),
+      // AI platform policy (#423, epic #419), read through the same helper.
+      // A damaged `providers` block degrading to the default leaves `enabled`
+      // and `logPromptContent` next to it untouched — the same field-by-field
+      // salvage `storage` above gets, and for the same reason: "not
+      // configured" and "misconfigured" must not collapse into "everything
+      // about AI resets".
+      ai: this.readNamespace(root?.ai, systemAiSchema, DEFAULT_SYSTEM_SETTINGS.ai),
     };
   }
 
@@ -625,6 +634,12 @@ export class SystemSettingsService {
       // namespace exists, for the reason `jobs` above gives: a block a client
       // cannot GET is a block it cannot echo back in a PUT.
       storage: value.storage,
+      // #423, epic #419. Safe to publish in full because it carries no
+      // secret — see the compile-time proof in `settings.schema.ts`. Published
+      // from the day the namespace exists, for the same "a block a client
+      // cannot GET is a block it cannot echo back in a PUT" reason as `jobs`
+      // above.
+      ai: value.ai,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -873,6 +888,42 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).storage;
+  }
+
+  /**
+   * The deployment-wide AI platform policy (#423, epic #419, umbrella #418):
+   * whether AI is enabled, the key policy, per-provider configuration, and
+   * the deployment-wide defaults a call cannot exceed.
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the same three reasons
+   * `getStoragePolicy` above gives:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. This is read on whatever path decides
+   *      whether a call may run at all (#427/#428/#431/#432) — a read that
+   *      writes a settings row as a side effect of that decision is a write
+   *      nobody asked for.
+   *   2. IT RETURNS ONLY THIS BLOCK. An AI call needs the AI policy; it has
+   *      no business holding the backup schedule or the maintenance window.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES, so "is AI enabled, and
+   *      under which policy" has exactly one answer.
+   *
+   * THIS RETURNS NO API KEY, AND CANNOT — there is no such field on
+   * `SystemAiValue` (compile-time proof in `settings.schema.ts`). A caller's
+   * own key is `UserAiKey.secret`, read separately by whatever service
+   * decrypts it for one call.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.ai` through
+   * `readKnownSettings` — which is `enabled: false`, the safe direction for a
+   * capability nobody has finished wiring up yet.
+   */
+  async getAiPolicy(): Promise<SystemAiValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).ai;
   }
 
   /**
@@ -1133,6 +1184,44 @@ export class SystemSettingsService {
           dto.storage?.forcePathStyle !== undefined
             ? dto.storage.forcePathStyle
             : currentValue.storage.forcePathStyle,
+      },
+      // -----------------------------------------------------------------------
+      // AI platform policy (#423, epic #419, umbrella #418)
+      // -----------------------------------------------------------------------
+      //
+      // Field by field, one level deep into `providers.openai` and
+      // `defaults`, exactly matching `storage`'s own shape above. `??` is
+      // right for every field here: none is nullable (unlike
+      // `maintenance.startedAt` or `storage.forcePathStyle`), so a caller can
+      // never legitimately send `null`, and `??` leaves an omitted field at
+      // its current stored value.
+      //
+      // NOTHING HERE TOUCHES AN API KEY. There is no such field on this DTO,
+      // this stored value, or this merge — see the compile-time proof in
+      // `settings.schema.ts`.
+      ai: {
+        enabled: dto.ai?.enabled ?? currentValue.ai.enabled,
+        keyPolicy: dto.ai?.keyPolicy ?? currentValue.ai.keyPolicy,
+        providers: {
+          openai: {
+            enabled:
+              dto.ai?.providers?.openai?.enabled ??
+              currentValue.ai.providers.openai.enabled,
+            baseUrl:
+              dto.ai?.providers?.openai?.baseUrl ??
+              currentValue.ai.providers.openai.baseUrl,
+          },
+        },
+        defaults: {
+          maxOutputTokensCap:
+            dto.ai?.defaults?.maxOutputTokensCap ??
+            currentValue.ai.defaults.maxOutputTokensCap,
+          allowBackgroundRuns:
+            dto.ai?.defaults?.allowBackgroundRuns ??
+            currentValue.ai.defaults.allowBackgroundRuns,
+        },
+        logPromptContent:
+          dto.ai?.logPromptContent ?? currentValue.ai.logPromptContent,
       },
     };
 

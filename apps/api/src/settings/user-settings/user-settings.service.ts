@@ -24,6 +24,10 @@ import {
   NotificationsPatchValue,
   NotificationsValue,
 } from '../../common/schemas/user-settings-namespaces.schema';
+import type {
+  UserAiSettingsPatchValue,
+  UserAiSettingsValue,
+} from '../../common/schemas/settings.schema';
 import type { NotificationChannel } from '../../notifications/notification-events';
 import {
   isAvatarObjectFor,
@@ -63,6 +67,7 @@ export class UserSettingsService {
       ...(value.notifications !== undefined
         ? { notifications: value.notifications }
         : {}),
+      ...(value.ai !== undefined ? { ai: value.ai } : {}),
       updatedAt,
       version,
     };
@@ -228,6 +233,11 @@ export class UserSettingsService {
       merged.notifications = mergedNotifications;
     }
 
+    const mergedAi = this.mergeAi(current.ai, dto.ai);
+    if (mergedAi !== undefined) {
+      merged.ai = mergedAi;
+    }
+
     // Enforce the caps AFTER the merge — see assertDataTableLimit.
     this.assertDataTableLimit(merged.dataTables);
     this.assertNotificationLimit(merged.notifications);
@@ -333,6 +343,37 @@ export class UserSettingsService {
     }
 
     return Object.keys(merged).length > 0 ? merged : undefined;
+  }
+
+  /**
+   * Merge the `ai` namespace (#423, epic #419, umbrella #418).
+   *
+   * - patch absent  -> keep the stored namespace untouched
+   * - patch is `null` -> clear the whole namespace (back to "no default
+   *   model chosen", the same state an untouched account is in)
+   * - patch is an object -> REPLACES the namespace wholesale. Unlike
+   *   `dataTables`/`navigation`, there is only one field
+   *   (`defaultModel`, a single (provider, modelId) pair) and
+   *   `userAiSettingsPatchSchema` makes it REQUIRED-BUT-NULLABLE, not
+   *   independently optional — so whenever a caller sends `ai` at all, it
+   *   already states the field in full (an object, or `null` to clear just
+   *   the selection while keeping the namespace present). There is no
+   *   "field omitted" case to merge field-by-field the way `navigation
+   *   .railCollapsed` has.
+   */
+  private mergeAi(
+    current: UserAiSettingsValue | undefined,
+    patch: UserAiSettingsPatchValue | null | undefined,
+  ): UserAiSettingsValue | undefined {
+    if (patch === undefined) {
+      return current;
+    }
+
+    if (patch === null) {
+      return undefined;
+    }
+
+    return { defaultModel: patch.defaultModel };
   }
 
   /**

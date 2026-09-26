@@ -135,6 +135,43 @@ export const PERMISSIONS = {
   // Storage card mirrors these two and nothing else.
   STORAGE_CONFIG_READ: 'storage_config:read',
   STORAGE_CONFIG_WRITE: 'storage_config:write',
+
+  // AI platform (issue #423, epic #419, umbrella #418).
+  //
+  // THREE PERMISSIONS, NOT TWO, and the split matters: `ai_config:*` and
+  // `ai:use` answer completely different questions, at completely different
+  // blast radii.
+  //
+  // `ai_config:read`/`ai_config:write` gate the DEPLOYMENT-WIDE policy — the
+  // `ai` system-settings namespace: whether AI is enabled at all, the key
+  // policy, per-provider configuration and the caps every call is bound by.
+  // Same reasoning as `storage_config:*`, `push:*`, `broadcasts:*` and
+  // `nodes:*` above, none of which are folded into `system_settings:*`: a
+  // wrong or malicious change here reaches every user of the deployment at
+  // once (turning AI on/off for everyone, redirecting every call to a
+  // different `baseUrl`), which is a materially different act from an
+  // ordinary settings edit and gets its own controller-enforced permission
+  // rather than mirroring one nothing in that controller checks.
+  //
+  // `ai:use` is the OPPOSITE axis: may THIS CALLER invoke AI at all, using
+  // THEIR OWN saved key (`UserAiKey`)? It changes nothing about anyone else's
+  // access, touches no deployment-wide configuration, and costs this
+  // deployment nothing it did not already agree to when the caller saved
+  // their own key — the same shape `storage:read`/`storage:write` grant
+  // ordinary object access while `storage_config:*` gates who may repoint the
+  // whole bucket. A Contributor or a Viewer holding `ai:use` can call a model
+  // with their own credential; neither can touch whether AI is enabled for
+  // anyone else, or under which policy.
+  //
+  // Folding `ai:use` into `ai_config:read` (or granting it alongside) would
+  // hand every ordinary user of this application a policy-reading permission
+  // gated Admin-only everywhere else in this file; folding `ai_config:*` into
+  // `ai:use` would let every user who may call AI with their own key also
+  // flip the switch for the entire deployment. Neither substitution is safe,
+  // which is exactly why `storage:*`/`storage_config:*` refused it first.
+  AI_CONFIG_READ: 'ai_config:read',
+  AI_CONFIG_WRITE: 'ai_config:write',
+  AI_USE: 'ai:use',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

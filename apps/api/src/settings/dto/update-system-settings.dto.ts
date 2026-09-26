@@ -5,6 +5,7 @@ import {
   MAX_DISABLED_NOTIFICATION_EVENTS,
   BACKUP_TIME_OF_DAY_PATTERN,
   STORAGE_PROVIDER_KINDS,
+  AI_KEY_POLICIES,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -145,6 +146,39 @@ const storageSettingsSchema = z.object({
   forcePathStyle: z.boolean().nullable(),
 });
 
+// =============================================================================
+// AI platform policy on the wire (#423, epic #419, umbrella #418)
+// =============================================================================
+//
+// Restated here rather than imported, for the reason at the top of this file.
+// Optional in the PUT body like the operations namespaces and `storage`
+// above, and for the identical reason: this block ships ahead of every
+// client that knows it exists.
+//
+// NO API KEY FIELD, ON EITHER SCHEMA, EVER. A user's own key is
+// `UserAiKey.secret`, written through its own dedicated endpoint (#428), not
+// through this document; an org-wide fallback key belongs in the encrypted
+// credential store. See `common/schemas/settings.schema.ts`, which carries
+// the argument and a compile-time proof of the absence.
+//
+// Bounds mirror `systemAiSchema` exactly.
+
+const aiSettingsSchema = z.object({
+  enabled: z.boolean(),
+  keyPolicy: z.enum(AI_KEY_POLICIES),
+  providers: z.object({
+    openai: z.object({
+      enabled: z.boolean(),
+      baseUrl: z.string().url().optional(),
+    }),
+  }),
+  defaults: z.object({
+    maxOutputTokensCap: z.number().int().positive().optional(),
+    allowBackgroundRuns: z.boolean(),
+  }),
+  logPromptContent: z.boolean(),
+});
+
 // Full replacement (PUT)
 export const updateSystemSettingsSchema = z.object({
   // REQUIRED. A PUT that omits it is a 400 and
@@ -162,6 +196,9 @@ export const updateSystemSettingsSchema = z.object({
   // storage when omitted by the same `OMITTABLE_ON_PUT` machinery, which derives
   // itself from this shape rather than from a second list.
   storage: storageSettingsSchema.optional(),
+  // #423, epic #419 — optional for the same reason, carried forward the same
+  // way.
+  ai: aiSettingsSchema.optional(),
 });
 
 export class UpdateSystemSettingsDto extends createZodDto(
@@ -268,6 +305,34 @@ export const patchSystemSettingsSchema = z.object({
       accessKeyId: z.string().trim().max(255).optional(),
       // Absent leaves it alone; explicit `null` restores the vendor default.
       forcePathStyle: z.boolean().nullable().optional(),
+    })
+    .optional(),
+  // #423, epic #419. Optional at the namespace level and field by field
+  // inside, one level into `providers.openai` and `defaults`, matching
+  // `storage` above — `{ "ai": { "enabled": true } }` must be a legal body,
+  // or the admin page has to send the whole namespace to flip one switch.
+  // NO API KEY FIELD — see the section header above.
+  ai: z
+    .object({
+      enabled: z.boolean().optional(),
+      keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
+      providers: z
+        .object({
+          openai: z
+            .object({
+              enabled: z.boolean().optional(),
+              baseUrl: z.string().url().optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+      defaults: z
+        .object({
+          maxOutputTokensCap: z.number().int().positive().optional(),
+          allowBackgroundRuns: z.boolean().optional(),
+        })
+        .optional(),
+      logPromptContent: z.boolean().optional(),
     })
     .optional(),
 });

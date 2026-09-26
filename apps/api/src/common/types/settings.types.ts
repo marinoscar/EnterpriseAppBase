@@ -12,6 +12,8 @@ import {
   type SystemDatabaseBackupValue,
   type SystemMaintenanceValue,
   type SystemStorageValue,
+  type SystemAiValue,
+  type UserAiSettingsValue,
 } from '../schemas/settings.schema';
 
 // =============================================================================
@@ -59,6 +61,16 @@ export interface UserSettingsValue {
    * notifications/notification-preferences.ts.
    */
   notifications?: NotificationsValue;
+  /**
+   * AI preferences (#423, epic #419, umbrella #418): which (provider, model)
+   * an AI surface should pre-select. Absent means "no default model chosen"
+   * — the same sparse-optional contract every namespace above follows, so an
+   * untouched account is not materialised with a preference nobody set.
+   *
+   * NON-SECRET ONLY: a user's own provider key is `UserAiKey.secret`, in its
+   * own table, never here. See `userAiSettingsSchema` for the full argument.
+   */
+  ai?: UserAiSettingsValue;
 }
 
 /**
@@ -124,6 +136,29 @@ export interface SystemSettingsValue {
    * here is.
    */
   storage: SystemStorageValue;
+  /**
+   * Deployment-wide AI platform policy (#423, epic #419, umbrella #418):
+   * whether AI is enabled at all, how a call sources its API key, per-provider
+   * configuration, and the deployment-wide defaults a call cannot exceed.
+   *
+   * REQUIRED, like every namespace above it and for the same reason —
+   * `readKnownSettings` completes it from `DEFAULT_SYSTEM_SETTINGS` on every
+   * read, so no consumer has to write `?? DEFAULT` and none of them can forget
+   * to.
+   *
+   * THIS ISSUE OWNS SCHEMA ONLY: nothing in this build reads `ai.enabled` to
+   * gate a route, and no controller lets a caller run a model yet (#427,
+   * #428, #431, #432).
+   *
+   * NO API KEY IS PART OF THIS TYPE and none must be added to it: a user's own
+   * key is `UserAiKey.secret`, ciphertext in its own table; an org-wide
+   * fallback key belongs in the encrypted credential store. Both points are
+   * argued in full, and proved at compile time, in `schemas/settings.schema.ts`.
+   *
+   * Derived from the zod schema so the two cannot drift, as everything else
+   * here is.
+   */
+  ai: SystemAiValue;
 }
 
 /**
@@ -268,5 +303,35 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     // as one: it suppressed the per-vendor default and broke MinIO. Same rule
     // as the empty strings above, spelled the way a boolean has to spell it.
     forcePathStyle: null,
+  },
+  // ---------------------------------------------------------------------------
+  // AI platform policy (#423, epic #419, umbrella #418)
+  // ---------------------------------------------------------------------------
+  //
+  // OFF, and INERT: `enabled: false` is the point, matching every other
+  // feature namespace that ships ahead of its own UI (`databaseBackup
+  // .enabled`, `nodes.jobSecretBrokerEnabled`) — a fresh deployment does not
+  // gain an AI capability nobody asked for by this namespace merely existing.
+  // `byok` is the default key policy: every call uses its caller's own
+  // saved key, with no deployment-wide fallback key to reason about or
+  // secure. `allowBackgroundRuns: true` mirrors `jobs.history.purgeEnabled`
+  // being the one "on" value in the operations block above — the queue is
+  // this application's normal way of doing anything that takes a while, and
+  // a deployment that has not thought about AI at all should not have
+  // quietly disabled that path. `logPromptContent: false` is a deliberate,
+  // named privacy default: prompt text may carry a user's own sensitive
+  // input, and it must not land in a log line nobody scoped for that.
+  ai: {
+    enabled: false,
+    keyPolicy: 'byok',
+    providers: {
+      openai: {
+        enabled: false,
+      },
+    },
+    defaults: {
+      allowBackgroundRuns: true,
+    },
+    logPromptContent: false,
   },
 };

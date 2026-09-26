@@ -53,6 +53,59 @@ export type UserProfileSettingsPatchValue = z.infer<
   typeof userProfileSettingsPatchSchema
 >;
 
+/**
+ * Per-user AI preferences (`ai`) — issue #423, epic #419, umbrella #418.
+ *
+ * `defaultModel` is the ONLY field this issue adds: which (provider, model)
+ * a caller's AI surface should pre-select, so a user who has settled on one
+ * model does not re-pick it every time. Nullable, and the namespace itself
+ * optional — see below for why both.
+ *
+ * NON-SECRET ONLY, and this is the whole namespace, not a policy exception:
+ * a user's own provider key is `UserAiKey.secret`, ciphertext in its own
+ * table (`apps/api/prisma/schema.prisma`), never in `user_settings.value`,
+ * which — like `system_settings.value` — is returned wholesale by
+ * `GET /api/user-settings` and copied verbatim into whatever audit trail
+ * later issues add. `provider`/`modelId` here are the same kind of
+ * IDENTIFIER `systemStorageSchema.accessKeyId` is: they name a selection,
+ * they authorise nothing.
+ *
+ * `provider`/`modelId` are plain strings, not `z.enum(AI_PROVIDER_IDS)` /
+ * a foreign key into `AiModel`: this schema has no access to the database to
+ * validate a model still exists, and — matching `Job.type`'s and `AiModel
+ * .provider`'s own "a row must outlive the registry that produced it"
+ * reasoning throughout this codebase — a user's saved preference for a model
+ * later disabled or removed by an admin must remain a value this schema can
+ * represent, even though nothing routes to it any more.
+ */
+export const userAiSettingsSchema = z.object({
+  defaultModel: z
+    .object({
+      provider: z.string(),
+      modelId: z.string(),
+    })
+    .nullable(),
+});
+
+export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
+
+/**
+ * `ai`, PATCH counterpart. `defaultModel` stays required-but-nullable inside
+ * the object (an explicit `{ "ai": { "defaultModel": null } }` clears the
+ * selection back to "none chosen"; the whole `ai` object itself is optional
+ * to send at all, matching `dataTables`/`navigation` above).
+ */
+export const userAiSettingsPatchSchema = z.object({
+  defaultModel: z
+    .object({
+      provider: z.string(),
+      modelId: z.string(),
+    })
+    .nullable(),
+});
+
+export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>;
+
 export const userSettingsSchema = z.object({
   theme: z.enum(['light', 'dark', 'system']),
   profile: userProfileSettingsSchema,
@@ -66,6 +119,10 @@ export const userSettingsSchema = z.object({
   // materialise a preference blob for the whole user base at the first PUT
   // and freeze them at today's defaults. See notification-preferences.ts.
   notifications: notificationsSchema.optional(),
+  // AI preferences (#423, epic #419). Optional for the same reason as the
+  // three namespaces above: absent means "no default model chosen", and
+  // every existing account is absent until this ships an AI settings UI.
+  ai: userAiSettingsSchema.optional(),
 });
 
 export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
@@ -82,6 +139,13 @@ export const userSettingsPatchSchema = z.object({
   // Three nullable levels, three different deletes: the namespace, one
   // channel, one event key. See notificationsPatchSchema.
   notifications: notificationsPatchSchema.nullable().optional(),
+  // The outer `.nullable()` clears the whole `ai` namespace (back to "no
+  // default model, no other AI preference set"); the inner nullability on
+  // `defaultModel` (see `userAiSettingsPatchSchema`) is what lets
+  // `{ "ai": { "defaultModel": null } }` clear just the selection while
+  // leaving the namespace itself present. Same two-level shape
+  // `dataTablesPatchSchema` uses.
+  ai: userAiSettingsPatchSchema.nullable().optional(),
 });
 
 // =============================================================================
@@ -616,6 +680,146 @@ export const systemMaintenancePatchSchema = z.object({
   startedById: z.string().uuid().nullable().optional(),
 });
 
+// =============================================================================
+// AI platform namespace (issue #423, epic #419, umbrella #418)
+// =============================================================================
+//
+// Deployment-wide AI policy — declared on the same terms as `storage` above:
+// all six places in one pass (this file's two schemas, the wire DTOs' two
+// schemas, `DEFAULT_SYSTEM_SETTINGS`, and the hand-written merge in
+// `system-settings.service.ts`), ahead of every consumer. THIS ISSUE OWNS
+// SCHEMA ONLY — nothing in this build reads `ai.enabled` to gate a route, and
+// no controller exists yet that lets a caller actually run a model (#427,
+// #428, #431, #432).
+//
+// `AI_PROVIDER_IDS` NAMES A REGISTRATION, NOT A CLOSED SET FOREVER — `as const`
+// today lists `'openai'` alone because that is the only provider this phase
+// integrates, and Phase 3 appends to the array rather than replacing it. A
+// fork adding its own provider extends this array; nothing about the shape
+// below assumes exactly one member.
+export const AI_PROVIDER_IDS = ['openai'] as const;
+
+/** A registered AI provider id. See {@link AI_PROVIDER_IDS}. */
+export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
+
+/**
+ * How this deployment sources the API key a call actually authenticates
+ * with.
+ *
+ *  - `byok`                    — every call uses the CALLING USER's own key
+ *    (`UserAiKey`). No call succeeds for a user who has not saved one.
+ *  - `byok_with_org_fallback`  — a user's own key is preferred; a user with
+ *    none falls back to a deployment-wide org key. What that org key is, and
+ *    where it lives, is deliberately not modelled here: like the object
+ *    storage secret access key, an org-wide AI key is CREDENTIAL material and
+ *    belongs in the encrypted credential store, never in this JSONB blob that
+ *    `GET /api/system-settings` returns wholesale — see the block comment
+ *    on `systemAiSchema` below.
+ */
+export const AI_KEY_POLICIES = ['byok', 'byok_with_org_fallback'] as const;
+
+/** How the deployment sources a call's API key. See {@link AI_KEY_POLICIES}. */
+export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
+
+/**
+ * Deployment-wide AI platform policy (`ai`).
+ *
+ * `enabled` is the master switch: OFF by default, matching every other
+ * feature namespace in this file that ships ahead of its own UI
+ * (`databaseBackup.enabled`, `nodes.jobSecretBrokerEnabled`) — a capability
+ * this deployment did not ask for must not turn itself on by existing in the
+ * schema.
+ *
+ * `providers.openai.baseUrl` IS AN ENDPOINT OVERRIDE, NOT A CREDENTIAL — the
+ * exact counterpart of `systemStorageSchema.endpoint`. It exists for
+ * OpenAI-compatible proxies and self-hosted gateways, and is optional because
+ * absent means "use the provider's own default host". `providers` is closed
+ * to `AI_PROVIDER_IDS` (currently one member) rather than an open
+ * `z.record`, for the same reason `STORAGE_PROVIDER_KINDS` is a closed enum
+ * and not a free string: this value is read by name at the consuming layer, a
+ * `z.record` cannot be validated field-by-field by `readNamespace` below (it
+ * has no fixed `.shape` to iterate), and an operator-supplied provider id
+ * would be a namespace with no fixed key set to keep parity with across the
+ * six places a namespace must be declared.
+ *
+ * `defaults.maxOutputTokensCap` bounds every call regardless of what the
+ * caller (or the model's own `maxOutputTokens`) requests, and is optional:
+ * absent means "no deployment-wide cap", not zero. `defaults
+ * .allowBackgroundRuns` decides whether a call may be queued as an `AiRun`
+ * job at all rather than only served synchronously; ON by default, since the
+ * job queue is this application's normal way of doing anything that takes a
+ * while (see the "Every Long-Running Activity Is a Queue Job" rules) and a
+ * deployment that has not thought about AI at all should not have quietly
+ * disabled the queue path the moment this namespace materialises.
+ *
+ * `logPromptContent` is OFF by default and is a deliberate, named privacy
+ * decision: whether this deployment's own logs/telemetry may capture prompt
+ * text at all, independent of `enabled`. A deployment can turn AI on while
+ * still refusing to let prompts (which may carry a user's own sensitive
+ * input) land in a log line nobody scoped for that.
+ *
+ * ⚠ THERE IS NO API KEY FIELD ANYWHERE IN THIS NAMESPACE, AND THERE MUST
+ * NEVER BE ONE — see the compile-time proof at the bottom of this file. A
+ * user's own key is `UserAiKey.secret`, ciphertext in its own table, never
+ * in this JSONB blob; an org-wide fallback key (`AI_KEY_POLICIES
+ * .byok_with_org_fallback`) is credential material for the same reason
+ * `systemStorageSchema`'s own header gives for the storage secret access
+ * key: this object is returned WHOLESALE by `GET /api/system-settings` and
+ * copied verbatim into every settings audit row, so a secret here is one
+ * admin GET away from being on the wire.
+ *
+ * NO `.default()` ON ANY FIELD, matching every namespace above it in this
+ * file. The defaults live in `DEFAULT_SYSTEM_SETTINGS` (settings.types.ts)
+ * and nowhere else.
+ */
+export const systemAiSchema = z.object({
+  enabled: z.boolean(),
+  keyPolicy: z.enum(AI_KEY_POLICIES),
+  providers: z.object({
+    openai: z.object({
+      enabled: z.boolean(),
+      baseUrl: z.string().url().optional(),
+    }),
+  }),
+  defaults: z.object({
+    maxOutputTokensCap: z.number().int().positive().optional(),
+    allowBackgroundRuns: z.boolean(),
+  }),
+  logPromptContent: z.boolean(),
+});
+
+export type SystemAiValue = z.infer<typeof systemAiSchema>;
+
+/**
+ * `ai`, one level deep — matching `systemStoragePatchSchema`'s own shape one
+ * level further in: `providers` and `defaults` are each optional as a whole
+ * AND optional field by field inside, so `{ "ai": { "providers": { "openai":
+ * { "enabled": true } } } }` is a legal body that leaves `defaults` and
+ * `logPromptContent` untouched. See `SystemSettingsService.patchSettings`
+ * for the merge this shape is built to support.
+ */
+export const systemAiPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
+  providers: z
+    .object({
+      openai: z
+        .object({
+          enabled: z.boolean().optional(),
+          baseUrl: z.string().url().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  defaults: z
+    .object({
+      maxOutputTokensCap: z.number().int().positive().optional(),
+      allowBackgroundRuns: z.boolean().optional(),
+    })
+    .optional(),
+  logPromptContent: z.boolean().optional(),
+});
+
 export const systemSettingsSchema = z.object({
   notifications: systemNotificationsSchema,
   // Operations namespaces (#256, epic #254). REQUIRED, because this schema
@@ -633,6 +837,11 @@ export const systemSettingsSchema = z.object({
   // before anything parses it. What a CLIENT may omit is `updateSystemSettingsSchema`'s
   // question, and there it is optional — no client sends this block yet.
   storage: systemStorageSchema,
+  // AI platform policy (#423, epic #419). REQUIRED for the identical reason:
+  // this schema describes the STORED value, always completed by
+  // `readKnownSettings` before anything parses it. Optional on the wire, in
+  // `updateSystemSettingsSchema` — no client sends this block yet either.
+  ai: systemAiSchema,
 });
 
 export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
@@ -664,6 +873,10 @@ export const systemSettingsPatchSchema = z.object({
   // so `{ "storage": { "bucket": "my-bucket" } }` is a legal body — an admin
   // page must not have to send seven fields to change one.
   storage: systemStoragePatchSchema.optional(),
+  // #423, epic #419. Optional at the namespace level and field by field
+  // inside, so `{ "ai": { "enabled": true } }` is a legal body — an admin
+  // page must not have to send the whole namespace to flip one switch.
+  ai: systemAiPatchSchema.optional(),
 });
 
 // -----------------------------------------------------------------------------
@@ -706,3 +919,37 @@ export type StorageSettingsCarriesNoSecret =
 
 export const STORAGE_SETTINGS_CARRIES_NO_SECRET: StorageSettingsCarriesNoSecret =
   true;
+
+// -----------------------------------------------------------------------------
+// Compile-time proof that the `ai` namespace carries no secret (#423)
+// -----------------------------------------------------------------------------
+//
+// Identical technique, one namespace over. Adding an `apiKey`/`secretKey`/…
+// field (or any of the names below) to `systemAiSchema` makes
+// `AiSettingsCarriesNoSecret` resolve to `never`, and this file stops
+// compiling.
+//
+// If you are here because this line went red: a user's own provider key is
+// `UserAiKey.secret` (ciphertext, in its own table — see
+// `apps/api/prisma/schema.prisma`'s block comment on that model); an org-wide
+// fallback key for `AI_KEY_POLICIES.byok_with_org_fallback` belongs in the
+// encrypted credential store (`CredentialsService`), exactly as the storage
+// secret access key does. Neither belongs in a document
+// `GET /api/system-settings` returns wholesale and every settings audit row
+// copies verbatim.
+
+type AiSecretFieldNames =
+  | 'secretAccessKey'
+  | 'secretKey'
+  | 'sessionToken'
+  | 'secret'
+  | 'password'
+  | 'apiKey'
+  | 'apiKeys'
+  | 'key'
+  | 'token';
+
+export type AiSettingsCarriesNoSecret =
+  Extract<keyof SystemAiValue, AiSecretFieldNames> extends never ? true : never;
+
+export const AI_SETTINGS_CARRIES_NO_SECRET: AiSettingsCarriesNoSecret = true;
