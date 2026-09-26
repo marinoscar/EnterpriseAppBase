@@ -10,10 +10,54 @@ that talks to the API (`api <method> <path>`), so it stays correct against
 endpoints that don't exist yet.
 
 Run with no arguments in an interactive terminal and it opens a full-screen
-menu (login, call an endpoint, view config, deploy this server, logout) built
-with [ink](https://github.com/vadimdemedes/ink). Everything that menu can do
+menu (login, call an endpoint, status, worker node, deploy this server,
+logout) built with [ink](https://github.com/vadimdemedes/ink). Everything that menu can do
 is also a plain subcommand, and the subcommands are what this document
 covers — they're what you'd script or run in CI.
+
+## What appctl does
+
+Four jobs, one binary. Each is also reachable from the full-screen menu.
+
+**Create a local environment.** From a clone of the repository, `init` writes
+`infra/compose/.env` from the checkout's own `.env.example` and generates
+every secret. `npm run setup` at the repository root builds the CLI and runs
+it for you.
+
+```bash
+appctl init --admin-email you@example.com
+```
+
+**Call any endpoint, with no stale wrappers.** Log in once through the device
+flow; `api` then reaches every route the server has, including ones added
+after this CLI was built.
+
+```bash
+appctl login --server https://app.example.com
+appctl api GET /api/auth/me
+```
+
+**Deploy to a VPS in one command.** On the server itself, `deploy install`
+checks prerequisites, writes `.env`, builds, migrates, seeds, starts, and
+publishes the app over HTTPS behind a shared TLS reverse proxy that every
+application on the box uses.
+
+```bash
+appctl deploy install --domain app.example.com
+```
+
+**Run a worker node.** `node` enrolls this machine with its own credential,
+then claims and runs jobs from the application's queue.
+
+```bash
+appctl node enroll && appctl node register
+appctl node start
+```
+
+In a real terminal, `appctl` with no arguments opens the menu. **Worker node
+→ Dashboard** attaches read-only to the running worker and shows its status,
+concurrency, job types, success/failure totals, heartbeat age, active jobs
+with elapsed time, and a live event stream.
 
 ## Install
 
@@ -76,26 +120,7 @@ The installer checks for these before doing anything else:
 apps/cli has no native modules, so there's no C-compiler / build-toolchain
 requirement — just these four.
 
-### What the installer does
-
-1. Checks dependencies (`node`, `npm`, `git`, `curl`; warns, but doesn't
-   fail, on low disk space).
-2. Gets the source — either `git clone --depth 1` of `APPCTL_REPO` at
-   `APPCTL_REF`, or a copy of `APPCTL_SRC` if set — into a temp directory
-   that's cleaned up on exit.
-3. Builds the CLI workspace: `npm install --workspace=cli` then
-   `npm run build --workspace=cli`, from that temp checkout.
-4. Deploys the standalone app: copies `apps/cli/dist`, `package.json` and
-   `README.md` into `~/.appctl/app` (replacing any previous install), then
-   runs `npm install --omit=dev` there to pull in just the runtime
-   dependencies (commander, ink, ink-select-input, ink-spinner,
-   ink-text-input, react).
-5. Writes the `appctl` shim to `~/.local/bin/appctl` — a small script that
-   `exec`s `node ~/.appctl/app/dist/cli.js "$@"` — and makes it executable.
-6. Checks whether the shim's directory is on `$PATH` and, if not, prints the
-   `export` line to add to your shell config (see below).
-7. Verifies the install by running the new shim's `--version` and printing
-   an install summary (version, install size, paths).
+### Adding appctl to your PATH
 
 If `~/.local/bin` (or your custom `APPCTL_BIN_DIR`) isn't on `$PATH`, add
 this to `~/.bashrc` or `~/.zshrc` and reload your shell:
@@ -123,6 +148,38 @@ Set these before running the installer to override its defaults:
 
 `NO_COLOR` and the installer's own `--no-color` flag both disable ANSI
 colour in its output.
+
+## Creating a local environment
+
+```bash
+appctl init
+appctl init --non-interactive --admin-email you@example.com
+appctl init --force                 # update an existing .env, keeping its values
+```
+
+Run it from a clone of the repository, or pass `--repo-root <path>`. It
+writes `infra/compose/.env` at mode `0600`, and nothing else. The questions
+and defaults come from `infra/compose/.env.example`, which is never modified.
+`JWT_SECRET`, `COOKIE_SECRET` and `SECRETS_ENCRYPTION_KEY` are generated and
+never asked for. Google OAuth credentials may be left blank here, but the API
+does not start without `GOOGLE_CLIENT_ID`. `npm run setup` at the repository
+root builds the CLI and runs `init`.
+
+```
+Options:
+  --force                Update an existing .env in place, keeping the values
+                         already in it
+  --non-interactive      Never prompt: generate the secrets, take every default,
+                         leave OAuth blank
+  --admin-email <email>  Set INITIAL_ADMIN_EMAIL without being asked for it
+  --all                  Review every variable, not only the ones that must be
+                         answered
+  --repo-root <path>     Repository root (default: this directory or a parent)
+```
+
+Exit codes: `0` the file was written; `2` a `.env` already exists (re-run
+with `--force`), or a value is missing that an unattended run cannot supply;
+`6` this is not a checkout of the repository, or the template is gone.
 
 ## Logging in
 
@@ -221,8 +278,8 @@ prefix is optional — `appctl api GET /api/auth/me` and `appctl api GET
 /auth/me` request the same thing, since the client's base URL already ends
 in `/api`.
 
-Since this is a generic `api` command, it reaches the AI platform (epic
-#419) the same way as any other endpoint — no dedicated `appctl ai` command
+Since this is a generic `api` command, it reaches the AI platform the same
+way as any other endpoint — no dedicated `appctl ai` command
 exists or is needed:
 
 ```bash
@@ -246,8 +303,8 @@ Server-Sent Events — use the web Playground for a streamed response.
 appctl deploy doctor
 ```
 
-Seven subcommands (`doctor`, `install`, `update`, `status`, `list`, `certs`,
-`uninstall`) take this repository — or, far more likely, your fork of it —
+Eight subcommands (`doctor`, `install`, `update`, `status`, `list`, `about`,
+`certs`, `uninstall`) take this repository — or, far more likely, your fork of it —
 from an empty VPS to running, migrated, seeded, and served over HTTPS at a
 real domain, back to the latest revision on every subsequent deploy, and,
 eventually, gone again. They run **on the VPS itself**: SSH in with your own
@@ -257,27 +314,18 @@ these from inside it. There's no SSH client in `appctl` and no laptop-driven
 orchestration — it never dials out to a server on your behalf, and it must
 never be run with `sudo` (see the runbook's prerequisites for why).
 
-`--root`'s default, `/opt/infra/apps`, is an **apps root**: a box can host
-more than one deployment, each at `<apps-root>/<app-name>/`. `deploy list`
-already speaks that layout; every other subcommand below still takes `--root`
-pointing straight at one deployment's own directory, so pass it explicitly
-(e.g. `--root /opt/infra/apps/myapp`) once a second application shares the
-box. See the runbook's section on running more than one application for the
-detail.
+A box can host more than one deployment, each at
+`<apps-root>/<app-name>/` under the apps root (`--apps-root`, default
+`/opt/infra/apps`). Every subcommand finds its deployment from `--root`,
+then `--name`, then the deployment directory you are standing in, then the
+only deployment present, and otherwise refuses and names the candidates. On a
+box with more than one application, pass `--name` or `--root`, or `cd` into
+the deployment. See the runbook's section on running more than one
+application for the detail.
 
-**Everything below is also reachable from the interactive menu's "deploy this
-server" screens** (`doctor`, `install`, `update`), which run the exact same
-pipelines through the same flags — never a second implementation. An
-**Advanced** step (root, proxy root, port, proxy container, proxy mode) opens
-pre-filled with the recorded or default values and "Use these" selected, so
-one Enter keeps the common path exactly as short as it was. Doctor results
-render grouped by failed/warnings/passed, each with its remedy, using the same
-glyphs the subcommand prints. The install/update forms ask the same
-`--create-database`/`--bootstrap-proxy`/`--skip-renewal`/`--skip-oauth-check`
-questions as yes/no fields, since the TUI cannot prompt mid-run. While a
-deploy runs, the screen shows the journal path live; on failure it shows the
-step that failed, its last output lines, and the exact re-run command
-(including `--resume` for `install`) with no secret in it.
+`doctor`, `install`, `update` and `status` also have screens in the
+interactive menu (**Deploy (this server)**), running the same pipelines with
+the same flags; the runbook describes them.
 
 For the full walkthrough — prerequisites, the manual step after install,
 troubleshooting — see [`docs/deployment/vps.md`](../../docs/deployment/vps.md).
@@ -350,7 +398,7 @@ appctl deploy install --domain app.example.com
 Runs preflight → checkout → environment → validate-environment →
 ensure-database → build → migrate → seed → start → health → proxy-bootstrap →
 publish → renewal → verify, in that order, printing each step's result as it
-completes. `--domain` is the one required flag. `validate-environment` now
+completes. `--domain` is the one required flag. `validate-environment`
 also checks the Google OAuth credentials (shape, callback URL, and a live,
 harmless probe against Google's token endpoint), and `verify` includes an
 OAuth sign-in smoke check alongside the external HTTPS one.
@@ -447,17 +495,12 @@ install: the first login" in the runbook linked above.
 
 ### Deploying a fork
 
-You don't need to change anything in this CLI to deploy a fork. The
-repository URL and ref are read from your own checkout's git remote (a fork
-using `master` or `develop` as its default branch works with no `--ref`
-needed — nothing here assumes `main`), and the environment wizard's
-questions are parsed structurally from *your fork's own*
-`infra/compose/.env.example`, not a list of field names hardcoded into the
-CLI. Rename the app, add a new secret to your `.env.example`, remove a
-feature block: `appctl deploy install` follows all of it with no flag
-changes, for the same reason `api <method> <path>` (above) doesn't go stale
-as endpoints change — nothing about a specific repository's shape is baked
-into the tool.
+No flag or CLI change is needed. `install` and `update` read the repository
+URL and ref from the checkout you run them in (override with `--repo` and
+`--ref`), and the environment wizard reads that checkout's own
+`infra/compose/.env.example`. Clone your fork on the server, build `appctl`
+from it, and run `appctl deploy install` there. See
+[`docs/deployment/vps.md`, "Deploying a fork"](../../docs/deployment/vps.md#6-deploying-a-fork).
 
 ### Updating
 
@@ -488,9 +531,7 @@ The database seed **re-runs by default** on every `update`. The seed is
 entirely upserts, and re-running it is the only way a permission or role a
 newer release adds actually reaches an already-installed server — skip it
 and the feature ships, the permission doesn't exist, and it shows up later
-as a confusing 403 with nothing in the logs to explain it. This is a
-deliberate divergence from the shell scripts this replaces, which never
-re-seeded; pass `--skip-seed` if you've hand-edited seeded rows and don't
+as a confusing 403 with nothing in the logs to explain it. Pass `--skip-seed` if you've hand-edited seeded rows and don't
 want them upserted back.
 
 There's no automatic rollback. A partly-applied database migration can't be
@@ -552,11 +593,14 @@ Other flags, from `appctl deploy status --help`:
 
 ```
 Options:
-  --root <path>      Deployment directory (default: "/opt/infra/apps")
-  --port <port>      Loopback port the proxy forwards to (default: "3535")
-  --domain <domain>  Public domain; adds an external HTTPS check
-  --json             Print a machine-readable report on stdout
-  --no-color         Disable colour even on a terminal
+  --root <path>       Deployment directory (rank 1: an explicit path)
+  --apps-root <path>  Directory holding the deployments (rank 3 walks up inside
+                      it) (default: "/opt/infra/apps")
+  --name <app>        Which deployment to act on, by name
+  --port <port>       Loopback port the proxy forwards to (default: "3535")
+  --domain <domain>   Public domain; adds an external HTTPS check
+  --json              Print a machine-readable report on stdout
+  --no-color          Disable colour even on a terminal
 ```
 
 ### Listing every deployment
@@ -651,102 +695,83 @@ you believe you supplied answers and did not.
 ### Managing the TLS certificate directly
 
 ```bash
-appctl deploy certs
-appctl deploy certs --renew
-```
-
-With no flags, reports the certificate's expiry and changes nothing — safe to
-run at any time. `--renew` renews only when the certificate is inside its
-30-day renewal window; Let's Encrypt allows just 5 *duplicate* certificates
-per week, and a command that reissued on every call would burn that budget
-during one debugging session. `--force` renews even when it is not due, and
-is deliberately not implied by `--renew` alone. An unreadable expiry is
-reported as exactly that, never treated as "not due."
-
-```bash
+appctl deploy certs                              # report expiry, change nothing
+appctl deploy certs --renew                      # renew only inside the 30-day window
 appctl deploy certs --renew --domain app.example.com
 ```
 
-Exit codes: `0` for a report, or a renewal that both succeeded and was
-followed by a successful proxy reload; `1` when the certificate is due or
-expired and `--renew` was not passed, **or when a renewal ran but the
-proxy's `nginx -t`/reload afterward failed** — a certificate renewed on disk
-but not reloaded is still being served as the old one, so this is reported as
-a failure, not a success, and a cron wrapper notices either way; `2` when
-nothing is installed at `--root`.
+`--force` renews even when the certificate is not due, and spends rate-limit
+budget. Why the window matters, and how automatic renewal is scheduled, is in
+[`docs/deployment/vps.md`, "Inspecting and renewing the certificate directly"](../../docs/deployment/vps.md#10-inspecting-and-renewing-the-certificate-directly).
 
-Other flags, from `appctl deploy certs --help`:
+Exit codes: `0` reported, or renewed and the proxy reloaded; `1` the
+certificate is due or expired and `--renew` was not passed, or a renewal ran
+but the proxy's `nginx -t`/reload failed; `2` nothing is installed at
+`--root`.
 
 ```
 Options:
-  --root <path>            Deployment directory (default: "/opt/infra/apps")
-  --proxy-root <path>      Shared reverse proxy directory (default:
-                           "/opt/infra/proxy")
-  --domain <domain>        Domain to act on (default: the recorded one)
-  --proxy-container <name> The proxy container's name (default: "proxy-nginx")
-  --proxy-mode <mode>      "container" or "host"; skips runtime detection
-  --renew                  Renew when the certificate is inside the renewal
-                           window
-  --force                  Renew even when it is not due. Spends rate-limit
-                           budget.
-  --email <email>          Registration address (default: INITIAL_ADMIN_EMAIL)
-  --staging                Use Let's Encrypt staging, which is not trusted by
-                           browsers
-  --json                   Print a machine-readable report on stdout
+  --root <path>             Deployment directory (rank 1: an explicit path)
+  --apps-root <path>        Directory holding the deployments (rank 3 walks up
+                            inside it) (default: "/opt/infra/apps")
+  --name <app>              Which deployment to act on, by name
+  --proxy-root <path>       Shared reverse proxy directory (default:
+                            "/opt/infra/proxy")
+  --domain <domain>         Domain to act on (default: the recorded one)
+  --proxy-container <name>  Name of the shared proxy container (default: as
+                            recorded, else proxy-nginx)
+  --proxy-mode <mode>       How the shared proxy runs: container or host
+                            (default: as recorded, else detected)
+  --renew                   Renew when the certificate is inside the renewal
+                            window
+  --force                   Renew even when it is not due. Spends rate-limit
+                            budget.
+  --email <email>           Registration address (default: INITIAL_ADMIN_EMAIL)
+  --staging                 Use Let's Encrypt staging, which is not trusted by
+                            browsers
+  --json                    Print a machine-readable report on stdout
 ```
 
 ### Removing a deployment
 
 ```bash
-appctl deploy uninstall --dry-run
+appctl deploy uninstall --dry-run     # always first: what goes, what stays
 appctl deploy uninstall
+appctl deploy uninstall --purge-storage --confirm-bucket <bucket-name>
 ```
 
-Always run `--dry-run` first — it prints exactly what would be removed and
-what would be kept, and changes nothing. `uninstall` stops the stack, then
-removes the clone, the run logs, the `deploy-info` directory, the `.env` and
-the deployment record.
+`uninstall` stops the stack and removes the clone, the run logs, the
+`deploy-info` directory, the `.env` and the deployment record. It always
+keeps the shared Docker network, the shared proxy, the TLS certificate and
+the renewal cron entry. Each destructive extra needs its own flag plus that
+resource's real name typed back. `--drop-database` checks its confirmation
+but does not drop the database; drop it yourself. What each step does, and
+why, is in
+[`docs/deployment/vps.md`, "Removing a deployment"](../../docs/deployment/vps.md#11-removing-a-deployment).
 
-**Always refuses** to remove four things shared with every other application
-on the host: the shared Docker network, the shared proxy container, the TLS
-certificate (Let's Encrypt allows 5 duplicates per week — keeping it is what
-makes a reinstall possible), and the per-host certificate renewal cron
-entry/timer.
-
-Two opt-in extras each need their own flag *and* a typed confirmation of that
-resource's **own real name** — never a generic word like `DELETE` — so that
-confirming one can never authorize the other:
-
-- `--purge-storage --confirm-bucket <name>` deletes every object this
-  application wrote to object storage. Because the bucket and its credential
-  live in the runtime-configurable storage settings, not in `.env` (epic
-  #372), this runs **inside the built api image**
-  (`docker compose run --rm --no-deps api npm run storage:purge`), before the
-  stack and clone are torn down, and a failure here stops the whole uninstall
-  rather than leaving you unsure whether the bucket was emptied. See
-  [`docs/specs/storage-providers.md`](../../docs/specs/storage-providers.md).
-- `--drop-database --confirm-database <name>` is meant to drop the
-  application's PostgreSQL database. **As of this build, only the
-  confirmation check is wired in**: a mismatched name still refuses
-  correctly, but a matching one currently proceeds without the drop itself
-  running — `dropDatabase()` exists (`src/deploy/database-drop.ts`) and is
-  unit-tested standalone, but nothing in the uninstall pipeline calls it yet.
-  Don't rely on it to have actually dropped anything.
-
-Other flags, from `appctl deploy uninstall --help`:
+Exit codes: `0` removed, or a `--dry-run` report; `2` nothing to uninstall at
+`--root`, a confirmation that does not match, or a storage purge that failed
+(nothing removed).
 
 ```
 Options:
-  --root <path>                  Deployment directory (default: "/opt/infra/apps")
-  --proxy-root <path>            Shared reverse proxy directory (default: "/opt/infra/proxy")
-  --proxy-container <name>       The proxy container's name (default: "proxy-nginx")
-  --proxy-mode <mode>            "container" or "host"; skips runtime detection
-  --dry-run                      Report what would be removed and change nothing
-  --drop-database                Also drop the database (needs --confirm-database)
-  --confirm-database <name>      The database's own name, typed back
-  --purge-storage                Also delete every object in storage (needs --confirm-bucket)
-  --confirm-bucket <name>        The bucket's own name, typed back
-  --json                         Print a machine-readable plan on stdout
+  --root <path>              Deployment directory (rank 1: an explicit path)
+  --apps-root <path>         Directory holding the deployments (rank 3 walks up
+                             inside it) (default: "/opt/infra/apps")
+  --name <app>               Which deployment to act on, by name
+  --proxy-root <path>        Shared reverse proxy directory (default:
+                             "/opt/infra/proxy")
+  --proxy-container <name>   Name of the shared proxy container (default: as
+                             recorded, else proxy-nginx)
+  --proxy-mode <mode>        How the shared proxy runs: container or host
+                             (default: as recorded, else detected)
+  --dry-run                  Report what would be removed and change nothing
+  --drop-database            Also drop the database (needs --confirm-database)
+  --confirm-database <name>  The database's own name, typed back
+  --purge-storage            Also delete every object in storage (needs
+                             --confirm-bucket)
+  --confirm-bucket <name>    The bucket's own name, typed back
+  --json                     Print a machine-readable plan on stdout
 ```
 
 ### Logs
@@ -761,7 +786,7 @@ issue or hand to someone else for help.
 ## Running a worker node
 
 `appctl node` turns this machine into a worker for the application's job
-queue (epic #254). A node claims jobs from the server, runs them locally,
+queue. A node claims jobs from the server, runs them locally,
 and submits results — the same handler code the API server would have run,
 on hardware you control. Nodes coordinate through nothing but the database,
 so you can run as many as you like without configuring any of them to know
@@ -1000,46 +1025,18 @@ disables all three snapshot paths at once.
 
 ### Running a fleet in containers
 
-The recommended way to run workers is containers, not a per-machine install.
-
 ```bash
 cd infra/compose
 cp .env.worker.example .env.worker      # fill in the server URL and the token
 docker compose --env-file .env.worker -f worker.compose.yml up -d --scale worker=4
+docker compose -f worker.compose.yml -f worker.build.compose.yml up --build   # build from source
 ```
 
-Four replicas, no coordination configured anywhere. Each registers as its own
-node — its name derives from the container hostname, which Docker makes unique
-— and they load-balance through the server's `FOR UPDATE SKIP LOCKED` claim, so
-two replicas can never receive the same job.
-
-> **Do not set `APPCTL_NODE_NAME` or `APPCTL_NODE_ID` when scaling.** Every
-> replica would reattach to the *same* node row, and the server's per-node
-> claim cap would be shared between processes that each think they own it.
-
-Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN` are required: with no config file
-the worker synthesises everything else from the environment and starts.
-
-Two settings in `worker.compose.yml` are load-bearing rather than decorative:
-
-- **`restart: unless-stopped`** — the memory watchdog exits deliberately after
-  a clean drain, so without it a successful drain leaves the worker down.
-- **`stop_grace_period: 300s`** — Docker sends `SIGTERM`, waits, then
-  `SIGKILL`s. A job killed mid-flight has to wait out its lease before the
-  server retries it anywhere.
-
-The image's `ENTRYPOINT` is in **exec form** for the same reason: shell form
-wraps the process in `/bin/sh -c`, which does not forward `SIGTERM`, so the
-drain would never run.
-
-To build from source instead of pulling the published image:
-
-```bash
-docker compose -f worker.compose.yml -f worker.build.compose.yml up --build
-```
-
-CI publishes `ghcr.io/<owner>/<repo>-worker` alongside the api and web images,
-with the same tag conventions.
+Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN` are required. Leave
+`APPCTL_NODE_NAME` and `APPCTL_NODE_ID` unset when scaling. Why, and what the
+compose file's `restart`, `stop_grace_period` and exec-form `ENTRYPOINT` are
+for, is in
+[`docs/deployment/worker-nodes.md`, "Run a fleet in containers"](../../docs/deployment/worker-nodes.md#4-run-a-fleet-in-containers).
 
 ### The interactive dashboard
 
@@ -1184,6 +1181,29 @@ alongside the `bin` key above. It's a standalone shell script that runs
 first — so it has no way to read `CLI_NAME` out of `branding.ts` and derive
 the clone URL itself; the URL is hard-coded near the top of `install.sh`
 under its own "Defaults" comment block and has to be changed there directly.
+
+## How the installer works
+
+`install.sh` runs these steps, in order:
+
+1. Checks dependencies (`node`, `npm`, `git`, `curl`; warns, but doesn't
+   fail, on low disk space).
+2. Gets the source — either `git clone --depth 1` of `APPCTL_REPO` at
+   `APPCTL_REF`, or a copy of `APPCTL_SRC` if set — into a temp directory
+   that's cleaned up on exit.
+3. Builds the CLI workspace: `npm install --workspace=cli` then
+   `npm run build --workspace=cli`, from that temp checkout.
+4. Deploys the standalone app: copies `apps/cli/dist`, `package.json` and
+   `README.md` into `~/.appctl/app` (replacing any previous install), then
+   runs `npm install --omit=dev` there to pull in just the runtime
+   dependencies (commander, ink, ink-select-input, ink-spinner,
+   ink-text-input, react).
+5. Writes the `appctl` shim to `~/.local/bin/appctl` — a small script that
+   `exec`s `node ~/.appctl/app/dist/cli.js "$@"` — and makes it executable.
+6. Checks whether the shim's directory is on `$PATH` and, if not, prints the
+   `export` line to add to your shell config (see below).
+7. Verifies the install by running the new shim's `--version` and printing
+   an install summary (version, install size, paths).
 
 ## Building from source (development)
 
