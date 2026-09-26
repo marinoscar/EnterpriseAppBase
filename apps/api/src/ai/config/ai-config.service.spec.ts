@@ -278,7 +278,7 @@ describe('AiConfigService', () => {
         allowBackgroundRuns: true,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [
-          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true },
+          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true, requiresKey: true },
         ],
       });
       expect(JSON.stringify(view)).not.toContain('123');
@@ -296,6 +296,7 @@ describe('AiConfigService', () => {
         enabled: false,
         hasOrgKey: false,
         supportsPreviousResponseId: true,
+        requiresKey: true,
       });
     });
 
@@ -306,6 +307,23 @@ describe('AiConfigService', () => {
 
       expect(view.providers.find((p) => p.id === 'stateless')).toMatchObject({ supportsPreviousResponseId: false });
       expect(view.providers.find((p) => p.id === 'openai')).toMatchObject({ supportsPreviousResponseId: true });
+    });
+  });
+
+  describe('describePublic — keyless providers (#448)', () => {
+    it('publishes requiresKey: false for a slot the administrator marked keyless', async () => {
+      getAiPolicy.mockResolvedValue(
+        policy({
+          providers: {
+            ...policy().providers,
+            openai: { enabled: true, requiresKey: false } as AiPolicy['providers']['openai'],
+          },
+        }),
+      );
+
+      const view = await service.describePublic();
+
+      expect(view.providers.find((p) => p.id === 'openai')).toMatchObject({ requiresKey: false });
     });
   });
 });

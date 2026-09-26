@@ -39,6 +39,13 @@ export const aiPublicProviderSchema = z.object({
    * AI_CAPABILITY_UNSUPPORTED`.
    */
   supportsPreviousResponseId: z.boolean(),
+  /**
+   * Whether calling this provider needs a key (#448). `false` only for an
+   * OpenAI-compatible server the administrator marked keyless
+   * (`requiresKey: false`): nobody needs to add a key for it, and its calls
+   * are recorded with `keySource: "none"` — a client should not prompt for one.
+   */
+  requiresKey: z.boolean(),
 });
 
 export const aiPublicConfigSchema = z.object({

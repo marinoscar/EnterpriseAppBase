@@ -280,6 +280,7 @@ export class AiConfigService implements OnModuleInit {
           enabled: providerPolicy(policy, id)?.enabled ?? false,
           hasOrgKey: info !== null,
           supportsPreviousResponseId: this.registry.supportsPreviousResponseId(id),
+          requiresKey: providerRequiresKey(providerPolicy(policy, id)),
         };
       }),
     );

@@ -193,21 +193,22 @@ describe('Public AI config and kill switch', () => {
         allowBackgroundRuns: true,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [
-          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true },
+          { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true, requiresKey: true },
           // Registered (#446) but switched off; this test's credential store
           // answers "configured" for every provider. Anthropic stores no
           // responses, so a client must resend the conversation.
-          { id: 'anthropic', displayName: 'Anthropic', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
+          { id: 'anthropic', displayName: 'Anthropic', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false, requiresKey: true },
           // Gemini (#447): likewise registered, off, and stateless.
-          { id: 'gemini', displayName: 'Google Gemini', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
+          { id: 'gemini', displayName: 'Google Gemini', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false, requiresKey: true },
           // #448: the two OpenAI-family adapters — registered, off, and declared stateless.
-          { id: 'azure-openai', displayName: 'Azure OpenAI', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false },
+          { id: 'azure-openai', displayName: 'Azure OpenAI', enabled: false, hasOrgKey: true, supportsPreviousResponseId: false, requiresKey: true },
           {
             id: 'openai-compatible',
             displayName: 'OpenAI-compatible',
             enabled: false,
             hasOrgKey: true,
             supportsPreviousResponseId: false,
+            requiresKey: true,
           },
         ],
       });
