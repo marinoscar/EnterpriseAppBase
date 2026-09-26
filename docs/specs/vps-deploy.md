@@ -1168,8 +1168,7 @@ fields existed to put there. The natural-looking alternative was a second,
 parallel "Deployment" admin page and a `GET /api/admin/deployment` endpoint
 under a new `deployment:read` permission, one for each new field this issue
 adds. That was rejected in favour of **extending** the existing carrier
-(decision recorded at
-[github.com/marinoscar/EnterpriseAppBase/issues/392#issuecomment-5842973788](https://github.com/marinoscar/EnterpriseAppBase/issues/392#issuecomment-5842973788)):
+(decision recorded in a comment on issue #392):
 the new fields (`lastCommand`, `bindPort`, `proxy`, `host`, `history`) are
 additive members of the same `deploy-info/info.json` document, `schema`
 stays `1` (the reader already validates leniently field-by-field, dropping
