@@ -386,6 +386,62 @@ API response or a database row.
 Out of scope: the Responses API `image_generation` hosted tool (#442) and
 the UI (#445).
 
+### 5.3 File and image inputs from storage objects (Phase 2, issue #441)
+
+An `image`/`file` content part may name one of the caller's storage objects
+(`{ type: 'file', storageObjectId }`) instead of a public `url` — exactly
+one of the two. No new port, method or route: every Responses entry point
+(`respond`, `stream`, `openStream`, `respondStructured`, `runTools`,
+`startRun`) and `POST /api/ai/responses`, `/stream`, `/runs` accept it.
+
+- **Resolved in the facade, before the adapter** (`prepare`, after the
+  reasoning gate). Ownership and readiness through
+  `AiStorageInputResolver` (§5.2: unknown **404**, another user's **403** —
+  the `ObjectsService` answers, not the 404 the issue text proposed).
+  **Modality follows the MIME type, not the part type**: PNG/JPEG/GIF/WebP
+  is an image and needs `vision_input`, anything else a file and needs
+  `file_input` — each in the model's `capabilities` **and**
+  `inputModalities`, else `AI_CAPABILITY_UNSUPPORTED`; an `image` part
+  naming a non-image is `AI_INVALID_REQUEST`. Caps (`ai/core`
+  `file-inputs.types.ts`): images **20 MiB**, files **50 MiB**, at most 16
+  distinct objects per request — else `AI_INVALID_REQUEST`.
+- **Delivery is the adapter's declaration.** `AiProviderAdapter
+  .fileInputStrategy` — `{ image, file }`, each `'presigned_url' | 'upload'
+  | 'inline'`; absent means the provider refuses stored inputs
+  (`AI_CAPABILITY_UNSUPPORTED`). After the gates and **before the key**,
+  the facade prepares what the strategy needs and hands it to the adapter
+  as `ctx.storageInputs` (`AiResolvedStorageInput`, keyed by id): a
+  presigned GET URL (TTL **10 min**, the storage provider's own
+  `getSignedDownloadUrl`), or `open()`/`read()` over a stream capped at the
+  modality's limit. The **request is never rewritten**: it keeps the id,
+  so the opt-in prompt log, `ai_runs.request` and every error carry no URL
+  and no bytes.
+- **OpenAI**: images → `presigned_url`, sent as `input_image.image_url`
+  (OpenAI fetches it; the bytes never pass through the API). Files →
+  `upload`: streamed to the Files API (`purpose: 'user_data'`) with the
+  call's own resolved key, referenced by `file_id`, and **deleted
+  provider-side** once the response completes, fails, or its stream ends
+  (or is abandoned) — best effort, logged by file id only. Nothing is
+  cached across calls or users; a `runTools` step that resends the file
+  uploads it again.
+- **Background runs** store the id only; the job resolves again when it
+  runs (fresh URL, same checks). An input gone or no longer the user's by
+  then fails the run `AI_INVALID_REQUEST` (the job returns); storage that
+  cannot presign or read is `AI_STORAGE_UNAVAILABLE` — chosen over
+  `AI_PROVIDER_UNAVAILABLE` because the fault, and the fix
+  (`/admin/settings/storage`), is the deployment's storage, exactly as in
+  §5.2. No usage row is written when this happens before the provider call.
+- ⚠ **A presigned URL is a bearer capability**: it exists only in
+  `ctx.storageInputs` for one call, and is never logged, persisted, put on
+  a span or returned (the secret-egress suite hunts a presigned-URL
+  sentinel as it hunts keys).
+- **Data egress.** Sending a stored file to a model sends its contents to
+  that third-party provider (and, for an upload, stores a copy there until
+  the deletion above). That egress is what an administrator opts into by
+  switching AI on and enabling a provider (§8); only the caller's own
+  objects (or, with `storage:read_any`, anyone's) can be sent, and only in
+  a request the caller makes.
+
 ## 6. Model discovery and classification
 
 A provider's model-listing endpoint returns IDs and little else useful —
@@ -811,7 +867,7 @@ one HTTP status:
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (e.g. no model selected and no default set). |
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output failed to parse against the requested schema. |
-| `AI_STORAGE_UNAVAILABLE` | 503 | An operation whose inputs or outputs are storage objects (§5.2) met unconfigured or unwritable object storage; an administrator fixes it at `/admin/settings/storage`. Seen as a background run's `errorCode`. |
+| `AI_STORAGE_UNAVAILABLE` | 503 | An operation whose inputs or outputs are storage objects (§5.2, §5.3) met unconfigured or unwritable object storage (or storage that cannot presign an input); an administrator fixes it at `/admin/settings/storage`. Seen as a background run's `errorCode`, or directly on a synchronous response with a stored input. |
 
 `AiError` follows the `StorageNotConfiguredError` style already established
 in this codebase: it serializes through the global `HttpExceptionFilter` as
@@ -911,6 +967,7 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `POST /api/ai/images` | `generateImage(...)` → `{ runId, jobId }`, status 202 (§5.2). A model without `image_generation` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
 | `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
+| (all three responses routes) | `image`/`file` parts take `url` **or** `storageObjectId` (§5.3): unknown object → 404, another user's → 403, wrong modality → 400 `AI_CAPABILITY_UNSUPPORTED`, over 20/50 MiB → 400 `AI_INVALID_REQUEST`, storage unusable → 503 `AI_STORAGE_UNAVAILABLE`. |
 | `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, or an image run's `{ type: 'images', storageObjectIds, … }`; 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
 | `GET /api/ai/usage/me` | Query `from?, to?, groupBy?(day\|model)` → the caller's own usage report (§12). |
@@ -1010,4 +1067,5 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `infra/nginx/nginx.conf` contains the `/api/ai/responses/stream` location with `proxy_buffering off` | a config-assertion spec reading the nginx file directly, mirroring `apps/api/test/production-image.spec.ts` |
 | Seed grants: Admin holds all three AI permissions; Contributor and Viewer hold `ai:use` only | `apps/api/test/prisma/seed-data.spec.ts` |
 | The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
+| Storage-object inputs: ownership/modality/size/strategy gates, delivery by presigned URL and by Files API upload with provider-side deletion (success, failure, stream end), queued runs storing only the id, and no presigned URL in any response, row or log line | `apps/api/src/ai/runtime/ai-file-inputs.spec.ts`, `apps/api/src/ai/providers/openai/openai-file-inputs.spec.ts`, `apps/api/test/ai/ai-file-inputs.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
 | Embeddings: one vector per input in order, `dimensions` honoured, a model without `embeddings` → `AI_CAPABILITY_UNSUPPORTED`, > 256 inputs → `AI_INVALID_REQUEST`, one `operation: 'embeddings'` usage row; the #435 key-policy and secret-egress suites drive `POST /api/ai/embeddings` | `apps/api/src/ai/providers/openai/openai-embeddings.spec.ts`, `apps/api/src/ai/runtime/ai-embed.spec.ts`, `apps/api/test/ai/ai-embeddings.integration.spec.ts`, the conformance kit's `embeddings.*` scenarios |
