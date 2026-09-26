@@ -244,4 +244,271 @@ describe('BroadcastStartHandler', () => {
 
     await expect(handler.process(startJob)).rejects.toThrow('queue unavailable');
   });
+
+  describe('resuming a hand-off an earlier attempt claimed (#469)', () => {
+    it('routes a sending broadcast to the resume path instead of the CAS', async () => {
+      const { handler, updateMany, findFirst } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date('2026-01-01T00:00:00.000Z'),
+          cursorUserId: null,
+          recipientsDispatched: 0,
+        },
+      });
+
+      await handler.process(startJob);
+
+      // The CAS is the claim statement; a `sending` row never reaches it —
+      // resumeHandOff's own guards decide everything from here.
+      expect(updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: BROADCAST_ID, status: 'scheduled' } })
+      );
+      expect(findFirst).toHaveBeenCalled();
+    });
+
+    it(
+      'resumes with the STORED cutoff, writes recipientsTargeted conditionally, and enqueues ' +
+        'exactly one chunk identically to the fresh path',
+      async () => {
+        const storedCutoff = new Date('2026-01-01T00:00:00.000Z');
+        const { handler, updateMany, count, findFirst, enqueue } = makeHandler({
+          broadcast: {
+            id: BROADCAST_ID,
+            status: 'sending',
+            audienceCutoff: storedCutoff,
+            cursorUserId: null,
+            recipientsDispatched: 0,
+          },
+          userCount: 99,
+        });
+
+        await handler.process(startJob);
+
+        // Counted against the STORED cutoff, not a freshly-minted `now`.
+        expect(count).toHaveBeenCalledWith({
+          where: { isActive: true, createdAt: { lte: storedCutoff } },
+        });
+
+        // The conditional write, same shape the fresh path uses.
+        expect(updateMany).toHaveBeenCalledWith({
+          where: { id: BROADCAST_ID, status: 'sending' },
+          data: { recipientsTargeted: 99 },
+        });
+        // Only ONE `updateMany` call total — the resume path never runs the
+        // claim CAS at all.
+        expect(updateMany).toHaveBeenCalledTimes(1);
+
+        // Exactly one chunk enqueued, identical args to the fresh path.
+        expect(enqueue).toHaveBeenCalledTimes(1);
+        expect(enqueue).toHaveBeenCalledWith({
+          type: BROADCAST_CHUNK_TYPE,
+          reason: 'backfill',
+          subjectType: BROADCAST_SUBJECT_TYPE,
+          subjectId: BROADCAST_ID,
+          skipDedup: true,
+        });
+
+        // Never touches startedAt/audienceCutoff/status via `update` (only
+        // the conditional `updateMany` above), and the chunk lookup ran.
+        expect(findFirst).toHaveBeenCalledWith({
+          where: {
+            type: BROADCAST_CHUNK_TYPE,
+            subjectType: BROADCAST_SUBJECT_TYPE,
+            subjectId: BROADCAST_ID,
+          },
+          select: { id: true },
+        });
+      }
+    );
+
+    it('is a no-op with no count, write or enqueue when audienceCutoff is null', async () => {
+      const { handler, count, updateMany, findFirst, enqueue } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: null,
+          cursorUserId: null,
+          recipientsDispatched: 0,
+        },
+      });
+
+      await handler.process(startJob);
+
+      expect(count).not.toHaveBeenCalled();
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(findFirst).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when cursorUserId is already non-null (fan-out in progress)', async () => {
+      const { handler, count, updateMany, findFirst, enqueue } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date(),
+          cursorUserId: 'user-9',
+          recipientsDispatched: 0,
+        },
+      });
+
+      await handler.process(startJob);
+
+      expect(count).not.toHaveBeenCalled();
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(findFirst).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when recipientsDispatched is already > 0', async () => {
+      const { handler, count, updateMany, findFirst, enqueue } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date(),
+          cursorUserId: null,
+          recipientsDispatched: 5,
+        },
+      });
+
+      await handler.process(startJob);
+
+      expect(count).not.toHaveBeenCalled();
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(findFirst).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it(
+      'is a no-op with no count or write, but still performs the exact lookup with no status ' +
+        'filter, when a chunk job already exists',
+      async () => {
+        const { handler, count, updateMany, findFirst, enqueue } = makeHandler({
+          broadcast: {
+            id: BROADCAST_ID,
+            status: 'sending',
+            audienceCutoff: new Date(),
+            cursorUserId: null,
+            recipientsDispatched: 0,
+          },
+          existingChunk: { id: 'chunk-job-7' },
+        });
+
+        await handler.process(startJob);
+
+        expect(findFirst).toHaveBeenCalledWith({
+          where: {
+            type: BROADCAST_CHUNK_TYPE,
+            subjectType: BROADCAST_SUBJECT_TYPE,
+            subjectId: BROADCAST_ID,
+          },
+          select: { id: true },
+        });
+        // No status filter anywhere in that where clause — "any status" per
+        // the handler's own contract.
+        const where = findFirst.mock.calls[0][0].where;
+        expect(where).not.toHaveProperty('status');
+
+        expect(count).not.toHaveBeenCalled();
+        expect(updateMany).not.toHaveBeenCalled();
+        expect(enqueue).not.toHaveBeenCalled();
+      }
+    );
+
+    it('resolves without enqueuing when the conditional write matches nothing (a cancel won)', async () => {
+      const { handler, updateMany, enqueue } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date(),
+          cursorUserId: null,
+          recipientsDispatched: 0,
+        },
+        claimedCount: 0,
+      });
+
+      await expect(handler.process(startJob)).resolves.toBeUndefined();
+
+      expect(updateMany).toHaveBeenCalledTimes(1);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('resolves without enqueuing on the FRESH path too, when the conditional write matches nothing', async () => {
+      // A cancel landing between the claim CAS (count 1) and the
+      // recipientsTargeted write (count 0) — the fresh path's own version of
+      // the same race the resume path guards against above.
+      const { handler, updateMany, enqueue } = makeHandler();
+
+      // First updateMany (the claim) succeeds with count 1; the second
+      // (recipientsTargeted) must report count 0.
+      updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 });
+
+      await expect(handler.process(startJob)).resolves.toBeUndefined();
+
+      expect(updateMany).toHaveBeenCalledTimes(2);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('rejects when findFirst (the chunk lookup) fails in the resume path', async () => {
+      const { handler, findFirst } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date(),
+          cursorUserId: null,
+          recipientsDispatched: 0,
+        },
+      });
+      findFirst.mockRejectedValue(new Error('connection terminated'));
+
+      await expect(handler.process(startJob)).rejects.toThrow('connection terminated');
+    });
+
+    it('rejects when the audience count fails in the resume path', async () => {
+      const { handler, count } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date(),
+          cursorUserId: null,
+          recipientsDispatched: 0,
+        },
+      });
+      count.mockRejectedValue(new Error('connection terminated'));
+
+      await expect(handler.process(startJob)).rejects.toThrow('connection terminated');
+    });
+
+    it('rejects when the conditional updateMany fails in the resume path', async () => {
+      const { handler, updateMany } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date(),
+          cursorUserId: null,
+          recipientsDispatched: 0,
+        },
+      });
+      updateMany.mockRejectedValue(new Error('connection terminated'));
+
+      await expect(handler.process(startJob)).rejects.toThrow('connection terminated');
+    });
+
+    it('rejects when enqueue fails in the resume path', async () => {
+      const { handler, enqueue } = makeHandler({
+        broadcast: {
+          id: BROADCAST_ID,
+          status: 'sending',
+          audienceCutoff: new Date(),
+          cursorUserId: null,
+          recipientsDispatched: 0,
+        },
+      });
+      enqueue.mockRejectedValue(new Error('queue unavailable'));
+
+      await expect(handler.process(startJob)).rejects.toThrow('queue unavailable');
+    });
+  });
 });
