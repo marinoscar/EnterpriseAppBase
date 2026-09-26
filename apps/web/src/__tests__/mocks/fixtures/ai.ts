@@ -16,6 +16,10 @@
  * or, for components under the shell provider, renders with
  * `wrapperOptions: { aiEnabled: true }` (see `utils/test-utils.tsx`).
  *
+ * Capability strings are the API's permanent `AI_CAPABILITIES` values
+ * (`responses`, `vision_input`, `tools`, … — apps/api/src/ai/core/capabilities.ts),
+ * never display names or legacy aliases.
+ *
  * NO FIXTURE CARRIES A KEY. Masked hints only, exactly as the API answers.
  */
 import type {
@@ -62,10 +66,10 @@ export const mockAiAdminConfig: AiAdminConfig = {
         updatedByUserId: 'admin-user-id',
       },
       supportedCapabilities: [
-        'text',
-        'vision',
+        'responses',
+        'vision_input',
         'structured_output',
-        'function_tools',
+        'tools',
         'reasoning',
         'streaming',
       ],
@@ -121,7 +125,7 @@ export const mockAiModels: AiModel[] = [
     modelId: 'gpt-5-mini',
     displayName: 'GPT-5 mini',
     capabilities: {
-      capabilities: ['text', 'vision', 'structured_output', 'function_tools', 'reasoning', 'streaming'],
+      capabilities: ['responses', 'vision_input', 'structured_output', 'tools', 'reasoning', 'streaming'],
       inputModalities: ['text', 'image'],
       outputModalities: ['text'],
       reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
