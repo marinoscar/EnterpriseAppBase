@@ -12,10 +12,12 @@
 //   openai-model-catalog.ts      classifyModel()'s rule table
 //   openai-embeddings.mapper.ts  AiEmbeddingRequest <-> /v1/embeddings
 //   openai-images.mapper.ts      AiImage*Request <-> /v1/images/{generations,edits}
-//   openai-audio.mapper.ts       AiTranscriptionRequest <-> /v1/audio/transcriptions
+//   openai-audio.mapper.ts       AiTranscriptionRequest <-> /v1/audio/transcriptions,
+//                                AiSpeechRequest <-> /v1/audio/speech
 //
 // PORTS. `responses`, `embeddings` (#440), `images` (#437, generate AND
-// edit) and `audio` (#438: `transcribe`) are carried. `realtime` is
+// edit) and `audio` (#438 `transcribe`, #439 `speech` + its static `voices`)
+// are carried. `realtime` is
 // deliberately ABSENT until a later story implements it — presence is the
 // declaration, so `AiProviderRegistry.supports()` stays truthful about what
 // this adapter can actually do today.
@@ -62,6 +64,8 @@ import type {
   AiImageGenerationRequest,
   AiImageResult,
   AiImagesPort,
+  AiSpeechRequest,
+  AiSpeechResult,
   AiTranscriptionRequest,
   AiTranscriptionResult,
 } from '../../core/types/media.types';
@@ -69,8 +73,10 @@ import type { AiFileInputStrategies } from '../../core/types/file-inputs.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { resolveServiceName } from '../../../common/otel/service-name';
 import {
+  fromOpenAiSpeechResponse,
   fromOpenAiTranscriptionResponse,
   OPENAI_TRANSCRIPTION_MAX_BYTES,
+  toOpenAiSpeechRequest,
   toOpenAiTranscriptionRequest,
 } from './openai-audio.mapper';
 import { OpenAiClientFactory } from './openai-client.factory';
@@ -81,7 +87,7 @@ import {
   toOpenAiImageEditRequest,
   toOpenAiImageGenerateRequest,
 } from './openai-images.mapper';
-import { classifyOpenAiModel } from './openai-model-catalog';
+import { classifyOpenAiModel, OPENAI_SPEECH_VOICES } from './openai-model-catalog';
 import {
   fromOpenAiResponse,
   type OpenAiStorageDeliveries,
@@ -101,7 +107,8 @@ type OpenAiOperation =
   | 'embeddings.create'
   | 'images.generate'
   | 'images.edit'
-  | 'audio.transcribe';
+  | 'audio.transcribe'
+  | 'audio.speech';
 
 const tracer = trace.getTracer(resolveServiceName());
 
@@ -130,6 +137,8 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
   readonly audio: AiAudioPort = {
     transcribe: (req, ctx) => this.transcribe(req, ctx),
     transcriptionMaxBytes: OPENAI_TRANSCRIPTION_MAX_BYTES,
+    speech: (req, ctx) => this.speak(req, ctx),
+    voices: OPENAI_SPEECH_VOICES,
   };
 
   private readonly logger = new Logger(OpenAiProviderAdapter.name);
@@ -447,6 +456,19 @@ export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
         .withResponse();
 
       return fromOpenAiTranscriptionResponse(data, { request: req, providerRequestId: request_id });
+    });
+  }
+
+  /** `POST /v1/audio/speech` — the answer is the audio file itself. */
+  private speak(req: AiSpeechRequest, ctx: AiCallContext): Promise<AiSpeechResult> {
+    return this.call('audio.speech', req.model, ctx, async () => {
+      const body = toOpenAiSpeechRequest(req);
+      const client = this.clients.create(ctx);
+
+      const { data, request_id } = await client.audio.speech.create(body, { signal: ctx.signal }).withResponse();
+      const bytes = new Uint8Array(await data.arrayBuffer());
+
+      return fromOpenAiSpeechResponse(bytes, { request: req, providerRequestId: request_id });
     });
   }
 

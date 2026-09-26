@@ -2,7 +2,8 @@
 // OpenAI audio mapper (issue #438, epic #420)
 // =============================================================================
 //
-// AiTranscriptionRequest <-> `POST /v1/audio/transcriptions`. Pure functions
+// AiTranscriptionRequest <-> `POST /v1/audio/transcriptions`, and (#439)
+// AiSpeechRequest <-> `POST /v1/audio/speech`. Pure functions
 // (plus the SDK's `toFile`/`toStreamingFile`, which only wrap bytes); every
 // failure is an `AiError`, never an SDK error.
 //
@@ -28,6 +29,7 @@
 // =============================================================================
 
 import { toFile, toStreamingFile } from 'openai';
+import type { SpeechCreateParams } from 'openai/resources/audio/speech';
 import type {
   Transcription,
   TranscriptionCreateParamsNonStreaming,
@@ -36,8 +38,14 @@ import type {
 
 import { AiError } from '../../core/ai-error';
 import {
+  AI_SPEECH_FORMAT_MIME,
+  AI_SPEECH_INPUT_MAX_CHARS,
+  AI_SPEECH_SPEED_MAX,
+  AI_SPEECH_SPEED_MIN,
   isStreamedPayload,
   type AiMediaInput,
+  type AiSpeechRequest,
+  type AiSpeechResult,
   type AiTranscriptionRequest,
   type AiTranscriptionResult,
   type AiTranscriptionSegment,
@@ -239,4 +247,89 @@ export function fromOpenAiTranscriptionResponse(
   }
 
   return result;
+}
+
+// ---- Speech (#439) ------------------------------------------------------------
+//
+// The answer is the audio itself (a binary body), never a URL. `tts-1` and
+// `tts-1-hd` do not take `instructions`; it is left out for them rather than
+// sent to a 400. `stream_format` is never sent: the endpoint's default for a
+// non-streamed call is the whole file.
+
+const TTS1 = /^tts-1(?:-|$)/;
+
+/** Whether OpenAI model `modelId` is `tts-1`/`tts-1-hd` (no `instructions`). */
+export function isOpenAiTts1(modelId: string): boolean {
+  return TTS1.test(modelId.trim().toLowerCase());
+}
+
+function invalidSpeech(message: string, details: Record<string, unknown> = {}): AiError {
+  return new AiError('AI_INVALID_REQUEST', message, { details: { provider: OPENAI_PROVIDER_ID, ...details } });
+}
+
+/** The `/v1/audio/speech` JSON body. Refuses what OpenAI would refuse, before calling. */
+export function toOpenAiSpeechRequest(req: AiSpeechRequest): SpeechCreateParams {
+  if (typeof req.input !== 'string' || req.input.trim().length === 0) {
+    throw invalidSpeech('Speech needs non-empty input text.');
+  }
+
+  if (req.input.length > AI_SPEECH_INPUT_MAX_CHARS) {
+    throw invalidSpeech(`Speech input is longer than ${AI_SPEECH_INPUT_MAX_CHARS} characters.`, {
+      length: req.input.length,
+      max: AI_SPEECH_INPUT_MAX_CHARS,
+    });
+  }
+
+  if (typeof req.voice !== 'string' || req.voice.trim().length === 0) {
+    throw invalidSpeech('Speech needs a voice.');
+  }
+
+  if (req.speed !== undefined && !(req.speed >= AI_SPEECH_SPEED_MIN && req.speed <= AI_SPEECH_SPEED_MAX)) {
+    throw invalidSpeech(`speed must be from ${AI_SPEECH_SPEED_MIN} to ${AI_SPEECH_SPEED_MAX}.`, { speed: req.speed });
+  }
+
+  const escapeHatch = (req.providerOptions?.[OPENAI_PROVIDER_ID] ?? {}) as Record<string, unknown>;
+  const body: SpeechCreateParams = {
+    ...escapeHatch,
+    model: req.model,
+    input: req.input,
+    voice: req.voice,
+    response_format: req.format ?? 'mp3',
+  };
+
+  if (req.speed !== undefined) body.speed = req.speed;
+  if (req.instructions !== undefined && !isOpenAiTts1(req.model)) body.instructions = req.instructions;
+
+  return body;
+}
+
+export interface FromOpenAiSpeechOptions {
+  request: AiSpeechRequest;
+  providerRequestId?: string | null;
+}
+
+/**
+ * The neutral result: the bytes, typed by the format that was asked for
+ * (the one OpenAI produces). No bytes is a provider fault.
+ */
+export function fromOpenAiSpeechResponse(bytes: Uint8Array, opts: FromOpenAiSpeechOptions): AiSpeechResult {
+  if (bytes.byteLength === 0) {
+    throw new AiError('AI_PROVIDER_UNAVAILABLE', 'OpenAI returned an empty speech response.', {
+      details: {
+        provider: OPENAI_PROVIDER_ID,
+        problem: 'empty_audio',
+        ...(opts.providerRequestId ? { providerRequestId: opts.providerRequestId } : {}),
+      },
+    });
+  }
+
+  const format = opts.request.format ?? 'mp3';
+
+  return {
+    provider: OPENAI_PROVIDER_ID,
+    model: opts.request.model,
+    audio: { data: bytes, mimeType: AI_SPEECH_FORMAT_MIME[format] },
+    usage: {},
+    ...(opts.providerRequestId ? { providerRequestId: opts.providerRequestId } : {}),
+  };
 }

@@ -169,12 +169,38 @@ export interface AiTranscriptionResult extends AiMediaResultBase {
   words?: AiTranscriptionWord[];
 }
 
+/** The longest text one speech call may speak, in characters (OpenAI's limit). */
+export const AI_SPEECH_INPUT_MAX_CHARS = 4_096;
+
+/** The longest style/tone instruction accepted, in characters. */
+export const AI_SPEECH_INSTRUCTIONS_MAX_CHARS = 4_096;
+
+export const AI_SPEECH_FORMATS = ['mp3', 'wav', 'opus', 'aac', 'flac', 'pcm'] as const;
+export type AiSpeechFormat = (typeof AI_SPEECH_FORMATS)[number];
+
+/** The MIME type each speech format is stored and served as (`pcm`: raw 24 kHz 16-bit LE). */
+export const AI_SPEECH_FORMAT_MIME: Record<AiSpeechFormat, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  opus: 'audio/opus',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
+  pcm: 'audio/pcm',
+};
+
+/** Speaking-rate bounds (1 is normal). */
+export const AI_SPEECH_SPEED_MIN = 0.25;
+export const AI_SPEECH_SPEED_MAX = 4;
+
 export interface AiSpeechRequest extends AiMediaRequestBase {
+  /** 1 to `AI_SPEECH_INPUT_MAX_CHARS` characters. */
   input: string;
   voice: string;
-  format?: 'mp3' | 'wav' | 'opus' | 'aac' | 'flac' | 'pcm';
-  /** Style/tone instructions where supported. */
+  /** Defaults to `mp3`. */
+  format?: AiSpeechFormat;
+  /** Style/tone instructions where supported (OpenAI: not the `tts-1` family). */
   instructions?: string;
+  /** `AI_SPEECH_SPEED_MIN` to `AI_SPEECH_SPEED_MAX`; 1 is normal. */
   speed?: number;
 }
 
@@ -193,6 +219,12 @@ export interface AiAudioPort {
   readonly transcriptionMaxBytes?: number;
   /** Present only when the provider supports `audio_speech`. */
   speech?(req: AiSpeechRequest, ctx: AiCallContext): Promise<AiSpeechResult>;
+  /**
+   * Every voice `speech` accepts, as static data (#439). A model may offer a
+   * subset — its catalog capabilities' `voices`; this is the provider-wide
+   * list the runtime falls back to when a model does not say.
+   */
+  readonly voices?: readonly string[];
 }
 
 // ---- Embeddings -------------------------------------------------------------

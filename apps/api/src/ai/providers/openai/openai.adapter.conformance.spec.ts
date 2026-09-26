@@ -16,6 +16,7 @@ import {
   OpenAiMockServer,
   mockEmbeddingsBody,
   mockImagesBody,
+  mockSpeechBytes,
   mockTranscriptionBody,
 } from './testing/openai-mock-transport';
 
@@ -29,6 +30,8 @@ const IMAGE_MODEL = 'gpt-image-1';
 const BROKEN_IMAGE_MODEL = 'gpt-image-broken';
 const TRANSCRIPTION_MODEL = 'whisper-1';
 const BROKEN_TRANSCRIPTION_MODEL = 'gpt-4o-transcribe-broken';
+const SPEECH_MODEL = 'gpt-4o-mini-tts';
+const BROKEN_SPEECH_MODEL = 'gpt-4o-mini-tts-broken';
 
 function reply(response: OpenAiSdkResponse): MockReply {
   return { kind: 'response', response, chunkSize: 5 };
@@ -80,6 +83,10 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
       body.model === BROKEN_TRANSCRIPTION_MODEL
         ? { kind: 'error', status: 500, error: { message: 'The server had an error.', type: 'server_error', param: null, code: null } }
         : { kind: 'transcription', body: mockTranscriptionBody(body) },
+    speech: (body) =>
+      body.model === BROKEN_SPEECH_MODEL
+        ? { kind: 'error', status: 500, error: { message: 'The server had an error.', type: 'server_error', param: null, code: null } }
+        : { kind: 'speech', bytes: mockSpeechBytes(body) },
   });
 
   return {
@@ -110,6 +117,11 @@ describeAiProviderConformance('OpenAiProviderAdapter (mocked transport)', () => 
       transcription: {
         model: TRANSCRIPTION_MODEL,
         failingModel: BROKEN_TRANSCRIPTION_MODEL,
+      },
+      speech: {
+        model: SPEECH_MODEL,
+        voice: 'coral',
+        failingModel: BROKEN_SPEECH_MODEL,
       },
     },
   };
