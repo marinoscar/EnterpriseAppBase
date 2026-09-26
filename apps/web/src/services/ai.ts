@@ -192,10 +192,103 @@ export interface AiAdminProvider {
    */
   registered: boolean;
   enabled: boolean;
-  /** The operator's endpoint override; `null` means the provider's default. */
+  /**
+   * The operator's endpoint override; `null` means the provider's default.
+   * For `azure-openai` it is the resource endpoint
+   * (`https://<resource>.openai.azure.com`); for `openai-compatible` the API
+   * root, `/v1` included. Both need one before they can be enabled (#448).
+   */
   baseUrl: string | null;
+  /**
+   * The settings fields this provider accepts besides `enabled` (#448). A
+   * form renders exactly these, and the `PUT` sends exactly these — a field a
+   * provider does not list is `400 AI_PROVIDER_FIELD_UNSUPPORTED`. Optional
+   * so an older API that omits it still works — absent means `['baseUrl']`.
+   */
+  settingsFields?: AiProviderSettingsField[];
+  /** Azure OpenAI `api-version`; `null` for the default ({@link AI_AZURE_DEFAULT_API_VERSION}). */
+  apiVersion?: string | null;
+  /** Wire API; `null` for the provider's default (see {@link aiDefaultApiStyle}). */
+  apiStyle?: AiApiStyle | null;
+  /** Azure OpenAI model id -> deployment name; `null` when none is configured. */
+  deployments?: Record<string, string> | null;
+  /** OpenAI-compatible: whether calls need a key; `null` for the default (`true`). */
+  requiresKey?: boolean | null;
   keyStatus: SecretStatus;
   supportedCapabilities: string[];
+}
+
+/** A provider settings field besides `enabled` (#448) — `AiAdminProvider.settingsFields`. */
+export type AiProviderSettingsField = 'baseUrl' | 'apiVersion' | 'apiStyle' | 'deployments' | 'requiresKey';
+
+/** Which wire API an OpenAI-shaped adapter speaks (#448). */
+export type AiApiStyle = 'responses' | 'chat_completions';
+
+/** Azure OpenAI's `api-version` when none is set — mirrors the API's default. */
+export const AI_AZURE_DEFAULT_API_VERSION = '2025-04-01-preview';
+
+/** Most Azure deployments one provider accepts — mirrors the API's cap. */
+export const AI_AZURE_DEPLOYMENTS_MAX = 200;
+
+/**
+ * An Azure `api-version` or deployment name: a letter or digit, then up to 63
+ * of letters, digits, `.`, `_`, `-`. Mirrors the API's own pattern.
+ */
+export const AI_AZURE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** Longest model id a `deployments` entry may map — mirrors the API. */
+export const AI_AZURE_MODEL_ID_MAX = 256;
+
+/** The `apiStyle` a provider uses while its own is unset (`null`). */
+export function aiDefaultApiStyle(providerId: string): AiApiStyle {
+  return providerId === 'openai-compatible' ? 'chat_completions' : 'responses';
+}
+
+/** The fields a provider's form renders and its `PUT` entry carries; `['baseUrl']` from an older API. */
+export function aiProviderSettingsFields(provider: Pick<AiAdminProvider, 'settingsFields'>): AiProviderSettingsField[] {
+  return provider.settingsFields ?? ['baseUrl'];
+}
+
+/** One provider's entry in the `PUT` body. Only `enabled` plus that provider's `settingsFields`. */
+export interface AiProviderSettingsInput {
+  enabled: boolean;
+  baseUrl?: string | null;
+  apiVersion?: string | null;
+  apiStyle?: AiApiStyle | null;
+  deployments?: Record<string, string> | null;
+  requiresKey?: boolean | null;
+}
+
+/**
+ * A provider's `PUT` entry: `enabled`, plus ONLY the fields its
+ * `settingsFields` lists — any other is `400 AI_PROVIDER_FIELD_UNSUPPORTED`.
+ * `baseUrl` is always sent (a `null` clears it, the pre-#448 shape the three
+ * built-in providers keep exactly); the other fields are omitted when unset,
+ * which the full-replace `PUT` reads as "back to the default".
+ */
+export function aiProviderSettingsToInput(
+  provider: Pick<AiAdminProvider, 'settingsFields'>,
+  values: {
+    enabled: boolean;
+    baseUrl: string | null;
+    apiVersion?: string | null;
+    apiStyle?: AiApiStyle | null;
+    deployments?: Record<string, string> | null;
+    requiresKey?: boolean | null;
+  },
+): AiProviderSettingsInput {
+  const fields = aiProviderSettingsFields(provider);
+  const input: AiProviderSettingsInput = { enabled: values.enabled };
+  if (fields.includes('baseUrl')) input.baseUrl = values.baseUrl?.trim() || null;
+  if (fields.includes('apiVersion') && values.apiVersion?.trim()) input.apiVersion = values.apiVersion.trim();
+  if (fields.includes('apiStyle') && values.apiStyle) input.apiStyle = values.apiStyle;
+  if (fields.includes('deployments') && values.deployments && Object.keys(values.deployments).length > 0) {
+    input.deployments = { ...values.deployments };
+  }
+  if (fields.includes('requiresKey') && typeof values.requiresKey === 'boolean') {
+    input.requiresKey = values.requiresKey;
+  }
+  return input;
 }
 
 /** `GET /admin/ai/config`. */
@@ -245,7 +338,8 @@ export interface AiAdminConfigInput {
    * is lifted too.
    */
   limits?: AiLimits;
-  providers: Record<string, { enabled: boolean; baseUrl?: string | null }>;
+  /** Each entry carries only `enabled` plus that provider's `settingsFields` — see {@link aiProviderSettingsToInput}. */
+  providers: Record<string, AiProviderSettingsInput>;
 }
 
 /**
@@ -256,7 +350,7 @@ export interface AiAdminConfigInput {
 export function aiAdminConfigToInput(config: AiAdminConfig): AiAdminConfigInput {
   const providers: AiAdminConfigInput['providers'] = {};
   for (const provider of config.providers) {
-    providers[provider.id] = { enabled: provider.enabled, baseUrl: provider.baseUrl };
+    providers[provider.id] = aiProviderSettingsToInput(provider, provider);
   }
   return {
     enabled: config.enabled,
