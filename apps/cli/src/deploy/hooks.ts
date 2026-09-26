@@ -47,4 +47,13 @@ export interface DeployHooks {
    * draws for its polling countdown.
    */
   onProgress?: ((message: string) => void) | undefined;
+  /**
+   * The run's journal is open, and this is where it is being written.
+   *
+   * Fires once, as soon as the file exists -- before the first step -- so a
+   * screen can show the path WHILE the run is going. The path is the single
+   * most useful thing to hand an operator after a failure, and learning it
+   * only from the result means learning it only on success (issue #393).
+   */
+  onJournal?: ((path: string) => void) | undefined;
 }

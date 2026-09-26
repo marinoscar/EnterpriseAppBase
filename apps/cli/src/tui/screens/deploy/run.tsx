@@ -5,8 +5,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { CLI_NAME } from '../../../branding.js';
 import type { DeployHooks, StepResult } from '../../../deploy/hooks.js';
 import { formatError } from '../../../errors.js';
-import { ErrorNotice, Frame } from '../../layout.js';
+import { ErrorNotice, Field, Frame } from '../../layout.js';
 import { ScrollBox } from '../../scroll-box.js';
+import {
+  FAILURE_TAIL_LINES,
+  failureReport,
+  pushBounded,
+  type FailureReport,
+  type StepView,
+} from './run-model.js';
+
+export type { StepView } from './run-model.js';
 
 // =============================================================================
 // The part of a deploy screen that is the same for all four  (issue #406)
@@ -34,19 +43,24 @@ import { ScrollBox } from '../../scroll-box.js';
 //      frame, and its hint names the command that DOES exit non-zero.
 // =============================================================================
 
-export interface StepView {
-  id: string;
-  title: string;
-  outcome: 'running' | 'ok' | 'skipped' | 'failed';
-  detail?: string | undefined;
-}
-
 export type RunPhase =
   | { kind: 'idle' }
-  | { kind: 'running'; steps: StepView[]; lines: string[] }
+  | {
+      kind: 'running';
+      steps: StepView[];
+      lines: string[];
+      /**
+       * The current step's own output, bounded to `FAILURE_TAIL_LINES` and
+       * reset when a step starts -- so on failure it is the failing step's
+       * last words, not the previous step's.
+       */
+      tail: string[];
+      /** Known from `onJournal`, as soon as the pipeline opens it. */
+      journalPath?: string | undefined;
+    }
   | { kind: 'done'; summary: string[] }
-  | { kind: 'cancelled'; steps: StepView[] }
-  | { kind: 'failed'; message: string };
+  | { kind: 'cancelled'; steps: StepView[]; journalPath?: string | undefined }
+  | { kind: 'failed'; report: FailureReport };
 
 /** Lines kept in the live log. Unbounded growth is a leak on a long build. */
 const MAX_LOG_LINES = 2_000;
@@ -60,11 +74,19 @@ const MAX_LOG_LINES = 2_000;
  */
 export type DeployWork = (signal: AbortSignal, hooks: DeployHooks) => Promise<string[]>;
 
+export interface StartOptions {
+  /**
+   * The shell command that repeats this run, shown if it fails. Built by the
+   * screen with `rerunCommand`, because only the screen knows what was chosen.
+   */
+  rerun?: string | undefined;
+}
+
 export interface DeployRun {
   phase: RunPhase;
   /** True once Esc has been pressed once during a run; a second press aborts. */
   confirmAbort: boolean;
-  start: (work: DeployWork) => void;
+  start: (work: DeployWork, options?: StartOptions) => void;
 }
 
 export interface UseDeployRunOptions {
@@ -108,9 +130,12 @@ export function useDeployRun({ onEscape, escapeActive }: UseDeployRunOptions): D
     if (!mounted.current) return;
     setPhase((current) => {
       if (current.kind !== 'running') return current;
-      const lines = [...current.lines, line];
       // Oldest-first, because the end of a build log is the part that matters.
-      return { ...current, lines: lines.slice(-MAX_LOG_LINES) };
+      return {
+        ...current,
+        lines: pushBounded(current.lines, line, MAX_LOG_LINES),
+        tail: pushBounded(current.tail, line, FAILURE_TAIL_LINES),
+      };
     });
   }, []);
 
@@ -120,7 +145,12 @@ export function useDeployRun({ onEscape, escapeActive }: UseDeployRunOptions): D
         if (!mounted.current) return;
         setPhase((current) =>
           current.kind === 'running'
-            ? { ...current, steps: [...current.steps, { id, title, outcome: 'running' as const }] }
+            ? {
+                ...current,
+                steps: [...current.steps, { id, title, outcome: 'running' as const }],
+                // A new step's output starts here; the tail is per step.
+                tail: [],
+              }
             : current,
         );
       },
@@ -154,17 +184,22 @@ export function useDeployRun({ onEscape, escapeActive }: UseDeployRunOptions): D
       },
       onProgress: appendLine,
       onLog: appendLine,
+      onJournal: (path: string) => {
+        if (!mounted.current) return;
+        setPhase((current) => (current.kind === 'running' ? { ...current, journalPath: path } : current));
+      },
     }),
     [appendLine],
   );
 
   const start = useCallback(
-    (work: DeployWork) => {
+    (work: DeployWork, options?: StartOptions) => {
+      const rerun = options?.rerun;
       const controller = new AbortController();
       abortRef.current = controller;
       cancelledRef.current = false;
       setConfirmAbort(false);
-      setPhase({ kind: 'running', steps: [], lines: [] });
+      setPhase({ kind: 'running', steps: [], lines: [], tail: [] });
 
       void (async () => {
         try {
@@ -175,12 +210,26 @@ export function useDeployRun({ onEscape, escapeActive }: UseDeployRunOptions): D
           if (cancelledRef.current) {
             // Reported as a cancel, naming the steps that already committed.
             setPhase((current) =>
-              current.kind === 'running' ? { kind: 'cancelled', steps: current.steps } : current,
+              current.kind === 'running'
+                ? { kind: 'cancelled', steps: current.steps, journalPath: current.journalPath }
+                : current,
             );
             return;
           }
           if (error instanceof Error && error.name === 'AbortError') return;
-          setPhase({ kind: 'failed', message: formatError(error) });
+          const message = formatError(error);
+          // Read off the running phase: which step, what it said last, where
+          // the journal is. See run-model.ts for why each of these matters.
+          setPhase((current) => ({
+            kind: 'failed',
+            report: failureReport({
+              message,
+              steps: current.kind === 'running' ? current.steps : [],
+              tail: current.kind === 'running' ? current.tail : [],
+              journalPath: current.kind === 'running' ? current.journalPath : undefined,
+              rerun,
+            }),
+          }));
         }
       })();
     },
@@ -241,6 +290,9 @@ export function RunFrame({ action, run }: RunFrameProps): ReactNode {
           </Text>
           <Text> {phase.steps.at(-1)?.title ?? 'Starting'}…</Text>
         </Box>
+        {phase.journalPath === undefined ? null : (
+          <Text dimColor>Log: {phase.journalPath}</Text>
+        )}
         {confirmAbort ? (
           // Names what cancelling does NOT undo. A cancel that implies a clean
           // rollback is the same lie as a cancel that does not cancel.
@@ -282,22 +334,16 @@ export function RunFrame({ action, run }: RunFrameProps): ReactNode {
             {completedTitles(phase.steps)}
           </Text>
           <Text dimColor>Re-running continues from where this stopped.</Text>
+          {phase.journalPath === undefined ? null : (
+            <Text dimColor>Log: {phase.journalPath}</Text>
+          )}
         </Box>
       </Frame>
     );
   }
 
   if (phase.kind === 'failed') {
-    return (
-      <Frame title={`${action} — failed`} hints={['esc return to the menu']}>
-        <ErrorNotice
-          message={phase.message}
-          // The exit code will be 0 whatever happened here, so the frame has to
-          // carry the failure on its own.
-          hint={`Nothing further was changed. The same run is \`${CLI_NAME} deploy ${action}\`, which exits non-zero.`}
-        />
-      </Frame>
-    );
+    return <FailedFrame action={action} report={phase.report} />;
   }
 
   return (
@@ -326,5 +372,56 @@ function completedTitles(steps: readonly StepView[]): string {
       .filter((step) => step.outcome === 'ok')
       .map((step) => step.title)
       .join(', ') || 'none yet'
+  );
+}
+
+/**
+ * The failed frame.
+ *
+ * ⚠ UNMISTAKABLE ON PURPOSE. The exit code will be 0 whatever happened here,
+ * so the frame carries the failure on its own: a FAILED title, the red notice,
+ * and then -- in the order an operator needs them -- the step, its last
+ * output, the journal, and the command that continues from here.
+ */
+function FailedFrame({ action, report }: { action: string; report: FailureReport }): ReactNode {
+  const { step, tail, journalPath, rerun } = report;
+  return (
+    <Frame title={`${action} — FAILED`} hints={['esc return to the menu']}>
+      <ErrorNotice message={report.message} />
+      <Box marginTop={1} flexDirection="column">
+        {step === undefined ? (
+          <Text color="red">Failed before any step started.</Text>
+        ) : (
+          <Text color="red">
+            {OUTCOME_MARK.failed.trim()} Failed at {step.id} — {step.title}
+          </Text>
+        )}
+        {step?.detail === undefined ? null : <Text>{'   '}{step.detail}</Text>}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text dimColor>
+          {tail.length === 0 ? 'The step printed nothing.' : `Last ${tail.length} line(s) of its output:`}
+        </Text>
+        {tail.map((line, index) => (
+          <Text key={`${index}:${line}`} dimColor>
+            {'  '}
+            {line.length === 0 ? ' ' : line}
+          </Text>
+        ))}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        {journalPath === undefined ? (
+          <Text dimColor>No journal was opened; nothing was written.</Text>
+        ) : (
+          <Field label="journal" value={journalPath} />
+        )}
+        <Text dimColor>
+          {rerun === undefined
+            ? `The same run is \`${CLI_NAME} deploy ${action}\`, which exits non-zero.`
+            : 'Fix the cause, then continue from a shell (this one exits non-zero on failure):'}
+        </Text>
+        {rerun === undefined ? null : <Text color="cyan">{'  '}{rerun}</Text>}
+      </Box>
+    </Frame>
   );
 }
