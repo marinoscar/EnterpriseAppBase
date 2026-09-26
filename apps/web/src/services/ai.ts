@@ -71,6 +71,7 @@ export const AI_ERROR_CODES = [
   'AI_CONTENT_FILTERED',
   'AI_INVALID_REQUEST',
   'AI_STRUCTURED_OUTPUT_INVALID',
+  'AI_STORAGE_UNAVAILABLE',
 ] as const;
 export type AiErrorCode = (typeof AI_ERROR_CODES)[number];
 
