@@ -1,16 +1,14 @@
 # AI Platform (`apps/api/src/ai`)
 
-Admin-governed, bring-your-own-key, multi-provider AI (epic #419). This is
-the module's developer map — what lives where, how a request flows through
-the gate pipeline, how streaming works end to end, and how to test against
-it without a real provider. The design decisions and rationale live in
+Admin-governed, bring-your-own-key, multi-provider AI. This is the module's
+developer map — what lives where, how a request flows through the gate
+pipeline, how streaming works end to end, how a feature calls it, and how to
+test against it without a real provider. The design decisions and rationale
+live in
 [`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md); the
 operator runbook is
-[`docs/runbooks/ai-configuration.md`](../../../../docs/runbooks/ai-configuration.md);
-the day-to-day "how do I add AI to a feature / a provider" recipes are in
-[`CLAUDE.md`](../../../../CLAUDE.md)'s "MANDATORY: AI Platform Rules" and
-"Using AI in a Feature" / "Adding an AI Provider" sections. This file does
-not restate any of those — read them for the *why*.
+[`docs/runbooks/ai-configuration.md`](../../../../docs/runbooks/ai-configuration.md).
+This file does not restate the design rationale — read those for the *why*.
 
 ## Module map
 
@@ -25,30 +23,30 @@ ai/
     structured-output.ts     Zod <-> JSON Schema conversion for structured output
     tools.ts                 defineTool() — function-tool definition + argument validation
     hosted-tools.ts          Hosted-tool shape, admin gate (AI_TOOL_DISABLED), MCP header secrets
-    conversation.ts          asInputItems/replayOutput — a turn as input, for stateless providers (#446)
+    conversation.ts          asInputItems/replayOutput — a turn as input, for stateless providers
     types/                   AiResponse, AiResponseRequest, AiStreamEvent, media types,
-                             file-inputs.types.ts (storage-object inputs: caps, strategies, #441)
+                             file-inputs.types.ts (storage-object inputs: caps, strategies)
   providers/
     openai/                  The Phase 1 adapter (Responses API; every port), and the OpenAI
-                             wire family's SHARED pieces (#448): OpenAiFamily errors, the
+                             wire family's SHARED pieces: OpenAiFamily errors, the
                              Responses and Chat Completions engines/mappers, call telemetry,
                              pinned client options, noRedirectFetch. With the two dirs below,
                              the ONLY place the `openai` SDK is imported —
                              `openai-sdk-boundary.spec.ts` pins it.
-    anthropic/               The Phase 3 adapter (#446; Messages API, `responses` port only,
+    anthropic/               The Phase 3 adapter (Messages API, `responses` port only,
                              stateless). ONLY place `@anthropic-ai/sdk` is imported —
                              `anthropic-sdk-boundary.spec.ts` pins it; `core/no-provider-sdk.spec.ts`
                              and `test/ai/ai-no-sdk-leak.spec.ts` keep every SDK out of the rest.
-    gemini/                  The Phase 3 Gemini adapter (#447; generateContent, `responses` +
+    gemini/                  The Phase 3 Gemini adapter (generateContent, `responses` +
                              `embeddings` ports, stateless, no hosted tools). ONLY place
                              `@google/genai` is imported — `gemini-sdk-boundary.spec.ts` pins it.
                              Its classifier is enriched by the model listing's own metadata
                              (`AiDiscoveredModel.metadata`, `classifyModel`'s optional 2nd arg).
-    azure-openai/            The Azure OpenAI adapter (#448): AzureOpenAI client per call
+    azure-openai/            The Azure OpenAI adapter: AzureOpenAI client per call
                              (endpoint, api-version, `api-key` header), `apiStyle` responses |
                              chat_completions, model id -> deployment map, OpenAI classifier
                              minus hosted_tools; `responses` + `embeddings`, stateless flags.
-    openai-compatible/       The generic OpenAI-compatible adapter (#448; Ollama, vLLM, LM
+    openai-compatible/       The generic OpenAI-compatible adapter (Ollama, vLLM, LM
                              Studio): `baseUrl` + `apiStyle` (chat_completions default),
                              every model unclassified, keyless when `requiresKey: false`
                              (keySource 'none'); `responses` + `embeddings`.
@@ -74,32 +72,32 @@ ai/
     ai-runs.service.ts        AiRunsService — background run rows; AI_RESPONSE_RUN_TYPE
     ai-response-run.handler.ts  `ai.response.run` job (server-only)
     ai-media-run.handler.ts   AiMediaRunHandler — the claim/cancel/deadline/outcome lifecycle of media runs
-    ai-image-generate.handler.ts  `ai.image.generate` job (server-only, #437) — image runs
-    ai-audio-transcribe.handler.ts  `ai.audio.transcribe` job (server-only, #438) — transcription runs
-    ai-audio-speech.handler.ts   `ai.audio.speech` job (server-only, #439) — speech runs -> a storage object
+    ai-image-generate.handler.ts  `ai.image.generate` job (server-only) — image runs
+    ai-audio-transcribe.handler.ts  `ai.audio.transcribe` job (server-only) — transcription runs
+    ai-audio-speech.handler.ts   `ai.audio.speech` job (server-only) — speech runs -> a storage object
     ai-run-request.ts         toStoredRunRequest/fromStoredRunRequest (ai_runs.request JSON)
     ai-hosted-outputs.ts      AiHostedOutputSettler — image bytes -> storage seam, MCP header scrub
     ai-image-run-request.ts   an image run's stored request
-    ai-audio-run-request.ts   an audio run's stored request (#438)
+    ai-audio-run-request.ts   an audio run's stored request
     ai-run-operation.ts       aiRunOperation — `request.operation` tells runs apart
     ai-tool-loop.ts            runToolLoop — the function-calling agent loop
     ai-usage.recorder.ts       One ai_usage_events row per provider round-trip
-    ai-limits.service.ts       AiLimitsService — ai.limits rate limits, step 6b (#450)
-  http/                    The consumer HTTP surface (issue #433)
+    ai-limits.service.ts       AiLimitsService — ai.limits rate limits, step 6b
+  http/                    The consumer HTTP surface
     ai-responses.controller.ts   POST /api/ai/responses, POST /api/ai/responses/stream
     ai-runs.controller.ts        POST /api/ai/runs, GET/POST /api/ai/runs/:runId(/cancel)
-    ai-embeddings.controller.ts  POST /api/ai/embeddings (#440)
-    ai-images.controller.ts      POST /api/ai/images, POST /api/ai/images/edits (#437) — 202, a run
-    ai-audio.controller.ts       POST /api/ai/audio/transcriptions (#438), POST /api/ai/audio/speech (#439) — 202, a run
-    ai-realtime.controller.ts    POST /api/ai/realtime/sessions (#449) — 201, an ephemeral realtime secret
+    ai-embeddings.controller.ts  POST /api/ai/embeddings
+    ai-images.controller.ts      POST /api/ai/images, POST /api/ai/images/edits — 202, a run
+    ai-audio.controller.ts       POST /api/ai/audio/transcriptions, POST /api/ai/audio/speech — 202, a run
+    ai-realtime.controller.ts    POST /api/ai/realtime/sessions — 201, an ephemeral realtime secret
     ai-sse.ts                     pipeAiSse/formatSseEvent/abortOnDisconnect — see below
     ai-http-request.ts           toAiRequest — HTTP DTO -> AiRequest
     json-schema-structured-output.ts   HTTP callers send JSON Schema, not Zod
-  storage/                 Storage objects in and out of AI (issue #437) — shared by every media story
+  storage/                 Storage objects in and out of AI — shared by every media story
     ai-storage-input.resolver.ts  AiStorageInputResolver — object id -> ownership-checked input (+ bytes)
     ai-output-writer.ts          AiOutputWriter — bytes -> the user's storage objects under ai-outputs/
     ai-storage-errors.ts         aiErrorFromStorage — storage failures as run outcomes
-  usage/                   Reading ai_usage_events back (issue #443)
+  usage/                   Reading ai_usage_events back
     ai-usage.service.ts          AiUsageService — the aggregate report (GROUPING SETS SQL)
     ai-usage-admin.controller.ts GET /api/admin/ai/usage (ai_config:read)
     ai-usage.controller.ts       GET /api/ai/usage/me (ai:use, caller only)
@@ -113,6 +111,125 @@ Every sub-module is wired into `ai.module.ts` by one import line — the same
 injects `AiService`; it never reaches into `core/`, `providers/`, `config/`
 or `keys/` directly for that purpose (those are the platform's own internals,
 not a feature's dependency).
+
+## Using AI from a feature
+
+Import `AiModule`, inject `AiService`, and call `forUser(userId)`:
+
+```ts
+@Module({ imports: [AiModule], providers: [MyFeatureService] })
+export class MyFeatureModule {}
+```
+
+```ts
+constructor(private readonly ai: AiService) {}
+
+async summarize(userId: string, text: string) {
+  const res = await this.ai.forUser(userId).respond({ input: `Summarise: ${text}` });
+  return res.outputText;
+}
+```
+
+No SDK, no key, no policy check of your own — `forUser` runs the full gate
+pipeline (kill switch, provider/model enablement, capability match, key
+resolution, the `ai.limits` rate limits and output-token clamp — see below),
+records one `ai_usage_events` row per round-trip, and traces the call. A call
+over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
+`details.limit` (429 plus `Retry-After` over HTTP); in a job,
+`err.toRateLimitError()` defers it. Twelve entry points, all on the client
+`forUser` returns:
+
+- **`respond(req, opts?)`** — one response. `req.input` is a string or
+  `AiInputItem[]` (text/image/file parts); `opts.signal` aborts it.
+  `req.previousResponseId` chains onto an earlier response only on a
+  provider that stores them (OpenAI); Anthropic, Gemini, Azure OpenAI and
+  OpenAI-compatible refuse it with
+  `AI_CAPABILITY_UNSUPPORTED` — send the conversation as `input` instead
+  (`runTools` already does, spec §5.7).
+- **`stream(req, opts?)`** — an `AsyncIterable<AiStreamEvent>`. Lazy: a gate
+  or pre-stream provider failure surfaces on the first iteration. Use this
+  for an in-process consumer that is already committed to iterating.
+- **`openStream(req, opts?)`** — the SSE-route form: the returned promise
+  itself rejects with the `AiError` for anything that fails *before* the
+  first event, so an HTTP handler can answer it as an ordinary JSON error
+  rather than an in-band frame; after that, iterate exactly like `stream`.
+- **`respondStructured({ schema, schemaName?, strict?, ...req }, opts?)`** —
+  `schema` is a Zod schema; `parsed` on the result is typed and always
+  present, or the call throws `AiError('AI_STRUCTURED_OUTPUT_INVALID')`.
+
+  ```ts
+  const weather = z.object({ city: z.string(), tempC: z.number() });
+  const { parsed } = await this.ai.forUser(userId).respondStructured({
+    schema: weather,
+    input: 'What is the weather in Paris right now, roughly?',
+  });
+  ```
+- **`runTools({ input, tools, maxSteps? }, opts?)`** — the function-calling
+  agent loop (up to 8 gated round-trips by default, max 20). Define a tool
+  with `defineTool` (`ai/core/tools.ts`) — one Zod schema doubles as the
+  provider-facing JSON Schema and the validation of the model's arguments:
+
+  ```ts
+  const getWeather = defineTool({
+    name: 'get_weather',
+    description: 'Look up the current weather for a city.',
+    parameters: z.object({ city: z.string() }),
+    execute: async ({ city }, ctx) => lookupWeather(city, ctx.userId),
+  });
+
+  const result = await this.ai.forUser(userId).runTools({
+    input: 'What is the weather in Paris?',
+    tools: [getWeather.tool],
+  });
+  ```
+- **`startRun(req)`** — queues the request as a background `ai.response.run`
+  job and returns `{ runId, jobId }` at once; poll with
+  `AiRunsService.get(userId, runId)` / cancel with `.cancel(...)`. Throws
+  `AiError('AI_INVALID_REQUEST')` for a function tool (it cannot survive the
+  queue hop — use `runTools` in-process instead) or when
+  `ai.defaults.allowBackgroundRuns` is off.
+- **`embed({ model, input, dimensions? }, opts?)`** — one vector per input
+  (a string or up to 256 strings), synchronous; `model` is required. For a
+  large backfill, enqueue your own server-only job that embeds one chunk
+  per run (`docs/specs/ai-platform.md` §5.1).
+- **`generateImage({ model, prompt, n?, size?, … })` /
+  `editImage({ …, imageStorageObjectIds, maskStorageObjectId? })`** —
+  always queue an `ai.image.generate` run and return `{ runId, jobId }`;
+  the succeeded run's `output.storageObjectIds` are storage objects the
+  user owns (under `ai-outputs/<userId>/<runId>/`). Edit inputs are the
+  user's own storage objects, never bytes. A later media feature reads and
+  writes storage the same way, through `ai/storage`'s
+  `AiStorageInputResolver` / `AiOutputWriter` (§5.2).
+- **`transcribe({ storageObjectId, model?, language?, prompt?,
+  timestampGranularities? })`** — always queues an `ai.audio.transcribe`
+  run; the succeeded run's `output.text` is the transcript. The recording
+  is the user's own storage object, streamed to the provider by the job
+  (§5.5).
+- **`speak({ input, voice?, model?, format?, instructions?, speed? })`** —
+  always queues an `ai.audio.speech` run (input ≤ 4096 characters); the
+  succeeded run's `output.storageObjectId` is the audio, a storage object
+  the user owns, with `aiGenerated: true` — surface that to listeners
+  (§5.6).
+- **`createRealtimeSession({ model?, voice?, instructions?, turnDetection?,
+  tools? })`** — synchronously mints an ephemeral realtime secret the
+  BROWSER connects to the provider with over WebRTC (`{ clientSecret,
+  expiresAt, connectUrl, … }`); off unless `ai.defaults.allowRealtime`
+  (`AI_REALTIME_DISABLED`); one usage row, `units: { sessions: 1 }` (§5.8).
+
+**Picking a model**: pass `req.model` (and `req.provider` when more than one
+is registered) to pin it, or leave both unset to fall back to the caller's
+own `user_settings.ai.defaultModel` — `AiService` resolves this the same way
+either path is called, so a feature never re-implements the fallback.
+
+**Handling `AiError`**: every failure this platform can produce is an
+`AiError` with a stable `.code` (never a raw provider SDK error) — catch it
+and switch on `.code`, not on `err.message`, which is deliberately generic
+for anything wrapping a caught SDK error. `docs/specs/ai-platform.md` §13
+has the full table (`AI_DISABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_ENABLED`,
+`AI_CAPABILITY_UNSUPPORTED`, `AI_RATE_LIMITED`, …); a job handler does
+`throw err.toRateLimitError() ?? err;` so a provider throttle defers the job
+rather than charging an attempt, the same idiom `RateLimitError` already
+uses elsewhere in this codebase.
 
 ## The request lifecycle: the gate pipeline
 
@@ -133,7 +250,7 @@ header comment:
  5. clamp maxOutputTokens to the deployment cap, the ai.limits.perModel cap
     and the model's own limit (the smallest wins)
  6. resolve the key (AiKeyResolver — the byok invariant lives HERE, only)
- 6b. rate limits (AiLimitsService, #450)  -> AI_RATE_LIMITED (429)
+ 6b. rate limits (AiLimitsService)         -> AI_RATE_LIMITED (429)
  7. call the adapter: { apiKey, baseUrl, signal, requestId }
  8. record ONE ai_usage_events row (success, failure, or cancellation)
  9. trace it as an `ai.request` span (never the key, never prompt text)
@@ -155,7 +272,7 @@ unusable request fails fast, synchronously, before anything is queued) and
 then hands a JSON-safe copy of the request (`toStoredRunRequest`) to
 `AiRunsService.create`, which enqueues `ai.response.run`.
 
-`embed` (issue #440) is the first non-responses operation and the template
+`embed` is the first non-responses operation and the template
 for the rest of Phase 2: `prepareEmbedding()` runs steps 1–3 with
 `embeddings` as the one capability needed (plus a shape check: `model`
 required, 1–256 non-empty inputs, positive `dimensions`), then it shares
@@ -166,7 +283,7 @@ one more `prepare…`, one more map entry and one more `AiUserClient` method.
 Synchronous, no job; a large backfill is a fork's own server-only job type
 calling `embed` per chunk of ≤ 256 rows (`docs/specs/ai-platform.md` §5.1).
 
-`generateImage`/`editImage` (issue #437) are that template plus a queue hop:
+`generateImage`/`editImage` are that template plus a queue hop:
 `prepareImage()` runs steps 1–3 with `image_generation`/`image_edit` and, for
 an edit, resolves each input storage object through
 `storage/AiStorageInputResolver` (ownership, readiness, type, size — the row
@@ -179,7 +296,7 @@ objects; the run's `output.storageObjectIds` names them
 (`docs/specs/ai-platform.md` §5.2). The two `storage/` pieces are the ones
 the audio and file-input stories reuse.
 
-`transcribe` (issue #438) is the same template with the recording as the
+`transcribe` is the same template with the recording as the
 one input: `prepareTranscription()` runs steps 1–3 with
 `audio_transcription` (an omitted model is the first usable one declaring
 it) and resolves the recording (`audio/*`, `video/mp4|webm`, at most the
@@ -190,7 +307,7 @@ run's output; nothing is stored (§5.5). Both media jobs extend
 `runtime/ai-media-run.handler.ts`, which owns the run lifecycle — a new
 media job is its `execute()` plus a type and a profile.
 
-`speak` (issue #439) mirrors images: `prepareSpeech()` runs steps 1–3 with
+`speak` mirrors images: `prepareSpeech()` runs steps 1–3 with
 `audio_speech`, refuses input over 4096 characters first, and resolves the
 voice against the model's catalog `voices` (else the port's `audio.voices`);
 the `ai.audio.speech` job calls `executeSpeechRun()` (`units: { characters
@@ -199,7 +316,7 @@ the `ai.audio.speech` job calls `executeSpeechRun()` (`units: { characters
 carries `aiGenerated: true` — the disclosure provider policies require
 (§5.6).
 
-`createRealtimeSession` (issue #449) is synchronous and has no job:
+`createRealtimeSession` is synchronous and has no job:
 `prepareRealtime()` checks the kill switch, then `ai.defaults.allowRealtime`
 (default off → `AI_REALTIME_DISABLED`), then steps 2–3 with `realtime`
 (an omitted model is the first usable one) and the voice, then `context()`
@@ -212,7 +329,7 @@ user's key never leaves. Usage is `operation: 'realtime'`, `units: {
 sessions: 1 }`, no tokens (the server never sees the audio). See
 `docs/specs/ai-platform.md` §5.8.
 
-**Storage-object inputs** (issue #441) need no method of their own: an
+**Storage-object inputs** need no method of their own: an
 `image`/`file` part may carry `storageObjectId` instead of `url`, and
 `prepare()` resolves it (`planStorageInputs`: ownership, readiness,
 modality from the MIME type vs. `vision_input`/`file_input`, 20/50 MiB caps,
@@ -229,9 +346,9 @@ OpenAI takes images by presigned URL and files inline; an OpenAI-compatible
 server gets both inline (it usually cannot reach this deployment's storage).
 See `docs/specs/ai-platform.md` §5.3.
 
-**Stateless providers** (issue #446): an adapter declaring
+**Stateless providers**: an adapter declaring
 `supportsPreviousResponseId: false` (Anthropic, Gemini, and — conservatively,
-in both API styles — Azure OpenAI and OpenAI-compatible, #448) cannot chain onto a stored
+in both API styles — Azure OpenAI and OpenAI-compatible) cannot chain onto a stored
 response. `prepare()` refuses a caller's `previousResponseId` with
 `AI_CAPABILITY_UNSUPPORTED` (step 2a, before any key is resolved), and
 `runTools` resends the whole conversation each round instead of chaining —
@@ -245,7 +362,7 @@ else. `GET /api/ai/config` publishes the flag per provider
 (`providers[].supportsPreviousResponseId`) so a client resends history
 rather than being refused. See `docs/specs/ai-platform.md` §5.7.
 
-## OpenAI-compatible endpoints and keyless servers (issue #448)
+## OpenAI-compatible endpoints and keyless servers
 
 `azure-openai` and `openai-compatible` are compositions of the OpenAI
 adapter's shared pieces, not new mappings: each has its own client factory
@@ -271,7 +388,15 @@ for compatible; no credentials, no fragment), an internal host is an explicit
 admin decision, and `noRedirectFetch` refuses every redirect. See
 `docs/specs/ai-platform.md` §14.3.
 
-## Rate limits and output caps (issue #450)
+## Adding a provider
+
+A new provider is an adapter implementation against the existing
+`AiProviderAdapter` contract, never a platform change. The full recipe —
+self-registration, the model classifier, error mapping onto `AiErrorCode`,
+and the conformance kit every adapter must pass — is
+[`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §14.
+
+## Rate limits and output caps
 
 `ai.limits` — `perUser.{requestsPerMinute,requestsPerDay}`,
 `orgKey.{requestsPerDayPerUser,tokensPerDayPerUser}` and
@@ -297,7 +422,7 @@ windows count since UTC midnight. `perModel[…].maxOutputTokens` is not a rate:
 through the runtime harness (`createAiRuntimeHarness({ clock })`). See
 `docs/specs/ai-platform.md` §15.
 
-## Hosted tools (issue #442)
+## Hosted tools
 
 `AiResponseRequest.tools` may carry provider-hosted tools — `web_search`,
 `file_search`, `code_interpreter`, `image_generation`, `mcp` — a typed union
@@ -420,7 +545,7 @@ Two things never leave the facade, both handled by
   `AiError`, never a raw SDK exception. `providers/openai/openai.adapter.conformance.spec.ts`
   `providers/anthropic/anthropic.adapter.conformance.spec.ts` and
   `providers/gemini/gemini.adapter.conformance.spec.ts` are the three
-  worked examples (the #448 adapters run it too, each in both API styles —
+  worked examples (the Azure OpenAI and OpenAI-compatible adapters run it too, each in both API styles —
   `providers/azure-openai/` and `providers/openai-compatible/`, over the
   same OpenAI mock transport, which also speaks `/chat/completions`,
   Azure's `api-key` header and keyless requests) of wiring a real adapter through it over a mocked
@@ -439,7 +564,7 @@ No test in this module — or in a fork's own feature tests — should need a
 real provider account or network access; every scenario above is reachable
 through `FakeAiProvider` and the harness.
 
-**Cross-cutting guard suites** (`apps/api/test/ai/`, issue #435) are a
+**Cross-cutting guard suites** (`apps/api/test/ai/`) are a
 different kind of test: each discovers its own subject (every `/api/ai/*`
 route, every `ai.*` job type, every file in `apps/api/src`/`apps/web/src`)
 from the real router/registry/filesystem rather than a hand-written list, so
