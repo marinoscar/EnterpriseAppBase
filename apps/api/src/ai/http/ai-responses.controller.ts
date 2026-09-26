@@ -61,6 +61,12 @@ export class AiResponsesController {
       'match is `502` with `details.reason: "AI_STRUCTURED_OUTPUT_INVALID"`). Function tools ' +
       'are **not** accepted over HTTP. `maxOutputTokens` is clamped to the deployment cap and ' +
       'the model\'s own limit. The request body is limited to 1 MB.\n\n' +
+      'An `image`/`file` part names its bytes by `url` or by `storageObjectId` — one of your ' +
+      'own `ready` storage objects (unknown `404`, another user\'s `403`). A stored image ' +
+      '(PNG/JPEG/GIF/WebP, at most 20 MiB) needs a model with `vision_input`, any other file ' +
+      '(at most 50 MiB) one with `file_input`; the provider reads it through a short-lived ' +
+      'presigned URL or its own file upload, never a public link. Unconfigured object ' +
+      'storage is `503` `AI_STORAGE_UNAVAILABLE`.\n\n' +
       'Refusals carry the AI error code in `details.reason`: `AI_DISABLED`, ' +
       '`AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
       '`AI_MODEL_NOT_REACHABLE` (403); `AI_CAPABILITY_UNSUPPORTED`, `AI_INVALID_REQUEST`, ' +
@@ -77,13 +83,14 @@ export class AiResponsesController {
     status: 403,
     description:
       '`AI_DISABLED`, `AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
-      '`AI_MODEL_NOT_REACHABLE`, or missing `ai:use`',
+      '`AI_MODEL_NOT_REACHABLE`, missing `ai:use`, or another user\'s `storageObjectId` input',
     type: ErrorDto,
   })
+  @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
   @ApiResponse({ status: 422, description: '`AI_CONTENT_FILTERED`', type: ErrorDto })
   @ApiResponse({ status: 429, description: '`AI_RATE_LIMITED`', type: ErrorDto })
   @ApiResponse({ status: 502, description: '`AI_STRUCTURED_OUTPUT_INVALID`', type: ErrorDto })
-  @ApiResponse({ status: 503, description: '`AI_PROVIDER_UNAVAILABLE`', type: ErrorDto })
+  @ApiResponse({ status: 503, description: '`AI_PROVIDER_UNAVAILABLE`, `AI_STORAGE_UNAVAILABLE`', type: ErrorDto })
   async respond(
     @Body() dto: AiResponseRequestDto,
     @CurrentUser('id') userId: string,
@@ -156,11 +163,16 @@ export class AiResponsesController {
     status: 403,
     description:
       '`AI_DISABLED`, `AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
-      '`AI_MODEL_NOT_REACHABLE`, or missing `ai:use`',
+      '`AI_MODEL_NOT_REACHABLE`, missing `ai:use`, or another user\'s `storageObjectId` input',
     type: ErrorDto,
   })
+  @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
   @ApiResponse({ status: 429, description: '`AI_RATE_LIMITED` before streaming began', type: ErrorDto })
-  @ApiResponse({ status: 503, description: '`AI_PROVIDER_UNAVAILABLE` before streaming began', type: ErrorDto })
+  @ApiResponse({
+    status: 503,
+    description: '`AI_PROVIDER_UNAVAILABLE` or `AI_STORAGE_UNAVAILABLE` before streaming began',
+    type: ErrorDto,
+  })
   async stream(
     @Body() dto: AiResponseRequestDto,
     @CurrentUser('id') userId: string,

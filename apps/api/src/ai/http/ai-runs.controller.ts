@@ -61,7 +61,10 @@ export class AiRunsController {
       'synchronous route; it is checked again when the run executes, and a run that can no ' +
       'longer proceed ends `failed` with the AI error code in `errorCode`.\n\n' +
       '`400` with `details.reason: "AI_INVALID_REQUEST"` when this deployment has background ' +
-      'runs switched off (`allowBackgroundRuns: false` in `GET /api/ai/config`).',
+      'runs switched off (`allowBackgroundRuns: false` in `GET /api/ai/config`).\n\n' +
+      'A `storageObjectId` input is checked now and read again when the run executes; the ' +
+      'run stores the id only, never a URL. An input deleted meanwhile fails the run ' +
+      '`AI_INVALID_REQUEST`.',
   })
   @ApiDataResponse(AiRunStartedDto, { status: 202, description: 'The run was queued' })
   @ApiResponse({
@@ -73,9 +76,10 @@ export class AiRunsController {
     status: 403,
     description:
       '`AI_DISABLED`, `AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`, `AI_KEY_REQUIRED`, ' +
-      '`AI_MODEL_NOT_REACHABLE`, or missing `ai:use`',
+      '`AI_MODEL_NOT_REACHABLE`, missing `ai:use`, or another user\'s `storageObjectId` input',
     type: ErrorDto,
   })
+  @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
   async start(@Body() dto: AiResponseRequestDto, @CurrentUser('id') userId: string): Promise<AiRunHandle> {
     return this.ai.forUser(userId).startRun(toAiRequest(dto));
   }
