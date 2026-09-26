@@ -2564,6 +2564,8 @@ Resume flips the broadcast back to `sending`, clears `lastError` and `finishedAt
 
 **Note:** Retrying the failed chunk job from the Jobs page does **not** resume the broadcast — the chunk handler sees a broadcast that is still `failed` and sends nothing; this route is the only way back to `sending`. If the chunk job cannot be queued, the broadcast is returned to `failed` with the reason recorded in `lastError` and the request itself fails.
 
+**Note:** A broadcast stuck in `sending` with no progress (no `recipientsDispatched`, no chunk job) rather than `failed` is a different, since-fixed case (issue #469) — it is repaired by retrying its `admin.broadcast.start` job from the Jobs page, not by this route.
+
 **Error Cases:**
 - 404 Not Found - Broadcast not found
 - 409 Conflict - The broadcast is not `failed`
