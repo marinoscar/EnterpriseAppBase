@@ -334,6 +334,58 @@ then a fork stores vectors itself (a `Float[]`/JSONB column, or its own
 `vector` column behind a migration it owns) and computes similarity in the
 query or in process.
 
+### 5.2 Images (Phase 2, issue #437)
+
+The embeddings shape (§5.1) plus a queue hop: an adapter port
+(`images.generate` / `images.edit`), two facade methods, one usage
+`operation` (`'images'`), one job type (`ai.image.generate`, §9) and two
+routes. Outputs are **storage objects the user owns** — never base64 in an
+API response or a database row.
+
+- **Facade.** `ai.forUser(userId).generateImage({ model, prompt, size?,
+  quality?, background?, outputFormat?, n? })` and `.editImage({ …,
+  imageStorageObjectIds, maskStorageObjectId? })` → `{ runId, jobId }`.
+  Always asynchronous, and **not** subject to `allowBackgroundRuns` (there
+  is no synchronous form to fall back to). `model` is required; `n` is 1–4
+  (`AI_IMAGES_MAX_N`); an edit takes 1–16 source images.
+- **Gates, twice.** `prepareImage` runs at queue time and again in the job:
+  kill switch → shape → provider → model with `image_generation` (or
+  `image_edit`), model **and** provider port → an edit's inputs. A model
+  without the capability is `AI_CAPABILITY_UNSUPPORTED`.
+- **Inputs by storage object id** (`ai/storage/AiStorageInputResolver`,
+  shared with #438/#441). The caller must be the uploader or hold
+  `storage:read_any`; an unknown id is **404** and another user's is
+  **403** — the answers `ObjectsService` gives. Each input must be `ready`,
+  PNG/JPEG/WebP (the mask PNG) and ≤ 25 MiB, else `AI_INVALID_REQUEST`;
+  the cap is enforced again while reading, since a simple upload's row size
+  is 0 until post-processing. `ai_runs.request` stores the ids, never the
+  bytes.
+- **The job** (`ai.image.generate`, `{ runId }`): gates → **storage
+  pre-flight** (`AiOutputWriter.assertWritable()`, so images that could not
+  be kept are never paid for) → one provider call (one usage row,
+  `units: { images: n }` plus tokens where reported) → every image written
+  as a `ready` storage object owned by the user under
+  `ai-outputs/<userId>/<runId>/` (`AI_OUTPUTS_KEY_PREFIX`, on
+  `STORAGE_KEY_PREFIXES`) → the run completes with `output = { type:
+  'images', provider, model, storageObjectIds, images: [{ storageObjectId,
+  mimeType, size, revisedPrompt? }], usage }`. The client downloads each
+  through `GET /api/storage/objects/{id}/download`.
+- **Runs.** The same `ai_runs` table and `AiRunsService`; the operation is
+  `request.operation` (`images.generate` | `images.edit`; absent means a
+  responses run, so no migration and no change to old rows). Cancel works
+  identically; images written after a cancel won are discarded.
+- **Storage failures** become run outcomes: unconfigured or unwritable
+  storage → `AI_STORAGE_UNAVAILABLE` (the job throws — an operator must
+  act); an input deleted or no longer the user's → `AI_INVALID_REQUEST`.
+- **OpenAI wire detail.** GPT-image models take `output_format`,
+  `background` and `quality`; DALL·E models get `response_format:
+  'b64_json'` instead (their default is a URL) and `quality: 'high'` →
+  `hd` on DALL·E 3. A URL-only answer is `AI_PROVIDER_UNAVAILABLE`, never
+  fetched. `moderation_blocked` → `AI_CONTENT_FILTERED`.
+
+Out of scope: the Responses API `image_generation` hosted tool (#442) and
+the UI (#445).
+
 ## 6. Model discovery and classification
 
 A provider's model-listing endpoint returns IDs and little else useful —
@@ -445,8 +497,8 @@ reachable, so a deployment can always turn itself back on:
 
 ## 9. Jobs
 
-Three job types exist or are planned for this platform, and **all three are
-server-only, never node-eligible** — no `nodeResultSchema` +
+Every job type this platform has or plans is **server-only, never
+node-eligible** — no `nodeResultSchema` +
 `persistNodeResult` pair, ever, for any AI job type:
 
 - `ai.catalog.refresh` — discovers and classifies one provider's models
@@ -474,8 +526,13 @@ server-only, never node-eligible** — no `nodeResultSchema` +
   maxAttempts: 3 }`. Enqueued daily at 05:00 by `AiUsagePurgeTask` through
   `enqueueHousekeepingJob` — the one AI cron that uses that helper, because
   it is global (no per-provider subject).
-- Phase 2/3 media jobs (image generation/edit, audio transcription/speech)
-  will follow the identical posture once implemented. Embeddings ship no job
+- `ai.image.generate` (#437) — executes one image generation or edit run
+  (§5.2) with the user's key. Payload `{ runId }`. `profile: { maxRuntimeMs:
+  10*60_000, maxAttempts: 1 }` for the same reason as `ai.response.run`:
+  images are billed per image. Same terminal-code handling as below, plus
+  `AI_STORAGE_UNAVAILABLE`, which fails the run and **throws**.
+- The remaining Phase 2/3 media jobs (audio transcription/speech) will
+  follow the identical posture once implemented. Embeddings ship no job
   type of their own: `embed` is synchronous, and a large backfill is a
   fork's own server-only job calling it per chunk (§5.1).
 
@@ -659,7 +716,9 @@ catalog` — `catalog` is the one operation with no `userId` (it runs under
 the admin key, §6, `keySource: 'admin_discovery'`) and no
 `inputTokens`/`outputTokens` (discovery/classification are not token-metered
 calls); `units` exists for non-token-metered operations (`{ images: 2 }`,
-`{ audioSeconds: 31.4 }`).
+`{ audioSeconds: 31.4 }`). `AiUsageRecorder` writes it from the facade's
+round-trip outcome (#437 — `images` records `{ images: n }`), keeping only
+finite, non-negative numbers and storing nothing when none are left.
 
 **Reading it back (#443).** Two routes aggregate these rows, both answering
 one report shape so one UI component renders either:
@@ -752,6 +811,7 @@ one HTTP status:
 | `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. |
 | `AI_INVALID_REQUEST` | 400 | The request itself is malformed (e.g. no model selected and no default set). |
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output failed to parse against the requested schema. |
+| `AI_STORAGE_UNAVAILABLE` | 503 | An operation whose inputs or outputs are storage objects (§5.2) met unconfigured or unwritable object storage; an administrator fixes it at `/admin/settings/storage`. Seen as a background run's `errorCode`. |
 
 `AiError` follows the `StorageNotConfiguredError` style already established
 in this codebase: it serializes through the global `HttpExceptionFilter` as
@@ -764,7 +824,7 @@ specific code from the table above travels **only** in `details.reason`,
 written last inside `AiError`'s constructor so a caller-supplied
 `details.reason` can never disagree with it; a client switches on
 `details.reason`, never on the top-level `code`, to learn which of these
-twelve conditions occurred. Its `apiKey`/key material must never appear in
+thirteen conditions occurred. Its `apiKey`/key material must never appear in
 `details` or in any log line derived from it, regardless of how the error
 was constructed (a unit test asserts `JSON.stringify(new AiError(...))`
 never includes a key passed via `cause`).
@@ -848,8 +908,10 @@ every consumer-facing route (as opposed to `/api/admin/ai/*`'s
 | `POST /api/ai/responses` | `forUser(id).respond(...)` → `AiResponse` (includes `parsed` when structured). |
 | `POST /api/ai/responses/stream` | SSE (§10). Function tools are not accepted over this route in Phase 1 — they execute server-side code and are for in-process `runTools()` only; hosted tools arrive in Phase 2. Request body limit 1 MB. |
 | `POST /api/ai/embeddings` | `forUser(id).embed(...)` → `{ provider, model, dimensions, vectors, usage }` (§5.1). `model` required; > 256 inputs → 400 `AI_INVALID_REQUEST`; a model without `embeddings` → 400 `AI_CAPABILITY_UNSUPPORTED`. Request body limit 1 MB. |
+| `POST /api/ai/images` | `generateImage(...)` → `{ runId, jobId }`, status 202 (§5.2). A model without `image_generation` → 400 `AI_CAPABILITY_UNSUPPORTED`. |
+| `POST /api/ai/images/edits` | `editImage(...)` → `{ runId, jobId }`, status 202. Inputs by storage object id: unknown → 404, another user's → 403, not ready / wrong type / too large → 400 `AI_INVALID_REQUEST`. |
 | `POST /api/ai/runs` | `startRun(...)` → `{ runId, jobId }`, status 202. |
-| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); 404 for another user's run. |
+| `GET /api/ai/runs/:id` | Scoped to caller → `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }` (never the stored prompt, never the job id); `output` is the `AiResponse`, or an image run's `{ type: 'images', storageObjectIds, … }`; 404 for another user's run. |
 | `POST /api/ai/runs/:id/cancel` | Scoped to caller; 200. |
 | `GET /api/ai/usage/me` | Query `from?, to?, groupBy?(day\|model)` → the caller's own usage report (§12). |
 

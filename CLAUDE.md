@@ -741,8 +741,10 @@ requires `ai:use`. See
 - `POST /api/ai/responses` - One AI response via `AiService.forUser(id).respond(...)`; 1 MB body limit, function tools not accepted over HTTP (`ai:use`)
 - `POST /api/ai/responses/stream` - The same request as SSE (`Accept: text/event-stream`, no `stream` flag) — `event: <type>` frames, `: ping` every 15s, ending with `response.completed` or an in-band `error` frame; every pre-stream refusal is an ordinary JSON error over an unbuffered nginx route (issue #433, epic #419) (`ai:use`)
 - `POST /api/ai/embeddings` - Embeddings via `AiService.forUser(id).embed(...)` → `{ provider, model, dimensions, vectors, usage }`; `model` required, at most 256 inputs (400 `AI_INVALID_REQUEST` beyond — chunk it, and queue your own job for a backfill), `dimensions` where the model supports it; synchronous (issue #440, epic #420) (`ai:use`)
+- `POST /api/ai/images` - Queue an image generation (`ai.image.generate`, issue #437, epic #420); 202 `{ runId, jobId }`; `model` required, `n` 1–4; always async, not subject to `allowBackgroundRuns`; a model without `image_generation` is 400 `AI_CAPABILITY_UNSUPPORTED` (`ai:use`)
+- `POST /api/ai/images/edits` - Queue an edit of the caller's own images, named by storage object id (`imageStorageObjectIds`, optional PNG `maskStorageObjectId`); 202 `{ runId, jobId }`; unknown input 404, another user's 403, not ready/wrong type/over 25 MiB 400 `AI_INVALID_REQUEST` (`ai:use`)
 - `POST /api/ai/runs` - Queue a background AI response (`ai.response.run`); 202 `{ runId, jobId }`; 400 `AI_INVALID_REQUEST` when `ai.defaults.allowBackgroundRuns` is off (`ai:use`)
-- `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; 404 for another user's run (`ai:use`)
+- `GET /api/ai/runs/{id}` - Get one background run, scoped to the caller — `{ id, status, provider, modelId, output, errorCode, errorMessage, createdAt, completedAt }`; an image run's `output` is `{ type: "images", storageObjectIds, images, usage }` — storage objects the caller owns, downloaded via `GET /api/storage/objects/{id}/download` (unconfigured storage fails the run `AI_STORAGE_UNAVAILABLE`); 404 for another user's run (`ai:use`)
 - `POST /api/ai/runs/{id}/cancel` - Cancel a background run, scoped to the caller; idempotent — a finished run is returned unchanged (`ai:use`)
 - `GET /api/ai/usage/me?from&to&groupBy` - The caller's own usage report, same shape as the admin one, `groupBy` `day|model` only (`ai:use`)
 
@@ -895,7 +897,9 @@ requires `ai:use`. See
   allowlist can legitimately reach fewer models than the deployment otherwise offers.
   Recomputed at key-set time, on the weekly `ai.keys.recheck` job, and whenever
   `ai.catalog.refresh` emits `AI_CATALOG_SYNCED_EVENT`.
-- `ai_runs` - One row per background AI response (`ai.response.run`, epic #419).
+- `ai_runs` - One row per background AI response (`ai.response.run`, epic #419) or image
+  generation/edit (`ai.image.generate`, #437 — told apart by `request.operation`, absent for a
+  response run, so no migration).
   `jobId` is nullable and deliberately **not a foreign key**, mirroring `jobs.subjectType`/
   `subjectId`'s polymorphism argument above. `request` holds the **full normalized
   request** — instructions, the complete input, tool definitions, structured-output
@@ -1327,7 +1331,7 @@ async summarize(userId: string, text: string) {
 No SDK, no key, no policy check of your own — `forUser` runs the full gate
 pipeline (kill switch, provider/model enablement, capability match, key
 resolution, output-token clamp), records one `ai_usage_events` row per
-round-trip, and traces the call. Seven entry points, all on the client
+round-trip, and traces the call. Nine entry points, all on the client
 `forUser` returns:
 
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
@@ -1378,6 +1382,14 @@ round-trip, and traces the call. Seven entry points, all on the client
   (a string or up to 256 strings), synchronous; `model` is required. For a
   large backfill, enqueue your own server-only job that embeds one chunk
   per run (`docs/specs/ai-platform.md` §5.1).
+- **`generateImage({ model, prompt, n?, size?, … })` /
+  `editImage({ …, imageStorageObjectIds, maskStorageObjectId? })`** —
+  always queue an `ai.image.generate` run and return `{ runId, jobId }`;
+  the succeeded run's `output.storageObjectIds` are storage objects the
+  user owns (under `ai-outputs/<userId>/<runId>/`). Edit inputs are the
+  user's own storage objects, never bytes. A later media feature reads and
+  writes storage the same way, through `ai/storage`'s
+  `AiStorageInputResolver` / `AiOutputWriter` (§5.2).
 
 **Picking a model**: pass `req.model` (and `req.provider` when more than one
 is registered) to pin it, or leave both unset to fall back to the caller's
