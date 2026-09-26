@@ -78,4 +78,34 @@ export interface EmailSendResult {
    * populating it; do not bypass that.
    */
   error?: string;
+
+  /**
+   * `true` when the failure was the PROVIDER THROTTLING US rather than the
+   * message, the address or the configuration being wrong (issue #456).
+   *
+   * Only ever set on a failure, and only by `BaseEmailProvider.send`, which
+   * classifies the thrown transport error through `classifyEmailRateLimit`
+   * (`../email-rate-limit.ts`). ABSENT MEANS "NOT A RATE LIMIT", never
+   * "unknown": the classifier is deliberately conservative, so a bad address,
+   * an authentication failure or an unconfigured provider all come back
+   * without it.
+   *
+   * WHY A FLAG AND NOT A THROW. `send` must never throw (see
+   * `providers/email-provider.interface.ts`), and that contract is not
+   * negotiable for the one caller who needs this: a job handler that has to
+   * STOP sending into a refusing provider (the broadcast fan-out). So the
+   * transport reports the fact, and only the caller that can act on it —
+   * `NotificationsService.notifyNow` → `BroadcastChunkHandler` — turns it into
+   * a `RateLimitError` the queue understands. Every other caller (#124's test
+   * button, the detached `notify()`) simply ignores an extra field.
+   */
+  rateLimited?: boolean;
+
+  /**
+   * The provider's requested wait in milliseconds, when it named one (an HTTP
+   * `Retry-After` on an AWS SDK error). Only meaningful beside
+   * `rateLimited: true`. SMTP has no such header, so it is always absent
+   * there and the queue falls back to its own `JOBS_RATELIMIT_*` backoff.
+   */
+  retryAfterMs?: number;
 }

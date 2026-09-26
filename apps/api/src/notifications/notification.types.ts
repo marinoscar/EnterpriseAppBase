@@ -218,6 +218,64 @@ export interface ChannelDeliveryResult {
    * rule.
    */
   error?: string;
+
+  /**
+   * `true` when the failure was the channel's PROVIDER throttling us (issue
+   * #456) — as opposed to this recipient, this payload or the configuration
+   * being wrong. Only meaningful on a failure; absent means "not a rate
+   * limit".
+   *
+   * It does NOT change how the delivery row is written: a throttled send is
+   * still a `failed` row with its `error` text, because for that recipient it
+   * genuinely did fail. What it changes is what {@link
+   * NotificationsService.notifyNow} reports back to an AWAITING caller (see
+   * {@link NotifyNowResult}) — which is how the broadcast fan-out learns to
+   * stop sending into a refusing provider. The detached `notify()` has no
+   * caller to report to and ignores it.
+   *
+   * Set today by the email channel only, carried up from
+   * `EmailSendResult.rateLimited`. A future channel with a throttling
+   * provider (Web Push's 429) opts in by setting it; nothing in the
+   * dispatcher needs to change.
+   */
+  rateLimited?: boolean;
+
+  /**
+   * The provider's requested wait in milliseconds, when it named one. Only
+   * meaningful beside `rateLimited: true`.
+   */
+  retryAfterMs?: number;
+}
+
+/**
+ * What {@link NotificationsService.notifyNow} resolves to (issue #456): the
+ * one fact about a finished dispatch that an awaiting background caller can
+ * act on.
+ *
+ * DELIBERATELY NOT A PER-CHANNEL REPORT. The delivery rows are that report,
+ * already, in the table built for it; duplicating them into a return value
+ * would invite a caller to branch on "email failed" for reasons (a bad
+ * mailbox) that are none of its business — the containment rule that keeps
+ * one recipient's dead address from failing a job. The ONLY thing surfaced is
+ * "a provider throttled this dispatch", because that is the one failure that
+ * is about the CALLER's pace rather than about this recipient, and the only
+ * one the caller can do anything about (stop, and come back later).
+ *
+ * `notifyNow` still NEVER REJECTS; a dispatch that threw internally, found no
+ * user, or resolved no channel reports `{ rateLimited: false, retryAfterMs:
+ * null }` — the same "nothing to back off from" as a clean send.
+ */
+export interface NotifyNowResult {
+  /** Whether ANY channel of this dispatch was refused by a throttling provider. */
+  rateLimited: boolean;
+
+  /**
+   * The LONGEST wait any throttled channel's provider asked for, in
+   * milliseconds; `null` when none named one (or nothing was throttled).
+   * The max, not the first, because resuming before the slowest provider is
+   * ready only earns another refusal.
+   */
+  retryAfterMs: number | null;
 }
 
 /**

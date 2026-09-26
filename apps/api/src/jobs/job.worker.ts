@@ -721,7 +721,8 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       // Wait out a cooldown a sibling slot's 429 already discovered. A no-op
       // (no map hit, no await, no timer) for any type with no provider key,
-      // which is every type this framework ships.
+      // which is every type this framework ships but `admin.broadcast.chunk`
+      // (#456).
       await this.throttle.acquire(job.type);
     } catch (error) {
       return this.terminal.completeFailed(job, error);

@@ -25,11 +25,17 @@
 
 import { Job } from '@prisma/client';
 
-import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from './broadcast-chunk.handler';
+import {
+  BroadcastChunkHandler,
+  BROADCAST_CHUNK_TYPE,
+  BROADCAST_EMAIL_PROVIDER_KEY,
+} from './broadcast-chunk.handler';
+import { RateLimitError } from '../../../jobs/rate-limit.error';
 import type { ConfigService } from '@nestjs/config';
 import type { JobHandler } from '../../../jobs/job-handler.interface';
 import type { JobsService } from '../../../jobs/jobs.service';
 import type { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
+import type { ProviderThrottleService } from '../../../jobs/provider-throttle.service';
 import type { NotificationsService } from '../../notifications.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { BROADCAST_CHUNK_SIZE, BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';
@@ -71,6 +77,15 @@ function makeHandler(
     appUrl?: string;
     /** Called before each dispatch, so a test can cancel the broadcast mid-page. */
     onNotify?: (state: BroadcastState, callIndex: number) => void;
+    /**
+     * Global call-index (0-based, across the whole page — not per-group) ->
+     * the `retryAfterMs` `notifyNow` should report for that call (`null` for
+     * "rate-limited with no named delay"). Every other call resolves an
+     * ordinary, non-throttled result — issue #456's throttle tests use this
+     * instead of `onNotify` so the throttle verdict travels with the
+     * dispatch itself, exactly as the real `notifyNow` does.
+     */
+    rateLimitedAt?: Map<number, number | null>;
   } = {}
 ) {
   const state: BroadcastState = {
@@ -134,8 +149,15 @@ function makeHandler(
   // `...unknown[]` so the recorded calls stay indexable — the assertions below
   // read the event key, the recipient, the payload and the options by position.
   const notifyNow = jest.fn(async (..._args: unknown[]) => {
-    options.onNotify?.(state, notifyCalls);
+    const index = notifyCalls;
     notifyCalls += 1;
+    options.onNotify?.(state, index);
+
+    if (options.rateLimitedAt?.has(index)) {
+      return { rateLimited: true, retryAfterMs: options.rateLimitedAt.get(index) ?? null };
+    }
+
+    return { rateLimited: false, retryAfterMs: null };
   });
   const notify = jest.fn();
   const notifications = { notifyNow, notify } as unknown as NotificationsService;
@@ -149,8 +171,10 @@ function makeHandler(
   const register = jest.fn();
   const registry = { register } as unknown as JobHandlerRegistry;
 
+  const throttle = { registerProviderKey: jest.fn() } as unknown as ProviderThrottleService;
+
   return {
-    handler: new BroadcastChunkHandler(prisma, notifications, jobs, config, registry),
+    handler: new BroadcastChunkHandler(prisma, notifications, jobs, config, registry, throttle),
     state,
     findUnique,
     updateMany,
@@ -503,6 +527,191 @@ describe('BroadcastChunkHandler', () => {
       expect(resumed.some((id) => all.indexOf(id) < BROADCAST_CHUNK_SIZE)).toBe(false);
       expect(context.state.recipientsDispatched).toBe(all.length);
       expect(context.state.status).toBe('sent');
+    });
+  });
+
+  describe('provider throttle (issue #456)', () => {
+    it('registers the provider quota mapping alongside self-registration', () => {
+      const prisma = {} as unknown as PrismaService;
+      const notifications = { notifyNow: jest.fn(), notify: jest.fn() } as unknown as NotificationsService;
+      const jobs = { enqueue: jest.fn() } as unknown as JobsService;
+      const config = { get: jest.fn() } as unknown as ConfigService;
+      const register = jest.fn();
+      const registry = { register } as unknown as JobHandlerRegistry;
+      const registerProviderKey = jest.fn();
+      const throttle = { registerProviderKey } as unknown as ProviderThrottleService;
+
+      const handler = new BroadcastChunkHandler(prisma, notifications, jobs, config, registry, throttle);
+
+      handler.onModuleInit();
+
+      expect(register).toHaveBeenCalledWith(handler);
+      expect(registerProviderKey).toHaveBeenCalledWith(BROADCAST_CHUNK_TYPE, BROADCAST_EMAIL_PROVIDER_KEY);
+    });
+
+    it('throws RateLimitError with the longest retryAfterMs any recipient named, and queues no successor', async () => {
+      const { handler, enqueue, updateMany } = makeHandler({
+        users: userIds(3),
+        rateLimitedAt: new Map([[0, 5_000]]),
+      });
+
+      let thrown: unknown;
+      try {
+        await handler.process(chunkJob);
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(RateLimitError);
+      expect(thrown).toMatchObject({ retryAfterMs: 5_000 });
+
+      expect(enqueue).not.toHaveBeenCalled();
+      // No 'sent' (or any other) terminal write — the page is not done.
+      expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it('a throttle at the very first recipient commits no progress at all', async () => {
+      const { handler, update } = makeHandler({
+        users: userIds(3),
+        rateLimitedAt: new Map([[0, 5_000]]),
+      });
+
+      await expect(handler.process(chunkJob)).rejects.toThrow(RateLimitError);
+
+      // completedPrefix is 0 — nobody preceded the throttled recipient in id
+      // order — so there is nothing safe to commit, and the progress update
+      // must not run at all (as opposed to running with a zero increment).
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('commits only the recipients strictly before the throttled one, cursor included', async () => {
+      const { handler, update, state } = makeHandler({
+        users: userIds(5),
+        // Index 2 (the third recipient, 0-based) is throttled.
+        rateLimitedAt: new Map([[2, 9_000]]),
+      });
+
+      await expect(handler.process(chunkJob)).rejects.toThrow(RateLimitError);
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BROADCAST_ID },
+        data: { cursorUserId: 'u-0001', recipientsDispatched: { increment: 2 } },
+      });
+      expect(state.cursorUserId).toBe('u-0001');
+      expect(state.recipientsDispatched).toBe(2);
+    });
+
+    it('an EARLIER fully-dispatched page group is committed in full even though a LATER group is throttled', async () => {
+      // STATUS_RECHECK_INTERVAL is 25 (not exported) — a page of 30 makes two
+      // outer sub-groups, the first a full 25 and the second the remaining 5.
+      // The throttle lands inside the SECOND group, at its second recipient
+      // (global index 26).
+      const all = userIds(30);
+      const { handler, update } = makeHandler({
+        users: all,
+        rateLimitedAt: new Map([[26, 12_000]]),
+      });
+
+      await expect(handler.process(chunkJob)).rejects.toThrow(RateLimitError);
+
+      // 25 (all of group one) + 1 (the lone un-throttled recipient ahead of
+      // the throttle in group two) = 26. Group one's full count survives
+      // untouched by the throttle that only affected group two.
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BROADCAST_ID },
+        data: { cursorUserId: all[25], recipientsDispatched: { increment: 26 } },
+      });
+    });
+
+    it('stops launching further pages of the audience: none of a second outer group is contacted once the first throttles', async () => {
+      const all = userIds(50);
+      const context = makeHandler({
+        users: all,
+        // Throttle well inside the first STATUS_RECHECK_INTERVAL (25) group.
+        rateLimitedAt: new Map([[2, 1_000]]),
+      });
+
+      await expect(context.handler.process(chunkJob)).rejects.toThrow(RateLimitError);
+
+      const dispatched = dispatchedTo(context.notifyNow);
+
+      // Bounded: nowhere near the full audience of 50, and specifically none
+      // of the SECOND 25-recipient group (ids 25 and up) was ever contacted —
+      // the outer loop's `break` on `outcome.rateLimited` never runs a
+      // second iteration.
+      expect(dispatched.length).toBeLessThan(25);
+      for (const id of all.slice(25)) {
+        expect(dispatched).not.toContain(id);
+      }
+    });
+
+    it('a recipient that resolves out of order behind the throttled one is not counted, and is re-sent on resume', async () => {
+      // Recipients after the throttled index — including ones whose own send
+      // actually completed successfully because they were already in flight —
+      // are deliberately excluded from the committed prefix, so a replay
+      // (the retry the RateLimitError deferral produces) reaches them again.
+      const all = userIds(5);
+      const context = makeHandler({
+        users: all,
+        rateLimitedAt: new Map([[1, 4_000]]),
+      });
+
+      await expect(context.handler.process(chunkJob)).rejects.toThrow(RateLimitError);
+
+      // Only the single recipient strictly before the throttle was committed.
+      expect(context.state.recipientsDispatched).toBe(1);
+      expect(context.state.cursorUserId).toBe(all[0]);
+
+      // Resuming — the queue's own retry of the SAME job, from the persisted
+      // cursor — re-sends everyone from index 1 onward, including whichever
+      // of the in-flight recipients happened to succeed the first time.
+      context.notifyNow.mockClear();
+      await context.handler.process(chunkJob);
+
+      const resumed = dispatchedTo(context.notifyNow);
+      expect(resumed[0]).toBe(all[1]);
+      expect(resumed).not.toContain(all[0]);
+    });
+
+    it('cancel wins: a broadcast canceled while the throttle is being discovered returns normally, without deferring', async () => {
+      const { handler, enqueue, update, state } = makeHandler({
+        users: userIds(5),
+        rateLimitedAt: new Map([[2, 6_000]]),
+        onNotify: (current, index) => {
+          // Canceled at the exact moment the throttled recipient's dispatch
+          // is issued — by the time the handler checks `stillSending()`
+          // after the page stops, the status has already moved.
+          if (index === 2) {
+            current.status = 'canceled';
+          }
+        },
+      });
+
+      await expect(handler.process(chunkJob)).resolves.toBeUndefined();
+
+      // Progress already committed (the two un-throttled recipients ahead of
+      // the throttle) is preserved regardless of how the page ended.
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BROADCAST_ID },
+        data: { cursorUserId: 'u-0001', recipientsDispatched: { increment: 2 } },
+      });
+      expect(state.status).toBe('canceled');
+      // No deferral (no throw), and no successor — the broadcast is over.
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('treats an undefined notifyNow result as not-throttled (a test-double or forked decorator resolving nothing)', async () => {
+      const { handler, notifyNow, update, enqueue } = makeHandler({ users: userIds(3) });
+
+      notifyNow.mockResolvedValueOnce(undefined as never);
+
+      await expect(handler.process(chunkJob)).resolves.toBeUndefined();
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: BROADCAST_ID },
+        data: { cursorUserId: 'u-0002', recipientsDispatched: { increment: 3 } },
+      });
+      expect(enqueue).not.toHaveBeenCalled();
     });
   });
 

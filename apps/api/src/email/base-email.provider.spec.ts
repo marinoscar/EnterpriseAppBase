@@ -278,6 +278,176 @@ describe('BaseEmailProvider', () => {
   });
 
   // ==========================================================================
+  // Rate-limit classification passthrough (issue #456)
+  // ==========================================================================
+
+  describe('rate-limit classification', () => {
+    it('tags a thrown throttle-shaped error with rateLimited: true and no extra keys otherwise', async () => {
+      provider.deliverImpl = async () => {
+        throw Object.assign(new Error('Maximum sending rate exceeded.'), {
+          name: 'ThrottlingException',
+          $metadata: { httpStatusCode: 429 },
+        });
+      };
+
+      const result = await provider.send(baseMessage);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'TEST: Maximum sending rate exceeded.',
+        rateLimited: true,
+      });
+    });
+
+    it('carries retryAfterMs through when the thrown error named one', async () => {
+      provider.deliverImpl = async () => {
+        throw Object.assign(new Error('slow down'), {
+          name: 'ThrottlingException',
+          $metadata: { httpStatusCode: 429 },
+          headers: { 'retry-after': '30' },
+        });
+      };
+
+      const result = await provider.send(baseMessage);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'TEST: slow down',
+        rateLimited: true,
+        retryAfterMs: 30_000,
+      });
+    });
+
+    it('a non-throttle thrown error has exactly the pre-#456 shape — no rateLimited key at all', async () => {
+      provider.deliverImpl = async () => {
+        throw new Error('535 authentication failed');
+      };
+
+      const result = await provider.send(baseMessage);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'TEST: 535 authentication failed',
+      });
+      expect(Object.keys(result).sort()).toEqual(['error', 'success']);
+    });
+
+    it('a non-throttle RESOLVED failure also has exactly the pre-#456 shape', async () => {
+      provider.deliverImpl = async () => ({ success: false, error: 'bad recipient' });
+
+      const result = await provider.send(baseMessage);
+
+      expect(Object.keys(result).sort()).toEqual(['error', 'success']);
+    });
+
+    it('omits retryAfterMs when the classifier names no delay', async () => {
+      provider.deliverImpl = async () => {
+        throw { responseCode: 421, response: '421 4.7.0 rate limit exceeded' };
+      };
+
+      const result = await provider.send(baseMessage);
+
+      expect(result.rateLimited).toBe(true);
+      expect(result).not.toHaveProperty('retryAfterMs');
+    });
+
+    it('preserves rateLimited/retryAfterMs when a subclass sets them on a RESOLVED (non-throwing) failure', async () => {
+      provider.deliverImpl = async () => ({
+        success: false,
+        error: 'provider said slow down',
+        rateLimited: true,
+        retryAfterMs: 5_000,
+      });
+
+      const result = await provider.send(baseMessage);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'TEST: provider said slow down',
+        rateLimited: true,
+        retryAfterMs: 5_000,
+      });
+    });
+
+    it('omits an invalid retryAfterMs (zero) set by a subclass, keeping rateLimited', async () => {
+      provider.deliverImpl = async () => ({
+        success: false,
+        error: 'slow down',
+        rateLimited: true,
+        retryAfterMs: 0,
+      });
+
+      const result = await provider.send(baseMessage);
+
+      expect(result).toEqual({ success: false, error: 'TEST: slow down', rateLimited: true });
+    });
+
+    it('omits an invalid retryAfterMs (negative) set by a subclass, keeping rateLimited', async () => {
+      provider.deliverImpl = async () => ({
+        success: false,
+        error: 'slow down',
+        rateLimited: true,
+        retryAfterMs: -100,
+      });
+
+      const result = await provider.send(baseMessage);
+
+      expect(result).toEqual({ success: false, error: 'TEST: slow down', rateLimited: true });
+    });
+
+    it('omits a non-finite retryAfterMs set by a subclass, keeping rateLimited', async () => {
+      provider.deliverImpl = async () => ({
+        success: false,
+        error: 'slow down',
+        rateLimited: true,
+        retryAfterMs: Number.POSITIVE_INFINITY,
+      });
+
+      const result = await provider.send(baseMessage);
+
+      expect(result).toEqual({ success: false, error: 'TEST: slow down', rateLimited: true });
+    });
+
+    it('the error text is still redacted and truncated on a throttled failure', async () => {
+      const secret = 'super-secret-password-value';
+      provider.deliverImpl = async (_msg, redact) => {
+        redact.protect(secret);
+        throw Object.assign(new Error(`421 4.7.0 rate limit exceeded for account ${secret}`), {
+          responseCode: 421,
+          response: `421 4.7.0 rate limit exceeded for account ${secret}`,
+        });
+      };
+
+      const result = await provider.send(baseMessage);
+
+      expect(result.rateLimited).toBe(true);
+      expect(result.error).not.toContain(secret);
+      expect(result.error).toContain('[redacted]');
+    });
+
+    it('logs "(provider rate limit)" in the warn line for a throttled failure', async () => {
+      provider.deliverImpl = async () => {
+        throw { responseCode: 421, response: '421 4.7.0 rate limit exceeded' };
+      };
+
+      await provider.send(baseMessage);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(String(warnSpy.mock.calls[0][0])).toContain('(provider rate limit)');
+    });
+
+    it('does not log "(provider rate limit)" for an ordinary failure', async () => {
+      provider.deliverImpl = async () => {
+        throw new Error('connection refused');
+      };
+
+      await provider.send(baseMessage);
+
+      expect(String(warnSpy.mock.calls[0][0])).not.toContain('(provider rate limit)');
+    });
+  });
+
+  // ==========================================================================
   // Logging never carries message content
   // ==========================================================================
 

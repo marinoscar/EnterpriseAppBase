@@ -19,6 +19,7 @@ import {
   type NotificationChannelSender,
   type NotificationDispatchContext,
   type NotificationRecipient,
+  type NotifyNowResult,
   type NotifyOptions,
   type NotifyPermissionHoldersOptions,
 } from './notification.types';
@@ -120,6 +121,51 @@ import {
  * flight and short enough to stay well inside a typical 10s stop grace period.
  */
 const SHUTDOWN_DRAIN_MS = 5_000;
+
+/**
+ * The {@link NotifyNowResult} for every dispatch that met no throttle —
+ * including the ones that sent nothing at all (unknown event, missing user,
+ * every channel muted) and the one whose internals threw. Frozen and shared
+ * because it is returned from many exits and must never be mutated by one.
+ */
+const NOT_THROTTLED: NotifyNowResult = Object.freeze({
+  rateLimited: false,
+  retryAfterMs: null,
+});
+
+/**
+ * Folds one channel's result into the dispatch-wide {@link NotifyNowResult}:
+ * rate-limited if ANY channel was, and the LONGEST provider-named wait.
+ *
+ * Tolerant of a malformed `retryAfterMs` (non-finite, zero, negative) because
+ * it comes from a channel, and the dispatcher does not trust channels — see
+ * `deliverOne`'s own belt-and-braces `try`. A bad value is "no opinion", never
+ * a zero that a caller could read as "retry immediately".
+ */
+function mergeThrottle(
+  acc: NotifyNowResult,
+  result: Pick<ChannelDeliveryResult, 'rateLimited' | 'retryAfterMs'>,
+): NotifyNowResult {
+  if (result.rateLimited !== true) {
+    return acc;
+  }
+
+  const named =
+    typeof result.retryAfterMs === 'number' &&
+    Number.isFinite(result.retryAfterMs) &&
+    result.retryAfterMs > 0
+      ? result.retryAfterMs
+      : null;
+
+  const retryAfterMs =
+    named === null
+      ? acc.retryAfterMs
+      : acc.retryAfterMs === null
+        ? named
+        : Math.max(acc.retryAfterMs, named);
+
+  return { rateLimited: true, retryAfterMs };
+}
 
 @Injectable()
 export class NotificationsService implements OnModuleDestroy {
@@ -224,9 +270,12 @@ export class NotificationsService implements OnModuleDestroy {
       return;
     }
 
-    this.schedule(() =>
-      this.dispatchToUser(event, userId, data, options),
-    );
+    // The dispatch's throttle summary is dropped on this path on purpose:
+    // nobody is awaiting a detached send, so there is no caller who could
+    // back off. `notify()` behaves exactly as it did before #456.
+    this.schedule(async () => {
+      await this.dispatchToUser(event, userId, data, options);
+    });
   }
 
   /**
@@ -291,6 +340,27 @@ export class NotificationsService implements OnModuleDestroy {
    * awaiting owner by definition, and that owner — not this service — decides
    * what to do about it on shutdown.
    *
+   * ---------------------------------------------------------------------------
+   * WHAT IT RESOLVES TO (issue #456)
+   * ---------------------------------------------------------------------------
+   *
+   * A {@link NotifyNowResult}: whether any channel of this dispatch was
+   * refused by a THROTTLING PROVIDER, and the longest wait any of them named.
+   * Nothing else — see that type for why a per-channel report would be the
+   * wrong thing to hand a job handler.
+   *
+   * This is the ONE way a provider throttle can reach a caller, and it exists
+   * because the channels cannot throw: the broadcast fan-out used to keep
+   * sending into a refusing email provider because every refusal looked like
+   * an ordinary failed row. Now the chunk reads this, stops launching sends,
+   * and throws `RateLimitError` itself — the queue's own deferral mechanism,
+   * raised from a job handler, which is the one place a throw belongs.
+   *
+   * THE DELIVERY ROWS ARE UNCHANGED BY IT: a throttled channel still writes a
+   * `failed` row, because for this recipient it did fail. A caller that
+   * ignores the result (the broadcast `sendTest` path does) gets exactly the
+   * pre-#456 behaviour.
+   *
    * @param eventKey a key from `NOTIFICATION_EVENTS`. Unknown is a no-op that
    *        records nothing, exactly as in `notify`.
    * @param userId the recipient's account.
@@ -303,18 +373,23 @@ export class NotificationsService implements OnModuleDestroy {
     userId: string,
     data: unknown,
     options?: NotifyOptions,
-  ): Promise<void> {
+  ): Promise<NotifyNowResult> {
     const event = findEvent(eventKey);
 
     if (!event) {
       this.logger.debug(
         `Ignoring notification for unknown event '${eventKey}'.`,
       );
-      return;
+      return NOT_THROTTLED;
     }
 
-    await this.runContained(() =>
-      this.dispatchToUser(event, userId, data, options),
+    // `NOT_THROTTLED` is the containment fallback: a dispatch that threw
+    // despite every layer below being written not to has no throttle verdict
+    // to report, and "nothing to back off from" is the reading that keeps the
+    // caller moving — the same outcome as before #456, where it resolved void.
+    return this.runContained(
+      () => this.dispatchToUser(event, userId, data, options),
+      NOT_THROTTLED,
     );
   }
 
@@ -563,8 +638,9 @@ export class NotificationsService implements OnModuleDestroy {
       return;
     }
 
-    await this.runContained(() =>
-      this.dispatchToPermissionHolders(event, permission, data, options),
+    await this.runContained(
+      () => this.dispatchToPermissionHolders(event, permission, data, options),
+      undefined,
     );
   }
 
@@ -647,7 +723,7 @@ export class NotificationsService implements OnModuleDestroy {
    * shutdown drain finish work whose caller is long gone.
    */
   private schedule(work: () => Promise<void>): void {
-    const task = this.runContained(work);
+    const task = this.runContained(work, undefined);
 
     this.inFlight.add(task);
     void task.finally(() => {
@@ -675,11 +751,19 @@ export class NotificationsService implements OnModuleDestroy {
    * reason {@link schedule} gives: it keeps the deferral independent of what
    * the work happens to do synchronously first. For `notifyNow`, where the
    * caller is awaiting anyway, the extra microtask is invisible.
+   *
+   * GENERIC OVER THE RESULT since #456, because `notifyNow` now resolves a
+   * {@link NotifyNowResult} rather than `void`. The containment is unchanged:
+   * a rejection still becomes a resolved promise — carrying `fallback`, which
+   * is whatever "nothing happened that you need to act on" means for that
+   * caller (`undefined` for the detached path, `NOT_THROTTLED` for
+   * `notifyNow`). The fallback is a PARAMETER, not a default computed here,
+   * so this function still knows nothing about what the work is.
    */
-  private runContained(work: () => Promise<void>): Promise<void> {
+  private runContained<T>(work: () => Promise<T>, fallback: T): Promise<T> {
     return Promise.resolve()
       .then(work)
-      .catch((err: unknown) => {
+      .catch((err: unknown): T => {
         // Reaching here means something below threw despite every layer being
         // written not to. That is a bug worth an `error`, and it is still
         // contained: on the detached path the caller returned long ago, and on
@@ -688,6 +772,8 @@ export class NotificationsService implements OnModuleDestroy {
         this.logger.error(
           `Notification dispatch failed unexpectedly: ${describeThrown(err)}`,
         );
+
+        return fallback;
       });
   }
 
@@ -705,7 +791,7 @@ export class NotificationsService implements OnModuleDestroy {
     userId: string,
     data: unknown,
     options?: NotifyOptions,
-  ): Promise<void> {
+  ): Promise<NotifyNowResult> {
     const user = await this.loadRecipient(userId);
 
     if (!user) {
@@ -717,10 +803,10 @@ export class NotificationsService implements OnModuleDestroy {
       this.logger.warn(
         `Cannot dispatch '${event.key}': user ${userId} was not found.`,
       );
-      return;
+      return NOT_THROTTLED;
     }
 
-    await this.dispatch(event, user, data, options);
+    return this.dispatch(event, user, data, options);
   }
 
   /**
@@ -952,13 +1038,16 @@ export class NotificationsService implements OnModuleDestroy {
    *
    * Channel-agnostic and recipient-agnostic: this is the method #128's
    * no-account path will call with `{ userId: null, ... }`.
+   *
+   * Resolves the dispatch's throttle summary (#456) for `notifyNow` to hand
+   * back; every other caller awaits it as a statement and discards it.
    */
   private async dispatch(
     event: NotificationEventDef,
     recipient: NotificationRecipient,
     data: unknown,
     options?: NotifyOptions,
-  ): Promise<void> {
+  ): Promise<NotifyNowResult> {
     // THE ADMIN GATE (#226), read ONCE per dispatch and carried in the context
     // below. Both halves of the browser decision — which channels to fan out to,
     // and whether the streamed event may raise an OS toast — are then derived
@@ -1030,7 +1119,7 @@ export class NotificationsService implements OnModuleDestroy {
         `'${event.key}' resolved to no enabled channel for user ` +
           `${recipient.userId ?? '(no account)'}.`,
       );
-      return;
+      return NOT_THROTTLED;
     }
 
     const context: NotificationDispatchContext = {
@@ -1046,9 +1135,18 @@ export class NotificationsService implements OnModuleDestroy {
     // question being answered is "what happened to this one event?". Failure
     // containment does not depend on it either way: each iteration is
     // independently wrapped below.
+    //
+    // A THROTTLED CHANNEL DOES NOT STOP THE NEXT ONE (#456). The email
+    // provider refusing us says nothing about the in-app row, which is a
+    // local database write; skipping it would make a mail outage erase the
+    // durable record too. The verdict is only accumulated and reported.
+    let throttle = NOT_THROTTLED;
+
     for (const channel of channels) {
-      await this.deliverOne(context, channel);
+      throttle = mergeThrottle(throttle, await this.deliverOne(context, channel));
     }
+
+    return throttle;
   }
 
   /**
@@ -1056,11 +1154,17 @@ export class NotificationsService implements OnModuleDestroy {
    *
    * EVERY EXIT FROM THIS METHOD IS NORMAL. It has no throwing path, so one
    * channel's failure can never prevent the next channel's attempt.
+   *
+   * Resolves the channel's throttle verdict (#456) — the `rateLimited` /
+   * `retryAfterMs` pair off its result, or none for every exit that did not
+   * reach a result (no sender, no address, a channel that threw). A throw is
+   * deliberately NOT read as a throttle: it is a bug in the channel, and a
+   * bug must not be able to pause a broadcast.
    */
   private async deliverOne(
     context: NotificationDispatchContext,
     channel: NotificationChannel,
-  ): Promise<void> {
+  ): Promise<Pick<ChannelDeliveryResult, 'rateLimited' | 'retryAfterMs'>> {
     const { event, recipient } = context;
     const sender = this.senders.get(channel);
 
@@ -1076,7 +1180,7 @@ export class NotificationsService implements OnModuleDestroy {
         `No transport registered for channel '${channel}'; ` +
           `skipping '${event.key}'.`,
       );
-      return;
+      return {};
     }
 
     const to = sender.resolveTo(recipient);
@@ -1090,7 +1194,7 @@ export class NotificationsService implements OnModuleDestroy {
         `No '${channel}' address for user ${recipient.userId ?? '(no account)'}; ` +
           `skipping '${event.key}'.`,
       );
-      return;
+      return {};
     }
 
     // Written BEFORE the attempt. See notification-delivery.service.ts for why
@@ -1119,7 +1223,7 @@ export class NotificationsService implements OnModuleDestroy {
       const error = `Channel '${channel}' threw: ${describeThrown(err)}`;
       this.logger.error(`Delivery of '${event.key}' failed: ${error}`);
       await this.deliveries.markFailed(deliveryId, error);
-      return;
+      return {};
     }
 
     if (!result.success) {
@@ -1136,9 +1240,14 @@ export class NotificationsService implements OnModuleDestroy {
       );
 
       await this.deliveries.markFailed(deliveryId, error);
-      return;
+
+      // Reported AFTER the row is written, so a caller that stops on this
+      // verdict never races the record of what it is stopping over.
+      return { rateLimited: result.rateLimited, retryAfterMs: result.retryAfterMs };
     }
 
     await this.deliveries.markSent(deliveryId, result.messageId);
+
+    return {};
   }
 }

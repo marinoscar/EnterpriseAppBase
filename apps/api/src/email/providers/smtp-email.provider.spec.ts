@@ -342,6 +342,40 @@ describe('SmtpEmailProvider', () => {
   });
 
   // ==========================================================================
+  // Rate-limit classification (issue #456) — passes through BaseEmailProvider
+  // ==========================================================================
+
+  describe('rate-limit classification', () => {
+    it('tags a 421 throttle rejection (nodemailer responseCode) as rateLimited', async () => {
+      const provider = new SmtpEmailProvider(makeEmailSettings(baseSmtpSettings), makeCredentials('pw'));
+      const throttleError = Object.assign(new Error('421 4.7.0 unusual rate detected, slow down'), {
+        responseCode: 421,
+        response: '421 4.7.0 unusual rate detected, slow down',
+      });
+      smtpSendMailMock.mockRejectedValueOnce(throttleError);
+
+      const result = await provider.send(baseMessage);
+
+      expect(result.success).toBe(false);
+      expect(result.rateLimited).toBe(true);
+    });
+
+    it('does not tag a 535 authentication error as rateLimited', async () => {
+      const provider = new SmtpEmailProvider(makeEmailSettings(baseSmtpSettings), makeCredentials('pw'));
+      const authError = Object.assign(new Error('535 5.7.8 authentication failed'), {
+        responseCode: 535,
+        response: '535 5.7.8 authentication failed',
+      });
+      smtpSendMailMock.mockRejectedValueOnce(authError);
+
+      const result = await provider.send(baseMessage);
+
+      expect(result.success).toBe(false);
+      expect(result.rateLimited).toBeUndefined();
+    });
+  });
+
+  // ==========================================================================
   // Transporter caching keyed on a fingerprint
   // ==========================================================================
 

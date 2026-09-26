@@ -81,12 +81,15 @@ export const BROADCAST_CHUNK_SIZE = 200;
  * latency nobody is waiting on. A broadcast has no deadline; it has a
  * throughput floor, and five in flight clears it.
  *
- * The epic names the follow-up explicitly: making the email channel
- * participate in `provider-throttle.service.ts` is out of scope for #319,
- * because that throttle is tripped only by a handler throwing `RateLimitError`
- * and the email channel is contracted never to throw. Until then, THIS
- * CONSTANT IS THE ONLY BACKPRESSURE the fan-out has, which is why it lives
- * beside the predicate rather than inline in a loop.
+ * It is the STEADY-STATE backpressure: the pace the fan-out holds while the
+ * provider is accepting. The REACTIVE half arrived with issue #456 — the email
+ * transport now classifies a throttle, `notifyNow` reports it, and the chunk
+ * handler stops launching sends, commits the contiguous prefix that went out
+ * and throws `RateLimitError`, so the queue defers the chunk and
+ * `provider-throttle.service.ts` holds sibling chunks off. That makes this
+ * number ALSO the duplicate bound on a throttled page: only sends already in
+ * flight when the first refusal came back can have landed past the committed
+ * cursor, and there are at most this many of those.
  */
 export const BROADCAST_SEND_CONCURRENCY = 5;
 

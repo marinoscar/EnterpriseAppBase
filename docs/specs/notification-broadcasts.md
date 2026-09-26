@@ -334,6 +334,16 @@ sub-groups for cancel latency — not a restructuring; it is not done today
 because 200 duplicate notifications on a crash whose rate is "a deploy" is an
 acceptable worst case against the cost of a round trip per 25 recipients.
 
+The same rule now also commits a **partial** page: since issue #456, an email
+provider throttling the fan-out mid-page stops the chunk before it finishes,
+and the cursor moves only to the longest contiguous run of recipients that
+completed without being throttled — never past the first refusal. That is
+"duplicate over drop" holding at a smaller scale: whoever sent successfully
+out of order behind the throttled recipient is re-sent, not skipped, and the
+duplicate this time is bounded by `BROADCAST_SEND_CONCURRENCY` (5) rather than
+by the chunk size, since only sends already in flight when the refusal landed
+can have gotten past it. §9 has the full mechanism.
+
 ## 6. Per-broadcast channel selection
 
 An admin composing a broadcast picks a medium ("email only for this one").
@@ -428,6 +438,19 @@ for background workers that own their own concurrency and need backpressure;
 whatever awaits it, and a controller awaiting it would hold a Fastify request
 open for as long as the transport takes to answer.
 
+Since issue #456, `notifyNow` resolves a `NotifyNowResult` (`{ rateLimited,
+retryAfterMs }`) rather than `void` — the one fact an awaiting background
+caller can act on: whether any channel of this dispatch was refused by a
+throttling provider, and the longest wait any of them named. It is
+deliberately not a per-channel report; the delivery rows already are that
+report, in the table built for it, and duplicating them into a return value
+would invite a caller to branch on a single recipient's failure reasons that
+are none of its business. `notifyNow` still never rejects: a dispatch that
+threw internally, found no user, or resolved no channel reports `{
+rateLimited: false, retryAfterMs: null }`, same as a clean send. `notify()`'s
+detached path ignores the equivalent internal result — nobody is awaiting it,
+so there is no caller to back off. See §9 for what reads this value.
+
 **`flush()` is not a substitute, and this is the other reflex worth heading
 off explicitly.** `flush()` awaits *every* dispatch currently in
 `NotificationsService`'s in-flight set — including every unrelated one raised
@@ -491,17 +514,72 @@ so nobody adds one.
 
 ## 9. Operational limits
 
-**Email provider rate limits, and why `provider-throttle.service.ts` does not
-currently apply.** That throttle is tripped only by a channel handler
-throwing `RateLimitError`, and the email channel's contract is to **never
-throw** — a send failure becomes `{ success: false }` and a failed
-`notification_deliveries` row, not an exception. So a broadcast fanning out
-to a large audience gets no automatic backpressure from the provider-throttle
-mechanism at all today. `BROADCAST_SEND_CONCURRENCY` (5, §5) is the first-order
-defence in its place — a small, fixed concurrency bound inside each chunk.
-Wiring the email channel into the throttle (having it classify a 429-shaped
-provider response and throw `RateLimitError` instead of swallowing it) is a
-named follow-up, out of scope for this epic.
+**Email provider rate limits (issue #456).** The email channel's contract is
+still to **never throw** — a send failure is always `{ success: false }` and a
+failed `notification_deliveries` row, never an exception — so wiring it into
+`provider-throttle.service.ts` could not mean "let it throw `RateLimitError`
+like an ordinary handler." Instead the classification happens where the raw
+transport error is still an object with a status code and a name, not yet a
+redacted string: `BaseEmailProvider.send` (`base-email.provider.ts`) runs
+every caught error through `classifyEmailRateLimit`
+(`email-rate-limit.ts`), which recognises SES's throttle names, `429`/
+`503`/`529`, a `Retry-After` header, and the SMTP codes `421`/`450`/`451`/
+`452`/`454` **only** when the reply's own wording says "rate"/"throttle"/
+"too many …"/"slow down"/"server busy" rather than a per-recipient condition
+(greylisting, a full mailbox, over quota) that happens to share a 4xx code.
+SES's **daily** sending quota is deliberately excluded even though AWS
+reports it under the same `Throttling` name: a 24-hour quota outlives the
+queue's entire rate-limit budget (`JOBS_RATELIMIT_MAX_HITS` deferrals capped
+at `JOBS_RATELIMIT_MAX_MS` each — a couple of hours), so deferring on it would
+only delay the same failure while leaving the broadcast in `sending`; it is
+reported as an ordinary failed row instead, with the provider's own wording
+on it, where an operator can see it and raise the quota. A false positive
+here — reading a permanent failure as a throttle — is treated as the worse
+mistake than a false negative, because it would stall an entire broadcast
+behind one bad address; see `email-rate-limit.ts`'s own header for the full
+asymmetry argument. The channel then still returns `{ success: false }`, now
+with `rateLimited: true` (and `retryAfterMs` when the provider named one), and
+writes the delivery row's `error` prefixed `Rate limited by the email
+provider: ` so an operator can tell a throttle from a bad mailbox at a
+glance. Web Push's own 429s are not classified anywhere — the push channel
+never sets `rateLimited`, so a broadcast's push leg gets none of what
+follows.
+
+That flag travels up through exactly one path: `NotificationsService.
+notifyNow` (§7) now resolves a `NotifyNowResult` — `rateLimited` if *any*
+channel of the dispatch was throttled, `retryAfterMs` the longest wait any of
+them named — instead of `void`. (`notify()` is unchanged; nobody awaits it,
+so there is no caller to report a throttle to.) `BroadcastChunkHandler` is
+the one place that turns that resolved fact into a thrown `RateLimitError` —
+the one layer allowed to throw, raising the one error the queue already
+understands. On the first rate-limited recipient in a page it stops
+*launching* further sends (up to `BROADCAST_SEND_CONCURRENCY - 1` already in
+flight are let finish, since an issued send cannot be recalled), commits the
+cursor and `recipientsDispatched` to the longest **contiguous** prefix, in id
+order, of recipients that completed without being rate-limited, enqueues no
+successor, and throws. `JobTerminalService` defers that same chunk row to
+`pending` under `scheduledFor` (`JOBS_RATELIMIT_*` backoff, charged against
+`rateLimitHits` rather than `attempts`), and the chunk type is registered to
+the shared provider key `BROADCAST_EMAIL_PROVIDER_KEY`
+(`'notifications.email'`) so `ProviderThrottleService` holds off every
+broadcast's chunks, not just this one's, for the cooldown. On resume the
+chunk re-pages from the committed cursor exactly as any retry does. A
+recipient who happened to complete *after* the throttled one, out of order,
+is not counted in the committed prefix and is sent again on resume — §5's
+"duplicate over drop" applied to a partial page, with the duplicate bounded
+by `BROADCAST_SEND_CONCURRENCY` for the same reason it bounds the
+steady-state pool (see `broadcast-audience.ts`'s header). A cancel observed
+once the page has stopped wins over the throttle: the chunk returns normally
+without deferring, rather than committing an admin to a cooldown for a
+broadcast they already called off.
+
+**Known limit, unchanged by this issue.** `rateLimitHits` lives on the one
+chunk row that keeps deferring, not on the broadcast — so a chunk throttled
+more than `JOBS_RATELIMIT_MAX_HITS` times (default 10) fails that row
+permanently, the same as any other permanently failed chunk today, leaving
+the broadcast `sending` with its cursor at the last committed prefix until an
+operator intervenes. Making a broadcast recover from that on its own is
+tracked separately.
 
 **The SSE per-process boundary matters more here than for a single-recipient
 event.** `notification-stream.service.ts`'s per-process fan-out (no replay,
@@ -608,7 +686,14 @@ screen.
 | Both event keys satisfy the registry's structural invariants (unique key, non-empty channels, `mandatory` implies `defaultEnabled`, `<area>.<event>` key shape) with **no edit** to the generic test | `apps/api/src/notifications/notification-events.spec.ts` — its loops iterate `NOTIFICATION_EVENTS`, so the two new entries are covered automatically |
 | `NotifyOptions.channels` narrows a three-channel event to the requested subset, cannot resurrect a policy-dropped or user-muted channel, and an explicit `[]` means no channels | `apps/api/src/notifications/notifications.service.spec.ts`, `describe('NotifyOptions.channels')` |
 | A mandatory event is still narrowable by `options.channels` (the recipient-vs-sender ruling) | `apps/api/src/notifications/notifications.service.spec.ts`, `'a mandatory event still ignores stored preferences, and is still narrowable'` |
-| `notifyNow()` resolves only after every channel has been attempted and every delivery row written, and shares `notify()`'s narrowing | `apps/api/src/notifications/notifications.service.spec.ts`, `describe('notifyNow()')` |
+| `notifyNow()` resolves only after every channel has been attempted and every delivery row written, resolves a `NotifyNowResult` (`rateLimited` if any channel was, `retryAfterMs` the longest named wait, `{ false, null }` when nothing was throttled or dispatch found no channel), and shares `notify()`'s narrowing | `apps/api/src/notifications/notifications.service.spec.ts`, `describe('notifyNow()')` |
+| SES throttle names/`429`/`503`/`529`, a `Retry-After` header, and "Maximum sending rate exceeded" wording are classified as a rate limit; SES's daily quota, auth failures, and every SMTP 5xx are not | `apps/api/src/email/email-rate-limit.spec.ts` |
+| SMTP `421`/`450`/`451`/`452`/`454` are a rate limit only with throttle wording in the reply; the same codes with greylisting/mailbox-full/over-quota wording are not | `apps/api/src/email/email-rate-limit.spec.ts` |
+| `BaseEmailProvider.send` classifies the raw thrown error and returns `{ success: false, rateLimited: true, retryAfterMs? }` without throwing, and a non-throttle failure keeps its pre-#456 `{ success, error }` shape | `apps/api/src/email/base-email.provider.spec.ts` |
+| The email channel prefixes a rate-limited delivery's stored error `Rate limited by the email provider: ` and carries `rateLimited`/`retryAfterMs` onto its result, never throwing | `apps/api/src/notifications/channels/email-notification.channel.spec.ts` |
+| `dispatch()` accumulates the dispatch-wide throttle verdict across channels (any channel rate-limited, the longest `retryAfterMs`) without skipping a later channel because an earlier one was throttled | `apps/api/src/notifications/notifications.service.spec.ts` |
+| `BroadcastChunkHandler` stops launching further sends on the first rate-limited recipient, commits the longest contiguous un-throttled prefix, enqueues no successor, and throws `RateLimitError` carrying the longest named `retryAfterMs`; a cancel observed once the page stops returns normally instead | `apps/api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.spec.ts` |
+| A throttled mid-page run defers the chunk under `JOBS_RATELIMIT_*`, and resuming it completes the broadcast with every recipient dispatched — nobody skipped, duplicates bounded by `BROADCAST_SEND_CONCURRENCY` | `apps/api/test/broadcasts/broadcast-fanout.db.spec.ts` |
 | The email template escapes every paragraph by construction and never calls `unsafeFromTrustedString` | `apps/api/src/email/templates/broadcast.email.spec.ts` |
 | Both event keys map to the one `'broadcast'` email template and the one shared browser/push renderer | `email-notification.channel.ts` / `browser-notification.channel.ts` registrations, exercised via the handler specs' dispatch assertions |
 | The start handler's claim puts `status` in the `WHERE`, stamps `startedAt`/`audienceCutoff` from one instant, counts with `audienceWhere()`, and enqueues the first chunk with `skipDedup: true` | `apps/api/src/notifications/broadcasts/handlers/broadcast-start.handler.spec.ts` |

@@ -110,6 +110,7 @@ export type {
   NotificationChannelSender,
   NotificationDispatchContext,
   NotificationRecipient,
+  NotifyNowResult,
 } from './notification.types';
 
 export type {

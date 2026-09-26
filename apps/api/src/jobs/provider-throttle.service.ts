@@ -39,13 +39,16 @@
 //     is invisible to EVERY replica's claim query, not just this one's.
 //
 // -----------------------------------------------------------------------------
-// MAPPING JOB TYPES TO PROVIDER KEYS IS A FORK'S JOB
+// MAPPING JOB TYPES TO PROVIDER KEYS IS DONE BY EACH HANDLER
 // -----------------------------------------------------------------------------
 //
-// This framework ships no job type that talks to an external provider, so out
-// of the box `resolveKey` returns `null` for everything and the gate is a
-// zero-cost no-op: no map lookup result to act on, no `await`, no timer. A
-// fork declares its own mapping by calling `registerProviderKey` from the
+// Exactly one framework job type maps to a provider: `admin.broadcast.chunk`,
+// under `'notifications.email'` (issue #456 — the broadcast fan-out stops and
+// throws `RateLimitError` when the configured email provider throttles it;
+// see `broadcast-chunk.handler.ts`). For every other type `resolveKey`
+// returns `null` and the gate is a zero-cost no-op: no map lookup result to
+// act on, no `await`, no timer. A fork declares its own mapping the same way,
+// by calling `registerProviderKey` from the
 // handler's own `onModuleInit`, right beside the `registry.register(this)`
 // call that makes the handler exist at all:
 //

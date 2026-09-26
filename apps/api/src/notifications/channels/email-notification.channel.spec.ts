@@ -133,6 +133,83 @@ describe('EmailNotificationChannel', () => {
     });
   });
 
+  describe('rate-limit passthrough (issue #456)', () => {
+    const welcomeEvent = NOTIFICATION_EVENTS.find((event) => event.key === 'user.welcome')!;
+    const welcomeContext: NotificationDispatchContext = {
+      event: welcomeEvent,
+      recipient,
+      data: { recipientEmail: recipient.email, roles: ['viewer'] },
+    };
+
+    beforeEach(() => {
+      mockEmailSettings.get.mockResolvedValue({
+        provider: 'ses',
+        enabled: true,
+        fromAddress: 'sender@example.com',
+      });
+    });
+
+    it('carries rateLimited and retryAfterMs through, with the error prefixed', async () => {
+      mockSes.send.mockResolvedValue({
+        success: false,
+        error: 'Maximum sending rate exceeded.',
+        rateLimited: true,
+        retryAfterMs: 5_000,
+      });
+
+      const result = await channel.deliver(welcomeContext, recipient.email as string);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Rate limited by the email provider: Maximum sending rate exceeded.',
+        rateLimited: true,
+        retryAfterMs: 5_000,
+      });
+    });
+
+    it('omits retryAfterMs when the transport named none', async () => {
+      mockSes.send.mockResolvedValue({
+        success: false,
+        error: 'slow down',
+        rateLimited: true,
+      });
+
+      const result = await channel.deliver(welcomeContext, recipient.email as string);
+
+      expect(result).toEqual({
+        success: false,
+        error: 'Rate limited by the email provider: slow down',
+        rateLimited: true,
+      });
+      expect(result).not.toHaveProperty('retryAfterMs');
+    });
+
+    it('a non-throttled failure is unchanged: no prefix, no rateLimited key', async () => {
+      mockSes.send.mockResolvedValue({ success: false, error: 'Mailbox does not exist' });
+
+      const result = await channel.deliver(welcomeContext, recipient.email as string);
+
+      expect(result).toEqual({ success: false, error: 'Mailbox does not exist' });
+      expect(result).not.toHaveProperty('rateLimited');
+    });
+
+    it('a successful send after being retried is unaffected — no rateLimited key on success', async () => {
+      mockSes.send.mockResolvedValue({ success: true, messageId: 'msg-ok' });
+
+      const result = await channel.deliver(welcomeContext, recipient.email as string);
+
+      expect(result).toEqual({ success: true, messageId: 'msg-ok' });
+    });
+
+    it('never throws even when the transport reports a throttle', async () => {
+      mockSes.send.mockResolvedValue({ success: false, error: 'slow down', rateLimited: true });
+
+      await expect(
+        channel.deliver(welcomeContext, recipient.email as string),
+      ).resolves.toMatchObject({ success: false, rateLimited: true });
+    });
+  });
+
   describe('resolveTo', () => {
     it('returns the recipient email address', () => {
       expect(channel.resolveTo(recipient)).toBe('user@example.com');

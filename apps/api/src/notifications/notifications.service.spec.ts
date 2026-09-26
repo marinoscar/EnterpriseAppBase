@@ -679,7 +679,7 @@ describe('NotificationsService', () => {
 
       await expect(
         service.notifyNow('user.welcome', USER_ID, {}),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
 
       expect(mockPrisma.notificationDelivery.update).toHaveBeenCalledTimes(1);
       const [[updateArgs]] = mockPrisma.notificationDelivery.update.mock
@@ -693,7 +693,7 @@ describe('NotificationsService', () => {
 
       await expect(
         service.notifyNow('user.welcome', 'ghost-user', {}),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
 
       expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
     });
@@ -701,7 +701,7 @@ describe('NotificationsService', () => {
     it('for an unknown event key, is a no-op that records nothing', async () => {
       await expect(
         service.notifyNow('no.such.event', USER_ID, {}),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
 
       expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
       expect(mockPrisma.notificationDelivery.create).not.toHaveBeenCalled();
@@ -714,6 +714,191 @@ describe('NotificationsService', () => {
 
       expect(emailSender.deliver).toHaveBeenCalledTimes(1);
       expect(browserSender.deliver).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // notifyNow() — the throttle summary (issue #456)
+  // ==========================================================================
+  //
+  // `notifyNow` resolves a `NotifyNowResult`: whether ANY channel of this
+  // dispatch was refused by a throttling provider, and the LONGEST wait any
+  // of them named. This is what lets `BroadcastChunkHandler` learn a
+  // never-throwing channel refused it. The delivery row is unaffected either
+  // way — it is still written `failed`, because for that recipient the send
+  // genuinely did not go out.
+  // ==========================================================================
+
+  describe('notifyNow() — the throttle summary (issue #456)', () => {
+    it('reports rateLimited: true and the retryAfterMs the channel named', async () => {
+      emailSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'Rate limited by the email provider: slow down',
+        rateLimited: true,
+        retryAfterMs: 30_000,
+      });
+
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: true, retryAfterMs: 30_000 });
+    });
+
+    it('the delivery row is still written failed on a throttled channel', async () => {
+      emailSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'Rate limited by the email provider: slow down',
+        rateLimited: true,
+        retryAfterMs: 30_000,
+      });
+
+      await service.notifyNow('user.welcome', USER_ID, {});
+
+      expect(mockPrisma.notificationDelivery.update).toHaveBeenCalledTimes(1);
+      const [[updateArgs]] = mockPrisma.notificationDelivery.update.mock
+        .calls as unknown as [[{ data: Record<string, unknown> }]];
+      expect(updateArgs.data).toMatchObject({
+        status: NotificationDeliveryStatus.failed,
+        error: 'Rate limited by the email provider: slow down',
+      });
+    });
+
+    it('reports rateLimited: false and retryAfterMs: null when no channel was throttled', async () => {
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
+    it('is rateLimited if ANY channel of a multi-channel dispatch was, and reports the LONGEST retryAfterMs', async () => {
+      emailSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'Rate limited by the email provider: slow down',
+        rateLimited: true,
+        retryAfterMs: 10_000,
+      });
+      browserSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'Rate limited by the browser provider: slow down',
+        rateLimited: true,
+        retryAfterMs: 45_000,
+      });
+
+      await expect(
+        service.notifyNow('admin.broadcast', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: true, retryAfterMs: 45_000 });
+    });
+
+    it('the LONGER wait wins even when the throttled channel with the shorter wait runs first', async () => {
+      // Senders array order is [emailSender, browserSender], and dispatch()
+      // iterates channels in the order resolveChannels returns them, so this
+      // pins that the merge takes the max regardless of which channel is
+      // iterated first, not just "the last one wins".
+      emailSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'slow down (email)',
+        rateLimited: true,
+        retryAfterMs: 60_000,
+      });
+      browserSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'slow down (browser)',
+        rateLimited: true,
+        retryAfterMs: 5_000,
+      });
+
+      await expect(
+        service.notifyNow('admin.broadcast', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: true, retryAfterMs: 60_000 });
+    });
+
+    it('a channel that is rate-limited with no named retryAfterMs still reports rateLimited: true with retryAfterMs: null', async () => {
+      emailSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'slow down',
+        rateLimited: true,
+      });
+
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: true, retryAfterMs: null });
+    });
+
+    it('a throttled email channel does not stop the next channel from being attempted', async () => {
+      emailSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'slow down',
+        rateLimited: true,
+        retryAfterMs: 10_000,
+      });
+
+      await service.notifyNow('admin.broadcast', USER_ID, {});
+
+      expect(browserSender.deliver).toHaveBeenCalledTimes(1);
+    });
+
+    it('a channel that THROWS is not read as a throttle, even though it is caught and recorded', async () => {
+      emailSender.deliver.mockRejectedValue(new Error('smtp exploded'));
+
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
+    it('a missing user resolves { rateLimited: false, retryAfterMs: null }', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null as never);
+
+      await expect(
+        service.notifyNow('user.welcome', 'ghost-user', {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
+    it('an unknown event key resolves { rateLimited: false, retryAfterMs: null }', async () => {
+      await expect(
+        service.notifyNow('no.such.event', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
+    it('every channel muted resolves { rateLimited: false, retryAfterMs: null }, with nothing dispatched', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(
+        userRow({
+          userSettingsValue: {
+            notifications: { email: { 'user.welcome': false } },
+          },
+        }) as never,
+      );
+
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
+      expect(emailSender.deliver).not.toHaveBeenCalled();
+    });
+
+    it('a database failure writing the delivery row does not surface as a throttle', async () => {
+      // `NotificationDeliveryService.queue` swallows its own database errors
+      // (see the existing 'failure containment' suite above), so this
+      // resolves via the ordinary path — but it is still worth pinning that a
+      // completely unrelated internal failure is never misread as a provider
+      // throttle.
+      mockPrisma.notificationDelivery.create.mockImplementation(() => {
+        throw new Error('unexpected synchronous throw');
+      });
+
+      await expect(
+        service.notifyNow('user.welcome', USER_ID, {}),
+      ).resolves.toEqual({ rateLimited: false, retryAfterMs: null });
+    });
+
+    it('notify(), by contrast, still resolves undefined even when the channel is throttled', async () => {
+      emailSender.deliver.mockResolvedValue({
+        success: false,
+        error: 'slow down',
+        rateLimited: true,
+        retryAfterMs: 10_000,
+      });
+
+      await expect(
+        service.notify('user.welcome', USER_ID, {}),
+      ).resolves.toBeUndefined();
+      await expect(service.flush()).resolves.toBeUndefined();
     });
   });
 });

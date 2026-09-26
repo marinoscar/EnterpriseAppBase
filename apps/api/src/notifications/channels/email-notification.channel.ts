@@ -54,6 +54,26 @@ import type {
 // noise: `formatFromHeader` — header escaping, where a second implementation
 // means either mail from nobody or an injected header. #124 exported it for
 // exactly this call site.
+//
+// -----------------------------------------------------------------------------
+// NEVER THROWS — AND YET A THROTTLE CAN STILL PAUSE A BROADCAST (issue #456)
+// -----------------------------------------------------------------------------
+//
+// This channel's failures cannot fail the caller: every refusal becomes a
+// `{ success: false }` result and a `failed` delivery row. Until #456 that
+// also meant a PROVIDER THROTTLE could not slow anything down — the
+// broadcast fan-out kept dispatching into a provider that was refusing it,
+// and the rest of the audience was written off one failed row at a time.
+//
+// The fix keeps the contract and adds a fact to the result: when the
+// transport classifies its error as a throttle (`BaseEmailProvider` →
+// `classifyEmailRateLimit`), this channel returns `rateLimited: true` (and
+// the provider's `retryAfterMs`). `NotificationsService.notifyNow` — and only
+// `notifyNow`, the awaited path — aggregates that into its result, and
+// `BroadcastChunkHandler` turns it into a `RateLimitError`, which is the
+// queue's own backpressure mechanism. The throw happens in the one place that
+// is ALLOWED to throw (a job handler), about the one thing the queue already
+// knows how to handle (a deferral), and nowhere else.
 // =============================================================================
 
 /**
@@ -163,6 +183,15 @@ export class EmailNotificationChannel implements NotificationChannelSender {
    * `EmailProvider.send` carries the same guarantee structurally (see
    * `BaseEmailProvider`). The dispatcher wraps this call anyway — belt and
    * braces for channels added later — but nothing here relies on that.
+   *
+   * A PROVIDER THROTTLE IS STILL A RETURNED FAILURE, not an exception — but
+   * since #456 it is a failure that says so (`rateLimited: true`, plus the
+   * provider's `retryAfterMs` when it named one). That flag is the only way a
+   * throttle can reach the one caller able to act on it: never-throw means a
+   * refusing provider cannot pause anything by raising, so it has to be
+   * REPORTED, and `NotificationsService.notifyNow` carries it back to the
+   * broadcast chunk, which stops and defers. The detached `notify()` path
+   * ignores it and behaves exactly as before.
    */
   async deliver(
     context: NotificationDispatchContext,
@@ -242,11 +271,35 @@ export class EmailNotificationChannel implements NotificationChannelSender {
     const result = await this.providers[settings.provider].send(message);
 
     if (!result.success) {
+      const error = result.error ?? 'The transport reported a failure with no message.';
+
+      if (result.rateLimited === true) {
+        // A PROVIDER THROTTLE (issue #456). Still a failed delivery — this
+        // recipient did not get the message — and still NOT a throw: the
+        // never-throw contract above holds for this branch exactly as for
+        // every other. What differs is that the verdict travels up with the
+        // result, so `notifyNow` can tell an awaiting job handler "the
+        // provider is refusing you" and the broadcast fan-out can stop and
+        // defer instead of spending its remaining audience on refusals.
+        //
+        // The row's `error` is prefixed so an operator reading
+        // `notification_deliveries` can tell a throttle from a bad mailbox at
+        // a glance, without a schema column: the transport's own wording (a
+        // bare SMTP `421 4.7.0 Try again later`) does not always say so on
+        // its own. The transport text follows VERBATIM, as below.
+        return {
+          success: false,
+          error: `Rate limited by the email provider: ${error}`,
+          rateLimited: true,
+          ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}),
+        };
+      }
+
       return {
         success: false,
         // VERBATIM. Already through `SecretRedactor` and the length cap, and
         // it is the only thing that makes the failed row worth having.
-        error: result.error ?? 'The transport reported a failure with no message.',
+        error,
       };
     }
 
