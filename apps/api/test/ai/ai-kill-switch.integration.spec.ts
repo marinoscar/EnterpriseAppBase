@@ -174,8 +174,9 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
     it('a real ai:use route succeeds — the guard denies for the right reason, not indiscriminately', async () => {
       // HARNESS_USER, not an arbitrary mock user: the harness only seeds a
       // provider key for this id, and a caller with no key gets `AI_KEY_REQUIRED`
-      // rather than the 200 this case is trying to prove.
-      const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'viewer' });
+      // rather than the 200 this case is trying to prove. `roleName:
+      // 'contributor'`, not 'viewer' (#499): Viewer no longer holds `ai:use`.
+      const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
 
       await request(app.context.app.getHttpServer())
         .post('/api/ai/responses')

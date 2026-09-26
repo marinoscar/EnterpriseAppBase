@@ -988,14 +988,22 @@ a grant intended for one purpose silently acquire a different, larger one:
   seeded far more broadly for unrelated settings.
 - `ai:use` — may call AI with the caller's own key (or the org fallback
   when policy allows it): the consumer-facing routes under `/api/ai/*`
-  (excluding the always-open `GET /api/ai/config`). Seeded to **all three
-  roles** (Admin, Contributor, Viewer) — using AI with a key the caller
-  themselves supplied is not an administrative act, the same way managing
-  one's own settings or storage objects is not.
+  (excluding the always-open `GET /api/ai/config`). Seeded to **Admin and
+  Contributor**, and deliberately **NOT to Viewer** (issue #499) — using
+  AI with a key the caller themselves supplied is not an administrative
+  act, the same way managing one's own settings or storage objects is
+  not, but Viewer is the DEFAULT role every new signup lands in, and a
+  default `ai:use` grant meant a brand-new account could call AI with no
+  administrator having decided that. Under `byok` this was inert (no key,
+  no calls succeed), but under `byok_with_org_fallback` it meant a new
+  Viewer could silently spend the deployment's own org key the first time
+  they touched an AI surface. An administrator who wants a Viewer to use
+  AI grants `ai:use` back explicitly (a `role_permissions` row) or
+  promotes the account to Contributor.
 
 `ai_config` and `ai:use` are deliberately **not** folded into one
-permission: an administrator must be able to grant "may use AI" to
-everyone (the default posture) while keeping "may reconfigure the AI
+permission: an administrator must be able to grant "may use AI" broadly
+(Admin and Contributor by default) while keeping "may reconfigure the AI
 platform for the whole deployment" restricted to Admin — exactly the
 reachability-vs-authority distinction CLAUDE.md's Settings UI Pattern
 already draws between a destination gate and a tab gate, applied here to
@@ -1588,7 +1596,7 @@ calls only the HTTP surface above — never a provider, never a key.
 | Usage aggregates add up under every grouping (real SQL over a seeded fixture); `/me` is scoped to the caller; the purge deletes only rows past retention and its cron only enqueues | `apps/api/test/ai/ai-usage.db.spec.ts`, `apps/api/test/ai/ai-usage.integration.spec.ts`, `apps/api/src/ai/usage/*.spec.ts`, `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
 | Streaming and non-streaming responses return identical final text for the same fake script; a pre-stream gate failure is plain JSON, a mid-stream failure is an `error` SSE frame; client abort stops the provider call | `apps/api/test/ai/ai-responses.integration.spec.ts` |
 | `infra/nginx/nginx.conf` contains the `/api/ai/responses/stream` location with `proxy_buffering off` | a config-assertion spec reading the nginx file directly, mirroring `apps/api/test/production-image.spec.ts` |
-| Seed grants: Admin holds all three AI permissions; Contributor and Viewer hold `ai:use` only | `apps/api/test/prisma/seed-data.spec.ts` |
+| Seed grants: Admin holds all three AI permissions; Contributor holds `ai:use` only; Viewer holds neither (#499) | `apps/api/test/prisma/seed-data.spec.ts` |
 | The conformance kit (`describeAiProviderConformance`) passes against `FakeAiProvider` | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts` |
 | Storage-object inputs: ownership/modality/size/strategy gates, delivery by presigned URL and by Files API upload with provider-side deletion (success, failure, stream end), queued runs storing only the id, and no presigned URL in any response, row or log line | `apps/api/src/ai/runtime/ai-file-inputs.spec.ts`, `apps/api/src/ai/providers/openai/openai-file-inputs.spec.ts`, `apps/api/test/ai/ai-file-inputs.integration.spec.ts`, `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
 | Rate limits (§15): each limit's window and exact `retryAfterMs`, unlimited and query-free when unset, org-key limits never applied to a user's own key, the gate after key resolution, what counts, the per-model output clamp, a limited background run deferred not failed, and 429 + `Retry-After` + `details.limit` over HTTP | `apps/api/src/ai/runtime/ai-limits.service.spec.ts`, `apps/api/src/ai/runtime/ai-limits.facade.spec.ts`, `apps/api/src/ai/runtime/ai-response-run.handler.spec.ts`, `apps/api/src/ai/runtime/ai-image-generate.handler.spec.ts`, `apps/api/test/ai/ai-limits.integration.spec.ts`, `apps/api/src/ai/core/ai-error.spec.ts` |
