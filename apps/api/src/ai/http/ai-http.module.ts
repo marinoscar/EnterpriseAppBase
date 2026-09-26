@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { AiConfigModule } from '../config/ai-config.module';
 import { AiRuntimeModule } from '../runtime/ai-runtime.module';
 import { AiResponsesController } from './ai-responses.controller';
+import { AiRunsController } from './ai-runs.controller';
 
 // =============================================================================
 // AiHttpModule (issue #433, epic #419) — the consumer HTTP API
@@ -16,6 +17,6 @@ import { AiResponsesController } from './ai-responses.controller';
 
 @Module({
   imports: [AiConfigModule, AiRuntimeModule],
-  controllers: [AiResponsesController],
+  controllers: [AiResponsesController, AiRunsController],
 })
 export class AiHttpModule {}
