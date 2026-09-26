@@ -1374,6 +1374,20 @@ logs at `error`: the work continues, because JavaScript cannot cancel a
 promise mid-`await`, but a worker that has lost the row does not go on
 re-forging the queue's view of it.
 
+**Settling a job is claim-guarded the same way, not only renewing it (issue
+#477).** `JobTerminalService`'s writes — success, permanent failure, retry and
+rate-limit deferral alike — match the same three identity columns
+(`heldClaimWhere`, the sibling of the renewal guard above) rather than the
+job's id alone, so an executor whose row was reaped or re-claimed while it was
+still working cannot land its stale conclusion over whoever holds the row now.
+Unlike renewal, the settle guard carries no lease-expiry clause: it asks
+whether this is still the claim it was given, not whether that claim's lease
+has run out, since letting an expired-but-unreaped settle land is strictly
+better than making the reaper redo work that already finished. A write that
+matches nothing is `claim-lost` — logged, never thrown, never emitted — and
+the node plane reports it as the same 409 a stale renewal or read produces.
+See `docs/specs/job-queue.md` §5.7/§6.9 for the full argument.
+
 This is a correctness requirement, not an optimisation. Until issue #347 the
 in-process worker wrote a lease at claim time and never touched the row again,
 and the reaper's aged-claim signal requeued any job that had been running

@@ -65,7 +65,7 @@
 // =============================================================================
 
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Job, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -184,6 +184,56 @@ export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): Prisma.
     leaseExpiresAt: { gt: new Date() },
     ...(nodeId !== undefined ? { claimedByNodeId: nodeId } : {}),
     ...(claimToken !== undefined ? { claimToken } : {}),
+  };
+}
+
+/**
+ * The rows a SETTLE may legitimately touch: this job, still `running`, under
+ * EXACTLY the claim the settling executor was handed (#477).
+ *
+ * `JobTerminalService` makes every one of its writes — terminal, retry and
+ * rate-limit deferral alike — conditional on this predicate, so a stalled
+ * executor whose `process()` returns after its row was reaped or re-claimed
+ * updates zero rows instead of overwriting a row that is no longer its to
+ * describe (and, since #468, instead of announcing `job.settled` a second
+ * time, or requeueing a claim somebody else is running).
+ *
+ * The sibling of `heldLeaseWhere`, and deliberately NOT the same predicate:
+ *
+ * ⚠ THERE IS NO `leaseExpiresAt` CLAUSE, AND ITS ABSENCE IS THE DESIGN. This
+ * guard asks an IDENTITY question ("is this still the claim I was given?"),
+ * not a LIVENESS one ("is my lease still running?"), and identity is already
+ * fully answered by the other three columns: every re-claim mints a fresh
+ * `claim_token` (`job-claim.service.ts`), and the reaper ALWAYS moves `status`
+ * off `running` when it takes a row away (requeue to `pending`, or `failed`).
+ * So a row still `running` with this token has not been given to anybody
+ * else, whatever its lease says. Letting an expired-but-not-yet-reaped settle
+ * land is strictly better than refusing it: the alternative is to throw away a
+ * finished result and make the reaper requeue work that is already done.
+ * Renewal is different, and keeps its expiry clause, because a late renewal
+ * would RE-TAKE a lease — it asserts the future, and a settle only records the
+ * past.
+ *
+ * NO `undefined` MEMBERS, unlike `LeaseHolder`: the values come off the
+ * claimed `Job` row itself, so both are always stated. `claimToken: null`
+ * renders as `claim_token IS NULL` (the same semantics as `heldLeaseWhere`) —
+ * which is what a row claimed by pre-#361 code carries, and it still matches
+ * only while no newer claim has overwritten it. `claimedByNodeId: null`
+ * likewise renders `IS NULL`: a server-claimed row.
+ *
+ * ⚠ ROLLING DEPLOYS: a replica still running pre-#477 code settles by `id`
+ * alone, so during a rolling deploy it can still overwrite a row that was
+ * re-claimed from under it, exactly as before. The hole closes when the last
+ * old replica is gone — the same caveat `heldLeaseWhere` carries for #361.
+ */
+export function heldClaimWhere(
+  job: Pick<Job, 'id' | 'claimToken' | 'claimedByNodeId'>
+): Prisma.JobWhereInput {
+  return {
+    id: job.id,
+    status: 'running',
+    claimToken: job.claimToken,
+    claimedByNodeId: job.claimedByNodeId,
   };
 }
 

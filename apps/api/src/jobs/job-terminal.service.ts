@@ -63,6 +63,39 @@
 // different causes, different timescales and different correct responses need
 // two budgets; the `Job` model's own block comment in `schema.prisma` and
 // §4.5 of docs/specs/job-queue.md record the same decision from their side.
+//
+// -----------------------------------------------------------------------------
+// EVERY WRITE IS CONDITIONAL ON THE CLAIM (#477)
+// -----------------------------------------------------------------------------
+//
+// Terminal, retry and rate-limit-deferral writes alike go through
+// `safeTerminalUpdate`, which matches `heldClaimWhere(job)` — this id, still
+// `running`, same `claim_token`, same `claimed_by_node_id` — rather than the
+// id alone. Until #477 it matched the id alone, and an executor that stalled
+// past its lease could come back from `process()` after the reaper had
+// requeued its row and another executor had claimed it, and then: overwrite
+// the new run's row with its stale conclusion, emit `job.settled` a second
+// time for a job the reaper already settled (#468), or push a live claim back
+// to `pending` under somebody else's feet.
+//
+// ZERO ROWS MATCHED IS `claim-lost`, A NORMAL OUTCOME. It means "this row is
+// no longer yours to describe": nothing is written, nothing is emitted, nothing
+// throws — the executor's conclusion is simply stale, and whoever holds the row
+// now (or the reaper that took it) owns what happens next. The worker logs it
+// and frees its slot; the node plane turns it into the same 409 a stale read
+// would have produced.
+//
+// WHY NO LEASE CLAUSE (unlike renewal's `heldLeaseWhere`): the guard is
+// IDENTITY, not LIVENESS. Every re-claim mints a new token and the reaper always
+// moves `status` off `running`, so a `running` row with our token is still ours
+// even if its lease has lapsed — and letting that settle land beats forcing the
+// reaper to requeue work that already finished. See `heldClaimWhere`.
+//
+// NULL TOKENS: `claimToken: null` matches `claim_token IS NULL` (the same
+// semantics `heldLeaseWhere` gives it) — a row claimed by pre-#361 code. And
+// during a rolling deploy a replica still on pre-#477 code settles by id alone,
+// exactly as renewal's own rolling-deploy caveat describes; the hole closes
+// when the last old replica is gone.
 // =============================================================================
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
@@ -76,6 +109,7 @@ import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
 import { emitJobSettled } from './job-settled.emit';
 import { resolveMaxAttempts } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { heldClaimWhere } from './job-lease.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { classifyRateLimit, RateLimitError } from './rate-limit.error';
 
@@ -122,13 +156,101 @@ export interface CompleteFailedOptions {
  *
  * `write-failed` is the `safeTerminalUpdate` give-up: the row was NOT
  * written, and it is still `running` for the lease reaper (#263) to pick up.
+ *
+ * `claim-lost` (#477) means the row was NOT written because it is no longer
+ * held by the claim that is settling it — reaped, re-claimed, or already
+ * settled. Nothing was emitted. Not an error: the caller's conclusion is
+ * stale and belongs to nobody. The node plane maps it to a 409.
  */
 export type JobSettleOutcome =
   | 'succeeded'
   | 'failed'
   | 'retry-scheduled'
   | 'rate-limit-deferred'
-  | 'write-failed';
+  | 'write-failed'
+  | 'claim-lost';
+
+/**
+ * What `safeTerminalUpdate` did — the three things a guarded write can end as.
+ *
+ * `written` carries the POST-UPDATE row (the settled event must describe what
+ * is actually stored, not what we meant to store). `claim-lost` carries the
+ * row as it stands now when it could be re-read, purely for the log line.
+ */
+type TerminalWrite =
+  | { kind: 'written'; row: Job }
+  | { kind: 'claim-lost'; current: Job | null }
+  | { kind: 'write-failed' };
+
+/** The data shape a terminal write carries: plain column values only. */
+type TerminalWriteData = Prisma.JobUncheckedUpdateManyInput;
+
+/**
+ * Does `row` already hold every value `data` would write?
+ *
+ * Used ONLY on the ambiguous path of `safeTerminalUpdate`: the first attempt
+ * threw (so it may or may not have committed) and the guarded retry matched
+ * nothing. If the row now carries exactly what we tried to write, the first
+ * attempt committed and the write is ours; anything else means somebody else
+ * moved the row.
+ *
+ * Why a coincidental match by another writer is not a practical concern: every
+ * terminal payload carries a timestamp from this call's clock
+ * (`finishedAt`, or `scheduledFor` with jitter), which no other writer
+ * reproduces to the millisecond.
+ *
+ * ⚠ THROWS (via `assertPlainTerminalData`) on any value that is not a plain
+ * scalar, `Date` or `null`. The comparison is only meaningful for absolute
+ * values; a Prisma operator such as `{ increment: 1 }` has no "equals the row"
+ * reading at all, and a comparison that silently answered `false` for it would
+ * turn every ambiguous commit into a false `claim-lost`. The un-charge comment
+ * in `deferForRateLimit` explains why no payload here uses operators; this
+ * makes a future one fail loudly.
+ */
+export function rowMatchesWrite(row: Job, data: TerminalWriteData): boolean {
+  assertPlainTerminalData(data);
+
+  return Object.entries(data).every(([key, expected]) => {
+    // Prisma ignores an `undefined` field, so it wrote nothing to compare.
+    if (expected === undefined) return true;
+
+    const actual = (row as Record<string, unknown>)[key];
+
+    if (expected instanceof Date) {
+      return actual instanceof Date && actual.getTime() === expected.getTime();
+    }
+
+    return actual === expected;
+  });
+}
+
+/**
+ * The runtime half of `rowMatchesWrite`'s contract: every field a terminal
+ * write carries is a plain scalar, a `Date`, `null` or `undefined` — never a
+ * Prisma operator object. Also run on EVERY write, not only on the rare
+ * ambiguous path, so a payload that breaks the rule fails in the first unit
+ * test that exercises it rather than in production on a recycled connection.
+ */
+function assertPlainTerminalData(data: TerminalWriteData): void {
+  for (const [key, value] of Object.entries(data)) {
+    if (
+      value === null ||
+      value === undefined ||
+      value instanceof Date ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      continue;
+    }
+
+    throw new Error(
+      `Terminal write field "${key}" is not a plain scalar, Date or null. Terminal ` +
+        `writes must be absolute values: they may be applied twice, and an ambiguous ` +
+        `commit is verified by comparing the row against them.`
+    );
+  }
+}
 
 /**
  * How long `safeTerminalUpdate` waits before its single retry.
@@ -229,7 +351,7 @@ export class JobTerminalService {
   async completeSucceeded(job: Job): Promise<JobSettleOutcome> {
     this.throttle.recordSuccess(job.type);
 
-    const updated = await this.safeTerminalUpdate(job.id, {
+    const result = await this.safeTerminalUpdate(job, {
       status: 'succeeded',
       finishedAt: new Date(this.clock.now()),
       scheduledFor: null,
@@ -243,11 +365,11 @@ export class JobTerminalService {
       // explanation of why it took three.
     });
 
-    if (!updated) {
-      return 'write-failed';
+    if (result.kind !== 'written') {
+      return this.unwritten(job, result, 'success');
     }
 
-    this.emitSettled(updated);
+    this.emitSettled(result.row);
 
     return 'succeeded';
   }
@@ -354,7 +476,7 @@ export class JobTerminalService {
       // remaining budget to protect, and the surviving value — "one attempt
       // was started, and it was throttled eleven times" — is the truthful
       // description of what happened.
-      const updated = await this.safeTerminalUpdate(job.id, {
+      const result = await this.safeTerminalUpdate(job, {
         status: 'failed',
         finishedAt: now,
         lastError: message,
@@ -366,8 +488,8 @@ export class JobTerminalService {
         leaseExpiresAt: null,
       });
 
-      if (!updated) {
-        return 'write-failed';
+      if (result.kind !== 'written') {
+        return this.unwritten(job, result, 'rate-limit give-up');
       }
 
       this.logger.warn(
@@ -375,12 +497,12 @@ export class JobTerminalService {
           `rate-limit deferrals: ${message}`
       );
 
-      this.emitSettled(updated);
+      this.emitSettled(result.row);
 
       return 'failed';
     }
 
-    const updated = await this.safeTerminalUpdate(job.id, {
+    const result = await this.safeTerminalUpdate(job, {
       // Back to `pending`, invisible to the claim query until `scheduledFor`.
       status: 'pending',
       scheduledFor: new Date(now.getTime() + delayMs),
@@ -401,15 +523,24 @@ export class JobTerminalService {
       // back, and the NET effect of claim-then-defer is zero.
       //
       // WRITTEN AS AN ABSOLUTE VALUE, NOT `{ decrement: 1 }`. This write can
-      // run twice — `safeTerminalUpdate` retries once, and its first call can
-      // have committed before the connection dropped on the way back. An
-      // absolute value is idempotent: applied twice it still says
-      // `job.attempts - 1`. A relative `decrement` applied twice subtracts
-      // two, silently GRANTING the job an extra attempt it never earned, and
-      // repeated over a long throttled backfill it would drive `attempts`
-      // negative and make the budget unreachable. Clamped at 0 because a
-      // caller handing us a row with `attempts: 0` (a hand-written test, a
-      // node replaying a stale body) must not produce a negative count.
+      // be attempted twice — `safeTerminalUpdate` retries once, and its first
+      // call can have committed before the connection dropped on the way
+      // back. An absolute value is idempotent: applied twice it still says
+      // `job.attempts - 1`, where a relative `decrement` applied twice would
+      // subtract two, silently GRANTING the job an extra attempt it never
+      // earned (and, repeated over a long throttled backfill, drive `attempts`
+      // negative and make the budget unreachable).
+      //
+      // Since #477 that second application is ALSO guarded by
+      // `heldClaimWhere`: if the first one committed, the row is already
+      // `pending` with no token, so the retry matches nothing and
+      // `safeTerminalUpdate` reads the row back and compares it against this
+      // payload to decide whether the write was its own. The absolute value is
+      // what makes that comparison possible at all — an operator has no
+      // "equals the row" reading, and `assertPlainTerminalData` refuses one
+      // outright. Clamped at 0 because a caller handing us a row with
+      // `attempts: 0` (a hand-written test, a node replaying a stale body)
+      // must not produce a negative count.
       attempts: Math.max(0, job.attempts - 1),
 
       lastError: message,
@@ -421,13 +552,13 @@ export class JobTerminalService {
       finishedAt: null,
     });
 
-    if (!updated) {
-      return 'write-failed';
+    if (result.kind !== 'written') {
+      return this.unwritten(job, result, 'rate-limit deferral');
     }
 
     this.logger.log(
       `Job ${job.id} (${job.type}) deferred ${delayMs}ms by a provider rate ` +
-        `limit (hit ${hits}); attempts left at ${updated.attempts}`
+        `limit (hit ${hits}); attempts left at ${result.row.attempts}`
     );
 
     // NO EVENT. A deferred job is not settled — it has not finished, and it
@@ -459,7 +590,7 @@ export class JobTerminalService {
         rand: this.rand,
       });
 
-      const updated = await this.safeTerminalUpdate(job.id, {
+      const result = await this.safeTerminalUpdate(job, {
         status: 'pending',
         scheduledFor: new Date(now.getTime() + delayMs),
         lastError: message,
@@ -469,8 +600,8 @@ export class JobTerminalService {
         finishedAt: null,
       });
 
-      if (!updated) {
-        return 'write-failed';
+      if (result.kind !== 'written') {
+        return this.unwritten(job, result, 'retry');
       }
 
       this.logger.log(
@@ -512,7 +643,7 @@ export class JobTerminalService {
     now: Date,
     log: string
   ): Promise<JobSettleOutcome> {
-    const updated = await this.safeTerminalUpdate(job.id, {
+    const result = await this.safeTerminalUpdate(job, {
       status: 'failed',
       finishedAt: now,
       lastError: message,
@@ -523,13 +654,13 @@ export class JobTerminalService {
       // `executor` kept, for the same reason as on success.
     });
 
-    if (!updated) {
-      return 'write-failed';
+    if (result.kind !== 'written') {
+      return this.unwritten(job, result, 'permanent failure');
     }
 
     this.logger.warn(log);
 
-    this.emitSettled(updated);
+    this.emitSettled(result.row);
 
     return 'failed';
   }
@@ -558,49 +689,153 @@ export class JobTerminalService {
    * open for the duration of an outage — the exact resource this method is
    * protecting.
    *
-   * Returns the written row (so the caller can emit an accurate settled
-   * event) or `null` when both attempts failed.
+   * THE WRITE IS GUARDED BY `heldClaimWhere(job)` (#477) — see the file
+   * header. A guarded write that matches nothing is `claim-lost`, and it is
+   * FINAL: it is not retried, because "the row moved" is an answer, not a blip.
    *
-   * WHY `JobUncheckedUpdateInput` AND NOT `JobUpdateInput`. Every one of this
-   * method's five call sites releases the node claim by writing
+   * ⚠ THE ONE RULE THE GUARD ADDS TO THE RETRY: the first attempt can COMMIT
+   * AND THEN THROW (the connection drops on the way back). Its retry then
+   * matches nothing — not because somebody else took the row, but because
+   * our own first write already moved it off `running` and cleared the token.
+   * Answering `claim-lost` there would drop the settled event for a settle
+   * that genuinely happened. So:
+   *
+   *   (a) first attempt returns no row, without throwing ⇒ `claim-lost`, final.
+   *   (b) first attempt throws, retry returns no row ⇒ re-read the row by id.
+   *       If it already holds every value `data` writes (`rowMatchesWrite`),
+   *       the first attempt committed and the write is OURS ⇒ `written`, with
+   *       the re-read row (so a terminal branch still emits, exactly once).
+   *       Otherwise ⇒ `claim-lost`. If the re-read itself throws we cannot
+   *       tell which ⇒ `write-failed` (no emit, the conservative answer).
+   *   (c) retry throws ⇒ `write-failed`.
+   *
+   * Returns a `TerminalWrite`; see its declaration.
+   *
+   * WHY `updateManyAndReturn`: it is one `UPDATE … WHERE … RETURNING *`, so the
+   * ownership check and the write are one statement (the same reason
+   * `heldLeaseWhere` lives in a `where` clause) and the row handed to the
+   * settled event is the post-update row, with no second read to race.
+   *
+   * WHY `JobUncheckedUpdateManyInput` AND NOT A CHECKED INPUT. Every one of
+   * this method's five call sites releases the node claim by writing
    * `claimedByNodeId: null` — a raw foreign-key scalar. Since #267 wired
-   * `Job.claimedByNode` as a real relation, Prisma's *Checked* input
-   * (`JobUpdateInput`) no longer accepts that scalar; it accepts only the
-   * nested relation form (`claimedByNode: { disconnect: true }`). The
-   * *Unchecked* variant is the one Prisma provides precisely for callers that
-   * set foreign keys themselves, which is what a terminal write is: it clears
-   * an ownership column, it does not navigate a relation. Widening it here
-   * once fixes all five call sites without rewriting each of them into
-   * relation syntax that would read as though the job were being reconnected
-   * to something.
+   * `Job.claimedByNode` as a real relation, Prisma's *Checked* update input no
+   * longer accepts that scalar; it accepts only the nested relation form
+   * (`claimedByNode: { disconnect: true }`). The *Unchecked* variant is the
+   * one Prisma provides precisely for callers that set foreign keys
+   * themselves, which is what a terminal write is: it clears an ownership
+   * column, it does not navigate a relation.
    */
-  private async safeTerminalUpdate(
-    jobId: string,
-    data: Prisma.JobUncheckedUpdateInput
-  ): Promise<Job | null> {
+  private async safeTerminalUpdate(job: Job, data: TerminalWriteData): Promise<TerminalWrite> {
+    assertPlainTerminalData(data);
+
+    const where = heldClaimWhere(job);
+
     try {
-      return await this.prisma.job.update({ where: { id: jobId }, data });
+      const [row] = await this.prisma.job.updateManyAndReturn({ where, data });
+
+      // (a) The statement ran and matched nothing: the row is not ours.
+      return row
+        ? { kind: 'written', row }
+        : { kind: 'claim-lost', current: await this.peek(job.id) };
     } catch (firstError) {
       this.logger.warn(
-        `Terminal write for job ${jobId} failed; retrying once in ` +
+        `Terminal write for job ${job.id} failed; retrying once in ` +
           `${TERMINAL_WRITE_RETRY_DELAY_MS}ms: ` +
           `${firstError instanceof Error ? firstError.message : String(firstError)}`
       );
-
-      await this.clock.sleep(TERMINAL_WRITE_RETRY_DELAY_MS);
-
-      try {
-        return await this.prisma.job.update({ where: { id: jobId }, data });
-      } catch (secondError) {
-        this.logger.error(
-          `Terminal write for job ${jobId} failed twice; leaving the row as ` +
-            `it is for the lease reaper and freeing the worker slot: ` +
-            `${secondError instanceof Error ? secondError.message : String(secondError)}`
-        );
-
-        return null;
-      }
     }
+
+    await this.clock.sleep(TERMINAL_WRITE_RETRY_DELAY_MS);
+
+    let retried: Job | undefined;
+
+    try {
+      [retried] = await this.prisma.job.updateManyAndReturn({ where, data });
+    } catch (secondError) {
+      // (c)
+      this.logger.error(
+        `Terminal write for job ${job.id} failed twice; leaving the row as ` +
+          `it is for the lease reaper and freeing the worker slot: ` +
+          `${secondError instanceof Error ? secondError.message : String(secondError)}`
+      );
+
+      return { kind: 'write-failed' };
+    }
+
+    if (retried) {
+      return { kind: 'written', row: retried };
+    }
+
+    // (b) Ambiguous: did the throwing first attempt commit?
+    let current: Job | null;
+
+    try {
+      current = await this.prisma.job.findUnique({ where: { id: job.id } });
+    } catch (readError) {
+      this.logger.error(
+        `Terminal write for job ${job.id} may or may not have committed and the row ` +
+          `could not be re-read to tell; treating it as unwritten: ` +
+          `${readError instanceof Error ? readError.message : String(readError)}`
+      );
+
+      return { kind: 'write-failed' };
+    }
+
+    if (current && rowMatchesWrite(current, data)) {
+      this.logger.warn(
+        `Terminal write for job ${job.id} threw but had committed; the re-read row ` +
+          `carries exactly the values written, so the write is this settle's own`
+      );
+
+      return { kind: 'written', row: current };
+    }
+
+    return { kind: 'claim-lost', current };
+  }
+
+  /**
+   * Best-effort read of a row this settle has just LOST, for the log line
+   * only. A failure to read it changes nothing — the outcome is already
+   * decided — so it is swallowed into `null`.
+   */
+  private async peek(jobId: string): Promise<Job | null> {
+    try {
+      return await this.prisma.job.findUnique({ where: { id: jobId } });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Maps a `TerminalWrite` that did NOT land to the outcome a caller returns,
+   * logging `claim-lost` once, here, for all five call sites.
+   *
+   * `claim-lost` is a WARN, not an error: it means an executor came back with
+   * a conclusion about a row that had already moved on (reaped, re-claimed,
+   * settled). Nothing is emitted and nothing throws — see the file header.
+   * `write-failed` was already logged by `safeTerminalUpdate`.
+   */
+  private unwritten(
+    job: Job,
+    result: Exclude<TerminalWrite, { kind: 'written' }>,
+    branch: string
+  ): JobSettleOutcome {
+    if (result.kind === 'write-failed') {
+      return 'write-failed';
+    }
+
+    const now = result.current
+      ? `it is now "${result.current.status}", claimed by ` +
+        `${result.current.claimedByNodeId ? `node ${result.current.claimedByNodeId}` : 'no node'}`
+      : 'it could not be re-read (deleted, or the read failed)';
+
+    this.logger.warn(
+      `Job ${job.id} (${job.type}): discarded this executor's ${branch} write because the ` +
+        `row is no longer held by its claim (reaped, re-claimed or already settled); ${now}`
+    );
+
+    return 'claim-lost';
   }
 
   /**

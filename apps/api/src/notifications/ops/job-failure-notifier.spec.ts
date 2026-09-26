@@ -86,6 +86,7 @@ function runningJob(overrides: Partial<Job> = {}): Job {
     rateLimitedAt: null,
     rateLimitHits: 0,
     claimedByNodeId: null,
+    claimToken: 'claim-token-1',
     leaseExpiresAt: new Date(NOW + 30_000),
     executor: 'server',
     ...overrides,
@@ -106,8 +107,10 @@ describe('JobFailureNotifier, wired to the real settled event', () => {
 
     // Echo the merge back, so the row the settled event carries is the row
     // that was written — the same fixture `job-terminal.service.spec.ts` uses.
+    // `updateManyAndReturn` since #477 (the claim-guarded write), so the echo
+    // is the one-row array a matched guard returns.
     update = jest.fn(({ where, data }) =>
-      Promise.resolve({ ...rowUnderTest, id: where.id, ...data }),
+      Promise.resolve([{ ...rowUnderTest, id: where.id, ...data }]),
     );
 
     module = await Test.createTestingModule({
@@ -132,7 +135,9 @@ describe('JobFailureNotifier, wired to the real settled event', () => {
     await module.init();
 
     terminal = new JobTerminalService(
-      { job: { update } } as unknown as PrismaService,
+      {
+        job: { updateManyAndReturn: update, findUnique: jest.fn().mockResolvedValue(null) },
+      } as unknown as PrismaService,
       { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
       {
         trip: jest.fn(),
@@ -230,6 +235,19 @@ describe('JobFailureNotifier, wired to the real settled event', () => {
     await expect(
       terminal.completeFailed(runningJob({ attempts: 3 }), new Error('handler blew up')),
     ).resolves.toBe('write-failed');
+
+    expect(notifyPermissionHolders).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire when the claim was lost — the reaper (or the new holder) owns that row (#477)', async () => {
+    // The guarded write matched nothing: a stalled executor's give-up on a row
+    // somebody else now holds. Firing here would be the duplicate
+    // notification #468 made possible and #477 closes.
+    update.mockResolvedValue([]);
+
+    await expect(
+      terminal.completeFailed(runningJob({ attempts: 3 }), new Error('handler blew up')),
+    ).resolves.toBe('claim-lost');
 
     expect(notifyPermissionHolders).not.toHaveBeenCalled();
   });

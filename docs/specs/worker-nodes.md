@@ -436,6 +436,18 @@ executor's own terminal write lands afterwards on a job it no longer owns. The
 damage is a permanently wrong stored result and a duplicated side effect, with
 nothing in any log tying the two together.
 
+**The window between this read guard and the settle's own write is closed
+too, since #477.** `assertJobHeldByNode` is a read; the actual settle happens
+moments later inside `JobTerminalService`, and that write is itself
+conditional on the same claim (`heldClaimWhere` — `docs/specs/job-queue.md`
+§5.7/§6.9), not merely on the row's id. If the claim moves in that gap — the
+reaper reaps it, or another executor claims it, between the read and the
+write — the settle matches nothing and answers `claim-lost` rather than
+landing; `NodesService` maps that outcome to the identical 409 this section
+describes, even when it surfaces after `persistNodeResult` has already run.
+It is the same fact this whole section is about, narrowed to a smaller gap
+rather than a new kind of check.
+
 **The fifth condition closes the one case those four cannot see: the "other
 executor" is the SAME node.** A node that claims job J, stalls past its lease,
 is reaped, and then claims J again in a second worker slot has two live slots

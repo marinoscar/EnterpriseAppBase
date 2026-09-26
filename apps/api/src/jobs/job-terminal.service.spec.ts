@@ -13,8 +13,10 @@
 // cue (the `safeTerminalUpdate` swallow), pin the clock so a jittered
 // `scheduled_for` is an exact timestamp rather than a range, or drive eleven
 // consecutive rate-limit deferrals without eleven real waits. So: a fake
-// clock, a pinned RNG, and a mocked `prisma.job.update` whose recorded
-// payload IS the assertion.
+// clock, a pinned RNG, and a mocked `prisma.job.updateManyAndReturn` whose
+// recorded payload IS the assertion. (Whether the claim guard's `where`
+// actually matches — and refuses — real rows is the DB suite's job; here the
+// guard is asserted as the predicate sent, and "matched nothing" is `[]`.)
 //
 // The one thing genuinely shared with the outside world — the throttle gate —
 // is exercised with the REAL `ProviderThrottleService` in the sibling-back-off
@@ -32,7 +34,8 @@ import { JobClock } from './job-clock';
 import { JobSettledEvent, JOB_SETTLED_EVENT } from './events/job-settled.event';
 import { resetJobProfileWarnings } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
-import { JobTerminalService } from './job-terminal.service';
+import { heldClaimWhere } from './job-lease.service';
+import { JobTerminalService, rowMatchesWrite } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { RateLimitError } from './rate-limit.error';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -97,6 +100,7 @@ function runningJob(overrides: Partial<Job> = {}): Job {
     rateLimitedAt: null,
     rateLimitHits: 0,
     claimedByNodeId: null,
+    claimToken: 'claim-token-1',
     leaseExpiresAt: new Date(NOW + 30_000),
     executor: 'server',
     ...overrides,
@@ -105,23 +109,31 @@ function runningJob(overrides: Partial<Job> = {}): Job {
 
 describe('JobTerminalService', () => {
   let clock: ReturnType<typeof fakeClock>;
+  /** `prisma.job.updateManyAndReturn` — named `update` for brevity. */
   let update: jest.Mock;
+  let findUnique: jest.Mock;
   let emit: jest.Mock;
   let throttle: jest.Mocked<Pick<ProviderThrottleService, 'trip' | 'recordSuccess'>>;
   let registry: JobHandlerRegistry;
   let service: JobTerminalService;
 
-  /** The `data` payload of the Nth `prisma.job.update` call. */
-  const written = (call = 0): Prisma.JobUpdateInput => update.mock.calls[call][0].data;
+  /** The `data` payload of the Nth `prisma.job.updateManyAndReturn` call. */
+  const written = (call = 0): Prisma.JobUncheckedUpdateManyInput => update.mock.calls[call][0].data;
+
+  /** A `PrismaService` stub carrying the two job methods the service calls. */
+  const prismaStub = () =>
+    ({ job: { updateManyAndReturn: update, findUnique } }) as unknown as PrismaService;
 
   beforeEach(() => {
     clock = fakeClock();
 
-    // Echo the merge back, so the row the settled event carries is the row
-    // that was written.
+    // Echo the merge back — as the one-row array `updateManyAndReturn`
+    // resolves to when the guard matched — so the row the settled event
+    // carries is the row that was written.
     update = jest.fn(({ where, data }) =>
-      Promise.resolve({ ...runningJob({ id: where.id }), ...data })
+      Promise.resolve([{ ...runningJob({ id: where.id }), ...data }])
     );
+    findUnique = jest.fn().mockResolvedValue(null);
 
     emit = jest.fn();
     throttle = { trip: jest.fn(), recordSuccess: jest.fn() };
@@ -133,7 +145,7 @@ describe('JobTerminalService', () => {
     resetJobProfileWarnings();
 
     service = new JobTerminalService(
-      { job: { update } } as unknown as PrismaService,
+      prismaStub(),
       { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
       throttle as unknown as ProviderThrottleService,
       { emit } as unknown as EventEmitter2,
@@ -151,7 +163,7 @@ describe('JobTerminalService', () => {
       await expect(service.completeSucceeded(runningJob())).resolves.toBe('succeeded');
 
       expect(update).toHaveBeenCalledTimes(1);
-      expect(update.mock.calls[0][0].where).toEqual({ id: 'job-1' });
+      expect(update.mock.calls[0][0].where).toEqual(heldClaimWhere(runningJob()));
       expect(written()).toMatchObject({
         status: 'succeeded',
         finishedAt: new Date(NOW),
@@ -183,7 +195,7 @@ describe('JobTerminalService', () => {
       });
       update.mockImplementation(() => {
         order.push('update');
-        return Promise.resolve(runningJob({ status: 'succeeded' }));
+        return Promise.resolve([runningJob({ status: 'succeeded' })]);
       });
 
       await service.completeSucceeded(runningJob());
@@ -467,7 +479,7 @@ describe('JobTerminalService', () => {
       });
       update.mockImplementation(() => {
         order.push('update');
-        return Promise.resolve(runningJob());
+        return Promise.resolve([runningJob()]);
       });
 
       await service.completeFailed(runningJob(), new RateLimitError('429'));
@@ -481,7 +493,10 @@ describe('JobTerminalService', () => {
   // ===========================================================================
   describe('classification', () => {
     /** The write a given failure produced, minus the message. */
-    async function payloadFor(error: unknown, opts?: { rateLimited?: boolean; retryAfterMs?: number }) {
+    async function payloadFor(
+      error: unknown,
+      opts?: { rateLimited?: boolean; retryAfterMs?: number }
+    ) {
       update.mockClear();
       throttle.trip.mockClear();
 
@@ -538,7 +553,10 @@ describe('JobTerminalService', () => {
   // ===========================================================================
   describe('Retry-After', () => {
     it('honours integer seconds from a provider header', async () => {
-      await service.completeFailed(runningJob(), { status: 429, headers: { 'retry-after': '600' } });
+      await service.completeFailed(runningJob(), {
+        status: 429,
+        headers: { 'retry-after': '600' },
+      });
 
       // 600s dwarfs the 15s backoff, so it is the floor that decides.
       expect(written()).toMatchObject({ scheduledFor: new Date(NOW + 600_000) });
@@ -622,10 +640,7 @@ describe('JobTerminalService', () => {
     });
 
     it('fires on a rate-limit give-up', async () => {
-      await service.completeFailed(
-        runningJob({ rateLimitHits: 10 }),
-        new RateLimitError('429')
-      );
+      await service.completeFailed(runningJob({ rateLimitHits: 10 }), new RateLimitError('429'));
 
       expect(emit).toHaveBeenCalledTimes(1);
       expect((emit.mock.calls[0][1] as JobSettledEvent).status).toBe('failed');
@@ -656,7 +671,7 @@ describe('JobTerminalService', () => {
 
       update.mockImplementation(() => {
         order.push('update');
-        return Promise.resolve(runningJob({ status: 'succeeded' }));
+        return Promise.resolve([runningJob({ status: 'succeeded' })]);
       });
       emit.mockImplementation(() => {
         order.push('emit');
@@ -760,6 +775,293 @@ describe('JobTerminalService', () => {
   });
 
   // ===========================================================================
+  // The claim guard (#477)
+  // ===========================================================================
+  describe('the claim guard (#477)', () => {
+    /**
+     * The five write sites, each as the call that reaches it. `sideEffect`
+     * is the throttle call that must still happen BEFORE the write, whether
+     * or not the write lands.
+     */
+    const BRANCHES: Array<{
+      name: string;
+      settle: (job: Job) => Promise<string>;
+      landed: string;
+      emits: boolean;
+      sideEffect: 'recordSuccess' | 'trip' | null;
+    }> = [
+      {
+        name: 'success',
+        settle: (job) => service.completeSucceeded(job),
+        landed: 'succeeded',
+        emits: true,
+        sideEffect: 'recordSuccess',
+      },
+      {
+        name: 'ordinary retry',
+        settle: (job) => service.completeFailed({ ...job, attempts: 1 }, new Error('boom')),
+        landed: 'retry-scheduled',
+        emits: false,
+        sideEffect: null,
+      },
+      {
+        name: 'rate-limit deferral',
+        settle: (job) => service.completeFailed(job, new RateLimitError('429')),
+        landed: 'rate-limit-deferred',
+        emits: false,
+        sideEffect: 'trip',
+      },
+      {
+        name: 'rate-limit give-up',
+        settle: (job) =>
+          service.completeFailed({ ...job, rateLimitHits: 10 }, new RateLimitError('429')),
+        landed: 'failed',
+        emits: true,
+        sideEffect: 'trip',
+      },
+      {
+        name: 'permanent failure (budget spent)',
+        settle: (job) => service.completeFailed({ ...job, attempts: 3 }, new Error('final')),
+        landed: 'failed',
+        emits: true,
+        sideEffect: null,
+      },
+    ];
+
+    let warn: jest.SpyInstance;
+    let log: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+      log.mockRestore();
+    });
+
+    it.each(BRANCHES)('$name writes WHERE heldClaimWhere(job)', async ({ settle, landed }) => {
+      const job = runningJob();
+
+      await expect(settle(job)).resolves.toBe(landed);
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(update.mock.calls[0][0].where).toEqual(
+        heldClaimWhere({ id: job.id, claimToken: 'claim-token-1', claimedByNodeId: null })
+      );
+      expect(update.mock.calls[0][0].where).toEqual({
+        id: 'job-1',
+        status: 'running',
+        claimToken: 'claim-token-1',
+        claimedByNodeId: null,
+      });
+    });
+
+    it('guards a NULL-token row with `claimToken: null` (IS NULL), not by dropping the clause', async () => {
+      await service.completeSucceeded(runningJob({ claimToken: null }));
+
+      const { where } = update.mock.calls[0][0];
+
+      expect(where).toHaveProperty('claimToken', null);
+      expect(where).toHaveProperty('claimedByNodeId', null);
+    });
+
+    it('guards a node-claimed row with that node id', async () => {
+      await service.completeFailed(
+        runningJob({ claimedByNodeId: 'node-7', executor: 'node' }),
+        new Error('boom')
+      );
+
+      expect(update.mock.calls[0][0].where).toMatchObject({
+        claimedByNodeId: 'node-7',
+        claimToken: 'claim-token-1',
+      });
+    });
+
+    it('carries no lease clause — an expired-but-unreaped settle still lands', async () => {
+      await expect(
+        service.completeSucceeded(runningJob({ leaseExpiresAt: new Date(NOW - 60_000) }))
+      ).resolves.toBe('succeeded');
+
+      expect(update.mock.calls[0][0].where).not.toHaveProperty('leaseExpiresAt');
+    });
+
+    it.each(BRANCHES)(
+      '$name: a guard that matches nothing is claim-lost — no emit, no retry, no throw',
+      async ({ settle, sideEffect }) => {
+        update.mockResolvedValue([]);
+
+        await expect(settle(runningJob())).resolves.toBe('claim-lost');
+
+        expect(update).toHaveBeenCalledTimes(1);
+        expect(clock.slept).toEqual([]);
+        expect(emit).not.toHaveBeenCalled();
+
+        // The throttle side effect is about the PROVIDER, not the row, so it
+        // still happens even though the row is somebody else's now.
+        if (sideEffect) {
+          expect(throttle[sideEffect]).toHaveBeenCalledTimes(1);
+          expect(throttle[sideEffect].mock.calls[0][0]).toBe('vision.describe');
+        } else {
+          expect(throttle.trip).not.toHaveBeenCalled();
+        }
+      }
+    );
+
+    it('logs a claim-lost warn naming the row’s current state, and none of the landed-branch lines', async () => {
+      update.mockResolvedValue([]);
+      findUnique.mockResolvedValue(
+        runningJob({ status: 'running', claimedByNodeId: 'node-9', claimToken: 'someone-else' })
+      );
+
+      await service.completeFailed(runningJob({ attempts: 3 }), new Error('final'));
+      await service.completeFailed(runningJob({ attempts: 1 }), new Error('boom'));
+
+      const warned = warn.mock.calls.map(([line]) => String(line));
+
+      expect(warned).toHaveLength(2);
+      expect(warned[0]).toContain('no longer held by its claim');
+      expect(warned[0]).toContain('"running"');
+      expect(warned[0]).toContain('node-9');
+      expect(warned.join('\n')).not.toContain('permanently failed');
+      expect(log.mock.calls.map(([line]) => String(line)).join('\n')).not.toContain('retrying in');
+    });
+
+    it('still answers claim-lost when the diagnostic re-read itself fails', async () => {
+      update.mockResolvedValue([]);
+      findUnique.mockRejectedValue(new Error('connection reset'));
+
+      await expect(service.completeSucceeded(runningJob())).resolves.toBe('claim-lost');
+      expect(String(warn.mock.calls.at(-1)?.[0])).toContain('could not be re-read');
+    });
+
+    it('emits the POST-UPDATE row the database returned, not the row it was handed', async () => {
+      const stored = runningJob({ status: 'succeeded', lastError: 'as stored', attempts: 2 });
+      update.mockResolvedValue([stored]);
+
+      await service.completeSucceeded(runningJob());
+
+      expect((emit.mock.calls[0][1] as JobSettledEvent).job).toBe(stored);
+    });
+  });
+
+  // ===========================================================================
+  // The ambiguous commit: first attempt threw, guarded retry matched nothing
+  // ===========================================================================
+  describe('an ambiguous commit (#477)', () => {
+    /** First attempt throws; the retry matches nothing. */
+    function firstThrowsThenNothing(): void {
+      update.mockRejectedValueOnce(new Error('connection reset')).mockResolvedValueOnce([]);
+    }
+
+    /** The re-read returns the row with the FIRST attempt's payload applied. */
+    function reReadShowsOurWrite(): Job {
+      const row = { ...runningJob() } as Job;
+
+      findUnique.mockImplementation(() =>
+        Promise.resolve(Object.assign(row, update.mock.calls[0][0].data))
+      );
+
+      return row;
+    }
+
+    it('reads the row back and, if it carries exactly our values, counts the write as ours', async () => {
+      firstThrowsThenNothing();
+      const row = reReadShowsOurWrite();
+
+      await expect(service.completeSucceeded(runningJob())).resolves.toBe('succeeded');
+
+      expect(update).toHaveBeenCalledTimes(2);
+      expect(findUnique).toHaveBeenCalledWith({ where: { id: 'job-1' } });
+      // EXACTLY ONE emit, carrying the re-read row.
+      expect(emit).toHaveBeenCalledTimes(1);
+      expect((emit.mock.calls[0][1] as JobSettledEvent).job).toBe(row);
+    });
+
+    it('does the same for a permanent failure', async () => {
+      firstThrowsThenNothing();
+      reReadShowsOurWrite();
+
+      await expect(
+        service.completeFailed(runningJob({ attempts: 3 }), new Error('final'))
+      ).resolves.toBe('failed');
+      expect(emit).toHaveBeenCalledTimes(1);
+      expect((emit.mock.calls[0][1] as JobSettledEvent).status).toBe('failed');
+    });
+
+    it('counts a deferral as ours without emitting (a deferral never emits)', async () => {
+      firstThrowsThenNothing();
+      reReadShowsOurWrite();
+
+      await expect(service.completeFailed(runningJob(), new RateLimitError('429'))).resolves.toBe(
+        'rate-limit-deferred'
+      );
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+    it('is claim-lost when the re-read row carries somebody else’s values', async () => {
+      firstThrowsThenNothing();
+      // The reaper got there first: `failed` with ITS OWN `finishedAt`.
+      findUnique.mockResolvedValue(
+        runningJob({
+          status: 'failed',
+          finishedAt: new Date(NOW - 5),
+          claimToken: null,
+          leaseExpiresAt: null,
+        })
+      );
+
+      await expect(service.completeSucceeded(runningJob())).resolves.toBe('claim-lost');
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+    it('is claim-lost when the row is gone', async () => {
+      firstThrowsThenNothing();
+      findUnique.mockResolvedValue(null);
+
+      await expect(service.completeSucceeded(runningJob())).resolves.toBe('claim-lost');
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+    it('is write-failed when the re-read throws — undecidable, so the conservative answer', async () => {
+      firstThrowsThenNothing();
+      findUnique.mockRejectedValue(new Error('still down'));
+
+      await expect(service.completeSucceeded(runningJob())).resolves.toBe('write-failed');
+      expect(emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rowMatchesWrite', () => {
+    const row = runningJob({ status: 'succeeded', finishedAt: new Date(NOW), attempts: 2 });
+
+    it('compares Dates by instant, and scalars/null by ===', () => {
+      expect(
+        rowMatchesWrite(row, {
+          status: 'succeeded',
+          finishedAt: new Date(NOW),
+          attempts: 2,
+          scheduledFor: null,
+        })
+      ).toBe(true);
+      expect(rowMatchesWrite(row, { finishedAt: new Date(NOW + 1) })).toBe(false);
+      expect(rowMatchesWrite(row, { attempts: 1 })).toBe(false);
+      expect(rowMatchesWrite(row, { leaseExpiresAt: null })).toBe(false);
+    });
+
+    it('ignores an undefined field, which Prisma does not write', () => {
+      expect(rowMatchesWrite(row, { status: 'succeeded', lastError: undefined })).toBe(true);
+    });
+
+    it('THROWS on a Prisma operator rather than silently answering false', () => {
+      expect(() => rowMatchesWrite(row, { attempts: { decrement: 1 } })).toThrow(
+        /not a plain scalar/
+      );
+    });
+  });
+
+  // ===========================================================================
   // Per-type attempt budgets (#346)
   // ===========================================================================
   describe('per-type attempt budgets', () => {
@@ -852,7 +1154,7 @@ describe('JobTerminalService', () => {
   describe('missing configuration', () => {
     it('falls back to the shipped defaults rather than producing NaN dates', async () => {
       const bare = new JobTerminalService(
-        { job: { update } } as unknown as PrismaService,
+        prismaStub(),
         { get: () => undefined } as unknown as ConfigService,
         throttle as unknown as ProviderThrottleService,
         { emit } as unknown as EventEmitter2,
@@ -885,7 +1187,7 @@ describe('JobTerminalService', () => {
       realThrottle.registerProviderKey('speech.transcribe', 'other-vendor');
 
       const wired = new JobTerminalService(
-        { job: { update } } as unknown as PrismaService,
+        prismaStub(),
         { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
         realThrottle,
         { emit } as unknown as EventEmitter2,
@@ -919,7 +1221,7 @@ describe('JobTerminalService', () => {
       realThrottle.registerProviderKey('vision.tag', 'acme-vision');
 
       const wired = new JobTerminalService(
-        { job: { update } } as unknown as PrismaService,
+        prismaStub(),
         { get: (key: string) => CONFIG_VALUES[key] } as unknown as ConfigService,
         realThrottle,
         { emit } as unknown as EventEmitter2,

@@ -365,7 +365,11 @@ export class JobStuckService {
    * the committed `failed` row, no longer matches, and gets `[]` back — so
    * only the replica whose statement changed the row emits. The same re-check
    * keeps the reaper from overwriting (or announcing) a row a late executor
-   * already settled. `claimToken` is still cleared with the claim (#361/#364).
+   * already settled. The converse — a late executor overwriting (or
+   * re-announcing) a row this reaper already gave up or requeued — is closed
+   * on the terminal path by `heldClaimWhere` (#477): the reaper moves the row
+   * off `running`, so the late settle matches nothing and answers
+   * `claim-lost`. `claimToken` is still cleared with the claim (#361/#364).
    * An emit can never abort the sweep: a throwing listener is contained by
    * `emitJobSettled`.
    *

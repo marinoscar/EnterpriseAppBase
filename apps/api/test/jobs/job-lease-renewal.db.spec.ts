@@ -517,6 +517,52 @@ describeWithDb('Lease renewal vs. the lease reaper (real Postgres)', () => {
     );
   });
 
+  it('drops replica A’s stale settle too, once replica B holds the claim (#477)', async () => {
+    // THE SAME #361 SEQUENCE AS THE TEST ABOVE, but instead of asking whether
+    // A can still RENEW, this asks whether A can still SETTLE — the question
+    // #477 answers. `JobTerminalService.completeSucceeded` writes through
+    // `heldClaimWhere(job)`, which carries no lease clause at all (unlike
+    // `heldLeaseWhere` above), so this is a genuinely different guard being
+    // exercised against the same real claim/reap/reclaim sequence.
+    const type = nextType();
+    await client.job.create({ data: { type, reason: 'backfill' } });
+
+    const claimOptions: ClaimOptions = {
+      nodeId: null,
+      executor: 'server',
+      eligibleTypes: [type],
+      limit: 1,
+      leases: [{ type, leaseMs: LEASE_MS }],
+    };
+
+    const [claimedByA] = await claims.claim(claimOptions);
+
+    await client.job.update({
+      where: { id: claimedByA.id },
+      data: { leaseExpiresAt: minutesAgo(1) },
+    });
+    await expect(stuck.resetStuck()).resolves.toMatchObject({ reset: 1, failed: 0 });
+
+    const [claimedByB] = await claims.claim(claimOptions);
+    expect(claimedByB.claimToken).not.toBe(claimedByA.claimToken);
+
+    const beforeStaleSettle = await read(claimedByB.id);
+
+    // Replica A finally reports back — long after it lost the row — with the
+    // stale claim it was originally handed.
+    await expect(terminal.completeSucceeded(claimedByA)).resolves.toBe('claim-lost');
+
+    // B's row must be byte-for-byte unchanged: A's stale conclusion must not
+    // mark B's still-running job `succeeded` out from under it.
+    const afterStaleSettle = await read(claimedByB.id);
+    expect(afterStaleSettle).toEqual(beforeStaleSettle);
+    expect(afterStaleSettle.status).toBe('running');
+
+    // ...while B's own, current claim still settles normally.
+    await expect(terminal.completeSucceeded(claimedByB)).resolves.toBe('succeeded');
+    await expect(read(claimedByB.id)).resolves.toMatchObject({ status: 'succeeded' });
+  });
+
   it('a worker that reclaims the same row cannot renew with its previous claim’s token', async () => {
     // THE CASE THAT JUSTIFIES MINTING PER ROW RATHER THAN PER PROCESS. If the
     // token identified the CLAIMING PROCESS instead of the claim, one worker
