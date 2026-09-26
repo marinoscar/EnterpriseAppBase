@@ -154,7 +154,7 @@ describe('AiAudioSpeechHandler', () => {
 
       h.storage.setConfigured(false);
 
-      await expect(handler.process(jobFor(handle, 2))).rejects.toMatchObject({ code: 'AI_STORAGE_UNAVAILABLE' });
+      await expect(handler.process(jobFor(handle, 2))).resolves.toBeUndefined();
       expect(row(handle.runId)).toMatchObject({ status: 'failed', errorCode: 'AI_STORAGE_UNAVAILABLE' });
       expect(row(handle.runId).errorMessage).toContain('/admin/settings/storage');
       expect(h.fake.calls).toEqual([]);
@@ -169,11 +169,29 @@ describe('AiAudioSpeechHandler', () => {
         throw new Error('S3 said no');
       });
 
-      await expect(handler.process(jobFor(handle, 2))).rejects.toMatchObject({ code: 'AI_STORAGE_UNAVAILABLE' });
+      await expect(handler.process(jobFor(handle, 2))).resolves.toBeUndefined();
       expect(row(handle.runId)).toMatchObject({ status: 'failed', errorCode: 'AI_STORAGE_UNAVAILABLE' });
       expect(h.storage.objects).toEqual([]);
       // The call happened and was billed: its usage row stays.
       expect(h.usageEvents).toEqual([expect.objectContaining({ status: 'succeeded', units: { characters: 23 } })]);
+    });
+
+    // Issue #509: AI_STORAGE_UNAVAILABLE is terminal. Before, the run was
+    // released and the AiError (a 503) rethrown, and the queue deferred it as
+    // a provider throttle up to JOBS_RATELIMIT_MAX_HITS times, never failing.
+    it('unconfigured storage on attempt 1 of 2 fails the run at once: never released, never retried, the job returns', async () => {
+      const { h, handler, jobFor, row, speak } = setup();
+      const handle = await speak();
+      const release = jest.spyOn(h.runs, 'release');
+      const fail = jest.spyOn(h.runs, 'fail');
+
+      h.storage.setConfigured(false);
+
+      await expect(handler.process(jobFor(handle, 1))).resolves.toBeUndefined();
+      expect(fail).toHaveBeenCalledWith(handle.runId, 'AI_STORAGE_UNAVAILABLE', expect.stringContaining('/admin/settings/storage'));
+      expect(release).not.toHaveBeenCalled();
+      expect(row(handle.runId)).toMatchObject({ status: 'failed', errorCode: 'AI_STORAGE_UNAVAILABLE' });
+      expect(h.fake.calls).toEqual([]);
     });
 
     it('an expected refusal (AI switched off) fails the run with the code, makes no call, and the job returns', async () => {

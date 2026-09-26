@@ -20,19 +20,23 @@
 //   - success                      run `succeeded` with the response
 //   - owner cancelled              run stays `cancelled`; job succeeds (no-op)
 //   - AI_RATE_LIMITED              run back to `pending`; job deferred
-//   - a policy/request outcome     run `failed` with the code; the job RETURNS
-//     (kill switch, key, model,    normally — the platform being switched off
-//     capability, invalid request, or a user's key being rejected is an
-//     content filter, bad output)  expected outcome, not an operator's
-//                                  incident, so it must not burn an attempt
-//                                  or fire `jobs.job_failed` (§8)
+//   - a policy/request/config      run `failed` with the code; the job RETURNS
+//     outcome (kill switch, key,   normally — the platform being switched off
+//     model, capability, invalid   or a user's key being rejected is an
+//     request, content filter,     expected outcome, not an operator's
+//     bad output, storage          incident, so it must not burn an attempt
+//     unavailable)                 or fire `jobs.job_failed` (§8); unconfigured
+//                                  storage no retry can fix (#509)
 //   - anything else                run `failed`; the job THROWS, so the
 //     (provider down, timeout,     failure is visible in the queue dashboard
 //     a bug)                       and notifies operators
 //
 // A stored input (#441) that is gone or no longer the owner's when the job
 // runs is `AI_INVALID_REQUEST` (a request outcome); unconfigured storage is
-// `AI_STORAGE_UNAVAILABLE` (an operator's) — see `aiErrorFromStorage`.
+// `AI_STORAGE_UNAVAILABLE` (an operator's to fix at /admin/settings/storage)
+// — see `aiErrorFromStorage`. Both are terminal: the run fails at once and
+// the job returns, because retrying cannot fix either (issue #509; before
+// it, the 503 behind the storage error was deferred as a provider throttle).
 //
 // And a safety net: if the job settles `failed` without the handler having
 // finished the run (the worker's own timeout, a rate-limit budget exhausted),
@@ -84,6 +88,10 @@ export const AI_RUN_TERMINAL_CODES: ReadonlySet<AiErrorCode> = new Set<AiErrorCo
   'AI_INVALID_REQUEST',
   'AI_CONTENT_FILTERED',
   'AI_STRUCTURED_OUTPUT_INVALID',
+  // A deployment configuration condition, not a transient one (issue #509):
+  // an administrator fixes object storage at /admin/settings/storage, and no
+  // retry of this job can. It fails the run with a code that says so.
+  'AI_STORAGE_UNAVAILABLE',
 ]);
 
 @Injectable()

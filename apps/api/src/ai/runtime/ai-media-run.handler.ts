@@ -21,8 +21,11 @@
 // refusal fails the run and the job RETURNS; anything else fails the run and
 // the job THROWS), plus:
 //
-//   - storage unconfigured / unwritable    run `failed` AI_STORAGE_UNAVAILABLE,
-//                                          job throws — an operator must act
+//   - storage unconfigured / unwritable    run `failed` AI_STORAGE_UNAVAILABLE
+//                                          at once, job returns — an operator
+//                                          must act at /admin/settings/storage,
+//                                          and no retry (nor rate-limit
+//                                          deferral) can fix it (issue #509)
 //   - an input deleted or no longer the    run `failed` AI_INVALID_REQUEST,
 //     user's since the run was queued       job returns (the user's own doing)
 //   - AI_RATE_LIMITED                      run back to `pending`; job deferred

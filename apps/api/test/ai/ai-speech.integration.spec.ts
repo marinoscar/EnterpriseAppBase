@@ -176,7 +176,8 @@ describe('AI speech over HTTP (#439)', () => {
 
     t.harness.storage.setConfigured(false);
 
-    await expect(runJob(started.body.data, 2)).rejects.toMatchObject({ code: 'AI_STORAGE_UNAVAILABLE' });
+    // Terminal on the first attempt, and the job returns (issue #509).
+    await expect(runJob(started.body.data, 1)).resolves.toBeUndefined();
 
     const res = await getRun(started.body.data.runId).expect(200);
 

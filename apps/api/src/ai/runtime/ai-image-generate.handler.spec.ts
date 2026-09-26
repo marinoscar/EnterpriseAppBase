@@ -120,8 +120,9 @@ describe('AiImageGenerateHandler', () => {
 
       h.storage.setConfigured(false);
 
-      // Not an expected refusal: the job throws, so an operator sees it.
-      await expect(handler.process(jobFor(handle))).rejects.toMatchObject({ code: 'AI_STORAGE_UNAVAILABLE' });
+      // Terminal (#509): no retry can configure storage, and a thrown 503 was
+      // deferred as a provider throttle. The run carries the remedy.
+      await expect(handler.process(jobFor(handle))).resolves.toBeUndefined();
 
       expect(row(handle.runId)).toMatchObject({ status: 'failed', errorCode: 'AI_STORAGE_UNAVAILABLE' });
       expect(row(handle.runId).errorMessage).toContain('/admin/settings/storage');
@@ -139,7 +140,7 @@ describe('AiImageGenerateHandler', () => {
         throw new Error('S3 said no');
       });
 
-      await expect(handler.process(jobFor(handle))).rejects.toMatchObject({ code: 'AI_STORAGE_UNAVAILABLE' });
+      await expect(handler.process(jobFor(handle))).resolves.toBeUndefined();
 
       expect(row(handle.runId)).toMatchObject({ status: 'failed', errorCode: 'AI_STORAGE_UNAVAILABLE' });
       expect(h.storage.objects).toEqual([]);
