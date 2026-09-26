@@ -71,13 +71,65 @@ async function openVoice() {
 
 let rtc: FakeWebRtc;
 
+// Microphone-permission mocking (issue #508). Independent of `fakeWebRtc`'s
+// `RTCPeerConnection`/`getUserMedia` stubs — this mocks the Permissions API
+// and `window.isSecureContext` that `useMicrophonePermission` reads.
+const originalIsSecureContext = Object.getOwnPropertyDescriptor(window, 'isSecureContext');
+const originalPermissions = Object.getOwnPropertyDescriptor(navigator, 'permissions');
+
+function setSecureContext(value: boolean) {
+  Object.defineProperty(window, 'isSecureContext', { configurable: true, value });
+}
+
+class FakePermissionStatus {
+  state: PermissionState;
+  private listeners: Array<() => void> = [];
+
+  constructor(state: PermissionState) {
+    this.state = state;
+  }
+
+  addEventListener = vi.fn((type: string, listener: () => void) => {
+    if (type === 'change') this.listeners.push(listener);
+  });
+
+  removeEventListener = vi.fn((type: string, listener: () => void) => {
+    if (type === 'change') this.listeners = this.listeners.filter((l) => l !== listener);
+  });
+
+  /** Simulate the browser flipping the permission and firing `change`. */
+  setState(state: PermissionState) {
+    this.state = state;
+    this.listeners.forEach((listener) => listener());
+  }
+}
+
+/** Stub `navigator.permissions.query('microphone')` to resolve with a fixed state. */
+function setPermissionsApi(options: { state: PermissionState }): FakePermissionStatus {
+  const status = new FakePermissionStatus(options.state);
+  Object.defineProperty(navigator, 'permissions', {
+    configurable: true,
+    value: { query: vi.fn(() => Promise.resolve(status)) },
+  });
+  return status;
+}
+
 beforeEach(() => {
   rtc = installFakeWebRtc();
   serveModels([...mockPlaygroundModels, REALTIME_MODEL]);
+  // Default: the Permissions API knows nothing yet ("unknown"), matching how
+  // most of the existing tests above behaved before this hook existed — they
+  // never asserted on the permission panel, so `unknown` (no panel) preserves
+  // that behavior for every test that does not opt into a fixed state.
+  Object.defineProperty(navigator, 'permissions', { configurable: true, value: undefined });
 });
 
 afterEach(() => {
   rtc.restore();
+  if (originalIsSecureContext) Object.defineProperty(window, 'isSecureContext', originalIsSecureContext);
+  else delete (window as { isSecureContext?: unknown }).isSecureContext;
+  if (originalPermissions) Object.defineProperty(navigator, 'permissions', originalPermissions);
+  else delete (navigator as { permissions?: unknown }).permissions;
 });
 
 describe('AiPlaygroundPage — Voice mode', () => {
@@ -197,5 +249,92 @@ describe('AiPlaygroundPage — Voice mode', () => {
     view.unmount();
     expect(rtc.peer().close).toHaveBeenCalled();
     expect(rtc.mic.track.stop).toHaveBeenCalled();
+  });
+
+  /** The permission panel/alert, matched by its `data-mic-permission` attribute only. */
+  function micPanel(container: HTMLElement, state: 'prompt' | 'denied' | 'insecure'): HTMLElement | null {
+    return container.querySelector(`[data-mic-permission="${state}"]`);
+  }
+
+  /** The unblock-steps element, matched by its `data-mic-steps` attribute only. */
+  function micSteps(container: HTMLElement): HTMLElement | null {
+    return container.querySelector('[data-mic-steps]');
+  }
+
+  describe('microphone permission panel (issue #508)', () => {
+    it('shows the prompt panel, and clicking Allow microphone calls getUserMedia', async () => {
+      setPermissionsApi({ state: 'prompt' });
+      const { user, panel } = await openVoice();
+
+      await waitFor(() => expect(micPanel(panel, 'prompt')).toBeInTheDocument());
+      expect(within(panel).getByText('Microphone access needed')).toBeInTheDocument();
+
+      const allowButton = within(panel).getByRole('button', { name: 'Allow microphone' });
+      await user.click(allowButton);
+
+      await waitFor(() => expect(rtc.getUserMedia).toHaveBeenCalledWith({ audio: true }));
+    });
+
+    it('shows the denied panel with the platform steps, and disables Start', async () => {
+      setPermissionsApi({ state: 'denied' });
+      const { panel } = await openVoice();
+
+      await waitFor(() => expect(micPanel(panel, 'denied')).toBeInTheDocument());
+      const steps = micSteps(panel);
+      expect(steps).toHaveAttribute('data-mic-steps', 'desktop');
+      expect(steps).toHaveTextContent('site-settings icon');
+      expect(within(panel).getByRole('button', { name: 'Check again' })).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Start' })).toBeDisabled();
+    });
+
+    it('shows the insecure panel and disables Start', async () => {
+      setSecureContext(false);
+      const { panel } = await openVoice();
+
+      expect(micPanel(panel, 'insecure')).toBeInTheDocument();
+      expect(within(panel).getByText('Microphone requires a secure connection')).toBeInTheDocument();
+      expect(within(panel).getByRole('button', { name: 'Start' })).toBeDisabled();
+    });
+
+    it('shows no permission panel when granted', async () => {
+      setPermissionsApi({ state: 'granted' });
+      const { panel } = await openVoice();
+
+      await waitFor(() => expect(within(panel).getByRole('button', { name: 'Start' })).toBeEnabled());
+      expect(micPanel(panel, 'prompt')).not.toBeInTheDocument();
+      expect(micPanel(panel, 'denied')).not.toBeInTheDocument();
+      expect(micPanel(panel, 'insecure')).not.toBeInTheDocument();
+    });
+
+    it('shows one alert (no duplicate panel) with steps on a mic-denied Start failure, and clears it once permission becomes granted', async () => {
+      rtc.restore();
+      rtc = installFakeWebRtc({ getUserMedia: () => Promise.reject(mediaError('NotAllowedError')) });
+      const status = setPermissionsApi({ state: 'prompt' });
+      const { user, panel } = await openVoice();
+
+      await user.click(within(panel).getByRole('button', { name: 'Start' }));
+
+      const failureAlert = await within(panel).findByText('Microphone access was blocked');
+      expect(failureAlert).toBeInTheDocument();
+      // Exactly one alert with steps - the permission panel must be
+      // suppressed while the mic-denied failure alert already says the same
+      // thing, and there must be only one `data-mic-steps` element on screen.
+      expect(micPanel(panel, 'prompt')).not.toBeInTheDocument();
+      expect(micPanel(panel, 'denied')).not.toBeInTheDocument();
+      expect(within(panel).getAllByRole('alert')).toHaveLength(1);
+      const steps = micSteps(panel);
+      expect(steps).toHaveAttribute('data-mic-steps', 'desktop');
+      expect(steps).toHaveTextContent('site-settings icon');
+
+      // The permission changes (e.g. the user allowed it in site settings and
+      // came back) - the hook's `change` listener flips it to granted, which
+      // must clear the stale failure alert.
+      status.setState('granted');
+
+      await waitFor(() =>
+        expect(within(panel).queryByText('Microphone access was blocked')).not.toBeInTheDocument(),
+      );
+      expect(micSteps(panel)).not.toBeInTheDocument();
+    });
   });
 });
