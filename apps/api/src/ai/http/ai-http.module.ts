@@ -1,0 +1,21 @@
+import { Module } from '@nestjs/common';
+
+import { AiConfigModule } from '../config/ai-config.module';
+import { AiRuntimeModule } from '../runtime/ai-runtime.module';
+import { AiResponsesController } from './ai-responses.controller';
+
+// =============================================================================
+// AiHttpModule (issue #433, epic #419) — the consumer HTTP API
+// =============================================================================
+//
+// Controllers only. Everything they do goes through `AiService` /
+// `AiRunsService` (AiRuntimeModule), so the HTTP surface applies exactly the
+// gate pipeline an in-process fork gets and owns no policy of its own.
+// `AiConfigModule` is here for `AiEnabledGuard`.
+// =============================================================================
+
+@Module({
+  imports: [AiConfigModule, AiRuntimeModule],
+  controllers: [AiResponsesController],
+})
+export class AiHttpModule {}
