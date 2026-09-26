@@ -315,6 +315,14 @@ describe('AI Administration Integration', () => {
             baseUrl: null,
             keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
           },
+          {
+            id: 'anthropic',
+            displayName: 'Anthropic',
+            registered: true,
+            enabled: false,
+            baseUrl: null,
+            keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+          },
         ],
       });
       expect(context.prismaMock.systemSettings.create).not.toHaveBeenCalled();
