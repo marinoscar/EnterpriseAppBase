@@ -193,6 +193,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.response.run': null, // filled in per-test: needs a live run row
       'ai.image.generate': null, // filled in per-test: needs a live image run row (#437)
       'ai.audio.transcribe': null, // filled in per-test: needs a live transcription run row (#438)
+      'ai.audio.speech': null, // filled in per-test: needs a live speech run row (#439)
       'ai.catalog.refresh': { providerId: 'openai' },
       'ai.keys.recheck': { provider: 'openai' },
       'ai.usage.purge': {},
