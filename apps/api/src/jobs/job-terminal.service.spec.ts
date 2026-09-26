@@ -37,7 +37,7 @@ import { JobHandlerRegistry } from './job-handler.registry';
 import { heldClaimWhere } from './job-lease.service';
 import { JobTerminalService, rowMatchesWrite } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
-import { RateLimitError } from './rate-limit.error';
+import { CLASSIFY_RATE_LIMIT, RateLimitError, type RateLimitClassification } from './rate-limit.error';
 import type { PrismaService } from '../prisma/prisma.service';
 
 /** Pinned "now". Every expected timestamp below is derived from it. */
@@ -545,6 +545,61 @@ describe('JobTerminalService', () => {
 
       expect(outcome).toBe('retry-scheduled');
       expect(trips).toEqual([]);
+    });
+
+    // Issue #509. The shape of an `AiError('AI_STORAGE_UNAVAILABLE')`: an
+    // HttpException-style error whose `.status` is the 503 RESPONSE status
+    // its code maps to, which answers the classification itself. Declared
+    // here rather than imported so `jobs/` specs stay free of `ai/`.
+    class CodeCarryingError extends Error {
+      readonly status = 503;
+
+      constructor(
+        readonly code: string,
+        private readonly answer: RateLimitClassification
+      ) {
+        super(code);
+      }
+
+      [CLASSIFY_RATE_LIMIT](): RateLimitClassification {
+        return this.answer;
+      }
+    }
+
+    it('a self-classified NON-rate-limit 503 charges the attempt (retry), never defers', async () => {
+      const { outcome, payload, trips } = await payloadFor(
+        new CodeCarryingError('AI_STORAGE_UNAVAILABLE', { rateLimited: false, retryAfterMs: null })
+      );
+
+      expect(outcome).toBe('retry-scheduled');
+      // `attempts` stays charged (the claim's), and no rate-limit accounting.
+      expect(payload).not.toHaveProperty('rateLimitHits');
+      expect(payload).not.toHaveProperty('rateLimitedAt');
+      expect(trips).toEqual([]);
+    });
+
+    it('a self-classified NON-rate-limit 503 on the last attempt fails the job', async () => {
+      update.mockClear();
+
+      const outcome = await service.completeFailed(
+        runningJob({ attempts: 3 }),
+        new CodeCarryingError('AI_STORAGE_UNAVAILABLE', { rateLimited: false, retryAfterMs: null })
+      );
+
+      expect(outcome).toBe('failed');
+      expect(written()).toMatchObject({ status: 'failed' });
+      expect(throttle.trip).not.toHaveBeenCalled();
+    });
+
+    it('a self-classified rate limit defers, carrying its own delay', async () => {
+      const classified = await payloadFor(
+        new CodeCarryingError('AI_RATE_LIMITED', { rateLimited: true, retryAfterMs: 120_000 })
+      );
+      const thrown = await payloadFor(new RateLimitError('429', 120_000));
+
+      expect(classified.outcome).toBe('rate-limit-deferred');
+      expect(classified.payload).toEqual(thrown.payload);
+      expect(classified.trips).toEqual(thrown.trips);
     });
   });
 

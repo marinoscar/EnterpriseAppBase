@@ -13,7 +13,12 @@
 
 import { HttpException } from '@nestjs/common';
 
-import { RateLimitError } from '../../jobs/rate-limit.error';
+import {
+  CLASSIFY_RATE_LIMIT,
+  RateLimitError,
+  type RateLimitClassification,
+  type SelfClassifyingRateLimit,
+} from '../../jobs/rate-limit.error';
 
 export const AI_ERROR_STATUS = {
   AI_DISABLED: 403,
@@ -92,7 +97,7 @@ export interface AiErrorBody {
   details: Record<string, unknown> & { reason: AiErrorCode; retryAfterMs?: number };
 }
 
-export class AiError extends HttpException {
+export class AiError extends HttpException implements SelfClassifyingRateLimit {
   readonly code: AiErrorCode;
   readonly retryAfterMs?: number;
   declare readonly cause: unknown;
@@ -150,6 +155,24 @@ export class AiError extends HttpException {
     }
 
     return new RateLimitError(this.message, this.retryAfterMs);
+  }
+
+  /**
+   * How the job queue's `classifyRateLimit` reads this error (issue #509):
+   * a rate limit iff the CODE says so — `AI_RATE_LIMITED`, the same rule as
+   * `toRateLimitError()` — and never by `.status`. That status is the HTTP
+   * response status this platform assigned to the code (503 for
+   * `AI_STORAGE_UNAVAILABLE` and `AI_PROVIDER_UNAVAILABLE`), not a
+   * provider's capacity signal, so without this a thrown `AiError` 503 was
+   * deferred as a throttle instead of failing or charging an attempt.
+   *
+   * A symbol-keyed prototype method: non-enumerable, so it never reaches
+   * `toJSON()`, the exception filter's body, or a structured log line.
+   */
+  [CLASSIFY_RATE_LIMIT](): RateLimitClassification {
+    return this.code === 'AI_RATE_LIMITED'
+      ? { rateLimited: true, retryAfterMs: this.retryAfterMs ?? null }
+      : { rateLimited: false, retryAfterMs: null };
   }
 
   static isAiError(value: unknown): value is AiError {

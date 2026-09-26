@@ -1,7 +1,7 @@
 import { ArgumentsHost, HttpException } from '@nestjs/common';
 
 import { HttpExceptionFilter } from '../../common/filters/http-exception.filter';
-import { classifyRateLimit, RateLimitError } from '../../jobs/rate-limit.error';
+import { CLASSIFY_RATE_LIMIT, classifyRateLimit, RateLimitError } from '../../jobs/rate-limit.error';
 import { AI_ERROR_CODES, AI_ERROR_STATUS, AiError, isAiErrorCode } from './ai-error';
 
 const SECRET = 'sk-test-SENTINEL-DO-NOT-LEAK-1234567890';
@@ -179,6 +179,63 @@ describe('AiError', () => {
       for (const code of AI_ERROR_CODES.filter((c) => c !== 'AI_RATE_LIMITED')) {
         expect(new AiError(code, 'x').toRateLimitError()).toBeNull();
       }
+    });
+  });
+
+  // Issue #509: the queue reads an AiError by its CODE, never by the HTTP
+  // response status the code maps to — or every 503 AiError (storage not
+  // configured, provider unavailable) is deferred as a provider throttle.
+  describe('classifyRateLimit (CLASSIFY_RATE_LIMIT)', () => {
+    it.each(AI_ERROR_CODES)('%s is a rate limit only when it is AI_RATE_LIMITED', (code) => {
+      expect(classifyRateLimit(new AiError(code, 'x'))).toEqual({
+        rateLimited: code === 'AI_RATE_LIMITED',
+        retryAfterMs: null,
+      });
+    });
+
+    it('carries AI_RATE_LIMITED retryAfterMs', () => {
+      expect(classifyRateLimit(new AiError('AI_RATE_LIMITED', 'slow', { retryAfterMs: 12_000 }))).toEqual({
+        rateLimited: true,
+        retryAfterMs: 12_000,
+      });
+    });
+
+    it.each(['AI_STORAGE_UNAVAILABLE', 'AI_PROVIDER_UNAVAILABLE'] as const)(
+      '%s (a 503) is NOT a rate limit, even carrying a retryAfterMs',
+      (code) => {
+        const err = new AiError(code, 'unavailable', { retryAfterMs: 5_000 });
+
+        expect(err.getStatus()).toBe(503);
+        expect(classifyRateLimit(err)).toEqual({ rateLimited: false, retryAfterMs: null });
+      },
+    );
+
+    it('agrees with toRateLimitError() for every code', () => {
+      for (const code of AI_ERROR_CODES) {
+        const err = new AiError(code, 'x', { retryAfterMs: 1_000 });
+
+        expect(classifyRateLimit(err).rateLimited).toBe(err.toRateLimitError() !== null);
+      }
+    });
+
+    it('is a non-enumerable prototype method that never reaches a serialised body', () => {
+      const err = new AiError('AI_STORAGE_UNAVAILABLE', 'no storage', { retryAfterMs: 1_000 });
+
+      expect(Object.getOwnPropertySymbols(err)).not.toContain(CLASSIFY_RATE_LIMIT);
+      expect(Object.getOwnPropertyDescriptor(AiError.prototype, CLASSIFY_RATE_LIMIT)?.enumerable).toBe(false);
+      expect(err.toJSON()).toEqual({
+        code: 'AI_STORAGE_UNAVAILABLE',
+        message: 'no storage',
+        details: { reason: 'AI_STORAGE_UNAVAILABLE', retryAfterMs: 1_000 },
+      });
+      expect(Object.getOwnPropertySymbols(err.toJSON())).toEqual([]);
+      expect(JSON.stringify(err)).not.toContain('classifyRateLimit');
+
+      const { status, body } = runThroughFilter(err);
+
+      expect(status).toBe(503);
+      expect(Object.getOwnPropertySymbols(body)).toEqual([]);
+      expect(body.details).toEqual({ reason: 'AI_STORAGE_UNAVAILABLE', retryAfterMs: 1_000 });
     });
   });
 
