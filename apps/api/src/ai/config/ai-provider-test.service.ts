@@ -339,7 +339,7 @@ const FAILURE_DETAIL: Partial<Record<AiError['code'], string>> = {
  * reject with `AI_PROVIDER_UNAVAILABLE` at that point even if the adapter
  * ignores the signal.
  */
-async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+export async function withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
 
