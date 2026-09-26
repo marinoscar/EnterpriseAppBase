@@ -5,3 +5,4 @@ export * from './ai-error';
 export * from './provider-adapter.interface';
 export * from './types/responses.types';
 export * from './types/media.types';
+export * from './provider-registry';
