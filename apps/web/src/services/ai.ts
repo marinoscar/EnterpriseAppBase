@@ -447,8 +447,15 @@ export interface AiStreamHandlers {
   onError?: (code: AiErrorCode, message: string) => void;
 }
 
-/** Where the stream is POSTed, resolved against the same base as every call. */
-export const AI_STREAM_URL = `${API_BASE_URL}/ai/responses/stream`;
+/**
+ * Where the stream is POSTed, resolved against the same base as every call.
+ * A function, not a module-level constant: reading `API_BASE_URL` at import
+ * time breaks every test that mocks `services/api` without that export and
+ * merely imports this module transitively (through `useAiConfig`).
+ */
+export function aiStreamUrl(): string {
+  return `${API_BASE_URL}/ai/responses/stream`;
+}
 
 /**
  * `POST /ai/responses/stream` — one prompt, one streamed answer, via
@@ -469,7 +476,7 @@ export async function streamAiResponse(
   let completed: AiResponse | null = null;
 
   await postSse<Record<string, unknown>>({
-    url: AI_STREAM_URL,
+    url: aiStreamUrl(),
     body: req,
     authorization: () => {
       const token = api.getAccessToken();
