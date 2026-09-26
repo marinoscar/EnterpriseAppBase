@@ -189,6 +189,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     keyPolicy: p.keyPolicy ?? 'byok',
     providers: {
       openai: { enabled: p.providerEnabled ?? true, ...(p.baseUrl ? { baseUrl: p.baseUrl } : {}) },
+      anthropic: { enabled: false },
     },
     defaults: { allowBackgroundRuns: true, ...(p.defaults ?? {}) },
     logPromptContent: p.logPromptContent ?? false,

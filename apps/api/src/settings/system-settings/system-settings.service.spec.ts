@@ -1738,7 +1738,12 @@ describe('SystemSettingsService', () => {
       expect(result).toEqual({
         enabled: true,
         keyPolicy: 'byok_with_org_fallback',
-        providers: { openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' } },
+        // The row predates the `anthropic` slot (#446): that slot takes its
+        // default, and the stored OpenAI slot survives untouched.
+        providers: {
+          openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' },
+          anthropic: { enabled: false },
+        },
         defaults: { maxOutputTokensCap: 4096, allowBackgroundRuns: false },
         logPromptContent: true,
         // Absent from the stored row (written before #443) -> the default,
@@ -1752,6 +1757,50 @@ describe('SystemSettingsService', () => {
           mcp: false,
           mcpAllowedHosts: [],
         },
+      });
+    });
+  });
+
+  describe('ai.providers is salvaged per provider (#446)', () => {
+    it('keeps a valid slot when a sibling slot is damaged', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            enabled: true,
+            providers: {
+              openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' },
+              anthropic: { enabled: 'yes', baseUrl: 42 },
+            },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result.enabled).toBe(true);
+      expect(result.providers).toEqual({
+        openai: { enabled: true, baseUrl: 'https://proxy.internal/v1' },
+        anthropic: { enabled: false },
+      });
+    });
+
+    it('keeps a stored anthropic slot and drops an unknown provider key', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ai: {
+            providers: {
+              anthropic: { enabled: true, baseUrl: 'https://anthropic-gw.internal' },
+              someday: { enabled: true },
+            },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getAiPolicy();
+
+      expect(result.providers).toEqual({
+        openai: { enabled: false },
+        anthropic: { enabled: true, baseUrl: 'https://anthropic-gw.internal' },
       });
     });
   });
@@ -1810,6 +1859,17 @@ describe('SystemSettingsService', () => {
       expect(ai.logPromptContent).toBe(false);
     });
 
+    it('enables providers.anthropic on a row that predates the slot, leaving openai untouched (#446)', async () => {
+      await service.patchSettings(
+        { ai: { providers: { anthropic: { enabled: true, baseUrl: 'https://anthropic-gw.internal' } } } },
+        mockUserId,
+      );
+
+      const ai = writtenAi() as any;
+      expect(ai.providers.anthropic).toEqual({ enabled: true, baseUrl: 'https://anthropic-gw.internal' });
+      expect(ai.providers.openai).toEqual({ enabled: false, baseUrl: 'https://proxy.internal/v1' });
+    });
+
     it('merges one hostedTools switch, defaulting the rest when the stored row predates them (#442)', async () => {
       await service.patchSettings({ ai: { hostedTools: { web_search: true } } }, mockUserId);
 
@@ -1859,6 +1919,7 @@ describe('SystemSettingsService', () => {
       });
       expect(ai.providers).toEqual({
         openai: { enabled: false, baseUrl: 'https://proxy.internal/v1' },
+        anthropic: { enabled: false, baseUrl: undefined },
       });
     });
 

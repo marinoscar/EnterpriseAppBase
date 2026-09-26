@@ -21,6 +21,8 @@ import {
   systemMaintenanceSchema,
   systemStorageSchema,
   systemAiSchema,
+  systemAiProviderSchema,
+  AI_PROVIDER_IDS,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
   type SystemMaintenanceValue,
@@ -375,7 +377,50 @@ export class SystemSettingsService {
       // salvage `storage` above gets, and for the same reason: "not
       // configured" and "misconfigured" must not collapse into "everything
       // about AI resets".
-      ai: this.readNamespace(root?.ai, systemAiSchema, DEFAULT_SYSTEM_SETTINGS.ai),
+      //
+      // `providers` is salvaged one level deeper, PER PROVIDER, first
+      // (`readAiProviders`): a slot appended to `AI_PROVIDER_IDS` later
+      // (`anthropic`, #446) is absent from every row written before it, and
+      // validating `providers` as one unit would then reset the operator's
+      // OpenAI switch and endpoint to the defaults on the first read after
+      // upgrading.
+      ai: this.readNamespace(
+        this.withAiProviders(root?.ai),
+        systemAiSchema,
+        DEFAULT_SYSTEM_SETTINGS.ai,
+      ),
+    };
+  }
+
+  /**
+   * `stored` (the raw `ai` namespace) with `providers` rebuilt slot by slot:
+   * each `AI_PROVIDER_IDS` slot that passes `systemAiProviderSchema` is kept,
+   * any other falls back to that provider's default. Everything else in the
+   * namespace is left for `readNamespace` to salvage as usual.
+   */
+  private withAiProviders(stored: unknown): unknown {
+    const source = this.asPlainObject(stored);
+
+    if (!source) return stored;
+
+    const providers = this.asPlainObject(source.providers) ?? {};
+    const defaults = DEFAULT_SYSTEM_SETTINGS.ai.providers as Record<
+      string,
+      unknown
+    >;
+
+    return {
+      ...source,
+      providers: Object.fromEntries(
+        AI_PROVIDER_IDS.map((id) => {
+          const parsed = systemAiProviderSchema.safeParse(providers[id]);
+
+          return [
+            id,
+            parsed.success ? parsed.data : structuredClone(defaults[id]),
+          ];
+        }),
+      ),
     };
   }
 
@@ -1201,7 +1246,7 @@ export class SystemSettingsService {
       // AI platform policy (#423, epic #419, umbrella #418)
       // -----------------------------------------------------------------------
       //
-      // Field by field, one level deep into `providers.openai` and
+      // Field by field, one level deep into each `providers.<id>` and
       // `defaults`, exactly matching `storage`'s own shape above. `??` is
       // right for every REQUIRED field: none of them is nullable, and `??`
       // leaves an omitted field at its current stored value.
@@ -1226,6 +1271,15 @@ export class SystemSettingsService {
             baseUrl: mergeOptional(
               dto.ai?.providers?.openai?.baseUrl,
               currentValue.ai.providers.openai.baseUrl,
+            ),
+          },
+          anthropic: {
+            enabled:
+              dto.ai?.providers?.anthropic?.enabled ??
+              currentValue.ai.providers.anthropic.enabled,
+            baseUrl: mergeOptional(
+              dto.ai?.providers?.anthropic?.baseUrl,
+              currentValue.ai.providers.anthropic.baseUrl,
             ),
           },
         },

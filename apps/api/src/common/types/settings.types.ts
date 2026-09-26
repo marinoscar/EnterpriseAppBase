@@ -328,6 +328,11 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       openai: {
         enabled: false,
       },
+      // #446 — off, like every provider slot: enabling one is an
+      // administrator's decision, made alongside its key.
+      anthropic: {
+        enabled: false,
+      },
     },
     defaults: {
       allowBackgroundRuns: true,

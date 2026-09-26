@@ -174,6 +174,10 @@ const aiSettingsSchema = z.object({
       enabled: z.boolean(),
       baseUrl: z.string().url().optional(),
     }),
+    anthropic: z.object({
+      enabled: z.boolean(),
+      baseUrl: z.string().url().optional(),
+    }),
   }),
   defaults: z.object({
     maxOutputTokensCap: z.number().int().positive().optional(),
@@ -322,7 +326,7 @@ export const patchSystemSettingsSchema = z.object({
     })
     .optional(),
   // #423, epic #419. Optional at the namespace level and field by field
-  // inside, one level into `providers.openai` and `defaults`, matching
+  // inside, one level into each `providers.<id>` and `defaults`, matching
   // `storage` above — `{ "ai": { "enabled": true } }` must be a legal body,
   // or the admin page has to send the whole namespace to flip one switch.
   // NO API KEY FIELD — see the section header above.
@@ -336,6 +340,12 @@ export const patchSystemSettingsSchema = z.object({
             .object({
               enabled: z.boolean().optional(),
               // Absent leaves it alone; explicit `null` removes the override.
+              baseUrl: z.string().url().nullable().optional(),
+            })
+            .optional(),
+          anthropic: z
+            .object({
+              enabled: z.boolean().optional(),
               baseUrl: z.string().url().nullable().optional(),
             })
             .optional(),
