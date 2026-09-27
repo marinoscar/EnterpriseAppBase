@@ -7,10 +7,12 @@ import type { SystemTelemetryValue } from '../common/schemas/settings.schema';
 import { buildParquetColumns, TelemetryExportService } from './export/telemetry-export.service';
 import { GreptimeClient } from './greptime/greptime.client';
 import { TelemetryQueryFailedError, TelemetryMultiStatementError } from './greptime/greptime.errors';
+import { retentionStatement } from './handlers/telemetry-retention.handler';
 import { TelemetryHttpError } from './query/telemetry-query.errors';
 import { TelemetryQueryService } from './query/telemetry-query.service';
 import { TelemetrySchemaService } from './query/telemetry-schema.service';
 import { parquetRoundTrip } from './testing/parquet-child';
+import { TelemetryStatusService } from './telemetry-status.service';
 
 // =============================================================================
 // Telemetry explorer against a REAL GreptimeDB (issue #535; reused by #538)
@@ -69,6 +71,9 @@ function clientFor(readerUrl: string, adminUrl?: string): GreptimeClient {
 }
 
 const describeLive = READER_URL ? describe : describe.skip;
+// Retention needs the admin credential (`ALTER DATABASE`, `SHOW CREATE
+// DATABASE`); skip rather than fail when only GREPTIME_TEST_URL is set.
+const itAdmin = ADMIN_URL ? it : it.skip;
 
 describeLive('telemetry explorer — live GreptimeDB', () => {
   let greptime: GreptimeClient;
@@ -175,6 +180,24 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
     expect(stillThere.rows[0][0]).toBe('3');
   });
 
+  it('the read-only user is refused every write and admin statement, bypassing the guard entirely', async () => {
+    const attempts: [string, string][] = [
+      ['INSERT', `INSERT INTO ${TABLE} VALUES ('2026-09-27 10:00:03', 'z', 1, 1, 1, true, NULL)`],
+      ['ALTER DATABASE', `ALTER DATABASE ${greptime.database} SET 'ttl'='1d'`],
+      ['SET', "SET timezone = 'UTC'"],
+    ];
+
+    for (const [, sql] of attempts) {
+      const direct = await greptime.queryReader(sql, { timeoutMs: 10_000 }).catch((e: unknown) => e);
+      expect(direct).toBeInstanceOf(TelemetryQueryFailedError);
+      expect(direct).toMatchObject({ origin: 'server', message: expect.stringMatching(/not authorized/i) });
+    }
+
+    // Nothing above touched the table: still exactly the seeded 3 rows.
+    const stillThere = await queries.run('u1', `SELECT count(*) FROM ${TABLE}`);
+    expect(stillThere.rows[0][0]).toBe('3');
+  });
+
   it('refuses a second statement in the guard; the client refuses its result', async () => {
     const guarded = await queries.run('u1', 'SELECT 1; SELECT 2').catch((e: unknown) => e);
     expect((guarded as TelemetryHttpError).reason).toBe('TELEMETRY_QUERY_REJECTED');
@@ -206,6 +229,29 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
     ]);
     expect(fixture?.columns[0]).toMatchObject({ semanticType: 'TIMESTAMP' });
     await expect(schema.tableExists(TABLE)).resolves.toBe(true);
+  });
+
+  itAdmin('applies retention via the admin connection and the status service reports it', async () => {
+    const settings = { getPolicy: jest.fn().mockResolvedValue(POLICY) };
+    const status = new TelemetryStatusService(greptime, settings as never);
+
+    await greptime.queryAdmin(retentionStatement(greptime.database, 9), { timeoutMs: 15_000 });
+
+    const created = await greptime.queryAdmin(`SHOW CREATE DATABASE ${greptime.database}`, { timeoutMs: 10_000 });
+    const statement = created.rows[0]?.find(
+      (cell): cell is string => typeof cell === 'string' && cell.includes('ttl'),
+    );
+    expect(statement).toContain("ttl = '9days'");
+
+    const result = await status.getStatus();
+    expect(result).toMatchObject({ configured: true, reachable: true, ttl: { raw: '9days', days: 9 } });
+
+    // Idempotent: applying the same TTL again is a no-op, not an error
+    // (job-queue.md: a duplicate retry or the daily re-assertion must be
+    // harmless).
+    await expect(
+      greptime.queryAdmin(retentionStatement(greptime.database, 9), { timeoutMs: 15_000 }),
+    ).resolves.toBeDefined();
   });
 
   it('exports every format', async () => {
