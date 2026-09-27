@@ -42,7 +42,7 @@ import { TelemetryConnectionService } from './telemetry-connection.service';
 // connect timeout and surfaces as a bare "timed out"). When it does not
 // resolve, both probes report that without a client ever being created; the
 // message differs for an automatic host (GreptimeDB is not running with this
-// deployment yet: it starts with the next application update) and a custom
+// deployment yet: start it with "Deploy GreptimeDB" on the same page, #567) and a custom
 // one (check or clear the host). A DNS error that still reaches a probe is
 // reported the same way.
 //

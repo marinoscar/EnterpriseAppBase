@@ -305,7 +305,7 @@ describe('GreptimeClient', () => {
       expect(client.hostsAsked).toEqual([]);
     });
 
-    it('a DNS-coded connect error on the automatic host says GreptimeDB starts with the next update', async () => {
+    it('a DNS-coded connect error on the automatic host points at "Deploy GreptimeDB"', async () => {
       const client = await primed({ automatic: true });
       client.createdPools[0].connect.mockRejectedValue(
         Object.assign(new Error('getaddrinfo EAI_AGAIN greptimedb'), { code: 'EAI_AGAIN' }),
@@ -315,7 +315,7 @@ describe('GreptimeClient', () => {
 
       expect((error as Error).message).toMatch(/^Could not connect to GreptimeDB: GreptimeDB is not running alongside/);
       expect((error as Error).message).toContain('(getaddrinfo EAI_AGAIN greptimedb)');
-      expect((error as Error).message).toContain('starts with the next application update');
+      expect((error as Error).message).toContain('Deploy GreptimeDB');
       expect((error as Error).message).not.toMatch(/compose|appctl/i);
     });
 

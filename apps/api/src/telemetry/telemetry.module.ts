@@ -15,6 +15,10 @@ import { GreptimeClient } from './greptime/greptime.client';
 import { TelemetryRetentionHandler } from './handlers/telemetry-retention.handler';
 import { TelemetryQueryService } from './query/telemetry-query.service';
 import { TelemetrySchemaService } from './query/telemetry-schema.service';
+import { StackAgentClient } from './stack/stack-agent.client';
+import { TelemetryStackDeployHandler } from './stack/telemetry-stack-deploy.handler';
+import { TelemetryStackController } from './stack/telemetry-stack.controller';
+import { TelemetryStackService } from './stack/telemetry-stack.service';
 import { TelemetryRetentionTask } from './tasks/telemetry-retention.task';
 import { TelemetryAdminController } from './telemetry-admin.controller';
 import { TelemetryConfigController } from './telemetry-config.controller';
@@ -48,6 +52,12 @@ import { TelemetryStatusService } from './telemetry-status.service';
 // deployment default. `GreptimeClient` builds its pools from it and rebuilds
 // them when it changes. `TelemetryConnectionController` is the admin surface.
 //
+// The services (#567): on a VPS, `StackAgentClient` talks to the
+// `stack-agent` sidecar (STACK_AGENT_URL/TOKEN) to report the telemetry
+// containers' state and to start them through the server-only
+// `telemetry.stack.deploy` job. `TelemetryStackController` is the admin
+// surface, under /api/admin/telemetry/stack.
+//
 // `GreptimeClient`, `TelemetrySettingsService` and the two query services are
 // exported for it.
 // =============================================================================
@@ -60,6 +70,7 @@ import { TelemetryStatusService } from './telemetry-status.service';
     TelemetryExplorerController,
     TelemetryAssistantController,
     TelemetryConnectionController,
+    TelemetryStackController,
   ],
   providers: [
     TelemetryConnectionService,
@@ -74,6 +85,9 @@ import { TelemetryStatusService } from './telemetry-status.service';
     TelemetrySchemaService,
     TelemetryExportService,
     TelemetryAssistantService,
+    StackAgentClient,
+    TelemetryStackService,
+    TelemetryStackDeployHandler,
   ],
   exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })

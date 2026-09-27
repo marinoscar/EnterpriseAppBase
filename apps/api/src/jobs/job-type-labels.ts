@@ -119,6 +119,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Sets GreptimeDB's database TTL to `telemetry.retentionDays` (#534, epic #528),
   // nightly and after every telemetry settings save.
   'telemetry.retention.apply': 'Telemetry retention',
+  // Starts GreptimeDB and the OTel collector through the VPS stack-agent (#567),
+  // from "Deploy GreptimeDB" on the telemetry settings page.
+  'telemetry.stack.deploy': 'Telemetry services deploy',
 };
 
 /**

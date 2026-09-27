@@ -65,7 +65,7 @@ describe('checkHostResolves', () => {
     const custom = await checkHostResolves('greptimedb', lookup, undefined, { automatic: false });
 
     expect(automatic).toBe(hostNotFoundMessage('greptimedb', dnsError('EAI_AGAIN'), { automatic: true }));
-    expect(automatic).toContain('next application update');
+    expect(automatic).toContain('Deploy GreptimeDB');
     expect(custom).toBe(hostNotFoundMessage('greptimedb', dnsError('EAI_AGAIN')));
   });
 
@@ -186,10 +186,11 @@ describe('hostNotFoundMessage', () => {
       expect(message).toContain('(getaddrinfo EAI_AGAIN greptimedb)');
     });
 
-    it('says GreptimeDB ships with the application, starts with the next update, and needs no configuration', () => {
+    it('says GreptimeDB ships with the application and points at "Deploy GreptimeDB" on this page', () => {
       expect(message).toMatch(/^GreptimeDB is not running alongside this application/);
-      expect(message).toContain('starts with the next application update');
-      expect(message).toContain('Nothing needs to be configured here.');
+      expect(message).toContain('its container is not running');
+      expect(message).toContain('Use "Deploy GreptimeDB" in the Telemetry services section of this page to start it.');
+      expect(message).not.toContain('next application update');
       expect(message).not.toContain('Check the host name');
     });
 

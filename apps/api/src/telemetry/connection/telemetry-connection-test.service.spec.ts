@@ -221,7 +221,7 @@ describe('TelemetryConnectionTestService', () => {
       expect(result.reader.success).toBe(false);
       expect(result.reader.error).toContain('"deploy-host"');
       expect(result.reader.error).toContain('(getaddrinfo EAI_AGAIN deploy-host)');
-      expect(result.reader.error).toContain('starts with the next application update');
+      expect(result.reader.error).toContain('Deploy GreptimeDB');
       expect(result.reader.error).not.toMatch(/compose|appctl/i);
     });
 

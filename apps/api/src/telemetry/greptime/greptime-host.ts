@@ -75,8 +75,9 @@ export interface HostCheckOptions {
  *
  * ⚠ Shown in `/admin/settings/telemetry`. It must never tell an administrator
  * to start compose files, edit files or run the CLI: GreptimeDB ships with
- * every deployment, so an automatic host that does not resolve is fixed by the
- * next application update, and a custom one by correcting (or clearing) it.
+ * every deployment, so an automatic host that does not resolve is fixed from
+ * this same page ("Deploy GreptimeDB" in its Telemetry services section, #567),
+ * and a custom one by correcting (or clearing) it.
  */
 export function hostNotFoundMessage(host: string, error: unknown, options: HostCheckOptions = {}): string {
   const detail = error instanceof Error ? error.message : String(error);
@@ -84,8 +85,8 @@ export function hostNotFoundMessage(host: string, error: unknown, options: HostC
   if (options.automatic) {
     return (
       `GreptimeDB is not running alongside this application: the built-in host "${host}" does not exist on its network (${detail}). ` +
-      'GreptimeDB is deployed with the application and starts with the next application update. ' +
-      'Nothing needs to be configured here.'
+      'GreptimeDB is deployed with the application but its container is not running. ' +
+      'Use "Deploy GreptimeDB" in the Telemetry services section of this page to start it.'
     );
   }
 
