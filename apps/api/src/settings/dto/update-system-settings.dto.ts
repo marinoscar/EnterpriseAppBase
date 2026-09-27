@@ -291,7 +291,7 @@ const telemetrySettingsSchema = z.object({
     modelId: z.string().nullable(),
     shareResults: z.boolean(),
     maxResultRowsToModel: z.number().int().min(1).max(100),
-    maxSteps: z.number().int().min(1).max(12),
+    maxSteps: z.number().int().min(1).max(20),
   }),
 });
 
@@ -529,7 +529,7 @@ export const patchSystemSettingsSchema = z.object({
           modelId: z.string().nullable().optional(),
           shareResults: z.boolean().optional(),
           maxResultRowsToModel: z.number().int().min(1).max(100).optional(),
-          maxSteps: z.number().int().min(1).max(12).optional(),
+          maxSteps: z.number().int().min(1).max(20).optional(),
         })
         .optional(),
     })

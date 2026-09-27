@@ -1187,7 +1187,10 @@ export const systemAiPatchSchema = z.object({
 // the query itself — a query may return more rows than should be handed to a
 // model in one call. `maxSteps` bounds how many tool-call round trips one
 // assistant turn may take, the same kind of safety valve `query
-// .timeoutSeconds` is for a single query.
+// .timeoutSeconds` is for a single query. Its ceiling (20) is the AI
+// runtime's own `AI_TOOL_LOOP_MAX_STEPS`: a troubleshooting investigation
+// (orient, baseline, drill down, correlate, verify, report) needs the room
+// (#571); the default is 15.
 //
 // `instanceId` (#565) is the label stamped as the OTel resource attribute
 // `app.instance.id` on everything this deployment exports, so several
@@ -1224,7 +1227,7 @@ export const systemTelemetrySchema = z.object({
     modelId: z.string().nullable(),
     shareResults: z.boolean(),
     maxResultRowsToModel: z.number().int().min(1).max(100),
-    maxSteps: z.number().int().min(1).max(12),
+    maxSteps: z.number().int().min(1).max(20),
   }),
 });
 
@@ -1258,7 +1261,7 @@ export const systemTelemetryPatchSchema = z.object({
       modelId: z.string().nullable().optional(),
       shareResults: z.boolean().optional(),
       maxResultRowsToModel: z.number().int().min(1).max(100).optional(),
-      maxSteps: z.number().int().min(1).max(12).optional(),
+      maxSteps: z.number().int().min(1).max(20).optional(),
     })
     .optional(),
 });

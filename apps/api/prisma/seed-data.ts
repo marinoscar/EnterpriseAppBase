@@ -456,7 +456,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       modelId: null as string | null,
       shareResults: true,
       maxResultRowsToModel: 100,
-      maxSteps: 6,
+      maxSteps: 15,
     },
   },
 };
