@@ -488,13 +488,19 @@ The secret access key is stored encrypted and never returned. See
 
 ### Object access
 
-- Every `/api/storage/objects` route requires authentication.
-- `ObjectsService` enforces ownership: list returns only the caller's objects,
-  and get, download, metadata update, delete and upload complete/abort all
-  return 403 unless `uploadedById` is the caller.
-- The seeded storage permissions are `storage:read`, `storage:write` and
-  `storage:delete_any`. The object controller does not currently gate its
-  routes on them; ownership is the enforced control.
+- Every `/api/storage/objects` route requires `storage:read` (list, get,
+  download) or `storage:write` (uploads, metadata update, delete,
+  upload complete/abort).
+- `ObjectsService` also enforces ownership on top of the permission: list
+  returns only the caller's objects, and get, download, metadata update and
+  upload complete/abort all return 403 unless `uploadedById` is the caller.
+- A caller who also holds `storage:delete_any` may delete another user's
+  object, with one exception: another user's profile image is refused with
+  403 and can only be removed by its owner, through
+  `DELETE /api/user-settings/profile-image`.
+- The AI platform's storage-input resolver (an image to edit, audio to
+  transcribe, a file a response reads) is ownership-only: no permission lets
+  one user use another's object there.
 
 ### Upload limits
 
