@@ -374,11 +374,16 @@ export const handlers = [
         { status: 409 },
       );
     }
-    const { readerPassword: _reader, adminPassword: _admin, ...rest } = body;
+    const { readerPassword: _reader, adminPassword: _admin, host: rawHost, ...rest } = body;
+    // Omitted, null or blank host is automatic (#562): stored as null.
+    const host = typeof rawHost === 'string' && rawHost.trim() ? rawHost.trim() : null;
     return HttpResponse.json({
       data: {
         ...mockTelemetryConnectionStored,
         ...rest,
+        host,
+        effectiveHost: host ?? mockTelemetryConnectionStored.effectiveHost,
+        hostMode: host ? 'custom' : 'auto',
         source: 'stored',
         version: mockTelemetryConnectionStored.version + 1,
       },
@@ -389,8 +394,12 @@ export const handlers = [
     return HttpResponse.json({ data: mockTelemetryConnectionEnvironment });
   }),
 
-  http.post(`${API_BASE}/admin/telemetry/connection/test`, () => {
-    return HttpResponse.json({ data: mockTelemetryConnectionTestResult });
+  http.post(`${API_BASE}/admin/telemetry/connection/test`, async ({ request }) => {
+    const body = (await request.json()) as { host?: string | null };
+    const host = typeof body.host === 'string' && body.host.trim() ? body.host.trim() : null;
+    return HttpResponse.json({
+      data: { ...mockTelemetryConnectionTestResult, host: host ?? mockTelemetryConnectionTestResult.host },
+    });
   }),
 
   http.get(`${API_BASE}/admin/telemetry/schema`, () => {

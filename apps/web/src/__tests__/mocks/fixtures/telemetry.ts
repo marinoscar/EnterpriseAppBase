@@ -116,7 +116,10 @@ export const mockTelemetryQueryResult: TelemetryQueryResult = {
 
 export const mockTelemetryConnectionStored: TelemetryConnection = {
   source: 'stored',
-  host: 'greptimedb',
+  // Automatic host (#562): nothing stored, the deployment host is used.
+  host: null,
+  effectiveHost: 'greptimedb',
+  hostMode: 'auto',
   pgPort: 4003,
   database: 'public',
   readerUser: 'readonly',
@@ -145,7 +148,10 @@ export const mockTelemetryConnectionStored: TelemetryConnection = {
 /** The `GREPTIME_*` deployment default: passwords present, but not the store's to describe. */
 export const mockTelemetryConnectionEnvironment: TelemetryConnection = {
   source: 'environment',
+  // GREPTIME_HOST is a literal, so the environment's host reads as custom.
   host: 'greptimedb',
+  effectiveHost: 'greptimedb',
+  hostMode: 'custom',
   pgPort: 4003,
   database: 'public',
   readerUser: 'readonly',
@@ -163,7 +169,9 @@ export const mockTelemetryConnectionEnvironment: TelemetryConnection = {
 
 export const mockTelemetryConnectionNone: TelemetryConnection = {
   source: 'none',
-  host: '',
+  host: null,
+  effectiveHost: 'greptimedb',
+  hostMode: 'auto',
   pgPort: 4003,
   database: 'public',
   readerUser: '',
@@ -180,6 +188,7 @@ export const mockTelemetryConnectionNone: TelemetryConnection = {
 };
 
 export const mockTelemetryConnectionTestResult: TelemetryConnectionTestResult = {
+  host: 'greptimedb',
   reader: { success: true, latencyMs: 12, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' },
   admin: { success: false, latencyMs: 8, error: 'password authentication failed for user "admin"' },
 };
