@@ -20,16 +20,19 @@ export class TelemetryStoreError extends Error {
 }
 
 /**
- * The connection this call needs is not configured (`GREPTIME_*` absent, or
- * the admin credential missing for an admin call). Not a fault: a deployment
- * without the telemetry overlay is a supported state.
+ * The connection this call needs is not configured — neither saved at
+ * /admin/settings/telemetry nor supplied by the `GREPTIME_*` deployment
+ * default, or the admin login missing for an admin call. Not a fault: a
+ * deployment without a telemetry store is a supported state.
  */
 export class TelemetryNotConfiguredError extends TelemetryStoreError {
   constructor(readonly role: 'reader' | 'admin') {
     super(
       role === 'admin'
-        ? 'The GreptimeDB admin connection is not configured (GREPTIME_ADMIN_USER / GREPTIME_ADMIN_PASSWORD).'
-        : 'GreptimeDB is not configured (GREPTIME_HOST / GREPTIME_READER_USER / GREPTIME_READER_PASSWORD).',
+        ? 'The GreptimeDB admin connection is not configured. Set the admin user and password at ' +
+            '/admin/settings/telemetry (or GREPTIME_ADMIN_USER / GREPTIME_ADMIN_PASSWORD as the deployment default).'
+        : 'GreptimeDB is not configured. Configure the connection at /admin/settings/telemetry ' +
+            '(or GREPTIME_HOST / GREPTIME_READER_USER / GREPTIME_READER_PASSWORD as the deployment default).',
     );
   }
 }

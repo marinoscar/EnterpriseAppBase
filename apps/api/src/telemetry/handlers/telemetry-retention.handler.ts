@@ -4,7 +4,7 @@
 //
 // Makes GreptimeDB's database-level TTL match `telemetry.retentionDays`:
 //
-//     ALTER DATABASE <GREPTIME_DB> SET 'ttl'='<N>d'
+//     ALTER DATABASE <database> SET 'ttl'='<N>d'
 //
 // The database name is deliberately UNQUOTED: GreptimeDB v1.2.1 resolves a
 // double-quoted name in ALTER DATABASE literally (`"public"` fails with
@@ -94,14 +94,17 @@ export class TelemetryRetentionHandler implements JobHandler, OnModuleInit {
   /** Throws to fail (GreptimeDB unreachable or refusing), so the queue's retry applies. */
   async process(job: Job): Promise<void> {
     if (!this.greptime.isConfigured()) {
-      this.logger.log(`Telemetry retention skipped: GreptimeDB is not configured (job ${job.id})`);
+      this.logger.log(
+        `Telemetry retention skipped: GreptimeDB is not configured (see /admin/settings/telemetry) (job ${job.id})`,
+      );
       return;
     }
 
     if (!this.greptime.isAdminConfigured()) {
       this.logger.warn(
-        'Telemetry retention skipped: GREPTIME_ADMIN_USER / GREPTIME_ADMIN_PASSWORD are not set, ' +
-          `so the database TTL cannot be changed (job ${job.id})`,
+        'Telemetry retention skipped: the GreptimeDB admin login is not configured ' +
+          '(set it at /admin/settings/telemetry), so the database TTL cannot be changed ' +
+          `(job ${job.id})`,
       );
       return;
     }

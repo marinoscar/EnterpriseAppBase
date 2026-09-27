@@ -1,6 +1,8 @@
 import type { ConfigService } from '@nestjs/config';
 import type { PoolConfig } from 'pg';
 
+import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
+
 import {
   GreptimeClient,
   greptimeTypeParser,
@@ -29,8 +31,14 @@ const CONFIGURED: GreptimeConfig = {
   available: true,
 };
 
-function configService(greptime: Partial<GreptimeConfig>): ConfigService {
-  return { get: jest.fn().mockReturnValue(greptime) } as unknown as ConfigService;
+/**
+ * A connection resolver whose only source is the given `GREPTIME_*` default
+ * (no stored connection is ever read: `refresh` is never called here).
+ */
+function configService(greptime: Partial<GreptimeConfig>): TelemetryConnectionService {
+  const config = { get: jest.fn().mockReturnValue(greptime) } as unknown as ConfigService;
+
+  return new TelemetryConnectionService(config, {} as never, {} as never);
 }
 
 interface FakeClient {

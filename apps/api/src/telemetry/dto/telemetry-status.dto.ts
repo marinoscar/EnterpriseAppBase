@@ -24,7 +24,7 @@ export const telemetryTableSchema = z.object({
 });
 
 export const telemetryStatusSchema = z.object({
-  /** GreptimeDB is configured for this deployment (`GREPTIME_*` set). */
+  /** GreptimeDB is configured (admin UI or deployment default) — see `GET /api/admin/telemetry/connection`. */
   configured: z.boolean(),
   /** A `SELECT version()` round trip succeeded just now. */
   reachable: z.boolean(),

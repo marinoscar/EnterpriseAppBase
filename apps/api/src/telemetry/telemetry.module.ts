@@ -1,10 +1,15 @@
 import { Module } from '@nestjs/common';
 
 import { AiModule } from '../ai/ai.module';
+import { CredentialsModule } from '../credentials/credentials.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { SettingsModule } from '../settings/settings.module';
 import { TelemetryAssistantController } from './assistant/telemetry-assistant.controller';
 import { TelemetryAssistantService } from './assistant/telemetry-assistant.service';
+import { TelemetryConnectionAdminService } from './connection/telemetry-connection-admin.service';
+import { TelemetryConnectionTestService } from './connection/telemetry-connection-test.service';
+import { TelemetryConnectionController } from './connection/telemetry-connection.controller';
+import { TelemetryConnectionService } from './connection/telemetry-connection.service';
 import { TelemetryExportService } from './export/telemetry-export.service';
 import { GreptimeClient } from './greptime/greptime.client';
 import { TelemetryRetentionHandler } from './handlers/telemetry-retention.handler';
@@ -36,19 +41,30 @@ import { TelemetryStatusService } from './telemetry-status.service';
 // exactly the explorer's guard and bounds, and `TelemetrySchemaService` to
 // list and describe tables. Streamed by `TelemetryAssistantController`.
 //
+// The connection (#558): `TelemetryConnectionService` resolves the GreptimeDB
+// connection at runtime — the one saved at /admin/settings/telemetry (a
+// `telemetry_connection` system-settings row plus two passwords in the
+// credential store, hence `CredentialsModule`), else the `GREPTIME_*`
+// deployment default. `GreptimeClient` builds its pools from it and rebuilds
+// them when it changes. `TelemetryConnectionController` is the admin surface.
+//
 // `GreptimeClient`, `TelemetrySettingsService` and the two query services are
 // exported for it.
 // =============================================================================
 
 @Module({
-  imports: [JobsModule, SettingsModule, AiModule],
+  imports: [JobsModule, SettingsModule, AiModule, CredentialsModule],
   controllers: [
     TelemetryAdminController,
     TelemetryConfigController,
     TelemetryExplorerController,
     TelemetryAssistantController,
+    TelemetryConnectionController,
   ],
   providers: [
+    TelemetryConnectionService,
+    TelemetryConnectionAdminService,
+    TelemetryConnectionTestService,
     GreptimeClient,
     TelemetrySettingsService,
     TelemetryStatusService,

@@ -41,7 +41,9 @@ import { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler
 //
 //   3. THE EXPORT GATE. `telemetryGate` (common/otel/telemetry-gate.ts) starts
 //      CLOSED; this service opens it when `telemetry.enabled` is true AND a
-//      telemetry store is configured, on boot and every
+//      telemetry store is configured (the connection saved at
+//      /admin/settings/telemetry, else the `GREPTIME_*` deployment default —
+//      `TelemetryConnectionService`, #558), on boot and every
 //      `TELEMETRY_GATE_REFRESH_MS` after. The interval is what makes a
 //      multi-instance deployment converge: the instance that served the PUT
 //      flips its gate immediately, every other one within one interval.

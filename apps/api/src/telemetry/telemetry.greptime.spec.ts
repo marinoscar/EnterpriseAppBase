@@ -5,6 +5,7 @@ import { Workbook } from 'exceljs';
 
 import type { SystemTelemetryValue } from '../common/schemas/settings.schema';
 import { buildParquetColumns, TelemetryExportService } from './export/telemetry-export.service';
+import { TelemetryConnectionService } from './connection/telemetry-connection.service';
 import { GreptimeClient } from './greptime/greptime.client';
 import { TelemetryQueryFailedError, TelemetryMultiStatementError } from './greptime/greptime.errors';
 import { retentionStatement } from './handlers/telemetry-retention.handler';
@@ -72,7 +73,7 @@ function clientFor(readerUrl: string, adminUrl?: string): GreptimeClient {
     available: true,
   };
 
-  return new GreptimeClient({ get: () => config } as never);
+  return new GreptimeClient(new TelemetryConnectionService({ get: () => config } as never, {} as never, {} as never));
 }
 
 const describeLive = READER_URL ? describe : describe.skip;
