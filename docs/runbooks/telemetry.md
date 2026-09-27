@@ -1,12 +1,14 @@
 # Runbook: Enable, Configure and Operate Telemetry
 
-> **Audience:** operators · **Spec:** [telemetry.md](../specs/telemetry.md) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Permission:** `telemetry:read`/`telemetry:write`/`telemetry:query`
+> **Audience:** operators · **Spec:** [telemetry.md](../specs/telemetry.md) (connection: [§8](../specs/telemetry.md#8-runtime-connection)) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Permission:** `telemetry:read`/`telemetry:write`/`telemetry:query`
 
 This runbook covers turning telemetry on for a deployment (local or VPS),
-setting its policy, verifying it, rotating GreptimeDB's passwords, and
-connecting a BI tool to it over SSH. It does not cover the design — see
-[the spec](../specs/telemetry.md) for the architecture, the two switches, and
-the security model.
+setting its policy, verifying it, pointing a deployment at a GreptimeDB or
+rotating its reader/admin credentials from the admin UI, rotating
+GreptimeDB's other passwords by editing the environment, and connecting a BI
+tool to it over SSH. It does not cover the design — see
+[the spec](../specs/telemetry.md) for the architecture, the two switches, the
+connection's precedence rule, and the security model.
 
 Source of truth for every claim below:
 
@@ -14,6 +16,7 @@ Source of truth for every claim below:
 - `infra/otel/otel-collector-config.yaml`
 - `infra/compose/.env.example` (the `GREPTIME_*` block)
 - `apps/api/src/telemetry/` (settings, status, retention, explorer, assistant)
+- `apps/api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
 - `apps/cli/src/deploy/compose-files.ts`, `env-metadata.ts` (the `observability` group)
 
 **Telemetry ships off.** A fresh deployment has `telemetry.enabled: false`
@@ -167,12 +170,60 @@ self-heals on the next run without any action from you.
    queries (or `SELECT count(*) FROM opentelemetry_traces` if the app has
    served any traffic since telemetry was enabled). An empty result with no
    error usually means the gate has not opened yet — wait a few seconds and
-   retry, or see §9.
+   retry, or see §11.
 3. **The assistant**, if configured: ask it a simple question ("how many
    requests failed in the last hour?") and confirm you get a `step` stream
    ending in an `answer` event with a `sql` and `explanation`.
 
-## 8. Rotate GreptimeDB passwords
+## 8. Point a deployment at a GreptimeDB, or rotate credentials, from the UI
+
+The GreptimeDB connection the API uses is resolved at runtime, not fixed
+from `.env` alone: an administrator can save a connection (host,
+PG port, database, reader/admin logins) at **Admin → Settings →
+Observability → Telemetry**, in the **Connection** section
+(`/admin/settings/telemetry`), and it takes effect immediately — no restart,
+no container recreate. See [the spec, §8](../specs/telemetry.md#8-runtime-connection)
+for the precedence rule and what is and is not configurable here.
+
+1. Open the Connection section and fill in the host, PG port, database, and
+   the reader login (username + password). Add the admin login too if you
+   want retention (TTL) applied from this deployment.
+2. **Test first.** Click **Test connection** before saving — it checks the
+   reader (and the admin, if given) against the values in the form, not
+   necessarily the stored connection, and always reports a pass/fail per
+   login rather than an HTTP error. Fix anything it reports before saving.
+3. Click **Save**. The connection takes effect on this instance immediately
+   and on every other instance in a fleet within about five seconds (the
+   same refresh interval the settings cache and export gate use — see
+   [the spec §2](../specs/telemetry.md#2-the-two-switches)). The save also
+   re-applies the export gate and re-enqueues `telemetry.retention.apply`.
+4. **Rotating a reader or admin password from the UI**: leave the other
+   fields as they are, type the new password into that login's password
+   field, and save. Leaving a password field blank keeps the currently
+   stored one — you do not need to retype a password you are not changing.
+5. **Revert to the deployment default**: click **Revert to deployment
+   default** (or `DELETE /api/admin/telemetry/connection`). This deletes the
+   stored connection and both stored passwords; the `GREPTIME_*` values from
+   `.env` (§3) apply again, exactly as they did before any connection was
+   ever saved.
+6. Re-check status (§7) after any of the above — a wrong password or
+   unreachable host shows up there the same way it always has.
+
+**This only changes what the API uses to *connect*.** If you rotate a
+password **inside GreptimeDB itself** (for example, editing GreptimeDB's
+`--user-provider` list), you still have to update the stored value here (or
+in `.env`, for the deployment default) to match — the UI does not reach into
+GreptimeDB and change its accounts, only what the API authenticates as.
+Likewise, the writer login and the HTTP port are never configurable here
+(§8 of the spec): rotating those still means editing `GREPTIME_WRITER_*` in
+`.env` and recreating the collector/GreptimeDB containers, per §9 below.
+
+## 9. Rotate GreptimeDB passwords (environment / collector / container)
+
+Use this section for the writer login and the HTTP port, which are never
+configurable from the admin UI, or when you would rather rotate every
+account by editing `.env` and recreating containers than use §8 for the
+reader/admin logins.
 
 1. Pick new values for the accounts you are rotating (§3 lists them).
 2. Edit `infra/compose/.env` (or the VPS deployment's `.env`) with the new
@@ -194,10 +245,10 @@ self-heals on the next run without any action from you.
    old passwords stop working the moment it restarts. Re-check status (§7)
    afterward: a wrong password on the reader or admin connection shows up as
    `reachable: false` with the driver's authentication error in `error`.
-5. If you use a BI tool over the SSH tunnel (§9), update its stored
+5. If you use a BI tool over the SSH tunnel (§10), update its stored
    credential to the new reader password.
 
-## 9. Connect a BI tool over SSH
+## 10. Connect a BI tool over SSH
 
 GreptimeDB's Postgres wire port is never published on a public interface.
 Reach it through a tunnel:
@@ -243,20 +294,21 @@ The reader account can only `SELECT`/`SHOW`/`DESCRIBE` and read
 a BI tool cannot write to or alter the telemetry store no matter what it is
 configured to do.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Status reports `configured: false` | The telemetry overlay is not deployed, or `GREPTIME_HOST`/`GREPTIME_READER_*` are unset on the API | Add the overlay (§2) and confirm the `GREPTIME_*` variables reached the `api` service's environment |
-| Status reports `configured: true`, `reachable: false` | GreptimeDB is down, still starting, or a password is wrong | Check `docker compose ps greptimedb` and its logs; re-check the reader/admin passwords (§8) |
+| Status reports `configured: false` | Neither a stored connection nor a usable `GREPTIME_*` deployment default names a host | Save a connection (§8), or add the overlay (§2) and confirm the `GREPTIME_*` variables reached the `api` service's environment |
+| Status reports `configured: true`, `reachable: false` | GreptimeDB is down, still starting, or a password is wrong | Check `docker compose ps greptimedb` and its logs; re-check the reader/admin passwords (§8 for a stored connection, §9 for the deployment default) |
 | Explorer/assistant answer `TELEMETRY_NOT_CONFIGURED` (503) | Same as above, surfaced through the API | Same as above |
 | Explorer/assistant answer `TELEMETRY_DISABLED` (409) | `telemetry.enabled` is `false` | Turn it on (§4); allow up to five seconds to take effect everywhere |
-| `retentionDays` change does not seem applied | The `telemetry.retention.apply` job failed, or `GREPTIME_ADMIN_USER`/`PASSWORD` are not set | Check the job queue (`/admin/settings/jobs`) for a failed run; without an admin credential the job is a deliberate no-op — set one (§3) |
+| `retentionDays` change does not seem applied | The `telemetry.retention.apply` job failed, or no admin login is configured (stored or `GREPTIME_ADMIN_*`) | Check the job queue (`/admin/settings/jobs`) for a failed run; without an admin credential the job is a deliberate no-op — set one (§8 or §3) |
 | Tables appear empty even though the app is being used | The export gate is still closed: `telemetry.enabled` was just turned on, or `OTEL_ENABLED` is not set on the `api` service | Wait a few seconds for the gate to open (§4); confirm `OTEL_ENABLED=true` is present on `api` (the overlay sets it, but a custom compose override can drop it) |
 | A query or the assistant returns `TELEMETRY_QUERY_TIMEOUT` (504) | The statement outran `telemetry.query.timeoutSeconds` | Narrow the query (add a time filter, reduce the row cap) or raise the setting (≤ 120 s), then retry |
 | The nginx assistant route hangs or drops mid-stream | A proxy in front of nginx is buffering the response | Confirm the deployment's own reverse proxy (in front of nginx, on a VPS) does not buffer `/api/admin/telemetry/assistant/stream`; nginx itself already forwards it unbuffered |
+| `PUT`/`DELETE .../connection` answers 409 | Someone else saved the connection first (stale `If-Match`) | Re-read `GET /api/admin/telemetry/connection` for the current `version` and retry |
 
-## 11. Summary checklist
+## 12. Summary checklist
 
 **First enable**
 
@@ -267,7 +319,13 @@ configured to do.
 - [ ] A starter query in the explorer returns rows
 - [ ] (Optional) assistant configured and answers a test question
 
-**Password rotation**
+**Connection change from the UI (§8)**
+
+- [ ] Test connection passes for the reader (and the admin, if set)
+- [ ] Saved; status re-checked (`source: stored`, `reachable: true`)
+- [ ] Reverting to the deployment default tested at least once, if this deployment may ever need to
+
+**Password rotation (environment / collector / container, §9)**
 
 - [ ] New passwords written to `.env`
 - [ ] `greptimedb`, `otel-collector` and `api` recreated
@@ -276,6 +334,6 @@ configured to do.
 
 ## See also
 
-- [Telemetry spec](../specs/telemetry.md) — architecture, the two switches, security model
+- [Telemetry spec](../specs/telemetry.md) — architecture, the two switches, the runtime connection's precedence rule ([§8](../specs/telemetry.md#8-runtime-connection)), security model
 - [Deploy to a VPS](deploy-to-vps.md) — installing and updating a deployment, including `--group observability`
 - [AI configuration](ai-configuration.md) — enabling AI before configuring the assistant

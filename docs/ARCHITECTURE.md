@@ -367,6 +367,7 @@ Two indexes exist only in hand-written migration SQL because Prisma cannot expre
 | `global` | The namespaced system settings document below | Per-namespace admin pages and `/api/system-settings` |
 | `email` | Email transport (`ses` or `smtp`) and sender settings; the SMTP password is in `credentials` | `/admin/settings/email` |
 | `webPush` | `{ enabled, publicKey, subject }`; the private key is in `credentials` | `/admin/settings/push` |
+| `telemetry_connection` | Stored GreptimeDB connection (host, PG port, database, reader/admin usernames); its own version counter; not reachable through `/api/system-settings`. Absent row = nothing stored, so the `GREPTIME_*` deployment default applies. See [specs/telemetry.md §8](specs/telemetry.md#8-runtime-connection). | `/admin/settings/telemetry` (Connection section) |
 
 Namespaces of the `global` document (`systemSettingsSchema`):
 
@@ -433,7 +434,7 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models; refresh the catalog |
 | `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
-| `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant) |
+| `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).

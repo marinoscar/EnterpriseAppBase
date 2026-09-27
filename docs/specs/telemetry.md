@@ -1,6 +1,6 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
+> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
@@ -591,10 +591,143 @@ organisation key per the AI platform's key policy (CLAUDE.md AI rule 1).
   proof.
 - Every admin write and every query/export/assistant call is an audit
   event: `telemetry:config_update`, `telemetry:query`, `telemetry:export`,
-  `telemetry:assistant_query`, `telemetry:assistant` — including refused
-  and failed queries, so a rejected `DROP` is on record.
+  `telemetry:assistant_query`, `telemetry:assistant`,
+  `telemetry:connection_update`, `telemetry:connection_reset` — including
+  refused and failed queries, so a rejected `DROP` is on record.
+- **The stored GreptimeDB connection's passwords are encrypted at rest**,
+  under credential purpose `telemetry_greptime` (§8) — the same store and
+  cipher as every other runtime-configured credential (SMTP, storage, AI,
+  VAPID); see
+  [SECURITY-ARCHITECTURE.md §10](../SECURITY-ARCHITECTURE.md#10-encrypted-credential-storage).
 
-## 8. BI access
+## 8. Runtime connection
+
+The GreptimeDB connection the API uses — host, PG port, database, reader and
+admin logins — is resolved at runtime by `TelemetryConnectionService`
+(`apps/api/src/telemetry/connection/telemetry-connection.service.ts`), not
+fixed at boot from `GREPTIME_*` alone. An administrator can point the API at
+a different GreptimeDB, or rotate the reader/admin passwords, from
+`/admin/settings/telemetry`'s Connection section, with no restart.
+
+**One precedence rule, no per-field merge:**
+
+1. a connection **stored** in the admin UI — the `telemetry_connection`
+   `system_settings` row (host, PG port, database, reader/admin usernames)
+   plus the two passwords in the encrypted credential store — wins **wholly**;
+2. otherwise the **`GREPTIME_*` deployment default** (§7's three accounts,
+   read through `config/configuration.ts`'s `greptime` block), when it names
+   a host;
+3. otherwise **none** — telemetry is unavailable.
+
+`GET /api/admin/telemetry/connection` reports which of the three (`source`:
+`stored`/`environment`/`none`) is in force. A per-field merge — host from the
+form, password from the environment — was rejected: it is a connection
+nobody configured, and it cannot be explained on a status page.
+
+**Why the environment stays a source at all.** `GREPTIME_*` cannot go away:
+the telemetry overlay provisions the GreptimeDB container's own users and the
+OTel collector's writer login from the same variables, so they are set on
+every deployment that runs the overlay regardless of whether a connection is
+ever saved. Keeping them as the default means an operator never types the
+reader/admin credentials twice, and every existing deployment keeps working
+unchanged after upgrading to this feature — nothing switches to "not
+configured" merely because the row does not exist yet.
+
+**Why the writer login and the HTTP port are not configurable here.** Only
+the OTel collector (ingest) and the GreptimeDB container (user provisioning)
+use `GREPTIME_WRITER_*`/`GREPTIME_HTTP_PORT`; the API never writes telemetry
+and never speaks GreptimeDB's HTTP API. Storing a write-capable credential
+the API has no use for would widen what a compromise of the application
+database yields, for nothing — least privilege excludes it by design, not by
+oversight. Provisioning the GreptimeDB server itself (the `telemetry.compose.yml`
+overlay, `appctl deploy update --group observability`) also stays an
+infrastructure step: the API only holds the credentials to *reach* a store,
+never to stand one up.
+
+**Storage.** `telemetry_connection` is a `system_settings` row of its own,
+not a namespace inside `global`, for the same reason the email settings have
+one (§3's `email` row): the generic `PUT /api/system-settings` must not be
+able to clobber or silently carry it forward, it must stay out of
+`GET /api/system-settings`, and it needs an `If-Match` version counter that a
+concurrent save of an unrelated setting cannot conflict with. The row itself
+carries no password field — a compile-time check
+(`TELEMETRY_CONNECTION_CARRIES_NO_SECRET`) fails the build if one is ever
+added — the two passwords live only in the encrypted credential store, under
+purpose `telemetry_greptime`, names `reader`/`admin`
+(`TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE`; see
+[SECURITY-ARCHITECTURE.md §10](../SECURITY-ARCHITECTURE.md#10-encrypted-credential-storage)).
+
+**Refresh and pool rebuild.** `TelemetryConnectionService` keeps a
+non-secret snapshot of the resolved connection (source, host, port, database,
+and per login whether a password is set plus a version marker), because the
+synchronous accessors `isConfigured()`/`isAdminConfigured()` the export gate
+and retention job depend on cannot await a database read. The snapshot
+refreshes once at boot, every `TELEMETRY_CONNECTION_REFRESH_MS` (5 s) after
+on an unref'd interval, and immediately (awaited) on the instance that
+served an admin save — so that instance's own next call already sees the new
+connection, and every other instance in a fleet converges within one
+interval. A failed refresh keeps the last snapshot rather than flipping to
+"unconfigured" on a database blip, the same posture `TelemetrySettingsService`
+takes for the export gate. Passwords are **never** cached in the snapshot:
+`resolveCredentials` reads the password from the credential store at the
+moment a pool is built and hands it straight to `pg`.
+
+`GreptimeClient` keys its connection pools by a **fingerprint** — source,
+host, port, database, user and the login's password version, joined —
+computed per role (`reader`/`admin`) from the current snapshot. A pool is
+built lazily and rebuilt whenever the fingerprint for its role changes; a
+save that only changes an unrelated field (say, the admin password) leaves
+the reader pool untouched. This is what makes a saved connection, or a
+rotated password, take effect with no process restart.
+
+**Routes**, all on `TelemetryConnectionController`
+(`apps/api/src/telemetry/connection/telemetry-connection.controller.ts`):
+
+| Route | Permission | Notes |
+|---|---|---|
+| `GET /api/admin/telemetry/connection` | `telemetry:read` | Non-secret: `source`, fields, whether each password is present with a masked hint for a stored one |
+| `PUT /api/admin/telemetry/connection` | `telemetry:write` | Replaces the stored connection wholly; optional `If-Match` → 409 on conflict |
+| `DELETE /api/admin/telemetry/connection` | `telemetry:write` | Deletes the row and both stored passwords — reverts to the deployment default (or none) |
+| `POST /api/admin/telemetry/connection/test` | `telemetry:write` | Always 200; tests the connection **in the request body**, not necessarily the stored one |
+
+**Save semantics.** `readerPassword`/`adminPassword` are write-only: omitted
+or blank keeps the stored password; a save with no stored password to keep
+(nothing stored yet, blank sent) is a 400 — the deployment default's
+password is never copied into the store on save, so the two sources never
+silently merge. `adminUser: null` removes the admin login and its stored
+password (reads still work; retention cannot be applied). Every successful
+save or reset re-applies the export gate (a store may have just become
+reachable, or gone away) and enqueues `telemetry.retention.apply` (the admin
+login may have just become usable), exactly as a policy save does (§3). Each
+is audited — field **names** and which passwords were set/cleared, never a
+value — as `telemetry:connection_update` (PUT) or
+`telemetry:connection_reset` (DELETE).
+
+**Test connection.** `POST .../connection/test` runs the reader's
+`SELECT version()` and, when `adminUser` is set, the admin's
+`SHOW CREATE DATABASE <database>`, each on a throwaway `pg` client (never a
+pooled one), bounded to 5 s to connect and 5 s to answer. It always answers
+200 with a per-role `{ success, ... }` (and `admin.skipped` when no admin
+user is given), so the caller reads the outcome from the body, not the HTTP
+status — the same shape `TelemetryConnectionTestResultDto` documents. A
+blank password in the test body means "the password the connection **in
+force** would use for that login right now", so an operator can test a
+username/host change without retyping a password they are keeping.
+
+### Rejected alternative: environment-only, with better error messages
+
+Before this feature, GreptimeDB was configurable only through `GREPTIME_*`,
+and a wrong or rotated password showed up as `reachable: false` on the
+status card (§10 troubleshooting) — diagnosable, but only fixable with a
+`.env` edit and a container recreate (runbook §8), on every host running the
+deployment. That was rejected as the long-term shape once GreptimeDB itself
+needed to be relocatable or rotatable without a deploy: every other runtime
+credential in this template (storage, AI, SMTP, VAPID) already lives in the
+admin UI plus the encrypted credential store, and leaving GreptimeDB as the
+one exception would mean explaining, to every operator, why this one store
+alone still needs an SSH session to reconfigure.
+
+## 9. BI access
 
 `GREPTIME_BIND_PG_PORT` (default `14003`) is GreptimeDB's Postgres wire port,
 bound to `127.0.0.1` only on a VPS deployment
@@ -623,3 +756,6 @@ commands and per-tool notes.
 - #538: the GreptimeDB tier in the API test suite.
 - #539: this document's remaining sections.
 - #554: row cap moved to a top-level LIMIT so ORDER BY survives.
+- #558: the GreptimeDB connection becomes admin-configurable at runtime
+  (`TelemetryConnectionService`, `/api/admin/telemetry/connection`), with
+  `GREPTIME_*` kept as the deployment default.
