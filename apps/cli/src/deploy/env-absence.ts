@@ -11,7 +11,7 @@
  *   3. The key belongs to an OPT-IN FEATURE GROUP the deployment never
  *      enabled. These are NOT commented out in the template, so `spec.optional`
  *      does NOT cover them - and this is the class that looks handled and is
- *      not. Here it is `observability`, `email` and `microsoft-oauth`: 22 keys,
+ *      not. Here it is `observability`, `email` and `microsoft-oauth`: 19 keys,
  *      several of them secret.
  *
  * The defect this module exists to prevent: a drift check that asks "what is in

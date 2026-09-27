@@ -15,7 +15,7 @@
     For prisma action: generate, migrate, studio, reset
 
 .PARAMETER Otel
-    Switch to include OpenTelemetry observability stack
+    Switch to include the telemetry stack (OpenTelemetry Collector + GreptimeDB)
 
 .EXAMPLE
     .\dev.ps1 start
@@ -23,7 +23,7 @@
 
 .EXAMPLE
     .\dev.ps1 start -Otel
-    Starts all services with OpenTelemetry observability stack
+    Starts all services with telemetry stack (OpenTelemetry Collector + GreptimeDB)
 
 .EXAMPLE
     .\dev.ps1 rebuild
@@ -81,7 +81,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ComposeDir = Join-Path $RepoRoot "infra\compose"
 $BaseCompose = Join-Path $ComposeDir "base.compose.yml"
 $DevCompose = Join-Path $ComposeDir "dev.compose.yml"
-$OtelCompose = Join-Path $ComposeDir "otel.compose.yml"
+$OtelCompose = Join-Path $ComposeDir "telemetry.compose.yml"
 $TestCompose = Join-Path $ComposeDir "test.compose.yml"
 $ApiDir = Join-Path $RepoRoot "apps\api"
 $WebDir = Join-Path $RepoRoot "apps\web"
@@ -113,7 +113,7 @@ function Show-Help {
     Write-Host "  help      Show this help message"
     Write-Host ""
     Write-Host "Flags:"
-    Write-Host "  -Otel     Include OpenTelemetry observability stack (Uptrace)"
+    Write-Host "  -Otel     Include telemetry stack (OpenTelemetry Collector + GreptimeDB)"
     Write-Host ""
     Write-Host "Services: api, web, db, nginx"
     Write-Host ""
@@ -140,7 +140,7 @@ function Show-Help {
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\dev.ps1 start               # Start all services"
-    Write-Host "  .\dev.ps1 start -Otel         # Start with observability stack"
+    Write-Host "  .\dev.ps1 start -Otel         # Start with telemetry stack"
     Write-Host "  .\dev.ps1 rebuild             # Rebuild and start all services"
     Write-Host "  .\dev.ps1 rebuild api         # Rebuild only the API service"
     Write-Host "  .\dev.ps1 logs api            # Follow API logs"
@@ -153,7 +153,8 @@ function Show-Help {
     Write-Host "  API:            http://localhost:3535/api"
     Write-Host "  Swagger UI:     http://localhost:3535/api/docs"
     Write-Host "  API Health:     http://localhost:3535/api/health/live"
-    Write-Host "  Uptrace:        http://localhost:14318 (with -Otel flag)"
+    Write-Host "  GreptimeDB:     http://localhost:14000/dashboard (with -Otel flag)"
+    Write-Host "  GreptimeDB PG:  postgres://localhost:14003/public (with -Otel flag)"
     Write-Host ""
 }
 
@@ -181,7 +182,7 @@ function Invoke-DockerCompose {
 function Start-Services {
     Write-Info "Starting services..."
     if ($Otel) {
-        Write-Info "Including OpenTelemetry observability stack..."
+        Write-Info "Including telemetry stack (OpenTelemetry Collector + GreptimeDB)..."
     }
     if ($Service) {
         Invoke-DockerCompose @("up", "-d", $Service)
@@ -193,7 +194,8 @@ function Start-Services {
     Write-Info "Application:  http://localhost:3535"
     Write-Info "Swagger UI:   http://localhost:3535/api/docs"
     if ($Otel) {
-        Write-Info "Uptrace:      http://localhost:14318"
+        Write-Info "GreptimeDB:    http://localhost:14000/dashboard"
+        Write-Info "GreptimeDB PG: postgres://localhost:14003/public (reader account)"
     }
 }
 
@@ -221,7 +223,7 @@ function Restart-Services {
 function Rebuild-Services {
     Write-Info "Rebuilding services (no cache)..."
     if ($Otel) {
-        Write-Info "Including OpenTelemetry observability stack..."
+        Write-Info "Including telemetry stack (OpenTelemetry Collector + GreptimeDB)..."
     }
     if ($Service) {
         Invoke-DockerCompose @("build", "--no-cache", $Service)
@@ -235,7 +237,8 @@ function Rebuild-Services {
     Write-Info "Application:  http://localhost:3535"
     Write-Info "Swagger UI:   http://localhost:3535/api/docs"
     if ($Otel) {
-        Write-Info "Uptrace:      http://localhost:14318"
+        Write-Info "GreptimeDB:    http://localhost:14000/dashboard"
+        Write-Info "GreptimeDB PG: postgres://localhost:14003/public (reader account)"
     }
 }
 

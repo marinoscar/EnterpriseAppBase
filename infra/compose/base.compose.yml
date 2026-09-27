@@ -4,8 +4,8 @@
 # Usage (run from infra/compose folder):
 #   docker compose -f base.compose.yml -f dev.compose.yml up
 #
-# With observability:
-#   docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
+# With telemetry (OpenTelemetry Collector + GreptimeDB):
+#   docker compose -f base.compose.yml -f dev.compose.yml -f telemetry.compose.yml up
 #
 # Production:
 #   docker compose -f base.compose.yml -f prod.compose.yml up
@@ -79,7 +79,9 @@ services:
       # JWT lifetimes (JWT_SECRET and COOKIE_SECRET arrive via env_file)
       - JWT_ACCESS_TTL_MINUTES=${JWT_ACCESS_TTL_MINUTES:-15}
       - JWT_REFRESH_TTL_DAYS=${JWT_REFRESH_TTL_DAYS:-14}
-      # Observability: off unless asked for, so the otel overlay is opt-in
+      # Observability: off unless asked for, so the telemetry overlay is opt-in.
+      # GREPTIME_* (telemetry reads) arrive via env_file with no default here:
+      # absent, the API reports telemetry as unavailable.
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-my-app-api}
       - LOG_LEVEL=${LOG_LEVEL:-info}
