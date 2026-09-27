@@ -3,7 +3,10 @@
  * (issue #558, epic #528), not a card or a tab of its own.
  *
  * What the API needs to READ telemetry: host, Postgres-wire port, database, the
- * read-only login and (for retention) the admin login. The passwords are
+ * read-only login and (for retention) the admin login. The host is OPTIONAL
+ * (issue #562): blank means automatic — the GreptimeDB service deployed next to
+ * this app, resolved by the API (`effectiveHost`) — and is sent as null; a
+ * value is a custom override for an external GreptimeDB. The passwords are
  * write-only — the fields always render empty, and the helper text says
  * whether blank means "keep the saved one" or "required": a password the
  * deployment default (environment) supplies is never copied into the store, so
@@ -78,7 +81,8 @@ const DATABASE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function toForm(connection: TelemetryConnection): ConnectionForm {
   return {
-    host: connection.host,
+    // Automatic shows empty (the effective host is the placeholder); custom is prefilled.
+    host: connection.hostMode === 'custom' ? (connection.host ?? '') : '',
     pgPort: String(connection.pgPort || TELEMETRY_CONNECTION_DEFAULTS.pgPort),
     database: connection.database || TELEMETRY_CONNECTION_DEFAULTS.database,
     readerUser: connection.readerUser,
@@ -105,9 +109,8 @@ function validate(
 ): ConnectionErrors {
   const errors: ConnectionErrors = {};
   const host = form.host.trim();
-  if (!host) {
-    errors.host = 'Enter the GreptimeDB host name or IP address.';
-  } else if (/[\s/:]/.test(host) && !/^[0-9a-fA-F:]+$/.test(host)) {
+  // Blank is automatic, so only a typed host is checked.
+  if (host && /[\s/:]/.test(host) && !/^[0-9a-fA-F:]+$/.test(host)) {
     errors.host = 'Host name or IP address only — no scheme, port or path.';
   }
   const port = form.pgPort.trim();
@@ -131,11 +134,14 @@ function validate(
   return errors;
 }
 
-/** Blank passwords are OMITTED — never sent as `""` — so the stored one is kept. */
+/**
+ * Blank passwords are OMITTED — never sent as `""` — so the stored one is kept.
+ * A blank host is sent as null: automatic.
+ */
 function toInput(form: ConnectionForm): TelemetryConnectionInput {
   const adminUser = form.adminUser.trim() || null;
   const input: TelemetryConnectionInput = {
-    host: form.host.trim(),
+    host: form.host.trim() || null,
     pgPort: Number(form.pgPort.trim()),
     database: form.database.trim(),
     readerUser: form.readerUser.trim(),
@@ -161,10 +167,34 @@ function passwordHelper(
   return 'Required to save.';
 }
 
+/**
+ * What a blank host means. While the host is automatic, `effectiveHost` IS the
+ * deployment host and is named; under a custom host it is the custom literal,
+ * so the deployment host is not known here and is described instead.
+ */
+function automaticHostLabel(connection: TelemetryConnection): string {
+  return connection.hostMode === 'auto' && connection.effectiveHost
+    ? `Automatic: ${connection.effectiveHost}`
+    : 'Automatic';
+}
+
+function hostHelper(connection: TelemetryConnection): string {
+  const lead =
+    connection.hostMode === 'auto' && connection.effectiveHost
+      ? automaticHostLabel(connection)
+      : 'Leave blank for automatic';
+  return `${lead} — the GreptimeDB service deployed next to this app. Set a host only for an external GreptimeDB.`;
+}
+
 function TestResultView({ result }: { result: TelemetryConnectionTestResult }) {
-  const { reader, admin } = result;
+  const { host, reader, admin } = result;
   return (
     <Stack spacing={1} sx={{ mt: 2 }} data-testid="telemetry-connection-test-result">
+      {host && (
+        <Typography variant="body2" color="text.secondary">
+          Tested <code>{host}</code>
+        </Typography>
+      )}
       <Alert severity={reader.success ? 'success' : 'error'}>
         <AlertTitle>
           {reader.success ? 'Reader login connected' : 'Reader login failed'}
@@ -325,7 +355,8 @@ export function TelemetryConnectionSection({ canWrite, onChanged }: TelemetryCon
 
       {connection && connection.source === 'none' && (
         <Alert severity="warning" sx={{ mb: 2 }} data-testid="telemetry-connection-none">
-          No GreptimeDB connection is configured. Enter the host and logins below and save.
+          No GreptimeDB connection is configured. Enter the logins below and save; leave the
+          host blank to use the GreptimeDB deployed next to this app.
         </Alert>
       )}
       {connection && connection.source === 'environment' && (
@@ -339,8 +370,12 @@ export function TelemetryConnectionSection({ canWrite, onChanged }: TelemetryCon
         <Box component="form" onSubmit={handleSave} noValidate>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, sm: 6 }}>
-              {field('host', 'Host', 'Host name or IP address of GreptimeDB.', {
-                slotProps: { htmlInput: { autoCapitalize: 'none', spellCheck: false } },
+              {field('host', 'Host (optional)', hostHelper(connection), {
+                placeholder: automaticHostLabel(connection),
+                slotProps: {
+                  inputLabel: { shrink: true },
+                  htmlInput: { autoCapitalize: 'none', spellCheck: false },
+                },
               })}
             </Grid>
             <Grid size={{ xs: 12, sm: 3 }}>

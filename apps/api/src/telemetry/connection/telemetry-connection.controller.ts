@@ -49,6 +49,10 @@ export class TelemetryConnectionController {
       'The GreptimeDB connection in force and where it comes from: `source` is `stored` ' +
       '(saved on this page — used wholly, with no field taken from the environment), ' +
       '`environment` (the `GREPTIME_*` deployment default) or `none`.\n\n' +
+      '`host` is the host as configured — null when it is **automatic** (`hostMode: auto`), ' +
+      'a literal for a custom override (`hostMode: custom`; `GREPTIME_HOST` for the ' +
+      '`environment` source). `effectiveHost` is the host actually used: for an automatic ' +
+      'host, the deployment host (`GREPTIME_HOST`, else the compose service `greptimedb`).\n\n' +
       '**Passwords are never returned.** `credentials.reader` / `credentials.admin` say ' +
       'whether each password is present, with a masked `hint` for a stored one (always null ' +
       'for the deployment default).',
@@ -66,6 +70,10 @@ export class TelemetryConnectionController {
       'Stores a GreptimeDB connection, which from then on is used INSTEAD OF the `GREPTIME_*` ' +
       'deployment default, wholly. It takes effect on this instance immediately and on every ' +
       'other one within five seconds — no restart.\n\n' +
+      '`host` is optional: omitted, null or blank means **automatic** — stored as null and ' +
+      'resolved at use to the deployment host (`GREPTIME_HOST`, else the compose service ' +
+      '`greptimedb`), so it follows the deployment. `pgPort` and `database` default to ' +
+      '`4003` and `public`.\n\n' +
       '`readerPassword` / `adminPassword` are **write-only**: omit them or send them empty to ' +
       'keep the stored ones. A save with no stored password to keep is a 400 — the deployment ' +
       'default\'s password is never copied into the store. `adminUser: null` removes the admin ' +
@@ -109,7 +117,8 @@ export class TelemetryConnectionController {
       'Checks the connection **in the request body**, which does not have to have been saved: ' +
       'the reader runs `SELECT version()`, the admin (when `adminUser` is set) runs ' +
       '`SHOW CREATE DATABASE <database>`. A blank password means the one the connection in ' +
-      'force uses for that login.\n\n' +
+      'force uses for that login; a blank host means the deployment host. The host actually ' +
+      'probed is returned as `host`.\n\n' +
       '**Always 200** — read `reader.success` and `admin.success` (or `admin.skipped`). Each ' +
       'check is bounded to five seconds to connect and five to answer.',
   })

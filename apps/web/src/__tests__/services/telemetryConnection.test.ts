@@ -68,6 +68,7 @@ describe('telemetry connection service', () => {
 
   it('POSTs a test and resolves a failed diagnosis rather than throwing', async () => {
     const result = {
+      host: 'greptimedb',
       reader: { success: false, latencyMs: 5, error: 'refused' },
       admin: { skipped: true },
     };
@@ -76,5 +77,12 @@ describe('telemetry connection service', () => {
     expect(calls[0].body).toEqual(input);
     expect(answer.reader.success).toBe(false);
     expect(isTelemetryProbeSkipped(answer.admin)).toBe(true);
+    expect(answer.host).toBe('greptimedb');
+  });
+
+  it('sends host null for an automatic host', async () => {
+    const calls = capture('put', '/admin/telemetry/connection', mockTelemetryConnectionStored);
+    await updateTelemetryConnection({ ...input, host: null }, 3);
+    expect(calls[0].body).toMatchObject({ host: null });
   });
 });

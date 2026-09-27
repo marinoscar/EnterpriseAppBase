@@ -129,6 +129,8 @@ export async function getTelemetryStatus(): Promise<TelemetryStatus> {
 export const TELEMETRY_CONNECTION_SOURCES = ['stored', 'environment', 'none'] as const;
 export type TelemetryConnectionSource = (typeof TELEMETRY_CONNECTION_SOURCES)[number];
 
+export type TelemetryConnectionHostMode = 'auto' | 'custom';
+
 /** GreptimeDB's Postgres-wire port and database when nothing says otherwise. */
 export const TELEMETRY_CONNECTION_DEFAULTS = { pgPort: 4003, database: 'public' } as const;
 
@@ -144,7 +146,16 @@ export interface TelemetryCredentialStatus {
 /** `GET /admin/telemetry/connection`. */
 export interface TelemetryConnection {
   source: TelemetryConnectionSource;
-  host: string;
+  /**
+   * The host as CONFIGURED: null when it is automatic (the deployment host,
+   * resolved by the API at use); a literal for a custom override or, for
+   * `source` `environment`, `GREPTIME_HOST`.
+   */
+  host: string | null;
+  /** The host actually used — for `source` `none`, the one an automatic host would use. */
+  effectiveHost: string;
+  /** `auto`: `host` is null and `effectiveHost` is the deployment host; `custom`: a literal. */
+  hostMode: TelemetryConnectionHostMode;
   pgPort: number;
   database: string;
   readerUser: string;
@@ -165,9 +176,12 @@ export interface TelemetryConnection {
  * stored one on save, and means "the connection in force's password" on test.
  */
 export interface TelemetryConnectionInput {
-  host: string;
-  pgPort: number;
-  database: string;
+  /** Omitted, null or blank: AUTOMATIC (the deployment host), stored as null. */
+  host?: string | null;
+  /** Omitted: 4003. */
+  pgPort?: number;
+  /** Omitted: `public`. */
+  database?: string;
   readerUser: string;
   readerPassword?: string;
   /** Null: no admin login (a stored admin password is deleted). */
@@ -189,6 +203,8 @@ export interface TelemetryConnectionSkipped {
 
 /** `POST /admin/telemetry/connection/test` — a diagnosis, always 200. */
 export interface TelemetryConnectionTestResult {
+  /** The host actually probed (the deployment host when the candidate's is automatic). */
+  host: string;
   reader: TelemetryConnectionProbe;
   admin: TelemetryConnectionProbe | TelemetryConnectionSkipped;
 }

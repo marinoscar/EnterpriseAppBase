@@ -73,6 +73,7 @@ describe('TelemetryConnectionAdminService', () => {
     refresh: jest.Mock;
     isConfigured: jest.Mock;
     isAdminConfigured: jest.Mock;
+    deploymentHost: string;
   };
   let settings: { refreshGate: jest.Mock };
   let jobs: { enqueue: jest.Mock };
@@ -86,6 +87,7 @@ describe('TelemetryConnectionAdminService', () => {
       snapshot: {
         source: hasRow ? 'stored' : 'environment',
         host: hasRow ? STORED_VALUE.host : 'env-host',
+        hostMode: 'custom',
         reader: { user: STORED_VALUE.readerUser, passwordSet: readerInfo !== null, version: readerInfo?.updatedAt.toISOString() ?? null },
         admin: hasRow && STORED_VALUE.adminUser
           ? { user: STORED_VALUE.adminUser, passwordSet: adminInfo !== null, version: adminInfo?.updatedAt.toISOString() ?? null }
@@ -116,6 +118,7 @@ describe('TelemetryConnectionAdminService', () => {
       refresh: jest.fn().mockResolvedValue(state()),
       isConfigured: jest.fn().mockReturnValue(true),
       isAdminConfigured: jest.fn().mockReturnValue(true),
+      deploymentHost: 'deploy-host',
     };
 
     settings = { refreshGate: jest.fn().mockResolvedValue(true) };
@@ -163,6 +166,33 @@ describe('TelemetryConnectionAdminService', () => {
       );
 
       expect(prisma.systemSettings.upsert).toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // Automatic host (issue #562)
+  // ==========================================================================
+
+  describe('automatic host', () => {
+    it('stores host null — never the resolved deployment host — when the host is automatic', async () => {
+      await service.replace(input({ host: null }), 'admin-1');
+
+      const call = prisma.systemSettings.upsert.mock.calls[0][0];
+      expect(call.update.value.host).toBeNull();
+      expect(call.create.value.host).toBeNull();
+      expect(JSON.stringify(call)).not.toContain('deploy-host');
+    });
+
+    it('stores a custom host as the literal it is', async () => {
+      await service.replace(input({ host: 'custom-host' }), 'admin-1');
+
+      expect(prisma.systemSettings.upsert.mock.calls[0][0].update.value.host).toBe('custom-host');
+    });
+
+    it('audits a switch from a custom host to automatic as a host change', async () => {
+      await service.replace(input({ host: null, readerUser: 'old-reader', adminUser: 'old-admin' }), 'admin-1');
+
+      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta.changedFields).toEqual(['host']);
     });
   });
 
@@ -384,6 +414,14 @@ describe('TelemetryConnectionAdminService', () => {
       ).toEqual(['host']);
     });
 
+    it('counts a host moving between automatic (null) and a literal as a change, both ways', () => {
+      const automatic = { ...STORED_VALUE, host: null };
+
+      expect(diffConnectionFieldNames(STORED_VALUE, automatic)).toEqual(['host']);
+      expect(diffConnectionFieldNames(automatic, { ...automatic, host: 'deploy-host' })).toEqual(['host']);
+      expect(diffConnectionFieldNames(automatic, { ...automatic })).toEqual([]);
+    });
+
     it('reports nothing when nothing changed', () => {
       expect(diffConnectionFieldNames(STORED_VALUE, { ...STORED_VALUE })).toEqual([]);
     });
@@ -391,11 +429,63 @@ describe('TelemetryConnectionAdminService', () => {
 
   describe('toResponse', () => {
     it('never exposes a password, and reports configured/adminConfigured from the service', () => {
-      const result = toResponse(state() as never, { isConfigured: () => true, isAdminConfigured: () => false });
+      const result = toResponse(state() as never, {
+        isConfigured: () => true,
+        isAdminConfigured: () => false,
+        deploymentHost: 'deploy-host',
+      });
 
       expect(result.configured).toBe(true);
       expect(result.adminConfigured).toBe(false);
       expect(JSON.stringify(result)).not.toMatch(/password/i);
+    });
+
+    const connectionView = { isConfigured: () => true, isAdminConfigured: () => true, deploymentHost: 'deploy-host' };
+
+    it('a custom stored host: host is the literal, hostMode custom, effectiveHost the same literal', () => {
+      const result = toResponse(state() as never, connectionView);
+
+      expect(result).toMatchObject({ host: 'old-host', hostMode: 'custom', effectiveHost: 'old-host' });
+    });
+
+    it('an automatic stored host: host null, hostMode auto, effectiveHost the resolved deployment host', () => {
+      const base = state();
+      const automatic = {
+        ...base,
+        stored: { ...STORED_VALUE, host: null },
+        snapshot: { ...base.snapshot, host: 'deploy-host', hostMode: 'auto' },
+      };
+
+      const result = toResponse(automatic as never, connectionView);
+
+      expect(result).toMatchObject({ source: 'stored', host: null, hostMode: 'auto', effectiveHost: 'deploy-host' });
+    });
+
+    it('the environment source reports GREPTIME_HOST as a custom host', () => {
+      const result = toResponse(state({ storedRow: false, row: null }) as never, connectionView);
+
+      expect(result).toMatchObject({ source: 'environment', host: 'env-host', hostMode: 'custom', effectiveHost: 'env-host' });
+    });
+
+    it('source none: host null, hostMode auto, effectiveHost the deployment host an automatic host would use', () => {
+      const none = {
+        snapshot: {
+          source: 'none',
+          host: '',
+          hostMode: 'auto',
+          pgPort: 4003,
+          database: 'public',
+          reader: { user: '', passwordSet: false, version: null },
+          admin: null,
+        },
+        stored: null,
+        row: null,
+        credentials: { reader: null, admin: null },
+      };
+
+      const result = toResponse(none as never, { ...connectionView, isConfigured: () => false });
+
+      expect(result).toMatchObject({ source: 'none', host: null, hostMode: 'auto', effectiveHost: 'deploy-host' });
     });
   });
 });

@@ -268,7 +268,7 @@ describe('TelemetrySettingsPage', () => {
     async function connectionSection() {
       await waitForForm();
       const section = screen.getByRole('region', { name: 'Connection' });
-      await within(section).findByLabelText('Host');
+      await within(section).findByLabelText('Host (optional)');
       return section;
     }
 
@@ -287,7 +287,15 @@ describe('TelemetrySettingsPage', () => {
       renderPage();
       const section = await connectionSection();
 
-      expect(within(section).getByLabelText('Host')).toHaveValue('greptimedb');
+      // The stored host is automatic: the field is empty and names the effective host.
+      const host = within(section).getByLabelText('Host (optional)');
+      expect(host).toHaveValue('');
+      expect(host).toHaveAttribute('placeholder', 'Automatic: greptimedb');
+      expect(
+        within(section).getByText(
+          'Automatic: greptimedb — the GreptimeDB service deployed next to this app. Set a host only for an external GreptimeDB.',
+        ),
+      ).toBeInTheDocument();
       expect(within(section).getByLabelText('PostgreSQL port')).toHaveValue(4003);
       expect(within(section).getByLabelText('Database')).toHaveValue('public');
       expect(within(section).getByLabelText('Reader user')).toHaveValue('readonly');
@@ -313,14 +321,15 @@ describe('TelemetrySettingsPage', () => {
       renderPage();
       const section = await connectionSection();
 
-      const host = within(section).getByLabelText('Host');
+      const host = within(section).getByLabelText('Host (optional)');
       await user.clear(host);
-      await user.type(host, 'greptime.internal');
+      await user.type(host, '  greptime.internal  ');
       await user.click(within(section).getByRole('button', { name: 'Save connection' }));
 
       await waitFor(() => expect(calls).toHaveLength(1));
       // The connection's own version (3) — not /config's (7).
       expect(calls[0].ifMatch).toBe(String(mockTelemetryConnectionStored.version));
+      // A custom host is sent trimmed.
       expect(calls[0].body).toEqual({
         host: 'greptime.internal',
         pgPort: 4003,
@@ -331,6 +340,60 @@ describe('TelemetrySettingsPage', () => {
       expect('readerPassword' in calls[0].body).toBe(false);
       expect('adminPassword' in calls[0].body).toBe(false);
       expect(await screen.findByText('Telemetry connection saved')).toBeInTheDocument();
+    });
+
+    it('sends host null for a blank (automatic) host', async () => {
+      const calls = captureConnectionPut();
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0].body.host).toBeNull();
+      expect('host' in calls[0].body).toBe(true);
+    });
+
+    it('sends host null when a custom host is cleared', async () => {
+      serveConnection({
+        ...mockTelemetryConnectionStored,
+        host: 'greptime.internal',
+        effectiveHost: 'greptime.internal',
+        hostMode: 'custom',
+      });
+      const calls = captureConnectionPut();
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      const host = within(section).getByLabelText('Host (optional)');
+      expect(host).toHaveValue('greptime.internal');
+      expect(within(section).getByText(/^Leave blank for automatic — /)).toBeInTheDocument();
+      await user.clear(host);
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0].body.host).toBeNull();
+    });
+
+    it('prefills the deployment default host from the environment', async () => {
+      serveConnection(mockTelemetryConnectionEnvironment);
+      renderPage();
+      const section = await connectionSection();
+      expect(within(section).getByLabelText('Host (optional)')).toHaveValue('greptimedb');
+    });
+
+    it('rejects a host with a scheme, port or path', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.type(within(section).getByLabelText('Host (optional)'), 'http://greptime:4003');
+      expect(
+        within(section).getByText('Host name or IP address only — no scheme, port or path.'),
+      ).toBeInTheDocument();
+      expect(within(section).getByRole('button', { name: 'Test connection' })).toBeDisabled();
     });
 
     it('sends a typed password and null for a blank admin user', async () => {
@@ -383,13 +446,14 @@ describe('TelemetrySettingsPage', () => {
       renderPage();
       const section = await connectionSection();
 
-      await user.type(within(section).getByLabelText('Host'), 'greptimedb');
+      // No host typed: automatic is enough.
       await user.type(within(section).getByLabelText('Reader user'), 'readonly');
       await user.type(within(section).getByLabelText('Reader password'), 'pw');
       await user.click(within(section).getByRole('button', { name: 'Save connection' }));
 
       await waitFor(() => expect(calls).toHaveLength(1));
       expect(calls[0].body.adminUser).toBeNull();
+      expect(calls[0].body.host).toBeNull();
     });
 
     it('refreshes the telemetry config and status after a save', async () => {
@@ -441,6 +505,7 @@ describe('TelemetrySettingsPage', () => {
           bodies.push((await request.json()) as TelemetryConnectionInput);
           return HttpResponse.json({
             data: {
+              host: 'greptimedb',
               reader: { success: true, latencyMs: 12, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' },
               admin: { success: false, latencyMs: 8, error: 'password authentication failed' },
             },
@@ -453,11 +518,14 @@ describe('TelemetrySettingsPage', () => {
 
       await user.click(within(section).getByRole('button', { name: 'Test connection' }));
       const result = await within(section).findByTestId('telemetry-connection-test-result');
+      // The host actually probed — the deployment host, as the candidate's is automatic.
+      expect(result).toHaveTextContent('Tested greptimedb');
       expect(within(result).getByText('Reader login connected')).toBeInTheDocument();
       expect(within(result).getByText(/PostgreSQL 16\.3 GreptimeDB 1\.2\.1 · 12 ms/)).toBeInTheDocument();
       expect(within(result).getByText('Admin login failed')).toBeInTheDocument();
       expect(within(result).getByText(/password authentication failed/)).toBeInTheDocument();
       expect(bodies).toHaveLength(1);
+      expect(bodies[0].host).toBeNull();
       expect('readerPassword' in bodies[0]).toBe(false);
     });
 
@@ -466,6 +534,7 @@ describe('TelemetrySettingsPage', () => {
         http.post(`${API_BASE}/admin/telemetry/connection/test`, () =>
           HttpResponse.json({
             data: {
+              host: 'greptime.internal',
               reader: { success: false, latencyMs: 30, error: 'connection refused' },
               admin: { skipped: true },
             },
@@ -481,6 +550,7 @@ describe('TelemetrySettingsPage', () => {
       expect(within(result).getByText('Reader login failed')).toBeInTheDocument();
       expect(within(result).getByText(/connection refused/)).toBeInTheDocument();
       expect(within(result).getByText('Admin login skipped')).toBeInTheDocument();
+      expect(result).toHaveTextContent('Tested greptime.internal');
     });
 
     it('reverts with DELETE after confirmation', async () => {
@@ -532,7 +602,7 @@ describe('TelemetrySettingsPage', () => {
       const section = await connectionSection();
 
       for (const label of [
-        'Host',
+        'Host (optional)',
         'PostgreSQL port',
         'Database',
         'Reader user',

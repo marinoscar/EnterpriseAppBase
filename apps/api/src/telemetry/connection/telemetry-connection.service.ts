@@ -6,7 +6,10 @@ import type { CredentialInfo } from '../../credentials/interfaces/credential-inf
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   TELEMETRY_CONNECTION_SETTINGS_KEY,
+  TELEMETRY_DEFAULT_DATABASE,
+  TELEMETRY_DEFAULT_PG_PORT,
   TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE,
+  telemetryDeploymentHost,
   telemetryConnectionValueSchema,
   type TelemetryConnectionRole,
   type TelemetryConnectionValue,
@@ -22,7 +25,15 @@ import {
 //   1. a connection is STORED (the `telemetry_connection` row exists)
 //        → it is the connection, wholly: host, port, database, both users,
 //          and the two passwords from the credential store. Nothing is
-//          borrowed from the environment, field by field or otherwise.
+//          borrowed from the environment, field by field or otherwise —
+//          with ONE deliberate exception: a stored `host: null` is AUTOMATIC
+//          and resolves, at every refresh, to the DEPLOYMENT HOST
+//          (`GREPTIME_HOST` when non-blank, else `TELEMETRY_DEFAULT_HOST`,
+//          the compose service name; issue #562). That is where GreptimeDB
+//          is in every supported deployment, so an operator need not know
+//          or type it, and the connection follows the deployment if it
+//          moves. The fingerprint carries the EFFECTIVE host, so such a move
+//          rebuilds the pools.
 //   2. otherwise the DEPLOYMENT DEFAULT, derived from `GREPTIME_*` (the
 //      `greptime` block of `config/configuration.ts`), when it names a host;
 //   3. otherwise none — telemetry is not available.
@@ -71,9 +82,11 @@ export const TELEMETRY_CONNECTION_REFRESH_MS = 5_000;
 /** Version marker of an environment-supplied password: it cannot change without a restart. */
 const ENVIRONMENT_CREDENTIAL_VERSION = 'environment';
 
-/** GreptimeDB's Postgres-wire default port, and its default database. */
-const DEFAULT_PG_PORT = 4003;
-const DEFAULT_DATABASE = 'public';
+const DEFAULT_PG_PORT = TELEMETRY_DEFAULT_PG_PORT;
+const DEFAULT_DATABASE = TELEMETRY_DEFAULT_DATABASE;
+
+/** `auto`: the host is the deployment host, resolved at refresh. `custom`: a literal someone chose. */
+export type TelemetryHostMode = 'auto' | 'custom';
 
 /** Where the resolved connection came from. */
 export type TelemetryConnectionSource = 'stored' | 'environment' | 'none';
@@ -100,7 +113,14 @@ interface LoginSnapshot {
 /** The resolved connection, minus every secret. */
 export interface TelemetryConnectionSnapshot {
   source: TelemetryConnectionSource;
+  /** The EFFECTIVE host — what a pool connects to. Empty when there is none (source `none`, or an unusable row). */
   host: string;
+  /**
+   * `auto` when the host is the deployment host by default (a stored
+   * `host: null`, or no connection at all), `custom` when it is a literal —
+   * a stored override, or `GREPTIME_HOST` for the environment source.
+   */
+  hostMode: TelemetryHostMode;
   pgPort: number;
   database: string;
   reader: LoginSnapshot;
@@ -153,7 +173,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
     const raw = configService.get<Partial<GreptimeEnvironmentConfig>>('greptime') ?? {};
 
     this.environment = {
-      host: raw.host ?? '',
+      host: (raw.host ?? '').trim(),
       pgPort: raw.pgPort ?? DEFAULT_PG_PORT,
       database: raw.database || DEFAULT_DATABASE,
       readerUser: raw.readerUser ?? '',
@@ -190,6 +210,14 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
   /** Where the connection in force came from. */
   get source(): TelemetryConnectionSource {
     return this.snapshot.source;
+  }
+
+  /**
+   * Where GreptimeDB is in this deployment: `GREPTIME_HOST` when non-blank,
+   * else `TELEMETRY_DEFAULT_HOST`. What an automatic (null) host resolves to.
+   */
+  get deploymentHost(): string {
+    return telemetryDeploymentHost(this.environment.host);
   }
 
   /** The GreptimeDB database telemetry is written to. */
@@ -316,7 +344,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
 
       if (parsed.success) {
         stored = parsed.data;
-        snapshot = storedSnapshot(parsed.data, credentials);
+        snapshot = storedSnapshot(parsed.data, credentials, this.deploymentHost);
         this.lastInvalidRowWarned = false;
       } else {
         // A row exists but does not validate (hand-edited). It is still "the
@@ -382,6 +410,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
       return {
         source: 'none',
         host: '',
+        hostMode: 'auto',
         pgPort: env.pgPort,
         database: env.database,
         reader: { user: '', passwordSet: false, version: null },
@@ -392,6 +421,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
     return {
       source: 'environment',
       host: env.host,
+      hostMode: 'custom',
       pgPort: env.pgPort,
       database: env.database,
       reader: {
@@ -413,6 +443,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
 function storedSnapshot(
   value: TelemetryConnectionValue,
   credentials: Record<TelemetryConnectionRole, CredentialInfo | null>,
+  deploymentHost: string,
 ): TelemetryConnectionSnapshot {
   const login = (user: string, info: CredentialInfo | null): LoginSnapshot => ({
     user,
@@ -422,7 +453,9 @@ function storedSnapshot(
 
   return {
     source: 'stored',
-    host: value.host,
+    // Null = automatic: resolved here, at every refresh, never stored as a literal.
+    host: value.host ?? deploymentHost,
+    hostMode: value.host === null ? 'auto' : 'custom',
     pgPort: value.pgPort,
     database: value.database,
     reader: login(value.readerUser, credentials.reader),
@@ -434,6 +467,7 @@ function unusableStoredSnapshot(): TelemetryConnectionSnapshot {
   return {
     source: 'stored',
     host: '',
+    hostMode: 'auto',
     pgPort: DEFAULT_PG_PORT,
     database: DEFAULT_DATABASE,
     reader: { user: '', passwordSet: false, version: null },
@@ -446,6 +480,8 @@ function fingerprintOf(snapshot: TelemetryConnectionSnapshot, role: TelemetryCon
 
   return JSON.stringify([
     snapshot.source,
+    // The EFFECTIVE host, so an automatic host whose deployment host changed
+    // yields a new fingerprint (and new pools).
     snapshot.host,
     snapshot.pgPort,
     snapshot.database,
