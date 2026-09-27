@@ -1083,11 +1083,11 @@ Run `npm run docs:worker-env --workspace=cli` to regenerate it after changing
 | `APPCTL_POLL_INTERVAL_MS` | Idle poll interval in milliseconds. |
 | `APPCTL_HEADLESS` | `true` to run without a TTY and drain on SIGTERM WITHOUT deregistering. |
 | `APPCTL_STATE_DIR` | Overrides the state directory. The one variable a container almost always sets. |
-| `APPCTL_HEAP_LIMIT_MB` | Old-space limit in MB for the re-exec (#277). `0` disables re-tuning entirely. |
-| `APPCTL_HEAP_TUNED` | The re-exec LATCH (#277). Set by the parent shim on the child it spawns. Not an operator knob — it exists so the re-exec cannot loop. It is still declared here rather than read as a literal, because the rule this map enforces has no exceptions: a variable the code reads is a variable a rename must reach. |
-| `APPCTL_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve (#277). |
-| `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9 (#277). |
-| `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths (#277). |
+| `APPCTL_HEAP_LIMIT_MB` | Old-space limit in MB for the re-exec. `0` disables re-tuning entirely. |
+| `APPCTL_HEAP_TUNED` | The re-exec LATCH. Set by the parent shim on the child it spawns. Not an operator knob — it exists so the re-exec cannot loop. It is still declared here rather than read as a literal, because the rule this map enforces has no exceptions: a variable the code reads is a variable a rename must reach. |
+| `APPCTL_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve. |
+| `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. |
+| `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths. |
 <!-- GENERATED:WORKER_ENV_TABLE:END -->
 
 With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the

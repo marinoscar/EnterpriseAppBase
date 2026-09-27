@@ -76,10 +76,10 @@ export const WORKER_ENV = {
   headless: envVar('HEADLESS'),
   /** Overrides the state directory. The one variable a container almost always sets. */
   stateDir: envVar('STATE_DIR'),
-  /** Old-space limit in MB for the re-exec (#277). `0` disables re-tuning entirely. */
+  /** Old-space limit in MB for the re-exec. `0` disables re-tuning entirely. */
   heapLimitMb: envVar('HEAP_LIMIT_MB'),
   /**
-   * The re-exec LATCH (#277). Set by the parent shim on the child it spawns.
+   * The re-exec LATCH. Set by the parent shim on the child it spawns.
    *
    * Not an operator knob — it exists so the re-exec cannot loop. It is still
    * declared here rather than read as a literal, because the rule this map
@@ -87,11 +87,11 @@ export const WORKER_ENV = {
    * rename must reach.
    */
   heapTuned: envVar('HEAP_TUNED'),
-  /** `false` to disable the memory watchdog and its pre-OOM valve (#277). */
+  /** `false` to disable the memory watchdog and its pre-OOM valve. */
   memoryWatchdog: envVar('MEMORY_WATCHDOG'),
-  /** heapUsed/heapLimit fraction at which the valve fires. Default ~0.9 (#277). */
+  /** heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. */
   memoryThreshold: envVar('MEMORY_THRESHOLD'),
-  /** `false` to disable ALL THREE heap-snapshot paths (#277). */
+  /** `false` to disable ALL THREE heap-snapshot paths. */
   heapSnapshots: envVar('HEAP_SNAPSHOTS'),
 } as const;
 

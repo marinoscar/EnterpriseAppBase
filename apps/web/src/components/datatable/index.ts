@@ -13,7 +13,9 @@
  * accessibility, `#243` the "invisible but tappable" bug the touch rules exist
  * to prevent). Those numbers belong to the ORIGIN project's tracker, not this
  * one — they are retained because they make the comments a coherent decision
- * record, and because `docs/specs/datatable.md` in that project indexes by them.
+ * record, and because a design spec in that project indexed by them. That
+ * spec is not part of this repository, so comments elsewhere in this module
+ * no longer cite it by path or section number.
  *
  * In THIS repo the port is issue #54, epic #51. Nothing here should be read as
  * referring to a local issue of the same number.

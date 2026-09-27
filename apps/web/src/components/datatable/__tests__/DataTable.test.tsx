@@ -202,7 +202,7 @@ describe('shouldRenderViewBar', () => {
 
   it('keeps the bar while loading, so a refetch never flashes it out', () => {
     // The node/job pages poll every 5s and render unconditionally to avoid
-    // remount churn (§18.4); a page that clears `rows` mid-fetch must not make
+    // remount churn; a page that clears `rows` mid-fetch must not make
     // the chrome row appear and disappear twelve times a minute.
     expect(shouldRenderViewBar({ ...empty, loading: true })).toBe(true);
   });
