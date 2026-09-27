@@ -7,6 +7,7 @@ import {
   TelemetryNotConfiguredError,
   TelemetryQueryFailedError,
   TelemetryQueryTimeoutError,
+  TelemetryQueryAbortedError,
 } from './greptime.errors';
 
 // =============================================================================
@@ -75,6 +76,12 @@ export interface TelemetryQueryResult {
 export interface TelemetryQueryOptions {
   /** Hard client-side ceiling on the statement's wall-clock time. */
   timeoutMs: number;
+  /**
+   * Abandons the statement (destroying its connection, exactly as a timeout
+   * does) when aborted — `TelemetryQueryAbortedError`. Issue #536: a closed
+   * assistant stream stops its in-flight query.
+   */
+  signal?: AbortSignal;
 }
 
 export interface TelemetryPingResult {
@@ -251,12 +258,24 @@ export class GreptimeClient implements OnModuleDestroy {
 
   // ---------------------------------------------------------------------------
 
-  private async run(role: Role, sql: string, { timeoutMs }: TelemetryQueryOptions): Promise<TelemetryQueryResult> {
+  private async run(
+    role: Role,
+    sql: string,
+    { timeoutMs, signal }: TelemetryQueryOptions,
+  ): Promise<TelemetryQueryResult> {
+    if (signal?.aborted) throw new TelemetryQueryAbortedError();
+
     const pool = this.pool(role);
     const client = await this.connect(pool);
 
+    if (signal?.aborted) {
+      client.release();
+      throw new TelemetryQueryAbortedError();
+    }
+
     let timer: NodeJS.Timeout | undefined;
     let timedOut = false;
+    let onAbort: (() => void) | undefined;
 
     const query = client.query({ text: sql, rowMode: 'array' }) as unknown as Promise<
       QueryArrayResult | QueryArrayResult[]
@@ -270,8 +289,18 @@ export class GreptimeClient implements OnModuleDestroy {
       timer.unref?.();
     });
 
+    // Abandoned like a timeout: `timedOut` routes it to the destroy branch.
+    const aborted = new Promise<never>((_, reject) => {
+      if (!signal) return;
+      onAbort = () => {
+        timedOut = true;
+        reject(new TelemetryQueryAbortedError());
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+
     try {
-      const result = await Promise.race([query, timeout]);
+      const result = await Promise.race([query, timeout, aborted]);
 
       client.release();
 
@@ -309,6 +338,7 @@ export class GreptimeClient implements OnModuleDestroy {
       );
     } finally {
       if (timer) clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
     }
   }
 

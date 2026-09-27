@@ -26,6 +26,12 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 //                                  credential.
 //   TELEMETRY_QUERY_TIMEOUT   504  the statement outran
 //                                  `telemetry.query.timeoutSeconds`.
+//
+// The assistant (#536) adds two, both 409 for the same reason as DISABLED
+// (an administrator can change the configuration that forbids this):
+//
+//   TELEMETRY_ASSISTANT_DISABLED        409  `telemetry.assistant.enabled` is off.
+//   TELEMETRY_ASSISTANT_NOT_CONFIGURED  409  no `assistant.provider`/`modelId`.
 // =============================================================================
 
 export const TELEMETRY_ERROR_REASONS = {
@@ -35,6 +41,8 @@ export const TELEMETRY_ERROR_REASONS = {
   QUERY_REJECTED: 'TELEMETRY_QUERY_REJECTED',
   QUERY_FAILED: 'TELEMETRY_QUERY_FAILED',
   QUERY_TIMEOUT: 'TELEMETRY_QUERY_TIMEOUT',
+  ASSISTANT_DISABLED: 'TELEMETRY_ASSISTANT_DISABLED',
+  ASSISTANT_NOT_CONFIGURED: 'TELEMETRY_ASSISTANT_NOT_CONFIGURED',
 } as const;
 
 export type TelemetryErrorReason = (typeof TELEMETRY_ERROR_REASONS)[keyof typeof TELEMETRY_ERROR_REASONS];
@@ -46,6 +54,8 @@ const STATUS: Record<TelemetryErrorReason, HttpStatus> = {
   TELEMETRY_QUERY_REJECTED: HttpStatus.BAD_REQUEST,
   TELEMETRY_QUERY_FAILED: HttpStatus.BAD_REQUEST,
   TELEMETRY_QUERY_TIMEOUT: HttpStatus.GATEWAY_TIMEOUT,
+  TELEMETRY_ASSISTANT_DISABLED: HttpStatus.CONFLICT,
+  TELEMETRY_ASSISTANT_NOT_CONFIGURED: HttpStatus.CONFLICT,
 };
 
 /** A telemetry failure with its reason in `details.reason`. */

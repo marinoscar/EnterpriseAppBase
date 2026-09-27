@@ -42,6 +42,8 @@ export interface TelemetryQueryRunOptions {
   maxRows?: number;
   /** Who is asking. Chooses the audit action. Default `explorer`. */
   source?: TelemetryQuerySource;
+  /** Abandons the statement when aborted (the assistant's client went away, #536). */
+  signal?: AbortSignal;
 }
 
 /** Audit `action` per source. */
@@ -138,7 +140,10 @@ export class TelemetryQueryService {
       const statement = analyzeStatement(sql);
       const text = wrapWithLimit(statement, maxRows + 1);
 
-      const result = await this.greptime.queryReader(text, { timeoutMs: policy.query.timeoutSeconds * 1000 });
+      const result = await this.greptime.queryReader(text, {
+        timeoutMs: policy.query.timeoutSeconds * 1000,
+        signal: opts.signal,
+      });
       const elapsedMs = Date.now() - started;
 
       const truncated = result.rows.length > maxRows;
