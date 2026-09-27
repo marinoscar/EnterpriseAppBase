@@ -235,11 +235,20 @@ describe('Storage Integration', () => {
         bucket: 'bucket',
         location: 's3://bucket/key',
       });
-      context.prismaMock.storageObject.update.mockResolvedValue({
-        ...mockStorageObject,
-        uploadedById: user.id,
-        status: 'processing',
-      });
+      // #520: this application registers no `OBJECT_PROCESSOR`, so the upload
+      // is marked `ready` in the same transaction (`processing` -> `ready`)
+      // and no processing job is queued.
+      context.prismaMock.storageObject.update
+        .mockResolvedValueOnce({
+          ...mockStorageObject,
+          uploadedById: user.id,
+          status: 'processing',
+        })
+        .mockResolvedValueOnce({
+          ...mockStorageObject,
+          uploadedById: user.id,
+          status: 'ready',
+        });
       context.prismaMock.auditEvent.create.mockResolvedValue({});
 
       const response = await request(context.app.getHttpServer())
@@ -250,8 +259,16 @@ describe('Storage Integration', () => {
 
       expect(response.body.data).toMatchObject({
         id: mockStorageObjectId,
-        status: 'processing',
+        status: 'ready',
       });
+      expect(context.prismaMock.storageObject.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: { id: mockStorageObjectId },
+          data: expect.objectContaining({ status: 'ready' }),
+        }),
+      );
+      expect(context.prismaMock.job.create).not.toHaveBeenCalled();
+      expect(mockStorageProvider.download).not.toHaveBeenCalled();
     });
 
     it('should return 404 for non-existent object', async () => {

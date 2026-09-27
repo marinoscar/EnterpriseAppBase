@@ -1,5 +1,6 @@
 import { ExampleEchoHandler } from './handlers/example-echo.handler';
 import { JOB_TYPE_LABELS, jobTypeLabel } from './job-type-labels';
+import { StorageObjectProcessHandler } from '../storage/handlers/storage-object-process.handler';
 
 describe('jobTypeLabel', () => {
   it('returns the mapped label for a known type', () => {
@@ -49,5 +50,16 @@ describe('jobTypeLabel', () => {
     const handler = new ExampleEchoHandler({ register: () => undefined } as never);
 
     expect(JOB_TYPE_LABELS[handler.type]).toBeDefined();
+  });
+
+  it('covers storage.object.process (#520), the post-upload processing job', () => {
+    const handler = new StorageObjectProcessHandler(
+      { register: () => undefined } as never,
+      {} as never,
+      {} as never
+    );
+
+    expect(JOB_TYPE_LABELS[handler.type]).toBeDefined();
+    expect(jobTypeLabel(handler.type)).not.toBe(handler.type);
   });
 });

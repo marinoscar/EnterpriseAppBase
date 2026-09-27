@@ -5,11 +5,12 @@ import { ObjectProcessingService } from './object-processing.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
 import { OBJECT_PROCESSOR, ObjectProcessor } from './object-processor.interface';
-import { ObjectUploadedEvent } from './events/object-uploaded.event';
 import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
 import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
 
 describe('ObjectProcessingService', () => {
+  // #520: `run` is what the `storage.object.process` job calls; before #520 the
+  // same loop ran inside an `@OnEvent('storage.object.uploaded')` listener.
   let service: ObjectProcessingService;
   let mockPrisma: MockPrismaService;
   let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
@@ -62,8 +63,7 @@ describe('ObjectProcessingService', () => {
         status: 'ready',
       } as any);
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
         where: { id: mockStorageObject.id },
@@ -74,6 +74,64 @@ describe('ObjectProcessingService', () => {
             _processedAt: expect.any(String),
           }),
         },
+      });
+    });
+
+    it('reports that no processing job is needed', () => {
+      expect(service.appliesTo(mockStorageObject as any)).toBe(false);
+      expect(service.applicableProcessors(mockStorageObject as any)).toEqual([]);
+    });
+
+    describe('markAbandoned', () => {
+      it('fails an object still processing, conditionally on that status', async () => {
+        mockPrisma.storageObject.findUnique.mockResolvedValue({
+          status: 'processing',
+          metadata: { userProvided: 'value' },
+        } as any);
+        mockPrisma.storageObject.updateMany.mockResolvedValue({ count: 1 } as any);
+
+        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(true);
+
+        expect(mockPrisma.storageObject.updateMany).toHaveBeenCalledWith({
+          where: { id: 'obj-123', status: 'processing' },
+          data: {
+            status: 'failed',
+            metadata: expect.objectContaining({
+              userProvided: 'value',
+              _processing: {},
+              _processingFailed: true,
+              _processingError: 'job gave up',
+              _processedAt: expect.any(String),
+            }),
+          },
+        });
+      });
+
+      it.each(['ready', 'failed'])('leaves a %s object alone', async (status) => {
+        mockPrisma.storageObject.findUnique.mockResolvedValue({
+          status,
+          metadata: null,
+        } as any);
+
+        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(false);
+        expect(mockPrisma.storageObject.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('leaves a deleted object alone', async () => {
+        mockPrisma.storageObject.findUnique.mockResolvedValue(null);
+
+        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(false);
+        expect(mockPrisma.storageObject.updateMany).not.toHaveBeenCalled();
+      });
+
+      it('reports false when the row left processing between read and write', async () => {
+        mockPrisma.storageObject.findUnique.mockResolvedValue({
+          status: 'processing',
+          metadata: null,
+        } as any);
+        mockPrisma.storageObject.updateMany.mockResolvedValue({ count: 0 } as any);
+
+        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(false);
       });
     });
   });
@@ -118,6 +176,61 @@ describe('ObjectProcessingService', () => {
       service = module.get<ObjectProcessingService>(ObjectProcessingService);
     });
 
+    it('reports that a processing job is needed when any processor applies', () => {
+      mockProcessor1.canProcess.mockReturnValue(false);
+
+      expect(service.appliesTo(mockStorageObject as any)).toBe(true);
+      expect(service.applicableProcessors(mockStorageObject as any)).toEqual([mockProcessor2]);
+
+      mockProcessor2.canProcess.mockReturnValue(false);
+
+      expect(service.appliesTo(mockStorageObject as any)).toBe(false);
+    });
+
+    it('returns the outcome it wrote', async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...mockStorageObject,
+        metadata: null,
+      } as any);
+      mockPrisma.storageObject.update.mockResolvedValue({} as any);
+
+      await expect(service.run(mockStorageObject as any)).resolves.toBe('ready');
+
+      mockProcessor2.process.mockResolvedValue({ success: false, error: 'bad' });
+
+      await expect(service.run(mockStorageObject as any)).resolves.toBe('failed');
+    });
+
+    it('propagates a failure outside the processors so the job retries', async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...mockStorageObject,
+        metadata: null,
+      } as any);
+      mockPrisma.storageObject.update.mockRejectedValue(new Error('db down'));
+
+      await expect(service.run(mockStorageObject as any)).rejects.toThrow('db down');
+    });
+
+    it("drops a previous run's failure markers when a re-run succeeds", async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...mockStorageObject,
+        metadata: {
+          userProvided: 'value',
+          _processingFailed: true,
+          _processingError: 'earlier give-up',
+        },
+      } as any);
+      mockPrisma.storageObject.update.mockResolvedValue({} as any);
+
+      await service.run(mockStorageObject as any);
+
+      const metadata = mockPrisma.storageObject.update.mock.calls[0][0].data.metadata as any;
+
+      expect(metadata.userProvided).toBe('value');
+      expect(metadata).not.toHaveProperty('_processingFailed');
+      expect(metadata).not.toHaveProperty('_processingError');
+    });
+
     it('should run processors in priority order', async () => {
       const executionOrder: string[] = [];
 
@@ -143,8 +256,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(executionOrder).toEqual(['processor1', 'processor2']);
     });
@@ -172,8 +284,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
         where: { id: mockStorageObject.id },
@@ -212,8 +323,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
         where: { id: mockStorageObject.id },
@@ -250,8 +360,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       // Both processors should be called
       expect(mockProcessor1.process).toHaveBeenCalled();
@@ -298,8 +407,7 @@ describe('ObjectProcessingService', () => {
         return Promise.resolve(Readable.from(['test content']));
       });
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       // Verify each processor got a stream
       expect(mockProcessor1.process).toHaveBeenCalledWith(
@@ -331,8 +439,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(mockProcessor1.process).not.toHaveBeenCalled();
       expect(mockProcessor2.process).toHaveBeenCalled();
@@ -361,8 +468,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
         where: { id: mockStorageObject.id },
@@ -396,8 +502,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
         where: { id: mockStorageObject.id },
@@ -431,8 +536,7 @@ describe('ObjectProcessingService', () => {
 
       const beforeTime = new Date().toISOString();
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       const afterTime = new Date().toISOString();
 
@@ -487,8 +591,7 @@ describe('ObjectProcessingService', () => {
         Readable.from(['test content']),
       );
 
-      const event = new ObjectUploadedEvent(mockStorageObject as any);
-      await service.handleObjectUploaded(event);
+      await service.run(mockStorageObject as any);
 
       expect(mockProcessor.process).toHaveBeenCalled();
       expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
