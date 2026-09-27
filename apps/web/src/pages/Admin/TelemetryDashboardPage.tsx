@@ -25,15 +25,32 @@
  * gates is touched.
  */
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, AlertTitle, Box, Button, Container, Stack, Typography } from '@mui/material';
+import {
+  Alert,
+  AlertTitle,
+  Box,
+  Button,
+  Container,
+  Grid,
+  Stack,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from '@mui/material';
 import { Navigate, Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useVisiblePolling } from '../../hooks/useVisiblePolling';
-import { useDashboardSummary } from '../../hooks/useTelemetryDashboard';
+import {
+  useDashboardFilters,
+  useDashboardSummary,
+  useDashboardTimeseries,
+} from '../../hooks/useTelemetryDashboard';
 import { telemetryErrorTitle, type TelemetryErrorInfo } from '../../hooks/useTelemetryExplorer';
 import {
   DASHBOARD_REFRESH_MS,
+  bucketWindow,
   dashboardQuery,
+  windowSpanMs,
   dashboardStateToParams,
   parseDashboardState,
   type DashboardState,
@@ -41,6 +58,19 @@ import {
 import { DashboardPanel, type PanelAction } from '../../components/telemetry/dashboard/DashboardPanel';
 import { VerdictBanner } from '../../components/telemetry/dashboard/VerdictBanner';
 import { KpiTiles } from '../../components/telemetry/dashboard/KpiTiles';
+import { ApiTimelineChart } from '../../components/telemetry/dashboard/ApiTimelineChart';
+import { LogSeverityChart } from '../../components/telemetry/dashboard/LogSeverityChart';
+import { SeverityChips } from '../../components/telemetry/dashboard/severity';
+import {
+  DashboardFilterBar,
+  type DashboardLayout,
+} from '../../components/telemetry/dashboard/DashboardFilterBar';
+import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxis';
+import type {
+  DashboardBuckets,
+  DashboardLogsBucket,
+  DashboardSeverity,
+} from '../../services/telemetryDashboard';
 
 /** Mirrors the `Telemetry Dashboard` card in `config/adminSections.tsx`. */
 const PAGE_TITLE = 'Telemetry Dashboard';
@@ -84,7 +114,28 @@ function UnavailableAlert({ error, onRetry }: { error: TelemetryErrorInfo; onRet
   );
 }
 
+/** Whether any bucket holds a record of a selected band (`other` rides with `info`). */
+function hasSelectedLogs(buckets: DashboardLogsBucket[], sev: DashboardSeverity[]): boolean {
+  return buckets.some(
+    (bucket) =>
+      (sev.includes('error') && bucket.error > 0) ||
+      (sev.includes('warn') && bucket.warn > 0) ||
+      (sev.includes('info') && bucket.info + bucket.other > 0),
+  );
+}
+
+/** Zoom gestures per layout: drag on desktop, drag or tap on tablet, tap on phones. */
+const ZOOM_MODES: Record<DashboardLayout, { drag: boolean; tap: boolean }> = {
+  desktop: { drag: true, tap: false },
+  tablet: { drag: true, tap: true },
+  phone: { drag: false, tap: true },
+};
+
 export default function TelemetryDashboardPage() {
+  const theme = useTheme();
+  const isPhone = useMediaQuery(theme.breakpoints.down('sm'));
+  const isDesktop = useMediaQuery(theme.breakpoints.up('lg'));
+  const layout: DashboardLayout = isPhone ? 'phone' : isDesktop ? 'desktop' : 'tablet';
   const { hasPermission } = usePermissions();
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parseDashboardState(searchParams), [searchParams]);
@@ -96,12 +147,28 @@ export default function TelemetryDashboardPage() {
     },
     [setSearchParams, state],
   );
-  void update;
 
   useVisiblePolling(() => setTick((value) => value + 1), state.refresh ? DASHBOARD_REFRESH_MS : 0);
 
   const query = useMemo(() => dashboardQuery(state), [state]);
-  const summary = useDashboardSummary(query, tick);
+  // Phones get half the buckets: 60 bars in 340px are slivers.
+  const buckets: DashboardBuckets | undefined = isPhone ? '30' : undefined;
+  const seriesQuery = useMemo(() => (buckets ? { ...query, buckets } : query), [query, buckets]);
+  const windowQuery = useMemo(
+    () => (query.range ? { range: query.range } : { from: query.from, to: query.to }),
+    [query.range, query.from, query.to],
+  );
+
+  const summary = useDashboardSummary(seriesQuery, tick);
+  const filters = useDashboardFilters(windowQuery, tick);
+  const apiSeries = useDashboardTimeseries('api', seriesQuery, tick);
+  const logSeries = useDashboardTimeseries('logs', seriesQuery, tick);
+
+  const spanMs = windowSpanMs(state);
+  const zoomTo = (starts: string[], bucketSeconds: number) => (first: number, last: number) => {
+    const window = bucketWindow(starts, bucketSeconds, first, last);
+    if (window) update(window);
+  };
 
   // Defence, not the gate — `App.tsx` wraps the route in `RequirePermission`.
   if (!hasPermission('telemetry:query')) return <Navigate to="/" replace />;
@@ -122,6 +189,15 @@ export default function TelemetryDashboardPage() {
           <UnavailableAlert error={unavailable} onRetry={summary.reload} />
         ) : (
           <Stack spacing={{ xs: 1.5, sm: 2 }} sx={{ minWidth: 0 }}>
+            <DashboardFilterBar
+              state={state}
+              onChange={update}
+              services={filters.data?.services ?? []}
+              instances={filters.data?.instances ?? []}
+              updatedAt={summary.fetchedAt}
+              layout={layout}
+            />
+
             <VerdictBanner
               verdict={summary.data?.verdict ?? null}
               isLoading={summary.isLoading}
@@ -143,6 +219,76 @@ export default function TelemetryDashboardPage() {
             >
               {summary.data && <KpiTiles tiles={summary.data.tiles} runtime={summary.data.runtime} />}
             </DashboardPanel>
+
+            <Grid container spacing={{ xs: 1.5, sm: 2 }}>
+              <Grid size={{ xs: 12, lg: 6 }} sx={{ minWidth: 0 }}>
+                <DashboardPanel
+                  id="panel-api"
+                  title="API requests"
+                  actions={PANEL_ACTIONS}
+                  sql={apiSeries.data?.sql}
+                  isLoading={apiSeries.isLoading}
+                  isRefreshing={apiSeries.isRefreshing}
+                  error={apiSeries.error}
+                  onRetry={apiSeries.reload}
+                  isEmpty={!!apiSeries.data && apiSeries.data.buckets.length === 0}
+                  emptyMessage="No requests in this window."
+                  skeletonHeight={timelineHeight(layout)}
+                >
+                  {apiSeries.data && (
+                    <ApiTimelineChart
+                      buckets={apiSeries.data.buckets}
+                      height={timelineHeight(layout)}
+                      spanMs={spanMs}
+                      compact={isPhone}
+                      zoom={ZOOM_MODES[layout]}
+                      onZoomBuckets={zoomTo(
+                        apiSeries.data.buckets.map((bucket) => bucket.t),
+                        apiSeries.data.range.bucketSeconds,
+                      )}
+                    />
+                  )}
+                </DashboardPanel>
+              </Grid>
+              <Grid size={{ xs: 12, lg: 6 }} sx={{ minWidth: 0 }}>
+                <DashboardPanel
+                  id="panel-logs"
+                  title="Log severity"
+                  headerExtra={
+                    <SeverityChips
+                      value={state.sev}
+                      onChange={(sev) => update({ sev })}
+                      large={isPhone}
+                      label="Log severity filter"
+                    />
+                  }
+                  actions={PANEL_ACTIONS}
+                  sql={logSeries.data?.sql}
+                  isLoading={logSeries.isLoading}
+                  isRefreshing={logSeries.isRefreshing}
+                  error={logSeries.error}
+                  onRetry={logSeries.reload}
+                  isEmpty={!!logSeries.data && !hasSelectedLogs(logSeries.data.buckets, state.sev)}
+                  emptyMessage="No log records of the selected severities in this window."
+                  skeletonHeight={timelineHeight(layout)}
+                >
+                  {logSeries.data && (
+                    <LogSeverityChart
+                      buckets={logSeries.data.buckets}
+                      severities={state.sev}
+                      height={timelineHeight(layout)}
+                      spanMs={spanMs}
+                      compact={isPhone}
+                      zoom={ZOOM_MODES[layout]}
+                      onZoomBuckets={zoomTo(
+                        logSeries.data.buckets.map((bucket) => bucket.t),
+                        logSeries.data.range.bucketSeconds,
+                      )}
+                    />
+                  )}
+                </DashboardPanel>
+              </Grid>
+            </Grid>
           </Stack>
         )}
       </Box>

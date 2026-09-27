@@ -65,7 +65,6 @@ function Sparkline({ data, height }: { data: (number | null)[]; height: number }
         height={height}
         color={theme.palette.primary.main}
         curve="linear"
-        skipAnimation
       />
     </Box>
   );
