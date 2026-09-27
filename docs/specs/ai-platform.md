@@ -313,8 +313,8 @@ An `image` or `file` part may name a `storageObjectId` instead of a `url`
 `POST /api/ai/runs`.
 
 - **Checks** (`AiStorageInputResolver`): the object must be the caller's own
-  (the resolver also honours a `storage:read_any` grant, which is not seeded)
-  and `ready`. Unknown is `404`; another user's is `403`.
+  and `ready` — ownership only, no permission grants access to another
+  user's object here. Unknown is `404`; another user's is `403`.
 - **Modality follows the MIME type.** PNG/JPEG/GIF/WebP is an image and needs
   `vision_input`; anything else needs `file_input`, both in the model's
   capabilities and `inputModalities`. Otherwise `AI_CAPABILITY_UNSUPPORTED`.
@@ -970,3 +970,5 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
   OpenAI-compatible, #449 realtime sessions, #450 rate limits.
 - #499 removed `ai:use` from Viewer. #509 made `AI_STORAGE_UNAVAILABLE` a
   terminal run code.
+- #516: removed the unseeded `storage:read_any` bypass from the storage-input
+  resolver; it is ownership-only.

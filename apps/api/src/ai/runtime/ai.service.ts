@@ -51,7 +51,7 @@
 //
 // STORAGE-OBJECT INPUTS (#441). An `image`/`file` part naming a
 // `storageObjectId` is resolved INSIDE `prepare`, after step 4: the object
-// must be the caller's own (or they hold `storage:read_any`) and `ready`;
+// must be the caller's own (ownership only, like `ObjectsService`) and `ready`;
 // its MIME type decides its modality (an image type needs `vision_input`,
 // anything else `file_input`, both in the model's capabilities AND
 // `inputModalities`) and its size cap (`AI_STORAGE_INPUT_*_MAX_BYTES`); and

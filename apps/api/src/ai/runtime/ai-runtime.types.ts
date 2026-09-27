@@ -54,8 +54,8 @@ export type AiGenerateImageRequest = Omit<AiImageGenerationRequest, 'model'> & {
 
 /**
  * `editImage`'s request: a generation request plus the images to edit, BY
- * STORAGE OBJECT ID. Each must be the caller's own (or the caller holds
- * `storage:read_any`), `ready`, PNG/JPEG/WebP and at most
+ * STORAGE OBJECT ID. Each must be the caller's own (ownership only, like
+ * `ObjectsService`), `ready`, PNG/JPEG/WebP and at most
  * `AI_IMAGE_INPUT_MAX_BYTES`; the mask, when given, must be a PNG.
  */
 export type AiEditImageRequest = AiGenerateImageRequest & {
@@ -67,7 +67,7 @@ export type AiEditImageRequest = AiGenerateImageRequest & {
 
 /**
  * `transcribe`'s request (#438): a recording the caller uploaded, BY STORAGE
- * OBJECT ID — their own (or they hold `storage:read_any`), `ready`, `audio/*`
+ * OBJECT ID — their own (ownership only), `ready`, `audio/*`
  * or `video/mp4`/`video/webm`, and no larger than the provider accepts
  * (25 MiB for OpenAI).
  *
