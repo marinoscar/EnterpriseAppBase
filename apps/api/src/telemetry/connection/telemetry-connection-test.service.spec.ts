@@ -24,11 +24,19 @@ const CANDIDATE: TestTelemetryConnectionInput = {
 
 class TestableService extends TelemetryConnectionTestService {
   readonly created: unknown[] = [];
+  readonly hostsAsked: string[] = [];
   nextClient: () => TelemetryProbeClient = () => makeClient();
+  /** `null` (host resolves) unless a test wires it otherwise. */
+  hostResolution: (host: string) => Promise<string | null> = async () => null;
 
   protected override createClient(config: unknown): TelemetryProbeClient {
     this.created.push(config);
     return this.nextClient();
+  }
+
+  protected override resolveHost(host: string): Promise<string | null> {
+    this.hostsAsked.push(host);
+    return this.hostResolution(host);
   }
 }
 
@@ -111,6 +119,103 @@ describe('TelemetryConnectionTestService', () => {
 
       expect(result.host).toBe('candidate-host');
       expect(service.created[0]).toMatchObject({ host: 'candidate-host' });
+    });
+  });
+
+  // ==========================================================================
+  // A host that does not resolve (issue #564)
+  // ==========================================================================
+
+  describe('a host that does not resolve', () => {
+    it('reports the host-not-found message for both reader and admin, and creates no client', async () => {
+      const { service } = build();
+      service.hostResolution = async () => 'host not found: try telemetry.compose.yml';
+
+      const result = await service.test(CANDIDATE, 'admin-1');
+
+      expect(result.reader.success).toBe(false);
+      expect(result.reader.error).toBe('host not found: try telemetry.compose.yml');
+      expect('success' in result.admin && result.admin.success).toBe(false);
+      expect('error' in result.admin && result.admin.error).toBe('host not found: try telemetry.compose.yml');
+      expect(service.created).toHaveLength(0);
+    });
+
+    it('still reports admin as skipped when adminUser is null', async () => {
+      const { service } = build();
+      service.hostResolution = async () => 'host not found';
+
+      const result = await service.test({ ...CANDIDATE, adminUser: null }, 'admin-1');
+
+      expect(result.admin).toEqual({ skipped: true });
+      expect(service.created).toHaveLength(0);
+    });
+
+    it('lets a missing password win over a host that does not resolve', async () => {
+      const { service } = build(async () => null);
+      service.hostResolution = async () => 'host not found';
+
+      const result = await service.test({ ...CANDIDATE, readerPassword: '' }, 'admin-1');
+
+      expect(result.reader.error).toContain('No reader password was supplied');
+      expect(service.created).toHaveLength(0);
+    });
+
+    it('resolves the host once, with the effective (candidate) host', async () => {
+      const { service } = build();
+
+      await service.test(CANDIDATE, 'admin-1');
+
+      expect(service.hostsAsked).toEqual(['candidate-host']);
+    });
+
+    it('resolves the deployment host once when the candidate host is automatic (null)', async () => {
+      const { service } = build();
+
+      await service.test({ ...CANDIDATE, host: null }, 'admin-1');
+
+      expect(service.hostsAsked).toEqual(['deploy-host']);
+    });
+  });
+
+  // ==========================================================================
+  // A DNS error surfacing from the probe itself
+  // ==========================================================================
+
+  describe('a DNS error from the connect attempt', () => {
+    it('is reported as host-not-found, naming the host, the driver message and telemetry.compose.yml', async () => {
+      const { service } = build();
+      service.nextClient = () =>
+        makeClient({
+          connect: jest
+            .fn()
+            .mockRejectedValue(
+              Object.assign(new Error('getaddrinfo EAI_AGAIN candidate-host'), { code: 'EAI_AGAIN' }),
+            ),
+        });
+
+      const result = await service.test({ ...CANDIDATE, adminUser: null }, 'admin-1');
+
+      expect(result.reader.success).toBe(false);
+      expect(result.reader.error).toContain('candidate-host');
+      expect(result.reader.error).toContain('getaddrinfo EAI_AGAIN candidate-host');
+      expect(result.reader.error).toContain('telemetry.compose.yml');
+    });
+
+    it('still masks a password that happens to appear in the DNS error text', async () => {
+      const { service } = build();
+      service.nextClient = () =>
+        makeClient({
+          connect: jest
+            .fn()
+            .mockRejectedValue(
+              Object.assign(new Error('getaddrinfo EAI_AGAIN reader-pw'), { code: 'EAI_AGAIN' }),
+            ),
+        });
+
+      const result = await service.test({ ...CANDIDATE, adminUser: null }, 'admin-1');
+
+      expect(result.reader.error).not.toContain('reader-pw');
+      expect(result.reader.error).toContain('••••');
     });
   });
 

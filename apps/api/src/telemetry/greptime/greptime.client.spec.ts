@@ -49,7 +49,10 @@ interface FakeClient {
 class TestableClient extends GreptimeClient {
   readonly created: PoolConfig[] = [];
   readonly createdPools: Array<GreptimePool & { connect: jest.Mock; end: jest.Mock }> = [];
+  readonly hostsAsked: string[] = [];
   client: FakeClient = { query: jest.fn(), release: jest.fn() };
+  /** `null` (host resolves / inconclusive) unless a test wires it otherwise. */
+  hostResolution: (host: string) => Promise<string | null> = async () => null;
 
   protected override createPool(config: PoolConfig): GreptimePool {
     this.created.push(config);
@@ -60,6 +63,11 @@ class TestableClient extends GreptimeClient {
     };
     this.createdPools.push(pool as never);
     return pool as unknown as GreptimePool;
+  }
+
+  protected override resolveHost(host: string): Promise<string | null> {
+    this.hostsAsked.push(host);
+    return this.hostResolution(host);
   }
 }
 
@@ -254,6 +262,74 @@ describe('GreptimeClient', () => {
     });
   });
 
+  describe('connect failure reason (issue #564)', () => {
+    async function primed(): Promise<TestableClient> {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+      // Build the pool once so createdPools[0] exists to reconfigure `connect`.
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      return client;
+    }
+
+    it('a DNS-coded connect error names the host and never consults resolveHost', async () => {
+      const client = await primed();
+      client.hostResolution = jest.fn(async () => 'should not be called');
+      client.createdPools[0].connect.mockRejectedValue(
+        Object.assign(new Error('getaddrinfo EAI_AGAIN greptimedb'), { code: 'EAI_AGAIN' }),
+      );
+
+      const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
+
+      expect((error as Error).message).toContain('greptimedb');
+      expect((error as Error).message).toContain('getaddrinfo EAI_AGAIN greptimedb');
+      expect((error as Error).message).toContain('telemetry.compose.yml');
+      expect(client.hostsAsked).toEqual([]);
+    });
+
+    it('a connect timeout followed by resolveHost naming the host uses that message', async () => {
+      const client = await primed();
+      client.hostResolution = async () => 'GreptimeDB host "greptimedb" could not be resolved';
+      client.createdPools[0].connect.mockRejectedValue(new Error('timeout expired'));
+
+      const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
+
+      expect((error as Error).message).toBe(
+        'Could not connect to GreptimeDB: GreptimeDB host "greptimedb" could not be resolved',
+      );
+      expect(client.hostsAsked).toEqual(['greptimedb']);
+    });
+
+    it('a connect timeout with an inconclusive resolveHost keeps the original timeout text', async () => {
+      const client = await primed();
+      client.hostResolution = async () => null;
+      client.createdPools[0].connect.mockRejectedValue(new Error('Connection terminated due to connection timeout'));
+
+      const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
+
+      expect((error as Error).message).toBe(
+        'Could not connect to GreptimeDB: Connection terminated due to connection timeout',
+      );
+      expect(client.hostsAsked).toEqual(['greptimedb']);
+    });
+
+    it('a non-timeout, non-DNS connect error never consults resolveHost', async () => {
+      const client = await primed();
+      client.hostResolution = jest.fn(async () => 'should not be called');
+      client.createdPools[0].connect.mockRejectedValue(new Error('password authentication failed'));
+
+      const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
+
+      expect((error as Error).message).toBe('Could not connect to GreptimeDB: password authentication failed');
+      expect(client.hostsAsked).toEqual([]);
+    });
+
+    it('a successful query never consults resolveHost', async () => {
+      const client = await primed();
+
+      expect(client.hostsAsked).toEqual([]);
+    });
+  });
+
   describe('ping', () => {
     it('returns the version when reachable', async () => {
       const client = new TestableClient(configService(CONFIGURED));
@@ -280,6 +356,36 @@ describe('GreptimeClient', () => {
 
       await expect(client.ping()).resolves.toMatchObject({ reachable: false });
       expect(client.created).toHaveLength(0);
+    });
+
+    it('reports the host-not-found message on a DNS-coded connect failure, and never throws', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      client.hostResolution = jest.fn(async () => 'should not be called');
+      client.createdPools[0].connect.mockRejectedValue(
+        Object.assign(new Error('getaddrinfo ENOTFOUND greptimedb'), { code: 'ENOTFOUND' }),
+      );
+
+      const result = await client.ping();
+
+      expect(result.reachable).toBe(false);
+      expect('error' in result && result.error).toContain('greptimedb');
+      expect('error' in result && result.error).toContain('telemetry.compose.yml');
+      expect(client.hostsAsked).toEqual([]);
+    });
+
+    it('never throws when a connect timeout resolves to a host-not-found message', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      client.hostResolution = async () => 'GreptimeDB host "greptimedb" could not be resolved';
+      client.createdPools[0].connect.mockRejectedValue(new Error('timeout expired'));
+
+      await expect(client.ping()).resolves.toMatchObject({
+        reachable: false,
+        error: 'Could not connect to GreptimeDB: GreptimeDB host "greptimedb" could not be resolved',
+      });
     });
   });
 
