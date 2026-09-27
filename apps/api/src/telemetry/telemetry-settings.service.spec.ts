@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { APP_SLUG } from '@app/shared';
 
 import { telemetryGate } from '../common/otel/telemetry-gate';
 import type { SystemTelemetryValue } from '../common/schemas/settings.schema';
@@ -53,10 +54,12 @@ function build(options: { configured?: boolean; policy?: SystemTelemetryValue; v
 describe('TelemetrySettingsService', () => {
   beforeEach(() => {
     telemetryGate.setEnabled(false);
+    telemetryGate.setInstanceId(APP_SLUG);
   });
 
   afterEach(() => {
     telemetryGate.setEnabled(false);
+    telemetryGate.setInstanceId(APP_SLUG);
     jest.useRealTimers();
   });
 
@@ -101,6 +104,32 @@ describe('TelemetrySettingsService', () => {
 
       await expect(service.refreshGate()).resolves.toBe(true);
       expect(telemetryGate.isEnabled()).toBe(true);
+    });
+
+    it('pushes APP_SLUG as the instance id while telemetry.instanceId is null', async () => {
+      telemetryGate.setInstanceId('stale');
+      const { service } = build({ policy: { ...DEFAULTS, instanceId: null } });
+
+      await service.refreshGate();
+
+      expect(telemetryGate.instanceId()).toBe(APP_SLUG);
+    });
+
+    it('pushes an administrator-set instance id, whatever the gate state', async () => {
+      const { service } = build({ configured: false, policy: { ...DEFAULTS, instanceId: 'prod-eu.1' } });
+
+      await expect(service.refreshGate()).resolves.toBe(false);
+      expect(telemetryGate.instanceId()).toBe('prod-eu.1');
+    });
+
+    it('keeps the last instance id when the settings read fails', async () => {
+      telemetryGate.setInstanceId('prod-eu');
+      const { service, systemSettings } = build();
+      systemSettings.getTelemetryPolicy.mockRejectedValue(new Error('db down'));
+
+      await service.refreshGate();
+
+      expect(telemetryGate.instanceId()).toBe('prod-eu');
     });
 
     it('is applied on init and then on an interval, stopped on destroy', async () => {
@@ -171,6 +200,36 @@ describe('TelemetrySettingsService', () => {
       expect(telemetryGate.isEnabled()).toBe(true);
     });
 
+    it('applies a new instance id on this instance, and audits the field name', async () => {
+      const { service, prisma } = build({ version: 1 });
+
+      await service.replace({ ...DEFAULTS, instanceId: 'staging' }, 'user-1');
+
+      expect(telemetryGate.instanceId()).toBe('staging');
+      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta).toEqual({ changedFields: ['instanceId'] });
+    });
+
+    it('null returns the instance id to the APP_SLUG default', async () => {
+      const { service, systemSettings } = build({ version: 1, policy: { ...DEFAULTS, instanceId: 'staging' } });
+
+      const view = await service.replace({ ...DEFAULTS, instanceId: null }, 'user-1');
+
+      expect(systemSettings.patchSettings.mock.calls[0][0].telemetry.instanceId).toBeNull();
+      expect(telemetryGate.instanceId()).toBe(APP_SLUG);
+      expect(view).toMatchObject({ instanceId: null, instanceIdDefault: APP_SLUG, instanceIdEffective: APP_SLUG });
+    });
+
+    it('an absent instanceId keeps the stored value (a client that predates the field cannot reset it)', async () => {
+      const { service, systemSettings, prisma } = build({ version: 1, policy: { ...DEFAULTS, instanceId: 'staging' } });
+      const { instanceId: _omitted, ...withoutInstanceId } = DEFAULTS;
+
+      const view = await service.replace(withoutInstanceId, 'user-1');
+
+      expect(systemSettings.patchSettings.mock.calls[0][0].telemetry.instanceId).toBe('staging');
+      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta).toEqual({ changedFields: [] });
+      expect(view.instanceIdEffective).toBe('staging');
+    });
+
     it('enqueues the retention job as low-priority housekeeping', async () => {
       const { service, jobs } = build({ version: 1 });
 
@@ -230,6 +289,26 @@ describe('TelemetrySettingsService', () => {
         version: 0,
         updatedAt: null,
         updatedBy: null,
+      });
+    });
+
+    it('reports the APP_SLUG default and, with no override, it as the effective instance id', async () => {
+      const { service } = build();
+
+      await expect(service.describeForAdmin()).resolves.toMatchObject({
+        instanceId: null,
+        instanceIdDefault: APP_SLUG,
+        instanceIdEffective: APP_SLUG,
+      });
+    });
+
+    it('reports an override as the effective instance id, keeping the default beside it', async () => {
+      const { service } = build({ policy: { ...DEFAULTS, instanceId: 'prod-eu' } });
+
+      await expect(service.describeForAdmin()).resolves.toMatchObject({
+        instanceId: 'prod-eu',
+        instanceIdDefault: APP_SLUG,
+        instanceIdEffective: 'prod-eu',
       });
     });
   });

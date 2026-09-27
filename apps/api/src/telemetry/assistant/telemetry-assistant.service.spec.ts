@@ -64,6 +64,7 @@ function policyWith(assistant: Partial<SystemTelemetryValue['assistant']> = {}, 
   return {
     enabled,
     retentionDays: 30,
+    instanceId: null,
     query: { maxRows: 1000, timeoutSeconds: 10 },
     assistant: {
       enabled: true,

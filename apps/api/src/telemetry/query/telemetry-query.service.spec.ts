@@ -18,6 +18,7 @@ import {
 const POLICY: SystemTelemetryValue = {
   enabled: true,
   retentionDays: 7,
+  instanceId: null,
   query: { maxRows: 3, timeoutSeconds: 12 },
   assistant: {
     enabled: false,

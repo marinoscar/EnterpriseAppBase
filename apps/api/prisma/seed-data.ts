@@ -443,6 +443,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   telemetry: {
     enabled: false,
     retentionDays: 30,
+    // #565: null = follow `APP_SLUG` — never the slug literally, which would
+    // freeze a renamed fork's telemetry identity at seed time.
+    instanceId: null,
     query: {
       maxRows: 10000,
       timeoutSeconds: 30,

@@ -13,7 +13,7 @@ import {
   getTelemetryStatus,
   updateTelemetryAdminConfig,
   type TelemetryAdminConfig,
-  type TelemetrySettings,
+  type TelemetrySettingsUpdate,
   type TelemetryStatus,
 } from '../services/telemetry';
 import { useIsMounted } from './useIsMounted';
@@ -31,7 +31,7 @@ export interface UseTelemetryAdminReturn {
   reload: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   /** Resolves `true` on success. */
-  save: (settings: TelemetrySettings) => Promise<boolean>;
+  save: (settings: TelemetrySettingsUpdate) => Promise<boolean>;
 }
 
 function message(err: unknown, fallback: string): string {
@@ -81,7 +81,7 @@ export function useTelemetryAdmin(): UseTelemetryAdminReturn {
   }, [reload]);
 
   const save = useCallback(
-    async (settings: TelemetrySettings) => {
+    async (settings: TelemetrySettingsUpdate) => {
       setIsSaving(true);
       setSaveError(null);
       setConflict(false);

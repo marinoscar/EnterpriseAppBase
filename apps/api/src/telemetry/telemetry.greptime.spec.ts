@@ -48,6 +48,7 @@ const NEWEST_FIRST = [...ORDER_HOSTS].reverse();
 const POLICY: SystemTelemetryValue = {
   enabled: true,
   retentionDays: 7,
+  instanceId: null,
   query: { maxRows: 100, timeoutSeconds: 15 },
   assistant: {
     enabled: false,

@@ -22,7 +22,7 @@ import {
 import type {
   TelemetryConnection,
   TelemetryConnectionInput,
-  TelemetrySettings,
+  TelemetrySettingsUpdate,
 } from '../../../services/telemetry';
 import TelemetrySettingsPage from '../../../pages/Admin/TelemetrySettingsPage';
 
@@ -45,13 +45,21 @@ function renderPage(options: { user?: MockUser; aiEnabled?: boolean } = {}) {
 }
 
 function capturePut() {
-  const calls: { body: TelemetrySettings; ifMatch: string | null }[] = [];
+  const calls: { body: TelemetrySettingsUpdate; ifMatch: string | null }[] = [];
   server.use(
     http.put(`${API_BASE}/admin/telemetry/config`, async ({ request }) => {
-      const body = (await request.json()) as TelemetrySettings;
+      const body = (await request.json()) as TelemetrySettingsUpdate;
       calls.push({ body, ifMatch: request.headers.get('If-Match') });
+      const instanceId =
+        body.instanceId === undefined ? mockTelemetryAdminConfig.instanceId : body.instanceId;
       return HttpResponse.json({
-        data: { ...mockTelemetryAdminConfig, ...body, version: mockTelemetryAdminConfig.version + 1 },
+        data: {
+          ...mockTelemetryAdminConfig,
+          ...body,
+          instanceId,
+          instanceIdEffective: instanceId ?? mockTelemetryAdminConfig.instanceIdDefault,
+          version: mockTelemetryAdminConfig.version + 1,
+        },
       });
     }),
   );
@@ -120,6 +128,7 @@ describe('TelemetrySettingsPage', () => {
     expect(calls[0].body).toEqual({
       enabled: true,
       retentionDays: 90,
+      instanceId: null,
       query: { maxRows: 10000, timeoutSeconds: 30 },
       assistant: {
         enabled: true,
@@ -197,6 +206,7 @@ describe('TelemetrySettingsPage', () => {
     expect(screen.getByRole('switch', { name: 'Enable the telemetry assistant' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '90 days' })).toBeDisabled();
     expect(screen.getByLabelText('Maximum rows per query')).toBeDisabled();
+    expect(screen.getByLabelText('Instance identifier')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
   });
 
@@ -244,6 +254,94 @@ describe('TelemetrySettingsPage', () => {
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body.assistant.provider).toBeNull();
     expect(calls[0].body.assistant.modelId).toBeNull();
+  });
+
+  describe('Instance identifier (#565)', () => {
+    it('shows the default as the placeholder and the effective value', async () => {
+      renderPage();
+      await waitForForm();
+
+      const collection = screen.getByRole('region', { name: 'Collection' });
+      const field = within(collection).getByLabelText('Instance identifier');
+      expect(field).toHaveValue('');
+      expect(field).toHaveAttribute('placeholder', 'my-app');
+      expect(within(collection).getByText(/app\.instance\.id/)).toBeInTheDocument();
+      expect(within(collection).getByTestId('telemetry-instance-id-effective')).toHaveTextContent(
+        'my-app',
+      );
+    });
+
+    it('saves an override and shows it as the effective value', async () => {
+      const calls = capturePut();
+      const user = userEvent.setup();
+      renderPage();
+      await waitForForm();
+
+      await user.type(screen.getByLabelText('Instance identifier'), 'acme-prod');
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0].body.instanceId).toBe('acme-prod');
+      expect(calls[0].ifMatch).toBe(String(mockTelemetryAdminConfig.version));
+      await waitFor(() =>
+        expect(screen.getByTestId('telemetry-instance-id-effective')).toHaveTextContent(
+          'acme-prod',
+        ),
+      );
+    });
+
+    it('sends null when a stored override is cleared', async () => {
+      server.use(
+        http.get(`${API_BASE}/admin/telemetry/config`, () =>
+          HttpResponse.json({
+            data: {
+              ...mockTelemetryAdminConfig,
+              instanceId: 'acme-prod',
+              instanceIdEffective: 'acme-prod',
+            },
+          }),
+        ),
+      );
+      const calls = capturePut();
+      const user = userEvent.setup();
+      renderPage();
+      await waitForForm();
+
+      const field = screen.getByLabelText('Instance identifier');
+      expect(field).toHaveValue('acme-prod');
+      await user.clear(field);
+      await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect('instanceId' in calls[0].body).toBe(true);
+      expect(calls[0].body.instanceId).toBeNull();
+    });
+
+    it('rejects an invalid identifier inline and blocks the save', async () => {
+      const calls = capturePut();
+      const user = userEvent.setup();
+      renderPage();
+      await waitForForm();
+
+      const field = screen.getByLabelText('Instance identifier');
+      await user.type(field, 'Acme Prod');
+      expect(field).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText(/Use 1-63 lowercase letters/)).toBeInTheDocument();
+      const saveButton = screen.getByRole('button', { name: 'Save Changes' });
+      expect(saveButton).toBeDisabled();
+
+      await user.clear(field);
+      await user.type(field, '-leading-dash');
+      expect(screen.getByText(/Use 1-63 lowercase letters/)).toBeInTheDocument();
+      expect(saveButton).toBeDisabled();
+
+      await user.clear(field);
+      await user.type(field, 'acme.prod_1');
+      expect(screen.queryByText(/Use 1-63 lowercase letters/)).not.toBeInTheDocument();
+      await user.click(saveButton);
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0].body.instanceId).toBe('acme.prod_1');
+    });
   });
 
   describe('Connection section (#558)', () => {

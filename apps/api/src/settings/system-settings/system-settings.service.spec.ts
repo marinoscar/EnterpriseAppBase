@@ -2318,6 +2318,9 @@ describe('SystemSettingsService', () => {
       expect(result).toEqual({
         enabled: true,
         retentionDays: 90,
+        // #565: this stored row predates `instanceId`, so it reads back as the
+        // `null` default ("follow APP_SLUG") — no migration.
+        instanceId: null,
         query: { maxRows: 500, timeoutSeconds: 10 },
         assistant: {
           enabled: true,
@@ -2328,6 +2331,22 @@ describe('SystemSettingsService', () => {
           maxSteps: 3,
         },
       });
+    });
+
+    it('reads a stored instanceId straight through, and a malformed one as the null default (#565)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: { telemetry: { ...DEFAULT_SYSTEM_SETTINGS.telemetry, instanceId: 'prod-eu' } } as any,
+      } as any);
+      await expect(service.getTelemetryPolicy()).resolves.toMatchObject({ instanceId: 'prod-eu' });
+
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          telemetry: { ...DEFAULT_SYSTEM_SETTINGS.telemetry, enabled: true, instanceId: 'NOT OK' },
+        } as any,
+      } as any);
+      const result = await service.getTelemetryPolicy();
+      expect(result.instanceId).toBeNull();
+      expect(result.enabled).toBe(true);
     });
 
     it('salvages field by field: a malformed assistant block degrades without disturbing enabled/retentionDays beside it', async () => {
@@ -2416,6 +2435,35 @@ describe('SystemSettingsService', () => {
 
       const telemetry = writtenTelemetry() as any;
       expect(telemetry.query).toEqual({ maxRows: 999, timeoutSeconds: 10 });
+    });
+
+    it('sets instanceId, leaving everything else untouched (#565)', async () => {
+      await service.patchSettings({ telemetry: { instanceId: 'prod-eu' } }, mockUserId);
+
+      const telemetry = writtenTelemetry() as any;
+      expect(telemetry.instanceId).toBe('prod-eu');
+      expect(telemetry.enabled).toBe(true);
+      expect(telemetry.retentionDays).toBe(90);
+    });
+
+    it('resolves a stored row without instanceId to null, and keeps it when the patch omits it (#565)', async () => {
+      await service.patchSettings({ telemetry: { enabled: false } }, mockUserId);
+
+      expect((writtenTelemetry() as any).instanceId).toBeNull();
+    });
+
+    it('clears instanceId back to null with an explicit null (#565)', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          telemetry: { ...DEFAULT_SYSTEM_SETTINGS.telemetry, instanceId: 'prod-eu' },
+        } as any,
+      } as any);
+
+      await service.patchSettings({ telemetry: { instanceId: null } }, mockUserId);
+
+      expect((writtenTelemetry() as any).instanceId).toBeNull();
     });
 
     it('clears assistant.provider with an explicit null, distinct from omitting it', async () => {

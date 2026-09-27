@@ -2,8 +2,9 @@
  * Console → Observability → Telemetry — issue #537, epic #528.
  *
  * The deployment's telemetry POLICY: whether it is collected, how long it is
- * kept, how much a single explorer query may return, and whether (and with
- * which model) the AI assistant may help. Plus a live status card so an
+ * kept, how this deployment labels what it exports (`app.instance.id`, #565),
+ * how much a single explorer query may return, and whether (and with which
+ * model) the AI assistant may help. Plus a live status card so an
  * operator can see whether the store is actually there.
  *
  * The Connection section (#558, `components/telemetry/TelemetryConnectionSection`)
@@ -67,6 +68,7 @@ import {
 } from '../../components/telemetry/TelemetryConnectionSection';
 import { TelemetryServicesSection } from '../../components/telemetry/TelemetryServicesSection';
 import {
+  TELEMETRY_INSTANCE_ID_PATTERN,
   TELEMETRY_LIMITS,
   type TelemetryAdminConfig,
   type TelemetrySettings,
@@ -84,6 +86,8 @@ export const RETENTION_PRESETS = [7, 30, 90, 180, 365] as const;
 /** Number inputs are kept as strings so a half-typed value can be shown and validated. */
 interface FormState {
   enabled: boolean;
+  /** `''` follows the default (sent as `null`). */
+  instanceId: string;
   retentionMode: 'preset' | 'custom';
   retentionDays: string;
   maxRows: string;
@@ -114,6 +118,7 @@ function toFormState(config: TelemetryAdminConfig): FormState {
   const preset = (RETENTION_PRESETS as readonly number[]).includes(config.retentionDays);
   return {
     enabled: config.enabled,
+    instanceId: config.instanceId ?? '',
     retentionMode: preset ? 'preset' : 'custom',
     retentionDays: String(config.retentionDays),
     maxRows: String(config.query.maxRows),
@@ -135,12 +140,27 @@ export function validateInteger(value: string, limits: { min: number; max: numbe
   return null;
 }
 
-function validate(form: FormState): Partial<Record<NumberField, string>> {
-  const errors: Partial<Record<NumberField, string>> = {};
+/**
+ * `null` when valid (blank is valid: it follows the default), else the message
+ * to show under the field. Mirrors the API's pattern; the API is the gate.
+ */
+export function validateInstanceId(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  if (TELEMETRY_INSTANCE_ID_PATTERN.test(trimmed)) return null;
+  return 'Use 1-63 lowercase letters, digits, ".", "_" or "-", starting with a letter or digit.';
+}
+
+type FieldErrors = Partial<Record<NumberField | 'instanceId', string>>;
+
+function validate(form: FormState): FieldErrors {
+  const errors: FieldErrors = {};
   for (const field of Object.keys(FIELD_LIMITS) as NumberField[]) {
     const error = validateInteger(form[field], FIELD_LIMITS[field]);
     if (error) errors[field] = error;
   }
+  const instanceIdError = validateInstanceId(form.instanceId);
+  if (instanceIdError) errors.instanceId = instanceIdError;
   return errors;
 }
 
@@ -148,8 +168,10 @@ function toSettings(form: FormState): TelemetrySettings {
   const separator = form.model.indexOf(':');
   const provider = separator > 0 ? form.model.slice(0, separator) : null;
   const modelId = separator > 0 ? form.model.slice(separator + 1) : null;
+  const instanceId = form.instanceId.trim();
   return {
     enabled: form.enabled,
+    instanceId: instanceId === '' ? null : instanceId,
     retentionDays: Number(form.retentionDays),
     query: { maxRows: Number(form.maxRows), timeoutSeconds: Number(form.timeoutSeconds) },
     assistant: {
@@ -371,7 +393,7 @@ function NumberInput({
   label: string;
   field: NumberField;
   form: FormState;
-  errors: Partial<Record<NumberField, string>>;
+  errors: FieldErrors;
   disabled: boolean;
   helper: string;
   onChange: (field: NumberField, value: string) => void;
@@ -546,6 +568,43 @@ export default function TelemetrySettingsPage() {
                   <ConnectionLink>Connection</ConnectionLink> section.
                 </Alert>
               )}
+              <Box sx={{ mt: 3, maxWidth: { sm: 480 } }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Instance identifier"
+                  value={form.instanceId}
+                  onChange={(event) => update('instanceId', event.target.value)}
+                  disabled={locked}
+                  placeholder={config.instanceIdDefault}
+                  error={!!errors.instanceId}
+                  helperText={
+                    <>
+                      {errors.instanceId && (
+                        <Box component="span" sx={{ display: 'block' }}>
+                          {errors.instanceId}
+                        </Box>
+                      )}
+                      Labels every trace, log and metric as <code>app.instance.id</code> so
+                      dashboards can filter and aggregate across deployments that share a
+                      telemetry store. Leave blank to use the default,{' '}
+                      <code>{config.instanceIdDefault}</code>. Currently in use:{' '}
+                      <code data-testid="telemetry-instance-id-effective">
+                        {config.instanceIdEffective}
+                      </code>
+                      .
+                    </>
+                  }
+                  slotProps={{
+                    htmlInput: {
+                      autoCapitalize: 'none',
+                      autoCorrect: 'off',
+                      spellCheck: false,
+                      maxLength: 63,
+                    },
+                  }}
+                />
+              </Box>
             </Section>
 
             <Section title="Retention">

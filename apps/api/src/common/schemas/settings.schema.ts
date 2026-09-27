@@ -1189,12 +1189,31 @@ export const systemAiPatchSchema = z.object({
 // assistant turn may take, the same kind of safety valve `query
 // .timeoutSeconds` is for a single query.
 //
+// `instanceId` (#565) is the label stamped as the OTel resource attribute
+// `app.instance.id` on everything this deployment exports, so several
+// deployments can share one telemetry store and still be told apart. NULLABLE,
+// and `null` is the default: it means "follow `APP_SLUG`"
+// (`common/otel/instance-id.ts`), so a renamed fork follows its new name until
+// an administrator overrides it. The pattern keeps it a lowercase, label-safe
+// token of at most 63 characters (a DNS label's bound), valid unquoted in a
+// PromQL matcher and a SQL literal alike.
+//
 // NO API KEY OR CREDENTIAL IS PART OF THIS NAMESPACE, and none may be added:
 // exactly the same rule `ai`'s own block comment states, and enforced the
 // same way — see the compile-time proof below.
+export const TELEMETRY_INSTANCE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}$/;
+
+const telemetryInstanceIdSchema = z
+  .string()
+  .regex(
+    TELEMETRY_INSTANCE_ID_PATTERN,
+    'instanceId must be 1-63 characters: lowercase letters, digits, ".", "_" or "-", starting with a letter or digit',
+  );
+
 export const systemTelemetrySchema = z.object({
   enabled: z.boolean(),
   retentionDays: z.number().int().min(1).max(3650),
+  instanceId: telemetryInstanceIdSchema.nullable(),
   query: z.object({
     maxRows: z.number().int().min(1).max(100000),
     timeoutSeconds: z.number().int().min(1).max(120),
@@ -1213,7 +1232,7 @@ export type SystemTelemetryValue = z.infer<typeof systemTelemetrySchema>;
 
 /**
  * `telemetry`, one level deep, hand-written like every other PATCH schema in
- * this file (zod v4 removed `deepPartial`). `provider`/`modelId` use
+ * this file (zod v4 removed `deepPartial`). `instanceId` and `provider`/`modelId` use
  * `.nullable().optional()`: absent leaves the stored value alone, an explicit
  * `null` clears it back to "not configured" — the same tri-state
  * `storage.forcePathStyle` and `ai.defaults.maxOutputTokensCap` both need,
@@ -1223,6 +1242,9 @@ export type SystemTelemetryValue = z.infer<typeof systemTelemetrySchema>;
 export const systemTelemetryPatchSchema = z.object({
   enabled: z.boolean().optional(),
   retentionDays: z.number().int().min(1).max(3650).optional(),
+  // Same tri-state as `assistant.provider`: absent = unchanged, `null` = back
+  // to the `APP_SLUG` default (#565).
+  instanceId: telemetryInstanceIdSchema.nullable().optional(),
   query: z
     .object({
       maxRows: z.number().int().min(1).max(100000).optional(),

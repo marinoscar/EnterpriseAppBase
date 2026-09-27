@@ -19,6 +19,7 @@ import {
   AI_OPENAI_API_STYLES,
   aiAzureDeploymentsSchema,
   aiEndpointUrlSchema,
+  TELEMETRY_INSTANCE_ID_PATTERN,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -273,9 +274,13 @@ const aiSettingsSchema = z.object({
 //
 // Bounds mirror `systemTelemetrySchema` exactly.
 
+const telemetryInstanceIdSchema = z.string().regex(TELEMETRY_INSTANCE_ID_PATTERN);
+
 const telemetrySettingsSchema = z.object({
   enabled: z.boolean(),
   retentionDays: z.number().int().min(1).max(3650),
+  // #565 — `null` follows `APP_SLUG`; see `systemTelemetrySchema`.
+  instanceId: telemetryInstanceIdSchema.nullable(),
   query: z.object({
     maxRows: z.number().int().min(1).max(100000),
     timeoutSeconds: z.number().int().min(1).max(120),
@@ -509,6 +514,8 @@ export const patchSystemSettingsSchema = z.object({
     .object({
       enabled: z.boolean().optional(),
       retentionDays: z.number().int().min(1).max(3650).optional(),
+      // #565 — absent leaves it alone, `null` returns to the `APP_SLUG` default.
+      instanceId: telemetryInstanceIdSchema.nullable().optional(),
       query: z
         .object({
           maxRows: z.number().int().min(1).max(100000).optional(),
