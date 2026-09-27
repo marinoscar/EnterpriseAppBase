@@ -1084,7 +1084,7 @@ the tile or panel the reason names → optionally zoom into the window that
 looks bad. Each panel fetches independently (§11.9), so a failing or slow
 panel never blocks the rest of the page from telling its part of the story.
 
-A short **triage model**, planned but not yet built (issue #579): each
+A short **triage model**, planned but not yet built: each
 panel's header will offer to open its own statement in the Explorer without
 running it, and to ask the AI assistant a pre-filled, editable question about
 it, so the dashboard becomes the entry point into both deeper tools instead
@@ -1092,7 +1092,7 @@ of a dead end. The Dashboard, Explorer and Telemetry settings pages are
 meant to cross-link so a reader can move between "what's wrong", "let me
 query that myself" and "let me change the policy" without hunting for the
 other page. This document does not commit to file names or props for that
-work; it will be verified against the code once #579 merges.
+work; it will be verified against the code once that work merges.
 
 ### 11.2 Data sources, and why no CPU/memory/disk
 
@@ -1178,11 +1178,10 @@ only with
 - a pagination cursor whose timestamp and span id are checked against strict
   regular expressions before they are ever concatenated.
 
-**No bind parameters**: GreptimeDB's Postgres wire refuses `$1` (spike
-finding, epic #576). Every statement carries a literal top-level `LIMIT`,
-never a subquery wrapper for the row cap — the same "wrapping drops the
-inner `ORDER BY`" finding the Explorer's row cap already works around
-(§5, issue #554).
+**No bind parameters**: GreptimeDB's Postgres wire refuses `$1` (a spike
+finding). Every statement carries a literal top-level `LIMIT`, never a
+subquery wrapper for the row cap — the same "wrapping drops the inner
+`ORDER BY`" finding the Explorer's row cap already works around (§5).
 
 **Streaming (SSE) routes are excluded from latency, not from counts.** Every
 SSE route of this API ends in `/stream` (`GET
