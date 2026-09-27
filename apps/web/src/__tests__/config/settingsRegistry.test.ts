@@ -1146,11 +1146,13 @@ describe('the Observability group (#537)', () => {
   const titles = (hasPermission: (permission: string) => boolean, features = {}) =>
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
 
-  it('is APPENDED as the last group, with exactly two cards in order', () => {
+  it('is APPENDED as the last group, with its cards in declaration order', () => {
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(observability);
+    // `Telemetry Dashboard` (#578) was appended after the Explorer.
     expect(observability?.cards.map((card) => card.title)).toEqual([
       'Telemetry',
       'Telemetry Explorer',
+      'Telemetry Dashboard',
     ]);
   });
 
@@ -1202,6 +1204,44 @@ describe('the Observability group (#537)', () => {
     });
   });
 
+  describe('the Telemetry Dashboard card (#578)', () => {
+    const dashboard = cards.get('Telemetry Dashboard');
+    const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
+
+    it('is the LAST card of the last group — appended, not inserted', () => {
+      expect(allCards[allCards.length - 1]).toBe(dashboard);
+      expect(dashboard?.disabled).toBeUndefined();
+      expect(dashboard?.alwaysShow).toBeUndefined();
+    });
+
+    it('declares a unique path nested under the Telemetry route', () => {
+      expect(dashboard?.path).toBe('/admin/settings/telemetry/dashboard');
+      expect(allCards.filter((card) => card.path === dashboard?.path)).toHaveLength(1);
+    });
+
+    it("declares telemetry:query, the dashboard controller's permission, and the telemetry feature", () => {
+      expect(dashboard?.permission).toBe('telemetry:query');
+      expect(dashboard?.feature).toBe('telemetry');
+      const controller = readFileSync(
+        resolve(API_SRC, 'telemetry/dashboard/telemetry-dashboard.controller.ts'),
+        'utf8',
+      );
+      const guards = controller.match(/@Auth\(\{[^)]*\}\)/g) ?? [];
+      expect(guards).toHaveLength(5);
+      for (const guard of guards) expect(guard).toBe('@Auth({ permissions: [PERMISSIONS.TELEMETRY_QUERY] })');
+    });
+
+    it('is hidden while telemetry is off and titles its route by longest prefix', () => {
+      expect(titles(() => true, { telemetry: false })).not.toContain('Telemetry Dashboard');
+      expect(titles(() => true, { telemetry: true })).toContain('Telemetry Dashboard');
+      expect(
+        settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/telemetry/dashboard', {
+          telemetry: true,
+        }),
+      ).toBe('Telemetry Dashboard');
+    });
+  });
+
   it('shows both cards to an admin holding the telemetry permissions while telemetry is on', () => {
     const result = titles(() => true, { ai: true, telemetry: true });
     expect(result).toContain('Telemetry');
@@ -1220,7 +1260,7 @@ describe('the Observability group (#537)', () => {
     const readOnly = titles((permission) => permission === 'telemetry:read', { telemetry: true });
     expect(readOnly).toEqual(['Telemetry']);
     const queryOnly = titles((permission) => permission === 'telemetry:query', { telemetry: true });
-    expect(queryOnly).toEqual(['Telemetry Explorer']);
+    expect(queryOnly).toEqual(['Telemetry Explorer', 'Telemetry Dashboard']);
   });
 
   it('drops the whole group for a viewer', () => {

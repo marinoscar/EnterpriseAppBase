@@ -57,6 +57,8 @@ import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
 // Observability (#537, epic #528) — the telemetry policy page and the explorer.
 import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
+// Telemetry Dashboard (#578, epic #576).
+import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -636,6 +638,23 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'Query traces, logs and metrics with SQL, export the results, and ask the AI assistant for help.',
         Icon: TerminalOutlinedIcon,
         path: '/admin/settings/telemetry/explorer',
+        permission: 'telemetry:query',
+        feature: 'telemetry',
+      },
+      {
+        // Issue #578, epic #576. APPENDED after the Explorer. Nested under the
+        // Telemetry route like the Explorer, so the longest-prefix rule titles
+        // it "Telemetry Dashboard". `telemetry:query`, the exact permission
+        // `telemetry/dashboard/telemetry-dashboard.controller.ts` enforces on
+        // every route (#577): the dashboard reads telemetry DATA, the same
+        // grant as the explorer. Feature-gated on `telemetry` for the same
+        // reason: a dashboard over a store that is absent or switched off is
+        // a page about nothing.
+        title: 'Telemetry Dashboard',
+        description:
+          'See at a glance whether anything is wrong: error rate, latency, error logs and the top failing routes.',
+        Icon: MonitorHeartOutlinedIcon,
+        path: '/admin/settings/telemetry/dashboard',
         permission: 'telemetry:query',
         feature: 'telemetry',
       },

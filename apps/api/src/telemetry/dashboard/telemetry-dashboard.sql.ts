@@ -252,7 +252,47 @@ function serverSpans(from: Date, to: Date, filters: DashboardSqlFilters): string
 }
 
 const STATUS = ident(TRACE_COLUMNS.status);
+
+// ---- streaming (SSE) exclusion for latency -------------------------------------
+//
+// A Server-Sent Events route holds its request open for the life of the
+// subscription, so its server span lasts seconds to hours (live: GET
+// /api/notifications/stream at p95 5.38 s). Mixed into an overall p95 it
+// measures connection lifetime, not responsiveness: with enough subscribers
+// it pushes the window p95 over the verdict threshold (false Degraded /
+// Critical) and gets named the "slowest route". Every SSE route of this API
+// ends in `/stream` (GET /api/notifications/stream, POST /api/ai/responses/stream,
+// POST /api/admin/telemetry/assistant/stream), so a path suffix identifies them.
+//
+// The exclusion applies ONLY to latency: the p95 tile (current and previous
+// window, and its sparkline), the API time-series p95 line and the verdict's
+// "slowest route" offender. Streams still count in requests, status classes,
+// error rates and the top-routes table (whose per-route p95 is honest: it is
+// the stream's own row).
+//
+// Implemented as a CASE inside the percentile's ORDER BY, in the same
+// statement: the aggregate ignores NULLs (verified on GreptimeDB v1.2.1: the
+// result equals a WHERE-filtered p95, and a stream-only group yields NULL).
+// Written as `LIKE … THEN NULL ELSE duration` so a span without a path is kept.
+
+/** Path suffix shared by every SSE route of the API. */
+export const STREAM_PATH_SUFFIX = '/stream';
+
+/** SQL predicate: the server span is a streaming (SSE) request. */
+export const STREAM_SPAN_PREDICATE = `${ident(TRACE_COLUMNS.path)} LIKE ${literal(`%${STREAM_PATH_SUFFIX}`)}`;
+
+/** Whether a (normalized) route is a streaming (SSE) route; the TS twin of `STREAM_SPAN_PREDICATE`. */
+export function isStreamingRoute(route: string | null | undefined): boolean {
+  return typeof route === 'string' && route.endsWith(STREAM_PATH_SUFFIX);
+}
+
+/** p95 (ns) of every server span in the group, streams included (per-route table). */
 const P95_NS = `approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY ${ident(TRACE_COLUMNS.duration)})`;
+
+/** p95 (ns) of the group with streaming (SSE) spans left out; NULL when only streams. */
+export const LATENCY_P95_NS =
+  `approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY CASE WHEN ${STREAM_SPAN_PREDICATE} ` +
+  `THEN NULL ELSE ${ident(TRACE_COLUMNS.duration)} END)`;
 
 function statusClass(low: number): string {
   return `sum(CASE WHEN ${STATUS} >= ${low} AND ${STATUS} < ${low + 100} THEN 1 ELSE 0 END)`;
@@ -260,12 +300,15 @@ function statusClass(low: number): string {
 
 // ---- API panel ---------------------------------------------------------------
 
-/** Server spans per bucket: status classes and p95 (ns). Columns: t, total, s2xx, s3xx, s4xx, s5xx, p95_ns. */
+/**
+ * Server spans per bucket: status classes and p95 (ns, streams excluded).
+ * Columns: t, total, s2xx, s3xx, s4xx, s5xx, p95_ns.
+ */
 export function apiTimeseriesSql(window: DashboardSqlWindow, filters: DashboardSqlFilters = {}): string {
   return (
     `SELECT date_bin(${bucketInterval(window.bucketSeconds)}, ${ident('timestamp')}) AS t, count(*) AS total, ` +
     `${statusClass(200)} AS s2xx, ${statusClass(300)} AS s3xx, ${statusClass(400)} AS s4xx, ` +
-    `sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS s5xx, ${P95_NS} AS p95_ns ` +
+    `sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS s5xx, ${LATENCY_P95_NS} AS p95_ns ` +
     `${serverSpans(window.from, window.to, filters)} ` +
     `GROUP BY t ORDER BY t LIMIT ${bucketRowLimit(window.from, window.to, window.bucketSeconds)}`
   );
@@ -274,12 +317,12 @@ export function apiTimeseriesSql(window: DashboardSqlWindow, filters: DashboardS
 /**
  * Totals of the current window `[from, to)` and the previous one
  * `[previousFrom, from)` in one statement. Columns: period
- * ('current'|'previous'), requests, errors (5xx), p95_ns.
+ * ('current'|'previous'), requests, errors (5xx), p95_ns (streams excluded).
  */
 export function apiTotalsSql(previousFrom: Date, window: DashboardSqlWindow, filters: DashboardSqlFilters = {}): string {
   return (
     `SELECT CASE WHEN ${ident('timestamp')} >= ${timestampLiteral(window.from)} THEN 'current' ELSE 'previous' END AS period, ` +
-    `count(*) AS requests, sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS errors, ${P95_NS} AS p95_ns ` +
+    `count(*) AS requests, sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS errors, ${LATENCY_P95_NS} AS p95_ns ` +
     `${serverSpans(previousFrom, window.to, filters)} ` +
     'GROUP BY period ORDER BY period LIMIT 2'
   );
@@ -288,6 +331,7 @@ export function apiTotalsSql(previousFrom: Date, window: DashboardSqlWindow, fil
 /**
  * Top routes (normalized path) by 5xx count, then p95. Columns: method,
  * route, requests, errors, p95_ns. `limit` is TOP_N + 1 so truncation shows.
+ * Streams stay in, with their own p95: the table is per route, so it is honest.
  */
 export function topRoutesSql(window: DashboardSqlWindow, filters: DashboardSqlFilters = {}, limit = TOP_N + 1): string {
   return (
