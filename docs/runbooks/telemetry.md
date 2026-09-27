@@ -247,32 +247,41 @@ Observability → Telemetry**, in the **Connection** section
 no container recreate. See [the spec, §8](../specs/telemetry.md#8-runtime-connection)
 for the precedence rule and what is and is not configurable here.
 
-1. Open the Connection section and fill in the reader login (username +
-   password); PG port and database default to `4003` and `public`. Leave
-   **Host (optional)** blank to use the GreptimeDB deployed next to the app
-   (the form names it); type a host only for an external GreptimeDB. Add the admin login too if you
-   want retention (TTL) applied from this deployment.
-2. **Test first.** Click **Test connection** before saving — it checks the
-   reader (and the admin, if given) against the values in the form, not
-   necessarily the stored connection, and always reports a pass/fail per
-   login rather than an HTTP error. Fix anything it reports before saving.
+1. Open the Connection section. Leave **Host** blank to use the GreptimeDB
+   deployed next to the app: with a blank host, there is nothing to enter —
+   the page shows a "Managed by the deployment" summary instead of
+   port/database/login fields, since that GreptimeDB's own logins and
+   passwords (from `.env`, §3) are what the API will use. Type a host only
+   for an **external** GreptimeDB; that reveals the port, database, reader
+   login (required) and admin login (optional, for retention) fields.
+2. **Test first.** Click **Test connection** before saving. With a blank
+   host this probes the deployment's own GreptimeDB with its own logins —
+   anything typed elsewhere in the form is ignored. With a custom host it
+   checks the reader (and the admin, if given) against the values in the
+   form, not necessarily the stored connection. Either way it always
+   reports a pass/fail per login rather than an HTTP error; fix anything it
+   reports before saving.
 3. Click **Save**. The connection takes effect on this instance immediately
    and on every other instance in a fleet within about five seconds (the
    same refresh interval the settings cache and export gate use — see
    [the spec §2](../specs/telemetry.md#2-the-two-switches)). The save also
    re-applies the export gate and re-enqueues `telemetry.retention.apply`.
-4. **Rotating a reader or admin password from the UI**: leave the other
-   fields as they are, type the new password into that login's password
-   field, and save. Leaving a password field blank keeps the currently
-   stored one — you do not need to retype a password you are not changing.
-5. **Revert to the deployment default**: use this when a saved connection's
-   logins no longer match GreptimeDB — for example, after `stack-agent`
-   redeployed the stack onto a fresh volume (§2.3) whose passwords were
-   provisioned from `.env`, while the admin UI still has an older set saved.
-   Click **Revert to deployment default** (or `DELETE
-   /api/admin/telemetry/connection`). This deletes the stored connection and
-   both stored passwords; the `GREPTIME_*` values from `.env` (§3) apply
-   again, exactly as they did before any connection was ever saved.
+   Saving with a blank host stores only "automatic" and deletes any
+   reader/admin password saved from an earlier custom connection.
+4. **Rotating a reader or admin password for a custom (external) host**:
+   leave the other fields as they are, type the new password into that
+   login's password field, and save. Leaving a password field blank keeps
+   the currently stored one — you do not need to retype a password you are
+   not changing. There is nothing to rotate here for an automatic host: it
+   always uses the deployment's current `GREPTIME_*` password (§9).
+5. **Revert to the deployment default**: only offered for a stored custom
+   connection (an automatic connection already *is* the deployment
+   default, so there is nothing to revert). Use it when a saved external
+   connection's logins have gone stale. Click **Revert to deployment
+   default** (or `DELETE /api/admin/telemetry/connection`). This deletes
+   the stored connection and both stored passwords; the `GREPTIME_*` values
+   from `.env` (§3) apply again, exactly as they did before any connection
+   was ever saved.
 6. Re-check status (§7) after any of the above — a wrong password or
    unreachable host shows up there the same way it always has.
 
