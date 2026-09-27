@@ -12,9 +12,16 @@ import { server } from '../../mocks/server';
 import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
 import {
   mockTelemetryAdminConfig,
+  mockTelemetryConnectionEnvironment,
+  mockTelemetryConnectionNone,
+  mockTelemetryConnectionStored,
   mockTelemetryStatusUnconfigured,
 } from '../../mocks/fixtures/telemetry';
-import type { TelemetrySettings } from '../../../services/telemetry';
+import type {
+  TelemetryConnection,
+  TelemetryConnectionInput,
+  TelemetrySettings,
+} from '../../../services/telemetry';
 import TelemetrySettingsPage from '../../../pages/Admin/TelemetrySettingsPage';
 
 const API_BASE = '*/api';
@@ -78,9 +85,15 @@ describe('TelemetrySettingsPage', () => {
     renderPage();
     await waitForForm();
 
-    expect(await screen.findByTestId('telemetry-not-configured')).toHaveTextContent(
-      /GreptimeDB not configured — start the telemetry overlay/,
+    const alert = await screen.findByTestId('telemetry-not-configured');
+    expect(alert).toHaveTextContent(/GreptimeDB not configured/);
+    // Actionable: it points at the Connection section, and still says the
+    // server itself has to be deployed.
+    expect(within(alert).getByRole('link', { name: 'Connection' })).toHaveAttribute(
+      'href',
+      '#telemetry-connection',
     );
+    expect(alert).toHaveTextContent(/appctl deploy update --group observability/);
   });
 
   it('sets retentionDays from a preset and saves with If-Match', async () => {
@@ -227,5 +240,311 @@ describe('TelemetrySettingsPage', () => {
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body.assistant.provider).toBeNull();
     expect(calls[0].body.assistant.modelId).toBeNull();
+  });
+
+  describe('Connection section (#558)', () => {
+    function serveConnection(connection: TelemetryConnection) {
+      server.use(
+        http.get(`${API_BASE}/admin/telemetry/connection`, () =>
+          HttpResponse.json({ data: connection }),
+        ),
+      );
+    }
+
+    function captureConnectionPut(response: TelemetryConnection = mockTelemetryConnectionStored) {
+      const calls: { body: TelemetryConnectionInput; ifMatch: string | null }[] = [];
+      server.use(
+        http.put(`${API_BASE}/admin/telemetry/connection`, async ({ request }) => {
+          const body = (await request.json()) as TelemetryConnectionInput;
+          calls.push({ body, ifMatch: request.headers.get('If-Match') });
+          return HttpResponse.json({
+            data: { ...response, source: 'stored', version: response.version + 1 },
+          });
+        }),
+      );
+      return calls;
+    }
+
+    async function connectionSection() {
+      await waitForForm();
+      const section = screen.getByRole('region', { name: 'Connection' });
+      await within(section).findByLabelText('Host');
+      return section;
+    }
+
+    it.each([
+      [mockTelemetryConnectionStored, 'Saved in admin settings'],
+      [mockTelemetryConnectionEnvironment, 'Deployment default (environment)'],
+      [mockTelemetryConnectionNone, 'Not configured'],
+    ])('shows the source chip for %#', async (connection, label) => {
+      serveConnection(connection);
+      renderPage();
+      const section = await connectionSection();
+      expect(within(section).getByTestId('telemetry-connection-source')).toHaveTextContent(label);
+    });
+
+    it('fills the fields, never a password, and describes the saved one by its hint', async () => {
+      renderPage();
+      const section = await connectionSection();
+
+      expect(within(section).getByLabelText('Host')).toHaveValue('greptimedb');
+      expect(within(section).getByLabelText('PostgreSQL port')).toHaveValue(4003);
+      expect(within(section).getByLabelText('Database')).toHaveValue('public');
+      expect(within(section).getByLabelText('Reader user')).toHaveValue('readonly');
+      expect(within(section).getByLabelText('Admin user (optional)')).toHaveValue('admin');
+      const readerPassword = within(section).getByLabelText('Reader password');
+      expect(readerPassword).toHaveAttribute('type', 'password');
+      expect(readerPassword).toHaveValue('');
+      expect(within(section).getByText(/Saved \(••••x9fQ\) — leave blank to keep it/)).toBeInTheDocument();
+    });
+
+    it('defaults the port and database when nothing is configured', async () => {
+      serveConnection({ ...mockTelemetryConnectionNone, pgPort: 0, database: '' });
+      renderPage();
+      const section = await connectionSection();
+      expect(within(section).getByLabelText('PostgreSQL port')).toHaveValue(4003);
+      expect(within(section).getByLabelText('Database')).toHaveValue('public');
+      expect(within(section).getByTestId('telemetry-connection-none')).toBeInTheDocument();
+    });
+
+    it('saves with the connection If-Match and does not send blank passwords', async () => {
+      const calls = captureConnectionPut();
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      const host = within(section).getByLabelText('Host');
+      await user.clear(host);
+      await user.type(host, 'greptime.internal');
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      // The connection's own version (3) — not /config's (7).
+      expect(calls[0].ifMatch).toBe(String(mockTelemetryConnectionStored.version));
+      expect(calls[0].body).toEqual({
+        host: 'greptime.internal',
+        pgPort: 4003,
+        database: 'public',
+        readerUser: 'readonly',
+        adminUser: 'admin',
+      });
+      expect('readerPassword' in calls[0].body).toBe(false);
+      expect('adminPassword' in calls[0].body).toBe(false);
+      expect(await screen.findByText('Telemetry connection saved')).toBeInTheDocument();
+    });
+
+    it('sends a typed password and null for a blank admin user', async () => {
+      const calls = captureConnectionPut();
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.type(within(section).getByLabelText('Reader password'), 's3cret');
+      await user.clear(within(section).getByLabelText('Admin user (optional)'));
+      expect(within(section).getByLabelText('Admin password')).toBeDisabled();
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0].body.readerPassword).toBe('s3cret');
+      expect(calls[0].body.adminUser).toBeNull();
+      expect('adminPassword' in calls[0].body).toBe(false);
+    });
+
+    it('requires passwords when saving over the deployment default', async () => {
+      serveConnection(mockTelemetryConnectionEnvironment);
+      const calls = captureConnectionPut(mockTelemetryConnectionEnvironment);
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      expect(
+        within(section).getAllByText(/deployment default password is never copied/).length,
+      ).toBeGreaterThan(0);
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+
+      expect(
+        await within(section).findByText(/Required — no reader password is saved/),
+      ).toBeInTheDocument();
+      expect(within(section).getByText(/Required with an admin user/)).toBeInTheDocument();
+      expect(calls).toHaveLength(0);
+
+      await user.type(within(section).getByLabelText('Reader password'), 'reader-pw');
+      await user.type(within(section).getByLabelText('Admin password'), 'admin-pw');
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0].ifMatch).toBe('0');
+      expect(calls[0].body).toMatchObject({ readerPassword: 'reader-pw', adminPassword: 'admin-pw' });
+    });
+
+    it('does not require an admin password without an admin user', async () => {
+      serveConnection(mockTelemetryConnectionNone);
+      const calls = captureConnectionPut(mockTelemetryConnectionNone);
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.type(within(section).getByLabelText('Host'), 'greptimedb');
+      await user.type(within(section).getByLabelText('Reader user'), 'readonly');
+      await user.type(within(section).getByLabelText('Reader password'), 'pw');
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+
+      await waitFor(() => expect(calls).toHaveLength(1));
+      expect(calls[0].body.adminUser).toBeNull();
+    });
+
+    it('refreshes the telemetry config and status after a save', async () => {
+      captureConnectionPut();
+      let configGets = 0;
+      let statusGets = 0;
+      server.use(
+        http.get(`${API_BASE}/admin/telemetry/config`, () => {
+          configGets += 1;
+          return HttpResponse.json({ data: mockTelemetryAdminConfig });
+        }),
+        http.get(`${API_BASE}/admin/telemetry/status`, () => {
+          statusGets += 1;
+          return HttpResponse.json({ data: mockTelemetryStatusUnconfigured });
+        }),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+      const [configBefore, statusBefore] = [configGets, statusGets];
+
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+      await waitFor(() => expect(configGets).toBeGreaterThan(configBefore));
+      await waitFor(() => expect(statusGets).toBeGreaterThan(statusBefore));
+    });
+
+    it('offers a reload when the save is refused with 409', async () => {
+      server.use(
+        http.put(`${API_BASE}/admin/telemetry/connection`, () =>
+          HttpResponse.json({ code: 'CONFLICT', message: 'Version mismatch' }, { status: 409 }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.click(within(section).getByRole('button', { name: 'Save connection' }));
+      const conflict = await within(section).findByTestId('telemetry-connection-conflict');
+      await user.click(within(conflict).getByRole('button', { name: 'Reload' }));
+      await waitFor(() =>
+        expect(screen.queryByTestId('telemetry-connection-conflict')).not.toBeInTheDocument(),
+      );
+    });
+
+    it('renders per-role test results and sends the candidate without blank passwords', async () => {
+      const bodies: TelemetryConnectionInput[] = [];
+      server.use(
+        http.post(`${API_BASE}/admin/telemetry/connection/test`, async ({ request }) => {
+          bodies.push((await request.json()) as TelemetryConnectionInput);
+          return HttpResponse.json({
+            data: {
+              reader: { success: true, latencyMs: 12, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' },
+              admin: { success: false, latencyMs: 8, error: 'password authentication failed' },
+            },
+          });
+        }),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.click(within(section).getByRole('button', { name: 'Test connection' }));
+      const result = await within(section).findByTestId('telemetry-connection-test-result');
+      expect(within(result).getByText('Reader login connected')).toBeInTheDocument();
+      expect(within(result).getByText(/PostgreSQL 16\.3 GreptimeDB 1\.2\.1 · 12 ms/)).toBeInTheDocument();
+      expect(within(result).getByText('Admin login failed')).toBeInTheDocument();
+      expect(within(result).getByText(/password authentication failed/)).toBeInTheDocument();
+      expect(bodies).toHaveLength(1);
+      expect('readerPassword' in bodies[0]).toBe(false);
+    });
+
+    it('shows the admin probe as skipped', async () => {
+      server.use(
+        http.post(`${API_BASE}/admin/telemetry/connection/test`, () =>
+          HttpResponse.json({
+            data: {
+              reader: { success: false, latencyMs: 30, error: 'connection refused' },
+              admin: { skipped: true },
+            },
+          }),
+        ),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.click(within(section).getByRole('button', { name: 'Test connection' }));
+      const result = await within(section).findByTestId('telemetry-connection-test-result');
+      expect(within(result).getByText('Reader login failed')).toBeInTheDocument();
+      expect(within(result).getByText(/connection refused/)).toBeInTheDocument();
+      expect(within(result).getByText('Admin login skipped')).toBeInTheDocument();
+    });
+
+    it('reverts with DELETE after confirmation', async () => {
+      const deletes: (string | null)[] = [];
+      server.use(
+        http.delete(`${API_BASE}/admin/telemetry/connection`, ({ request }) => {
+          deletes.push(request.headers.get('If-Match'));
+          return HttpResponse.json({ data: mockTelemetryConnectionEnvironment });
+        }),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      const section = await connectionSection();
+
+      await user.click(within(section).getByRole('button', { name: 'Revert to deployment default' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Revert to the deployment default?' });
+      await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      expect(deletes).toHaveLength(0);
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+      await user.click(within(section).getByRole('button', { name: 'Revert to deployment default' }));
+      const again = await screen.findByRole('dialog', { name: 'Revert to the deployment default?' });
+      await user.click(within(again).getByRole('button', { name: 'Revert' }));
+
+      await waitFor(() => expect(deletes).toEqual([String(mockTelemetryConnectionStored.version)]));
+      await waitFor(() =>
+        expect(within(section).getByTestId('telemetry-connection-source')).toHaveTextContent(
+          'Deployment default (environment)',
+        ),
+      );
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      // Nothing stored any more, so there is nothing to revert.
+      expect(
+        within(section).getByRole('button', { name: 'Revert to deployment default' }),
+      ).toBeDisabled();
+    });
+
+    it('cannot revert while nothing is stored', async () => {
+      serveConnection(mockTelemetryConnectionEnvironment);
+      renderPage();
+      const section = await connectionSection();
+      expect(
+        within(section).getByRole('button', { name: 'Revert to deployment default' }),
+      ).toBeDisabled();
+    });
+
+    it('disables every connection control without telemetry:write', async () => {
+      renderPage({ user: readOnlyAdmin });
+      const section = await connectionSection();
+
+      for (const label of [
+        'Host',
+        'PostgreSQL port',
+        'Database',
+        'Reader user',
+        'Reader password',
+        'Admin user (optional)',
+        'Admin password',
+      ]) {
+        expect(within(section).getByLabelText(label)).toBeDisabled();
+      }
+      for (const name of ['Test connection', 'Save connection', 'Revert to deployment default']) {
+        expect(within(section).getByRole('button', { name })).toBeDisabled();
+      }
+    });
   });
 });

@@ -8,6 +8,8 @@
  */
 import type {
   TelemetryAdminConfig,
+  TelemetryConnection,
+  TelemetryConnectionTestResult,
   TelemetryPublicConfig,
   TelemetryQueryResult,
   TelemetrySchema,
@@ -106,4 +108,78 @@ export const mockTelemetryQueryResult: TelemetryQueryResult = {
   rowCount: 2,
   truncated: false,
   elapsedMs: 42,
+};
+
+// -----------------------------------------------------------------------------
+// GreptimeDB connection (#558). The default handler answers the STORED one.
+// -----------------------------------------------------------------------------
+
+export const mockTelemetryConnectionStored: TelemetryConnection = {
+  source: 'stored',
+  host: 'greptimedb',
+  pgPort: 4003,
+  database: 'public',
+  readerUser: 'readonly',
+  adminUser: 'admin',
+  configured: true,
+  adminConfigured: true,
+  credentials: {
+    reader: {
+      configured: true,
+      hint: '••••x9fQ',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+      updatedByUserId: 'admin-user-id',
+    },
+    admin: {
+      configured: true,
+      hint: '••••Ab12',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+      updatedByUserId: 'admin-user-id',
+    },
+  },
+  version: 3,
+  updatedAt: '2026-09-01T10:00:00.000Z',
+  updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
+};
+
+/** The `GREPTIME_*` deployment default: passwords present, but not the store's to describe. */
+export const mockTelemetryConnectionEnvironment: TelemetryConnection = {
+  source: 'environment',
+  host: 'greptimedb',
+  pgPort: 4003,
+  database: 'public',
+  readerUser: 'readonly',
+  adminUser: 'admin',
+  configured: true,
+  adminConfigured: true,
+  credentials: {
+    reader: { configured: true, hint: null, updatedAt: null, updatedByUserId: null },
+    admin: { configured: true, hint: null, updatedAt: null, updatedByUserId: null },
+  },
+  version: 0,
+  updatedAt: null,
+  updatedBy: null,
+};
+
+export const mockTelemetryConnectionNone: TelemetryConnection = {
+  source: 'none',
+  host: '',
+  pgPort: 4003,
+  database: 'public',
+  readerUser: '',
+  adminUser: null,
+  configured: false,
+  adminConfigured: false,
+  credentials: {
+    reader: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+    admin: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+  },
+  version: 0,
+  updatedAt: null,
+  updatedBy: null,
+};
+
+export const mockTelemetryConnectionTestResult: TelemetryConnectionTestResult = {
+  reader: { success: true, latencyMs: 12, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' },
+  admin: { success: false, latencyMs: 8, error: 'password authentication failed for user "admin"' },
 };
