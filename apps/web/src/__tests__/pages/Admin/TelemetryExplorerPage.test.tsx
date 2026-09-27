@@ -586,4 +586,24 @@ describe('TelemetryExplorerPage', () => {
       expect(screen.queryByTestId('handoff-notice')).not.toBeInTheDocument();
     });
   });
+
+  describe('Dashboard cross-link (#579)', () => {
+    it('links to the Telemetry Dashboard from the header', async () => {
+      renderPage();
+      await editor();
+      expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
+        'href',
+        '/admin/settings/telemetry/dashboard',
+      );
+    });
+
+    it('is a labelled 44px icon link on phones', async () => {
+      act(() => setViewportWidth(390));
+      renderPage();
+      await editor();
+      const link = screen.getByRole('link', { name: 'Open Telemetry Dashboard' });
+      expect(link).toHaveAttribute('href', '/admin/settings/telemetry/dashboard');
+      expect(link).toHaveStyle({ width: '44px', height: '44px' });
+    });
+  });
 });

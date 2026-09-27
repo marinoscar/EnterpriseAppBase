@@ -5,7 +5,8 @@
  * the page SENDS (the PUT body and its `If-Match`) as well as what it renders.
  */
 import { describe, it, expect } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
+import { setViewportWidth } from '../../setup';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../mocks/server';
@@ -29,7 +30,7 @@ import type {
   TelemetryConnectionInput,
   TelemetrySettingsUpdate,
 } from '../../../services/telemetry';
-import { TELEMETRY_LIMITS } from '../../../services/telemetry';
+import { TELEMETRY_LIMITS, type TelemetryPublicConfig } from '../../../services/telemetry';
 import TelemetrySettingsPage, { validateInteger } from '../../../pages/Admin/TelemetrySettingsPage';
 
 const API_BASE = '*/api';
@@ -39,12 +40,14 @@ const readOnlyAdmin: MockUser = {
   permissions: mockAdminUser.permissions.filter((permission) => permission !== 'telemetry:write'),
 };
 
-function renderPage(options: { user?: MockUser; aiEnabled?: boolean } = {}) {
+function renderPage(
+  options: { user?: MockUser; aiEnabled?: boolean; telemetryEnabled?: boolean | TelemetryPublicConfig } = {},
+) {
   return render(<TelemetrySettingsPage />, {
     wrapperOptions: {
       user: options.user ?? mockAdminUser,
       aiEnabled: options.aiEnabled ?? true,
-      telemetryEnabled: true,
+      telemetryEnabled: options.telemetryEnabled ?? true,
       route: '/admin/settings/telemetry',
     },
   });
@@ -982,6 +985,40 @@ describe('TelemetrySettingsPage', () => {
 
     it('accepts 20', () => {
       expect(validateInteger('20', TELEMETRY_LIMITS.maxSteps)).toBeNull();
+    });
+  });
+
+  describe('Open dashboard (#579)', () => {
+    it('links to the dashboard when telemetry is on and the user holds telemetry:query', async () => {
+      renderPage();
+      const link = await screen.findByRole('link', { name: 'Open dashboard' });
+      expect(link).toHaveAttribute('href', '/admin/settings/telemetry/dashboard');
+    });
+
+    it('is hidden without telemetry:query', async () => {
+      renderPage({
+        user: { ...mockAdminUser, permissions: mockAdminUser.permissions.filter((p) => p !== 'telemetry:query') },
+      });
+      await screen.findByRole('heading', { level: 1, name: 'Telemetry' });
+      expect(screen.queryByRole('link', { name: 'Open dashboard' })).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['no store is deployed', false as const],
+      ['collection is switched off', { available: true, enabled: false, assistantEnabled: false }],
+    ])('is hidden when %s', async (_label, telemetryEnabled) => {
+      renderPage({ telemetryEnabled });
+      await screen.findByRole('heading', { level: 1, name: 'Telemetry' });
+      expect(screen.queryByRole('link', { name: 'Open dashboard' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Open Telemetry Dashboard' })).not.toBeInTheDocument();
+    });
+
+    it('is a 44px icon link on phones', async () => {
+      act(() => setViewportWidth(390));
+      renderPage();
+      const link = await screen.findByRole('link', { name: 'Open Telemetry Dashboard' });
+      expect(link).toHaveAttribute('href', '/admin/settings/telemetry/dashboard');
+      expect(link).toHaveStyle({ width: '44px', height: '44px' });
     });
   });
 });

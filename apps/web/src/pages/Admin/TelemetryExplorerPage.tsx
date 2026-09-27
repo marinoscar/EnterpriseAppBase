@@ -48,6 +48,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import CloseIcon from '@mui/icons-material/Close';
+import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useTelemetryAssistantAvailable } from '../../hooks/useTelemetryAssistantAvailable';
@@ -73,7 +74,12 @@ import { AssistantPanel } from '../../components/telemetry/AssistantPanel';
 import { ASSISTANT_WIDTH, AssistantContainer } from '../../components/telemetry/AssistantContainer';
 import { STARTER_QUERIES, traceQuery } from '../../components/telemetry/starterQueries';
 import { pushQueryHistory, readQueryHistory } from '../../components/telemetry/queryHistory';
-import { EXPLORER_SQL_PARAM, readExplorerHandoff } from '../../components/telemetry/explorerHandoff';
+import {
+  EXPLORER_SQL_PARAM,
+  TELEMETRY_DASHBOARD_PATH,
+  readExplorerHandoff,
+} from '../../components/telemetry/explorerHandoff';
+import { TelemetryCrossLink } from '../../components/telemetry/TelemetryCrossLink';
 
 // The editor is its own chunk: CodeMirror is by far the heaviest thing here.
 const SqlEditor = lazy(() => import('../../components/telemetry/SqlEditor'));
@@ -281,9 +287,18 @@ export default function TelemetryExplorerPage() {
           minWidth: 0,
         }}
       >
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+          <Typography variant="h4" component="h1" sx={{ flex: 1, minWidth: 0 }}>
+            {PAGE_TITLE}
+          </Typography>
+          <TelemetryCrossLink
+            to={TELEMETRY_DASHBOARD_PATH}
+            label="Dashboard"
+            compactLabel="Open Telemetry Dashboard"
+            icon={<MonitorHeartOutlinedIcon />}
+            compact={isCompact}
+          />
+        </Stack>
         <Typography color="text.secondary" sx={{ mb: 3 }}>
           {PAGE_DESCRIPTION}
         </Typography>

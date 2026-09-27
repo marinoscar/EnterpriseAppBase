@@ -40,6 +40,7 @@ import {
 import { Navigate, Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
 import CodeOutlinedIcon from '@mui/icons-material/CodeOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
+import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import {
@@ -88,7 +89,8 @@ import {
 import { TopProblems, type TopProblemsKind } from '../../components/telemetry/dashboard/TopProblems';
 import { EventsFeed } from '../../components/telemetry/dashboard/EventsFeed';
 import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxis';
-import { explorerHandoff } from '../../components/telemetry/explorerHandoff';
+import { TELEMETRY_EXPLORER_PATH, explorerHandoff } from '../../components/telemetry/explorerHandoff';
+import { TelemetryCrossLink } from '../../components/telemetry/TelemetryCrossLink';
 import { traceExplorerSql } from '../../components/telemetry/dashboard/traceLink';
 import { sqlList } from '../../services/telemetryDashboard';
 import type {
@@ -305,9 +307,22 @@ export default function TelemetryDashboardPage() {
           pr: docked ? `${ASSISTANT_WIDTH}px` : 0,
         }}
       >
-        <Typography variant="h4" component="h1" gutterBottom sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
-          {PAGE_TITLE}
-        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: { xs: 0.5, sm: 1 } }}>
+          <Typography
+            variant="h4"
+            component="h1"
+            sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, flex: 1, minWidth: 0 }}
+          >
+            {PAGE_TITLE}
+          </Typography>
+          <TelemetryCrossLink
+            to={TELEMETRY_EXPLORER_PATH}
+            label="Explorer"
+            compactLabel="Open Telemetry Explorer"
+            icon={<TerminalOutlinedIcon />}
+            compact={isPhone}
+          />
+        </Stack>
         <Typography color="text.secondary" sx={{ mb: 2, display: { xs: 'none', sm: 'block' } }}>
           {PAGE_DESCRIPTION}
         </Typography>

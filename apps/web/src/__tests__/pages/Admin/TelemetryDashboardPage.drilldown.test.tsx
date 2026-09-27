@@ -268,4 +268,25 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       expect(within(dialog).queryByRole('button', { name: 'View trace' })).not.toBeInTheDocument();
     });
   });
+
+  describe('Explorer cross-link', () => {
+    it('links to the Telemetry Explorer from the header', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      const link = await screen.findByRole('link', { name: 'Explorer' });
+      expect(link).toHaveAttribute('href', EXPLORER);
+      await user.click(link);
+      // A plain navigation: nothing handed over.
+      expect(await screen.findByTestId('explorer-probe')).toBeInTheDocument();
+      expect(handedSql()).toBeNull();
+    });
+
+    it('is a labelled 44px icon link on phones', async () => {
+      act(() => setViewportWidth(390));
+      renderPage();
+      const link = await screen.findByRole('link', { name: 'Open Telemetry Explorer' });
+      expect(link).toHaveAttribute('href', EXPLORER);
+      expect(link).toHaveStyle({ width: '44px', height: '44px' });
+    });
+  });
 });

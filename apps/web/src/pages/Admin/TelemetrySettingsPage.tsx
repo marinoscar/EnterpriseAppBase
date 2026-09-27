@@ -54,11 +54,16 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
+import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useTelemetryAdmin } from '../../hooks/useTelemetryAdmin';
-import { TelemetryConfigContext } from '../../hooks/useTelemetryConfig';
+import { TelemetryConfigContext, isTelemetryOn, useTelemetryConfig } from '../../hooks/useTelemetryConfig';
+import { TelemetryCrossLink } from '../../components/telemetry/TelemetryCrossLink';
+import { TELEMETRY_DASHBOARD_PATH } from '../../components/telemetry/explorerHandoff';
 import { useAiConfig } from '../../hooks/useAiConfig';
 import { useAiModels } from '../../hooks/useAiModels';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
@@ -435,6 +440,11 @@ export default function TelemetrySettingsPage() {
   // hub, the rail and the explorer route learn at once. With no shell above
   // (a test), there is nothing to refresh.
   const sharedTelemetryConfig = useContext(TelemetryConfigContext);
+  // "Open dashboard" (#579) follows the dashboard route's own gates: the
+  // `telemetry` feature (store deployed AND collecting) and `telemetry:query`.
+  const { config: publicTelemetryConfig } = useTelemetryConfig();
+  const theme = useTheme();
+  const isPhone = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [form, setForm] = useState<FormState | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -451,6 +461,7 @@ export default function TelemetrySettingsPage() {
   }
 
   const canWrite = hasPermission('telemetry:write');
+  const canOpenDashboard = isTelemetryOn(publicTelemetryConfig) && hasPermission('telemetry:query');
   const canPickModel = hasPermission('ai_config:read');
   // The Telemetry services section (#567) follows `telemetry-stack` routes,
   // which enforce `system_settings:read` / `system_settings:write`.
@@ -488,9 +499,20 @@ export default function TelemetrySettingsPage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+          <Typography variant="h4" component="h1" sx={{ flex: 1, minWidth: 0 }}>
+            {PAGE_TITLE}
+          </Typography>
+          {canOpenDashboard && (
+            <TelemetryCrossLink
+              to={TELEMETRY_DASHBOARD_PATH}
+              label="Open dashboard"
+              compactLabel="Open Telemetry Dashboard"
+              icon={<MonitorHeartOutlinedIcon />}
+              compact={isPhone}
+            />
+          )}
+        </Stack>
         <Typography color="text.secondary" sx={{ mb: 2 }}>
           {PAGE_DESCRIPTION}
           {!canWrite && ' (read-only)'}
