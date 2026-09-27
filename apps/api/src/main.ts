@@ -7,6 +7,7 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
@@ -58,10 +59,21 @@ async function bootstrap() {
     secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET,
   });
 
-  // Register multipart plugin for file uploads
+  // Register multipart plugin for file uploads.
+  //
+  // The simple upload route (`POST /api/storage/objects`) is capped at 100MB,
+  // or at the deployment's `storage.maxFileSize` (MAX_FILE_SIZE) when that is
+  // smaller (#519), so a deployment limit below 100MB also binds this route.
+  // Larger files go through the resumable upload, which `ObjectsService`
+  // checks against the same `storage.maxFileSize`.
+  const simpleUploadCeiling = 100 * 1024 * 1024;
+  const maxFileSize = app.get(ConfigService).get<number>('storage.maxFileSize');
   await app.register(multipart, {
     limits: {
-      fileSize: 100 * 1024 * 1024, // 100MB for simple upload
+      fileSize:
+        typeof maxFileSize === 'number' && Number.isFinite(maxFileSize) && maxFileSize > 0
+          ? Math.min(simpleUploadCeiling, maxFileSize)
+          : simpleUploadCeiling,
       files: 1,
     },
   });
