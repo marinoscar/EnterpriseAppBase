@@ -32,6 +32,12 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 //
 //   TELEMETRY_ASSISTANT_DISABLED        409  `telemetry.assistant.enabled` is off.
 //   TELEMETRY_ASSISTANT_NOT_CONFIGURED  409  no `assistant.provider`/`modelId`.
+//
+// The dashboard (#577) adds two request errors:
+//
+//   TELEMETRY_DASHBOARD_BAD_FILTER  400  `service`/`instance` is not among the
+//                                        values seen in the requested range.
+//   TELEMETRY_DASHBOARD_BAD_CURSOR  400  the events `cursor` is malformed.
 // =============================================================================
 
 export const TELEMETRY_ERROR_REASONS = {
@@ -43,6 +49,8 @@ export const TELEMETRY_ERROR_REASONS = {
   QUERY_TIMEOUT: 'TELEMETRY_QUERY_TIMEOUT',
   ASSISTANT_DISABLED: 'TELEMETRY_ASSISTANT_DISABLED',
   ASSISTANT_NOT_CONFIGURED: 'TELEMETRY_ASSISTANT_NOT_CONFIGURED',
+  DASHBOARD_BAD_FILTER: 'TELEMETRY_DASHBOARD_BAD_FILTER',
+  DASHBOARD_BAD_CURSOR: 'TELEMETRY_DASHBOARD_BAD_CURSOR',
 } as const;
 
 export type TelemetryErrorReason = (typeof TELEMETRY_ERROR_REASONS)[keyof typeof TELEMETRY_ERROR_REASONS];
@@ -56,6 +64,8 @@ const STATUS: Record<TelemetryErrorReason, HttpStatus> = {
   TELEMETRY_QUERY_TIMEOUT: HttpStatus.GATEWAY_TIMEOUT,
   TELEMETRY_ASSISTANT_DISABLED: HttpStatus.CONFLICT,
   TELEMETRY_ASSISTANT_NOT_CONFIGURED: HttpStatus.CONFLICT,
+  TELEMETRY_DASHBOARD_BAD_FILTER: HttpStatus.BAD_REQUEST,
+  TELEMETRY_DASHBOARD_BAD_CURSOR: HttpStatus.BAD_REQUEST,
 };
 
 /** A telemetry failure with its reason in `details.reason`. */

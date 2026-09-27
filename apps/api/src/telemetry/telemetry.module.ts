@@ -10,6 +10,8 @@ import { TelemetryConnectionAdminService } from './connection/telemetry-connecti
 import { TelemetryConnectionTestService } from './connection/telemetry-connection-test.service';
 import { TelemetryConnectionController } from './connection/telemetry-connection.controller';
 import { TelemetryConnectionService } from './connection/telemetry-connection.service';
+import { TelemetryDashboardController } from './dashboard/telemetry-dashboard.controller';
+import { TelemetryDashboardService } from './dashboard/telemetry-dashboard.service';
 import { TelemetryExportService } from './export/telemetry-export.service';
 import { GreptimeClient } from './greptime/greptime.client';
 import { TelemetryRetentionHandler } from './handlers/telemetry-retention.handler';
@@ -62,6 +64,11 @@ import { TelemetryStatusService } from './telemetry-status.service';
 // `telemetry.stack.deploy` job. `TelemetryStackController` is the admin
 // surface, under /api/admin/telemetry/stack.
 //
+// The dashboard (#577): `TelemetryDashboardService` runs the fixed,
+// server-authored statements of `dashboard/telemetry-dashboard.sql.ts` (no
+// caller SQL) on the reader pool, with a 15 s result cache, behind
+// `TelemetryDashboardController` on `telemetry:query`.
+//
 // `GreptimeClient`, `TelemetrySettingsService` and the two query services are
 // exported for it.
 // =============================================================================
@@ -75,6 +82,7 @@ import { TelemetryStatusService } from './telemetry-status.service';
     TelemetryAssistantController,
     TelemetryConnectionController,
     TelemetryStackController,
+    TelemetryDashboardController,
   ],
   providers: [
     TelemetryConnectionService,
@@ -92,6 +100,7 @@ import { TelemetryStatusService } from './telemetry-status.service';
     StackAgentClient,
     TelemetryStackService,
     TelemetryStackDeployHandler,
+    TelemetryDashboardService,
   ],
   exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })
