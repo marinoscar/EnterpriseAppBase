@@ -13,6 +13,7 @@ import {
   type CheckContext,
 } from './checks/index.js';
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
+import { composeFileArgs, composeFilesFor } from './compose-files.js';
 import { writeEnvFile } from './env-file.js';
 import { isDeployment } from './deployment-evidence.js';
 import { runEnvWizard } from './env-wizard.js';
@@ -98,8 +99,6 @@ import type { PromptContext } from '../prompt.js';
 //      certificate that does not exist fails nginx -t and takes the shared
 //      proxy's reload down for every site on the host.
 // =============================================================================
-
-const COMPOSE_FILES = ['base.compose.yml', 'prod.compose.yml', 'vps.compose.yml'] as const;
 
 export interface InstallOptions {
   deployRoot: string;
@@ -354,12 +353,23 @@ export function composeProjectFor(
   return state?.composeProject ?? LEGACY_COMPOSE_PROJECT;
 }
 
-export function composeArgv(extra: readonly string[], project?: string): string[] {
+/**
+ * The full `docker compose` argv for this deployment.
+ *
+ * `groups` are the deployment's opt-in groups -- this run's flag, else what
+ * install recorded -- and decide which compose files take part; see
+ * compose-files.ts. Absent means none: the base VPS stack.
+ */
+export function composeArgv(
+  extra: readonly string[],
+  project?: string,
+  groups?: readonly string[] | undefined,
+): string[] {
   return [
     'docker',
     'compose',
     ...(project === undefined ? [] : ['-p', project]),
-    ...COMPOSE_FILES.flatMap((file) => ['-f', file]),
+    ...composeFileArgs(groups),
     ...extra,
   ];
 }
@@ -464,9 +474,10 @@ async function compose(
   options?: { timeoutMs?: number },
 ): Promise<void> {
   ensureBindSources(context.options.deployRoot);
-  await ensureStackNetworks(context, extra);
+  await ensureStackNetworks(context, extra, context.options.groups);
 
-  const result = await context.runCommand(composeArgv(extra, context.composeProject), {
+  const argv = composeArgv(extra, context.composeProject, context.options.groups);
+  const result = await context.runCommand(argv, {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
     redact: context.journal.redact,
@@ -494,11 +505,13 @@ export async function ensureStackNetworks(
     networksEnsured?: boolean | undefined;
   },
   extra: readonly string[],
+  groups?: readonly string[] | undefined,
 ): Promise<void> {
   if (context.networksEnsured === true || !INSTANTIATING.has(extra[0] ?? '')) return;
   const composeDir = composeCwd(context.options.deployRoot);
   await ensureExternalNetworks({
-    composeFiles: COMPOSE_FILES.map((file) => join(composeDir, file)),
+    // The same files the compose call itself will use; see compose-files.ts.
+    composeFiles: composeFilesFor(groups).map((file) => join(composeDir, file)),
     runCommand: context.runCommand,
     onLine: (line) => context.journal.line(line),
   });
@@ -1057,7 +1070,9 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           hooks: context.hooks,
           // The networks the APPLICATION's compose files declare external,
           // read from the checkout -- never a name this CLI makes up.
-          networks: externalNetworksIn(COMPOSE_FILES.map((file) => join(composeDir, file))),
+          networks: externalNetworksIn(
+            composeFilesFor(context.options.groups).map((file) => join(composeDir, file)),
+          ),
           onLine: (line) => context.journal.line(line),
         });
         context.hooks?.onProgress?.(
@@ -1151,6 +1166,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             : { domain: context.options.domain }),
           ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
           ...oauthSmokeTarget(context.options.skipOAuthCheck, environmentOf(context)),
+          ...(context.options.groups === undefined ? {} : { groups: context.options.groups }),
         });
 
         context.journal.line(

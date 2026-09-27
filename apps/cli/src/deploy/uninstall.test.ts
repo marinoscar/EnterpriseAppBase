@@ -301,6 +301,56 @@ describe('uninstall reuses the recorded proxy runtime when no flag overrides it'
   });
 });
 
+describe('uninstall tears down the stack the deployment recorded (#531)', () => {
+  function recorded(groups?: string[]): string {
+    const root = deployment();
+    writeState({
+      version: DEPLOY_STATE_VERSION,
+      repoUrl: 'https://example.test/o/r',
+      ref: 'main',
+      commitSha: 'a'.repeat(40),
+      bindPort: 3535,
+      deployRoot: root,
+      installedAt: '2026-01-01T00:00:00.000Z',
+      lastDeployedAt: '2026-01-01T00:00:00.000Z',
+      lastCommand: 'install',
+      appctlVersion: '1.0.0',
+      ...(groups === undefined ? {} : { groups }),
+    });
+    return root;
+  }
+
+  it('includes the telemetry stack in `down -v` when observability was enabled', async () => {
+    // ⚠ `down -v` removes only the services and volumes of the files it is
+    // given: without telemetry.compose.yml the collector, GreptimeDB and the
+    // `greptimedb-data` volume would outlive the uninstall.
+    const root = recorded(['observability']);
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    expect(planUninstall({ deployRoot: root }).groups).toEqual(['observability']);
+    await runUninstall({ deployRoot: root, runCommand: run as never });
+
+    const down = run.mock.calls
+      .map((call) => (call[0] as string[]).join(' '))
+      .find((argv) => argv.includes(' down '));
+    expect(down).toContain('-f telemetry.compose.yml');
+    expect(down).toContain('-f vps.telemetry.compose.yml');
+  });
+
+  it('leaves it out for a deployment that never enabled it', async () => {
+    const root = recorded();
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await runUninstall({ deployRoot: root, runCommand: run as never });
+
+    const down = run.mock.calls
+      .map((call) => (call[0] as string[]).join(' '))
+      .find((argv) => argv.includes(' down '));
+    expect(down).toBeDefined();
+    expect(down).not.toContain('telemetry');
+  });
+});
+
 describe('--purge-storage runs inside the api image, before anything is destroyed', () => {
   it('refuses without the bucket name, and removes nothing', async () => {
     const root = deployment();

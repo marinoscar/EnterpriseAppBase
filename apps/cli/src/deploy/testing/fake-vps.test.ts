@@ -971,3 +971,100 @@ describe('the stack\'s external networks exist before compose instantiates it (#
     expect(vps.calls('docker', 'network', 'create')).toHaveLength(0);
   });
 });
+
+// =============================================================================
+// The observability group brings the telemetry stack with it  (issue #531)
+// =============================================================================
+
+describe('the compose files follow the recorded groups, through the real pipeline', () => {
+  const TELEMETRY_ANSWERS = new Map([
+    ['GREPTIME_WRITER_PASSWORD', 'fake-writer-password'],
+    ['GREPTIME_READER_PASSWORD', 'fake-reader-password'],
+    ['GREPTIME_ADMIN_PASSWORD', 'fake-admin-password'],
+  ]);
+
+  /** Compose calls against the application stack (not `docker compose version`). */
+  function stackCompose<T extends { argv: readonly string[] }>(calls: readonly T[]): T[] {
+    return calls.filter(
+      (call) => call.argv[0] === 'docker' && call.argv[1] === 'compose' && call.argv.includes('-f'),
+    );
+  }
+
+  function composeFiles(invocation: { argv: readonly string[] }): string[] {
+    return invocation.argv.filter((_, index) => invocation.argv[index - 1] === '-f');
+  }
+
+  it('install, update and status all name the telemetry files once observability is on', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps, { groups: ['observability'], answers: TELEMETRY_ANSWERS });
+
+    // Recorded, so the later commands below can act on it without the flag.
+    expect(readState(vps.deployRoot)?.groups).toEqual(['observability']);
+
+    const installCompose = stackCompose(vps.invocations);
+    expect(installCompose.length).toBeGreaterThan(0);
+    for (const call of installCompose) {
+      expect(composeFiles(call)).toEqual([
+        'base.compose.yml',
+        'prod.compose.yml',
+        'telemetry.compose.yml',
+        'vps.compose.yml',
+        'vps.telemetry.compose.yml',
+      ]);
+    }
+
+    mkdirSync(join(vps.deployRoot, 'repo', '.git'), { recursive: true });
+    vps.route(['git', 'rev-parse', 'HEAD'], 'e'.repeat(40));
+    vps.route(
+      ['df'],
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 100000000 10000000 80000000 12% /',
+    );
+    const before = vps.invocations.length;
+
+    await runUpdate({
+      deployRoot: vps.deployRoot,
+      runCommand: vps.runCommand,
+      nonInteractive: true,
+      skipProxy: true,
+      skipSeed: true,
+      noVersionBump: true,
+      force: true,
+      answers: new Map([...ANSWERS, ...TELEMETRY_ANSWERS, ['POSTGRES_PORT', String(probe.port)]]),
+    });
+
+    const updateCompose = stackCompose(vps.invocations.slice(before));
+    expect(updateCompose.length).toBeGreaterThan(0);
+    for (const call of updateCompose) {
+      expect(composeFiles(call)).toContain('telemetry.compose.yml');
+      expect(composeFiles(call).at(-1)).toBe('vps.telemetry.compose.yml');
+    }
+
+    const beforeStatus = vps.invocations.length;
+    await runStatusCommand(
+      { root: vps.deployRoot, port: String(api.port), json: true, color: false },
+      { runCommand: vps.runCommand, stdout: sink(), stderr: sink() },
+    );
+
+    const statusCompose = stackCompose(vps.invocations.slice(beforeStatus));
+    expect(statusCompose.length).toBeGreaterThan(0);
+    for (const call of statusCompose) {
+      expect(composeFiles(call)).toContain('telemetry.compose.yml');
+    }
+  });
+
+  it('a deployment without the group never names the telemetry files', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    expect(readState(vps.deployRoot)?.groups).toBeUndefined();
+    const composeCalls = stackCompose(vps.invocations);
+    expect(composeCalls.length).toBeGreaterThan(0);
+    for (const call of composeCalls) {
+      expect(composeFiles(call)).toEqual([
+        'base.compose.yml',
+        'prod.compose.yml',
+        'vps.compose.yml',
+      ]);
+    }
+  });
+});

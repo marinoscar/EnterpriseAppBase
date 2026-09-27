@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 
+import { composeFileArgs } from './compose-files.js';
 import type { runCommand } from './executor.js';
 import type { DeployHooks } from './hooks.js';
 import type { DeployState } from './state.js';
@@ -19,12 +20,6 @@ import type { DeployState } from './state.js';
 // migration state separately, and a green probe alone is never treated as
 // proof that the schema is there.
 // =============================================================================
-
-const COMPOSE_FILES = [
-  'base.compose.yml',
-  'prod.compose.yml',
-  'vps.compose.yml',
-] as const;
 
 export interface ProbeResult {
   ok: boolean;
@@ -97,12 +92,22 @@ export interface HealthOptions {
    * `collectHealth` also runs the OAuth smoke (`oauthSmoke`).
    */
   oauth?: { clientId: string; callbackUrl: string } | undefined;
+  /**
+   * The deployment's opt-in groups: they decide which compose files the stack
+   * was started with (compose-files.ts), and this module must name the SAME
+   * files, so `compose ps` and the migration probe's `compose run` describe
+   * the stack that is actually running rather than a base-only model of it.
+   * Absent means none.
+   */
+  groups?: readonly string[] | undefined;
 }
 
-function composeArgs(options: Pick<HealthOptions, 'deployRoot' | 'composeProject'>): string[] {
+function composeArgs(
+  options: Pick<HealthOptions, 'deployRoot' | 'composeProject' | 'groups'>,
+): string[] {
   return [
     ...(options.composeProject === undefined ? [] : ['-p', options.composeProject]),
-    ...COMPOSE_FILES.flatMap((file) => ['-f', file]),
+    ...composeFileArgs(options.groups),
     '--project-directory',
     join(options.deployRoot, 'repo', 'infra', 'compose'),
   ];

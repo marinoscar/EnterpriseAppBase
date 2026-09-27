@@ -60,6 +60,20 @@ describe('composeArgv', () => {
     expect(files).toEqual(['base.compose.yml', 'prod.compose.yml', 'vps.compose.yml']);
   });
 
+  it('adds the telemetry files when the observability group is passed (#531)', () => {
+    const argv = composeArgv(['up', '-d'], 'myapp', ['observability']);
+    const files = argv.filter((_, index) => argv[index - 1] === '-f');
+
+    expect(files).toEqual([
+      'base.compose.yml',
+      'prod.compose.yml',
+      'telemetry.compose.yml',
+      'vps.compose.yml',
+      'vps.telemetry.compose.yml',
+    ]);
+    expect(argv.slice(-2)).toEqual(['up', '-d']);
+  });
+
   it('an adopted deployment keeps -p compose, not a name derived from its directory', () => {
     // The whole point. A deployment that predates this field is recognised by
     // the evidence predicate but carries no `composeProject`, and its containers
