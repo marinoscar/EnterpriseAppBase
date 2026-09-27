@@ -153,12 +153,13 @@ save of an unrelated setting can also cause a `409`.
 
 ## Server-Sent Events
 
-Two routes stream `text/event-stream`:
+Three routes stream `text/event-stream`:
 
 | Route | Frames | Keep-alive |
 |-------|--------|-----------|
 | `POST /api/ai/responses/stream` | `event: <type>` with JSON `data:`; starts with `response.created`, ends with exactly one `response.completed` or `error` | `: ping` every 15 s |
 | `GET /api/notifications/stream` | `event: notification` with JSON `data:` | `: heartbeat` about every 25 s |
+| `POST /api/admin/telemetry/assistant/stream` | `event: step\|answer\|error\|done` with JSON `data:`; always ends with `done` | `: ping` every 15 s |
 
 - **AI stream**: send `Accept: text/event-stream` and the same body as
   `POST /api/ai/responses` (there is no `stream` flag). A refusal **before** the
@@ -168,9 +169,14 @@ Two routes stream `text/event-stream`:
   the provider call is aborted.
 - **Notification stream**: no replay. After a reconnect, refetch
   `GET /api/notifications`.
-- **Both**: the native `EventSource` cannot send `Authorization`, and tokens in
-  the query string are not accepted, so use a fetch-based SSE client. Nginx
-  serves each stream from a dedicated unbuffered location.
+- **Telemetry assistant stream**: requires `telemetry:query` and `ai:use`.
+  A refusal before the first frame is an ordinary JSON error with
+  `details.reason` (`AI_DISABLED`, or a `TELEMETRY_*` reason — see
+  [telemetry.md](specs/telemetry.md#5-explorer)). Closing the connection
+  cancels the AI call and any in-flight query.
+- **All three**: the native `EventSource` cannot send `Authorization`, and
+  tokens in the query string are not accepted, so use a fetch-based SSE
+  client. Nginx serves each stream from a dedicated unbuffered location.
 
 ## Rate Limiting
 
@@ -258,6 +264,8 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `ai/images`, `ai/audio`, `ai/realtime` | Queued image/audio work, realtime sessions | `ai:use` | [ai-platform](specs/ai-platform.md) |
 | `ai/runs`, `ai/usage` | Background run status, caller's own usage | `ai:use` | [ai-platform](specs/ai-platform.md) |
 | `admin/ai` | AI kill switch, key policy, providers, model catalog, usage | `ai_config:*` | [ai-platform](specs/ai-platform.md) |
+| `telemetry` | Public telemetry feature flag | authenticated (any user) | [telemetry](specs/telemetry.md) |
+| `admin/telemetry` | Telemetry policy, status, SQL explorer, export, AI assistant stream | `telemetry:read/write/query` (assistant also needs `ai:use`) | [telemetry](specs/telemetry.md) |
 | `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
 
 Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with

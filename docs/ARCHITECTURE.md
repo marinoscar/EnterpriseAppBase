@@ -24,7 +24,7 @@ Last reviewed: 2026-09
 
 This repository is a template. You fork it to start a new enterprise web application on a production-grade foundation instead of an empty folder.
 
-It establishes sign-in (Google OAuth, JWT, an email allowlist), role-based authorization, a registry-driven settings framework, object storage, a PostgreSQL-backed job queue with optional remote worker nodes, notifications, database backup and restore, an admin-governed AI platform, a first-party CLI, and OpenTelemetry observability.
+It establishes sign-in (Google OAuth, JWT, an email allowlist), role-based authorization, a registry-driven settings framework, object storage, a PostgreSQL-backed job queue with optional remote worker nodes, notifications, database backup and restore, an admin-governed AI platform, a first-party CLI, and OpenTelemetry observability backed by GreptimeDB.
 
 This document is the map of how those pieces fit together today. It is written for a team (people and coding agents) that has just forked the template. Design rationale lives in `docs/specs/`; operator procedures live in `docs/runbooks/`. Each subsystem below links to both.
 
@@ -61,13 +61,13 @@ This document is the map of how those pieces fit together today. It is written f
                                    Object storage  ◄────────────────────┘
                                    (AWS S3, Cloudflare R2, S3-compatible)
 
-   api ── OTLP ──► otel-collector ──► Uptrace :14318     (otel.compose.yml)
+   api ── OTLP ──► otel-collector ──► GreptimeDB :4000/:4003  (telemetry.compose.yml)
 ```
 
 - The browser, the CLI and worker nodes all reach the API through nginx on one origin.
 - The API is the only component that talks to AI providers, email and Web Push, and the only one with long-lived database access.
 - Worker nodes hold no durable database or storage credential. They claim jobs over `/api/nodes/*` and move bytes directly against object storage through short-lived presigned URLs the API mints per job. A job that needs a database connection (the backup) receives a short-lived, job-scoped credential instead.
-- Telemetry leaves the API over OTLP to an OpenTelemetry Collector, which exports to Uptrace (`otel.compose.yml`).
+- Telemetry leaves the API over OTLP to an OpenTelemetry Collector, which redacts credential-bearing headers and exports to GreptimeDB (`telemetry.compose.yml`); the API reads it back over the PostgreSQL wire protocol for the telemetry explorer and AI assistant. See [specs/telemetry.md](specs/telemetry.md).
 
 ### 2.2 Request lifecycle
 
@@ -121,7 +121,7 @@ Every API request passes through the same stages, in this order:
 | Authentication | Passport Google OAuth 2.0, JWT access tokens, rotating refresh-token cookie |
 | Web | React 19, Material UI, react-router 7, Vite |
 | CLI | TypeScript, Commander (subcommands), ink (interactive menu) |
-| Observability | OpenTelemetry SDK, Pino structured logs, Uptrace |
+| Observability | OpenTelemetry SDK, Pino structured logs, GreptimeDB |
 | API reference | OpenAPI generated from code, Scalar UI at `/api/docs`, Spectral lint |
 | Testing | Jest + Supertest (API), Vitest + React Testing Library (web and CLI), Playwright (e2e) |
 | Containers | Docker, Docker Compose (`infra/compose/`) |
@@ -300,7 +300,7 @@ Secrets configured at runtime are encrypted with AES-256-GCM under `SECRETS_ENCR
 
 ### 5.17 Observability
 
-The API is instrumented with OpenTelemetry for traces and metrics and logs with Pino. The optional Uptrace stack runs from `otel.compose.yml`. See [§11](#11-observability).
+The API is instrumented with OpenTelemetry for traces, metrics and logs, and logs structurally with Pino. The optional telemetry stack (OTel Collector + GreptimeDB) runs from `telemetry.compose.yml`, with a SQL explorer and an AI assistant over the collected data. See [§11](#11-observability) and [specs/telemetry.md](specs/telemetry.md).
 
 ### 5.18 Template tooling
 
@@ -432,10 +432,13 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `ai_config:read` | ✓ | | | View AI configuration, model catalog, usage report |
 | `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models; refresh the catalog |
 | `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
+| `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
+| `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant) |
+| `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
-Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 
 ---
 
@@ -443,7 +446,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 22 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
+All 23 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
 
 | Type | Handler | What it does | Node-eligible |
 |---|---|---|:-:|
@@ -469,6 +472,7 @@ All 22 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `db.restore.run` | `db-backup/handlers/db-restore-run.handler.ts` | Restores the database from a backup | No |
 | `db.restore.old-db-drop` | `db-backup/handlers/db-restore-old-db-drop.handler.ts` | Drops databases a restore displaced once their retention closes | No |
 | `device-auth.code.cleanup` | `device-auth/handlers/device-code-cleanup.handler.ts` | Deletes expired device codes | No |
+| `telemetry.retention.apply` | `telemetry/handlers/telemetry-retention.handler.ts` | Sets GreptimeDB's database-level TTL to `telemetry.retentionDays`; daily and on policy change | No |
 
 Every `ai.*` type is server-only permanently: no AI key is ever brokered to a worker node. `db.backup.run` is offered to nodes only when `nodes.jobSecretBrokerEnabled` and `databaseBackup.nodeOffloadEnabled` are both on and the broker can mint a role.
 
@@ -532,6 +536,8 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/ai` | AI | AI | `ai_config:read` | none (the page that turns AI on) |
 | `/admin/settings/ai/models` | AI Models | AI | `ai_config:read` | `ai` |
 | `/admin/settings/ai/usage` | AI Usage | AI | `ai_config:read` | `ai` |
+| `/admin/settings/telemetry` | Telemetry | Observability | `telemetry:read` | none (the page that turns telemetry on) |
+| `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
@@ -568,9 +574,10 @@ All files live in `infra/compose/` and are layered with repeated `-f` flags from
 | `base.compose.yml` | Core services: `nginx`, `api`, `web`. No database service. | Always |
 | `dev.compose.yml` | Hot reload, source volumes, exposed ports | Local development |
 | `devdb.compose.yml` | Opt-in PostgreSQL 16 container (`db`) for development | Local development without a shared database |
-| `otel.compose.yml` | OpenTelemetry Collector, Uptrace, ClickHouse and Uptrace's own PostgreSQL and Redis | When you want traces, metrics and logs locally |
+| `telemetry.compose.yml` | OpenTelemetry Collector and GreptimeDB standalone | When you want traces, metrics and logs locally |
 | `prod.compose.yml` | Resource limits, restart policies | Production |
 | `vps.compose.yml` | Publishes nothing on a public interface; the app sits behind a shared host proxy | VPS deployment via `appctl deploy`, after `prod.compose.yml` |
+| `vps.telemetry.compose.yml` | Hardens the telemetry stack for a VPS: no collector host ports, GreptimeDB's Postgres wire port on `127.0.0.1` only | VPS deployment with the `observability` group, after `telemetry.compose.yml` and `vps.compose.yml` |
 | `test.compose.yml` | Disposable PostgreSQL (`db-test`, host port 5433) | Real-database test runs |
 | `worker.compose.yml` | Worker node containers from the published image; scale with `--scale worker=N` | Running a worker fleet |
 | `worker.build.compose.yml` | Builds the worker image from source | Developing the worker itself |
@@ -581,7 +588,7 @@ Typical commands:
 cd infra/compose
 docker compose -f base.compose.yml -f dev.compose.yml up
 docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
-docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
+docker compose -f base.compose.yml -f dev.compose.yml -f telemetry.compose.yml up
 docker compose -f base.compose.yml -f prod.compose.yml up
 ```
 
@@ -597,6 +604,7 @@ docker compose -f base.compose.yml -f prod.compose.yml up
 |---|---|---|
 | `/api/notifications/stream` | api | Buffering off for SSE |
 | `/api/ai/responses/stream` | api | Buffering off for SSE |
+| `/api/admin/telemetry/assistant/stream` | api | Buffering off for SSE (telemetry AI assistant) |
 | `/api` | api | Includes `/api/docs` and `/api/openapi.json` |
 | `/` | web | The React app |
 | `/nginx-health` | nginx | Proxy health probe |
@@ -621,14 +629,17 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 
 | Signal | Mechanism | Destination |
 |---|---|---|
-| Traces | OpenTelemetry Node SDK with Node auto-instrumentations (health probes excluded) | OTLP → otel-collector → Uptrace |
-| Metrics | OpenTelemetry metrics exporter | OTLP → otel-collector → Uptrace |
-| Logs | Pino structured JSON (`apps/api/src/common/logger/`), pretty-printed in development | stdout |
+| Traces | OpenTelemetry Node SDK with Node auto-instrumentations (health probes excluded) | OTLP → otel-collector → GreptimeDB |
+| Metrics | OpenTelemetry metrics exporter | OTLP → otel-collector → GreptimeDB |
+| Logs | Pino structured JSON (`apps/api/src/common/logger/`), pretty-printed in development; also exported over OTLP | stdout, and OTLP → otel-collector → GreptimeDB |
 
-- Instrumentation starts in `apps/api/src/instrumentation.ts`, before the application loads. It runs only when `OTEL_ENABLED=true` (the otel overlay sets it) and exports to `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- Instrumentation starts in `apps/api/src/instrumentation.ts`, before the application loads. It runs only when `OTEL_ENABLED=true` (the telemetry overlay sets it on the `api` service) and exports to `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- A second, independent switch — the `telemetry.enabled` system setting — decides whether the SDK's output is actually exported, checked at export time by a runtime gate (`apps/api/src/common/otel/telemetry-gate.ts`) that starts closed and converges across a fleet within about five seconds of an administrator's change. See [specs/telemetry.md §2](specs/telemetry.md#2-the-two-switches).
+- The collector (`infra/otel/otel-collector-config.yaml`) redacts credential-bearing attributes (`Authorization`, `Cookie`, `Set-Cookie`, query strings) before anything reaches GreptimeDB, and authenticates to it as a write-only user.
 - Each log line carries the request ID and trace ID assigned by the request-ID middleware, so a log line leads to its trace.
 - Never log secrets. The AI platform, credential stores and auth guards keep key material out of logs, spans and error bodies by design.
-- Uptrace UI: http://localhost:14318 when `otel.compose.yml` is running.
+- Administrators query GreptimeDB with SQL, export results, and ask an AI assistant about them, from the Telemetry Explorer (`/admin/settings/telemetry/explorer`, `telemetry:query`) — see [specs/telemetry.md](specs/telemetry.md).
+- GreptimeDB dashboard: http://localhost:14000/dashboard when `telemetry.compose.yml` is running.
 
 Health endpoints (public, reachable during maintenance):
 

@@ -59,6 +59,7 @@ In this order:
 | [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md) | Letting worker nodes take backups with short-lived database roles |
 | [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md) | Rotating or recovering from the loss of `SECRETS_ENCRYPTION_KEY` |
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
+| [runbooks/telemetry.md](runbooks/telemetry.md) | Enabling the GreptimeDB telemetry overlay, setting retention, configuring the AI assistant, connecting a BI tool |
 
 ## Developer recipes in the code
 

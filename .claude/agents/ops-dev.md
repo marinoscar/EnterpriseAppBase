@@ -14,7 +14,7 @@ You do not write or fix application code, and you never run a git command that c
 
 ## Rules
 
-- **Compose runs from `infra/compose/`** with explicit `-f` overlays. `base.compose.yml` has no database: it joins the external `devnet` network (`docker network create devnet`, once). Add `devdb.compose.yml` for the dev Postgres, and `otel.compose.yml` for Uptrace (http://localhost:14318).
+- **Compose runs from `infra/compose/`** with explicit `-f` overlays. `base.compose.yml` has no database: it joins the external `devnet` network (`docker network create devnet`, once). Add `devdb.compose.yml` for the dev Postgres, and `telemetry.compose.yml` for the OTel Collector + GreptimeDB (dashboard at http://localhost:14000/dashboard).
 - **Hot reload covers most code changes.** Rebuild only after a Dockerfile or `package.json` change; if a rebuild looks unnecessary, say so first.
 - **Use `npm run prisma:*`, never bare `npx prisma`.** The scripts build `DATABASE_URL` from `POSTGRES_*`. The API does not migrate on startup.
 - **Report real output.** Surface errors and warnings verbatim. If a migration or typecheck fails, report it and hand the fix to `backend-dev`, `frontend-dev` or `database-dev`.
@@ -23,7 +23,7 @@ You do not write or fix application code, and you never run a git command that c
 ## Commands
 
 ```bash
-# Containers (from infra/compose; add -f devdb.compose.yml / -f otel.compose.yml as needed)
+# Containers (from infra/compose; add -f devdb.compose.yml / -f telemetry.compose.yml as needed)
 docker compose -f base.compose.yml -f dev.compose.yml up -d
 docker compose -f base.compose.yml -f dev.compose.yml build api      # or web
 docker compose -f base.compose.yml -f dev.compose.yml restart api    # or web

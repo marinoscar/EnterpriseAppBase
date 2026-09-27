@@ -38,7 +38,7 @@ interactive API reference (Scalar) at `/api/docs`. On top of that stack:
 | Maintenance mode | A 503 window with an operator message, plus a `MAINTENANCE_MODE` break-glass | [Spec](docs/specs/maintenance-mode.md), [runbook](docs/runbooks/maintenance-mode.md) | `/admin/settings/maintenance` |
 | About / deployment info | Version, commit and deploy history of the running server | [Runbook](docs/runbooks/deployment-info.md) | `/admin/settings/about` |
 | Encrypted credentials | Secrets (SMTP, VAPID, storage, AI keys) encrypted at rest under `SECRETS_ENCRYPTION_KEY`, plus per-user credentials | [Spec](docs/specs/user-credentials.md), [key rotation](docs/runbooks/rotate-secrets-encryption-key.md) | none |
-| Observability | OpenTelemetry traces and metrics, Pino JSON logs, optional Uptrace stack | [Architecture](docs/ARCHITECTURE.md) | none |
+| Observability | OpenTelemetry traces, metrics and logs, Pino JSON logs, optional GreptimeDB-backed telemetry stack with a SQL explorer and AI assistant | [Spec](docs/specs/telemetry.md), [runbook](docs/runbooks/telemetry.md) | `/admin/settings/telemetry` |
 | Template tooling | `scripts/rename.mjs`, `scripts/new-project.mjs`, the `/rename-app` and `/new-project` agent skills | [Renaming guide](docs/RENAMING.md) | none |
 | Testing | Jest + Supertest (API), real-Postgres suites, Vitest + RTL (web and CLI), Playwright e2e with visual baselines | [Testing guide](docs/TESTING.md) | none |
 
@@ -141,8 +141,8 @@ All `docker compose` commands run from `infra/compose`.
 # Development with hot reload (API watch mode, Vite HMR)
 docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
 
-# Add the observability stack; Uptrace UI at http://localhost:14318
-docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f otel.compose.yml up
+# Add the telemetry stack; GreptimeDB dashboard at http://localhost:14000/dashboard
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f telemetry.compose.yml up
 ```
 
 Tests, from the repository root:
@@ -185,9 +185,9 @@ EnterpriseAppBase/
 │   ├── specs/                # Design and rationale, one file per feature
 │   └── runbooks/             # Operator procedures, including VPS deploy and worker nodes
 ├── infra/
-│   ├── compose/              # base, dev, devdb, otel, prod, test, vps, worker, worker.build (*.compose.yml)
+│   ├── compose/              # base, dev, devdb, telemetry, prod, vps, vps.telemetry, test, worker, worker.build (*.compose.yml)
 │   ├── nginx/                # Same-origin routing and CSP
-│   └── otel/                 # OpenTelemetry Collector and Uptrace config
+│   └── otel/                 # OpenTelemetry Collector and GreptimeDB config
 ├── scripts/                  # rename.mjs, new-project.mjs, dev.ps1, worktree.ps1
 ├── tests/e2e/                # Playwright end-to-end and visual tests
 ├── .claude/                  # Agent definitions (agents/) and skills (skills/)

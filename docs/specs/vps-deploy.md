@@ -373,6 +373,16 @@ Everything else comes from `infra/compose/.env.example`; see the wizard above.
 - The read-only `deploy-info` bind mount and `DEPLOY_INFO_PATH` on `api`.
 - `json-file` log rotation (10 MB × 3) on `nginx`, `api` and `web`.
 
+When the `observability` group is recorded for the deployment,
+`composeFilesFor` (`apps/cli/src/deploy/compose-files.ts`) also layers
+`telemetry.compose.yml` (before the VPS files, so it inherits their
+hardening) and `vps.telemetry.compose.yml` last (so its `ports: !override`
+is the final word): the OTel Collector publishes no host port at all, and
+GreptimeDB's PostgreSQL wire port is published on
+`127.0.0.1:${GREPTIME_BIND_PG_PORT:-14003}` only. See
+[specs/telemetry.md](telemetry.md) and the
+[telemetry runbook](../runbooks/telemetry.md).
+
 ### Permissions and API
 
 | Method + route | Purpose | Permission |
