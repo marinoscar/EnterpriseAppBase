@@ -12,16 +12,17 @@ here.
 3. [API unit tests](#api-unit-tests)
 4. [API integration tests](#api-integration-tests)
 5. [API real-Postgres tests](#api-real-postgres-tests)
-6. [Tripwire suites](#tripwire-suites)
-7. [API test configuration](#api-test-configuration)
-8. [Web tests](#web-tests)
-9. [CLI tests](#cli-tests)
-10. [End-to-end tests (Playwright)](#end-to-end-tests-playwright)
-11. [Visual regression](#visual-regression)
-12. [Mocking OAuth](#mocking-oauth)
-13. [Writing a new test](#writing-a-new-test)
-14. [CI](#ci)
-15. [Common issues](#common-issues)
+6. [API real-GreptimeDB tests](#api-real-greptimedb-tests)
+7. [Tripwire suites](#tripwire-suites)
+8. [API test configuration](#api-test-configuration)
+9. [Web tests](#web-tests)
+10. [CLI tests](#cli-tests)
+11. [End-to-end tests (Playwright)](#end-to-end-tests-playwright)
+12. [Visual regression](#visual-regression)
+13. [Mocking OAuth](#mocking-oauth)
+14. [Writing a new test](#writing-a-new-test)
+15. [CI](#ci)
+16. [Common issues](#common-issues)
 
 ## Overview
 
@@ -30,6 +31,7 @@ here.
 | API unit | `apps/api/src/**/*.spec.ts` | Jest, `@nestjs/testing`, mocked dependencies | `npm test --workspace=api` | `api-test` (2 shards) |
 | API integration | `apps/api/test/**/*.integration.spec.ts` (60 files) | Full `AppModule` on Fastify, Supertest, **mocked** Prisma | `npm test --workspace=api` | `api-test` |
 | API real-Postgres | `**/*.db.spec.ts` (26 files) | A real, migrated PostgreSQL 16; `pg_dump`/`pg_restore` for backup suites | `npm run test:db --workspace=api` | `smoke` |
+| API real-GreptimeDB | `apps/api/src/telemetry/telemetry.greptime.spec.ts` | A real, disposable GreptimeDB standalone | `npm run test:greptime --workspace=api` | `greptime-test` |
 | Web | `apps/web/src/**/*.test.{ts,tsx}` | Vitest, jsdom, React Testing Library, MSW | `npm run test:run --workspace=web` | `web-test` (6 shards) |
 | CLI | `apps/cli/src/**/*.test.{ts,tsx}` | Vitest, Node environment | `npm run test:run --workspace=cli` | `build` |
 | End-to-end | `tests/e2e/specs/*.spec.ts` | Playwright against the running Compose stack, `/testing/login` bypass | `cd tests/e2e && npm test` | none (run locally) |
@@ -345,9 +347,56 @@ server. See [runbooks/postgres-client-version.md](runbooks/postgres-client-versi
    shows the guard: `assertNeverTheSharedDatabase` throws before any work if
    a derived name could collide with `POSTGRES_DB`.
 
-## Tripwire suites
+## API real-GreptimeDB tests
 
-These suites never hand-list what they check. They discover it (from the Nest
+`apps/api/src/telemetry/telemetry.greptime.spec.ts` observes a real
+GreptimeDB standalone: the reader/admin user split enforced by the server
+itself (not the app's SQL guard), `TelemetryQueryService` end to end (SELECT
+wrapping, truncation, multi-statement rejection, server-side SQL errors),
+retention (`ALTER DATABASE ... SET 'ttl'`, `SHOW CREATE DATABASE`,
+`TelemetryStatusService`), schema discovery and every export format,
+including a real Parquet round trip through the child-process helper
+(`apps/api/src/telemetry/testing/parquet-child.ts`).
+
+It is excluded from every other Jest script (`test`, `test:db`, `test:all`
+all skip it via `testPathIgnorePatterns`/their own `testRegex`) and only runs
+under `test:greptime`, which every other Jest script's ignore pattern keeps
+out.
+
+### Running it locally
+
+`infra/compose/test.compose.yml`'s `greptime-test` service is a disposable
+GreptimeDB standalone with the same three users CI uses (`admin`, `writer`,
+`reader`, all `readonly` except `admin`/`writer`), on host ports 14010
+(HTTP) and 14013 (PostgreSQL wire):
+
+```bash
+# 1. Start it
+docker compose -f infra/compose/test.compose.yml up -d greptime-test
+
+# 2. Run the tier
+GREPTIME_TEST_URL="postgres://reader:test-reader@localhost:14013/public" \
+GREPTIME_TEST_ADMIN_URL="postgres://admin:test-admin@localhost:14013/public" \
+  npm run test:greptime --workspace=api
+```
+
+Without `GREPTIME_TEST_URL` every test in the file is skipped — a plain
+`npm run test:greptime --workspace=api` on a machine with no GreptimeDB
+running exits cleanly. `GREPTIME_TEST_ADMIN_URL` is optional: without it, the
+suite still runs everything that only needs the reader connection (queries,
+schema, exports) but skips fixture seeding and the retention test, which need
+`ALTER DATABASE` and `CREATE TABLE`/`INSERT`. `GREPTIME_TEST_OUT_DIR` is an
+optional directory to save each exported file to, for manual inspection.
+
+### In CI
+
+`greptime-test` (see [CI](#ci)) starts the same image directly with `docker
+run`, not a `services:` container: GitHub Actions' `services:` block cannot
+pass GreptimeDB the `--user-provider` argument its reader/admin split needs,
+so the job starts it as an explicit step and polls its `/health` endpoint
+before running the tier.
+
+ They discover it (from the Nest
 router, the job registry, the seed file, the filesystem), so a new route, job
 type, provider SDK import or doc link is covered the moment it exists, with
 no edit to the suite.
@@ -677,6 +726,7 @@ Conventions:
 | `web-test` | `npm run test:run --workspace=web -- --shard=N/6`, six shards |
 | `openapi` | Typecheck the dump script, `npm run openapi:dump`, Spectral lint |
 | `smoke` | PostgreSQL 16 service; build the API; `prisma:migrate`; `test:db` (with `NODE_ENV=test`); seed twice (proves idempotency); boot `dist/main.js` and check health and `/api/openapi.json` |
+| `greptime-test` | `docker run` a GreptimeDB standalone (not a `services:` container — see [above](#api-real-greptimedb-tests)), wait for `/health`, then `test:greptime` |
 | `visual` | The visual suite in the pinned Playwright container |
 
 `test:db` runs after migration and before seeding, so the suites see a
