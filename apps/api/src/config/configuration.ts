@@ -9,6 +9,11 @@ export default () => {
   const dbName = process.env.POSTGRES_DB || 'appdb';
   const ssl = process.env.POSTGRES_SSL === 'true';
 
+  // GreptimeDB (telemetry store) — see the `greptime` block below.
+  const greptimeHost = process.env.GREPTIME_HOST || '';
+  const greptimeReaderUser = process.env.GREPTIME_READER_USER || '';
+  const greptimeReaderPassword = process.env.GREPTIME_READER_PASSWORD || '';
+
   // Built by the shared helper, NOT interpolated here. This module used to do
   // its own interpolation without percent-encoding, and because the line below
   // assigns the result to process.env.DATABASE_URL — which PrismaService then
@@ -260,6 +265,35 @@ export default () => {
     enabled: process.env.OTEL_ENABLED === 'true',
     endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
     serviceName: resolveServiceName(),
+  },
+
+  // GreptimeDB — the telemetry store's SQL read side (issue #532, epic #528).
+  //
+  // Modelled on the POSTGRES_* block: plain deploy-time connection details for
+  // the Postgres-wire endpoint the telemetry overlay publishes. This is
+  // infrastructure the overlay itself deploys and names, the same kind of
+  // thing as the application database — NOT a runtime-configured integration
+  // like storage or AI, which is why it is an environment variable at all.
+  // Whether telemetry is exported is a separate, runtime decision (the
+  // `telemetry.enabled` system setting; see common/otel/telemetry-gate.ts).
+  //
+  // Two roles: `reader*` for the read-only queries the admin telemetry UI
+  // runs, `admin*` for the retention/TTL housekeeping that needs DDL.
+  // Credentials default to '' (never a guessable default).
+  //
+  // `available` is derived HERE, once, so every consumer agrees on what "a
+  // telemetry store is configured" means: a host and a reader login. The
+  // admin pair is optional — without it the UI can still read, only
+  // housekeeping is unavailable — so it does not participate.
+  greptime: {
+    host: greptimeHost,
+    pgPort: parseInt(process.env.GREPTIME_PG_PORT || '4003', 10),
+    database: process.env.GREPTIME_DB || 'public',
+    readerUser: greptimeReaderUser,
+    readerPassword: greptimeReaderPassword,
+    adminUser: process.env.GREPTIME_ADMIN_USER || '',
+    adminPassword: process.env.GREPTIME_ADMIN_PASSWORD || '',
+    available: Boolean(greptimeHost && greptimeReaderUser && greptimeReaderPassword),
   },
 
   // Storage limits (issue #377, epic #372)
