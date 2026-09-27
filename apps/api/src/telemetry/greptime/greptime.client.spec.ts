@@ -1,0 +1,288 @@
+import type { ConfigService } from '@nestjs/config';
+import type { PoolConfig } from 'pg';
+
+import {
+  GreptimeClient,
+  greptimeTypeParser,
+  quoteIdent,
+  quoteLiteral,
+  rowsAsObjects,
+  type GreptimeConfig,
+  type GreptimePool,
+} from './greptime.client';
+import {
+  TelemetryMultiStatementError,
+  TelemetryNotConfiguredError,
+  TelemetryQueryFailedError,
+  TelemetryQueryTimeoutError,
+} from './greptime.errors';
+
+const CONFIGURED: GreptimeConfig = {
+  host: 'greptimedb',
+  pgPort: 4003,
+  database: 'public',
+  readerUser: 'reader',
+  readerPassword: 'reader-pw',
+  adminUser: 'admin',
+  adminPassword: 'admin-pw',
+  available: true,
+};
+
+function configService(greptime: Partial<GreptimeConfig>): ConfigService {
+  return { get: jest.fn().mockReturnValue(greptime) } as unknown as ConfigService;
+}
+
+interface FakeClient {
+  query: jest.Mock;
+  release: jest.Mock;
+}
+
+class TestableClient extends GreptimeClient {
+  readonly created: PoolConfig[] = [];
+  readonly createdPools: Array<GreptimePool & { connect: jest.Mock; end: jest.Mock }> = [];
+  client: FakeClient = { query: jest.fn(), release: jest.fn() };
+
+  protected override createPool(config: PoolConfig): GreptimePool {
+    this.created.push(config);
+    const pool = {
+      connect: jest.fn(async () => this.client),
+      end: jest.fn(async () => undefined),
+      on: jest.fn(),
+    };
+    this.createdPools.push(pool as never);
+    return pool as unknown as GreptimePool;
+  }
+}
+
+describe('GreptimeClient', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  describe('configuration', () => {
+    it('is not configured without GreptimeDB env, and refuses to query', async () => {
+      const client = new TestableClient(configService({ available: false }));
+
+      expect(client.isConfigured()).toBe(false);
+      expect(client.isAdminConfigured()).toBe(false);
+      await expect(client.queryReader('SELECT 1', { timeoutMs: 100 })).rejects.toBeInstanceOf(
+        TelemetryNotConfiguredError,
+      );
+      expect(client.created).toHaveLength(0);
+    });
+
+    it('refuses an admin query when only the reader credential is set', async () => {
+      const client = new TestableClient(configService({ ...CONFIGURED, adminUser: '', adminPassword: '' }));
+
+      expect(client.isConfigured()).toBe(true);
+      expect(client.isAdminConfigured()).toBe(false);
+      await expect(client.queryAdmin('SHOW DATABASES', { timeoutMs: 100 })).rejects.toBeInstanceOf(
+        TelemetryNotConfiguredError,
+      );
+    });
+
+    it('creates each pool lazily, once, with its own credential and size', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+
+      expect(client.created).toHaveLength(0);
+
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      await client.queryReader('SELECT 2', { timeoutMs: 1000 });
+      await client.queryAdmin('SELECT 3', { timeoutMs: 1000 });
+
+      expect(client.created).toHaveLength(2);
+      expect(client.created[0]).toMatchObject({
+        host: 'greptimedb',
+        port: 4003,
+        database: 'public',
+        user: 'reader',
+        password: 'reader-pw',
+        max: 4,
+        application_name: 'api-telemetry-reader',
+      });
+      expect(client.created[1]).toMatchObject({ user: 'admin', password: 'admin-pw', max: 1 });
+    });
+  });
+
+  describe('queryReader', () => {
+    it('runs the SQL in array mode and returns fields and rows', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({
+        fields: [
+          { name: 'trace_id', dataTypeID: 1043, tableID: 0 },
+          { name: 'trace_id', dataTypeID: 1043, tableID: 0 },
+        ],
+        rows: [['a', 'b']],
+      });
+
+      const result = await client.queryReader('SELECT a.trace_id, b.trace_id FROM x', { timeoutMs: 1000 });
+
+      expect(client.client.query).toHaveBeenCalledWith({
+        text: 'SELECT a.trace_id, b.trace_id FROM x',
+        rowMode: 'array',
+      });
+      expect(result).toEqual({
+        fields: [
+          { name: 'trace_id', dataTypeID: 1043 },
+          { name: 'trace_id', dataTypeID: 1043 },
+        ],
+        rows: [['a', 'b']],
+      });
+      expect(client.client.release).toHaveBeenCalledWith();
+    });
+
+    it('on timeout destroys the connection and throws TelemetryQueryTimeoutError', async () => {
+      jest.useFakeTimers();
+      const client = new TestableClient(configService(CONFIGURED));
+      let rejectQuery: (error: Error) => void = () => undefined;
+      client.client.query.mockReturnValue(
+        new Promise((_, reject) => {
+          rejectQuery = reject;
+        }),
+      );
+
+      const pending = client.queryReader('SELECT sleep()', { timeoutMs: 250 });
+      const assertion = expect(pending).rejects.toBeInstanceOf(TelemetryQueryTimeoutError);
+
+      await jest.advanceTimersByTimeAsync(250);
+      await assertion;
+
+      // Destroyed (`release(true)`), never returned to the pool.
+      expect(client.client.release).toHaveBeenCalledTimes(1);
+      expect(client.client.release).toHaveBeenCalledWith(true);
+
+      // The abandoned query's eventual rejection is not an unhandled one.
+      rejectQuery(new Error('Connection terminated'));
+      await Promise.resolve();
+    });
+
+    it('carries the timeout it enforced', async () => {
+      jest.useFakeTimers();
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockReturnValue(new Promise(() => undefined));
+
+      const pending = client.queryReader('SELECT 1', { timeoutMs: 1234 });
+      const assertion = expect(pending).rejects.toMatchObject({ timeoutMs: 1234 });
+      await jest.advanceTimersByTimeAsync(1234);
+      await assertion;
+    });
+
+    it('refuses a multi-statement result', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue([
+        { fields: [], rows: [] },
+        { fields: [], rows: [] },
+      ]);
+
+      await expect(client.queryReader('SELECT 1; SELECT 2', { timeoutMs: 1000 })).rejects.toBeInstanceOf(
+        TelemetryMultiStatementError,
+      );
+      expect(client.client.release).toHaveBeenCalledTimes(1);
+    });
+
+    it('wraps a server error and returns the healthy connection to the pool', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockRejectedValue(
+        Object.assign(new Error('Table not found: nope'), { severity: 'ERROR', code: '42P01' }),
+      );
+
+      await expect(client.queryReader('SELECT * FROM nope', { timeoutMs: 1000 })).rejects.toMatchObject({
+        constructor: TelemetryQueryFailedError,
+        message: 'Table not found: nope',
+        code: '42P01',
+      });
+      expect(client.client.release).toHaveBeenCalledWith(undefined);
+    });
+
+    it('destroys the connection on a transport error', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockRejectedValue(new Error('Connection terminated unexpectedly'));
+
+      await expect(client.queryReader('SELECT 1', { timeoutMs: 1000 })).rejects.toBeInstanceOf(
+        TelemetryQueryFailedError,
+      );
+      expect(client.client.release).toHaveBeenCalledWith(true);
+    });
+
+    it('reports a failed connect as TelemetryQueryFailedError without the password', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch(() => undefined);
+      client.createdPools[0].connect.mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.1:4003'));
+
+      const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
+
+      expect(error).toBeInstanceOf(TelemetryQueryFailedError);
+      expect((error as Error).message).toContain('ECONNREFUSED');
+      expect((error as Error).message).not.toContain('reader-pw');
+    });
+  });
+
+  describe('ping', () => {
+    it('returns the version when reachable', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({
+        fields: [{ name: 'version', dataTypeID: 25 }],
+        rows: [['PostgreSQL 16.3 GreptimeDB 1.2.1']],
+      });
+
+      await expect(client.ping()).resolves.toEqual({
+        reachable: true,
+        version: 'PostgreSQL 16.3 GreptimeDB 1.2.1',
+      });
+    });
+
+    it('never throws when unreachable', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockRejectedValue(new Error('boom'));
+
+      await expect(client.ping()).resolves.toEqual({ reachable: false, error: 'boom' });
+    });
+
+    it('reports unconfigured without creating a pool', async () => {
+      const client = new TestableClient(configService({ available: false }));
+
+      await expect(client.ping()).resolves.toMatchObject({ reachable: false });
+      expect(client.created).toHaveLength(0);
+    });
+  });
+
+  it('ends every pool on module destroy', async () => {
+    const client = new TestableClient(configService(CONFIGURED));
+    client.client.query.mockResolvedValue({ fields: [], rows: [] });
+    await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+    await client.queryAdmin('SELECT 1', { timeoutMs: 1000 });
+
+    await client.onModuleDestroy();
+
+    expect(client.createdPools.map((pool) => pool.end.mock.calls.length)).toEqual([1, 1]);
+  });
+
+  describe('helpers', () => {
+    it('quotes identifiers and literals', () => {
+      expect(quoteIdent('public')).toBe('"public"');
+      expect(quoteIdent('we"ird')).toBe('"we""ird"');
+      expect(quoteLiteral("o'neil")).toBe("'o''neil'");
+    });
+
+    it('keeps int8, numeric and timestamps as text; parses the rest', () => {
+      expect(greptimeTypeParser(20)('9007199254740993')).toBe('9007199254740993');
+      expect(greptimeTypeParser(1700)('18446744073709551615')).toBe('18446744073709551615');
+      expect(greptimeTypeParser(1114)('2026-09-27 03:00:00.123456789')).toBe('2026-09-27 03:00:00.123456789');
+      expect(greptimeTypeParser(23)('42')).toBe(42);
+      expect(greptimeTypeParser(16)('t')).toBe(true);
+    });
+
+    it('maps array rows to objects', () => {
+      expect(
+        rowsAsObjects({
+          fields: [
+            { name: 'a', dataTypeID: 23 },
+            { name: 'b', dataTypeID: 1043 },
+          ],
+          rows: [[1, 'x']],
+        }),
+      ).toEqual([{ a: 1, b: 'x' }]);
+    });
+  });
+});

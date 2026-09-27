@@ -242,6 +242,15 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
           'database, are fields rather than status codes.',
       },
       {
+        name: 'Telemetry',
+        description:
+          'Observability: whether traces, logs and metrics are exported to the telemetry store ' +
+          '(GreptimeDB), how long they are retained, and the store\'s status. The policy is ' +
+          '`telemetry:read`/`telemetry:write`; running queries against the data is ' +
+          '`telemetry:query`. `GET /api/telemetry/config` is readable by any signed-in user — ' +
+          'it is how a client learns whether to show telemetry surfaces at all.',
+      },
+      {
         name: 'Maintenance',
         description:
           'The maintenance window: turning it on, the message callers see while it is open, and ' +
