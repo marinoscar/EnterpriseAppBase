@@ -58,6 +58,7 @@ const WELCOME: NotificationEventDef = {
   label: 'Welcome',
   description: 'Sent once, the first time you sign in to this application.',
   channels: ['email'],
+  declaredChannels: ['email'],
   defaultEnabled: true,
   mandatory: false,
 };
@@ -70,6 +71,7 @@ const WEEKLY_DIGEST: NotificationEventDef = {
   label: 'Weekly digest',
   description: 'A weekly summary of activity.',
   channels: ['email'],
+  declaredChannels: ['email'],
   defaultEnabled: false,
   mandatory: false,
 };
@@ -79,6 +81,7 @@ const ROLE_CHANGED: NotificationEventDef = {
   label: 'Your roles changed',
   description: 'Sent when an administrator changes your roles.',
   channels: ['email', 'browser'],
+  declaredChannels: ['email', 'browser'],
   defaultEnabled: true,
   mandatory: true,
 };
@@ -429,6 +432,7 @@ describe('UserNotificationsPage', () => {
       label: 'Synthetic push event',
       description: 'Exercises the push column before a real event declares it.',
       channels: ['push'],
+      declaredChannels: ['push'],
       defaultEnabled: true,
       mandatory: false,
     };

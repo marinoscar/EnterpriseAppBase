@@ -28,7 +28,15 @@
  * BROWSER notification; offering the control for an email-only event
  * (`user.welcome`, `allowlist.invitation`) would render a checkbox that cannot
  * do anything. The registry is the authority on which those are — this page
- * filters on `channels.includes('browser')` and never restates the list.
+ * filters on `declaredChannels.includes('browser')` and never restates the list.
+ *
+ * `declaredChannels`, NOT `channels` (#521). `channels` is what a USER will
+ * receive: the API narrows it by this very policy, so a non-mandatory event
+ * this page has suppressed (or every one, while the switch is off) no longer
+ * lists `browser` there. Filtering on it made a suppressed event vanish from
+ * the one page that can lift the suppression. `declaredChannels` is the
+ * registry's declaration before policy, so a suppressed event stays listed,
+ * unchecked, and can be re-enabled.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -190,8 +198,12 @@ function NotificationSettingsForm({ stored, canWrite, isSaving, onSave }: FormPr
     setDisabledEvents(stored.disabledEvents);
   }, [stored]);
 
+  // `declaredChannels`, not the policy-narrowed `channels`: see the file
+  // header. Filtering on `channels` would hide exactly the events this page
+  // has suppressed, leaving no way to re-enable them (#521).
   const browserEvents = useMemo(
-    () => (events ?? []).filter((event) => event.channels.includes('browser')),
+    () =>
+      (events ?? []).filter((event) => event.declaredChannels.includes('browser')),
     [events],
   );
 

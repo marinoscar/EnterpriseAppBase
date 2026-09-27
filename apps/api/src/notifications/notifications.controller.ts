@@ -117,7 +117,12 @@ export class NotificationsController {
       'listed here is a channel that will be used and one omitted is one that will not. ' +
       'A `mandatory` event is the exception: its channels are never filtered, because ' +
       'its stored notification is the delivery. For those, the policy shows up as ' +
-      '`toast: false` on the SSE stream instead.',
+      '`toast: false` on the SSE stream instead.\n\n' +
+      '**`declaredChannels` is the unfiltered capability** — the channels the event declares ' +
+      'in the registry, before administrator policy. It exists for the administrator’s ' +
+      'notification-policy page, which must keep listing an event whose browser delivery it has ' +
+      'suppressed so the suppression can be undone. Any other client wanting to know what will ' +
+      'be delivered reads `channels`.',
   })
   @ApiDataResponse(NotificationEventDto, {
     isArray: true,
@@ -143,11 +148,17 @@ export class NotificationsController {
     //      response shape. A spread would make it a consequence of whatever
     //      the registry happens to hold, so a field added for the dispatcher's
     //      internal use would silently become public API.
+    //
+    // `declaredChannels` (#521) is the registry's list BEFORE policy, copied
+    // for the same reason as point 2. The admin policy page needs it: listing
+    // events from the filtered `channels` makes a suppressed event disappear,
+    // and with it the only control that could un-suppress it.
     return NOTIFICATION_EVENTS.map((event) => ({
       key: event.key,
       label: event.label,
       description: event.description,
       channels: policyChannels(event, policy),
+      declaredChannels: [...event.channels],
       defaultEnabled: event.defaultEnabled,
       mandatory: event.mandatory === true,
     }));
@@ -181,11 +192,15 @@ export class NotificationsController {
       'A client should not prompt for OS notification permission when it is `false`: browser ' +
       'permission, once denied, cannot be re-prompted, so prompting for a capability this ' +
       'deployment has switched off spends a one-shot decision for nothing.\n\n' +
-      '**This is not a delivery switch.** Notifications are still recorded and the ' +
-      'notification centre still fills when `browserEnabled` is `false`; what is withheld is ' +
-      'the OS toast. Per-event suppression is deliberately not listed here — it travels with ' +
-      'each notification as `toast` on the SSE stream, so a long-lived tab holding a cached ' +
-      'copy of this response can never re-enable something an administrator has muted.\n\n' +
+      '**What `false` stops.** For a non-mandatory event, browser delivery stops entirely: ' +
+      'no in-app notification is recorded, so nothing reaches the notification centre, the ' +
+      'unread count or the SSE stream. A `mandatory` event (see `GET /api/notifications/events`) ' +
+      'is still recorded and still reaches the notification centre; only its OS toast is ' +
+      'withheld, signalled as `toast: false` on the SSE stream. Email is unaffected. Per-event ' +
+      'suppression is deliberately not listed here — it applies the same rule to one event, and ' +
+      'a mandatory event’s suppression travels with each notification as `toast` on the SSE ' +
+      'stream, so a long-lived tab holding a cached copy of this response can never re-enable ' +
+      'something an administrator has muted.\n\n' +
       '`pushEnabled` reflects whether THIS DEPLOYMENT currently has an ACTIVE VAPID key pair — ' +
       'an admin-configured one from `/admin/push-config` (`PushConfigService` ' +
       '.resolveActiveVapidConfig()`, #355) when one exists and is enabled, falling back to the ' +
@@ -308,7 +323,9 @@ export class NotificationsController {
       '**`toast`** is the server’s answer to “may this client raise an OS notification for ' +
       'this event?”, computed from the administrator’s policy at publish time. `false` means ' +
       'the bubble is withheld — the notification itself was still recorded and this frame was ' +
-      'still sent, so the bell and the unread count are unaffected. Because it travels with ' +
+      'still sent, so the bell and the unread count are unaffected. Only a `mandatory` event ' +
+      'can arrive with `toast: false`: a non-mandatory event the policy suppresses is not ' +
+      'recorded or streamed at all. Because it travels with ' +
       'each event, a tab holding a stale copy of `GET /api/notifications/config` still ' +
       'honours the current policy.\n\n' +
       '**This is not a delivery guarantee.** Events published while the connection is down are ' +

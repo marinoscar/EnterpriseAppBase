@@ -44,11 +44,14 @@ export const notificationConfigSchema = z.object({
    * capability is switched off spends a one-shot user decision on a feature
    * this deployment does not offer.
    *
-   * NOT A DELIVERY GATE. `false` does not mean notifications stop: rows are
-   * still written and the notification centre still fills. It means the OS
-   * bubble is off. Per-event suppression is not visible here — it arrives with
-   * each notification as `toast` on the stream, so a client cannot go stale on
-   * it.
+   * WHAT `false` STOPS DEPENDS ON THE EVENT (see `notification-policy.ts`).
+   * For a NON-MANDATORY event, browser delivery stops: no `notifications` row
+   * is written, so nothing reaches the notification centre or the stream. For
+   * a MANDATORY event the row is still written and the centre still shows it;
+   * only the OS bubble is withheld (`toast: false` on the stream). Email is
+   * unaffected either way. Per-event suppression is not visible here — for a
+   * mandatory event it arrives with each notification as `toast` on the
+   * stream, so a client cannot go stale on it.
    */
   browserEnabled: z.boolean(),
 

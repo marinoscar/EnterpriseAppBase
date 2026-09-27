@@ -54,10 +54,14 @@
  *     offering the box would produce a broadcast that silently drops a channel
  *     the admin believed they had selected.
  *   * `browserEnabled === false` → a warning beside In-app, and only a warning.
- *     The kill switch mutes the OS toast; the durable in-app row is still
- *     written, and scheduling an announcement for after the switch is flipped
- *     back is legitimate — which is exactly why the API treats this as a
- *     non-fatal `warnings` entry rather than a 400.
+ *     What the kill switch does depends on importance (#521): a NON-CRITICAL
+ *     broadcast gets no in-app row at all (the policy drops its browser
+ *     channel), except for recipients with a push subscription when Push is
+ *     also selected, since push writes its own row; a CRITICAL one is
+ *     mandatory, so its row is still written and only the OS toast is muted.
+ *     Scheduling an announcement for after the switch is flipped back is
+ *     legitimate — which is exactly why the API treats this as a non-fatal
+ *     `warnings` entry rather than a 400.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -455,9 +459,18 @@ export function BroadcastComposer({
                 )}
                 {browserToastsDisabled && channels.includes('browser') && (
                   <Alert severity="warning" sx={{ mt: 1 }}>
-                    Browser notifications are turned off for this deployment, so recipients will
-                    not see an operating-system notification. The in-app notification is still
-                    written and the bell still shows it.
+                    {critical
+                      ? 'Browser notifications are turned off for this deployment, so recipients ' +
+                        'will not see an operating-system notification. Because this broadcast is ' +
+                        'marked important, the in-app notification is still delivered and the ' +
+                        'bell still shows it.'
+                      : 'Browser notifications are turned off for this deployment, so the in-app ' +
+                        'notification will not be delivered: it will not appear in the bell and ' +
+                        'no operating-system notification will be shown.' +
+                        (channels.includes('push')
+                          ? ' Recipients with push notifications enabled on a device still get ' +
+                            'an in-app entry from the push delivery.'
+                          : '')}
                   </Alert>
                 )}
               </FormControl>
