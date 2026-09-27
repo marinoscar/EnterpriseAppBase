@@ -6,6 +6,11 @@
  * which model) the AI assistant may help. Plus a live status card so an
  * operator can see whether the store is actually there.
  *
+ * The Connection section (#558, `components/telemetry/TelemetryConnectionSection`)
+ * is where the API's GreptimeDB host and logins are set. It is a section of
+ * this page — the same destination — not a card or a tab of its own, and it
+ * saves on its own `If-Match` version, separate from the policy form's.
+ *
  * Gates: the route requires `telemetry:read` (the card's permission, what
  * `telemetry-admin.controller.ts` enforces on its GETs). Saving needs
  * `telemetry:write`; without it every control is disabled — the API is the
@@ -50,6 +55,10 @@ import { TelemetryConfigContext } from '../../hooks/useTelemetryConfig';
 import { useAiConfig } from '../../hooks/useAiConfig';
 import { useAiModels } from '../../hooks/useAiModels';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
+import {
+  TELEMETRY_CONNECTION_SECTION_ID,
+  TelemetryConnectionSection,
+} from '../../components/telemetry/TelemetryConnectionSection';
 import {
   TELEMETRY_LIMITS,
   type TelemetryAdminConfig,
@@ -162,6 +171,11 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** An in-page link to the Connection section. */
+function ConnectionLink({ children }: { children: ReactNode }) {
+  return <Link href={`#${TELEMETRY_CONNECTION_SECTION_ID}`}>{children}</Link>;
+}
+
 function StatusCard({
   status,
   error,
@@ -180,10 +194,12 @@ function StatusCard({
       )}
       {status && !status.configured && (
         <Alert severity="warning" sx={{ mb: 2 }} data-testid="telemetry-not-configured">
-          <AlertTitle>GreptimeDB not configured — start the telemetry overlay</AlertTitle>
-          This deployment has no telemetry store. Start the telemetry compose overlay (it
-          provides GreptimeDB) and set its connection variables, then restart the API. Settings
-          saved here are kept and take effect once the store is available.
+          <AlertTitle>GreptimeDB not configured</AlertTitle>
+          The API has no connection to a telemetry store. Enter the GreptimeDB host and logins in
+          the <ConnectionLink>Connection</ConnectionLink> section and save — no restart needed.
+          GreptimeDB itself must be running: the telemetry compose overlay in development, or{' '}
+          <code>appctl deploy update --group observability</code> on a VPS. Settings saved here
+          are kept and take effect once the store is reachable.
         </Alert>
       )}
       {status && (
@@ -465,6 +481,17 @@ export default function TelemetrySettingsPage() {
           </Alert>
         )}
 
+        <TelemetryConnectionSection
+          canWrite={canWrite}
+          onChanged={(message) => {
+            setSavedMessage(message);
+            // The connection decides `available`, `retentionApplicable` and the
+            // status, so refresh all three — and the shell's shared flag.
+            void reload();
+            void sharedTelemetryConfig?.refresh();
+          }}
+        />
+
         <StatusCard status={status} error={statusError} onRefresh={() => void refreshStatus()} />
 
         {form && config && (
@@ -488,8 +515,9 @@ export default function TelemetrySettingsPage() {
               </FormHelperText>
               {!config.available && (
                 <Alert severity="info" sx={{ mt: 2 }}>
-                  No telemetry store is configured for this deployment, so this switch has no
-                  effect yet.
+                  No telemetry store is configured yet, so this switch has no effect until a
+                  GreptimeDB connection is saved in the{' '}
+                  <ConnectionLink>Connection</ConnectionLink> section.
                 </Alert>
               )}
             </Section>
@@ -541,8 +569,9 @@ export default function TelemetrySettingsPage() {
               </FormHelperText>
               {!config.retentionApplicable && (
                 <Alert severity="warning" sx={{ mt: 2 }} data-testid="retention-not-applicable">
-                  The telemetry store's admin credential is not configured, so this retention
-                  period is saved but cannot be applied.
+                  No GreptimeDB admin login is configured, so this retention period is saved but
+                  cannot be applied. Add an admin user and password in the{' '}
+                  <ConnectionLink>Connection</ConnectionLink> section.
                 </Alert>
               )}
             </Section>

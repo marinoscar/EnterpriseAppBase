@@ -23,6 +23,9 @@ import {
 } from './fixtures/ai';
 import {
   mockTelemetryAdminConfig,
+  mockTelemetryConnectionEnvironment,
+  mockTelemetryConnectionStored,
+  mockTelemetryConnectionTestResult,
   mockTelemetryPublicConfigDisabled,
   mockTelemetryQueryResult,
   mockTelemetrySchema,
@@ -354,6 +357,40 @@ export const handlers = [
 
   http.get(`${API_BASE}/admin/telemetry/status`, () => {
     return HttpResponse.json({ data: mockTelemetryStatus });
+  }),
+
+  // GreptimeDB connection (#558). If-Match is checked against the stored
+  // connection's OWN version, never `/config`'s.
+  http.get(`${API_BASE}/admin/telemetry/connection`, () => {
+    return HttpResponse.json({ data: mockTelemetryConnectionStored });
+  }),
+
+  http.put(`${API_BASE}/admin/telemetry/connection`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const ifMatch = request.headers.get('If-Match');
+    if (ifMatch !== null && Number(ifMatch) !== mockTelemetryConnectionStored.version) {
+      return HttpResponse.json(
+        { code: 'CONFLICT', message: 'The telemetry connection was changed by someone else' },
+        { status: 409 },
+      );
+    }
+    const { readerPassword: _reader, adminPassword: _admin, ...rest } = body;
+    return HttpResponse.json({
+      data: {
+        ...mockTelemetryConnectionStored,
+        ...rest,
+        source: 'stored',
+        version: mockTelemetryConnectionStored.version + 1,
+      },
+    });
+  }),
+
+  http.delete(`${API_BASE}/admin/telemetry/connection`, () => {
+    return HttpResponse.json({ data: mockTelemetryConnectionEnvironment });
+  }),
+
+  http.post(`${API_BASE}/admin/telemetry/connection/test`, () => {
+    return HttpResponse.json({ data: mockTelemetryConnectionTestResult });
   }),
 
   http.get(`${API_BASE}/admin/telemetry/schema`, () => {

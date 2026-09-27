@@ -114,6 +114,124 @@ export async function getTelemetryStatus(): Promise<TelemetryStatus> {
 }
 
 // =============================================================================
+// GreptimeDB connection (#558)
+// =============================================================================
+//
+//   - `GET    /admin/telemetry/connection`       (`telemetry:read`)
+//   - `PUT    /admin/telemetry/connection`       (`telemetry:write`, If-Match)
+//   - `DELETE /admin/telemetry/connection`       (`telemetry:write`, If-Match)
+//   - `POST   /admin/telemetry/connection/test`  (`telemetry:write`, always 200)
+//
+// Passwords are WRITE-ONLY: they appear in request bodies and never in a
+// response, which carries only a masked `credentials.<login>` status. Its
+// `version` is the stored connection's own counter — NOT `/config`'s.
+
+export const TELEMETRY_CONNECTION_SOURCES = ['stored', 'environment', 'none'] as const;
+export type TelemetryConnectionSource = (typeof TELEMETRY_CONNECTION_SOURCES)[number];
+
+/** GreptimeDB's Postgres-wire port and database when nothing says otherwise. */
+export const TELEMETRY_CONNECTION_DEFAULTS = { pgPort: 4003, database: 'public' } as const;
+
+/** Masked, non-secret facts about one password. Never the password. */
+export interface TelemetryCredentialStatus {
+  configured: boolean;
+  /** The credential store's mask (`••••Xk9q`), or null (always null for the environment). */
+  hint: string | null;
+  updatedAt: string | null;
+  updatedByUserId: string | null;
+}
+
+/** `GET /admin/telemetry/connection`. */
+export interface TelemetryConnection {
+  source: TelemetryConnectionSource;
+  host: string;
+  pgPort: number;
+  database: string;
+  readerUser: string;
+  adminUser: string | null;
+  /** A host, a reader login and its password: telemetry can be read. */
+  configured: boolean;
+  /** The admin login is usable too, so retention can be applied. */
+  adminConfigured: boolean;
+  credentials: { reader: TelemetryCredentialStatus; admin: TelemetryCredentialStatus };
+  /** Send back as `If-Match`. `0` when nothing is stored. */
+  version: number;
+  updatedAt: string | null;
+  updatedBy: { id: string; email: string } | null;
+}
+
+/**
+ * The `PUT` / `POST …/test` body. An omitted (or empty) password KEEPS the
+ * stored one on save, and means "the connection in force's password" on test.
+ */
+export interface TelemetryConnectionInput {
+  host: string;
+  pgPort: number;
+  database: string;
+  readerUser: string;
+  readerPassword?: string;
+  /** Null: no admin login (a stored admin password is deleted). */
+  adminUser: string | null;
+  adminPassword?: string;
+}
+
+export interface TelemetryConnectionProbe {
+  success: boolean;
+  latencyMs: number;
+  /** `SELECT version()` — reader only. */
+  version?: string;
+  error?: string;
+}
+
+export interface TelemetryConnectionSkipped {
+  skipped: true;
+}
+
+/** `POST /admin/telemetry/connection/test` — a diagnosis, always 200. */
+export interface TelemetryConnectionTestResult {
+  reader: TelemetryConnectionProbe;
+  admin: TelemetryConnectionProbe | TelemetryConnectionSkipped;
+}
+
+export function isTelemetryProbeSkipped(
+  probe: TelemetryConnectionProbe | TelemetryConnectionSkipped,
+): probe is TelemetryConnectionSkipped {
+  return 'skipped' in probe && probe.skipped === true;
+}
+
+function ifMatch(expectedVersion: number | undefined) {
+  return expectedVersion === undefined ? undefined : { 'If-Match': String(expectedVersion) };
+}
+
+export async function getTelemetryConnection(): Promise<TelemetryConnection> {
+  return api.get<TelemetryConnection>('/admin/telemetry/connection');
+}
+
+export async function updateTelemetryConnection(
+  input: TelemetryConnectionInput,
+  expectedVersion?: number,
+): Promise<TelemetryConnection> {
+  return api.put<TelemetryConnection>('/admin/telemetry/connection', input, {
+    headers: ifMatch(expectedVersion),
+  });
+}
+
+/** Forget the stored connection: the deployment default (environment) or none is in force again. */
+export async function resetTelemetryConnection(
+  expectedVersion?: number,
+): Promise<TelemetryConnection> {
+  return api.delete<TelemetryConnection>('/admin/telemetry/connection', {
+    headers: ifMatch(expectedVersion),
+  });
+}
+
+export async function testTelemetryConnection(
+  input: TelemetryConnectionInput,
+): Promise<TelemetryConnectionTestResult> {
+  return api.post<TelemetryConnectionTestResult>('/admin/telemetry/connection/test', input);
+}
+
+// =============================================================================
 // Explorer (#535)
 // =============================================================================
 

@@ -269,22 +269,30 @@ export default () => {
 
   // GreptimeDB — the telemetry store's SQL read side (issue #532, epic #528).
   //
-  // Modelled on the POSTGRES_* block: plain deploy-time connection details for
-  // the Postgres-wire endpoint the telemetry overlay publishes. This is
-  // infrastructure the overlay itself deploys and names, the same kind of
-  // thing as the application database — NOT a runtime-configured integration
-  // like storage or AI, which is why it is an environment variable at all.
-  // Whether telemetry is exported is a separate, runtime decision (the
-  // `telemetry.enabled` system setting; see common/otel/telemetry-gate.ts).
+  // THE DEPLOYMENT DEFAULT, not the only source (#558). An administrator can
+  // save a connection at /admin/settings/telemetry (a `telemetry_connection`
+  // system-settings row plus two passwords in the encrypted credential store),
+  // and when one is stored it is used WHOLLY in place of this block — no
+  // per-field merge. `TelemetryConnectionService` is the one resolver; nothing
+  // else should read this block.
+  //
+  // WHY THESE VARIABLES STILL EXIST: the telemetry overlay provisions the
+  // GreptimeDB container's users and the OTel collector's writer login from
+  // the same `GREPTIME_*` values, so they are set on every deployment that
+  // runs the overlay anyway. Using them as the default means an operator never
+  // types the same credentials twice and existing deployments keep working on
+  // upgrade. Whether telemetry is exported is a separate, runtime decision
+  // (the `telemetry.enabled` system setting; see common/otel/telemetry-gate.ts).
   //
   // Two roles: `reader*` for the read-only queries the admin telemetry UI
-  // runs, `admin*` for the retention/TTL housekeeping that needs DDL.
-  // Credentials default to '' (never a guessable default).
+  // runs, `admin*` for the retention/TTL housekeeping that needs DDL. The
+  // writer login and the HTTP port are the collector's, never the API's, and
+  // are deliberately not read here. Credentials default to '' (never a
+  // guessable default).
   //
-  // `available` is derived HERE, once, so every consumer agrees on what "a
-  // telemetry store is configured" means: a host and a reader login. The
-  // admin pair is optional — without it the UI can still read, only
-  // housekeeping is unavailable — so it does not participate.
+  // `available` means "this default names a usable reader connection": a host
+  // and a reader login. The admin pair is optional — without it the UI can
+  // still read, only housekeeping is unavailable — so it does not participate.
   greptime: {
     host: greptimeHost,
     pgPort: parseInt(process.env.GREPTIME_PG_PORT || '4003', 10),

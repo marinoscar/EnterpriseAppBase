@@ -208,6 +208,7 @@ Each is enforced by tests and explained in the linked doc. Read it before touchi
 
 - Deployment secrets come from environment variables (`infra/compose/.env.example`), never from code.
 - Storage, AI, Web Push (VAPID) and SMTP are configured at runtime in the admin UI and must **never** get environment variables: no `STORAGE_PROVIDER`, `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `OPENAI_API_KEY` or equivalent. Two sources of truth is the failure this prevents.
+- The telemetry store's connection (GreptimeDB host, port, database, reader/admin logins) is also runtime-configured at `/admin/settings/telemetry`, with `GREPTIME_*` kept only as the deployment default and for the collector/container (see [docs/specs/telemetry.md §8](docs/specs/telemetry.md#8-runtime-connection)).
 - Runtime-configured credentials are encrypted with `SECRETS_ENCRYPTION_KEY` before they are stored.
 - The access JWT is short-lived (15 minutes by default) and is read only from `Authorization: Bearer`. The only cookie is the HttpOnly `refresh_token`, rotated on use.
 - Validate input on every endpoint (Zod schemas).

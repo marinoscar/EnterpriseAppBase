@@ -1,6 +1,8 @@
 import type { ConfigService } from '@nestjs/config';
 import type { PoolConfig } from 'pg';
 
+import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
+
 import {
   GreptimeClient,
   greptimeTypeParser,
@@ -29,8 +31,14 @@ const CONFIGURED: GreptimeConfig = {
   available: true,
 };
 
-function configService(greptime: Partial<GreptimeConfig>): ConfigService {
-  return { get: jest.fn().mockReturnValue(greptime) } as unknown as ConfigService;
+/**
+ * A connection resolver whose only source is the given `GREPTIME_*` default
+ * (no stored connection is ever read: `refresh` is never called here).
+ */
+function configService(greptime: Partial<GreptimeConfig>): TelemetryConnectionService {
+  const config = { get: jest.fn().mockReturnValue(greptime) } as unknown as ConfigService;
+
+  return new TelemetryConnectionService(config, {} as never, {} as never);
 }
 
 interface FakeClient {
@@ -272,6 +280,83 @@ describe('GreptimeClient', () => {
 
       await expect(client.ping()).resolves.toMatchObject({ reachable: false });
       expect(client.created).toHaveLength(0);
+    });
+  });
+
+  describe('pool rebuild on fingerprint change (issue #558)', () => {
+    it('reuses the pool while the fingerprint is unchanged', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      await client.queryReader('SELECT 2', { timeoutMs: 1000 });
+
+      expect(client.created).toHaveLength(1);
+    });
+
+    it('rebuilds the pool — and ends the old one — when the connection fingerprint moves', async () => {
+      const connection = configService(CONFIGURED);
+      const client = new TestableClient(connection);
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      expect(client.created).toHaveLength(1);
+      const firstPool = client.createdPools[0];
+
+      // Simulate an admin save: the resolver's fingerprint (and the password it
+      // hands out) changes on this same instance.
+      jest.spyOn(connection, 'fingerprint').mockReturnValue('new-fingerprint');
+      jest.spyOn(connection, 'resolveCredentials').mockResolvedValue({
+        host: 'greptimedb',
+        port: 4003,
+        database: 'public',
+        user: 'reader',
+        password: 'rotated-reader-pw',
+        fingerprint: 'new-fingerprint',
+      });
+
+      await client.queryReader('SELECT 3', { timeoutMs: 1000 });
+
+      expect(client.created).toHaveLength(2);
+      expect(client.created[1]).toMatchObject({ password: 'rotated-reader-pw' });
+      // The stale pool is ended in the background, never awaited on the query path.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(firstPool.end).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws TelemetryNotConfiguredError, and drops any pool it held, when the fingerprint goes away', async () => {
+      const connection = configService(CONFIGURED);
+      const client = new TestableClient(connection);
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      const firstPool = client.createdPools[0];
+
+      jest.spyOn(connection, 'fingerprint').mockReturnValue(null);
+
+      await expect(client.queryReader('SELECT 2', { timeoutMs: 1000 })).rejects.toBeInstanceOf(
+        TelemetryNotConfiguredError,
+      );
+      await Promise.resolve();
+      expect(firstPool.end).toHaveBeenCalledTimes(1);
+    });
+
+    it('shares one build between concurrent first calls — only one pool is created', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+
+      const [a, b, c] = await Promise.all([
+        client.queryReader('SELECT 1', { timeoutMs: 1000 }),
+        client.queryReader('SELECT 2', { timeoutMs: 1000 }),
+        client.queryReader('SELECT 3', { timeoutMs: 1000 }),
+      ]);
+
+      expect(client.created).toHaveLength(1);
+      expect([a, b, c]).toEqual([
+        { fields: [], rows: [] },
+        { fields: [], rows: [] },
+        { fields: [], rows: [] },
+      ]);
     });
   });
 

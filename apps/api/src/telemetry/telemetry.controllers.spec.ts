@@ -4,6 +4,7 @@ import { PERMISSIONS } from '../common/constants/roles.constants';
 import { TelemetryAdminController } from './telemetry-admin.controller';
 import { TelemetryConfigController } from './telemetry-config.controller';
 import { TelemetryExplorerController } from './telemetry-explorer.controller';
+import { TelemetryConnectionController } from './connection/telemetry-connection.controller';
 
 // `@ApiExtension` stores its value under `swagger/apiExtension`.
 const API_EXTENSION = 'swagger/apiExtension';
@@ -113,6 +114,49 @@ describe('Telemetry controllers — access declarations', () => {
         'X-Telemetry-Truncated': 'false',
       });
       expect(reply.send).toHaveBeenCalledWith(Buffer.from('a\r\n'));
+    });
+  });
+
+  describe('TelemetryConnectionController (issue #558)', () => {
+    const proto = TelemetryConnectionController.prototype;
+
+    it('gates GET on telemetry:read', () => {
+      expect(permissionsOf(proto.getConnection)).toEqual([PERMISSIONS.TELEMETRY_READ]);
+    });
+
+    it.each(['replaceConnection', 'resetConnection', 'testConnection'] as const)(
+      'gates %s on telemetry:write',
+      (method) => {
+        expect(permissionsOf(proto[method])).toEqual([PERMISSIONS.TELEMETRY_WRITE]);
+      },
+    );
+
+    it('parses If-Match and treats an unparseable one as absent, for both PUT and DELETE', async () => {
+      const admin = { replace: jest.fn().mockResolvedValue({}), reset: jest.fn().mockResolvedValue({}) };
+      const tester = { test: jest.fn().mockResolvedValue({}) };
+      const controller = new TelemetryConnectionController(admin as never, tester as never);
+      const body = {} as never;
+
+      await controller.replaceConnection(body, 'user-1', '7');
+      await controller.replaceConnection(body, 'user-1', 'W/"abc"');
+      await controller.replaceConnection(body, 'user-1');
+      expect(admin.replace.mock.calls.map((call) => call[2])).toEqual([7, undefined, undefined]);
+
+      await controller.resetConnection('user-1', '3');
+      await controller.resetConnection('user-1', 'not-a-number');
+      await controller.resetConnection('user-1');
+      expect(admin.reset.mock.calls.map((call) => call[1])).toEqual([3, undefined, undefined]);
+    });
+
+    it('POST test delegates straight to the test service', async () => {
+      const admin = {};
+      const tester = { test: jest.fn().mockResolvedValue({ reader: {}, admin: { skipped: true } }) };
+      const controller = new TelemetryConnectionController(admin as never, tester as never);
+      const body = { host: 'h' } as never;
+
+      await controller.testConnection(body, 'user-1');
+
+      expect(tester.test).toHaveBeenCalledWith(body, 'user-1');
     });
   });
 });

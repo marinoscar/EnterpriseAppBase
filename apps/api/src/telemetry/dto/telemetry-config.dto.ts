@@ -14,8 +14,9 @@ import { systemTelemetrySchema } from '../../common/schemas/settings.schema';
 // sent as `null` clear a stored value.
 //
 // No credential is part of any of these shapes and none may be added — the
-// namespace carries a compile-time proof of that (`settings.schema.ts`), and
-// the GreptimeDB connection is deployment configuration, never a setting.
+// namespace carries a compile-time proof of that (`settings.schema.ts`). The
+// GreptimeDB connection is its own resource (`/api/admin/telemetry/connection`,
+// #558), with its passwords in the encrypted credential store.
 // =============================================================================
 
 export const updateTelemetryConfigSchema = systemTelemetrySchema;
@@ -25,14 +26,15 @@ export type UpdateTelemetryConfigInput = z.infer<typeof updateTelemetryConfigSch
 
 export const telemetryConfigResponseSchema = systemTelemetrySchema.extend({
   /**
-   * Whether this deployment has a telemetry store at all (`GREPTIME_HOST` and
-   * the reader credential are set). Deployment configuration, not a setting:
-   * while false, `enabled` is stored but nothing is exported or queryable.
+   * Whether a telemetry store is configured (admin UI or deployment default):
+   * a host and the reader login with its password. While false, `enabled` is
+   * stored but nothing is exported or queryable.
    */
   available: z.boolean(),
   /**
-   * Whether the GreptimeDB admin credential is set, which retention needs.
-   * While false, `retentionDays` is stored but not applied.
+   * Whether the GreptimeDB admin login is configured (admin UI or deployment
+   * default), which retention needs. While false, `retentionDays` is stored
+   * but not applied.
    */
   retentionApplicable: z.boolean(),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */
@@ -46,7 +48,7 @@ export type TelemetryConfigResponse = z.infer<typeof telemetryConfigResponseSche
 
 /** `GET /api/telemetry/config` — the feature flag every signed-in client reads. */
 export const telemetryPublicConfigSchema = z.object({
-  /** A telemetry store is deployed (GreptimeDB is configured). False hides every telemetry surface. */
+  /** A telemetry store is configured (admin UI or deployment default). False hides every telemetry surface. */
   available: z.boolean(),
   /** `telemetry.enabled` — whether this deployment is currently collecting telemetry. */
   enabled: z.boolean(),

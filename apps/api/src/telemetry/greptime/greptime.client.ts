@@ -1,6 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Pool, types as pgTypes, type PoolClient, type PoolConfig, type QueryArrayResult } from 'pg';
+
+import {
+  TelemetryConnectionService,
+  type GreptimeEnvironmentConfig,
+} from '../connection/telemetry-connection.service';
+import type { TelemetryConnectionRole } from '../connection/telemetry-connection.schema';
 
 import {
   TelemetryMultiStatementError,
@@ -15,17 +20,26 @@ import {
 // (issue #534, epic #528)
 // =============================================================================
 //
-// GreptimeDB speaks the PostgreSQL wire protocol on `GREPTIME_PG_PORT` (4003),
-// so this is `pg` — the driver the API already ships — pointed at it. Two
-// lazily-created pools, one per credential:
+// GreptimeDB speaks the PostgreSQL wire protocol (port 4003 by default), so
+// this is `pg` — the driver the API already ships — pointed at it. Two
+// lazily-created pools, one per login:
 //
-//   reader  `GREPTIME_READER_*` — a GreptimeDB `readonly` user. SELECT, SHOW,
-//           DESCRIBE, information_schema. Everything user-driven (the status
-//           page here; the explorer #535 and the assistant #536) runs on it.
-//   admin   `GREPTIME_ADMIN_*` — used for exactly the statements the reader is
-//           refused: `ALTER DATABASE … SET 'ttl'` (retention) and
-//           `SHOW CREATE DATABASE`. A route never runs caller-supplied SQL on
-//           it.
+//   reader  a GreptimeDB `readonly` user. SELECT, SHOW, DESCRIBE,
+//           information_schema. Everything user-driven (the status page here;
+//           the explorer #535 and the assistant #536) runs on it.
+//   admin   used for exactly the statements the reader is refused:
+//           `ALTER DATABASE … SET 'ttl'` (retention) and `SHOW CREATE
+//           DATABASE`. A route never runs caller-supplied SQL on it.
+//
+// WHERE THE CONNECTION COMES FROM (#558): `TelemetryConnectionService`, the one
+// resolver — the connection an administrator saved at
+// /admin/settings/telemetry, else the `GREPTIME_*` deployment default. It can
+// change while the process runs, so each pool is keyed by a FINGERPRINT of the
+// connection it was built from (source, host, port, database, user, and the
+// password's version). When `run()` finds the fingerprint moved, the old pool
+// is ended in the background and a new one is built on demand with the
+// password read fresh from the credential store. A save therefore takes
+// effect on every instance within one refresh interval, with no restart.
 //
 // WHAT THE SPIKE (#529) FOUND, AND WHAT THIS FILE DOES ABOUT IT
 // -----------------------------------------------------------------------------
@@ -91,17 +105,8 @@ export interface TelemetryPingResult {
   error?: string;
 }
 
-/** The `greptime` block of `config/configuration.ts`. */
-export interface GreptimeConfig {
-  host: string;
-  pgPort: number;
-  database: string;
-  readerUser: string;
-  readerPassword: string;
-  adminUser: string;
-  adminPassword: string;
-  available: boolean;
-}
+/** The `greptime` block of `config/configuration.ts` — the deployment default. */
+export type GreptimeConfig = GreptimeEnvironmentConfig;
 
 /** The subset of `pg.Pool` this class uses — what a test substitutes. */
 export interface GreptimePool {
@@ -110,7 +115,12 @@ export interface GreptimePool {
   on(event: 'error', listener: (error: Error) => void): unknown;
 }
 
-type Role = 'reader' | 'admin';
+type Role = TelemetryConnectionRole;
+
+interface KeyedPool {
+  pool: GreptimePool;
+  fingerprint: string;
+}
 
 /** Pool sizes. Small on purpose: telemetry reads are admin-only and rare. */
 export const GREPTIME_READER_POOL_MAX = 4;
@@ -170,37 +180,25 @@ export function rowsAsObjects(result: TelemetryQueryResult): Record<string, unkn
 @Injectable()
 export class GreptimeClient implements OnModuleDestroy {
   private readonly logger = new Logger(GreptimeClient.name);
-  private readonly config: GreptimeConfig;
-  private readonly pools: Partial<Record<Role, GreptimePool>> = {};
+  private readonly pools: Partial<Record<Role, KeyedPool>> = {};
+  /** A pool being built (its password is being read), so concurrent calls share it. */
+  private readonly building: Partial<Record<Role, Promise<GreptimePool>>> = {};
 
-  constructor(configService: ConfigService) {
-    const raw = configService.get<Partial<GreptimeConfig>>('greptime') ?? {};
+  constructor(private readonly connection: TelemetryConnectionService) {}
 
-    this.config = {
-      host: raw.host ?? '',
-      pgPort: raw.pgPort ?? 4003,
-      database: raw.database || 'public',
-      readerUser: raw.readerUser ?? '',
-      readerPassword: raw.readerPassword ?? '',
-      adminUser: raw.adminUser ?? '',
-      adminPassword: raw.adminPassword ?? '',
-      available: raw.available ?? false,
-    };
-  }
-
-  /** Whether the reader connection is configured — i.e. the telemetry overlay is deployed. */
+  /** Whether the reader connection is configured (admin UI or deployment default). */
   isConfigured(): boolean {
-    return this.config.available;
+    return this.connection.isConfigured();
   }
 
   /** Whether the admin connection is configured as well (retention, `SHOW CREATE DATABASE`). */
   isAdminConfigured(): boolean {
-    return this.isConfigured() && Boolean(this.config.adminUser && this.config.adminPassword);
+    return this.connection.isAdminConfigured();
   }
 
-  /** The GreptimeDB database telemetry is written to (`GREPTIME_DB`, default `public`). */
+  /** The GreptimeDB database telemetry is written to (default `public`). */
   get database(): string {
-    return this.config.database;
+    return this.connection.database;
   }
 
   /**
@@ -236,7 +234,7 @@ export class GreptimeClient implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    const pools = Object.values(this.pools);
+    const pools = Object.values(this.pools).map((entry) => entry.pool);
 
     for (const role of Object.keys(this.pools) as Role[]) {
       delete this.pools[role];
@@ -265,7 +263,7 @@ export class GreptimeClient implements OnModuleDestroy {
   ): Promise<TelemetryQueryResult> {
     if (signal?.aborted) throw new TelemetryQueryAbortedError();
 
-    const pool = this.pool(role);
+    const pool = await this.pool(role);
     const client = await this.connect(pool);
 
     if (signal?.aborted) {
@@ -354,20 +352,59 @@ export class GreptimeClient implements OnModuleDestroy {
     }
   }
 
-  private pool(role: Role): GreptimePool {
-    const existing = this.pools[role];
-    if (existing) return existing;
+  /**
+   * The pool for this login, for the connection in force NOW. Rebuilt when
+   * the connection's fingerprint moved since the pool was made (an admin save,
+   * a credential rotation, a reset to the deployment default).
+   */
+  private async pool(role: Role): Promise<GreptimePool> {
+    const fingerprint = this.connection.fingerprint(role);
 
-    if (role === 'reader' ? !this.isConfigured() : !this.isAdminConfigured()) {
+    if (!fingerprint) {
+      // No longer configured: drop a pool left over from when it was.
+      this.retire(role);
+      throw new TelemetryNotConfiguredError(role);
+    }
+
+    const existing = this.pools[role];
+    if (existing && existing.fingerprint === fingerprint) return existing.pool;
+
+    const inFlight = this.building[role];
+    if (inFlight) return inFlight;
+
+    const building = this.build(role).finally(() => {
+      delete this.building[role];
+    });
+    this.building[role] = building;
+
+    return building;
+  }
+
+  private async build(role: Role): Promise<GreptimePool> {
+    let credentials: Awaited<ReturnType<TelemetryConnectionService['resolveCredentials']>>;
+
+    try {
+      credentials = await this.connection.resolveCredentials(role);
+    } catch (error) {
+      // A credential-store read failed (database down, or a password that no
+      // longer decrypts). The message never carries the secret.
+      throw new TelemetryQueryFailedError(
+        `Could not read the GreptimeDB ${role} credential: ${describeError(error)}`,
+        undefined,
+        'connection',
+      );
+    }
+
+    if (!credentials) {
       throw new TelemetryNotConfiguredError(role);
     }
 
     const pool = this.createPool({
-      host: this.config.host,
-      port: this.config.pgPort,
-      database: this.config.database,
-      user: role === 'reader' ? this.config.readerUser : this.config.adminUser,
-      password: role === 'reader' ? this.config.readerPassword : this.config.adminPassword,
+      host: credentials.host,
+      port: credentials.port,
+      database: credentials.database,
+      user: credentials.user,
+      password: credentials.password,
       max: role === 'reader' ? GREPTIME_READER_POOL_MAX : GREPTIME_ADMIN_POOL_MAX,
       application_name: `api-telemetry-${role}`,
       connectionTimeoutMillis: GREPTIME_CONNECT_TIMEOUT_MS,
@@ -382,9 +419,35 @@ export class GreptimeClient implements OnModuleDestroy {
       this.logger.warn(`GreptimeDB ${role} connection error: ${describeError(error)}`);
     });
 
-    this.pools[role] = pool;
+    const replaced = this.pools[role];
+    this.pools[role] = { pool, fingerprint: credentials.fingerprint };
+
+    if (replaced) {
+      this.logger.log(`GreptimeDB ${role} connection changed; replacing its pool`);
+      this.endInBackground(role, replaced.pool);
+    }
 
     return pool;
+  }
+
+  /** Forget this login's pool and close it in the background. */
+  private retire(role: Role): void {
+    const existing = this.pools[role];
+    if (!existing) return;
+
+    delete this.pools[role];
+    this.endInBackground(role, existing.pool);
+  }
+
+  /**
+   * `end()` waits for checked-out clients to be released, so it is never
+   * awaited on the query path: in-flight statements on the old pool finish
+   * (or time out) on their own, and nothing new is handed out from it.
+   */
+  private endInBackground(role: Role, pool: GreptimePool): void {
+    void pool.end().catch((error: unknown) => {
+      this.logger.warn(`Closing a stale GreptimeDB ${role} pool failed: ${describeError(error)}`);
+    });
   }
 }
 

@@ -696,7 +696,7 @@ environment variable needs a redeploy. Those are encrypted at rest.
 
 | Store | Owner | Table | Cipher purpose | Holds |
 |---|---|---|---|---|
-| `CredentialsService` | The deployment | `credentials` | The row's purpose: `smtp`, `push_vapid`, `storage`, `ai` | SMTP password, VAPID private key, object-storage secret key, AI provider org keys |
+| `CredentialsService` | The deployment | `credentials` | The row's purpose: `smtp`, `push_vapid`, `storage`, `ai`, `telemetry_greptime` | SMTP password, VAPID private key, object-storage secret key, AI provider org keys, GreptimeDB reader/admin passwords |
 | `UserCredentialsService` | A user | `user_credentials` | `user:<userId>:<purpose>` | Generic per-user secrets (no production purposes declared yet) |
 | `UserAiKeysService` | A user | `user_ai_keys` | `ai_user_key` | A user's own AI provider keys (BYOK) |
 
