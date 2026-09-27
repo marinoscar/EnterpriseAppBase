@@ -47,15 +47,21 @@ export class TelemetryConnectionController {
     summary: 'Get the telemetry store connection (Admin only)',
     description:
       'The GreptimeDB connection in force and where it comes from: `source` is `stored` ' +
-      '(saved on this page — used wholly, with no field taken from the environment), ' +
-      '`environment` (the `GREPTIME_*` deployment default) or `none`.\n\n' +
-      '`host` is the host as configured — null when it is **automatic** (`hostMode: auto`), ' +
-      'a literal for a custom override (`hostMode: custom`; `GREPTIME_HOST` for the ' +
-      '`environment` source). `effectiveHost` is the host actually used: for an automatic ' +
-      'host, the deployment host (`GREPTIME_HOST`, else the compose service `greptimedb`).\n\n' +
+      '(saved on this page), `environment` (nothing saved: the GreptimeDB deployed with this ' +
+      'application) or `none`.\n\n' +
+      'The host mode decides who owns the whole connection. **Automatic** (`hostMode: auto`, ' +
+      '`host: null`) is the GreptimeDB deployed with this application: its host, port, database, ' +
+      'logins and passwords all come from the deployment, and `deploymentManaged` is true — ' +
+      'there are no credentials to enter. **Custom** (`hostMode: custom`, `host` a literal, ' +
+      '`source: stored`) is used wholly as saved, passwords from the credential store. ' +
+      '`effectiveHost` is the host actually used.\n\n' +
+      '`deployment` describes the GreptimeDB deployed with this application (host, port, ' +
+      'database, users, and whether it provisions a reader and an admin login) whatever is in ' +
+      'force; `problem` says, in administrator language, why a deployment-managed connection ' +
+      'cannot be used (null otherwise).\n\n' +
       '**Passwords are never returned.** `credentials.reader` / `credentials.admin` say ' +
-      'whether each password is present, with a masked `hint` for a stored one (always null ' +
-      'for the deployment default).',
+      'whether each password is present, with a masked `hint` only for a custom connection\'s ' +
+      'stored password.',
   })
   @ApiResponse({ status: 200, description: 'The telemetry store connection', type: TelemetryConnectionResponseDto })
   async getConnection() {
@@ -67,22 +73,27 @@ export class TelemetryConnectionController {
   @ApiOperation({
     summary: 'Save the telemetry store connection (Admin only)',
     description:
-      'Stores a GreptimeDB connection, which from then on is used INSTEAD OF the `GREPTIME_*` ' +
-      'deployment default, wholly. It takes effect on this instance immediately and on every ' +
-      'other one within five seconds — no restart.\n\n' +
-      '`host` is optional: omitted, null or blank means **automatic** — stored as null and ' +
-      'resolved at use to the deployment host (`GREPTIME_HOST`, else the compose service ' +
-      '`greptimedb`), so it follows the deployment. `pgPort` and `database` default to ' +
-      '`4003` and `public`.\n\n' +
+      'Saves the GreptimeDB connection. It takes effect on this instance immediately and on ' +
+      'every other one within five seconds — no restart.\n\n' +
+      '**Automatic** — `host` omitted, null or blank: the GreptimeDB deployed with this ' +
+      'application. Only that choice is stored; the host, port, database, logins and passwords ' +
+      'all come from the deployment. Every other field is accepted and **ignored**, and any ' +
+      'stored reader/admin password is deleted. Nothing is required.\n\n' +
+      '**Custom** — a literal `host`: used wholly as saved. `readerUser` and `adminUser` (null ' +
+      'for none) are required; `pgPort` and `database` default to `4003` and `public`. ' +
       '`readerPassword` / `adminPassword` are **write-only**: omit them or send them empty to ' +
-      'keep the stored ones. A save with no stored password to keep is a 400 — the deployment ' +
-      'default\'s password is never copied into the store. `adminUser: null` removes the admin ' +
-      'login and its stored password (retention is then not applied).\n\n' +
+      'keep the stored ones. A save with no stored password to keep is a 400 — the ' +
+      'deployment\'s password is never copied into the store. `adminUser: null` removes the ' +
+      'admin login and its stored password (retention is then not applied).\n\n' +
       'Every save re-applies the export gate and queues a `telemetry.retention.apply` job.',
   })
   @ApiHeader({ name: 'If-Match', description: IF_MATCH_DESCRIPTION, required: false })
   @ApiResponse({ status: 200, description: 'The saved connection', type: TelemetryConnectionResponseDto })
-  @ApiResponse({ status: 400, description: 'Validation error, or a required password is missing', type: ErrorDto })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation error, or (custom host) a required user or password is missing',
+    type: ErrorDto,
+  })
   @ApiResponse({ status: 409, description: 'Version conflict', type: ErrorDto })
   async replaceConnection(
     @Body() dto: UpdateTelemetryConnectionDto,
@@ -115,10 +126,14 @@ export class TelemetryConnectionController {
     summary: 'Test a telemetry store connection (Admin only)',
     description:
       'Checks the connection **in the request body**, which does not have to have been saved: ' +
-      'the reader runs `SELECT version()`, the admin (when `adminUser` is set) runs ' +
-      '`SHOW CREATE DATABASE <database>`. A blank password means the one the connection in ' +
-      'force uses for that login; a blank host means the deployment host. The host actually ' +
-      'probed is returned as `host`.\n\n' +
+      'the reader runs `SELECT version()`, the admin (when there is an admin user) runs ' +
+      '`SHOW CREATE DATABASE <database>`.\n\n' +
+      'A blank host is **automatic**: the GreptimeDB deployed with this application is probed ' +
+      'with the deployment\'s own port, database, logins and passwords — any submitted ones are ' +
+      'ignored — and a login the deployment does not provide is reported in the probe\'s ' +
+      '`error`. For a **custom** host the body is probed as sent, and a blank password means ' +
+      'the one the connection in force uses for that login. The host actually probed is ' +
+      'returned as `host`, with `hostMode`.\n\n' +
       '**Always 200** — read `reader.success` and `admin.success` (or `admin.skipped`). Each ' +
       'check is bounded to five seconds to connect and five to answer.',
   })

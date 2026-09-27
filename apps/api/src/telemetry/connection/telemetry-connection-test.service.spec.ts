@@ -60,8 +60,32 @@ function makeClient(overrides: Partial<FakeClient> = {}): FakeClient {
   };
 }
 
-function build(currentPassword: (role: 'reader' | 'admin') => Promise<string | null> = async () => 'current-pw') {
-  const connection = { currentPassword: jest.fn(currentPassword), deploymentHost: 'deploy-host' };
+const DEPLOYMENT = {
+  host: 'deploy-host',
+  pgPort: 4010,
+  database: 'deploy_db',
+  readerUser: 'env-reader',
+  adminUser: 'env-admin' as string | null,
+  readerConfigured: true,
+  adminConfigured: true,
+};
+
+const DEPLOYMENT_PASSWORDS: Record<'reader' | 'admin', string | null> = {
+  reader: 'env-reader-pw',
+  admin: 'env-admin-pw',
+};
+
+function build(
+  currentPassword: (role: 'reader' | 'admin') => Promise<string | null> = async () => 'current-pw',
+  deployment: { description?: Partial<typeof DEPLOYMENT>; passwords?: Partial<typeof DEPLOYMENT_PASSWORDS> } = {},
+) {
+  const passwords = { ...DEPLOYMENT_PASSWORDS, ...deployment.passwords };
+  const connection = {
+    currentPassword: jest.fn(currentPassword),
+    deploymentHost: 'deploy-host',
+    describeDeployment: jest.fn(() => ({ ...DEPLOYMENT, ...deployment.description })),
+    deploymentPassword: jest.fn((role: 'reader' | 'admin') => passwords[role]),
+  };
   const service = new TestableService(connection as never);
   return { service, connection };
 }
@@ -109,10 +133,68 @@ describe('TelemetryConnectionTestService', () => {
       const result = await service.test({ ...CANDIDATE, host: null }, 'admin-1');
 
       expect(result.host).toBe('deploy-host');
+      expect(result.hostMode).toBe('auto');
       expect(service.created).toHaveLength(2);
       for (const config of service.created) {
-        expect(config).toMatchObject({ host: 'deploy-host', port: 4003, database: 'public' });
+        expect(config).toMatchObject({ host: 'deploy-host', port: 4010, database: 'deploy_db' });
       }
+    });
+
+    it('an automatic host ALWAYS uses the deployment logins, ignoring every submitted credential (issue #570)', async () => {
+      const { service, connection } = build();
+
+      await service.test(
+        {
+          host: null,
+          pgPort: 9999,
+          database: 'typed_db',
+          readerUser: 'typed-reader',
+          readerPassword: 'guessed-reader-pw',
+          adminUser: 'typed-admin',
+          adminPassword: 'guessed-admin-pw',
+        },
+        'admin-1',
+      );
+
+      expect(service.created).toEqual([
+        expect.objectContaining({ port: 4010, database: 'deploy_db', user: 'env-reader', password: 'env-reader-pw' }),
+        expect.objectContaining({ port: 4010, database: 'deploy_db', user: 'env-admin', password: 'env-admin-pw' }),
+      ]);
+      expect(JSON.stringify(service.created)).not.toMatch(/guessed|typed/);
+      // Nor the password of a stored (custom) connection.
+      expect(connection.currentPassword).not.toHaveBeenCalled();
+    });
+
+    it('an automatic host whose deployment has no reader login says so in administrator language, without probing', async () => {
+      const { service } = build(undefined, { passwords: { reader: null } });
+
+      const result = await service.test({ ...CANDIDATE, host: null }, 'admin-1');
+
+      expect(result.reader).toEqual({
+        success: false,
+        latencyMs: 0,
+        error:
+          'The GreptimeDB deployed with this application has no reader login configured. ' +
+          'Update the application to provision it.',
+      });
+      expect(result.reader.error).not.toMatch(/env|compose|GREPTIME_|appctl|CLI/i);
+      // The admin login is still checked on its own.
+      expect(service.created).toHaveLength(1);
+      expect(service.created[0]).toMatchObject({ user: 'env-admin' });
+    });
+
+    it('an automatic host: no admin user in the deployment skips the admin; a user without a password is a gap', async () => {
+      const skipped = build(undefined, { description: { adminUser: null } });
+      await expect(skipped.service.test({ ...CANDIDATE, host: null }, 'admin-1')).resolves.toMatchObject({
+        admin: { skipped: true },
+      });
+
+      const gap = build(undefined, { passwords: { admin: null } });
+      const result = await gap.service.test({ ...CANDIDATE, host: null }, 'admin-1');
+      expect(result.admin).toMatchObject({
+        success: false,
+        error: expect.stringContaining('has no admin login configured'),
+      });
     });
 
     it('a custom host probes exactly that host, and reports it as `host`', async () => {
@@ -121,7 +203,8 @@ describe('TelemetryConnectionTestService', () => {
       const result = await service.test(CANDIDATE, 'admin-1');
 
       expect(result.host).toBe('candidate-host');
-      expect(service.created[0]).toMatchObject({ host: 'candidate-host' });
+      expect(result.hostMode).toBe('custom');
+      expect(service.created[0]).toMatchObject({ host: 'candidate-host', user: 'reader', password: 'reader-pw' });
     });
   });
 

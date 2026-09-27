@@ -51,7 +51,10 @@ export class TelemetryStatusService {
     };
 
     if (!base.configured) {
-      return base;
+      // The deployment's own GreptimeDB lacking a login is something an
+      // administrator must be told in their terms (issue #570); any other
+      // unconfigured state is just `configured: false`.
+      return { ...base, error: this.greptime.configurationProblem() };
     }
 
     const ping = await this.greptime.ping();

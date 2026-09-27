@@ -171,19 +171,50 @@ export interface TelemetryCredentialStatus {
   updatedByUserId: string | null;
 }
 
-/** `GET /admin/telemetry/connection`. */
+/**
+ * The GreptimeDB deployed with this application, as the deployment describes
+ * it (issue #570). What an automatic host uses. Non-secret: never a password.
+ */
+export interface TelemetryDeploymentConnection {
+  /** The deployment host an automatic connection uses. */
+  host: string;
+  pgPort: number;
+  database: string;
+  /** Empty when the deployment provisions no reader login. */
+  readerUser: string;
+  adminUser: string | null;
+  /** The deployment provides a reader user and its password. */
+  readerConfigured: boolean;
+  /** The deployment provides an admin user and its password. */
+  adminConfigured: boolean;
+}
+
+/** `GET /admin/telemetry/connection` (and the `PUT` / `DELETE` responses). */
 export interface TelemetryConnection {
   source: TelemetryConnectionSource;
   /**
-   * The host as CONFIGURED: null when it is automatic (the deployment host,
-   * resolved by the API at use); a literal for a custom override or, for
-   * `source` `environment`, `GREPTIME_HOST`.
+   * The host as CONFIGURED: null when it is automatic (a stored automatic
+   * connection, `source` `environment` or `none`); a literal only for a
+   * stored custom host.
    */
   host: string | null;
   /** The host actually used — for `source` `none`, the one an automatic host would use. */
   effectiveHost: string;
   /** `auto`: `host` is null and `effectiveHost` is the deployment host; `custom`: a literal. */
   hostMode: TelemetryConnectionHostMode;
+  /**
+   * The whole connection (port, database, logins, passwords) comes from the
+   * deployment: `source` `environment`, or a stored automatic host. Nothing
+   * but the host mode is the administrator's to set (#570).
+   */
+  deploymentManaged: boolean;
+  /** What an automatic host uses — present whatever is in force. */
+  deployment: TelemetryDeploymentConnection;
+  /**
+   * Why a deployment-managed connection cannot be fully used (no reader or
+   * admin login provisioned), in administrator language; null otherwise.
+   */
+  problem: string | null;
   pgPort: number;
   database: string;
   readerUser: string;
@@ -200,12 +231,19 @@ export interface TelemetryConnection {
 }
 
 /**
- * The `PUT` / `POST …/test` body. An omitted (or empty) password KEEPS the
+ * AUTOMATIC: the GreptimeDB deployed with this application. The deployment
+ * supplies everything else, so nothing else is sent (#570).
+ */
+export interface TelemetryConnectionAutomaticInput {
+  host: null;
+}
+
+/**
+ * CUSTOM: an external GreptimeDB. An omitted (or empty) password KEEPS the
  * stored one on save, and means "the connection in force's password" on test.
  */
-export interface TelemetryConnectionInput {
-  /** Omitted, null or blank: AUTOMATIC (the deployment host), stored as null. */
-  host?: string | null;
+export interface TelemetryConnectionCustomInput {
+  host: string;
   /** Omitted: 4003. */
   pgPort?: number;
   /** Omitted: `public`. */
@@ -216,6 +254,11 @@ export interface TelemetryConnectionInput {
   adminUser: string | null;
   adminPassword?: string;
 }
+
+/** The `PUT` / `POST …/test` body. */
+export type TelemetryConnectionInput =
+  | TelemetryConnectionAutomaticInput
+  | TelemetryConnectionCustomInput;
 
 export interface TelemetryConnectionProbe {
   success: boolean;
@@ -233,6 +276,8 @@ export interface TelemetryConnectionSkipped {
 export interface TelemetryConnectionTestResult {
   /** The host actually probed (the deployment host when the candidate's is automatic). */
   host: string;
+  /** `auto`: the deployment's own GreptimeDB and logins were probed; `custom`: the candidate's. */
+  hostMode: TelemetryConnectionHostMode;
   reader: TelemetryConnectionProbe;
   admin: TelemetryConnectionProbe | TelemetryConnectionSkipped;
 }

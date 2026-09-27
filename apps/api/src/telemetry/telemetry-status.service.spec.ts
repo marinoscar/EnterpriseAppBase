@@ -6,9 +6,10 @@ import {
   TelemetryStatusService,
 } from './telemetry-status.service';
 
-function build(options: { configured?: boolean; admin?: boolean } = {}) {
+function build(options: { configured?: boolean; admin?: boolean; problem?: string | null } = {}) {
   const greptime = {
     database: 'public',
+    configurationProblem: jest.fn().mockReturnValue(options.problem ?? null),
     isConfigured: jest.fn().mockReturnValue(options.configured ?? true),
     isAdminConfigured: jest.fn().mockReturnValue(options.admin ?? true),
     ping: jest.fn().mockResolvedValue({ reachable: true, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' }),
@@ -51,6 +52,19 @@ describe('TelemetryStatusService', () => {
       tables: [],
       error: null,
     });
+    expect(greptime.ping).not.toHaveBeenCalled();
+  });
+
+  it('says why the deployment\'s own GreptimeDB is unconfigured, in administrator language (issue #570)', async () => {
+    const problem =
+      'The GreptimeDB deployed with this application has no reader login configured. ' +
+      'Update the application to provision it.';
+    const { service, greptime } = build({ configured: false, problem });
+
+    const status = await service.getStatus();
+
+    expect(status).toMatchObject({ configured: false, reachable: false, error: problem });
+    expect(status.error).not.toMatch(/env|compose|GREPTIME_|appctl|CLI/i);
     expect(greptime.ping).not.toHaveBeenCalled();
   });
 

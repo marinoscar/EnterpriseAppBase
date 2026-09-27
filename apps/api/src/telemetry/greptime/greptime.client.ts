@@ -203,6 +203,15 @@ export class GreptimeClient implements OnModuleDestroy {
     return this.connection.isConfigured();
   }
 
+  /**
+   * Why the reader connection cannot be used, in administrator language, or
+   * null — set only for the GreptimeDB deployed with this application, when
+   * the deployment provisions no reader login (issue #570).
+   */
+  configurationProblem(): string | null {
+    return this.connection.configurationProblem('reader');
+  }
+
   /** Whether the admin connection is configured as well (retention, `SHOW CREATE DATABASE`). */
   isAdminConfigured(): boolean {
     return this.connection.isAdminConfigured();
@@ -232,7 +241,7 @@ export class GreptimeClient implements OnModuleDestroy {
   /** Reachability probe over the reader connection. Never throws. */
   async ping(): Promise<TelemetryPingResult> {
     if (!this.isConfigured()) {
-      return { reachable: false, error: new TelemetryNotConfiguredError('reader').message };
+      return { reachable: false, error: this.configurationProblem() ?? new TelemetryNotConfiguredError('reader').message };
     }
 
     try {

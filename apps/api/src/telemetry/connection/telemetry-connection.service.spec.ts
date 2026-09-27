@@ -1,6 +1,8 @@
 import type { ConfigService } from '@nestjs/config';
 
 import {
+  DEPLOYMENT_ADMIN_MISSING_MESSAGE,
+  DEPLOYMENT_READER_MISSING_MESSAGE,
   TelemetryConnectionService,
   type GreptimeEnvironmentConfig,
 } from './telemetry-connection.service';
@@ -16,10 +18,12 @@ import {
 // TelemetryConnectionService — tests (issue #558, epic #528)
 // =============================================================================
 //
-// THE ONE RULE THIS SUITE IS ABOUT: a stored row wins WHOLLY (never a per-field
-// merge with the environment), else the environment default when it names a
-// host, else none. A row that exists but fails to validate counts as "stored,
-// unusable" — it must never silently fall back to the environment default.
+// THE ONE RULE THIS SUITE IS ABOUT: a stored CUSTOM row wins WHOLLY (never a
+// per-field merge with the environment); a stored AUTOMATIC row (`host: null`)
+// is the deployment WHOLLY — its stored users and passwords are ignored (issue
+// #570); nothing stored is the environment default when it names a host, else
+// none. A row that exists but fails to validate counts as "stored, unusable" —
+// it must never silently fall back to the environment default.
 // =============================================================================
 
 const ENV: GreptimeEnvironmentConfig = {
@@ -80,7 +84,7 @@ function build(env: Partial<GreptimeEnvironmentConfig> = ENV) {
   const prisma = {
     systemSettings: { findUnique: jest.fn().mockResolvedValue(null) },
   };
-  const credentials = {
+  const credentials: { describe: jest.Mock; getSecret: jest.Mock; deleteSecret?: jest.Mock } = {
     describe: jest.fn().mockResolvedValue(null),
     getSecret: jest.fn().mockResolvedValue(null),
   };
@@ -350,24 +354,91 @@ describe('TelemetryConnectionService', () => {
       expect(telemetryDeploymentHost(' env-host ')).toBe('env-host');
     });
 
-    it('a stored null host resolves to GREPTIME_HOST at refresh, and is still the stored connection', async () => {
-      const { service } = storedAuto(ENV);
+    it('a stored null host is the deployment WHOLLY: host, port, database and users from GREPTIME_*', async () => {
+      const { service } = storedAuto({ ...ENV, pgPort: 5555, database: 'env_db' });
 
       const state = await service.refresh();
 
-      expect(state.snapshot.source).toBe('stored');
-      expect(state.snapshot.host).toBe('env-host');
-      expect(state.snapshot.hostMode).toBe('auto');
+      expect(state.snapshot).toMatchObject({
+        source: 'stored',
+        host: 'env-host',
+        hostMode: 'auto',
+        deploymentManaged: true,
+        pgPort: 5555,
+        database: 'env_db',
+        reader: { user: 'env-reader', passwordSet: true, version: 'environment' },
+        admin: { user: 'env-admin', passwordSet: true, version: 'environment' },
+      });
       // The stored value keeps null — the literal is never written back.
       expect(state.stored?.host).toBeNull();
-      // Everything else still comes from the row, not the environment.
-      expect(state.snapshot.reader.user).toBe('stored-reader');
       expect(service.isConfigured()).toBe(true);
+      expect(service.isAdminConfigured()).toBe(true);
+    });
+
+    it('ignores (and does not delete) the users and passwords a pre-#570 automatic row still carries', async () => {
+      const { service, credentials } = storedAuto(ENV);
+      credentials.getSecret.mockResolvedValue('guessed-stored-pw');
+      credentials.deleteSecret = jest.fn();
+      await service.refresh();
+
+      const reader = await service.resolveCredentials('reader');
+      const admin = await service.resolveCredentials('admin');
+
+      expect(credentials.getSecret).not.toHaveBeenCalled();
+      expect(credentials.deleteSecret).not.toHaveBeenCalled();
+      expect(reader).toMatchObject({ host: 'env-host', user: 'env-reader', password: 'env-reader-pw', automaticHost: true });
+      expect(admin).toMatchObject({ user: 'env-admin', password: 'env-admin-pw' });
+      await expect(service.currentPassword('reader')).resolves.toBe('env-reader-pw');
+    });
+
+    it('a stored null host with no reader login in the deployment is unconfigured, and says why in administrator language', async () => {
+      const { service } = storedAuto({ ...ENV, readerPassword: '' });
+
+      await service.refresh();
+
+      expect(service.isConfigured()).toBe(false);
+      expect(service.configurationProblem()).toBe(DEPLOYMENT_READER_MISSING_MESSAGE);
+      expect(DEPLOYMENT_READER_MISSING_MESSAGE).not.toMatch(/env|compose|GREPTIME_|appctl|CLI|variable/i);
+    });
+
+    it('reports a missing deployment admin login only when asked about the admin', async () => {
+      const { service } = storedAuto({ ...ENV, adminPassword: '' });
+
+      await service.refresh();
+
+      expect(service.configurationProblem('reader')).toBeNull();
+      expect(service.configurationProblem('admin')).toBe(DEPLOYMENT_ADMIN_MISSING_MESSAGE);
+    });
+
+    it('a custom stored host never reports a deployment problem', async () => {
+      const { service, prisma } = build({ ...ENV, readerPassword: '' });
+      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+
+      await service.refresh();
+
+      expect(service.configurationProblem('admin')).toBeNull();
+    });
+
+    it('describeDeployment reports what the deployment provisions, never a password', () => {
+      const { service } = build({ ...ENV, adminPassword: '' });
+
+      const deployment = service.describeDeployment();
+
+      expect(deployment).toEqual({
+        host: 'env-host',
+        pgPort: 4003,
+        database: 'public',
+        readerUser: 'env-reader',
+        adminUser: 'env-admin',
+        readerConfigured: true,
+        adminConfigured: false,
+      });
+      expect(JSON.stringify(deployment)).not.toContain('env-reader-pw');
     });
 
     it('a stored null host resolves to the compose service name when GREPTIME_HOST is unset or blank', async () => {
       for (const host of ['', '   ']) {
-        const { service } = storedAuto({ ...NO_ENV, host });
+        const { service } = storedAuto({ ...ENV, host });
 
         const state = await service.refresh();
 
@@ -378,8 +449,7 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('resolveCredentials connects an automatic host to the deployment host', async () => {
-      const { service, credentials } = storedAuto(ENV);
-      credentials.getSecret.mockResolvedValue('stored-reader-pw');
+      const { service } = storedAuto(ENV);
       await service.refresh();
 
       await expect(service.resolveCredentials('reader')).resolves.toMatchObject({ host: 'env-host' });
@@ -396,6 +466,32 @@ describe('TelemetryConnectionService', () => {
       expect(second.service.fingerprint('reader')).not.toBe(first.service.fingerprint('reader'));
     });
 
+    it('the fingerprint of an automatic row follows the deployment credentials, not a stored one', async () => {
+      const { service, credentials } = storedAuto(ENV);
+      await service.refresh();
+      const first = service.fingerprint('reader');
+
+      // A stored credential being rotated is irrelevant to an automatic connection.
+      credentials.describe.mockResolvedValue({ ...READER_INFO, updatedAt: new Date('2026-06-06T00:00:00.000Z') });
+      await service.refresh();
+
+      expect(service.fingerprint('reader')).toBe(first);
+      expect(first).toContain('environment');
+    });
+
+    it('switching between a custom and an automatic row changes the fingerprint', async () => {
+      const { service, prisma, credentials } = build({ ...ENV, host: 'stored-host', readerUser: 'stored-reader' });
+      credentials.describe.mockResolvedValue(READER_INFO);
+      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      await service.refresh();
+      const custom = service.fingerprint('reader');
+
+      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: { host: null } });
+      await service.refresh();
+
+      expect(service.fingerprint('reader')).not.toBe(custom);
+    });
+
     it('a stored string host (every row saved before #562) is a custom override', async () => {
       const { service, prisma } = build(ENV);
       prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
@@ -407,14 +503,27 @@ describe('TelemetryConnectionService', () => {
       expect(state.stored?.host).toBe('stored-host');
     });
 
-    it('the environment source is a custom host; none is automatic', async () => {
-      expect((await build(ENV).service.refresh()).snapshot.hostMode).toBe('custom');
-      expect((await build(NO_ENV).service.refresh()).snapshot.hostMode).toBe('auto');
+    it('the environment source is the deployment (automatic, deployment-managed); none is automatic but unmanaged', async () => {
+      expect((await build(ENV).service.refresh()).snapshot).toMatchObject({ hostMode: 'auto', deploymentManaged: true });
+      expect((await build(NO_ENV).service.refresh()).snapshot).toMatchObject({ hostMode: 'auto', deploymentManaged: false });
     });
 
-    it('the stored-value schema accepts a null host and still refuses a malformed one', () => {
-      expect(telemetryConnectionValueSchema.safeParse(AUTO_VALUE).success).toBe(true);
+    it('with no connection at all there is no current password, even if a stale one is stored', async () => {
+      const { service, credentials } = build(NO_ENV);
+      credentials.getSecret.mockResolvedValue('stale');
+      await service.refresh();
+
+      await expect(service.currentPassword('reader')).resolves.toBeNull();
+      expect(service.configurationProblem()).toBeNull();
+    });
+
+    it('the stored-value schema: a bare marker, a pre-#570 automatic row (extra fields stripped), a custom row', () => {
+      expect(telemetryConnectionValueSchema.parse({ host: null })).toEqual({ host: null });
+      expect(telemetryConnectionValueSchema.parse(AUTO_VALUE)).toEqual({ host: null });
+      expect(telemetryConnectionValueSchema.parse(STORED_VALUE)).toEqual(STORED_VALUE);
       expect(telemetryConnectionValueSchema.safeParse({ ...STORED_VALUE, host: 'http://x:4003' }).success).toBe(false);
+      // A custom host still needs its logins.
+      expect(telemetryConnectionValueSchema.safeParse({ host: 'stored-host' }).success).toBe(false);
     });
   });
 

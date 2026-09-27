@@ -10,7 +10,11 @@ import type {
 import { GREPTIME_CONNECT_TIMEOUT_MS, GREPTIME_PING_TIMEOUT_MS, quoteIdent } from '../greptime/greptime.client';
 import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptions } from '../greptime/greptime-host';
 import type { TelemetryConnectionRole } from './telemetry-connection.schema';
-import { TelemetryConnectionService } from './telemetry-connection.service';
+import {
+  DEPLOYMENT_ADMIN_MISSING_MESSAGE,
+  DEPLOYMENT_READER_MISSING_MESSAGE,
+  TelemetryConnectionService,
+} from './telemetry-connection.service';
 
 // =============================================================================
 // TelemetryConnectionTestService — POST /api/admin/telemetry/connection/test
@@ -46,17 +50,22 @@ import { TelemetryConnectionService } from './telemetry-connection.service';
 // one (check or clear the host). A DNS error that still reaches a probe is
 // reported the same way.
 //
-// A BLANK HOST means the deployment host (`GREPTIME_HOST`, else the compose
-// service `greptimedb`) — exactly what an automatic host resolves to once
-// saved (issue #562). The host actually probed is returned as `host`, so the
-// form can say what "automatic" meant.
+// A BLANK HOST IS AUTOMATIC: the GreptimeDB deployed with this application,
+// probed EXACTLY as an automatic connection resolves once saved (issues #562,
+// #570) — the deployment host (`GREPTIME_HOST`, else the compose service
+// `greptimedb`), port, database, reader and admin logins and their passwords,
+// all from the deployment. Any port, database, user or password in the body
+// is IGNORED: the administrator never supplies them, and a guess must not be
+// able to make a working deployment look broken. A login the deployment does
+// not provision is reported in administrator language, without a probe. The
+// host actually probed is returned as `host` (with `hostMode: auto`).
 //
-// A BLANK PASSWORD means "the password the connection in force uses for that
-// login" — the stored one, or the environment's while the deployment default
-// is in force — so an administrator can test a changed host without retyping
-// a secret they may not have. That password is sent only to the host the
-// administrator (who holds `telemetry:write`) typed, exactly as the storage
-// test does with its stored secret key.
+// A CUSTOM HOST probes the body as sent. A BLANK PASSWORD there means "the
+// password the connection in force uses for that login" — the stored one, or
+// the deployment's while it is in force — so an administrator can test a
+// changed host without retyping a secret they may not have. That password is
+// sent only to the host the administrator (who holds `telemetry:write`)
+// typed, exactly as the storage test does with its stored secret key.
 //
 // ⚠ ERROR TEXT IS THE DRIVER'S OR SERVER'S MESSAGE ONLY — never the password,
 // never a connection string. As belt and braces, a password that somehow
@@ -80,6 +89,20 @@ interface ProbeTarget {
   database: string;
 }
 
+/** What a test probes with. ⚠ Holds plaintext passwords: local to one `test` call. */
+interface Candidate {
+  target: ProbeTarget;
+  readerUser: string;
+  readerPassword: string | null;
+  /** Why the reader cannot be probed, or null. */
+  readerProblem: string | null;
+  /** Null: no admin login — the admin check is skipped. */
+  adminUser: string | null;
+  adminPassword: string | null;
+  /** Why the admin cannot be probed (when `adminUser` is set), or null. */
+  adminProblem: string | null;
+}
+
 /** How long `end()` may take before a probe stops waiting for it. */
 const PROBE_END_GRACE_MS = 1_000;
 
@@ -90,54 +113,49 @@ export class TelemetryConnectionTestService {
   constructor(private readonly connection: TelemetryConnectionService) {}
 
   async test(input: TestTelemetryConnectionInput, userId: string): Promise<TelemetryConnectionTestResult> {
-    const target: ProbeTarget = {
-      host: input.host ?? this.connection.deploymentHost,
-      automatic: input.host === null || input.host === undefined,
-      pgPort: input.pgPort,
-      database: input.database,
-    };
+    const automatic = input.host === null || input.host === undefined;
+    const candidate = automatic ? this.deploymentCandidate() : await this.customCandidate(input);
+    const { target } = candidate;
+
     const resolveStarted = Date.now();
-    const hostNotFound = await this.resolveHost(target.host, { automatic: target.automatic });
+    const hostNotFound = await this.resolveHost(target.host, { automatic });
     const hostFailure = (message: string): TelemetryConnectionProbe => ({
       success: false,
       latencyMs: Date.now() - resolveStarted,
       error: message,
     });
 
-    const readerPassword = await this.passwordFor('reader', input.readerPassword);
-
-    const reader = !readerPassword
-      ? missingPassword('reader')
+    const reader = candidate.readerProblem
+      ? failure(candidate.readerProblem)
       : hostNotFound
         ? hostFailure(hostNotFound)
-        : await this.probe('reader', target, input.readerUser, readerPassword, 'SELECT version()');
+        : await this.probe('reader', target, candidate.readerUser, candidate.readerPassword as string, 'SELECT version()');
 
     let admin: TelemetryConnectionTestResult['admin'];
 
-    if (input.adminUser === null) {
+    if (candidate.adminUser === null) {
       admin = { skipped: true };
     } else {
-      const adminPassword = await this.passwordFor('admin', input.adminPassword);
-
-      admin = !adminPassword
-        ? missingPassword('admin')
+      admin = candidate.adminProblem
+        ? failure(candidate.adminProblem)
         : hostNotFound
           ? hostFailure(hostNotFound)
           : await this.probe(
               'admin',
               target,
-              input.adminUser,
-              adminPassword,
-              `SHOW CREATE DATABASE ${quoteIdent(input.database)}`,
+              candidate.adminUser,
+              candidate.adminPassword as string,
+              `SHOW CREATE DATABASE ${quoteIdent(target.database)}`,
             );
     }
 
     this.logger.log(
-      `Telemetry connection test by user ${userId} (host=${target.host}): reader=${reader.success ? 'ok' : 'failed'} ` +
+      `Telemetry connection test by user ${userId} (host=${target.host} hostMode=${automatic ? 'auto' : 'custom'}): ` +
+        `reader=${reader.success ? 'ok' : 'failed'} ` +
         `admin=${'skipped' in admin ? 'skipped' : admin.success ? 'ok' : 'failed'}`,
     );
 
-    return { host: target.host, reader, admin };
+    return { host: target.host, hostMode: automatic ? 'auto' : 'custom', reader, admin };
   }
 
   /** Builds a client. A seam for tests; production code never overrides it. */
@@ -154,6 +172,48 @@ export class TelemetryConnectionTestService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /**
+   * AUTOMATIC (issue #570): the GreptimeDB deployed with this application, with
+   * the deployment's host, port, database, logins and passwords — whatever the
+   * request carried. An administrator never supplies them, so a guess typed
+   * into the form can neither be tested here nor mask a working deployment.
+   */
+  private deploymentCandidate(): Candidate {
+    const deployment = this.connection.describeDeployment();
+    const readerPassword = this.connection.deploymentPassword('reader');
+    const adminPassword = this.connection.deploymentPassword('admin');
+
+    return {
+      target: { host: deployment.host, automatic: true, pgPort: deployment.pgPort, database: deployment.database },
+      readerUser: deployment.readerUser,
+      readerPassword,
+      readerProblem: deployment.readerUser && readerPassword ? null : DEPLOYMENT_READER_MISSING_MESSAGE,
+      // No admin user at all: nothing to check, as for a custom candidate
+      // with `adminUser: null`. A user without its password is a gap.
+      adminUser: deployment.adminUser,
+      adminPassword,
+      adminProblem: adminPassword ? null : DEPLOYMENT_ADMIN_MISSING_MESSAGE,
+    };
+  }
+
+  /** CUSTOM: the submitted connection; a blank password is the one in force. */
+  private async customCandidate(input: TestTelemetryConnectionInput): Promise<Candidate> {
+    const readerPassword = await this.passwordFor('reader', input.readerPassword);
+    const adminUser = input.adminUser ?? null;
+    const adminPassword = adminUser === null ? null : await this.passwordFor('admin', input.adminPassword);
+
+    return {
+      target: { host: input.host as string, automatic: false, pgPort: input.pgPort, database: input.database },
+      // The schema requires readerUser for a custom host.
+      readerUser: input.readerUser ?? '',
+      readerPassword,
+      readerProblem: readerPassword ? null : missingPasswordMessage('reader'),
+      adminUser,
+      adminPassword,
+      adminProblem: adminPassword ? null : missingPasswordMessage('admin'),
+    };
+  }
 
   private async passwordFor(role: TelemetryConnectionRole, supplied: string | undefined): Promise<string | null> {
     if (!isBlankSecret(supplied)) return supplied;
@@ -218,12 +278,12 @@ export class TelemetryConnectionTestService {
   }
 }
 
-function missingPassword(role: TelemetryConnectionRole): TelemetryConnectionProbe {
-  return {
-    success: false,
-    latencyMs: 0,
-    error: `No ${role} password was supplied and none is configured for the current connection.`,
-  };
+function missingPasswordMessage(role: TelemetryConnectionRole): string {
+  return `No ${role} password was supplied and none is configured for the current connection.`;
+}
+
+function failure(error: string): TelemetryConnectionProbe {
+  return { success: false, latencyMs: 0, error };
 }
 
 function mask(message: string, password: string): string {

@@ -2,15 +2,20 @@
  * The GreptimeDB connection — a SECTION of `/admin/settings/telemetry`
  * (issue #558, epic #528), not a card or a tab of its own.
  *
- * What the API needs to READ telemetry: host, Postgres-wire port, database, the
- * read-only login and (for retention) the admin login. The host is OPTIONAL
- * (issue #562): blank means automatic — the GreptimeDB service deployed next to
- * this app, resolved by the API (`effectiveHost`) — and is sent as null; a
- * value is a custom override for an external GreptimeDB. The passwords are
- * write-only — the fields always render empty, and the helper text says
- * whether blank means "keep the saved one" or "required": a password the
- * deployment default (environment) supplies is never copied into the store, so
- * the first save over it must type one.
+ * Two modes, chosen by the Host field alone:
+ *
+ *   - AUTOMATIC (host blank, issues #562, #570): the GreptimeDB deployed with
+ *     this application. The deployment supplies its address, database and both
+ *     logins, so the form collects NOTHING else — the port, database and login
+ *     fields are not rendered, a read-only summary of `deployment` is shown
+ *     instead, and Test/Save send exactly `{ host: null }`.
+ *   - CUSTOM (a host typed): an external GreptimeDB. Port, database and both
+ *     logins are entered here. The passwords are write-only — the fields always
+ *     render empty, and the helper text says whether blank means "keep the
+ *     saved one" or "required".
+ *
+ * Values typed into the custom fields survive clearing the host (so retyping
+ * it brings them back) but are never sent while the host is blank.
  *
  * What is NOT here, on purpose: the GreptimeDB server itself (a deployment
  * concern), and the writer login and HTTP port, which only the OTel collector
@@ -43,6 +48,7 @@ import {
   isTelemetryProbeSkipped,
   TELEMETRY_CONNECTION_DEFAULTS,
   type TelemetryConnection,
+  type TelemetryConnectionCustomInput,
   type TelemetryConnectionInput,
   type TelemetryConnectionSource,
   type TelemetryConnectionTestResult,
@@ -79,22 +85,37 @@ type ConnectionErrors = Partial<Record<ConnectionField, string>>;
 
 const DATABASE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+function isCustom(connection: TelemetryConnection): boolean {
+  return connection.hostMode === 'custom';
+}
+
+/** A custom connection saved on this page — the only thing "revert" undoes. */
+function isStoredCustom(connection: TelemetryConnection): boolean {
+  return connection.source === 'stored' && isCustom(connection);
+}
+
+function isAutomatic(form: ConnectionForm): boolean {
+  return !form.host.trim();
+}
+
 function toForm(connection: TelemetryConnection): ConnectionForm {
+  // Automatic: every custom field starts from the defaults and empty logins —
+  // the deployment's logins are not the administrator's to copy.
+  const custom = isCustom(connection);
   return {
-    // Automatic shows empty (the effective host is the placeholder); custom is prefilled.
-    host: connection.hostMode === 'custom' ? (connection.host ?? '') : '',
-    pgPort: String(connection.pgPort || TELEMETRY_CONNECTION_DEFAULTS.pgPort),
-    database: connection.database || TELEMETRY_CONNECTION_DEFAULTS.database,
-    readerUser: connection.readerUser,
+    host: custom ? (connection.host ?? '') : '',
+    pgPort: String((custom && connection.pgPort) || TELEMETRY_CONNECTION_DEFAULTS.pgPort),
+    database: (custom && connection.database) || TELEMETRY_CONNECTION_DEFAULTS.database,
+    readerUser: custom ? connection.readerUser : '',
     readerPassword: '',
-    adminUser: connection.adminUser ?? '',
+    adminUser: custom ? (connection.adminUser ?? '') : '',
     adminPassword: '',
   };
 }
 
 /** A password is saved in the credential store — blank then means "keep it". */
 function hasStoredPassword(connection: TelemetryConnection, role: 'reader' | 'admin'): boolean {
-  return connection.source === 'stored' && connection.credentials[role].configured;
+  return isStoredCustom(connection) && connection.credentials[role].configured;
 }
 
 /**
@@ -108,9 +129,10 @@ function validate(
   forSave: boolean,
 ): ConnectionErrors {
   const errors: ConnectionErrors = {};
+  // Automatic: the deployment supplies everything, so there is nothing to check.
+  if (isAutomatic(form)) return errors;
   const host = form.host.trim();
-  // Blank is automatic, so only a typed host is checked.
-  if (host && /[\s/:]/.test(host) && !/^[0-9a-fA-F:]+$/.test(host)) {
+  if (/[\s/:]/.test(host) && !/^[0-9a-fA-F:]+$/.test(host)) {
     errors.host = 'Host name or IP address only — no scheme, port or path.';
   }
   const port = form.pgPort.trim();
@@ -135,13 +157,15 @@ function validate(
 }
 
 /**
- * Blank passwords are OMITTED — never sent as `""` — so the stored one is kept.
- * A blank host is sent as null: automatic.
+ * A blank host is AUTOMATIC and sends exactly `{ host: null }` — whatever the
+ * hidden custom fields hold. For a custom host, blank passwords are OMITTED —
+ * never sent as `""` — so the stored one is kept.
  */
 function toInput(form: ConnectionForm): TelemetryConnectionInput {
+  if (isAutomatic(form)) return { host: null };
   const adminUser = form.adminUser.trim() || null;
-  const input: TelemetryConnectionInput = {
-    host: form.host.trim() || null,
+  const input: TelemetryConnectionCustomInput = {
+    host: form.host.trim(),
     pgPort: Number(form.pgPort.trim()),
     database: form.database.trim(),
     readerUser: form.readerUser.trim(),
@@ -161,29 +185,69 @@ function passwordHelper(
     const which = status.hint ? ` (${status.hint})` : '';
     return `Saved${which} — leave blank to keep it, or type a new one to replace it.`;
   }
-  if (connection.source === 'environment') {
-    return 'Required to save: the deployment default password is never copied into admin settings. Blank tests with it.';
-  }
   return 'Required to save.';
 }
 
-/**
- * What a blank host means. While the host is automatic, `effectiveHost` IS the
- * deployment host and is named; under a custom host it is the custom literal,
- * so the deployment host is not known here and is described instead.
- */
+/** What a blank host means: the deployment host, always known (`deployment.host`). */
 function automaticHostLabel(connection: TelemetryConnection): string {
-  return connection.hostMode === 'auto' && connection.effectiveHost
-    ? `Automatic: ${connection.effectiveHost}`
-    : 'Automatic';
+  return connection.deployment.host ? `Automatic: ${connection.deployment.host}` : 'Automatic';
 }
 
-function hostHelper(connection: TelemetryConnection): string {
-  const lead =
-    connection.hostMode === 'auto' && connection.effectiveHost
-      ? automaticHostLabel(connection)
-      : 'Leave blank for automatic';
-  return `${lead} — the GreptimeDB service deployed next to this app. Set a host only for an external GreptimeDB.`;
+function hostHelper(connection: TelemetryConnection, automatic: boolean): string {
+  const lead = automatic ? automaticHostLabel(connection) : 'Leave blank for automatic';
+  return `${lead} — the GreptimeDB deployed with this application. Set a host only for an external GreptimeDB.`;
+}
+
+/**
+ * The read-only summary of the deployment's GreptimeDB, shown while the host
+ * is automatic. Whether a login is provided, never a password or a hint.
+ */
+function DeploymentManagedPanel({ connection }: { connection: TelemetryConnection }) {
+  const { deployment } = connection;
+  const rows: [string, string][] = [
+    ['Address', `${deployment.host}:${deployment.pgPort}`],
+    ['Database', deployment.database],
+    ['Reader login', deployment.readerConfigured ? 'Provided' : 'Missing'],
+    ['Admin login', deployment.adminConfigured ? 'Provided' : 'Not provisioned'],
+  ];
+  return (
+    <Alert
+      severity="info"
+      sx={{ mt: 2, '& .MuiAlert-message': { minWidth: 0, flex: 1 } }}
+      data-testid="telemetry-connection-deployment-managed"
+    >
+      <AlertTitle>Managed by the deployment</AlertTitle>
+      GreptimeDB is deployed with this application. Its address and logins are managed for you —
+      nothing to configure here.
+      <Box
+        component="dl"
+        data-testid="telemetry-connection-deployment-summary"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'auto minmax(0, 1fr)',
+          columnGap: 2,
+          rowGap: 0.5,
+          mt: 1.5,
+          mb: 0,
+        }}
+      >
+        {rows.map(([term, value]) => (
+          <Box key={term} sx={{ display: 'contents' }}>
+            <Typography component="dt" variant="body2" sx={{ fontWeight: 500 }}>
+              {term}
+            </Typography>
+            <Typography
+              component="dd"
+              variant="body2"
+              sx={{ m: 0, overflowWrap: 'anywhere' }}
+            >
+              {value}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+    </Alert>
+  );
 }
 
 function TestResultView({ result }: { result: TelemetryConnectionTestResult }) {
@@ -273,6 +337,8 @@ export function TelemetryConnectionSection({
   }, [connection]);
 
   const title = 'Connection';
+  const automatic = form ? isAutomatic(form) : true;
+  const storedCustom = connection ? isStoredCustom(connection) : false;
   const busy = isSaving || isTesting;
   const locked = !canWrite || busy;
 
@@ -375,22 +441,16 @@ export function TelemetryConnectionSection({
 
       {connection && connection.source === 'none' && (
         <Alert severity="warning" sx={{ mb: 2 }} data-testid="telemetry-connection-none">
-          No GreptimeDB connection is configured. Enter the logins below and save; leave the
-          host blank to use the GreptimeDB deployed next to this app.
-        </Alert>
-      )}
-      {connection && connection.source === 'environment' && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          This connection comes from the deployment&apos;s environment variables. Saving here
-          overrides it; &quot;Revert to deployment default&quot; restores it.
+          No GreptimeDB connection is configured. Leave the host blank and save to use the
+          GreptimeDB deployed with this application, or enter the host of an external one.
         </Alert>
       )}
 
       {form && connection && (
         <Box component="form" onSubmit={handleSave} noValidate>
           <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              {field('host', 'Host (optional)', hostHelper(connection), {
+            <Grid size={{ xs: 12, sm: automatic ? 12 : 6 }}>
+              {field('host', 'Host', hostHelper(connection, automatic), {
                 placeholder: automaticHostLabel(connection),
                 slotProps: {
                   inputLabel: { shrink: true },
@@ -398,51 +458,85 @@ export function TelemetryConnectionSection({
                 },
               })}
             </Grid>
-            <Grid size={{ xs: 12, sm: 3 }}>
-              {field('pgPort', 'PostgreSQL port', `Default ${TELEMETRY_CONNECTION_DEFAULTS.pgPort}.`, {
-                type: 'number',
-                slotProps: { htmlInput: { min: 1, max: 65535, step: 1, inputMode: 'numeric' } },
-              })}
-            </Grid>
-            <Grid size={{ xs: 12, sm: 3 }}>
-              {field('database', 'Database', `Default ${TELEMETRY_CONNECTION_DEFAULTS.database}.`)}
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              {field('readerUser', 'Reader user', 'The read-only login the explorer and status use.', {
-                autoComplete: 'off',
-              })}
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              {field(
-                'readerPassword',
-                'Reader password',
-                passwordHelper(connection, 'reader', connection.credentials.reader),
-                { type: 'password', autoComplete: 'new-password' },
-              )}
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              {field(
-                'adminUser',
-                'Admin user (optional)',
-                'The DDL-capable login retention needs. Leave blank for none.',
-                { autoComplete: 'off' },
-              )}
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              {field(
-                'adminPassword',
-                'Admin password',
-                form.adminUser.trim()
-                  ? passwordHelper(connection, 'admin', connection.credentials.admin)
-                  : 'Only with an admin user.',
-                {
-                  type: 'password',
-                  autoComplete: 'new-password',
-                  disabled: locked || !form.adminUser.trim(),
-                },
-              )}
-            </Grid>
+            {!automatic && (
+              <>
+                <Grid size={{ xs: 12, sm: 3 }}>
+                  {field(
+                    'pgPort',
+                    'PostgreSQL port',
+                    `Default ${TELEMETRY_CONNECTION_DEFAULTS.pgPort}.`,
+                    {
+                      type: 'number',
+                      slotProps: {
+                        htmlInput: { min: 1, max: 65535, step: 1, inputMode: 'numeric' },
+                      },
+                    },
+                  )}
+                </Grid>
+                <Grid size={{ xs: 12, sm: 3 }}>
+                  {field(
+                    'database',
+                    'Database',
+                    `Default ${TELEMETRY_CONNECTION_DEFAULTS.database}.`,
+                  )}
+                </Grid>
+                <Grid size={12}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    data-testid="telemetry-connection-custom-note"
+                  >
+                    Connecting to an external GreptimeDB — enter its logins.
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  {field(
+                    'readerUser',
+                    'Reader user',
+                    'The read-only login the explorer and status use.',
+                    { autoComplete: 'off' },
+                  )}
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  {field(
+                    'readerPassword',
+                    'Reader password',
+                    passwordHelper(connection, 'reader', connection.credentials.reader),
+                    { type: 'password', autoComplete: 'new-password' },
+                  )}
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  {field(
+                    'adminUser',
+                    'Admin user (optional)',
+                    'The DDL-capable login retention needs. Leave blank for none.',
+                    { autoComplete: 'off' },
+                  )}
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  {field(
+                    'adminPassword',
+                    'Admin password',
+                    form.adminUser.trim()
+                      ? passwordHelper(connection, 'admin', connection.credentials.admin)
+                      : 'Only with an admin user.',
+                    {
+                      type: 'password',
+                      autoComplete: 'new-password',
+                      disabled: locked || !form.adminUser.trim(),
+                    },
+                  )}
+                </Grid>
+              </>
+            )}
           </Grid>
+
+          {automatic && <DeploymentManagedPanel connection={connection} />}
+          {automatic && connection.problem && (
+            <Alert severity="warning" sx={{ mt: 2 }} data-testid="telemetry-connection-problem">
+              {connection.problem}
+            </Alert>
+          )}
 
           {conflict && (
             <Alert
@@ -487,23 +581,21 @@ export function TelemetryConnectionSection({
             <Button type="submit" variant="contained" disabled={locked}>
               {isSaving ? 'Saving…' : 'Save connection'}
             </Button>
-            <Button
-              color="warning"
-              onClick={() => setConfirmRevert(true)}
-              disabled={locked || connection.source !== 'stored'}
-            >
-              Revert to deployment default
-            </Button>
+            {storedCustom && (
+              <Button color="warning" onClick={() => setConfirmRevert(true)} disabled={locked}>
+                Revert to deployment default
+              </Button>
+            )}
           </Stack>
-          {connection.source === 'stored' && (
+          {storedCustom && (
             <Typography
               variant="body2"
               color="text.secondary"
               sx={{ mt: 1 }}
               data-testid="telemetry-connection-revert-hint"
             >
-              If the saved logins no longer match GreptimeDB, reverting uses the logins the
-              deployment provisioned GreptimeDB with.
+              Reverting forgets the external GreptimeDB and its saved logins, and uses the
+              GreptimeDB deployed with this application again.
             </Typography>
           )}
           {connection.updatedBy && connection.updatedAt && (
@@ -525,9 +617,8 @@ export function TelemetryConnectionSection({
         </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            The saved connection and its passwords are deleted. The API then uses the
-            deployment&apos;s environment variables if they are set; otherwise telemetry becomes
-            not configured.
+            The saved external host and its passwords are deleted. The API then uses the
+            GreptimeDB deployed with this application, with the logins the deployment provides.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

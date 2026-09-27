@@ -23,6 +23,8 @@ import {
 } from './fixtures/ai';
 import {
   mockTelemetryAdminConfig,
+  mockTelemetryConnectionAutomaticStored,
+  mockTelemetryConnectionCustomStored,
   mockTelemetryConnectionEnvironment,
   mockTelemetryConnectionStored,
   mockTelemetryConnectionTestResult,
@@ -384,17 +386,25 @@ export const handlers = [
         { status: 409 },
       );
     }
-    const { readerPassword: _reader, adminPassword: _admin, host: rawHost, ...rest } = body;
-    // Omitted, null or blank host is automatic (#562): stored as null.
+    // Omitted, null or blank host is automatic (#562, #570): the deployment
+    // supplies the rest, and every other field is ignored.
+    const rawHost = body.host;
     const host = typeof rawHost === 'string' && rawHost.trim() ? rawHost.trim() : null;
+    if (host === null) {
+      return HttpResponse.json({
+        data: {
+          ...mockTelemetryConnectionAutomaticStored,
+          version: mockTelemetryConnectionStored.version + 1,
+        },
+      });
+    }
+    const { readerPassword: _reader, adminPassword: _admin, host: _host, ...rest } = body;
     return HttpResponse.json({
       data: {
-        ...mockTelemetryConnectionStored,
+        ...mockTelemetryConnectionCustomStored,
         ...rest,
         host,
-        effectiveHost: host ?? mockTelemetryConnectionStored.effectiveHost,
-        hostMode: host ? 'custom' : 'auto',
-        source: 'stored',
+        effectiveHost: host,
         version: mockTelemetryConnectionStored.version + 1,
       },
     });
@@ -408,7 +418,11 @@ export const handlers = [
     const body = (await request.json()) as { host?: string | null };
     const host = typeof body.host === 'string' && body.host.trim() ? body.host.trim() : null;
     return HttpResponse.json({
-      data: { ...mockTelemetryConnectionTestResult, host: host ?? mockTelemetryConnectionTestResult.host },
+      data: {
+        ...mockTelemetryConnectionTestResult,
+        host: host ?? mockTelemetryConnectionTestResult.host,
+        hostMode: host ? 'custom' : 'auto',
+      },
     });
   }),
 

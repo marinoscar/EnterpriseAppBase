@@ -18,6 +18,7 @@ import {
 import {
   mockTelemetryConnectionEnvironment,
   mockTelemetryConnectionStored,
+  mockTelemetryConnectionTestResult,
 } from '../mocks/fixtures/telemetry';
 
 const API_BASE = '*/api';
@@ -69,6 +70,7 @@ describe('telemetry connection service', () => {
   it('POSTs a test and resolves a failed diagnosis rather than throwing', async () => {
     const result = {
       host: 'greptimedb',
+      hostMode: 'custom',
       reader: { success: false, latencyMs: 5, error: 'refused' },
       admin: { skipped: true },
     };
@@ -80,9 +82,16 @@ describe('telemetry connection service', () => {
     expect(answer.host).toBe('greptimedb');
   });
 
-  it('sends host null for an automatic host', async () => {
+  it('sends exactly { host: null } for an automatic host (#570)', async () => {
     const calls = capture('put', '/admin/telemetry/connection', mockTelemetryConnectionStored);
-    await updateTelemetryConnection({ ...input, host: null }, 3);
-    expect(calls[0].body).toMatchObject({ host: null });
+    await updateTelemetryConnection({ host: null }, 3);
+    expect(calls).toEqual([{ body: { host: null }, ifMatch: '3' }]);
+  });
+
+  it('POSTs exactly { host: null } to test the automatic connection (#570)', async () => {
+    const calls = capture('post', '/admin/telemetry/connection/test', mockTelemetryConnectionTestResult);
+    const answer = await testTelemetryConnection({ host: null });
+    expect(calls[0].body).toEqual({ host: null });
+    expect(answer.hostMode).toBe('auto');
   });
 });
