@@ -86,25 +86,26 @@ export class MyModule {}
 
 ### 3. Register Multiple Processors
 
-To register multiple processors, use the `multi: true` option:
+Nest has no `multi: true` provider option (that is Angular). `ObjectProcessingService`
+accepts either a single processor or an array from `OBJECT_PROCESSOR`
+(`processors?: ObjectProcessor | ObjectProcessor[]` in its constructor), so
+registering several processors means one factory provider that returns the
+array, injecting each processor class as an ordinary provider:
 
 ```typescript
 @Module({
   providers: [
+    ImageMetadataProcessor,
+    ThumbnailGenerator,
+    VirusScanner,
     {
       provide: OBJECT_PROCESSOR,
-      useClass: ImageMetadataProcessor,
-      multi: true,
-    },
-    {
-      provide: OBJECT_PROCESSOR,
-      useClass: ThumbnailGenerator,
-      multi: true,
-    },
-    {
-      provide: OBJECT_PROCESSOR,
-      useClass: VirusScanner,
-      multi: true,
+      useFactory: (
+        imageMetadata: ImageMetadataProcessor,
+        thumbnail: ThumbnailGenerator,
+        virusScanner: VirusScanner,
+      ) => [imageMetadata, thumbnail, virusScanner],
+      inject: [ImageMetadataProcessor, ThumbnailGenerator, VirusScanner],
     },
   ],
 })
@@ -113,13 +114,35 @@ export class StorageProcessorsModule {}
 
 ## Processor Lifecycle
 
-1. **Upload Complete**: Object status set to `processing`
-2. **Event Emitted**: `OBJECT_UPLOADED_EVENT` fired
-3. **Processor Selection**: `canProcess()` called on all registered processors
-4. **Priority Sorting**: Applicable processors sorted by priority (lower first)
-5. **Sequential Execution**: Each processor runs in order
-6. **Metadata Aggregation**: Results merged into object metadata
-7. **Status Update**: Object marked as `ready` (or `failed` if errors occurred)
+Post-upload processing is the server-only queue job `storage.object.process`
+(`apps/api/src/storage/handlers/storage-object-process.handler.ts`), not an
+event listener:
+
+1. **Upload completes**: inside the same transaction that closes it,
+   `ObjectsService` (`completeUpload`/`simpleUpload`) asks
+   `ObjectProcessingService.appliesTo(object)`.
+2. **No processor applies**: the row is marked `ready` right there — no job.
+3. **A processor applies**: the row is marked `processing` and a
+   `storage.object.process` job is enqueued in that same transaction
+   (`enqueueWithin`), deduplicated per object.
+4. **The job runs**: `StorageObjectProcessHandler.process` resolves the object
+   and calls `ObjectProcessingService.run(object)` on a worker slot.
+5. **Processor Selection**: `canProcess()` called on all registered processors.
+6. **Priority Sorting**: applicable processors sorted by priority (lower first).
+7. **Sequential Execution**: each processor runs in order.
+8. **Metadata Aggregation**: results merged into object metadata.
+9. **Status Update**: object marked as `ready` (or `failed` if any processor
+   reported an error or threw).
+10. **Give-up**: if the job exhausts its attempts, times out, or is reaped
+    after a dead executor, a `job.settled` listener marks a still-`processing`
+    object `failed` so it never stays `processing` forever.
+
+The queue is **at-least-once**: a retry after a transient failure, or a
+reaper requeue after a dead executor, can call a processor again for the same
+object. Every processor MUST be idempotent — safe to run twice on the same
+object without corrupting its metadata or duplicating a side effect (write a
+thumbnail to a stable key and overwrite it, rather than appending a new one
+each run).
 
 ## Metadata Storage
 

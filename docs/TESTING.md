@@ -357,6 +357,7 @@ no edit to the suite.
 |---|---|
 | `apps/api/test/docs-links.spec.ts` | Every relative link in `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `docs/**` and `.claude/agents/*.md` resolves to a real file (anchors stripped, fenced code ignored) |
 | `apps/api/test/jobs/cron-enqueue-only.spec.ts` | Every `@Cron` only enqueues work, except the three permanent exemptions it names |
+| `apps/api/test/jobs/on-event-no-io.spec.ts` | Every `@OnEvent` body is free of storage I/O (a direct storage-provider call, `.download(`, `.upload(`) |
 | `apps/api/test/ai/ai-kill-switch.integration.spec.ts` | With `ai.enabled=false`, every discovered `/api/ai/*` route except `GET /api/ai/config` answers 403 `AI_DISABLED`, every `/api/admin/ai/*` route stays reachable, and no `ai.*` job reaches a provider |
 | `apps/api/test/ai/ai-rbac-matrix.integration.spec.ts` | Every AI route crossed with Admin/Contributor/Viewer/anonymous; the expected permission comes from the route's `@Auth()` metadata and the grant from `prisma/seed-data.ts` |
 | `apps/api/test/ai/ai-secret-egress.integration.spec.ts` | Sentinel keys never appear in any response, header, log line, audit row, usage row, run row or error body |

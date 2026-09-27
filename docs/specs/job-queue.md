@@ -382,7 +382,7 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 
 **Kill switches stay with scheduling.** `NODE_STALE_OFFLINE_ENABLED`, `NODE_OFFLINE_PRUNE_ENABLED` and `DB_BACKUP_SCHEDULE_ENABLED` are read in the task before enqueue, never re-asked in the handler, so a job queued by one replica is never dropped by another. With `JOBS_WORKER_MODE=off` these crons queue work nothing on that process executes.
 
-**Test limit.** `cron-enqueue-only.spec.ts` reads each `@Cron` method body and requires it to enqueue and to contain no marker of doing work. It does not follow calls into helpers; a helper's own spec pins that it only enqueues.
+**Test limit.** `cron-enqueue-only.spec.ts` reads each `@Cron` method body and requires it to enqueue and to contain no marker of doing work. `test/jobs/on-event-no-io.spec.ts` is its `@OnEvent` counterpart: it reads every `@OnEvent` method body and fails on a marker of storage I/O (a direct storage-provider call, `.download(`, `.upload(`). Neither follows calls into helpers; a helper's own spec pins that it only does the bounded thing it claims.
 
 ### Job inventory
 
@@ -394,6 +394,7 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 | `auth.token.cleanup` | `auth/handlers/token-cleanup.handler.ts` | Daily cron | No |
 | `device-auth.code.cleanup` | `device-auth/handlers/device-code-cleanup.handler.ts` | Daily cron | No |
 | `storage.cleanup.stale-uploads` | `storage/handlers/storage-cleanup.handler.ts` | Daily cron | No |
+| `storage.object.process` | `storage/handlers/storage-object-process.handler.ts` | Upload completion, when a processor applies | No |
 | `nodes.fleet.sweep` | `nodes/handlers/node-fleet-sweep.handler.ts` | 10-minute cron | No |
 | `nodes.fleet.prune` | `nodes/handlers/node-fleet-prune.handler.ts` | Daily cron | No |
 | `admin.broadcast.start` | `notifications/broadcasts/handlers/broadcast-start.handler.ts` | Broadcast send/schedule | No |
@@ -516,6 +517,7 @@ Paths are under `apps/api/`. `*.db.spec.ts` suites run against real PostgreSQL (
 | Test | Enforces |
 |---|---|
 | `test/jobs/cron-enqueue-only.spec.ts` | Every `@Cron` body only enqueues; exactly three exemptions |
+| `test/jobs/on-event-no-io.spec.ts` | Every `@OnEvent` body is free of storage I/O (direct storage-provider calls, `.download(`/`.upload(`) |
 | `src/jobs/job-handler.registry.spec.ts` | Self-registration via real `onModuleInit`; `serverOnlyTypes()` derivation incl. exactly-one-member; duplicate warns, last wins; module graph boots |
 | `src/jobs/job-type-labels.spec.ts` | Unmapped type renders as itself |
 | `test/jobs/jobs-enqueue.db.spec.ts` | Concurrent enqueue of one key yields one row for both callers; `skipDedup` yields NULL keys; settled job frees its key |
@@ -595,3 +597,4 @@ In a running app:
 - Epic #345: #346 execution profiles; #347 in-process lease renewal and the fourth reaper signal; #351/#352 database backup as a job; #353 every long-running activity is a job.
 - #361: `claim_token`. #364: token on the node plane. #456: broadcast chunk throttle key.
 - #459: broadcast failure listener. #468: reaper give-up emits `job.settled`. #477: claim-conditional terminal writes. #480: `canDelete` veto.
+- #520: post-upload object processing becomes the `storage.object.process` job, replacing the `storage.object.uploaded` `@OnEvent` listener; `test/jobs/on-event-no-io.spec.ts` added as its tripwire.
