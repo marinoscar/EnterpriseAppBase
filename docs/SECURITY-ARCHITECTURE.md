@@ -501,14 +501,21 @@ The secret access key is stored encrypted and never returned. See
 | Setting | Env var | Default |
 |---|---|---|
 | Max file size | `MAX_FILE_SIZE` | 10 GiB |
-| Allowed MIME types | `ALLOWED_MIME_TYPES` | `image/*,application/pdf,video/*` |
+| Allowed MIME types | `ALLOWED_MIME_TYPES` | empty (allow every type) |
 | Signed URL lifetime | `SIGNED_URL_EXPIRY` | 3600 s |
 | Multipart part size | `STORAGE_PART_SIZE` | 10 MiB |
 
-The simple multipart upload route is capped at 100 MB by the Fastify
-multipart plugin. Profile images are stricter: at most 5 MiB, and the type is
-detected from magic bytes (JPEG, PNG, GIF, WebP), not from the declared MIME
-type.
+`ObjectsService` enforces `MAX_FILE_SIZE` on the resumable upload's init
+route (`413` when the declared size is too large) and `ALLOWED_MIME_TYPES` on
+both upload routes (`415` for a disallowed type). An empty `ALLOWED_MIME_TYPES`
+allows every type; when set, entries are exact MIME types or `type/*`
+wildcards, matched case-insensitively.
+
+The simple upload route (`POST /api/storage/objects`) is capped by the
+Fastify multipart plugin at the smaller of 100 MB and `MAX_FILE_SIZE`, so a
+deployment limit below 100 MB also binds this route. Profile images are
+stricter: at most 5 MiB, and the type is detected from magic bytes (JPEG,
+PNG, GIF, WebP), not from the declared MIME type.
 
 ### Signed URLs
 
