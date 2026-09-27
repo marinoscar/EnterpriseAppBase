@@ -71,6 +71,12 @@ model DeviceCode {
   expiresAt  DateTime         @map("expires_at")
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
+
+  // Issued-credential link — see "Session Revocation" below
+  patId               String?   @map("pat_id")
+  collectedAt         DateTime? @map("collected_at")
+  credentialExpiresAt DateTime? @map("credential_expires_at")
+  revokedAt           DateTime? @map("revoked_at")
 }
 
 enum DeviceCodeStatus {
@@ -80,6 +86,19 @@ enum DeviceCodeStatus {
   expired
 }
 ```
+
+`patId`, `collectedAt` and `credentialExpiresAt` are set together, at
+collection time, by whichever poll claims the code — see
+[Session Revocation](#session-revocation). `revokedAt` is set by
+`DELETE /api/auth/device/sessions/:id` and is what `getUserDeviceSessions()`
+filters on; it is distinct from `PersonalAccessToken.revokedAt` and
+`RefreshToken.revokedAt`, which the same call also sets on the linked rows.
+
+`refresh_tokens` carries a matching `deviceCodeId` column (nullable, `SetNull`
+on delete) so a refresh token minted from a device session can be reached the
+same way. Both columns were added in migration
+`20260927130000_add_device_session_credential_link`, additively — no backfill,
+no data migration.
 
 ## API Endpoints
 
@@ -252,7 +271,9 @@ User approves or denies a device authorization request.
 
 ### 5. GET /api/auth/device/sessions (Authenticated)
 
-Lists the user's approved device sessions.
+Lists the user's live device sessions: codes that are `approved` and not yet
+collected, plus collected sessions whose credential has not passed
+`credentialExpiresAt`. A revoked session is never listed.
 
 **Query Parameters:**
 - `page` (optional): Page number (default: 1)
@@ -271,7 +292,10 @@ Lists the user's approved device sessions.
           "deviceName": "CLI Tool"
         },
         "createdAt": "2026-01-22T10:30:00Z",
-        "expiresAt": "2026-01-22T10:45:00Z"
+        "expiresAt": "2026-01-22T10:45:00Z",
+        "collectedAt": null,
+        "credentialExpiresAt": null,
+        "credentialType": null
       }
     ],
     "total": 1,
@@ -281,9 +305,17 @@ Lists the user's approved device sessions.
 }
 ```
 
+`collectedAt`, `credentialExpiresAt` and `credentialType` are all `null` for
+an approved-but-uncollected row. Once the device collects its credential,
+`status` becomes `expired` (see [Database Schema](#database-schema)) and the
+three fields are populated — `credentialType` is `'pat'` or `'session'`,
+read from the same `clientInfo.tokenType` the token endpoint used, so it
+stays right even after the PAT row itself is gone.
+
 ### 6. DELETE /api/auth/device/sessions/:id (Authenticated)
 
-Revokes a specific device session.
+Revokes a specific device session and whatever credential it issued. See
+[Session Revocation](#session-revocation) for exactly what this reaches.
 
 **Response:**
 ```json
@@ -305,7 +337,7 @@ A device chooses what it wants when it requests the code, via
 | What it is | Signed JWT access token + refresh token | Opaque personal access token (`pat_...`) |
 | Default lifetime | `DEVICE_TOKEN_EXPIRY_DAYS` (7 days) | `DEVICE_PAT_EXPIRY_DAYS` (90 days) |
 | Refresh token | Yes | No |
-| Revocable before expiry | No — a JWT is valid until it expires | Yes — `DELETE /api/pat/{id}`, or the Access Tokens page in the web UI |
+| Revocable before expiry | Yes — `DELETE /api/auth/device/sessions/{id}` revokes the refresh-token chain and kills the access token on its next request (see [Session Revocation](#session-revocation)) | Yes — `DELETE /api/pat/{id}`, the Access Tokens page, or `DELETE /api/auth/device/sessions/{id}` |
 | Used by | The browser-driven activation page (sends no `tokenType`) | CLI and other headless clients |
 
 The PAT lifetime can be much longer than the session lifetime precisely
@@ -368,6 +400,61 @@ so it does nothing across replicas. Note the ordering: the code is consumed
 *before* the token is minted, so if minting fails the device must re-authorize.
 Failing closed is the right direction.
 
+## Session Revocation
+
+The credential a device session issues is not an opaque grant the server
+forgets about once minted — it stays linked to the `DeviceCode` row that
+issued it, in both directions, so revoking that row reaches everything it
+handed out.
+
+- **Minting the link.** `DeviceAuthService` passes `deviceCodeId` into
+  `AuthService.generateFullTokens()` only from the session path, at collection
+  time. That call stamps the access JWT with a `did` claim carrying the
+  device session's id and stores `deviceCodeId` on the new `refresh_tokens`
+  row (migration `20260927130000_add_device_session_credential_link`). An
+  interactive login's tokens never carry `did`.
+- **Checked on every request.** `AuthService.validateJwtPayload()` re-checks
+  `did` on every authenticated request: it looks up the `DeviceCode` row and
+  rejects (`401`) unless it exists, belongs to the token's `sub`, is not
+  revoked, and has not passed `credentialExpiresAt`
+  (`isDeviceSessionLive()`). This is what makes revocation immediate instead
+  of waiting out a 7-day access token's own expiry.
+- **Carried through rotation.** `AuthService.refreshAccessToken()` keeps the
+  chain a device chain: the rotated refresh token keeps `deviceCodeId`, the
+  new access token keeps `did`, and the pair's expiry is capped at the device
+  session's `credentialExpiresAt` — rotation can never outlive the session or
+  launder a device credential into an ordinary 14-day login. A refresh
+  attempted on a revoked device session is refused as a plain
+  already-revoked error, not routed through reuse detection
+  (`revokeAllUserTokens`): the device will still present its last refresh
+  token once after the user revokes it, and that is expected, not evidence of
+  theft.
+- **One entry point.** `DeviceAuthService.revokeDeviceSession()`
+  (`DELETE /api/auth/device/sessions/:id`) does all of the above in a single
+  transaction: it sets `device_codes.revokedAt`, denies the code if it was
+  never collected, conditionally revokes the linked PAT
+  (`personalAccessToken.updateMany` with `revokedAt: null` in the `WHERE`, so
+  a PAT already revoked from the Access Tokens page is not an error), and
+  revokes every `refresh_tokens` row carrying that `deviceCodeId`. Calling it
+  again, or approaching revocation from either credential's own endpoint
+  first, is harmless.
+- **One asymmetry.** Revoking the linked PAT directly (`DELETE /api/pat/{id}`
+  or the Access Tokens page) does not set `device_codes.revokedAt`: the
+  credential stops authenticating immediately, but the session keeps
+  appearing in `GET /api/auth/device/sessions` until its own
+  `credentialExpiresAt` passes, or something also calls
+  `DELETE /api/auth/device/sessions/:id` on it.
+- **Cleanup respects the link.** `cleanupExpiredCodes()` keeps a collected row
+  — revoked or not — until `credentialExpiresAt` passes, because that row is
+  exactly what `did` validation looks up. Deleting it earlier would fail a
+  still-valid-looking token for the wrong reason. Only a never-collected
+  row's own age (`updatedAt`) governs its reaping.
+
+A `pat`-kind session is linked the same way (`DeviceCode.patId`,
+`credentialExpiresAt` copied from the PAT's own expiry at mint time in
+`issuePatCredential()`), so `revokeDeviceSession()` revokes a `pat`-kind
+session identically to a `session`-kind one.
+
 ## Configuration
 
 Environment variables (see `infra/compose/.env.example`):
@@ -386,9 +473,11 @@ DEVICE_PAT_EXPIRY_DAYS=90        # Lifetime of the `pat` credential (clamped to 
 2. **User Code Format**: Human-friendly codes use unambiguous characters (no 0/O, 1/I/l)
 3. **Rate Limiting**: Built-in polling rate limiting to prevent abuse
 4. **Expiration**: Codes automatically expire after configured time
-5. **One-time Use**: Approved codes are marked as expired once redeemed. The
-   PAT path claims the code atomically *before* minting, so concurrent polls
-   cannot produce two long-lived credentials
+5. **One-time Use**: Approved codes are marked as expired once redeemed. Both
+   the PAT and session paths claim the code atomically *before* minting
+   anything (a single conditional `UPDATE` on `status = approved`), so two
+   concurrent polls can never both collect a credential — the loser gets
+   `invalid_grant`
 6. **User Verification**: Only authenticated users can approve devices
 7. **No Plaintext Credential at Rest**: PATs are stored as SHA-256 hashes and
    returned exactly once, on the poll that mints them — the raw token is never

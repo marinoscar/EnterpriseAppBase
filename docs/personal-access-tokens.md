@@ -139,7 +139,11 @@ When the user approves the code at `/activate`, the next poll of
 - Its lifetime is `DEVICE_PAT_EXPIRY_DAYS` days (default 90). A value outside
   1–999, or a non-number, logs a warning and falls back to 90.
 - It appears on the Access Tokens page like any other token and is revoked the
-  same way.
+  same way. It is also linked to the device session that minted it, so
+  revoking that session from `DELETE /api/auth/device/sessions/{id}` (see
+  [Device Session Management](DEVICE-AUTH.md#device-session-management))
+  revokes this token too; revoking from either side first makes the other a
+  no-op.
 - Without `tokenType` (or with `"session"`), the flow returns a session JWT and
   refresh token instead.
 
