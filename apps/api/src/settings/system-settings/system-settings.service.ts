@@ -1473,6 +1473,12 @@ export class SystemSettingsService {
         enabled: dto.telemetry?.enabled ?? currentValue.telemetry.enabled,
         retentionDays:
           dto.telemetry?.retentionDays ?? currentValue.telemetry.retentionDays,
+        // #565: nullable, same `!== undefined` form as `assistant.provider`
+        // below — an explicit `null` returns to the `APP_SLUG` default.
+        instanceId:
+          dto.telemetry?.instanceId !== undefined
+            ? dto.telemetry.instanceId
+            : currentValue.telemetry.instanceId,
         query: {
           maxRows:
             dto.telemetry?.query?.maxRows ?? currentValue.telemetry.query.maxRows,

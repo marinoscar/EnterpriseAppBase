@@ -401,6 +401,13 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
   telemetry: {
     enabled: false,
     retentionDays: 30,
+    // #565: `null` means "follow `APP_SLUG`" — resolved at the point of use
+    // (`resolveTelemetryInstanceId`), so a renamed fork follows its new name
+    // until an administrator overrides it. Storing the slug literally here
+    // would freeze it at the first write. A row written before this field
+    // existed lacks it, fails the field's own parse in `readNamespace`, and
+    // reads back as this `null` — no migration.
+    instanceId: null,
     query: {
       maxRows: 10000,
       timeoutSeconds: 30,

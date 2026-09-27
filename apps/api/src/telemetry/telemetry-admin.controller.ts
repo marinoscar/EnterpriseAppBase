@@ -40,8 +40,10 @@ export class TelemetryAdminController {
       'The `telemetry` settings namespace — whether telemetry is exported, its retention, the ' +
       'bounds an ad-hoc query is held to, and the telemetry assistant — plus `available` ' +
       '(whether this deployment has a telemetry store at all), `retentionApplicable` (whether ' +
-      'the store\'s admin credential is configured, which applying retention needs) and the ' +
-      'settings row `version` to send back as `If-Match`.',
+      'the store\'s admin credential is configured, which applying retention needs), ' +
+      '`instanceIdDefault`/`instanceIdEffective` (what a null `instanceId` resolves to, and the ' +
+      '`app.instance.id` label currently stamped on exported telemetry) and the settings row ' +
+      '`version` to send back as `If-Match`.',
   })
   @ApiResponse({ status: 200, description: 'The telemetry configuration', type: TelemetryConfigResponseDto })
   async getConfig() {
@@ -54,8 +56,12 @@ export class TelemetryAdminController {
     summary: 'Replace the telemetry configuration (Admin only)',
     description:
       'Full replace of the `telemetry` namespace; `assistant.provider`/`assistant.modelId` sent ' +
-      'as null clear a stored value. Export starts or stops immediately on this instance and ' +
-      'within five seconds on every other one — no restart. Telemetry is only exported while ' +
+      'as null clear a stored value. `instanceId` is optional: omitted keeps the stored value, ' +
+      'null returns to the application-slug default, and a value (1-63 characters of `a-z`, ' +
+      '`0-9`, `.`, `_`, `-`, starting with a letter or digit) becomes the `app.instance.id` ' +
+      'resource attribute on every exported span, log record and metric. Export starts or ' +
+      'stops, and a new instance id applies, immediately on this instance and within five ' +
+      'seconds on every other one — no restart. Telemetry is only exported while ' +
       '`enabled` is true AND a telemetry store is configured.\n\n' +
       'Every save also queues a `telemetry.retention.apply` job, which sets the telemetry ' +
       'store\'s database TTL to `retentionDays` (the same job re-asserts it nightly).',
