@@ -32,6 +32,7 @@ import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { AiModule } from './ai/ai.module';
+import { TelemetryModule } from './telemetry/telemetry.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -191,6 +192,12 @@ import configuration from './config/configuration';
     // no database access and no provider registered. Later stories add their
     // modules as import lines inside `AiModule`, not here.
     AiModule,
+
+    // Telemetry (#534, epic #528): the `telemetry` settings and the runtime
+    // export gate they drive, the GreptimeDB client and store status, and the
+    // server-only `telemetry.retention.apply` job. The explorer (#535) and the
+    // assistant (#536) add their services inside this module.
+    TelemetryModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),

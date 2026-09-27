@@ -116,6 +116,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'ai.audio.speech': 'AI speech synthesis',
   // Daily deletion of `ai_usage_events` past `ai.usageRetentionDays` (#443).
   'ai.usage.purge': 'AI usage purge',
+  // Sets GreptimeDB's database TTL to `telemetry.retentionDays` (#534, epic #528),
+  // nightly and after every telemetry settings save.
+  'telemetry.retention.apply': 'Telemetry retention',
 };
 
 /**
