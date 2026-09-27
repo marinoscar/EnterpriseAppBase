@@ -44,7 +44,16 @@
     "exactOptionalPropertyTypes": true,
 
     "resolveJsonModule": true,
-    "incremental": true
+    "incremental": true,
+
+    // Lets `template-identity.test.ts` import `scripts/rename.mjs` (real JS,
+    // no build step — see that script's own header comment) and get real
+    // inferred types for `buildPlan`/`derive` instead of an implicit-any
+    // error. `checkJs` stays unset/false: this package's own .ts sources are
+    // still fully type-checked as before, and `scripts/rename.mjs` is not
+    // re-typechecked from here (it has its own tests in
+    // `rename-script.test.ts`, run as a subprocess).
+    "allowJs": true
   },
   "include": ["src/**/*", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]

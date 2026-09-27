@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,24 +44,32 @@ import { describe, expect, it } from 'vitest';
 // -----------------------------------------------------------------------------
 // `assertNotTemplate()` is what stops `--reset-release` from ever running
 // unguarded against the template itself — discarding real release history
-// and renumbering four packages. This repository IS the template right now
-// (`identity.json`'s `repoSlug` matches the git remote's origin), so the
-// very first describe block below is a live exercise of the guard the
-// script exists to provide, not a synthetic fixture.
+// and renumbering four packages. The first describe block below exercises it
+// hermetically: it spins up a throwaway local clone of THIS checkout, points
+// that clone's `origin` at a URL built from `identity.json`'s own `repoSlug`
+// (never at whatever the real checkout's remote happens to be), and runs the
+// script inside the clone. That is what `assertNotTemplate()` actually keys
+// off of — `origin.includes(identity.repoSlug)` — so this reproduces the
+// real guard without asserting anything about the environment this suite
+// happens to run in. Before this, the test instead asserted that the real
+// checkout's `origin` already matched `identity.json` — true only for the
+// template repository itself, and false (so the test failed outright) for
+// every fork the instant it re-points `origin`, even before it has renamed
+// anything (issue #514).
 // =============================================================================
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // apps/cli/src -> apps/cli -> apps -> <repo root>
 const REPO_ROOT = join(HERE, '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, 'scripts', 'new-project.mjs');
-const MANIFEST_PATH = join(REPO_ROOT, 'packages', 'shared', 'identity.json');
 const CHANGELOG_PATH = join(REPO_ROOT, 'CHANGELOG.md');
-const WORKSPACE_MANIFESTS = [
+const WORKSPACE_MANIFEST_RELATIVE_PATHS = [
   'apps/api/package.json',
   'apps/web/package.json',
   'apps/cli/package.json',
   'packages/shared/package.json',
-].map((rel) => join(REPO_ROOT, rel));
+];
+const WORKSPACE_MANIFESTS = WORKSPACE_MANIFEST_RELATIVE_PATHS.map((rel) => join(REPO_ROOT, rel));
 
 interface RunResult {
   status: number;
@@ -94,44 +103,97 @@ function readAll(paths: string[]): string[] {
   return paths.map((p) => readFileSync(p, 'utf8'));
 }
 
+/**
+ * Run `node <script> <args>` in `cwd`, never throwing on a non-zero exit.
+ * Same shape as `run()` above, generalised to a caller-supplied script path
+ * and working directory so the hermetic clone below can exercise its own
+ * copy of `new-project.mjs` rather than the one under `REPO_ROOT`.
+ */
+function runScript(scriptPath: string, args: string[], cwd: string): RunResult {
+  try {
+    const stdout = execFileSync('node', [scriptPath, ...args], { cwd, encoding: 'utf8' });
+    return { status: 0, stdout, stderr: '' };
+  } catch (err) {
+    const e = err as { status?: number; stdout?: string; stderr?: string };
+    return {
+      status: typeof e.status === 'number' ? e.status : 1,
+      stdout: e.stdout ?? '',
+      stderr: e.stderr ?? '',
+    };
+  }
+}
+
+/**
+ * A throwaway local clone of `REPO_ROOT`, with `origin` re-pointed at a URL
+ * built from `identity.json`'s own `repoSlug` — reproducing exactly the
+ * condition `assertNotTemplate()` checks for
+ * (`origin.includes(identity.repoSlug)`), without depending on what this
+ * checkout's real `origin` happens to be.
+ *
+ * `--local --no-hardlinks` clones over the filesystem with no network access
+ * and no shared objects with `REPO_ROOT`, so mutating the clone (or `git
+ * remote set-url` on it) can never touch the real checkout. `--depth 1`
+ * needs a `file://` URL rather than a bare path to take effect; only the
+ * current commit is needed here, not history, so the shallow clone keeps
+ * this fast even though `--local` itself is a no-op once `--depth` is given
+ * (git always does a full network-style clone in that case, just over the
+ * filesystem).
+ */
+function withTemplateClone<T>(callback: (cloneDir: string) => T): T {
+  const cloneDir = mkdtempSync(join(tmpdir(), 'new-project-premise-'));
+  try {
+    execFileSync(
+      'git',
+      ['clone', '--local', '--no-hardlinks', '--depth', '1', `file://${REPO_ROOT}`, cloneDir],
+      { encoding: 'utf8' },
+    );
+    return callback(cloneDir);
+  } finally {
+    rmSync(cloneDir, { recursive: true, force: true });
+  }
+}
+
 // -----------------------------------------------------------------------------
 // 1. The safety check — the reason this script cannot bootstrap over itself.
 // -----------------------------------------------------------------------------
 
 describe('scripts/new-project.mjs --reset-release safety check', () => {
-  it('refuses to run against the template repository itself, naming both the origin and the identity value', () => {
-    const identity = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as { repoSlug?: string };
-    const origin = execFileSync('git', ['remote', 'get-url', 'origin'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-    }).trim();
+  it('refuses to run against a checkout whose origin still names identity.json\'s repoSlug', () => {
+    withTemplateClone((cloneDir) => {
+      const clonedManifestPath = join(cloneDir, 'packages', 'shared', 'identity.json');
+      const identity = JSON.parse(readFileSync(clonedManifestPath, 'utf8')) as { repoSlug?: string };
+      expect(identity.repoSlug, 'expected identity.json repoSlug to be set').toBeTruthy();
 
-    // If this precondition ever stops holding (the checkout's origin no
-    // longer matches identity.json's repoSlug — e.g. a real fork checked out
-    // this suite), the test below would pass vacuously for the wrong reason.
-    // Fail loudly instead so the assumption is visible.
-    expect(identity.repoSlug, 'expected identity.json repoSlug to be set').toBeTruthy();
-    expect(
-      origin.includes(identity.repoSlug as string),
-      `expected origin (${origin}) to include repoSlug (${identity.repoSlug}) — this test's ` +
-        'premise (this checkout IS the template) no longer holds',
-    ).toBe(true);
+      // The clone's `origin` (set by `git clone` itself) points at
+      // `REPO_ROOT` on disk, which never contains `repoSlug` as a substring —
+      // re-point it to a URL that does, exactly as a real fork's `origin`
+      // would look right after it is renamed on GitHub but before
+      // `rename.mjs` has run.
+      const origin = `https://github.com/${identity.repoSlug}.git`;
+      execFileSync('git', ['remote', 'set-url', 'origin', origin], { cwd: cloneDir, encoding: 'utf8' });
 
-    const statusBefore = gitPorcelainStatus();
-    const before = readAll([...WORKSPACE_MANIFESTS, CHANGELOG_PATH]);
+      const clonedScript = join(cloneDir, 'scripts', 'new-project.mjs');
+      const clonedWorkspaceManifests = WORKSPACE_MANIFEST_RELATIVE_PATHS.map((rel) => join(cloneDir, rel));
+      const clonedChangelog = join(cloneDir, 'CHANGELOG.md');
+      const clonedGitStatus = () =>
+        execFileSync('git', ['status', '--porcelain'], { cwd: cloneDir, encoding: 'utf8' });
 
-    const result = run(['--reset-release']);
+      const statusBefore = clonedGitStatus();
+      const before = readAll([...clonedWorkspaceManifests, clonedChangelog]);
 
-    const statusAfter = gitPorcelainStatus();
-    const after = readAll([...WORKSPACE_MANIFESTS, CHANGELOG_PATH]);
+      const result = runScript(clonedScript, ['--reset-release'], cloneDir);
 
-    expect(result.status, `expected non-zero exit, got 0. stdout:\n${result.stdout}`).not.toBe(0);
-    expect(result.stderr).toMatch(/still points at the repository named in identity\.json/);
-    expect(result.stderr).toContain(origin);
-    expect(result.stderr).toContain(identity.repoSlug as string);
-    // A refusal must be a true no-op.
-    expect(after).toEqual(before);
-    expect(statusAfter).toBe(statusBefore);
+      const statusAfter = clonedGitStatus();
+      const after = readAll([...clonedWorkspaceManifests, clonedChangelog]);
+
+      expect(result.status, `expected non-zero exit, got 0. stdout:\n${result.stdout}`).not.toBe(0);
+      expect(result.stderr).toMatch(/still points at the repository named in identity\.json/);
+      expect(result.stderr).toContain(origin);
+      expect(result.stderr).toContain(identity.repoSlug as string);
+      // A refusal must be a true no-op.
+      expect(after).toEqual(before);
+      expect(statusAfter).toBe(statusBefore);
+    });
   });
 });
 
