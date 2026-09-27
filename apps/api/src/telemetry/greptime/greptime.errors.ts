@@ -58,12 +58,20 @@ export class TelemetryMultiStatementError extends TelemetryStoreError {
   }
 }
 
-/** GreptimeDB (or the network) refused or failed the statement. */
+/**
+ * GreptimeDB (or the network) refused or failed the statement.
+ *
+ * `origin` tells the two apart: `server` is GreptimeDB answering with an
+ * error (bad SQL, permission refused — the caller's statement is at fault and
+ * the message is safe to show), `connection` is the store not answering at
+ * all (refused/reset socket, failed authentication handshake).
+ */
 export class TelemetryQueryFailedError extends TelemetryStoreError {
   constructor(
     message: string,
-    /** SQLSTATE when the server supplied one. */
+    /** SQLSTATE when the server supplied one (or a Node error code for a socket failure). */
     readonly code?: string,
+    readonly origin: 'server' | 'connection' = 'server',
   ) {
     super(message);
   }

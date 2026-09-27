@@ -9,6 +9,7 @@
     "test",
     "dist",
     "**/*spec.ts",
-    "src/ai/testing/**"
+    "src/ai/testing/**",
+    "src/telemetry/testing/**"
   ]
 }
