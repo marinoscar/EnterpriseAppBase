@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 
+import { AiModule } from '../ai/ai.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { SettingsModule } from '../settings/settings.module';
+import { TelemetryAssistantController } from './assistant/telemetry-assistant.controller';
+import { TelemetryAssistantService } from './assistant/telemetry-assistant.service';
 import { TelemetryExportService } from './export/telemetry-export.service';
 import { GreptimeClient } from './greptime/greptime.client';
 import { TelemetryRetentionHandler } from './handlers/telemetry-retention.handler';
@@ -27,18 +30,24 @@ import { TelemetryStatusService } from './telemetry-status.service';
 // (tables and columns) and `TelemetryExportService` (csv/ndjson/xlsx/parquet),
 // behind `TelemetryExplorerController` on `telemetry:query`.
 //
-// EXTENSION POINT: #536 (assistant) — tools call `TelemetryQueryService.run`
-// with `source: 'assistant'`, so the assistant is held to exactly the
-// explorer's guard and bounds, and `TelemetrySchemaService` to list and
-// describe tables.
+// The assistant (#536): `TelemetryAssistantService` runs a text-to-SQL tool
+// loop through `AiService` (hence `AiModule`); its tools call
+// `TelemetryQueryService.run` with `source: 'assistant'`, so it is held to
+// exactly the explorer's guard and bounds, and `TelemetrySchemaService` to
+// list and describe tables. Streamed by `TelemetryAssistantController`.
 //
 // `GreptimeClient`, `TelemetrySettingsService` and the two query services are
 // exported for it.
 // =============================================================================
 
 @Module({
-  imports: [JobsModule, SettingsModule],
-  controllers: [TelemetryAdminController, TelemetryConfigController, TelemetryExplorerController],
+  imports: [JobsModule, SettingsModule, AiModule],
+  controllers: [
+    TelemetryAdminController,
+    TelemetryConfigController,
+    TelemetryExplorerController,
+    TelemetryAssistantController,
+  ],
   providers: [
     GreptimeClient,
     TelemetrySettingsService,
@@ -48,6 +57,7 @@ import { TelemetryStatusService } from './telemetry-status.service';
     TelemetryQueryService,
     TelemetrySchemaService,
     TelemetryExportService,
+    TelemetryAssistantService,
   ],
   exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })
