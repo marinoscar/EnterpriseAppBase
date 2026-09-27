@@ -225,9 +225,18 @@ export interface TelemetryConnectionSectionProps {
   canWrite: boolean;
   /** After a successful save or revert — the page refreshes its config and status. */
   onChanged: (message: string) => void;
+  /**
+   * Bumped by the page when the store changed under it (a telemetry services
+   * deploy, #567): the connection is re-read and a stale test result dropped.
+   */
+  refreshToken?: number;
 }
 
-export function TelemetryConnectionSection({ canWrite, onChanged }: TelemetryConnectionSectionProps) {
+export function TelemetryConnectionSection({
+  canWrite,
+  onChanged,
+  refreshToken = 0,
+}: TelemetryConnectionSectionProps) {
   const {
     connection,
     isLoading,
@@ -242,7 +251,15 @@ export function TelemetryConnectionSection({ canWrite, onChanged }: TelemetryCon
     save,
     revert,
     test,
+    clearTestResult,
   } = useTelemetryConnection();
+
+  // Not on mount: the hook already loads once.
+  useEffect(() => {
+    if (refreshToken === 0) return;
+    clearTestResult();
+    void reload();
+  }, [refreshToken, clearTestResult, reload]);
 
   const [form, setForm] = useState<ConnectionForm | null>(null);
   const [showErrors, setShowErrors] = useState(false);

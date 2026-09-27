@@ -15,6 +15,8 @@ import {
   mockTelemetryConnectionEnvironment,
   mockTelemetryConnectionNone,
   mockTelemetryConnectionStored,
+  mockTelemetryStackMissing,
+  mockTelemetryStackRunning,
   mockTelemetryStatusUnconfigured,
 } from '../../mocks/fixtures/telemetry';
 import type {
@@ -642,6 +644,84 @@ describe('TelemetrySettingsPage', () => {
       for (const name of ['Test connection', 'Save connection', 'Revert to deployment default']) {
         expect(within(section).getByRole('button', { name })).toBeDisabled();
       }
+    });
+  });
+
+  describe('Telemetry services section (#567)', () => {
+    it('sits just above the Connection section', async () => {
+      renderPage();
+      await waitForForm();
+
+      const services = await screen.findByRole('region', { name: 'Telemetry services' });
+      const connection = screen.getByRole('region', { name: 'Connection' });
+      expect(
+        services.compareDocumentPosition(connection) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(await within(services).findByRole('button', { name: 'Redeploy' })).toBeEnabled();
+    });
+
+    it('is not shown without system_settings:read', async () => {
+      renderPage({
+        user: {
+          ...mockAdminUser,
+          permissions: mockAdminUser.permissions.filter((p) => !p.startsWith('system_settings:')),
+        },
+      });
+      await waitForForm();
+      expect(screen.queryByRole('region', { name: 'Telemetry services' })).not.toBeInTheDocument();
+    });
+
+    it('disables deploying without system_settings:write', async () => {
+      renderPage({
+        user: {
+          ...mockAdminUser,
+          permissions: mockAdminUser.permissions.filter((p) => p !== 'system_settings:write'),
+        },
+      });
+      await waitForForm();
+      const services = await screen.findByRole('region', { name: 'Telemetry services' });
+      expect(await within(services).findByRole('button', { name: 'Redeploy' })).toBeDisabled();
+    });
+
+    it('refreshes the status and connection after a successful deploy', async () => {
+      let deployed = false;
+      let statusGets = 0;
+      let connectionGets = 0;
+      server.use(
+        http.get(`${API_BASE}/admin/telemetry/stack`, () =>
+          HttpResponse.json({
+            data: deployed
+              ? {
+                  ...mockTelemetryStackRunning,
+                  deploy: { ...mockTelemetryStackRunning.deploy!, jobId: 'job-deploy-1' },
+                }
+              : mockTelemetryStackMissing,
+          }),
+        ),
+        http.post(`${API_BASE}/admin/telemetry/stack/deploy`, () => {
+          deployed = true;
+          return HttpResponse.json({ data: { jobId: 'job-deploy-1' } }, { status: 202 });
+        }),
+        http.get(`${API_BASE}/admin/telemetry/status`, () => {
+          statusGets += 1;
+          return HttpResponse.json({ data: mockTelemetryStatusUnconfigured });
+        }),
+        http.get(`${API_BASE}/admin/telemetry/connection`, () => {
+          connectionGets += 1;
+          return HttpResponse.json({ data: mockTelemetryConnectionStored });
+        }),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      await waitForForm();
+
+      const services = await screen.findByRole('region', { name: 'Telemetry services' });
+      await user.click(await within(services).findByRole('button', { name: 'Deploy GreptimeDB' }));
+
+      expect(await within(services).findByTestId('telemetry-services-succeeded')).toBeInTheDocument();
+      // One load each on mount, and one more each after the deploy.
+      await waitFor(() => expect(statusGets).toBeGreaterThanOrEqual(2));
+      await waitFor(() => expect(connectionGets).toBeGreaterThanOrEqual(2));
     });
   });
 });

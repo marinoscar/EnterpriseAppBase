@@ -29,6 +29,7 @@ import {
   mockTelemetryPublicConfigDisabled,
   mockTelemetryQueryResult,
   mockTelemetrySchema,
+  mockTelemetryStackRunning,
   mockTelemetryStatus,
 } from './fixtures/telemetry';
 import type {
@@ -400,6 +401,15 @@ export const handlers = [
     return HttpResponse.json({
       data: { ...mockTelemetryConnectionTestResult, host: host ?? mockTelemetryConnectionTestResult.host },
     });
+  }),
+
+  // Telemetry services (#567). Defaults to a healthy, deployed stack.
+  http.get(`${API_BASE}/admin/telemetry/stack`, () => {
+    return HttpResponse.json({ data: mockTelemetryStackRunning });
+  }),
+
+  http.post(`${API_BASE}/admin/telemetry/stack/deploy`, () => {
+    return HttpResponse.json({ data: { jobId: 'job-deploy-1' } }, { status: 202 });
   }),
 
   http.get(`${API_BASE}/admin/telemetry/schema`, () => {

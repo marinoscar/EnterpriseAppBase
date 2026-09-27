@@ -13,6 +13,7 @@ import type {
   TelemetryPublicConfig,
   TelemetryQueryResult,
   TelemetrySchema,
+  TelemetryStack,
   TelemetryStatus,
 } from '../../../services/telemetry';
 
@@ -191,4 +192,40 @@ export const mockTelemetryConnectionTestResult: TelemetryConnectionTestResult = 
   host: 'greptimedb',
   reader: { success: true, latencyMs: 12, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' },
   admin: { success: false, latencyMs: 8, error: 'password authentication failed for user "admin"' },
+};
+
+// Telemetry services (#567): `GET /admin/telemetry/stack`.
+
+/** Both services up and healthy, the last deploy long settled. */
+export const mockTelemetryStackRunning: TelemetryStack = {
+  agent: 'available',
+  services: [
+    { name: 'greptimedb', state: 'running', health: 'healthy' },
+    { name: 'otel-collector', state: 'running', health: null },
+  ],
+  deploy: {
+    jobId: 'job-deploy-0',
+    status: 'succeeded',
+    createdAt: '2026-09-01T10:00:00.000Z',
+    finishedAt: '2026-09-01T10:02:00.000Z',
+    error: null,
+    output: null,
+  },
+};
+
+/** The agent is reachable but nothing has been deployed yet. */
+export const mockTelemetryStackMissing: TelemetryStack = {
+  agent: 'available',
+  services: [
+    { name: 'greptimedb', state: 'missing', health: null },
+    { name: 'otel-collector', state: 'missing', health: null },
+  ],
+  deploy: null,
+};
+
+/** No deployment agent (a development stack). */
+export const mockTelemetryStackUnavailable: TelemetryStack = {
+  agent: 'not_configured',
+  services: [],
+  deploy: null,
 };

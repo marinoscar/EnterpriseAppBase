@@ -11,6 +11,12 @@
  * this page — the same destination — not a card or a tab of its own, and it
  * saves on its own `If-Match` version, separate from the policy form's.
  *
+ * The Telemetry services section (#567, `components/telemetry/TelemetryServicesSection`)
+ * sits just above it: the GreptimeDB containers' state and a one-click
+ * (re)deploy. Also a section, not a card or tab; it is shown for
+ * `system_settings:read` and deploys need `system_settings:write` — what the
+ * `/admin/telemetry/stack` routes enforce.
+ *
  * Gates: the route requires `telemetry:read` (the card's permission, what
  * `telemetry-admin.controller.ts` enforces on its GETs). Saving needs
  * `telemetry:write`; without it every control is disabled — the API is the
@@ -59,6 +65,7 @@ import {
   TELEMETRY_CONNECTION_SECTION_ID,
   TelemetryConnectionSection,
 } from '../../components/telemetry/TelemetryConnectionSection';
+import { TelemetryServicesSection } from '../../components/telemetry/TelemetryServicesSection';
 import {
   TELEMETRY_LIMITS,
   type TelemetryAdminConfig,
@@ -409,6 +416,8 @@ export default function TelemetrySettingsPage() {
 
   const [form, setForm] = useState<FormState | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  // Bumped after a telemetry services deploy so the Connection section re-reads.
+  const [connectionRefresh, setConnectionRefresh] = useState(0);
 
   useEffect(() => {
     if (config) setForm(toFormState(config));
@@ -421,6 +430,10 @@ export default function TelemetrySettingsPage() {
 
   const canWrite = hasPermission('telemetry:write');
   const canPickModel = hasPermission('ai_config:read');
+  // The Telemetry services section (#567) follows `telemetry-stack` routes,
+  // which enforce `system_settings:read` / `system_settings:write`.
+  const canViewServices = hasPermission('system_settings:read');
+  const canDeployServices = hasPermission('system_settings:write');
 
   if (isLoading && !form) {
     return <LoadingSpinner />;
@@ -480,8 +493,22 @@ export default function TelemetrySettingsPage() {
           </Alert>
         )}
 
+        {canViewServices && (
+          <TelemetryServicesSection
+            canDeploy={canDeployServices}
+            onDeployed={() => {
+              // A fresh store changes the connection test, `available` and the
+              // status — refresh them all, and the shell's shared flag.
+              setConnectionRefresh((n) => n + 1);
+              void reload();
+              void sharedTelemetryConfig?.refresh();
+            }}
+          />
+        )}
+
         <TelemetryConnectionSection
           canWrite={canWrite}
+          refreshToken={connectionRefresh}
           onChanged={(message) => {
             setSavedMessage(message);
             // The connection decides `available`, `retentionApplicable` and the
