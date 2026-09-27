@@ -26,10 +26,6 @@ import {
   Button,
   CircularProgress,
   Container,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Divider,
   Drawer,
   IconButton,
   ListItemText,
@@ -54,8 +50,7 @@ import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import CloseIcon from '@mui/icons-material/Close';
 import { Navigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
-import { useAiConfig } from '../../hooks/useAiConfig';
-import { useTelemetryConfig } from '../../hooks/useTelemetryConfig';
+import { useTelemetryAssistantAvailable } from '../../hooks/useTelemetryAssistantAvailable';
 import {
   telemetryErrorTitle,
   toTelemetryError,
@@ -75,6 +70,7 @@ import type { SqlEditorHandle } from '../../components/telemetry/SqlEditor';
 import { SchemaPanel } from '../../components/telemetry/SchemaPanel';
 import { ResultsGrid } from '../../components/telemetry/ResultsGrid';
 import { AssistantPanel } from '../../components/telemetry/AssistantPanel';
+import { ASSISTANT_WIDTH, AssistantContainer } from '../../components/telemetry/AssistantContainer';
 import { STARTER_QUERIES, traceQuery } from '../../components/telemetry/starterQueries';
 import { pushQueryHistory, readQueryHistory } from '../../components/telemetry/queryHistory';
 
@@ -86,7 +82,6 @@ const PAGE_TITLE = 'Telemetry Explorer';
 const PAGE_DESCRIPTION =
   'Query traces, logs and metrics with SQL, export the results, and ask the AI assistant for help.';
 
-const ASSISTANT_WIDTH = 400;
 const SCHEMA_WIDTH = 260;
 
 /**
@@ -140,8 +135,6 @@ export default function TelemetryExplorerPage() {
   const theme = useTheme();
   const isCompact = useMediaQuery(theme.breakpoints.down('sm'));
   const { hasPermission } = usePermissions();
-  const { config: telemetryConfig } = useTelemetryConfig();
-  const { config: aiConfig } = useAiConfig();
 
   const schema = useTelemetrySchema();
   const query = useTelemetryQuery();
@@ -160,8 +153,7 @@ export default function TelemetryExplorerPage() {
 
   const editorRef = useRef<SqlEditorHandle | null>(null);
 
-  const assistantAvailable =
-    telemetryConfig.assistantEnabled && aiConfig.enabled && hasPermission('ai:use');
+  const assistantAvailable = useTelemetryAssistantAvailable();
   const modelCaption = useTelemetryAssistantModel(
     assistantAvailable && hasPermission('telemetry:read'),
   );
@@ -476,46 +468,14 @@ export default function TelemetryExplorerPage() {
       </Drawer>
 
       {/* Assistant: a docked drawer on the right from `sm` up, full-screen on phones. */}
-      {assistantAvailable && !isCompact && (
-        <Drawer
-          anchor="right"
-          variant="persistent"
+      {assistantAvailable && (
+        <AssistantContainer
           open={assistantOpen}
-          slotProps={{
-            paper: {
-              sx: {
-                width: ASSISTANT_WIDTH,
-                top: 64,
-                height: 'calc(100% - 64px)',
-                p: 2,
-                boxSizing: 'border-box',
-              },
-              'aria-label': 'Telemetry assistant',
-            } as object,
-          }}
+          onClose={() => setAssistantOpen(false)}
+          variant={isCompact ? 'fullscreen' : 'docked'}
         >
-          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Typography variant="h6" component="h2">
-              Assistant
-            </Typography>
-            <IconButton aria-label="Close assistant" onClick={() => setAssistantOpen(false)}>
-              <CloseIcon />
-            </IconButton>
-          </Stack>
-          <Divider sx={{ mb: 1 }} />
           {assistantPanel}
-        </Drawer>
-      )}
-      {assistantAvailable && isCompact && (
-        <Dialog fullScreen open={assistantOpen} onClose={() => setAssistantOpen(false)} aria-labelledby="telemetry-assistant-title">
-          <DialogTitle id="telemetry-assistant-title" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            Assistant
-            <IconButton aria-label="Close assistant" onClick={() => setAssistantOpen(false)}>
-              <CloseIcon />
-            </IconButton>
-          </DialogTitle>
-          <DialogContent sx={{ display: 'flex', flexDirection: 'column' }}>{assistantPanel}</DialogContent>
-        </Dialog>
+        </AssistantContainer>
       )}
     </Container>
   );
