@@ -87,13 +87,15 @@ describe('TelemetrySettingsPage', () => {
 
     const alert = await screen.findByTestId('telemetry-not-configured');
     expect(alert).toHaveTextContent(/GreptimeDB not configured/);
-    // Actionable: it points at the Connection section, and still says the
-    // server itself has to be deployed.
+    // Actionable: it points at the Connection section, and says GreptimeDB
+    // ships with the application — never an operator command (#567).
     expect(within(alert).getByRole('link', { name: 'Connection' })).toHaveAttribute(
       'href',
       '#telemetry-connection',
     );
-    expect(alert).toHaveTextContent(/appctl deploy update --group observability/);
+    expect(alert).toHaveTextContent(/GreptimeDB is deployed with this application/);
+    expect(alert).toHaveTextContent(/take effect once it is reachable, with no restart needed/);
+    expect(alert.textContent).not.toMatch(/appctl|compose/i);
   });
 
   it('sets retentionDays from a preset and saves with If-Match', async () => {
@@ -281,6 +283,31 @@ describe('TelemetrySettingsPage', () => {
       renderPage();
       const section = await connectionSection();
       expect(within(section).getByTestId('telemetry-connection-source')).toHaveTextContent(label);
+    });
+
+    it('describes GreptimeDB as deployed with the app, never an operator command (#567)', async () => {
+      renderPage();
+      const section = await connectionSection();
+      const description = within(section).getByTestId('telemetry-connection-description');
+      expect(description).toHaveTextContent(/GreptimeDB is deployed with this application/);
+      expect(description).toHaveTextContent(/the Automatic host finds it — leave the host blank/);
+      expect(description).toHaveTextContent(/Enter a host only to use an external GreptimeDB/);
+      expect(description.textContent).not.toMatch(/appctl|compose/i);
+    });
+
+    it('explains that reverting uses the deployment-provisioned logins (stored only)', async () => {
+      renderPage();
+      const section = await connectionSection();
+      expect(within(section).getByTestId('telemetry-connection-revert-hint')).toHaveTextContent(
+        /reverting uses the logins the deployment provisioned GreptimeDB with/,
+      );
+    });
+
+    it('hides the revert hint when nothing is stored', async () => {
+      serveConnection(mockTelemetryConnectionEnvironment);
+      renderPage();
+      const section = await connectionSection();
+      expect(within(section).queryByTestId('telemetry-connection-revert-hint')).toBeNull();
     });
 
     it('fills the fields, never a password, and describes the saved one by its hint', async () => {

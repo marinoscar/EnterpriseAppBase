@@ -332,13 +332,16 @@ export function TelemetryConnectionSection({ canWrite, onChanged }: TelemetryCon
           />
         )}
       </Stack>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        How the API reaches GreptimeDB to read telemetry and apply retention. The GreptimeDB
-        server itself must be deployed separately — the telemetry compose overlay (
-        <code>telemetry.compose.yml</code>) in development, or{' '}
-        <code>appctl deploy update --group observability</code> on a VPS; this page only holds
-        the credentials to reach it. The writer login and HTTP port are used by the collector
-        and stay deployment settings.
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{ mb: 2 }}
+        data-testid="telemetry-connection-description"
+      >
+        How the API reaches GreptimeDB to read telemetry and apply retention. GreptimeDB is
+        deployed with this application, and the Automatic host finds it — leave the host blank.
+        Enter a host only to use an external GreptimeDB. The collector&apos;s writer login is
+        managed by the deployment.
       </Typography>
 
       {loadError && (
@@ -475,6 +478,17 @@ export function TelemetryConnectionSection({ canWrite, onChanged }: TelemetryCon
               Revert to deployment default
             </Button>
           </Stack>
+          {connection.source === 'stored' && (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mt: 1 }}
+              data-testid="telemetry-connection-revert-hint"
+            >
+              If the saved logins no longer match GreptimeDB, reverting uses the logins the
+              deployment provisioned GreptimeDB with.
+            </Typography>
+          )}
           {connection.updatedBy && connection.updatedAt && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
               Connection last saved by {connection.updatedBy.email} on{' '}

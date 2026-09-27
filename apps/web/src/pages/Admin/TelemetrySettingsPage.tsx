@@ -195,11 +195,10 @@ function StatusCard({
       {status && !status.configured && (
         <Alert severity="warning" sx={{ mb: 2 }} data-testid="telemetry-not-configured">
           <AlertTitle>GreptimeDB not configured</AlertTitle>
-          The API has no connection to a telemetry store. Enter the GreptimeDB host and logins in
-          the <ConnectionLink>Connection</ConnectionLink> section and save — no restart needed.
-          GreptimeDB itself must be running: the telemetry compose overlay in development, or{' '}
-          <code>appctl deploy update --group observability</code> on a VPS. Settings saved here
-          are kept and take effect once the store is reachable.
+          The API has no connection to a telemetry store. Enter the GreptimeDB logins in
+          the <ConnectionLink>Connection</ConnectionLink> section and save. GreptimeDB is
+          deployed with this application; settings saved here take effect once it is reachable,
+          with no restart needed.
         </Alert>
       )}
       {status && (
