@@ -54,6 +54,9 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
 import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
+// Observability (#537, epic #528) — the telemetry policy page and the explorer.
+import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
+import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -103,8 +106,11 @@ export interface SettingsCardDef {
   feature?: SettingsFeatureKey;
 }
 
-/** The deployment features a card may be gated on. One today; a union so a second is a one-word change. */
-export type SettingsFeatureKey = 'ai';
+/**
+ * The deployment features a card may be gated on: `ai` (#425) and `telemetry`
+ * (#537 — a telemetry store is deployed AND collection is switched on).
+ */
+export type SettingsFeatureKey = 'ai' | 'telemetry';
 
 /**
  * Which features are on, as `visibleSettingsSections` / `settingsPageTitle` /
@@ -585,6 +591,53 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         path: '/admin/settings/ai/usage',
         permission: 'ai_config:read',
         feature: 'ai',
+      },
+    ],
+  },
+  {
+    // Issue #537, epic #528. A FIFTH group, APPENDED after AI — the same
+    // append-only rule every earlier group followed: the hub, the rail and the
+    // drill-down list render this array in declaration order, so appending
+    // keeps every existing card where it was. (It still reflows the hub grid
+    // below the AI group, so the `tests/visual` hub baselines move once.)
+    //
+    // OBSERVABILITY, NOT OPERATIONS: Operations is the running system's work
+    // (jobs, nodes, backups); this group is the system's own traces, logs and
+    // metrics, and the tools for asking questions of them.
+    //
+    // The permissions are the literal strings the telemetry controllers
+    // enforce (`PERMISSIONS.TELEMETRY_*` in `roles.constants.ts`):
+    //   - `telemetry:read`  → `telemetry/telemetry-admin.controller.ts` (#534),
+    //                         on GET config and GET status. Saving needs
+    //                         `telemetry:write`, which the PAGE gates.
+    //   - `telemetry:query` → the explorer controller (#535), on query, schema
+    //                         and export — and, with `ai:use`, the assistant
+    //                         stream (#536).
+    label: 'Observability',
+    cards: [
+      {
+        // NO `feature`, deliberately — the `AI` card's precedent: this is the
+        // page telemetry is switched on from.
+        title: 'Telemetry',
+        description:
+          'Turn telemetry collection on, choose how long it is kept, set query limits and configure the AI assistant.',
+        Icon: InsightsOutlinedIcon,
+        path: '/admin/settings/telemetry',
+        permission: 'telemetry:read',
+      },
+      {
+        // Nested UNDER the Telemetry route, so `settingsPageTitle`'s
+        // longest-prefix rule titles it "Telemetry Explorer". Feature-gated:
+        // an explorer over a store that is absent or switched off is a page
+        // about nothing. `telemetry:query`, NOT `telemetry:read`: running
+        // arbitrary read-only SQL over telemetry is a separate grant.
+        title: 'Telemetry Explorer',
+        description:
+          'Query traces, logs and metrics with SQL, export the results, and ask the AI assistant for help.',
+        Icon: TerminalOutlinedIcon,
+        path: '/admin/settings/telemetry/explorer',
+        permission: 'telemetry:query',
+        feature: 'telemetry',
       },
     ],
   },

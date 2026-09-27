@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from './mocks/server';
 import App from '../App';
 import { mockAiPublicConfigEnabled } from './mocks/fixtures/ai';
+import { mockTelemetryPublicConfigEnabled } from './mocks/fixtures/telemetry';
 
 /**
  * Every admin page is replaced with an UNGUARDED stand-in.
@@ -46,6 +47,16 @@ vi.mock('../pages/Admin/UsersPage', () => ({
 // Issue #392: the target of the `/admin/settings/deployment` redirect.
 vi.mock('../pages/Admin/AboutPage', () => ({
   default: () => <h1>Admin About</h1>,
+}));
+
+// Issue #537, epic #528 — the two Observability pages, stood in for the same
+// reason as the admin pages above.
+vi.mock('../pages/Admin/TelemetrySettingsPage', () => ({
+  default: () => <h1>Admin Telemetry</h1>,
+}));
+
+vi.mock('../pages/Admin/TelemetryExplorerPage', () => ({
+  default: () => <h1>Admin Telemetry Explorer</h1>,
 }));
 
 /**
@@ -571,5 +582,80 @@ describe('App', () => {
         });
       },
     );
+  });
+  describe('Telemetry routes (#537)', () => {
+    const TELEMETRY_ALL = ['user_settings:read', 'telemetry:read', 'telemetry:write', 'telemetry:query'];
+
+    function telemetryOn() {
+      server.use(
+        http.get(`${API_BASE}/telemetry/config`, () =>
+          HttpResponse.json({ data: mockTelemetryPublicConfigEnabled }),
+        ),
+      );
+    }
+
+    function renderAt(path: string) {
+      render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>,
+      );
+    }
+
+    it('keeps /admin/settings/telemetry reachable while telemetry is off — it is where it is switched on', async () => {
+      signInAs(TELEMETRY_ALL, ['admin']);
+      renderAt('/admin/settings/telemetry');
+
+      await waitFor(
+        () => expect(screen.getByRole('heading', { level: 1, name: 'Admin Telemetry' })).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it('redirects the explorer to / while telemetry is off, even for a fully permitted admin', async () => {
+      signInAs(TELEMETRY_ALL, ['admin']);
+      renderAt('/admin/settings/telemetry/explorer');
+
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+      expect(
+        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Explorer' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('routes the explorer once telemetry is on', async () => {
+      telemetryOn();
+      signInAs(TELEMETRY_ALL, ['admin']);
+      renderAt('/admin/settings/telemetry/explorer');
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole('heading', { level: 1, name: 'Admin Telemetry Explorer' }),
+          ).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it('redirects /admin/settings/telemetry for a user without telemetry:read', async () => {
+      telemetryOn();
+      signInAs(['user_settings:read', 'telemetry:query']);
+      renderAt('/admin/settings/telemetry');
+
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+    });
+
+    it('redirects the explorer for a user without telemetry:query, even with telemetry on', async () => {
+      telemetryOn();
+      signInAs(['user_settings:read', 'telemetry:read']);
+      renderAt('/admin/settings/telemetry/explorer');
+
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+    });
   });
 });

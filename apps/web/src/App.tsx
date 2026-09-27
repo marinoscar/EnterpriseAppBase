@@ -4,10 +4,12 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AiConfigProvider } from './contexts/AiConfigContext';
+import { TelemetryConfigProvider } from './contexts/TelemetryConfigContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
+import { RequireTelemetryEnabled } from './components/common/RequireTelemetryEnabled';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 // Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error
@@ -91,6 +93,11 @@ const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
 const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
+// Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
+// like every admin page; the explorer additionally lazy-loads its CodeMirror
+// editor, so neither weighs on the entry chunk.
+const TelemetrySettingsPage = lazy(() => import('./pages/Admin/TelemetrySettingsPage'));
+const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorerPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -161,12 +168,16 @@ function AppRoutes() {
                     is `@Auth()`, so it belongs inside `ProtectedRoute`, and ONE
                     mount point means ONE `GET /api/ai/config` shared by the
                     chrome (rail, bottom bar, menu, AppBar) and every routed
-                    page, instead of one request per consumer. */}
+                    page, instead of one request per consumer.
+                    `TelemetryConfigProvider` (#537, epic #528) is its twin for
+                    `GET /api/telemetry/config`. */}
                 <Route
                   element={
                     <NotificationProvider>
                       <AiConfigProvider>
-                        <Layout />
+                        <TelemetryConfigProvider>
+                          <Layout />
+                        </TelemetryConfigProvider>
                       </AiConfigProvider>
                     </NotificationProvider>
                   }
@@ -627,6 +638,39 @@ function AppRoutes() {
                         <RequireAiEnabled>
                           <AiUsagePage />
                         </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #537, epic #528. `telemetry:read` is the string the
+                      `Telemetry` card declares and `telemetry-admin.controller.ts`
+                      enforces on its GETs. NOT behind `RequireTelemetryEnabled`:
+                      this is where telemetry is switched on (the `AI` page's
+                      precedent). Saving needs `telemetry:write`, which the
+                      page gates internally. */}
+                  <Route
+                    path="/admin/settings/telemetry"
+                    element={
+                      <RequirePermission
+                        permission="telemetry:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <TelemetrySettingsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* `telemetry:query`, the explorer controller's permission,
+                      plus the feature: redirected while no store is deployed
+                      or collection is off. */}
+                  <Route
+                    path="/admin/settings/telemetry/explorer"
+                    element={
+                      <RequirePermission
+                        permission="telemetry:query"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireTelemetryEnabled>
+                          <TelemetryExplorerPage />
+                        </RequireTelemetryEnabled>
                       </RequirePermission>
                     }
                   />

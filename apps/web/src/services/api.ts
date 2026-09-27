@@ -18,9 +18,17 @@ interface RequestOptions extends RequestInit {
   skipAuth?: boolean;
   /**
    * How to read a successful body. `'json'` (the default) parses and unwraps
-   * the `{ data }` envelope; `'blob'` returns the raw bytes (e.g. an image).
+   * the `{ data }` envelope; `'blob'` returns the raw bytes (e.g. an image);
+   * `'blobWithHeaders'` returns `{ blob, headers }` for a download whose
+   * filename or metadata travel in response headers.
    */
-  responseType?: 'json' | 'blob';
+  responseType?: 'json' | 'blob' | 'blobWithHeaders';
+}
+
+/** What `responseType: 'blobWithHeaders'` resolves with. */
+export interface BlobWithHeaders {
+  blob: Blob;
+  headers: Headers;
 }
 
 class ApiService {
@@ -99,7 +107,7 @@ class ApiService {
    */
   private async readResponse<T>(
     response: Response,
-    responseType: 'json' | 'blob',
+    responseType: 'json' | 'blob' | 'blobWithHeaders',
   ): Promise<T> {
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
@@ -113,6 +121,10 @@ class ApiService {
 
     if (responseType === 'blob') {
       return (await response.blob()) as T;
+    }
+
+    if (responseType === 'blobWithHeaders') {
+      return { blob: await response.blob(), headers: response.headers } as T;
     }
 
     const data = await response.json();

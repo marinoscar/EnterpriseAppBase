@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import TuneIcon from '@mui/icons-material/Tune';
@@ -690,12 +690,14 @@ describe('the Operations group (#266)', () => {
   );
 
   it('is a third group, and the first two are untouched', () => {
-    // `AI` (#425) is APPENDED as a fourth group after it — see the AI suite.
+    // `AI` (#425) is APPENDED as a fourth group after it — see the AI suite —
+    // and `Observability` (#537) as a fifth after that.
     expect(ADMIN_SECTIONS.map((section) => section.label)).toEqual([
       'General',
       'Access',
       'Operations',
       'AI',
+      'Observability',
     ]);
   });
 
@@ -1063,8 +1065,10 @@ describe('the AI group (#425)', () => {
   const aiSection = ADMIN_SECTIONS.find((section) => section.label === 'AI');
   const cards = new Map((aiSection?.cards ?? []).map((card) => [card.title, card]));
 
-  it('is APPENDED as the last group, leaving every earlier card in place', () => {
-    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(aiSection);
+  it('is APPENDED after Operations, leaving every earlier card in place', () => {
+    // It was the last group until `Observability` (#537) was appended after it.
+    expect(ADMIN_SECTIONS[3]).toBe(aiSection);
+    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability']);
     // `AI Usage` (#444) is appended after `AI Models`, never inserted.
     expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models', 'AI Usage']);
   });
@@ -1122,5 +1126,122 @@ describe('the AI group (#425)', () => {
     const security = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Security');
     const aiKeys = security?.cards.find((card) => card.title === 'AI Keys');
     expect(aiKeys).toMatchObject({ path: '/settings/ai', permission: 'ai:use', feature: 'ai' });
+  });
+});
+
+/**
+ * Issue #537, epic #528 — the Observability group: `Telemetry` (the policy
+ * page, where telemetry is switched on) and `Telemetry Explorer` (feature-gated
+ * on `telemetry`). Permissions are read off the API workspace on disk, the
+ * mechanical half of CLAUDE.md Settings UI Pattern rule 3.
+ */
+describe('the Observability group (#537)', () => {
+  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  const rolesConstants = readFileSync(resolve(API_SRC, 'common/constants/roles.constants.ts'), 'utf8');
+  const observability = ADMIN_SECTIONS.find((section) => section.label === 'Observability');
+  const cards = new Map((observability?.cards ?? []).map((card) => [card.title, card]));
+  const telemetry = cards.get('Telemetry');
+  const explorer = cards.get('Telemetry Explorer');
+
+  const titles = (hasPermission: (permission: string) => boolean, features = {}) =>
+    titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
+
+  it('is APPENDED as the last group, with exactly two cards in order', () => {
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(observability);
+    expect(observability?.cards.map((card) => card.title)).toEqual([
+      'Telemetry',
+      'Telemetry Explorer',
+    ]);
+  });
+
+  describe('the Telemetry card', () => {
+    it('is declared and routed to /admin/settings/telemetry', () => {
+      expect(telemetry).toBeDefined();
+      expect(telemetry?.path).toBe('/admin/settings/telemetry');
+      expect(telemetry?.disabled).toBeUndefined();
+      expect(telemetry?.alwaysShow).toBeUndefined();
+    });
+
+    it('carries no feature — it is where telemetry is switched on', () => {
+      expect(telemetry?.feature).toBeUndefined();
+    });
+
+    it('declares the exact permission telemetry-admin.controller.ts enforces on its reads', () => {
+      const controller = readFileSync(
+        resolve(API_SRC, 'telemetry/telemetry-admin.controller.ts'),
+        'utf8',
+      );
+      expect(telemetry?.permission).toBe('telemetry:read');
+      expect(rolesConstants).toContain("TELEMETRY_READ: 'telemetry:read'");
+      expect(controller).toContain('@Auth({ permissions: [PERMISSIONS.TELEMETRY_READ] })');
+    });
+  });
+
+  describe('the Telemetry Explorer card', () => {
+    it('is declared, routed and nested under the Telemetry route', () => {
+      expect(explorer).toBeDefined();
+      expect(explorer?.path).toBe('/admin/settings/telemetry/explorer');
+      expect(explorer?.disabled).toBeUndefined();
+      expect(explorer?.alwaysShow).toBeUndefined();
+    });
+
+    it("is feature-gated on 'telemetry', never on 'ai'", () => {
+      expect(explorer?.feature).toBe('telemetry');
+    });
+
+    it('declares telemetry:query, the explorer controller permission', () => {
+      expect(explorer?.permission).toBe('telemetry:query');
+      expect(rolesConstants).toContain("TELEMETRY_QUERY: 'telemetry:query'");
+      // The explorer controller lands in #535, built in parallel with this
+      // page. Until it exists in the tree, the roles constant above is the
+      // anchor; once it does, it must enforce the same constant.
+      const controllerPath = resolve(API_SRC, 'telemetry/telemetry-explorer.controller.ts');
+      if (existsSync(controllerPath)) {
+        expect(readFileSync(controllerPath, 'utf8')).toContain('PERMISSIONS.TELEMETRY_QUERY');
+      }
+    });
+  });
+
+  it('shows both cards to an admin holding the telemetry permissions while telemetry is on', () => {
+    const result = titles(() => true, { ai: true, telemetry: true });
+    expect(result).toContain('Telemetry');
+    expect(result).toContain('Telemetry Explorer');
+  });
+
+  it('hides the Explorer while telemetry is off, but keeps the Telemetry card', () => {
+    const off = titles(() => true, { ai: true, telemetry: false });
+    expect(off).toContain('Telemetry');
+    expect(off).not.toContain('Telemetry Explorer');
+    // No feature map at all fails closed the same way.
+    expect(titles(() => true)).not.toContain('Telemetry Explorer');
+  });
+
+  it('shows the Explorer only to a telemetry:query holder', () => {
+    const readOnly = titles((permission) => permission === 'telemetry:read', { telemetry: true });
+    expect(readOnly).toEqual(['Telemetry']);
+    const queryOnly = titles((permission) => permission === 'telemetry:query', { telemetry: true });
+    expect(queryOnly).toEqual(['Telemetry Explorer']);
+  });
+
+  it('drops the whole group for a viewer', () => {
+    const viewer = ['user_settings:read', 'user_settings:write', 'ai:use'];
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => viewer.includes(permission),
+      '',
+      { ai: true, telemetry: true },
+    );
+    expect(result.map((section) => section.label)).not.toContain('Observability');
+  });
+
+  it('titles the Explorer route by longest prefix only while telemetry is on', () => {
+    const path = '/admin/settings/telemetry/explorer';
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, { telemetry: true }),
+    ).toBe('Telemetry Explorer');
+    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path)).toBe('Telemetry');
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/telemetry'),
+    ).toBe('Telemetry');
   });
 });

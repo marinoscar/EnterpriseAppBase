@@ -2,7 +2,7 @@ import { Card, CardContent, Typography, Grid, Button, Box } from '@mui/material'
 import { Palette as ThemeIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
-import { useAiFeatures } from '../../hooks/useAiConfig';
+import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
 import type { DestinationKey } from '../../config/destinations';
 
@@ -36,7 +36,7 @@ const ACTION_DESCRIPTIONS: Partial<Record<DestinationKey, string>> = {
 export function QuickActions() {
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
-  const features = useAiFeatures();
+  const features = useSettingsFeatures();
 
   const visibleActions = DESTINATIONS.filter(
     (destination) =>

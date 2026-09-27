@@ -74,7 +74,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useNavigationPrefs } from '../../hooks/useNavigationPrefs';
-import { useAiFeatures } from '../../hooks/useAiConfig';
+import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import {
   DESTINATIONS,
   isDestinationVisible,
@@ -279,7 +279,7 @@ export function NavigationRail() {
   //
   // The feature map (#425) hides the AI destination while AI is switched off,
   // and the Console sections below read the same map.
-  const features = useAiFeatures();
+  const features = useSettingsFeatures();
   const visibleDestinations = DESTINATIONS.filter((destination) =>
     isDestinationVisible(destination, hasPermission, features),
   );
@@ -305,13 +305,14 @@ export function NavigationRail() {
   //
   // The FEATURE map (#425) is the same one the hub passes, so a card for a
   // switched-off feature (AI Models while AI is off) is absent from both.
-  const aiEnabled = features.ai;
+  // `features` is memoised by `useSettingsFeatures` (#537), so it is a
+  // stable dependency: it changes only when a feature flips.
   const consoleSections = useMemo(
     () =>
       consoleMode
-        ? visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', { ai: aiEnabled })
+        ? visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features)
         : [],
-    [consoleMode, hasPermission, aiEnabled],
+    [consoleMode, hasPermission, features],
   );
 
   // LONGEST PREFIX WINS, not `owns` alone. Admin paths genuinely nest
