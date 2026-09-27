@@ -76,3 +76,15 @@ export class TelemetryQueryFailedError extends TelemetryStoreError {
     super(message);
   }
 }
+
+/**
+ * The caller's `AbortSignal` fired while the statement was in flight (the
+ * assistant's client disconnected, issue #536). Like a timeout, the
+ * connection that ran it has already been destroyed; the server may still be
+ * finishing the query.
+ */
+export class TelemetryQueryAbortedError extends TelemetryStoreError {
+  constructor() {
+    super('The telemetry query was cancelled.');
+  }
+}

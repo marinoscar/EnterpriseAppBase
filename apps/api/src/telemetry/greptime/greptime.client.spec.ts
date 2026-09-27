@@ -13,6 +13,7 @@ import {
 import {
   TelemetryMultiStatementError,
   TelemetryNotConfiguredError,
+  TelemetryQueryAbortedError,
   TelemetryQueryFailedError,
   TelemetryQueryTimeoutError,
 } from './greptime.errors';
@@ -155,6 +156,30 @@ describe('GreptimeClient', () => {
       // The abandoned query's eventual rejection is not an unhandled one.
       rejectQuery(new Error('Connection terminated'));
       await Promise.resolve();
+    });
+
+    it('on abort destroys the connection and throws TelemetryQueryAbortedError', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockReturnValue(new Promise(() => undefined));
+      const controller = new AbortController();
+
+      const pending = client.queryReader('SELECT sleep()', { timeoutMs: 60_000, signal: controller.signal });
+      while (client.client.query.mock.calls.length === 0) await Promise.resolve();
+      controller.abort();
+
+      await expect(pending).rejects.toBeInstanceOf(TelemetryQueryAbortedError);
+      expect(client.client.release).toHaveBeenCalledWith(true);
+    });
+
+    it('refuses to start when already aborted', async () => {
+      const client = new TestableClient(configService(CONFIGURED));
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        client.queryReader('SELECT 1', { timeoutMs: 1000, signal: controller.signal }),
+      ).rejects.toBeInstanceOf(TelemetryQueryAbortedError);
+      expect(client.client.query).not.toHaveBeenCalled();
     });
 
     it('carries the timeout it enforced', async () => {
