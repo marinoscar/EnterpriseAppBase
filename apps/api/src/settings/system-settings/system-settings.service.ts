@@ -22,6 +22,7 @@ import {
   systemStorageSchema,
   systemAiSchema,
   systemAiProviderSchema,
+  systemTelemetrySchema,
   AI_PROVIDER_IDS,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
@@ -31,6 +32,7 @@ import {
   type SystemDatabaseBackupValue,
   type SystemStorageValue,
   type SystemAiValue,
+  type SystemTelemetryValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -391,6 +393,16 @@ export class SystemSettingsService {
         systemAiSchema,
         DEFAULT_SYSTEM_SETTINGS.ai,
       ),
+      // Telemetry policy (epic #528, story #533), read through the same
+      // helper as every namespace above: whatever is on disk, what comes back
+      // validates field by field, so a damaged `assistant` block degrading to
+      // its default leaves `enabled`/`retentionDays`/`query` beside it
+      // untouched.
+      telemetry: this.readNamespace(
+        root?.telemetry,
+        systemTelemetrySchema,
+        DEFAULT_SYSTEM_SETTINGS.telemetry,
+      ),
     };
   }
 
@@ -720,6 +732,12 @@ export class SystemSettingsService {
       // cannot GET is a block it cannot echo back in a PUT" reason as `jobs`
       // above.
       ai: value.ai,
+      // Epic #528, story #533. Safe to publish in full because it carries no
+      // credential — see the compile-time proof in `settings.schema.ts`.
+      // Published from the day the namespace exists, for the same "a block a
+      // client cannot GET is a block it cannot echo back in a PUT" reason as
+      // `jobs` above.
+      telemetry: value.telemetry,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -1004,6 +1022,44 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).ai;
+  }
+
+  /**
+   * The deployment-wide telemetry policy (epic #528, story #533): whether
+   * telemetry is enabled, how long it is retained, the bounds an ad-hoc query
+   * is held to, and the AI assistant that may be pointed at it.
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the same three reasons
+   * `getAiPolicy` above gives:
+   *
+   *   1. IT DOES NOT CREATE THE ROW. This is read on whatever path decides
+   *      whether telemetry is collected, queried, or handed to an assistant —
+   *      a read that writes a settings row as a side effect of that decision
+   *      is a write nobody asked for.
+   *   2. IT RETURNS ONLY THIS BLOCK. A telemetry consumer needs the telemetry
+   *      policy; it has no business holding the backup schedule or the AI
+   *      platform policy.
+   *   3. IT IS THE ONE READ PATH FOR THESE VALUES, so "is telemetry enabled,
+   *      and under which bounds" has exactly one answer.
+   *
+   * THIS RETURNS NO CREDENTIAL, AND CANNOT — there is no such field on
+   * `SystemTelemetryValue` (compile-time proof in `settings.schema.ts`). The
+   * assistant's provider key is resolved through `AiKeyResolver`, exactly as
+   * every other AI call resolves one.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.telemetry`
+   * through `readKnownSettings` — which is `enabled: false`, the safe
+   * direction for a capability a legacy row (written before this namespace
+   * existed) never opted into.
+   */
+  async getTelemetryPolicy(): Promise<SystemTelemetryValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).telemetry;
   }
 
   /**
@@ -1397,6 +1453,55 @@ export class SystemSettingsService {
         // Cloned either way so the stored value never aliases the caller's
         // object or the module-level default.
         limits: structuredClone(dto.ai?.limits ?? currentValue.ai.limits),
+      },
+      // -----------------------------------------------------------------------
+      // Telemetry policy (epic #528, story #533)
+      // -----------------------------------------------------------------------
+      //
+      // Field by field, one level deep into `query` and `assistant`, matching
+      // `ai`'s own shape above. `??` is right for every REQUIRED field: none
+      // of them is nullable, and `??` leaves an omitted field at its current
+      // stored value.
+      //
+      // `assistant.provider`/`assistant.modelId` are NULLABLE, not optional
+      // (`systemTelemetrySchema` never allows them to be absent), so they take
+      // the `maintenance.startedAt`/`storage.forcePathStyle` `!== undefined`
+      // form rather than `mergeOptional`: absent keeps the stored value, an
+      // explicit `null` CLEARS it. `??` would treat a sent `null` as absent,
+      // and an operator could then never clear a provider or model once set.
+      telemetry: {
+        enabled: dto.telemetry?.enabled ?? currentValue.telemetry.enabled,
+        retentionDays:
+          dto.telemetry?.retentionDays ?? currentValue.telemetry.retentionDays,
+        query: {
+          maxRows:
+            dto.telemetry?.query?.maxRows ?? currentValue.telemetry.query.maxRows,
+          timeoutSeconds:
+            dto.telemetry?.query?.timeoutSeconds ??
+            currentValue.telemetry.query.timeoutSeconds,
+        },
+        assistant: {
+          enabled:
+            dto.telemetry?.assistant?.enabled ??
+            currentValue.telemetry.assistant.enabled,
+          provider:
+            dto.telemetry?.assistant?.provider !== undefined
+              ? dto.telemetry.assistant.provider
+              : currentValue.telemetry.assistant.provider,
+          modelId:
+            dto.telemetry?.assistant?.modelId !== undefined
+              ? dto.telemetry.assistant.modelId
+              : currentValue.telemetry.assistant.modelId,
+          shareResults:
+            dto.telemetry?.assistant?.shareResults ??
+            currentValue.telemetry.assistant.shareResults,
+          maxResultRowsToModel:
+            dto.telemetry?.assistant?.maxResultRowsToModel ??
+            currentValue.telemetry.assistant.maxResultRowsToModel,
+          maxSteps:
+            dto.telemetry?.assistant?.maxSteps ??
+            currentValue.telemetry.assistant.maxSteps,
+        },
       },
     };
 

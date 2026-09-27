@@ -260,6 +260,24 @@ describe('seed data', () => {
       expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
       expect(ROLE_PERMISSIONS.contributor).not.toContain('ai_config:write');
     });
+
+    it('grants the telemetry permissions to Admin only (epic #528, story #533)', () => {
+      const telemetry = ['telemetry:read', 'telemetry:write', 'telemetry:query'];
+
+      for (const permission of telemetry) {
+        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+      }
+
+      const leaked = Object.entries(ROLE_PERMISSIONS)
+        .filter(([role]) => role !== 'admin')
+        .flatMap(([role, permissions]) =>
+          permissions
+            .filter((permission) => telemetry.includes(permission))
+            .map((permission) => `${role}: ${permission}`),
+        );
+
+      expect(leaked).toEqual([]);
+    });
   });
 
   describe('seeded system settings', () => {

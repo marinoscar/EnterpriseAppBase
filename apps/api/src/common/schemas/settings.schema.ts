@@ -1145,6 +1145,136 @@ export const systemAiPatchSchema = z.object({
   limits: systemAiLimitsSchema.optional(),
 });
 
+// =============================================================================
+// Telemetry namespace (epic #528, story #533)
+// =============================================================================
+//
+// Deployment-wide observability policy — declared on the same terms as `ai`
+// above: all six places in one pass (this file's two schemas, the wire DTOs'
+// two schemas, `DEFAULT_SYSTEM_SETTINGS`, and the hand-written merge in
+// `system-settings.service.ts`), ahead of every consumer.
+//
+// `enabled` gates whether telemetry is collected at all — OFF by default,
+// matching every other feature namespace that ships ahead of its own UI
+// (`databaseBackup.enabled`, `ai.enabled`): a fresh deployment does not start
+// collecting or retaining observability data nobody asked for merely because
+// this namespace exists.
+//
+// `retentionDays` bounds how long telemetry data is kept, mirroring
+// `jobs.history.retentionDays` and `ai.usageRetentionDays` in shape.
+//
+// `query` bounds an ad-hoc SQL query run against telemetry data: `maxRows`
+// caps how much a single query may return, `timeoutSeconds` caps how long the
+// database is allowed to spend running it — both are safety valves against a
+// query that would otherwise return or hold the database for an unbounded
+// amount of time.
+//
+// `assistant` is a SECOND switch, nested inside this namespace rather than a
+// standalone one, because it answers a narrower question than `enabled`
+// alone: `assistant.enabled` decides whether an AI assistant may be pointed
+// at telemetry data at all, on top of telemetry being enabled in the first
+// place. `provider`/`modelId` name which AI provider/model the assistant
+// uses — both nullable, matching the "not yet configured" contract
+// `databaseBackup.storageProvider`'s empty string and `ai.defaults
+// .maxOutputTokensCap`'s absence both establish, spelled with `null` here
+// because these are optional identifiers rather than strings where empty is
+// itself a meaningful value. `shareResults` decides whether the rows a query
+// returns are sent to the model (as opposed to only the query and its
+// metadata) — ON by default, because an assistant that cannot see results
+// cannot explain them, and an administrator who wants the narrower behavior
+// turns it off deliberately. `maxResultRowsToModel` bounds how many of those
+// rows reach the model per call, independent of `query.maxRows`, which bounds
+// the query itself — a query may return more rows than should be handed to a
+// model in one call. `maxSteps` bounds how many tool-call round trips one
+// assistant turn may take, the same kind of safety valve `query
+// .timeoutSeconds` is for a single query.
+//
+// NO API KEY OR CREDENTIAL IS PART OF THIS NAMESPACE, and none may be added:
+// exactly the same rule `ai`'s own block comment states, and enforced the
+// same way — see the compile-time proof below.
+export const systemTelemetrySchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int().min(1).max(3650),
+  query: z.object({
+    maxRows: z.number().int().min(1).max(100000),
+    timeoutSeconds: z.number().int().min(1).max(120),
+  }),
+  assistant: z.object({
+    enabled: z.boolean(),
+    provider: z.string().nullable(),
+    modelId: z.string().nullable(),
+    shareResults: z.boolean(),
+    maxResultRowsToModel: z.number().int().min(1).max(100),
+    maxSteps: z.number().int().min(1).max(12),
+  }),
+});
+
+export type SystemTelemetryValue = z.infer<typeof systemTelemetrySchema>;
+
+/**
+ * `telemetry`, one level deep, hand-written like every other PATCH schema in
+ * this file (zod v4 removed `deepPartial`). `provider`/`modelId` use
+ * `.nullable().optional()`: absent leaves the stored value alone, an explicit
+ * `null` clears it back to "not configured" — the same tri-state
+ * `storage.forcePathStyle` and `ai.defaults.maxOutputTokensCap` both need,
+ * and for the identical reason: with plain `??` a caller could set one of
+ * these but never clear it again.
+ */
+export const systemTelemetryPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  retentionDays: z.number().int().min(1).max(3650).optional(),
+  query: z
+    .object({
+      maxRows: z.number().int().min(1).max(100000).optional(),
+      timeoutSeconds: z.number().int().min(1).max(120).optional(),
+    })
+    .optional(),
+  assistant: z
+    .object({
+      enabled: z.boolean().optional(),
+      provider: z.string().nullable().optional(),
+      modelId: z.string().nullable().optional(),
+      shareResults: z.boolean().optional(),
+      maxResultRowsToModel: z.number().int().min(1).max(100).optional(),
+      maxSteps: z.number().int().min(1).max(12).optional(),
+    })
+    .optional(),
+});
+
+// -----------------------------------------------------------------------------
+// Compile-time proof that the `telemetry` namespace carries no secret
+// -----------------------------------------------------------------------------
+//
+// Identical technique to `AiSettingsCarriesNoSecret` above, one namespace
+// over. Adding an `apiKey`/`secretKey`/… field (or any of the names below) to
+// `systemTelemetrySchema` makes `TelemetrySettingsCarriesNoSecret` resolve to
+// `never`, and this file stops compiling.
+//
+// If you are here because this line went red: the AI assistant's provider
+// credential is resolved the same way every other AI call resolves one —
+// through `AiKeyResolver` — never stored on this document, which
+// `GET /api/system-settings` returns wholesale and every settings audit row
+// copies verbatim.
+
+type TelemetrySecretFieldNames =
+  | 'secretAccessKey'
+  | 'secretKey'
+  | 'sessionToken'
+  | 'secret'
+  | 'password'
+  | 'apiKey'
+  | 'apiKeys'
+  | 'key'
+  | 'token';
+
+export type TelemetrySettingsCarriesNoSecret =
+  Extract<keyof SystemTelemetryValue, TelemetrySecretFieldNames> extends never
+    ? true
+    : never;
+
+export const TELEMETRY_SETTINGS_CARRIES_NO_SECRET: TelemetrySettingsCarriesNoSecret =
+  true;
+
 export const systemSettingsSchema = z.object({
   notifications: systemNotificationsSchema,
   // Operations namespaces (#256, epic #254). REQUIRED, because this schema
@@ -1167,6 +1297,12 @@ export const systemSettingsSchema = z.object({
   // `readKnownSettings` before anything parses it. Optional on the wire, in
   // `updateSystemSettingsSchema` — no client sends this block yet either.
   ai: systemAiSchema,
+  // Telemetry policy (epic #528, story #533). REQUIRED for the identical
+  // reason as every namespace above: this schema describes the STORED value,
+  // always completed by `readKnownSettings` before anything parses it.
+  // Optional on the wire, in `updateSystemSettingsSchema` — no client sends
+  // this block yet.
+  telemetry: systemTelemetrySchema,
 });
 
 export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
@@ -1202,6 +1338,10 @@ export const systemSettingsPatchSchema = z.object({
   // inside, so `{ "ai": { "enabled": true } }` is a legal body — an admin
   // page must not have to send the whole namespace to flip one switch.
   ai: systemAiPatchSchema.optional(),
+  // Epic #528, story #533. Optional at the namespace level and field by field
+  // inside, so `{ "telemetry": { "enabled": true } }` is a legal body — an
+  // admin page must not have to send the whole namespace to flip one switch.
+  telemetry: systemTelemetryPatchSchema.optional(),
 });
 
 // -----------------------------------------------------------------------------
@@ -1278,3 +1418,4 @@ export type AiSettingsCarriesNoSecret =
   Extract<keyof SystemAiValue, AiSecretFieldNames> extends never ? true : never;
 
 export const AI_SETTINGS_CARRIES_NO_SECRET: AiSettingsCarriesNoSecret = true;
+

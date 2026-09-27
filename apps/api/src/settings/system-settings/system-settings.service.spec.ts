@@ -561,6 +561,7 @@ describe('SystemSettingsService', () => {
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
+                telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -621,6 +622,7 @@ describe('SystemSettingsService', () => {
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
+                telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
               },
             }),
           }),
@@ -967,6 +969,7 @@ describe('SystemSettingsService', () => {
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
+                telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -1100,6 +1103,7 @@ describe('SystemSettingsService', () => {
                 notifications: DEFAULT_SYSTEM_SETTINGS.notifications,
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
+                telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
               },
             } as any,
           },
@@ -2242,6 +2246,215 @@ describe('SystemSettingsService', () => {
       expect(ai).not.toHaveProperty('apiKey');
       expect(ai).not.toHaveProperty('secret');
       expect(ai).not.toHaveProperty('evilApiKey');
+    });
+  });
+
+  describe('getTelemetryPolicy (epic #528, story #533)', () => {
+    it('returns the defaults when no row exists', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
+
+      const result = await service.getTelemetryPolicy();
+
+      expect(result).toEqual(DEFAULT_SYSTEM_SETTINGS.telemetry);
+      expect(result.enabled).toBe(false);
+      expect(result.assistant.enabled).toBe(false);
+    });
+
+    it('does not create a row as a side effect of reading the policy', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
+
+      await service.getTelemetryPolicy();
+
+      expect(mockPrisma.systemSettings.create).not.toHaveBeenCalled();
+    });
+
+    it('degrades to the defaults when the stored value is malformed', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: 'not-an-object' as any,
+      } as any);
+
+      const result = await service.getTelemetryPolicy();
+
+      expect(result).toEqual(DEFAULT_SYSTEM_SETTINGS.telemetry);
+    });
+
+    it('reads a stored value straight through when it validates (a legacy row that predates the namespace)', async () => {
+      // A row written before this namespace existed has no `telemetry` key at
+      // all — `readKnownSettings` must still answer with the full shape,
+      // defaults throughout, rather than throwing or leaving fields absent.
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          telemetry: undefined,
+        } as any,
+      } as any);
+
+      const result = await service.getTelemetryPolicy();
+
+      expect(result).toEqual(DEFAULT_SYSTEM_SETTINGS.telemetry);
+    });
+
+    it('reads a fully-configured stored value straight through', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          telemetry: {
+            enabled: true,
+            retentionDays: 90,
+            query: { maxRows: 500, timeoutSeconds: 10 },
+            assistant: {
+              enabled: true,
+              provider: 'openai',
+              modelId: 'gpt-5',
+              shareResults: false,
+              maxResultRowsToModel: 50,
+              maxSteps: 3,
+            },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getTelemetryPolicy();
+
+      expect(result).toEqual({
+        enabled: true,
+        retentionDays: 90,
+        query: { maxRows: 500, timeoutSeconds: 10 },
+        assistant: {
+          enabled: true,
+          provider: 'openai',
+          modelId: 'gpt-5',
+          shareResults: false,
+          maxResultRowsToModel: 50,
+          maxSteps: 3,
+        },
+      });
+    });
+
+    it('salvages field by field: a malformed assistant block degrades without disturbing enabled/retentionDays beside it', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          telemetry: {
+            enabled: true,
+            retentionDays: 90,
+            query: { maxRows: 500, timeoutSeconds: 10 },
+            assistant: { enabled: 'not-a-boolean', maxSteps: -1 },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getTelemetryPolicy();
+
+      expect(result.enabled).toBe(true);
+      expect(result.retentionDays).toBe(90);
+      expect(result.query).toEqual({ maxRows: 500, timeoutSeconds: 10 });
+      expect(result.assistant).toEqual(DEFAULT_SYSTEM_SETTINGS.telemetry.assistant);
+    });
+  });
+
+  describe('PATCH merges telemetry without clobbering its siblings (epic #528, story #533)', () => {
+    beforeEach(() => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          telemetry: {
+            enabled: true,
+            retentionDays: 90,
+            query: { maxRows: 500, timeoutSeconds: 10 },
+            assistant: {
+              enabled: true,
+              provider: 'openai',
+              modelId: 'gpt-5',
+              shareResults: false,
+              maxResultRowsToModel: 50,
+              maxSteps: 3,
+            },
+          },
+        } as any,
+      } as any);
+
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+    });
+
+    /** The `telemetry` block that actually reached Prisma. */
+    function writtenTelemetry(): Record<string, unknown> {
+      expect(mockPrisma.systemSettings.update).toHaveBeenCalledTimes(1);
+
+      const call = mockPrisma.systemSettings.update.mock.calls[0][0] as {
+        data: { value: { telemetry: Record<string, unknown> } };
+      };
+
+      return call.data.value.telemetry;
+    }
+
+    it('flips enabled while leaving retentionDays, query and assistant untouched', async () => {
+      await service.patchSettings({ telemetry: { enabled: false } }, mockUserId);
+
+      const telemetry = writtenTelemetry() as any;
+      expect(telemetry.enabled).toBe(false);
+      expect(telemetry.retentionDays).toBe(90);
+      expect(telemetry.query).toEqual({ maxRows: 500, timeoutSeconds: 10 });
+      expect(telemetry.assistant).toEqual({
+        enabled: true,
+        provider: 'openai',
+        modelId: 'gpt-5',
+        shareResults: false,
+        maxResultRowsToModel: 50,
+        maxSteps: 3,
+      });
+    });
+
+    it('merges query.maxRows alone, leaving query.timeoutSeconds untouched', async () => {
+      await service.patchSettings(
+        { telemetry: { query: { maxRows: 999 } } },
+        mockUserId,
+      );
+
+      const telemetry = writtenTelemetry() as any;
+      expect(telemetry.query).toEqual({ maxRows: 999, timeoutSeconds: 10 });
+    });
+
+    it('clears assistant.provider with an explicit null, distinct from omitting it', async () => {
+      await service.patchSettings(
+        { telemetry: { assistant: { provider: null } } },
+        mockUserId,
+      );
+
+      const telemetry = writtenTelemetry() as any;
+      expect(telemetry.assistant.provider).toBeNull();
+      // Untouched siblings, including modelId, survive the clear.
+      expect(telemetry.assistant.modelId).toBe('gpt-5');
+      expect(telemetry.assistant.enabled).toBe(true);
+    });
+
+    it('leaves assistant.provider alone when the patch omits it', async () => {
+      await service.patchSettings(
+        { telemetry: { assistant: { enabled: false } } },
+        mockUserId,
+      );
+
+      const telemetry = writtenTelemetry() as any;
+      expect(telemetry.assistant.provider).toBe('openai');
+      expect(telemetry.assistant.enabled).toBe(false);
+    });
+
+    it('carries no credential field through the merge, whatever the caller sends', async () => {
+      await service.patchSettings(
+        {
+          telemetry: { enabled: true },
+          evilApiKey: 'sk-should-not-be-stored',
+        } as any,
+        mockUserId,
+      );
+
+      const telemetry = writtenTelemetry();
+      expect(telemetry).not.toHaveProperty('apiKey');
+      expect(telemetry).not.toHaveProperty('secret');
+      expect(telemetry).not.toHaveProperty('evilApiKey');
     });
   });
 });

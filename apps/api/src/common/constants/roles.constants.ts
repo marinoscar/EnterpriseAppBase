@@ -172,6 +172,20 @@ export const PERMISSIONS = {
   AI_CONFIG_READ: 'ai_config:read',
   AI_CONFIG_WRITE: 'ai_config:write',
   AI_USE: 'ai:use',
+
+  // Telemetry (epic #528, story #533). THREE permissions, mirroring the
+  // `ai_config:*`/`ai:use` split above and the `db_backup:*` trio: `READ` and
+  // `WRITE` gate the DEPLOYMENT-WIDE policy (whether telemetry is collected,
+  // its retention, and the query/assistant bounds) and are Admin-only, same
+  // "narrow, operational surface" posture as `storage_config:*`/`push:*`/
+  // `broadcasts:*`/`nodes:*`/`ai_config:*` above. `QUERY` is the separate act
+  // of actually running SQL, exporting results, or invoking the AI assistant
+  // against telemetry data — comparable in kind to `db_backup:restore`, an
+  // act materially different from reading or changing the policy that governs
+  // it — and is seeded Admin-only as well.
+  TELEMETRY_READ: 'telemetry:read',
+  TELEMETRY_WRITE: 'telemetry:write',
+  TELEMETRY_QUERY: 'telemetry:query',
 } as const;
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

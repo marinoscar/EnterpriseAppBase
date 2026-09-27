@@ -13,6 +13,7 @@ import {
   type SystemMaintenanceValue,
   type SystemStorageValue,
   type SystemAiValue,
+  type SystemTelemetryValue,
   type UserAiSettingsValue,
 } from '../schemas/settings.schema';
 
@@ -159,6 +160,25 @@ export interface SystemSettingsValue {
    * here is.
    */
   ai: SystemAiValue;
+  /**
+   * Telemetry policy (epic #528, story #533): whether telemetry is collected
+   * at all, how long it is retained, the bounds an ad-hoc query is held to,
+   * and the AI assistant that may be pointed at it.
+   *
+   * REQUIRED, like every namespace above it and for the same reason —
+   * `readKnownSettings` completes it from `DEFAULT_SYSTEM_SETTINGS` on every
+   * read, so no consumer has to write `?? DEFAULT` and none of them can forget
+   * to.
+   *
+   * NO CREDENTIAL IS PART OF THIS TYPE and none must be added to it: the
+   * assistant's provider key is resolved through `AiKeyResolver`, exactly as
+   * every other AI call resolves one. Proved at compile time in
+   * `schemas/settings.schema.ts`.
+   *
+   * Derived from the zod schema so the two cannot drift, as everything else
+   * here is.
+   */
+  telemetry: SystemTelemetryValue;
 }
 
 /**
@@ -369,5 +389,34 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
     // #450: no limits — every field of `ai.limits` is optional and absent
     // means unlimited, so an upgrade never starts refusing calls by itself.
     limits: {},
+  },
+  // ---------------------------------------------------------------------------
+  // Telemetry policy (epic #528, story #533)
+  // ---------------------------------------------------------------------------
+  //
+  // OFF, and INERT, matching every namespace above it that ships ahead of its
+  // own consumers (`databaseBackup.enabled`, `ai.enabled`): a fresh
+  // deployment does not start collecting or retaining observability data
+  // nobody asked for merely because this namespace exists.
+  telemetry: {
+    enabled: false,
+    retentionDays: 30,
+    query: {
+      maxRows: 10000,
+      timeoutSeconds: 30,
+    },
+    assistant: {
+      // OFF, on top of `enabled` above being off — see `systemTelemetrySchema`
+      // for why this is a second, narrower switch rather than folded into it.
+      enabled: false,
+      provider: null,
+      modelId: null,
+      // ON by default: an assistant that cannot see the rows it queried
+      // cannot explain them, and an administrator who wants the narrower
+      // behavior turns it off deliberately.
+      shareResults: true,
+      maxResultRowsToModel: 100,
+      maxSteps: 6,
+    },
   },
 };
