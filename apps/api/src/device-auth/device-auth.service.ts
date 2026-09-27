@@ -208,26 +208,52 @@ export class DeviceAuthService {
         }
 
         // ------------------------------------------------------------------
-        // Session path — UNCHANGED from before #141, deliberately. Every line
-        // below, including the non-atomic "generate then mark used" ordering,
-        // is the behaviour existing device clients already depend on. The PAT
-        // branch above returns before reaching it, so nothing here can regress.
+        // Session path. The response shape is unchanged from before #141 and
+        // #518; what #518 changed is that the credential is now TIED to this
+        // device code, so revoking the device session reaches it:
+        //   - the access token carries a `did` claim that
+        //     `AuthService.validateJwtPayload` re-checks on every request;
+        //   - the refresh token row carries `deviceCodeId`, which revocation
+        //     revokes and rotation carries forward.
         // ------------------------------------------------------------------
-
-        // Generate tokens with device-specific expiry
         const tokenExpiryDays = this.configService.get<number>(
           'deviceAuth.tokenExpiryDays',
           7,
         );
+        const collectedAt = new Date();
+        const credentialExpiresAt = new Date(
+          collectedAt.getTime() + tokenExpiryDays * 24 * 60 * 60 * 1000,
+        );
+
+        // Claim the code atomically BEFORE minting, exactly as the PAT path
+        // does. This is also where the session is recorded as collected, so a
+        // `did`-bearing token can never exist for a row that
+        // `validateJwtPayload` would not recognise as live. If minting then
+        // fails the device must re-authorize: failing closed, as below.
+        const claim = await this.prisma.deviceCode.updateMany({
+          where: {
+            id: record.id,
+            status: DeviceCodeStatus.approved,
+            revokedAt: null,
+          },
+          data: {
+            status: DeviceCodeStatus.expired,
+            collectedAt,
+            credentialExpiresAt,
+          },
+        });
+
+        if (claim.count !== 1) {
+          throw deviceTokenError(
+            'invalid_grant',
+            'This device code has already been used',
+          );
+        }
+
         const tokens = await this.authService.generateFullTokens(record.user, {
           accessTtlMinutes: tokenExpiryDays * 24 * 60,
           refreshTtlDays: tokenExpiryDays,
-        });
-
-        // Mark as used (update status to expired to prevent reuse)
-        await this.prisma.deviceCode.update({
-          where: { id: record.id },
-          data: { status: DeviceCodeStatus.expired },
+          deviceCodeId: record.id,
         });
 
         // Clean up poll timestamp
@@ -353,7 +379,9 @@ export class DeviceAuthService {
   }
 
   /**
-   * Get user's approved device sessions
+   * Get the user's live device sessions (issue #518): approved requests the
+   * device has not collected yet, plus collected sessions whose credential has
+   * not expired. Revoked sessions are never listed.
    */
   async getUserDeviceSessions(
     userId: string,
@@ -361,25 +389,30 @@ export class DeviceAuthService {
     limit: number = 10,
   ) {
     const skip = (page - 1) * limit;
+    const where: Prisma.DeviceCodeWhereInput = {
+      userId,
+      revokedAt: null,
+      OR: [
+        // Approved, waiting for the device to poll.
+        { status: DeviceCodeStatus.approved, collectedAt: null },
+        // Collected, and the credential it received is still valid.
+        {
+          collectedAt: { not: null },
+          credentialExpiresAt: { gt: new Date() },
+        },
+      ],
+    };
 
     const [sessions, total] = await Promise.all([
       this.prisma.deviceCode.findMany({
-        where: {
-          userId,
-          status: DeviceCodeStatus.approved,
-        },
+        where,
         orderBy: {
           createdAt: 'desc',
         },
         skip,
         take: limit,
       }),
-      this.prisma.deviceCode.count({
-        where: {
-          userId,
-          status: DeviceCodeStatus.approved,
-        },
-      }),
+      this.prisma.deviceCode.count({ where }),
     ]);
 
     return {
@@ -390,6 +423,13 @@ export class DeviceAuthService {
         clientInfo: session.clientInfo as Record<string, any> | undefined,
         createdAt: session.createdAt.toISOString(),
         expiresAt: session.expiresAt.toISOString(),
+        collectedAt: session.collectedAt?.toISOString() ?? null,
+        credentialExpiresAt: session.credentialExpiresAt?.toISOString() ?? null,
+        // What the device collected: decided by the same `clientInfo` read the
+        // token endpoint used, so it stays right even if the PAT row is gone.
+        credentialType: session.collectedAt
+          ? this.readTokenType(session.clientInfo)
+          : null,
       })),
       total,
       page,
@@ -398,7 +438,17 @@ export class DeviceAuthService {
   }
 
   /**
-   * Revoke a device session
+   * Revoke a device session (issue #518).
+   *
+   * Revokes the session AND whatever credential it issued, in one transaction:
+   *   - an uncollected request is also denied, so the device's next poll gets
+   *     `access_denied`;
+   *   - a collected PAT is revoked (conditionally, so a PAT the user already
+   *     revoked on the Access Tokens page is not an error);
+   *   - every live refresh token minted from this session is revoked, and the
+   *     access token's `did` claim stops validating the moment `revokedAt` is
+   *     set (see `AuthService.validateJwtPayload`).
+   * Repeating the call is harmless: nothing live remains to revoke.
    */
   async revokeDeviceSession(userId: string, sessionId: string) {
     const session = await this.prisma.deviceCode.findUnique({
@@ -414,10 +464,32 @@ export class DeviceAuthService {
       throw new NotFoundException('Session not found');
     }
 
-    // Update status to denied
-    await this.prisma.deviceCode.update({
-      where: { id: sessionId },
-      data: { status: DeviceCodeStatus.denied },
+    const now = new Date();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.deviceCode.update({
+        where: { id: sessionId },
+        data: {
+          revokedAt: session.revokedAt ?? now,
+          ...(session.collectedAt === null
+            ? { status: DeviceCodeStatus.denied }
+            : {}),
+        },
+      });
+
+      if (session.patId) {
+        // NOT PatService.revokeToken: that 404s on an already-revoked PAT,
+        // which would fail this whole revocation for no reason.
+        await tx.personalAccessToken.updateMany({
+          where: { id: session.patId, userId, revokedAt: null },
+          data: { revokedAt: now },
+        });
+      }
+
+      await tx.refreshToken.updateMany({
+        where: { deviceCodeId: sessionId, revokedAt: null },
+        data: { revokedAt: now },
+      });
     });
 
     this.logger.log(`Device session revoked: ${sessionId} by user: ${userId}`);
@@ -430,17 +502,35 @@ export class DeviceAuthService {
 
   /**
    * Clean up expired device codes (scheduled task)
+   *
+   * A COLLECTED row is the anchor its credential is revoked and validated
+   * through (issue #518): a `did` access token whose row is gone stops
+   * validating. So a collected row is kept until its `credentialExpiresAt`
+   * has passed, revoked or not. Uncollected codes go as before.
    */
   async cleanupExpiredCodes(): Promise<number> {
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
     const result = await this.prisma.deviceCode.deleteMany({
       where: {
         OR: [
-          { expiresAt: { lt: new Date() } },
+          // Never collected: past the code's own expiry.
+          { collectedAt: null, expiresAt: { lt: now } },
+          // Never collected, marked expired more than a day ago.
           {
+            collectedAt: null,
             status: DeviceCodeStatus.expired,
-            updatedAt: {
-              lt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day old
-            },
+            updatedAt: { lt: oneDayAgo },
+          },
+          // Collected: once the credential it issued has expired.
+          { collectedAt: { not: null }, credentialExpiresAt: { lt: now } },
+          // Claimed but the credential was never recorded (minting failed
+          // after the claim) — nothing to anchor, reap after a day.
+          {
+            collectedAt: { not: null },
+            credentialExpiresAt: null,
+            updatedAt: { lt: oneDayAgo },
           },
         ],
       },
@@ -523,9 +613,9 @@ export class DeviceAuthService {
   ): Promise<DeviceTokenResponseDto> {
     // Claim the device code ATOMICALLY, before minting anything.
     //
-    // The session path mints first and marks used afterwards; that is safe
-    // enough there because a duplicated JWT expires on its own in days and
-    // cannot be enumerated later. A duplicated PAT is a different animal: two
+    // (Until #518 the session path minted first and marked used afterwards;
+    // it now claims first too, because its credential is linked to this row.)
+    // A duplicated PAT is the sharpest version of the problem: two
     // concurrent polls on the same device code would leave two independently
     // valid, months-long credentials on the account, and revoking the one the
     // user can see in the Access Tokens page would not revoke the other. The
@@ -536,9 +626,16 @@ export class DeviceAuthService {
     // `updateMany` with `status: approved` in the WHERE clause makes the
     // transition a single conditional UPDATE: exactly one caller sees
     // count === 1, everyone else sees 0 and is refused.
+    //
+    // The claim also records the collection (#518); the PAT id and expiry are
+    // linked right after minting, below.
     const claim = await this.prisma.deviceCode.updateMany({
-      where: { id: deviceCodeId, status: DeviceCodeStatus.approved },
-      data: { status: DeviceCodeStatus.expired },
+      where: {
+        id: deviceCodeId,
+        status: DeviceCodeStatus.approved,
+        revokedAt: null,
+      },
+      data: { status: DeviceCodeStatus.expired, collectedAt: new Date() },
     });
 
     if (claim.count !== 1) {
@@ -560,6 +657,38 @@ export class DeviceAuthService {
       durationValue: expiryDays,
       durationUnit: 'days',
     });
+
+    // Link the PAT to its device session (#518) so revoking the session
+    // revokes the PAT. Conditional on the session not having been revoked in
+    // the window since the claim: if it was, the user has already said "not
+    // this device", so the PAT just minted is revoked on the spot and nothing
+    // is handed out. A failed link fails closed the same way — an unlinked PAT
+    // is one the sessions page could never revoke.
+    let linked = false;
+    try {
+      const link = await this.prisma.deviceCode.updateMany({
+        where: { id: deviceCodeId, revokedAt: null },
+        data: {
+          patId: pat.id,
+          credentialExpiresAt: new Date(pat.expiresAt),
+        },
+      });
+      linked = link.count === 1;
+    } finally {
+      if (!linked) {
+        await this.prisma.personalAccessToken.updateMany({
+          where: { id: pat.id, userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+    }
+
+    if (!linked) {
+      throw deviceTokenError(
+        'access_denied',
+        'The device session was revoked',
+      );
+    }
 
     // Clean up poll timestamp (mirrors the session path)
     this.pollTimestamps.delete(deviceCodeHash);

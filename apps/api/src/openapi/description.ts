@@ -65,7 +65,7 @@ be treated exactly like that user's password. Revoke with \`DELETE /api/pat/{id}
 For a machine that cannot open a browser, use the RFC 8628 flow: \`POST /api/auth/device/code\`
 to get a user code, show it to the user, and poll \`POST /api/auth/device/token\` until they
 approve it at the activation page. Sessions created this way are listed and revocable under
-**Device Authorization**.
+**Device Authorization**; revoking one also revokes the credential the device collected.
 
 Note that sign-in of any kind is gated by the email allowlist: an address an administrator has
 not added cannot complete OAuth at all, regardless of which flow it uses.
