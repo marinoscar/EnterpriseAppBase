@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { Readable } from 'node:stream';
+import { Prisma } from '@prisma/client';
 
 import { ObjectsService } from './objects.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -14,7 +14,9 @@ import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
 import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
 import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
 import { StorageConfigService } from '../config/storage-config.service';
-import { OBJECT_UPLOADED_EVENT } from '../processing/events/object-uploaded.event';
+import { ObjectProcessingService } from '../processing/object-processing.service';
+import { ACTIVE_DEDUP_INDEX_NAME, JobsService } from '../../jobs/jobs.service';
+import { STORAGE_OBJECT_PROCESS_TYPE } from '../handlers/storage-object-process.handler';
 
 describe('ObjectsService', () => {
   let service: ObjectsService;
@@ -22,7 +24,8 @@ describe('ObjectsService', () => {
   let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
   let mockStorageConfig: { activeProvider: jest.Mock };
   let mockConfig: jest.Mocked<ConfigService>;
-  let mockEventEmitter: jest.Mocked<EventEmitter2>;
+  let mockProcessing: { appliesTo: jest.Mock };
+  let mockJobs: { enqueueWithin: jest.Mock };
 
   const testUserId = 'user-123';
   const otherUserId = 'user-456';
@@ -50,9 +53,13 @@ describe('ObjectsService', () => {
     mockConfig = {
       get: jest.fn(),
     } as any;
-    mockEventEmitter = {
-      emit: jest.fn(),
-    } as any;
+    // #520: by default a processor applies, so an upload queues a
+    // `storage.object.process` job and stays `processing`. Tests of the
+    // no-processor path flip `appliesTo`.
+    mockProcessing = { appliesTo: jest.fn().mockReturnValue(true) };
+    mockJobs = { enqueueWithin: jest.fn().mockResolvedValue({ id: 'job-1' }) };
+    // Interactive transactions run against the same mock client.
+    mockPrisma.$transaction.mockImplementation(((fn: any) => fn(mockPrisma)) as any);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,7 +69,8 @@ describe('ObjectsService', () => {
         // #373: the row records the LIVE provider, so the service reads it.
         { provide: StorageConfigService, useValue: mockStorageConfig },
         { provide: ConfigService, useValue: mockConfig },
-        { provide: EventEmitter2, useValue: mockEventEmitter },
+        { provide: ObjectProcessingService, useValue: mockProcessing },
+        { provide: JobsService, useValue: mockJobs },
       ],
     }).compile();
 
@@ -315,7 +323,7 @@ describe('ObjectsService', () => {
       });
     });
 
-    it('should emit ObjectUploadedEvent', async () => {
+    it('queues a storage.object.process job in the same transaction when a processor applies', async () => {
       const dto = {
         parts: [{ partNumber: 1, eTag: 'etag1' }],
       };
@@ -339,14 +347,126 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.update.mockResolvedValue(updatedObject as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.completeUpload(mockStorageObject.id, dto, testUserId);
+      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId);
 
-      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
-        OBJECT_UPLOADED_EVENT,
-        expect.objectContaining({
-          object: updatedObject,
+      expect(result.status).toBe('processing');
+      expect(mockProcessing.appliesTo).toHaveBeenCalledWith(updatedObject);
+      expect(mockJobs.enqueueWithin).toHaveBeenCalledWith(mockPrisma, {
+        type: STORAGE_OBJECT_PROCESS_TYPE,
+        reason: 'upload',
+        subjectType: 'storage_object',
+        subjectId: mockStorageObject.id,
+        payload: { objectId: mockStorageObject.id },
+      });
+      // Never processes inline.
+      expect(mockStorageProvider.download).not.toHaveBeenCalled();
+    });
+
+    it('marks the object ready at once, queueing nothing, when no processor applies', async () => {
+      const dto = {
+        parts: [{ partNumber: 1, eTag: 'etag1' }],
+      };
+
+      mockProcessing.appliesTo.mockReturnValue(false);
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...mockStorageObject,
+        s3UploadId: 'upload-123',
+        chunks: [],
+      } as any);
+      mockPrisma.storageObjectChunk.upsert.mockResolvedValue({} as any);
+      mockStorageProvider.completeMultipartUpload.mockResolvedValue({
+        key: 'key',
+        bucket: 'bucket',
+        location: 's3://bucket/key',
+      });
+      mockPrisma.storageObject.update
+        .mockResolvedValueOnce({ ...mockStorageObject, status: 'processing', metadata: { a: 1 } } as any)
+        .mockResolvedValueOnce({ ...mockStorageObject, status: 'ready' } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId);
+
+      expect(result.status).toBe('ready');
+      expect(mockJobs.enqueueWithin).not.toHaveBeenCalled();
+      expect(mockPrisma.storageObject.update).toHaveBeenLastCalledWith({
+        where: { id: mockStorageObject.id },
+        data: {
+          status: 'ready',
+          metadata: expect.objectContaining({
+            a: 1,
+            _processing: {},
+            _processedAt: expect.any(String),
+          }),
+        },
+      });
+    });
+
+    it('reports the row as it stands when a processing job is already in flight', async () => {
+      const dto = {
+        parts: [{ partNumber: 1, eTag: 'etag1' }],
+      };
+
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...mockStorageObject,
+        s3UploadId: 'upload-123',
+        chunks: [],
+      } as any);
+      mockPrisma.storageObjectChunk.upsert.mockResolvedValue({} as any);
+      mockStorageProvider.completeMultipartUpload.mockResolvedValue({
+        key: 'key',
+        bucket: 'bucket',
+        location: 's3://bucket/key',
+      });
+      mockPrisma.storageObject.update.mockResolvedValue({
+        ...mockStorageObject,
+        status: 'processing',
+      } as any);
+      mockJobs.enqueueWithin.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: { target: ACTIVE_DEDUP_INDEX_NAME },
         }),
       );
+      mockPrisma.storageObject.findUniqueOrThrow.mockResolvedValue({
+        ...mockStorageObject,
+        status: 'processing',
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId);
+
+      expect(result.status).toBe('processing');
+      expect(mockPrisma.storageObject.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: mockStorageObject.id },
+      });
+    });
+
+    it('propagates any other enqueue failure', async () => {
+      const dto = {
+        parts: [{ partNumber: 1, eTag: 'etag1' }],
+      };
+
+      mockPrisma.storageObject.findUnique.mockResolvedValue({
+        ...mockStorageObject,
+        s3UploadId: 'upload-123',
+        chunks: [],
+      } as any);
+      mockPrisma.storageObjectChunk.upsert.mockResolvedValue({} as any);
+      mockStorageProvider.completeMultipartUpload.mockResolvedValue({
+        key: 'key',
+        bucket: 'bucket',
+        location: 's3://bucket/key',
+      });
+      mockPrisma.storageObject.update.mockResolvedValue({
+        ...mockStorageObject,
+        status: 'processing',
+      } as any);
+      mockJobs.enqueueWithin.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.completeUpload(mockStorageObject.id, dto, testUserId),
+      ).rejects.toThrow('db down');
     });
 
     it('should create audit event', async () => {
@@ -545,7 +665,7 @@ describe('ObjectsService', () => {
       expect(mockStorageProvider.upload).toHaveBeenCalled();
     });
 
-    it('should emit ObjectUploadedEvent', async () => {
+    it('queues a storage.object.process job in the same transaction when a processor applies', async () => {
       const file = {
         filename: 'test.txt',
         mimetype: 'text/plain',
@@ -565,14 +685,57 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.create.mockResolvedValue(createdObject as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.simpleUpload(file, testUserId);
+      const result = await service.simpleUpload(file, testUserId);
 
-      expect(mockEventEmitter.emit).toHaveBeenCalledWith(
-        OBJECT_UPLOADED_EVENT,
-        expect.objectContaining({
-          object: createdObject,
-        }),
-      );
+      expect(result.status).toBe('processing');
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockJobs.enqueueWithin).toHaveBeenCalledWith(mockPrisma, {
+        type: STORAGE_OBJECT_PROCESS_TYPE,
+        reason: 'upload',
+        subjectType: 'storage_object',
+        subjectId: createdObject.id,
+        payload: { objectId: createdObject.id },
+      });
+      expect(mockStorageProvider.download).not.toHaveBeenCalled();
+    });
+
+    it('marks the object ready at once, queueing nothing, when no processor applies', async () => {
+      const file = {
+        filename: 'test.txt',
+        mimetype: 'text/plain',
+        file: Readable.from(['test content']),
+      };
+
+      mockProcessing.appliesTo.mockReturnValue(false);
+      mockStorageProvider.upload.mockResolvedValue({
+        key: 'key',
+        bucket: 'bucket',
+        location: 's3://bucket/key',
+      });
+      mockPrisma.storageObject.create.mockResolvedValue({
+        ...mockStorageObject,
+        status: 'processing',
+      } as any);
+      mockPrisma.storageObject.update.mockResolvedValue({
+        ...mockStorageObject,
+        status: 'ready',
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      const result = await service.simpleUpload(file, testUserId);
+
+      expect(result.status).toBe('ready');
+      expect(mockJobs.enqueueWithin).not.toHaveBeenCalled();
+      expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
+        where: { id: mockStorageObject.id },
+        data: {
+          status: 'ready',
+          metadata: expect.objectContaining({
+            _processing: {},
+            _processedAt: expect.any(String),
+          }),
+        },
+      });
     });
 
     it('should create audit event', async () => {
