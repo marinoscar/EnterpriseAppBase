@@ -706,3 +706,88 @@ describe('Storage Integration', () => {
     });
   });
 });
+
+/**
+ * Deployment upload limits (#519), through the real HTTP pipeline.
+ *
+ * `storage.maxFileSize` / `storage.allowedMimeTypes` come from `ConfigService`,
+ * which `ConfigModule.forRoot({ load: [configuration] })` populates ONCE, by
+ * calling `configuration()` against `process.env` when the module is built.
+ * So — unlike a runtime-configurable setting — these limits cannot be swapped
+ * per-test on a shared app: the env vars have to be set before `createTestApp`
+ * builds this suite's own app, which is why this lives in its own top-level
+ * `describe` with its own context rather than reusing the one above.
+ */
+describe('Storage Integration — upload limits (#519)', () => {
+  let context: TestContext;
+  let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
+
+  const originalMaxFileSize = process.env.MAX_FILE_SIZE;
+  const originalAllowedMimeTypes = process.env.ALLOWED_MIME_TYPES;
+
+  beforeAll(async () => {
+    process.env.MAX_FILE_SIZE = '1000';
+    process.env.ALLOWED_MIME_TYPES = 'application/pdf';
+
+    mockStorageProvider = createMockStorageProvider();
+    context = await createTestApp({ useMockDatabase: true });
+
+    const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
+    if (storageProviderToken) {
+      Object.assign(storageProviderToken, mockStorageProvider);
+    }
+  });
+
+  afterAll(async () => {
+    await closeTestApp(context);
+
+    if (originalMaxFileSize === undefined) delete process.env.MAX_FILE_SIZE;
+    else process.env.MAX_FILE_SIZE = originalMaxFileSize;
+
+    if (originalAllowedMimeTypes === undefined) delete process.env.ALLOWED_MIME_TYPES;
+    else process.env.ALLOWED_MIME_TYPES = originalAllowedMimeTypes;
+  });
+
+  beforeEach(() => {
+    resetPrismaMock();
+    setupBaseMocks();
+    jest.clearAllMocks();
+  });
+
+  describe('POST /api/storage/objects/upload/init', () => {
+    it('returns 413 when the declared size exceeds MAX_FILE_SIZE', async () => {
+      const user = await createMockContributorUser(context);
+
+      const response = await request(context.app.getHttpServer())
+        .post('/api/storage/objects/upload/init')
+        .set(authHeader(user.accessToken))
+        .send({
+          name: 'too-big.pdf',
+          size: 1001, // MAX_FILE_SIZE=1000
+          mimeType: 'application/pdf',
+        })
+        .expect(413);
+
+      expect(response.body.message ?? JSON.stringify(response.body)).toEqual(
+        expect.stringContaining('1000'),
+      );
+      expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
+    });
+
+    it('returns 415 when the MIME type is outside ALLOWED_MIME_TYPES', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(context.app.getHttpServer())
+        .post('/api/storage/objects/upload/init')
+        .set(authHeader(user.accessToken))
+        .send({
+          name: 'photo.png',
+          size: 500,
+          mimeType: 'image/png', // ALLOWED_MIME_TYPES=application/pdf only
+        })
+        .expect(415);
+
+      expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
+    });
+  });
+});
