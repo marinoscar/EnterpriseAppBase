@@ -1,10 +1,38 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { StorageObject } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER, StorageProvider } from '../providers';
-import { OBJECT_UPLOADED_EVENT, ObjectUploadedEvent } from './events/object-uploaded.event';
 import { OBJECT_PROCESSOR, ObjectProcessor } from './object-processor.interface';
+import { buildProcessedMetadata } from './processing-metadata';
+
+/** How one processing run ended, as written to the object's row. */
+export type ObjectProcessingOutcome = 'ready' | 'failed';
+
+// =============================================================================
+// ObjectProcessingService — the processor registry and runner (issue #520)
+// =============================================================================
+//
+// Until #520 this service was an `@OnEvent('storage.object.uploaded', { async:
+// true })` listener that downloaded the object and ran every applicable
+// processor inside the event dispatch: no worker slot, no timeout, no retry,
+// no row in the admin Jobs page, and an object left `processing` forever if the
+// process died half way. CLAUDE.md's "every long-running activity is a queue
+// job" forbids exactly that shape.
+//
+// It is now two plain methods with two callers, and NOTHING here listens to an
+// event:
+//
+//   * `appliesTo(object)` — asked synchronously by `ObjectsService` when an
+//     upload completes. No applicable processor means the object is marked
+//     `ready` right there (a bounded single-row write, so readiness stays
+//     instant and works with `JOBS_WORKER_MODE=off`); otherwise the upload
+//     enqueues a `storage.object.process` job.
+//   * `run(object)` — called by `StorageObjectProcessHandler` on a worker slot.
+//     The processing loop itself is unchanged from the listener it replaces.
+//
+// Processors stay in-process DI classes (`OBJECT_PROCESSOR`), which is why the
+// job type is server-only: a worker node cannot construct them.
+// =============================================================================
 
 @Injectable()
 export class ObjectProcessingService {
@@ -36,19 +64,40 @@ export class ObjectProcessingService {
     return Array.isArray(processors) ? processors : [processors];
   }
 
-  @OnEvent(OBJECT_UPLOADED_EVENT, { async: true })
-  async handleObjectUploaded(event: ObjectUploadedEvent): Promise<void> {
-    const { object } = event;
+  /** The registered processors that want `object`, in priority order. */
+  applicableProcessors(object: StorageObject): ObjectProcessor[] {
+    return this.processors.filter(p => p.canProcess(object));
+  }
 
+  /**
+   * Whether any registered processor wants `object` — that is, whether an
+   * upload of it needs a processing job at all.
+   *
+   * Synchronous and I/O-free: `canProcess` is a predicate over the row.
+   */
+  appliesTo(object: StorageObject): boolean {
+    return this.applicableProcessors(object).length > 0;
+  }
+
+  /**
+   * Runs every applicable processor against `object` and writes the outcome to
+   * its row: `ready` with the merged processor metadata, or `failed` when any
+   * processor reported failure or threw.
+   *
+   * A processor's failure is recorded, not thrown, exactly as before #520: one
+   * processor must not stop the others, and the row says which one failed.
+   * What DOES throw is anything outside the processors — reading or writing
+   * the row — and the processing job lets that propagate so the queue retries.
+   */
+  async run(object: StorageObject): Promise<ObjectProcessingOutcome> {
     this.logger.log(`Processing object: ${object.id} (${object.name})`);
 
-    // Get applicable processors
-    const applicableProcessors = this.processors.filter(p => p.canProcess(object));
+    const applicableProcessors = this.applicableProcessors(object);
 
     if (applicableProcessors.length === 0) {
       this.logger.debug(`No processors applicable for object ${object.id}`);
       await this.markReady(object.id, {});
-      return;
+      return 'ready';
     }
 
     this.logger.debug(
@@ -87,12 +136,52 @@ export class ObjectProcessingService {
       }
     }
 
-    // Update final status
     if (hasError) {
       await this.markFailed(object.id, allMetadata);
-    } else {
-      await this.markReady(object.id, allMetadata);
+      return 'failed';
     }
+
+    await this.markReady(object.id, allMetadata);
+    return 'ready';
+  }
+
+  /**
+   * Fails an object whose processing job gave up — spent its attempt budget,
+   * timed out, or was reaped after its executor died — so it never reads
+   * `processing` forever.
+   *
+   * CONDITIONAL ON `processing`: a row a processor run already settled
+   * (`ready` or `failed`) is left alone, and so is a row deleted in the
+   * meantime. Resolves `true` when this call made the transition.
+   *
+   * ONE bounded row: a read for the metadata merge and a compare-and-swap
+   * write. That is what lets it run from a `job.settled` listener.
+   */
+  async markAbandoned(objectId: string, reason: string): Promise<boolean> {
+    const existing = await this.prisma.storageObject.findUnique({
+      where: { id: objectId },
+      select: { status: true, metadata: true },
+    });
+
+    if (!existing || existing.status !== 'processing') return false;
+
+    const result = await this.prisma.storageObject.updateMany({
+      where: { id: objectId, status: 'processing' },
+      data: {
+        status: 'failed',
+        metadata: buildProcessedMetadata(existing.metadata, {}, {
+          failed: true,
+          error: reason,
+        }),
+      },
+    });
+
+    if (result.count > 0) {
+      this.logger.warn(`Object ${objectId} marked as failed: ${reason}`);
+      return true;
+    }
+
+    return false;
   }
 
   private async markReady(
@@ -104,17 +193,11 @@ export class ObjectProcessingService {
       select: { metadata: true },
     });
 
-    const mergedMetadata = {
-      ...(existing?.metadata as Record<string, unknown> || {}),
-      _processing: processingMetadata,
-      _processedAt: new Date().toISOString(),
-    };
-
     await this.prisma.storageObject.update({
       where: { id: objectId },
       data: {
         status: 'ready',
-        metadata: mergedMetadata as Prisma.InputJsonValue,
+        metadata: buildProcessedMetadata(existing?.metadata, processingMetadata),
       },
     });
 
@@ -130,18 +213,13 @@ export class ObjectProcessingService {
       select: { metadata: true },
     });
 
-    const mergedMetadata = {
-      ...(existing?.metadata as Record<string, unknown> || {}),
-      _processing: processingMetadata,
-      _processingFailed: true,
-      _processedAt: new Date().toISOString(),
-    };
-
     await this.prisma.storageObject.update({
       where: { id: objectId },
       data: {
         status: 'failed',
-        metadata: mergedMetadata as Prisma.InputJsonValue,
+        metadata: buildProcessedMetadata(existing?.metadata, processingMetadata, {
+          failed: true,
+        }),
       },
     });
 

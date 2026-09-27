@@ -10,7 +10,5 @@ export {
   ObjectProcessor,
   ObjectProcessorResult,
 } from './object-processor.interface';
-export {
-  ObjectUploadedEvent,
-  OBJECT_UPLOADED_EVENT,
-} from './events/object-uploaded.event';
+export type { ObjectProcessingOutcome } from './object-processing.service';
+export { buildProcessedMetadata } from './processing-metadata';

@@ -50,8 +50,7 @@ import { Job } from '@prisma/client';
 /**
  * A job reached a terminal state.
  *
- * Carries the whole row (as `ObjectUploadedEvent` carries its
- * `StorageObject`) rather than a hand-picked subset: the row is already in
+ * Carries the whole row rather than a hand-picked subset: the row is already in
  * memory from the terminal `UPDATE ... RETURNING`, subsetting it would need
  * updating every time a listener wants one more field, and the accessors
  * below cover the questions a listener actually asks.
@@ -99,8 +98,7 @@ export class JobSettledEvent {
 /**
  * The `EventEmitter2` key.
  *
- * Dotted and product-neutral, matching `OBJECT_UPLOADED_EVENT`
- * (`'storage.object.uploaded'`). Treat it as permanent: a listener in a fork
+ * Dotted and product-neutral. Treat it as permanent: a listener in a fork
  * subscribes by string, so renaming it silently unsubscribes them.
  */
 export const JOB_SETTLED_EVENT = 'job.settled';
