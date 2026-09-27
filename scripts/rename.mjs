@@ -45,7 +45,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -65,13 +65,30 @@ const DO_NOT_RENAME = [
 ];
 
 // =============================================================================
+// The documented worked example
+// =============================================================================
+//
+// `docs/RENAMING.md`, `packages/shared/README.md` and this script's own
+// `USAGE` string all walk through the SAME example rename, so that a reader
+// following one lines up with the others. Exported so
+// `apps/cli/src/template-identity.test.ts` can recognise a checkout that
+// copied this example verbatim (its own `--repo`/`--name` are these values)
+// and exempt the resulting literals in exactly the files that use them as
+// prose — never anywhere else, and never for a real fork that merely shares
+// one of these words by coincidence.
+export const EXAMPLE_IDENTITY = { name: 'Acme Hub', repo: 'oscar/acme-hub' };
+
+/** Files whose prose walks through `EXAMPLE_IDENTITY` as a worked example. */
+export const EXAMPLE_DOC_FILES = ['docs/RENAMING.md', 'packages/shared/README.md', 'scripts/rename.mjs'];
+
+// =============================================================================
 // Argument parsing
 // =============================================================================
 
 const USAGE = `
 Rebrand this template.
 
-  node scripts/rename.mjs --name "Acme Hub" [options]
+  node scripts/rename.mjs --name "${EXAMPLE_IDENTITY.name}" [options]
 
 Options:
   --name <string>        Product display name. The one value most surfaces derive from.
@@ -164,8 +181,13 @@ function slugify(name) {
   return slug.length > 0 ? slug : NEUTRAL_SLUG;
 }
 
-/** Everything downstream of one identity, so old and new are computed the same way. */
-function derive(identity, cliName) {
+/**
+ * Everything downstream of one identity, so old and new are computed the same
+ * way. Exported so `apps/cli/src/template-identity.test.ts` can derive the
+ * exact literals the codemod below writes for the CURRENT identity, instead
+ * of hand-listing which files are allowed to carry them.
+ */
+export function derive(identity, cliName) {
   const slug = slugify(identity.productName);
   return {
     ...identity,
@@ -189,7 +211,14 @@ function derive(identity, cliName) {
 // regex, so nothing can match more than it means to.
 // =============================================================================
 
-function buildPlan(old, next) {
+/**
+ * Exported so the identity guard (`apps/cli/src/template-identity.test.ts`)
+ * can derive its codemod-target allowlist from this plan rather than
+ * hand-listing which files the codemod itself writes the bare repo name or
+ * product name into. Kept side-effect-free (no filesystem or process access)
+ * so it is safe to call from a test.
+ */
+export function buildPlan(old, next) {
   /** @type {{file: string, find: string, replace: string, expectedHits: number, why: string}[]} */
   const edits = [];
   const add = (file, find, replace, expectedHits, why) => {
@@ -556,4 +585,12 @@ function printChecklist(old, next, opts) {
   console.log('');
 }
 
-main();
+// Guarded so importing this module (the identity guard test does, to reach
+// `buildPlan`/`derive`) has no side effects — no argv parsing, no exit calls.
+// Robust to Windows paths, where a bare string comparison of `import.meta.url`
+// against `process.argv[1]` would fail on drive-letter/slash differences.
+const isDirectExecution =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectExecution) {
+  main();
+}

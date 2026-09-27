@@ -7,6 +7,11 @@ import { describe, expect, it } from 'vitest';
 
 import { APP_SLUG } from '@app/shared';
 
+// `scripts/rename.mjs` is real ESM with no build step, so it can be imported
+// directly here (see its own `isDirectExecution` guard — importing it runs no
+// CLI code, it just exposes `buildPlan`/`derive`).
+import { EXAMPLE_DOC_FILES, EXAMPLE_IDENTITY, buildPlan, derive } from '../../../scripts/rename.mjs';
+
 // =============================================================================
 // The template-renameability guard (issue #343, epic #341)
 // =============================================================================
@@ -109,12 +114,23 @@ describe('the manifest shape (packages/shared/identity.json)', () => {
 // The no-stale-identity-literal guard
 // =============================================================================
 
-/** Files allowed to carry an identity literal outright, each with its own reason. */
+/**
+ * Files allowed to carry an identity literal outright, each with its own
+ * reason. This is for whole-file exemptions ONLY — prose-heavy files, or
+ * files a rename can never reach at all. It is deliberately NOT where the
+ * per-token codemod targets (`package.json`'s `"name"`, the `.env.example` /
+ * `base.compose.yml` `OTEL_SERVICE_NAME`, `test.compose.yml`'s
+ * `container_name`, etc.) live any more — see `codemodExemptions` below,
+ * which derives those from `scripts/rename.mjs`'s own `buildPlan()` so an
+ * *other*, non-codemod occurrence of the same literal in the same file still
+ * fails.
+ */
 const ALLOWLIST: ReadonlySet<string> = new Set([
   // The definition itself — this IS where the values live.
   'packages/shared/identity.json',
-  // The shop window: deliberately carries the real name and repo slug, and is
-  // one of `scripts/rename.mjs`'s own codemod targets.
+  // The shop window: deliberately carries the real name and repo slug as
+  // prose (sentences, a directory listing), not a single substitutable
+  // token, so a per-line codemod-output check does not fit it.
   'README.md',
   // Install one-liners carrying the repo URL for `npm install -g`/`npx`.
   'apps/cli/README.md',
@@ -135,6 +151,103 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
 // Both now import `REPO_URL` from `@app/shared` instead of hardcoding the
 // repository. This guard is what keeps them that way — allowlisting them
 // would silently permit the regression it exists to catch.
+
+/**
+ * The exact (file, literal) pairs `scripts/rename.mjs` itself writes for the
+ * CURRENT identity — derived from its own `buildPlan()`, never hand-listed.
+ *
+ * Why this exists at all: the codemod substitutes the derived slug/name
+ * tokens into a handful of files (`package.json`'s `"name"`,
+ * `infra/compose/.env.example` and `base.compose.yml`'s
+ * `OTEL_SERVICE_NAME`, `infra/compose/test.compose.yml`'s `container_name`
+ * and `POSTGRES_DB`). Whenever a fork's product slug equals its repo name —
+ * the common case — those substitutions write literally the bare repo name
+ * into those files. A blanket per-file allowlist entry would then also
+ * excuse any OTHER, unrelated occurrence of that name landing in the same
+ * file later; this instead only excuses the exact substring the codemod
+ * itself would produce.
+ *
+ * `old` here is a throwaway identity distinct from `next` in every field, so
+ * every edit in `buildPlan()` is included (it skips an edit only when
+ * `find === replace`) regardless of what the CLI-name/theme-color fields of
+ * the real "old" identity happen to be — this guard only cares what the
+ * codemod would write for the CURRENT identity, not what it changed FROM.
+ */
+function codemodExemptions(identity: Identity): Map<string, string[]> {
+  // Deliberately not derived from the real "old" state (there isn't one at
+  // test time — only the current, already-renamed identity exists). Any
+  // cliName works too: the CLI-binary-specific edits are gated on
+  // `next.cliName !== old.cliName`, so passing the same value for both here
+  // excludes them, which is correct — this guard is not about the CLI name.
+  const cliName = 'placeholder-cli';
+  const next = derive(identity, cliName);
+  const old = derive(
+    {
+      productName: '__rename_placeholder_product__',
+      tagline: '__rename_placeholder_tagline__',
+      repoSlug: 'placeholder-owner/placeholder-repo',
+      themeColor: '#000000',
+      backgroundColor: '#000000',
+    },
+    cliName,
+  );
+
+  const byFile = new Map<string, string[]>();
+  for (const edit of buildPlan(old, next)) {
+    const existing = byFile.get(edit.file);
+    if (existing) existing.push(edit.replace);
+    else byFile.set(edit.file, [edit.replace]);
+  }
+  return byFile;
+}
+
+/**
+ * Exempts `EXAMPLE_IDENTITY`'s literals (product name, repo slug, repo name),
+ * but ONLY inside `EXAMPLE_DOC_FILES`, and ONLY when the CURRENT identity
+ * actually equals that documented example.
+ *
+ * Why this exists: `docs/RENAMING.md`, `packages/shared/README.md` and
+ * `scripts/rename.mjs`'s own `USAGE` string all walk through
+ * `node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub ...` as a
+ * worked example — the exact command the issue's own repro uses. A fork that
+ * copies that example verbatim ends up with an identity equal to the
+ * example, and this guard's patterns (built from the CURRENT identity) then
+ * match that same example prose in those three files. It is not a stale
+ * leftover — the prose was never rewritten by a rename, it always said
+ * "Acme Hub" — so it needs its own exemption, separate from
+ * `codemodExemptions` above (which is about the codemod's OUTPUT, not
+ * unrelated documentation that happens to share the new name by
+ * coincidence).
+ *
+ * This returns nothing when the identity does not match `EXAMPLE_IDENTITY`:
+ * a fork named anything else still fully guards these three files, exactly
+ * as before.
+ */
+function exampleDocExemptions(identity: Identity): Map<string, string[]> {
+  const matchesExample =
+    identity.productName === EXAMPLE_IDENTITY.name || identity.repoSlug === EXAMPLE_IDENTITY.repo;
+  if (!matchesExample) return new Map();
+
+  const exampleRepoName = EXAMPLE_IDENTITY.repo.split('/')[1] ?? '';
+  const literals = [EXAMPLE_IDENTITY.name, EXAMPLE_IDENTITY.repo, exampleRepoName].filter(Boolean);
+
+  const byFile = new Map<string, string[]>();
+  for (const file of EXAMPLE_DOC_FILES) byFile.set(file, literals);
+  return byFile;
+}
+
+/** Combines several (file -> exempt literal) maps into one. */
+function mergeExemptions(...maps: Map<string, string[]>[]): Map<string, string[]> {
+  const merged = new Map<string, string[]>();
+  for (const map of maps) {
+    for (const [file, literals] of map) {
+      const existing = merged.get(file);
+      if (existing) existing.push(...literals);
+      else merged.set(file, [...literals]);
+    }
+  }
+  return merged;
+}
 
 const TEST_FILE_RE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 const BINARY_EXT_RE = /\.(png|ico|jpg|jpeg|gif|woff2?|ttf|pdf|zip)$/i;
@@ -223,7 +336,11 @@ interface Offender {
   value: string;
 }
 
-function findOffenders(files: string[], patterns: { value: string; re: RegExp }[]): Offender[] {
+function findOffenders(
+  files: string[],
+  patterns: { value: string; re: RegExp }[],
+  exemptions: Map<string, string[]>,
+): Offender[] {
   const offenders: Offender[] = [];
 
   for (const file of files) {
@@ -240,8 +357,14 @@ function findOffenders(files: string[], patterns: { value: string; re: RegExp }[
       continue;
     }
 
+    const codemodLiterals = exemptions.get(file) ?? [];
     const lines = content.split('\n');
     lines.forEach((lineText, idx) => {
+      // Skip a line that IS exactly what `scripts/rename.mjs` would itself
+      // write into this file for the current identity — the codemod's own
+      // output, not a stale leftover. Any other line in the same file still
+      // fails, so this excuses only the substituted token, not the file.
+      if (codemodLiterals.some((literal) => lineText.includes(literal))) return;
       for (const { value, re } of patterns) {
         if (re.test(lineText)) {
           offenders.push({ file, line: idx + 1, text: lineText.trim().slice(0, 160), value });
@@ -252,6 +375,52 @@ function findOffenders(files: string[], patterns: { value: string; re: RegExp }[
 
   return offenders;
 }
+
+describe('exampleDocExemptions (issue #514)', () => {
+  const exampleIdentity: Identity = {
+    productName: EXAMPLE_IDENTITY.name,
+    tagline: 'A worked example.',
+    repoSlug: EXAMPLE_IDENTITY.repo,
+    themeColor: '#7c3aed',
+    backgroundColor: '#ffffff',
+  };
+
+  it('exempts the example literals in exactly EXAMPLE_DOC_FILES when the identity matches the documented example', () => {
+    const exemptions = exampleDocExemptions(exampleIdentity);
+
+    expect([...exemptions.keys()].sort()).toEqual([...EXAMPLE_DOC_FILES].sort());
+    for (const file of EXAMPLE_DOC_FILES) {
+      expect(exemptions.get(file)).toEqual(
+        expect.arrayContaining([EXAMPLE_IDENTITY.name, EXAMPLE_IDENTITY.repo, 'acme-hub']),
+      );
+    }
+  });
+
+  it('exempts nothing for a real fork whose identity does not match the example', () => {
+    const realFork: Identity = {
+      productName: 'Nimbus Works',
+      tagline: 'A real product.',
+      repoSlug: 'someone/nimbus-works',
+      themeColor: '#7c3aed',
+      backgroundColor: '#ffffff',
+    };
+
+    expect(exampleDocExemptions(realFork).size).toBe(0);
+  });
+
+  it('still matches when only the product name (not the repo slug) equals the example', () => {
+    const partialMatch: Identity = { ...exampleIdentity, repoSlug: 'someone/unrelated-repo' };
+
+    expect(exampleDocExemptions(partialMatch).size).toBe(EXAMPLE_DOC_FILES.length);
+  });
+
+  it('never exempts a file outside EXAMPLE_DOC_FILES, even when the identity matches the example', () => {
+    const exemptions = exampleDocExemptions(exampleIdentity);
+
+    expect(exemptions.has('README.md')).toBe(false);
+    expect(exemptions.has('infra/compose/.env.example')).toBe(false);
+  });
+});
 
 describe('no stale identity literal outside the allowlist (issue #343, epic #341)', () => {
   const identity = readManifest();
@@ -270,22 +439,29 @@ describe('no stale identity literal outside the allowlist (issue #343, epic #341
     );
   }
 
+  // The bare owner alone is deliberately NOT scanned for: unlike a product
+  // name or a repo name, an owner (a person's GitHub username, e.g. `oscar`)
+  // is not a distinctive enough token to search the whole tree for — it
+  // false-positives on unrelated prose (`Device: oscar-laptop` in a DTO
+  // example). `scripts/rename.mjs`'s own `residualScan` already makes this
+  // same call (it never scans for the bare owner either); this guard now
+  // matches it.
   const patterns = [
     { value: identity.productName, re: wordBoundaryPattern(identity.productName) },
     { value: identity.repoSlug, re: wordBoundaryPattern(identity.repoSlug) },
-    { value: owner, re: wordBoundaryPattern(owner) },
     { value: repoName, re: wordBoundaryPattern(repoName) },
   ];
 
   const files = listTrackedFiles();
+  const exemptions = mergeExemptions(codemodExemptions(identity), exampleDocExemptions(identity));
 
   it('scans a real corpus (the guard is not vacuously green)', () => {
     // ~1059 tracked files at the time this guard was written.
     expect(files.length).toBeGreaterThan(500);
   });
 
-  it('finds no occurrence of the product name, repo slug, owner, or repo name outside the allowlist', () => {
-    const offenders = findOffenders(files, patterns);
+  it('finds no occurrence of the product name, repo slug, or repo name outside the allowlist', () => {
+    const offenders = findOffenders(files, patterns, exemptions);
 
     if (offenders.length > 0) {
       const report = offenders
