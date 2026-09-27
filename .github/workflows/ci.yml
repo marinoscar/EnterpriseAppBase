@@ -99,6 +99,13 @@ jobs:
       # leaves the `bin` path dangling. (issue #140, epic #110)
       - run: npm run build --workspace=cli
 
+      # The stack-agent sidecar (issue #567): the one process holding the
+      # Docker socket on a VPS. Its image runs the compiled JS, so the build
+      # is checked here too, not just the types.
+      - run: npm run typecheck --workspace=stack-agent
+      - run: npm run test:run --workspace=stack-agent
+      - run: npm run build --workspace=stack-agent
+
   api-test:
     name: API Tests (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest

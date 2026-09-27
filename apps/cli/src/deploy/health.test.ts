@@ -436,7 +436,7 @@ describe('the compose files the health gate names (#531)', () => {
     expect(filesOf(seen[0])).toContain('vps.telemetry.compose.yml');
   });
 
-  it('leaves the telemetry stack out when the deployment never enabled it', async () => {
+  it('names the telemetry stack even for a deployment recorded without it (#567)', async () => {
     const seen: string[][] = [];
     const runCommand = fakeRunCommand((argv) => {
       seen.push([...argv]);
@@ -450,9 +450,9 @@ describe('the compose files the health gate names (#531)', () => {
       groups: ['email'],
     });
 
-    // Its `${GREPTIME_*_PASSWORD:?}` interpolation would fail compose outright
-    // on a `.env` the wizard never asked those keys for.
-    expect(filesOf(seen[0])).not.toContain('telemetry.compose.yml');
+    // Telemetry ships with every VPS deployment; `update` writes its keys.
+    expect(filesOf(seen[0])).toContain('telemetry.compose.yml');
+    expect(filesOf(seen[0])).toContain('vps.telemetry.compose.yml');
   });
 });
 

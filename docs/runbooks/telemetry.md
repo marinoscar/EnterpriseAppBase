@@ -3,34 +3,41 @@
 > **Audience:** operators · **Spec:** [telemetry.md](../specs/telemetry.md) (connection: [§8](../specs/telemetry.md#8-runtime-connection)) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Permission:** `telemetry:read`/`telemetry:write`/`telemetry:query`
 
 This runbook covers turning telemetry on for a deployment (local or VPS),
-setting its policy, verifying it, pointing a deployment at a GreptimeDB or
-rotating its reader/admin credentials from the admin UI, rotating
-GreptimeDB's other passwords by editing the environment, and connecting a BI
-tool to it over SSH. It does not cover the design — see
-[the spec](../specs/telemetry.md) for the architecture, the two switches, the
-connection's precedence rule, and the security model.
+deploying the GreptimeDB/collector containers themselves on a VPS, setting
+policy, verifying it, pointing a deployment at a GreptimeDB or rotating its
+reader/admin credentials from the admin UI, rotating GreptimeDB's other
+passwords by editing the environment, and connecting a BI tool to it over
+SSH. It does not cover the design — see [the spec](../specs/telemetry.md) for
+the architecture, the two switches, the connection's precedence rule, the
+stack-agent sidecar ([§10](../specs/telemetry.md#10-deploying-the-stack-stack-agent)),
+and the security model.
 
 Source of truth for every claim below:
 
-- `infra/compose/telemetry.compose.yml`, `infra/compose/vps.telemetry.compose.yml`
+- `infra/compose/telemetry.compose.yml`, `infra/compose/vps.telemetry.compose.yml`, `infra/compose/vps.compose.yml` (`stack-agent`)
 - `infra/otel/otel-collector-config.yaml`
-- `infra/compose/.env.example` (the `GREPTIME_*` block)
+- `infra/compose/.env.example` (the `GREPTIME_*` and `STACK_AGENT_TOKEN` blocks)
 - `apps/api/src/telemetry/` (settings, status, retention, explorer, assistant)
 - `apps/api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
-- `apps/cli/src/deploy/compose-files.ts`, `env-metadata.ts` (the `observability` group)
+- `apps/api/src/telemetry/stack/` (stack-agent client, `telemetry.stack.deploy` job, controller)
+- `apps/stack-agent/` (the sidecar)
+- `apps/cli/src/deploy/compose-files.ts`, `env-metadata.ts` (`effectiveGroups`, `STACK_AGENT_TOKEN`)
 
-**Telemetry ships off.** A fresh deployment has `telemetry.enabled: false`
-and no telemetry overlay running; nothing in this codebase turns it on by
-itself.
+**Telemetry ships off, but the containers ship on.** A fresh VPS deployment
+always carries the GreptimeDB and collector containers and `stack-agent`
+(§2.2) — `observability` is no longer optional — but `telemetry.enabled` is
+still `false` by default, so nothing is collected until an administrator
+turns it on (§4).
 
 ---
 
 ## 1. Before you start
 
 - **Know which environment you are enabling this in.** Development uses
-  `infra/compose/telemetry.compose.yml` directly; a VPS deployment opts in
-  through the `observability` group at install time (or a later
-  `appctl deploy update --group observability`).
+  `infra/compose/telemetry.compose.yml` directly; a VPS deployment carries
+  the telemetry stack on every install and update, with no group or flag
+  needed (§2.2). Older deployments recorded before this became the default
+  gain it on their next `appctl deploy update`.
 - **You need `telemetry:write`** to change the policy, `telemetry:read` to
   view it, and `telemetry:query` to use the explorer or the assistant. All
   three are Admin-only by default.
@@ -66,27 +73,61 @@ key.
 
 ### 2.2 VPS deployment
 
-The telemetry overlay is the `observability` group. On a fresh install:
+The telemetry overlay ships with every VPS deployment; there is nothing to
+opt into:
 
 ```bash
-appctl deploy install --domain app.example.com --group observability
+appctl deploy install --domain app.example.com
 ```
 
-On an existing deployment, add it later:
+`effectiveGroups()` (`apps/cli/src/deploy/compose-files.ts`) always includes
+`observability`, so `telemetry.compose.yml` and `vps.telemetry.compose.yml`
+are always in the compose file list, the `GREPTIME_*_PASSWORD` values and
+`STACK_AGENT_TOKEN` are generated as random hex with no prompt, and
+`stack-agent` (§2.3) starts alongside the rest of the stack. `--group
+observability` is still accepted on `install`/`update` — it is now a
+harmless no-op, kept so an existing script does not break. A deployment
+recorded before this became the default gains the stack, `stack-agent`
+included, on its next `appctl deploy update`, with no flag.
 
-```bash
-appctl deploy update --group observability
-```
-
-The environment wizard then prompts for the `GREPTIME_*` keys (§3).
-`apps/cli/src/deploy/compose-files.ts` adds `telemetry.compose.yml` and
-`vps.telemetry.compose.yml` to the compose invocation whenever the
-`observability` group is recorded for the deployment — every subsequent
-`update`/`status`/`uninstall` picks it up automatically, with no flag to
-repeat. On a VPS, GreptimeDB's Postgres wire port is published on
+On a VPS, GreptimeDB's Postgres wire port is published on
 **`127.0.0.1:${GREPTIME_BIND_PG_PORT}` only** (default `14003`); nothing
 about the telemetry store is reachable from outside the host. See
 [deploy-to-vps.md](deploy-to-vps.md) for the rest of the install/update flow.
+
+### 2.3 Deploying the containers themselves, from the admin UI
+
+Shipping the compose files does not start GreptimeDB and the collector by
+itself if they are not already running — for example, right after the first
+install, or if they were stopped or removed on the host. Start (or restart)
+them with no shell access:
+
+1. Sign in as an Admin (`system_settings:write`) and open **Admin → Settings
+   → Observability → Telemetry** (`/admin/settings/telemetry`).
+2. In the **Telemetry services** section, click **Deploy GreptimeDB** (or
+   **Redeploy**, once they have run before). This queues a
+   `telemetry.stack.deploy` job and returns at once; the section polls it
+   while it runs.
+3. The job asks `stack-agent` — the sidecar that holds the Docker socket, see
+   [the spec §10](../specs/telemetry.md#10-deploying-the-stack-stack-agent) —
+   to run `docker compose up -d greptimedb otel-collector`, which can take up
+   to ten minutes on a slow link if it has to pull the images. A second click
+   while one is already running returns that same job instead of starting a
+   duplicate.
+4. On success, the section shows the containers' state and the connection
+   (§8) and status (§7) refresh automatically, with no restart. On failure,
+   the section shows the tail of what `stack-agent` printed — read it the
+   same way you would read `docker compose up`'s own output.
+5. `GET /api/admin/telemetry/stack` (`system_settings:read`) reports `agent:
+   not_configured` when this deployment has no `stack-agent` — which should
+   not happen on a VPS deployment made with a current `appctl`, but can on a
+   deployment where `STACK_AGENT_URL`/`STACK_AGENT_TOKEN` were removed by
+   hand from `vps.compose.yml`'s `api` environment.
+
+The messages shown here are always about "the telemetry services" or
+"GreptimeDB" — never about compose, a compose file, or the CLI. If you would
+rather do this from a shell (for example, while debugging), §9 below still
+works exactly as it did before this feature.
 
 ## 3. Set the GreptimeDB passwords
 
@@ -224,11 +265,14 @@ for the precedence rule and what is and is not configurable here.
    fields as they are, type the new password into that login's password
    field, and save. Leaving a password field blank keeps the currently
    stored one — you do not need to retype a password you are not changing.
-5. **Revert to the deployment default**: click **Revert to deployment
-   default** (or `DELETE /api/admin/telemetry/connection`). This deletes the
-   stored connection and both stored passwords; the `GREPTIME_*` values from
-   `.env` (§3) apply again, exactly as they did before any connection was
-   ever saved.
+5. **Revert to the deployment default**: use this when a saved connection's
+   logins no longer match GreptimeDB — for example, after `stack-agent`
+   redeployed the stack onto a fresh volume (§2.3) whose passwords were
+   provisioned from `.env`, while the admin UI still has an older set saved.
+   Click **Revert to deployment default** (or `DELETE
+   /api/admin/telemetry/connection`). This deletes the stored connection and
+   both stored passwords; the `GREPTIME_*` values from `.env` (§3) apply
+   again, exactly as they did before any connection was ever saved.
 6. Re-check status (§7) after any of the above — a wrong password or
    unreachable host shows up there the same way it always has.
 
@@ -321,9 +365,10 @@ configured to do.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Status reports `configured: false` | Neither a stored connection nor a usable `GREPTIME_*` deployment default names a host | Save a connection (§8), or add the overlay (§2) and confirm the `GREPTIME_*` variables reached the `api` service's environment |
-| Status reports `configured: true`, `reachable: false` | GreptimeDB is down, still starting, or a password is wrong | Check `docker compose ps greptimedb` and its logs; re-check the reader/admin passwords (§8 for a stored connection, §9 for the deployment default) |
-| Test connection / status error says `host "<host>" could not be resolved` | The configured host has no DNS answer at all — usually the telemetry overlay (`telemetry.compose.yml` / the `observability` group) isn't running, so `greptimedb` isn't a known service name, or the connection points at the wrong hostname | Start the overlay (§2) or fix the host in the Connection section (§8); the response can take up to ~15–20 s to arrive, since the host is given a longer lookup than the usual connect timeout before it is reported this way |
+| Status reports `configured: false` | Neither a stored connection nor a usable `GREPTIME_*` deployment default names a host | Save a connection (§8), or deploy the containers (§2.3 on a VPS; §2.1 in development) and confirm the `GREPTIME_*` variables reached the `api` service's environment |
+| Status reports `configured: true`, `reachable: false` | GreptimeDB is down, still starting, or a password is wrong | Check `docker compose ps greptimedb` and its logs; re-check the reader/admin passwords (§8 for a stored connection, §9 for the deployment default); on a VPS, try **Deploy GreptimeDB** (§2.3) to restart it |
+| Test connection / status error says `host "<host>" could not be resolved` | The configured host has no DNS answer at all — usually the telemetry containers (`telemetry.compose.yml`) aren't running, so `greptimedb` isn't a known service name, or the connection points at the wrong hostname | Deploy the containers (§2.3 on a VPS; §2.1 in development) or fix the host in the Connection section (§8); the response can take up to ~15–20 s to arrive, since the host is given a longer lookup than the usual connect timeout before it is reported this way |
+| **Deploy GreptimeDB** fails, or the status card's `agent` reads `not_configured`/`unavailable`/`unauthorized` | `not_configured`: this deployment has no `STACK_AGENT_URL`/`STACK_AGENT_TOKEN` (only possible if they were removed by hand from `vps.compose.yml`'s `api` environment). `unavailable`: `stack-agent` didn't answer within five seconds — check `docker compose ps stack-agent` and its logs. `unauthorized`: the API's `STACK_AGENT_TOKEN` no longer matches the sidecar's (usually a hand-edited `.env`) | Re-run `appctl deploy update` to restore the wiring, or check `stack-agent`'s own logs and the job's `deploy.output` on the status page for what `docker compose up` reported |
 | Test connection / status error just says `timeout expired` / `Connection terminated due to connection timeout` | The host **does** resolve, so this is not a missing overlay — GreptimeDB isn't answering on the PG port (down, still starting, or blocked by a firewall/security group) | Check `docker compose ps greptimedb` and its logs; confirm the configured PG port (default `4003`) is reachable from the API container |
 | Explorer/assistant answer `TELEMETRY_NOT_CONFIGURED` (503) | Same as above, surfaced through the API | Same as above |
 | Explorer/assistant answer `TELEMETRY_DISABLED` (409) | `telemetry.enabled` is `false` | Turn it on (§4); allow up to five seconds to take effect everywhere |
@@ -337,13 +382,19 @@ configured to do.
 
 **First enable**
 
-- [ ] `GREPTIME_*` passwords set to real values, not the `.env.example` placeholders
-- [ ] Overlay running (dev: `telemetry.compose.yml`; VPS: `observability` group)
+- [ ] `GREPTIME_*` passwords set to real values, not the `.env.example` placeholders (VPS: generated automatically by `appctl deploy`)
+- [ ] Containers running (dev: `telemetry.compose.yml`; VPS: shipped automatically — click **Deploy GreptimeDB**, §2.3, if they are not up yet)
 - [ ] `GET /api/admin/telemetry/status` reports `configured: true`, `reachable: true`
 - [ ] `telemetry.enabled` turned on; retention set deliberately
 - [ ] `instanceId` set if this store is shared by more than one deployment
 - [ ] A starter query in the explorer returns rows
 - [ ] (Optional) assistant configured and answers a test question
+
+**Deploying/redeploying the containers from the UI (§2.3, VPS only)**
+
+- [ ] `GET /api/admin/telemetry/stack` reports `agent: available`
+- [ ] **Deploy GreptimeDB** / **Redeploy** clicked; job polled to completion
+- [ ] On failure, the job's output read and the underlying problem fixed before retrying
 
 **Connection change from the UI (§8)**
 
@@ -360,6 +411,6 @@ configured to do.
 
 ## See also
 
-- [Telemetry spec](../specs/telemetry.md) — architecture, the two switches, the runtime connection's precedence rule ([§8](../specs/telemetry.md#8-runtime-connection)), security model
-- [Deploy to a VPS](deploy-to-vps.md) — installing and updating a deployment, including `--group observability`
+- [Telemetry spec](../specs/telemetry.md) — architecture, the two switches, the runtime connection's precedence rule ([§8](../specs/telemetry.md#8-runtime-connection)), stack-agent and the always-on stack ([§10](../specs/telemetry.md#10-deploying-the-stack-stack-agent)), security model
+- [Deploy to a VPS](deploy-to-vps.md) — installing and updating a deployment
 - [AI configuration](ai-configuration.md) — enabling AI before configuring the assistant

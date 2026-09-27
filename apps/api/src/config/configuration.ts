@@ -304,6 +304,21 @@ export default () => {
     available: Boolean(greptimeHost && greptimeReaderUser && greptimeReaderPassword),
   },
 
+  // stack-agent — the VPS sidecar that holds the Docker socket and can start
+  // the telemetry services (GreptimeDB, the OTel collector) on request
+  // (issue #567). DEPLOYMENT INFRASTRUCTURE, like the database credentials
+  // above: which internal URL the sidecar listens on and the shared bearer
+  // token are fixed by the compose stack that runs both containers, not
+  // something an administrator configures at runtime. Both default to ''
+  // (never a guessable token); either missing means the feature reports
+  // `not_configured` — the normal state on a development machine.
+  //
+  // ⚠ The token is read ONLY by `StackAgentClient` and never logged.
+  stackAgent: {
+    url: (process.env.STACK_AGENT_URL || '').trim(),
+    token: (process.env.STACK_AGENT_TOKEN || '').trim(),
+  },
+
   // Storage limits (issue #377, epic #372)
   //
   // ⚠ DEPLOYMENT LIMITS ONLY — THERE IS NO STORAGE CONFIGURATION HERE, AND

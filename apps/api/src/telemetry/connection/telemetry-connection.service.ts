@@ -131,6 +131,8 @@ export interface TelemetryConnectionSnapshot {
 /** What a pool is built from. Holds a plaintext password: use it and drop it. */
 export interface TelemetryConnectionCredentials {
   host: string;
+  /** `host` is the deployment host of an automatic (null) host, not a literal override. */
+  automaticHost: boolean;
   port: number;
   database: string;
   user: string;
@@ -280,6 +282,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
 
     return {
       host: snapshot.host,
+      automaticHost: snapshot.hostMode === 'auto',
       port: snapshot.pgPort,
       database: snapshot.database,
       user: login.user,

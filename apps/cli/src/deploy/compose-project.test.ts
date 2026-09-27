@@ -53,11 +53,17 @@ describe('composeArgv', () => {
     expect(argv.indexOf('-p')).toBeLessThan(argv.indexOf('-f'));
   });
 
-  it('still layers base, prod and vps in that order', () => {
+  it('still layers base, prod and vps in that order, with the always-on telemetry files (#567)', () => {
     const argv = composeArgv(['build'], 'myapp');
     const files = argv.filter((_, index) => argv[index - 1] === '-f');
 
-    expect(files).toEqual(['base.compose.yml', 'prod.compose.yml', 'vps.compose.yml']);
+    expect(files).toEqual([
+      'base.compose.yml',
+      'prod.compose.yml',
+      'telemetry.compose.yml',
+      'vps.compose.yml',
+      'vps.telemetry.compose.yml',
+    ]);
   });
 
   it('adds the telemetry files when the observability group is passed (#531)', () => {

@@ -18,6 +18,7 @@
  */
 import { api, API_BASE_URL, ApiError, type BlobWithHeaders } from './api';
 import { postSse } from './sse';
+import type { JobStatusName } from './jobs';
 
 // =============================================================================
 // Configuration and status (#534)
@@ -272,6 +273,65 @@ export async function testTelemetryConnection(
   input: TelemetryConnectionInput,
 ): Promise<TelemetryConnectionTestResult> {
   return api.post<TelemetryConnectionTestResult>('/admin/telemetry/connection/test', input);
+}
+
+// =============================================================================
+// Telemetry services — deploy the GreptimeDB stack (#567)
+// =============================================================================
+//
+//   - `GET  /admin/telemetry/stack`         (`system_settings:read`)
+//   - `POST /admin/telemetry/stack/deploy`  (`system_settings:write`, 202; 409 without an agent)
+//
+// The browser only shows what the API reports and asks it to (re)deploy; the
+// deployment itself is a queue job run server-side.
+
+/** Whether the API can reach the deployment agent that manages the containers. */
+export type TelemetryStackAgent = 'available' | 'unavailable' | 'unauthorized' | 'not_configured';
+
+export type TelemetryStackServiceName = 'greptimedb' | 'otel-collector';
+
+export type TelemetryStackServiceState =
+  | 'running'
+  | 'restarting'
+  | 'exited'
+  | 'created'
+  | 'paused'
+  | 'dead'
+  | 'missing';
+
+export type TelemetryStackServiceHealth = 'healthy' | 'unhealthy' | 'starting';
+
+export interface TelemetryStackService {
+  /** Typed loosely so a service the API adds later still renders. */
+  name: TelemetryStackServiceName | (string & {});
+  state: TelemetryStackServiceState | (string & {});
+  health: TelemetryStackServiceHealth | null;
+}
+
+/** The latest deploy job. `status` is the queue's own (`JOB_STATUSES` in `services/jobs.ts`). */
+export interface TelemetryStackDeploy {
+  jobId: string;
+  status: JobStatusName | (string & {});
+  createdAt: string;
+  finishedAt: string | null;
+  error: string | null;
+  output: string | null;
+}
+
+/** `GET /admin/telemetry/stack`. */
+export interface TelemetryStack {
+  agent: TelemetryStackAgent;
+  services: TelemetryStackService[];
+  deploy: TelemetryStackDeploy | null;
+}
+
+export async function getTelemetryStack(): Promise<TelemetryStack> {
+  return api.get<TelemetryStack>('/admin/telemetry/stack');
+}
+
+/** Enqueue a (re)deploy of the telemetry services. */
+export async function deployTelemetryStack(): Promise<{ jobId: string }> {
+  return api.post<{ jobId: string }>('/admin/telemetry/stack/deploy');
 }
 
 // =============================================================================

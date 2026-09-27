@@ -55,7 +55,18 @@ describe('checkHostResolves', () => {
     const message = await checkHostResolves('greptimedb', lookup);
 
     expect(message).toContain('greptimedb');
-    expect(message).toContain('telemetry.compose.yml');
+    expect(message).toContain('could not be resolved');
+  });
+
+  it('threads the automatic host mode through to the message', async () => {
+    const lookup: HostLookup = jest.fn().mockRejectedValue(dnsError('EAI_AGAIN'));
+
+    const automatic = await checkHostResolves('greptimedb', lookup, undefined, { automatic: true });
+    const custom = await checkHostResolves('greptimedb', lookup, undefined, { automatic: false });
+
+    expect(automatic).toBe(hostNotFoundMessage('greptimedb', dnsError('EAI_AGAIN'), { automatic: true }));
+    expect(automatic).toContain('Deploy GreptimeDB');
+    expect(custom).toBe(hostNotFoundMessage('greptimedb', dnsError('EAI_AGAIN')));
   });
 
   it('returns null for a non-DNS rejection', async () => {
@@ -135,17 +146,61 @@ describe('isDnsError', () => {
 });
 
 describe('hostNotFoundMessage', () => {
-  it('names the host, the driver detail and telemetry.compose.yml', () => {
+  // Shown to administrators: never a compose file, a file edit or the CLI.
+  const OPERATOR_INSTRUCTIONS = /compose|\.ya?ml|appctl|\.env|docker|\bCLI\b/i;
+
+  describe('a custom host', () => {
     const message = hostNotFoundMessage('candidate-host', dnsError('EAI_AGAIN', 'getaddrinfo EAI_AGAIN candidate-host'));
 
-    expect(message).toContain('candidate-host');
-    expect(message).toContain('getaddrinfo EAI_AGAIN candidate-host');
-    expect(message).toContain('telemetry.compose.yml');
+    it('names the host and keeps the driver detail in parentheses', () => {
+      expect(message).toContain('"candidate-host"');
+      expect(message).toContain('(getaddrinfo EAI_AGAIN candidate-host)');
+    });
+
+    it('says to check the host, or clear it for the deployed GreptimeDB', () => {
+      expect(message).toBe(
+        'GreptimeDB host "candidate-host" could not be resolved (getaddrinfo EAI_AGAIN candidate-host): ' +
+          'no host by that name exists on this network. ' +
+          'Check the host name, or clear it to use the GreptimeDB deployed with this application.',
+      );
+    });
+
+    it('is the default when no mode is given, and for automatic: false', () => {
+      const error = dnsError('ENOTFOUND', 'x');
+
+      expect(hostNotFoundMessage('h', error)).toBe(hostNotFoundMessage('h', error, { automatic: false }));
+    });
+
+    it('carries no operator instructions', () => {
+      expect(message).not.toMatch(OPERATOR_INSTRUCTIONS);
+    });
+  });
+
+  describe('the automatic host', () => {
+    const message = hostNotFoundMessage('greptimedb', dnsError('EAI_AGAIN', 'getaddrinfo EAI_AGAIN greptimedb'), {
+      automatic: true,
+    });
+
+    it('names the built-in host and keeps the driver detail in parentheses', () => {
+      expect(message).toContain('"greptimedb"');
+      expect(message).toContain('(getaddrinfo EAI_AGAIN greptimedb)');
+    });
+
+    it('says GreptimeDB ships with the application and points at "Deploy GreptimeDB" on this page', () => {
+      expect(message).toMatch(/^GreptimeDB is not running alongside this application/);
+      expect(message).toContain('its container is not running');
+      expect(message).toContain('Use "Deploy GreptimeDB" in the Telemetry services section of this page to start it.');
+      expect(message).not.toContain('next application update');
+      expect(message).not.toContain('Check the host name');
+    });
+
+    it('carries no operator instructions', () => {
+      expect(message).not.toMatch(OPERATOR_INSTRUCTIONS);
+    });
   });
 
   it('stringifies a non-Error rejection', () => {
-    const message = hostNotFoundMessage('candidate-host', 'raw string error');
-
-    expect(message).toContain('raw string error');
+    expect(hostNotFoundMessage('candidate-host', 'raw string error')).toContain('(raw string error)');
+    expect(hostNotFoundMessage('greptimedb', 'raw string error', { automatic: true })).toContain('(raw string error)');
   });
 });

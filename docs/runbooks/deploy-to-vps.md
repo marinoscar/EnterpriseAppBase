@@ -204,14 +204,17 @@ it.
    for that first-time setup, done once `install` has finished and you have
    logged in per section 3 below.
 
-5. **To also deploy telemetry (OTel Collector + GreptimeDB)**, add
-   `--group observability` to `install` (or run `appctl deploy update --group
-   observability` later, against an existing deployment). The environment
-   wizard then also prompts for the `GREPTIME_*` keys, and
-   `GREPTIME_BIND_PG_PORT` (default `14003`) is where GreptimeDB's
-   PostgreSQL wire protocol is published, on `127.0.0.1` only. See the
-   [telemetry runbook](telemetry.md) for enabling it, setting retention and
-   connecting a BI tool afterward.
+5. **Telemetry (OTel Collector + GreptimeDB) ships with every install** — no
+   flag needed. The `GREPTIME_*` passwords and `STACK_AGENT_TOKEN` are
+   generated as random hex with no prompt, and `GREPTIME_BIND_PG_PORT`
+   (default `14003`) is where GreptimeDB's PostgreSQL wire protocol is
+   published, on `127.0.0.1` only. `--group observability` is still accepted
+   on `install`/`update`, as a no-op, for a script that already passes it.
+   Nothing is *collected* until an administrator turns `telemetry.enabled` on
+   from `/admin/settings/telemetry` — see the
+   [telemetry runbook](telemetry.md) for that, for setting retention, for
+   (re)deploying the GreptimeDB/collector containers from the admin UI if
+   they are ever stopped, and for connecting a BI tool afterward.
 
 6. **If it fails partway through**, fix whatever it reported and run the
    *same command again* — `install` is idempotent, and each step is safe to

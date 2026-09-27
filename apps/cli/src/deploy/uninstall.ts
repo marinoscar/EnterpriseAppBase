@@ -31,6 +31,7 @@ import { join } from 'node:path';
 import { CLI_NAME } from '../branding.js';
 import { UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
+import { effectiveGroups } from './compose-files.js';
 import { dropDatabase, type DatabaseDropResult } from './database-drop.js';
 import { describeEvidence, resolveEnvPath } from './deployment-evidence.js';
 import { readEnvFile } from './env-file.js';
@@ -74,7 +75,7 @@ export interface UninstallPlan {
   domain?: string | undefined;
   composeProject: string;
   /**
-   * The opt-in groups the deployment record names. They decide which compose
+   * The groups the deployment record names, plus the always-on ones. They decide which compose
    * files the stack runs with (compose-files.ts), and `down -v` removes only
    * the services and volumes of the files it is given: without them a
    * telemetry stack's containers and its `greptimedb-data` volume outlive the
@@ -184,7 +185,9 @@ export function planUninstall(options: UninstallOptions): UninstallPlan {
     deployRoot,
     ...(state?.domain === undefined ? {} : { domain: state.domain }),
     composeProject: composeProjectFor(state),
-    ...(state?.groups === undefined ? {} : { groups: [...state.groups] }),
+    // Widened with the always-on groups (#567): the telemetry stack runs on
+    // every deployment, and its containers and volume must go with it.
+    groups: effectiveGroups(state?.groups),
     ...(state?.proxyMode === undefined ? {} : { proxyMode: state.proxyMode }),
     ...(state?.proxyContainer === undefined ? {} : { proxyContainer: state.proxyContainer }),
     ...(env.get('POSTGRES_DB') === undefined ? {} : { databaseName: env.get('POSTGRES_DB') }),

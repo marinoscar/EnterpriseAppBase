@@ -461,7 +461,9 @@ Options:
                            branch)
   --email <email>          Certificate registration address
   --group <name>           Optional feature group; repeat for more (default:
-                           [])
+                           []). "observability" is always included and this
+                           flag is a no-op for it; use it for "email" or
+                           "microsoft-oauth"
   --all                    Review every environment variable, not only the
                            essential ones
   --non-interactive        Never prompt; fail listing anything unresolved

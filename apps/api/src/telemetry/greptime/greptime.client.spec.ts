@@ -19,6 +19,7 @@ import {
   TelemetryQueryFailedError,
   TelemetryQueryTimeoutError,
 } from './greptime.errors';
+import type { HostCheckOptions } from './greptime-host';
 
 const CONFIGURED: GreptimeConfig = {
   host: 'greptimedb',
@@ -50,6 +51,7 @@ class TestableClient extends GreptimeClient {
   readonly created: PoolConfig[] = [];
   readonly createdPools: Array<GreptimePool & { connect: jest.Mock; end: jest.Mock }> = [];
   readonly hostsAsked: string[] = [];
+  readonly hostModesAsked: Array<boolean | undefined> = [];
   client: FakeClient = { query: jest.fn(), release: jest.fn() };
   /** `null` (host resolves / inconclusive) unless a test wires it otherwise. */
   hostResolution: (host: string) => Promise<string | null> = async () => null;
@@ -65,8 +67,9 @@ class TestableClient extends GreptimeClient {
     return pool as unknown as GreptimePool;
   }
 
-  protected override resolveHost(host: string): Promise<string | null> {
+  protected override resolveHost(host: string, options: HostCheckOptions): Promise<string | null> {
     this.hostsAsked.push(host);
+    this.hostModesAsked.push(options.automatic);
     return this.hostResolution(host);
   }
 }
@@ -263,8 +266,23 @@ describe('GreptimeClient', () => {
   });
 
   describe('connect failure reason (issue #564)', () => {
-    async function primed(): Promise<TestableClient> {
-      const client = new TestableClient(configService(CONFIGURED));
+    /**
+     * A client whose connection is the environment default (`GREPTIME_HOST`
+     * set: a CUSTOM host), or — `automatic` — one whose credentials say the
+     * host is the automatic deployment host.
+     */
+    async function primed({ automatic = false } = {}): Promise<TestableClient> {
+      const connection = configService(CONFIGURED);
+      if (automatic) {
+        const original = connection.resolveCredentials.bind(connection);
+        jest
+          .spyOn(connection, 'resolveCredentials')
+          .mockImplementation(async (role) => {
+            const credentials = await original(role);
+            return credentials && { ...credentials, automaticHost: true };
+          });
+      }
+      const client = new TestableClient(connection);
       client.client.query.mockResolvedValue({ fields: [], rows: [] });
       // Build the pool once so createdPools[0] exists to reconfigure `connect`.
       await client.queryReader('SELECT 1', { timeoutMs: 1000 });
@@ -281,9 +299,37 @@ describe('GreptimeClient', () => {
       const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
 
       expect((error as Error).message).toContain('greptimedb');
-      expect((error as Error).message).toContain('getaddrinfo EAI_AGAIN greptimedb');
-      expect((error as Error).message).toContain('telemetry.compose.yml');
+      expect((error as Error).message).toContain('(getaddrinfo EAI_AGAIN greptimedb)');
+      expect((error as Error).message).toContain('Check the host name, or clear it');
+      expect((error as Error).message).not.toMatch(/compose|appctl/i);
       expect(client.hostsAsked).toEqual([]);
+    });
+
+    it('a DNS-coded connect error on the automatic host points at "Deploy GreptimeDB"', async () => {
+      const client = await primed({ automatic: true });
+      client.createdPools[0].connect.mockRejectedValue(
+        Object.assign(new Error('getaddrinfo EAI_AGAIN greptimedb'), { code: 'EAI_AGAIN' }),
+      );
+
+      const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
+
+      expect((error as Error).message).toMatch(/^Could not connect to GreptimeDB: GreptimeDB is not running alongside/);
+      expect((error as Error).message).toContain('(getaddrinfo EAI_AGAIN greptimedb)');
+      expect((error as Error).message).toContain('Deploy GreptimeDB');
+      expect((error as Error).message).not.toMatch(/compose|appctl/i);
+    });
+
+    it('a connect timeout asks resolveHost with the host mode of the connection in force', async () => {
+      const custom = await primed();
+      custom.createdPools[0].connect.mockRejectedValue(new Error('timeout expired'));
+      await custom.queryReader('SELECT 1', { timeoutMs: 1000 }).catch(() => undefined);
+
+      const automatic = await primed({ automatic: true });
+      automatic.createdPools[0].connect.mockRejectedValue(new Error('timeout expired'));
+      await automatic.queryReader('SELECT 1', { timeoutMs: 1000 }).catch(() => undefined);
+
+      expect(custom.hostModesAsked).toEqual([false]);
+      expect(automatic.hostModesAsked).toEqual([true]);
     });
 
     it('a connect timeout followed by resolveHost naming the host uses that message', async () => {
@@ -371,7 +417,8 @@ describe('GreptimeClient', () => {
 
       expect(result.reachable).toBe(false);
       expect('error' in result && result.error).toContain('greptimedb');
-      expect('error' in result && result.error).toContain('telemetry.compose.yml');
+      expect('error' in result && result.error).toContain('could not be resolved');
+      expect('error' in result && result.error).not.toMatch(/compose|appctl/i);
       expect(client.hostsAsked).toEqual([]);
     });
 
@@ -419,6 +466,7 @@ describe('GreptimeClient', () => {
         user: 'reader',
         password: 'rotated-reader-pw',
         fingerprint: 'new-fingerprint',
+        automaticHost: false,
       });
 
       await client.queryReader('SELECT 3', { timeoutMs: 1000 });

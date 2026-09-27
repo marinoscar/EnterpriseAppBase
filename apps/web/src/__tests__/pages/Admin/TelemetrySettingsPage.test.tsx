@@ -15,6 +15,8 @@ import {
   mockTelemetryConnectionEnvironment,
   mockTelemetryConnectionNone,
   mockTelemetryConnectionStored,
+  mockTelemetryStackMissing,
+  mockTelemetryStackRunning,
   mockTelemetryStatusUnconfigured,
 } from '../../mocks/fixtures/telemetry';
 import type {
@@ -95,13 +97,15 @@ describe('TelemetrySettingsPage', () => {
 
     const alert = await screen.findByTestId('telemetry-not-configured');
     expect(alert).toHaveTextContent(/GreptimeDB not configured/);
-    // Actionable: it points at the Connection section, and still says the
-    // server itself has to be deployed.
+    // Actionable: it points at the Connection section, and says GreptimeDB
+    // ships with the application — never an operator command (#567).
     expect(within(alert).getByRole('link', { name: 'Connection' })).toHaveAttribute(
       'href',
       '#telemetry-connection',
     );
-    expect(alert).toHaveTextContent(/appctl deploy update --group observability/);
+    expect(alert).toHaveTextContent(/GreptimeDB is deployed with this application/);
+    expect(alert).toHaveTextContent(/take effect once it is reachable, with no restart needed/);
+    expect(alert.textContent).not.toMatch(/appctl|compose/i);
   });
 
   it('sets retentionDays from a preset and saves with If-Match', async () => {
@@ -379,6 +383,31 @@ describe('TelemetrySettingsPage', () => {
       renderPage();
       const section = await connectionSection();
       expect(within(section).getByTestId('telemetry-connection-source')).toHaveTextContent(label);
+    });
+
+    it('describes GreptimeDB as deployed with the app, never an operator command (#567)', async () => {
+      renderPage();
+      const section = await connectionSection();
+      const description = within(section).getByTestId('telemetry-connection-description');
+      expect(description).toHaveTextContent(/GreptimeDB is deployed with this application/);
+      expect(description).toHaveTextContent(/the Automatic host finds it — leave the host blank/);
+      expect(description).toHaveTextContent(/Enter a host only to use an external GreptimeDB/);
+      expect(description.textContent).not.toMatch(/appctl|compose/i);
+    });
+
+    it('explains that reverting uses the deployment-provisioned logins (stored only)', async () => {
+      renderPage();
+      const section = await connectionSection();
+      expect(within(section).getByTestId('telemetry-connection-revert-hint')).toHaveTextContent(
+        /reverting uses the logins the deployment provisioned GreptimeDB with/,
+      );
+    });
+
+    it('hides the revert hint when nothing is stored', async () => {
+      serveConnection(mockTelemetryConnectionEnvironment);
+      renderPage();
+      const section = await connectionSection();
+      expect(within(section).queryByTestId('telemetry-connection-revert-hint')).toBeNull();
     });
 
     it('fills the fields, never a password, and describes the saved one by its hint', async () => {
@@ -713,6 +742,84 @@ describe('TelemetrySettingsPage', () => {
       for (const name of ['Test connection', 'Save connection', 'Revert to deployment default']) {
         expect(within(section).getByRole('button', { name })).toBeDisabled();
       }
+    });
+  });
+
+  describe('Telemetry services section (#567)', () => {
+    it('sits just above the Connection section', async () => {
+      renderPage();
+      await waitForForm();
+
+      const services = await screen.findByRole('region', { name: 'Telemetry services' });
+      const connection = screen.getByRole('region', { name: 'Connection' });
+      expect(
+        services.compareDocumentPosition(connection) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(await within(services).findByRole('button', { name: 'Redeploy' })).toBeEnabled();
+    });
+
+    it('is not shown without system_settings:read', async () => {
+      renderPage({
+        user: {
+          ...mockAdminUser,
+          permissions: mockAdminUser.permissions.filter((p) => !p.startsWith('system_settings:')),
+        },
+      });
+      await waitForForm();
+      expect(screen.queryByRole('region', { name: 'Telemetry services' })).not.toBeInTheDocument();
+    });
+
+    it('disables deploying without system_settings:write', async () => {
+      renderPage({
+        user: {
+          ...mockAdminUser,
+          permissions: mockAdminUser.permissions.filter((p) => p !== 'system_settings:write'),
+        },
+      });
+      await waitForForm();
+      const services = await screen.findByRole('region', { name: 'Telemetry services' });
+      expect(await within(services).findByRole('button', { name: 'Redeploy' })).toBeDisabled();
+    });
+
+    it('refreshes the status and connection after a successful deploy', async () => {
+      let deployed = false;
+      let statusGets = 0;
+      let connectionGets = 0;
+      server.use(
+        http.get(`${API_BASE}/admin/telemetry/stack`, () =>
+          HttpResponse.json({
+            data: deployed
+              ? {
+                  ...mockTelemetryStackRunning,
+                  deploy: { ...mockTelemetryStackRunning.deploy!, jobId: 'job-deploy-1' },
+                }
+              : mockTelemetryStackMissing,
+          }),
+        ),
+        http.post(`${API_BASE}/admin/telemetry/stack/deploy`, () => {
+          deployed = true;
+          return HttpResponse.json({ data: { jobId: 'job-deploy-1' } }, { status: 202 });
+        }),
+        http.get(`${API_BASE}/admin/telemetry/status`, () => {
+          statusGets += 1;
+          return HttpResponse.json({ data: mockTelemetryStatusUnconfigured });
+        }),
+        http.get(`${API_BASE}/admin/telemetry/connection`, () => {
+          connectionGets += 1;
+          return HttpResponse.json({ data: mockTelemetryConnectionStored });
+        }),
+      );
+      const user = userEvent.setup();
+      renderPage();
+      await waitForForm();
+
+      const services = await screen.findByRole('region', { name: 'Telemetry services' });
+      await user.click(await within(services).findByRole('button', { name: 'Deploy GreptimeDB' }));
+
+      expect(await within(services).findByTestId('telemetry-services-succeeded')).toBeInTheDocument();
+      // One load each on mount, and one more each after the deploy.
+      await waitFor(() => expect(statusGets).toBeGreaterThanOrEqual(2));
+      await waitFor(() => expect(connectionGets).toBeGreaterThanOrEqual(2));
     });
   });
 });

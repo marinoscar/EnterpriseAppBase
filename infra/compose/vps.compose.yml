@@ -20,6 +20,12 @@
 # here: a service block in this file would be a service with no image on every
 # deployment without telemetry. `appctl deploy` builds the list
 # (apps/cli/src/deploy/compose-files.ts).
+#
+# It also adds `stack-agent` (issue #567), the one service here that holds the
+# Docker socket. See its own block below for the security trade-off; in short:
+# the socket is root-equivalent on the host, so it is confined to a process
+# that accepts NO parameters, can only `up` two fixed telemetry services of
+# this very project, is published on no port, and is token-gated.
 # =============================================================================
 
 services:
@@ -78,6 +84,11 @@ services:
       - ${DEPLOY_ROOT:-./.deploy}/deploy-info:/app/deploy-info:ro
     environment:
       - DEPLOY_INFO_PATH=${DEPLOY_INFO_PATH:-/app/deploy-info/info.json}
+      # How the admin UI (re)deploys the telemetry containers with no shell
+      # step (#567): the API asks the stack-agent below, over the internal
+      # network. The API itself never sees the Docker socket.
+      - STACK_AGENT_URL=http://stack-agent:8090
+      - STACK_AGENT_TOKEN=${STACK_AGENT_TOKEN:?set STACK_AGENT_TOKEN in infra/compose/.env (appctl deploy generates it)}
     logging:
       driver: "json-file"
       options:
@@ -88,6 +99,78 @@ services:
   # Web - log rotation
   # ---------------------------------------------------------------------------
   web:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # stack-agent - the ONLY holder of the Docker socket  (issue #567)
+  # ---------------------------------------------------------------------------
+  # Lets the admin UI (re)deploy the GreptimeDB telemetry containers on a VPS
+  # with no shell or CLI step, without the API ever holding the socket.
+  #
+  # ⚠ THE TRADE-OFF, STATED PLAINLY. Access to /var/run/docker.sock is
+  # root-equivalent on the host: whoever can talk to it can start a privileged
+  # container that mounts `/`. Mounting it into the API -- a large,
+  # internet-facing process -- would hand that to anyone who ever found a bug
+  # in it. Instead it is confined to this small process (apps/stack-agent,
+  # zero runtime dependencies), which:
+  #
+  #   - accepts NO parameters: no path segment, query string, header value or
+  #     body is ever read into a command. It runs exactly
+  #     `docker compose -p <its own project> -f <its own files> up -d
+  #     --no-build greptimedb otel-collector`, and `compose ps` of those two;
+  #   - learns the project, files and directory from ITS OWN container's
+  #     compose labels, so it cannot be pointed at another project;
+  #   - is published on NO port: only containers on app-network reach it;
+  #   - answers /v1/* only with STACK_AGENT_TOKEN (constant-time compare), and
+  #     refuses everything with 503 when the token is unset or short;
+  #   - runs read-only, with every capability dropped and no-new-privileges.
+  #
+  # What remains is the residual risk of any socket holder: a compromise of
+  # THIS process (not of the API) is a compromise of the host. That is why it
+  # does so little.
+  stack-agent:
+    build:
+      context: ../..
+      dockerfile: apps/stack-agent/Dockerfile
+    restart: unless-stopped
+    networks:
+      - app-network
+    # No `ports:` on purpose. Never add one.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # ⚠ SAME ABSOLUTE PATH INSIDE AS OUTSIDE. Compose resolves relative bind
+      # sources (`../otel/otel-collector-config.yaml`) to absolute paths and
+      # hands THOSE to the host's daemon, so the compose files must be read
+      # from the path they have on the host. Read-only: `up` reads .env and the
+      # compose files and writes nothing here.
+      #
+      # `:?`, unlike the api's deploy-info mount above: without DEPLOY_ROOT
+      # this service cannot work at all, and failing loudly beats mounting a
+      # directory that does not exist. `appctl deploy` writes it into .env.
+      - ${DEPLOY_ROOT:?DEPLOY_ROOT is written into infra/compose/.env by appctl deploy}:${DEPLOY_ROOT:?DEPLOY_ROOT is written into infra/compose/.env by appctl deploy}:ro
+    environment:
+      - STACK_AGENT_TOKEN=${STACK_AGENT_TOKEN:?set STACK_AGENT_TOKEN in infra/compose/.env (appctl deploy generates it)}
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     logging:
       driver: "json-file"
       options:

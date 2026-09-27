@@ -7,9 +7,18 @@
 // health.ts), which is how a stack ends up started with one set of files and
 // inspected -- or torn down -- with another.
 //
-// The list depends on the deployment's opt-in groups, and those come from the
-// flag on this run or from `state.groups` -- NEVER from reading the `.env`,
-// for the reason `DeployState.groups` gives.
+// The list depends on the deployment's groups, and those come from the flag
+// on this run or from `state.groups` -- NEVER from reading the `.env`, for the
+// reason `DeployState.groups` gives -- always widened by `effectiveGroups`.
+//
+// TELEMETRY IS ALWAYS ON for a VPS deployment (issue #567). `observability`
+// used to be opt-in, and a deployment installed without it had no
+// `greptimedb` container, so the admin telemetry page failed with "host
+// greptimedb could not be resolved" and could only be fixed from a shell.
+// Everything telemetry-related must be doable from the admin UI, so the stack
+// ships with every deployment. Deploying it does not force export on:
+// collection stays gated at runtime by the admin UI's telemetry toggle.
+// `--group observability` is still accepted, as a harmless no-op.
 //
 // ORDER IS LOAD-BEARING:
 //
@@ -26,15 +35,38 @@
 //     the whole project for it.
 // =============================================================================
 
-/** The opt-in group whose presence adds the telemetry stack. */
-export const TELEMETRY_GROUP = 'observability';
+import type { EnvGroup } from './env-metadata.js';
+
+/** The group whose presence adds the telemetry stack. Always on; see above. */
+export const TELEMETRY_GROUP = 'observability' satisfies EnvGroup;
+
+/** Groups every VPS deployment has, whatever was passed or recorded. */
+export const ALWAYS_ON_GROUPS: readonly EnvGroup[] = [TELEMETRY_GROUP];
 
 /**
- * The compose files for a deployment with these opt-in groups, in the order
- * compose must apply them. File names only; callers join the directory.
+ * The groups a deployment actually runs with: the requested or recorded ones,
+ * plus every always-on group. Order is kept and duplicates dropped.
+ *
+ * THE ONE PLACE this is decided. Install, update, uninstall, health, the
+ * compose file list, the environment wizard and the update's drift check all
+ * route through it, so an existing deployment whose `state.groups` predates
+ * #567 gets the telemetry stack -- files and keys -- on its next update.
+ */
+export function effectiveGroups(groups?: readonly string[] | undefined): EnvGroup[] {
+  const result: EnvGroup[] = [];
+  for (const group of [...(groups ?? []), ...ALWAYS_ON_GROUPS]) {
+    if (!result.includes(group as EnvGroup)) result.push(group as EnvGroup);
+  }
+  return result;
+}
+
+/**
+ * The compose files for a deployment with these groups, in the order compose
+ * must apply them. File names only; callers join the directory. The telemetry
+ * files are always included (`effectiveGroups`).
  */
 export function composeFilesFor(groups?: readonly string[] | undefined): string[] {
-  const telemetry = groups?.includes(TELEMETRY_GROUP) === true;
+  const telemetry = effectiveGroups(groups).includes(TELEMETRY_GROUP);
   return [
     'base.compose.yml',
     'prod.compose.yml',

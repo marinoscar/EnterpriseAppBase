@@ -4,34 +4,36 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { parseEnvExample } from './env-spec.js';
-import { composeFileArgs, composeFilesFor } from './compose-files.js';
+import {
+  ALWAYS_ON_GROUPS,
+  composeFileArgs,
+  composeFilesFor,
+  effectiveGroups,
+} from './compose-files.js';
 
 const COMPOSE_DIR = resolve(__dirname, '..', '..', '..', '..', 'infra', 'compose');
 
 describe('composeFilesFor (#531)', () => {
-  it('is the base VPS stack when no group is enabled', () => {
-    const expected = ['base.compose.yml', 'prod.compose.yml', 'vps.compose.yml'];
+  const FULL = [
+    'base.compose.yml',
+    'prod.compose.yml',
+    'telemetry.compose.yml',
+    'vps.compose.yml',
+    'vps.telemetry.compose.yml',
+  ];
 
-    expect(composeFilesFor()).toEqual(expected);
-    expect(composeFilesFor(undefined)).toEqual(expected);
-    expect(composeFilesFor([])).toEqual(expected);
+  it('always includes the telemetry stack, even with no group enabled (#567)', () => {
+    // GreptimeDB ships with every VPS deployment: the admin telemetry page
+    // must work without a server-side step. Export stays gated at runtime.
+    expect(composeFilesFor()).toEqual(FULL);
+    expect(composeFilesFor(undefined)).toEqual(FULL);
+    expect(composeFilesFor([])).toEqual(FULL);
+    expect(composeFilesFor(['email'])).toEqual(FULL);
   });
 
-  it('adds the telemetry stack and its VPS hardening when observability is enabled', () => {
-    expect(composeFilesFor(['observability'])).toEqual([
-      'base.compose.yml',
-      'prod.compose.yml',
-      'telemetry.compose.yml',
-      'vps.compose.yml',
-      'vps.telemetry.compose.yml',
-    ]);
-  });
-
-  it('ignores groups that bring no compose file of their own', () => {
-    expect(composeFilesFor(['email', 'microsoft-oauth'])).toEqual(composeFilesFor());
-    expect(composeFilesFor(['email', 'observability'])).toEqual(
-      composeFilesFor(['observability']),
-    );
+  it('treats an explicit observability group as a harmless no-op', () => {
+    expect(composeFilesFor(['observability'])).toEqual(FULL);
+    expect(composeFilesFor(['email', 'observability'])).toEqual(FULL);
   });
 
   it('applies the VPS files after every file whose ports they override', () => {
@@ -45,7 +47,7 @@ describe('composeFilesFor (#531)', () => {
       files.indexOf('vps.telemetry.compose.yml'),
     );
     expect(files.at(-1)).toBe('vps.telemetry.compose.yml');
-    expect(composeFilesFor().at(-1)).toBe('vps.compose.yml');
+    expect(composeFilesFor().at(-1)).toBe('vps.telemetry.compose.yml');
   });
 
   it('names only files the checkout actually has', () => {
@@ -58,6 +60,20 @@ describe('composeFilesFor (#531)', () => {
     expect(composeFileArgs(['observability'])).toEqual(
       composeFilesFor(['observability']).flatMap((file) => ['-f', file]),
     );
+  });
+});
+
+describe('effectiveGroups (#567)', () => {
+  it('adds observability to nothing, to an empty list and to other groups', () => {
+    expect(ALWAYS_ON_GROUPS).toEqual(['observability']);
+    expect(effectiveGroups()).toEqual(['observability']);
+    expect(effectiveGroups([])).toEqual(['observability']);
+    expect(effectiveGroups(['email'])).toEqual(['email', 'observability']);
+  });
+
+  it('keeps order and never duplicates an explicit observability', () => {
+    expect(effectiveGroups(['observability', 'email'])).toEqual(['observability', 'email']);
+    expect(effectiveGroups(['observability', 'observability'])).toEqual(['observability']);
   });
 });
 

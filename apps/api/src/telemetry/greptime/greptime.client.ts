@@ -14,7 +14,7 @@ import {
   TelemetryQueryTimeoutError,
   TelemetryQueryAbortedError,
 } from './greptime.errors';
-import { checkHostResolves, hostNotFoundMessage, isDnsError } from './greptime-host';
+import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptions } from './greptime-host';
 
 // =============================================================================
 // GreptimeClient — the API's only connection to the telemetry store
@@ -130,6 +130,8 @@ interface KeyedPool {
   fingerprint: string;
   /** The host the pool connects to — named when a connect fails (#564). */
   host: string;
+  /** `host` is the automatic deployment host — changes what a DNS failure says. */
+  automaticHost: boolean;
 }
 
 /** Pool sizes. Small on purpose: telemetry reads are admin-only and rare. */
@@ -269,8 +271,8 @@ export class GreptimeClient implements OnModuleDestroy {
    * does not. Only consulted after a connect TIMED OUT. A seam for tests;
    * production code never overrides it.
    */
-  protected resolveHost(host: string): Promise<string | null> {
-    return checkHostResolves(host);
+  protected resolveHost(host: string, options: HostCheckOptions): Promise<string | null> {
+    return checkHostResolves(host, undefined, undefined, options);
   }
 
   // ---------------------------------------------------------------------------
@@ -282,8 +284,8 @@ export class GreptimeClient implements OnModuleDestroy {
   ): Promise<TelemetryQueryResult> {
     if (signal?.aborted) throw new TelemetryQueryAbortedError();
 
-    const { pool, host } = await this.pool(role);
-    const client = await this.connect(pool, host);
+    const keyed = await this.pool(role);
+    const client = await this.connect(keyed);
 
     if (signal?.aborted) {
       client.release();
@@ -359,12 +361,12 @@ export class GreptimeClient implements OnModuleDestroy {
     }
   }
 
-  private async connect(pool: GreptimePool, host: string): Promise<PoolClient> {
+  private async connect(target: KeyedPool): Promise<PoolClient> {
     try {
-      return await pool.connect();
+      return await target.pool.connect();
     } catch (error) {
       throw new TelemetryQueryFailedError(
-        `Could not connect to GreptimeDB: ${await this.connectFailureReason(host, error)}`,
+        `Could not connect to GreptimeDB: ${await this.connectFailureReason(target, error)}`,
         sqlState(error),
         'connection',
       );
@@ -376,11 +378,13 @@ export class GreptimeClient implements OnModuleDestroy {
    * failure that lost the race, so the host is looked up once more under a
    * longer ceiling before "timeout" is believed (#564). Never throws.
    */
-  private async connectFailureReason(host: string, error: unknown): Promise<string> {
-    if (isDnsError(error)) return hostNotFoundMessage(host, error);
+  private async connectFailureReason({ host, automaticHost }: KeyedPool, error: unknown): Promise<string> {
+    const options = { automatic: automaticHost };
+
+    if (isDnsError(error)) return hostNotFoundMessage(host, error, options);
 
     if (isConnectTimeout(error)) {
-      const notFound = await this.resolveHost(host).catch(() => null);
+      const notFound = await this.resolveHost(host, options).catch(() => null);
       if (notFound) return notFound;
     }
 
@@ -455,7 +459,12 @@ export class GreptimeClient implements OnModuleDestroy {
     });
 
     const replaced = this.pools[role];
-    const keyed: KeyedPool = { pool, fingerprint: credentials.fingerprint, host: credentials.host };
+    const keyed: KeyedPool = {
+      pool,
+      fingerprint: credentials.fingerprint,
+      host: credentials.host,
+      automaticHost: credentials.automaticHost,
+    };
     this.pools[role] = keyed;
 
     if (replaced) {

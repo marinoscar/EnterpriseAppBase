@@ -337,17 +337,20 @@ describe('uninstall tears down the stack the deployment recorded (#531)', () => 
     expect(down).toContain('-f vps.telemetry.compose.yml');
   });
 
-  it('leaves it out for a deployment that never enabled it', async () => {
+  it('includes it for a deployment recorded without the group, too (#567)', async () => {
+    // Telemetry is always on: the stack runs it, so `down -v` must remove it.
     const root = recorded();
     const run = vi.fn().mockResolvedValue(okResult());
 
+    expect(planUninstall({ deployRoot: root }).groups).toEqual(['observability']);
     await runUninstall({ deployRoot: root, runCommand: run as never });
 
     const down = run.mock.calls
       .map((call) => (call[0] as string[]).join(' '))
       .find((argv) => argv.includes(' down '));
     expect(down).toBeDefined();
-    expect(down).not.toContain('telemetry');
+    expect(down).toContain('-f telemetry.compose.yml');
+    expect(down).toContain('-f vps.telemetry.compose.yml');
   });
 });
 
