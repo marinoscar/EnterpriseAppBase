@@ -8,6 +8,7 @@ import type {
   TestTelemetryConnectionInput,
 } from './dto/telemetry-connection.dto';
 import { GREPTIME_CONNECT_TIMEOUT_MS, GREPTIME_PING_TIMEOUT_MS, quoteIdent } from '../greptime/greptime.client';
+import { checkHostResolves, hostNotFoundMessage, isDnsError } from '../greptime/greptime-host';
 import type { TelemetryConnectionRole } from './telemetry-connection.schema';
 import { TelemetryConnectionService } from './telemetry-connection.service';
 
@@ -34,6 +35,14 @@ import { TelemetryConnectionService } from './telemetry-connection.service';
 //
 // ALWAYS ANSWERS. A refused login or an unreachable host is a successful
 // diagnosis reported in `success`/`error`, never an HTTP error.
+//
+// A HOST THAT DOES NOT EXIST IS SAID SO (issue #564). The target host is
+// resolved ONCE, before any probe, under `GREPTIME_DNS_TIMEOUT_MS` (longer
+// than Docker's ~5 s EAI_AGAIN window, which otherwise loses the race to the
+// connect timeout and surfaces as a bare "timed out"). When it does not
+// resolve, both probes report that — naming telemetry.compose.yml — without a
+// client ever being created. A DNS error that still reaches a probe is
+// reported the same way.
 //
 // A BLANK HOST means the deployment host (`GREPTIME_HOST`, else the compose
 // service `greptimedb`) — exactly what an automatic host resolves to once
@@ -82,11 +91,21 @@ export class TelemetryConnectionTestService {
       pgPort: input.pgPort,
       database: input.database,
     };
+    const resolveStarted = Date.now();
+    const hostNotFound = await this.resolveHost(target.host);
+    const hostFailure = (message: string): TelemetryConnectionProbe => ({
+      success: false,
+      latencyMs: Date.now() - resolveStarted,
+      error: message,
+    });
+
     const readerPassword = await this.passwordFor('reader', input.readerPassword);
 
-    const reader = readerPassword
-      ? await this.probe('reader', target, input.readerUser, readerPassword, 'SELECT version()')
-      : missingPassword('reader');
+    const reader = !readerPassword
+      ? missingPassword('reader')
+      : hostNotFound
+        ? hostFailure(hostNotFound)
+        : await this.probe('reader', target, input.readerUser, readerPassword, 'SELECT version()');
 
     let admin: TelemetryConnectionTestResult['admin'];
 
@@ -95,15 +114,17 @@ export class TelemetryConnectionTestService {
     } else {
       const adminPassword = await this.passwordFor('admin', input.adminPassword);
 
-      admin = adminPassword
-        ? await this.probe(
-            'admin',
-            target,
-            input.adminUser,
-            adminPassword,
-            `SHOW CREATE DATABASE ${quoteIdent(input.database)}`,
-          )
-        : missingPassword('admin');
+      admin = !adminPassword
+        ? missingPassword('admin')
+        : hostNotFound
+          ? hostFailure(hostNotFound)
+          : await this.probe(
+              'admin',
+              target,
+              input.adminUser,
+              adminPassword,
+              `SHOW CREATE DATABASE ${quoteIdent(input.database)}`,
+            );
     }
 
     this.logger.log(
@@ -117,6 +138,14 @@ export class TelemetryConnectionTestService {
   /** Builds a client. A seam for tests; production code never overrides it. */
   protected createClient(config: ClientConfig): TelemetryProbeClient {
     return new Client(config) as unknown as TelemetryProbeClient;
+  }
+
+  /**
+   * `null` when `host` resolves (or the check is inconclusive), else why it
+   * does not. A seam for tests; production code never overrides it.
+   */
+  protected resolveHost(host: string): Promise<string | null> {
+    return checkHostResolves(host);
   }
 
   // ---------------------------------------------------------------------------
@@ -167,10 +196,16 @@ export class TelemetryConnectionTestService {
         ...(role === 'reader' && typeof first === 'string' ? { version: first } : {}),
       };
     } catch (error) {
+      const message = isDnsError(error)
+        ? hostNotFoundMessage(target.host, error)
+        : error instanceof Error
+          ? error.message
+          : String(error);
+
       return {
         success: false,
         latencyMs: Date.now() - started,
-        error: mask(error instanceof Error ? error.message : String(error), password),
+        error: mask(message, password),
       };
     } finally {
       await withTimeout(client.end(), PROBE_END_GRACE_MS, 'end').catch(() => undefined);

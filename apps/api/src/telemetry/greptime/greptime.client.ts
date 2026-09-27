@@ -14,6 +14,7 @@ import {
   TelemetryQueryTimeoutError,
   TelemetryQueryAbortedError,
 } from './greptime.errors';
+import { checkHostResolves, hostNotFoundMessage, isDnsError } from './greptime-host';
 
 // =============================================================================
 // GreptimeClient — the API's only connection to the telemetry store
@@ -69,6 +70,13 @@ import {
 // is there for the callers (like the status service) that know their column
 // names are unique.
 //
+// A HOST THAT DOES NOT EXIST IS SAID SO (issue #564). A failed connect whose
+// error is a DNS one reports the host could not be resolved. One that merely
+// TIMED OUT is followed by a single, longer lookup of the host (Docker's DNS
+// answers EAI_AGAIN only after ~5 s, just past the connect timeout), so "no
+// such host" is not disguised as "timeout expired". The success path never
+// pays for a lookup.
+//
 // ⚠ NEVER LOG A CREDENTIAL. Nothing here logs the pool configuration, and
 // every error this file raises is built from fixed text or the server's own
 // error message.
@@ -120,6 +128,8 @@ type Role = TelemetryConnectionRole;
 interface KeyedPool {
   pool: GreptimePool;
   fingerprint: string;
+  /** The host the pool connects to — named when a connect fails (#564). */
+  host: string;
 }
 
 /** Pool sizes. Small on purpose: telemetry reads are admin-only and rare. */
@@ -182,7 +192,7 @@ export class GreptimeClient implements OnModuleDestroy {
   private readonly logger = new Logger(GreptimeClient.name);
   private readonly pools: Partial<Record<Role, KeyedPool>> = {};
   /** A pool being built (its password is being read), so concurrent calls share it. */
-  private readonly building: Partial<Record<Role, Promise<GreptimePool>>> = {};
+  private readonly building: Partial<Record<Role, Promise<KeyedPool>>> = {};
 
   constructor(private readonly connection: TelemetryConnectionService) {}
 
@@ -254,6 +264,15 @@ export class GreptimeClient implements OnModuleDestroy {
     return new Pool(config);
   }
 
+  /**
+   * `null` when `host` resolves (or the check is inconclusive), else why it
+   * does not. Only consulted after a connect TIMED OUT. A seam for tests;
+   * production code never overrides it.
+   */
+  protected resolveHost(host: string): Promise<string | null> {
+    return checkHostResolves(host);
+  }
+
   // ---------------------------------------------------------------------------
 
   private async run(
@@ -263,8 +282,8 @@ export class GreptimeClient implements OnModuleDestroy {
   ): Promise<TelemetryQueryResult> {
     if (signal?.aborted) throw new TelemetryQueryAbortedError();
 
-    const pool = await this.pool(role);
-    const client = await this.connect(pool);
+    const { pool, host } = await this.pool(role);
+    const client = await this.connect(pool, host);
 
     if (signal?.aborted) {
       client.release();
@@ -340,12 +359,12 @@ export class GreptimeClient implements OnModuleDestroy {
     }
   }
 
-  private async connect(pool: GreptimePool): Promise<PoolClient> {
+  private async connect(pool: GreptimePool, host: string): Promise<PoolClient> {
     try {
       return await pool.connect();
     } catch (error) {
       throw new TelemetryQueryFailedError(
-        `Could not connect to GreptimeDB: ${describeError(error)}`,
+        `Could not connect to GreptimeDB: ${await this.connectFailureReason(host, error)}`,
         sqlState(error),
         'connection',
       );
@@ -353,11 +372,27 @@ export class GreptimeClient implements OnModuleDestroy {
   }
 
   /**
+   * Why a connect failed. A DNS error names the host; a timeout may be a DNS
+   * failure that lost the race, so the host is looked up once more under a
+   * longer ceiling before "timeout" is believed (#564). Never throws.
+   */
+  private async connectFailureReason(host: string, error: unknown): Promise<string> {
+    if (isDnsError(error)) return hostNotFoundMessage(host, error);
+
+    if (isConnectTimeout(error)) {
+      const notFound = await this.resolveHost(host).catch(() => null);
+      if (notFound) return notFound;
+    }
+
+    return describeError(error);
+  }
+
+  /**
    * The pool for this login, for the connection in force NOW. Rebuilt when
    * the connection's fingerprint moved since the pool was made (an admin save,
    * a credential rotation, a reset to the deployment default).
    */
-  private async pool(role: Role): Promise<GreptimePool> {
+  private async pool(role: Role): Promise<KeyedPool> {
     const fingerprint = this.connection.fingerprint(role);
 
     if (!fingerprint) {
@@ -367,7 +402,7 @@ export class GreptimeClient implements OnModuleDestroy {
     }
 
     const existing = this.pools[role];
-    if (existing && existing.fingerprint === fingerprint) return existing.pool;
+    if (existing && existing.fingerprint === fingerprint) return existing;
 
     const inFlight = this.building[role];
     if (inFlight) return inFlight;
@@ -380,7 +415,7 @@ export class GreptimeClient implements OnModuleDestroy {
     return building;
   }
 
-  private async build(role: Role): Promise<GreptimePool> {
+  private async build(role: Role): Promise<KeyedPool> {
     let credentials: Awaited<ReturnType<TelemetryConnectionService['resolveCredentials']>>;
 
     try {
@@ -420,14 +455,15 @@ export class GreptimeClient implements OnModuleDestroy {
     });
 
     const replaced = this.pools[role];
-    this.pools[role] = { pool, fingerprint: credentials.fingerprint };
+    const keyed: KeyedPool = { pool, fingerprint: credentials.fingerprint, host: credentials.host };
+    this.pools[role] = keyed;
 
     if (replaced) {
       this.logger.log(`GreptimeDB ${role} connection changed; replacing its pool`);
       this.endInBackground(role, replaced.pool);
     }
 
-    return pool;
+    return keyed;
   }
 
   /** Forget this login's pool and close it in the background. */
@@ -453,6 +489,11 @@ export class GreptimeClient implements OnModuleDestroy {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** pg's connect-timeout errors ("timeout expired", "… due to connection timeout"). */
+function isConnectTimeout(error: unknown): boolean {
+  return /timeout/i.test(describeError(error));
 }
 
 function isServerError(error: unknown): boolean {
