@@ -428,6 +428,25 @@ server {
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
     }
+
+    # Telemetry AI assistant streaming (SSE, issue #536): the same needs as
+    # the AI response stream above — one turn of tool steps and an answer.
+    location /api/admin/telemetry/assistant/stream {
+        proxy_pass http://127.0.0.1:${target.bindPort};
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection        '';
+
+        proxy_buffering off;
+        proxy_cache off;
+        chunked_transfer_encoding off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
 }
 `;
 }
