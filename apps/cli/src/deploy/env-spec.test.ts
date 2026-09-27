@@ -354,7 +354,9 @@ describe('env metadata', () => {
       'SECRETS_ENCRYPTION_KEY',
       'GOOGLE_CLIENT_SECRET',
       'AWS_SECRET_ACCESS_KEY',
-      'UPTRACE_ADMIN_PASSWORD',
+      'GREPTIME_ADMIN_PASSWORD',
+      'GREPTIME_WRITER_PASSWORD',
+      'GREPTIME_READER_PASSWORD',
     ]) {
       expect(metadataFor(key).secret).toBe(true);
     }

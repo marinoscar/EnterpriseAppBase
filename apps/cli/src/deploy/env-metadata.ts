@@ -220,18 +220,19 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   OTEL_ENABLED: { group: 'observability' },
   OTEL_EXPORTER_OTLP_ENDPOINT: { group: 'observability' },
   OTEL_SERVICE_NAME: { group: 'observability' },
-  UPTRACE_PROJECT1_TOKEN: { group: 'observability', secret: true },
-  UPTRACE_SECRET_KEY: { group: 'observability', secret: true },
-  UPTRACE_ADMIN_EMAIL: { group: 'observability' },
-  UPTRACE_ADMIN_PASSWORD: { group: 'observability', secret: true },
-  UPTRACE_PGPASSWORD: { group: 'observability', secret: true },
-  UPTRACE_SITE_URL: { group: 'observability' },
-  UPTRACE_REDIS_PASSWORD: { group: 'observability', secret: true },
-  UPTRACE_CH_PASSWORD: { group: 'observability', secret: true },
-  UPTRACE_DSN: { group: 'observability', secret: true },
-  UPTRACE_CH_USER: { group: 'observability' },
-  CLICKHOUSE_USER: { group: 'observability' },
-  CLICKHOUSE_PASSWORD: { group: 'observability', secret: true },
+  // GreptimeDB telemetry store (telemetry.compose.yml). Three accounts with
+  // three privileges: the collector writes, the explorer / AI assistant / BI
+  // tools read, and only the retention (TTL) setting uses the admin account.
+  GREPTIME_HOST: { group: 'observability' },
+  GREPTIME_HTTP_PORT: { group: 'observability' },
+  GREPTIME_PG_PORT: { group: 'observability' },
+  GREPTIME_DB: { group: 'observability' },
+  GREPTIME_WRITER_USER: { group: 'observability' },
+  GREPTIME_WRITER_PASSWORD: { group: 'observability', secret: true },
+  GREPTIME_READER_USER: { group: 'observability' },
+  GREPTIME_READER_PASSWORD: { group: 'observability', secret: true },
+  GREPTIME_ADMIN_USER: { group: 'observability' },
+  GREPTIME_ADMIN_PASSWORD: { group: 'observability', secret: true },
 
   // --- Email (SES) ---------------------------------------------------------
   // THERE IS NO `storage` GROUP ANY MORE (issue #377, epic #372). Which bucket,
