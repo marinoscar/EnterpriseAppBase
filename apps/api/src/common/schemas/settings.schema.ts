@@ -180,8 +180,10 @@ export const MAX_DISABLED_NOTIFICATION_EVENTS =
  *
  *   * `resolveChannels` — the dispatcher's gate. A `browser` channel this
  *     policy disallows is not delivered over.
- *   * `GET /api/notifications/events` — the same filter, so the preferences
- *     matrix cannot offer a channel the dispatcher would refuse.
+ *   * `GET /api/notifications/events` — the same filter on `channels`, so the
+ *     preferences matrix cannot offer a channel the dispatcher would refuse.
+ *     (`declaredChannels` there is deliberately unfiltered, #521, so the admin
+ *     page can still list — and un-suppress — a suppressed event.)
  *   * the SSE payload's `toast` flag, and `GET /api/notifications/config`,
  *     which is how a non-admin client learns the capability is off without
  *     being granted `system_settings:read`.
