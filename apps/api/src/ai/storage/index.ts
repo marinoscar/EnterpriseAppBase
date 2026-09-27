@@ -2,7 +2,6 @@
 export { AiStorageModule } from './ai-storage.module';
 export {
   AiStorageInputResolver,
-  STORAGE_READ_ANY_PERMISSION,
   type AiCappedInputStream,
   type AiStorageInput,
   type AiStorageInputConstraints,
