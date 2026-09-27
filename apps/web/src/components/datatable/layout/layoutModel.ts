@@ -14,7 +14,7 @@
  * 1. **Absent means "use the contract default", never "empty".** An absent
  *    `dataTables` entry, or an absent field inside one, resolves to the
  *    priority-derived baseline. The API deliberately never materialises these
- *    keys (see docs/specs/datatable.md §14.3); neither do we.
+ *    keys; neither do we.
  *
  * 2. **A stored list is resolved against the CURRENT columns at render time.**
  *    A stored id for a column that no longer exists is ignored, not an error;
@@ -47,8 +47,8 @@ export const DEFAULT_DENSITY: DataTableDensity = 'standard';
  * ids are visible" but not "…and these other ids existed and were deliberately
  * hidden". Without that second bit, a column added to a table AFTER a user
  * stored a layout is indistinguishable from one they unchecked, and would be
- * silently hidden from that user forever — the exact failure mode §14.3 of the
- * spec exists to prevent, just relocated from the server to the client.
+ * silently hidden from that user forever — the exact failure mode this design
+ * exists to prevent, just relocated from the server to the client.
  *
  * So the list carries every column known at write time: visible ones as bare
  * ids, hidden ones prefixed with `-`. A current column mentioned by NEITHER is
@@ -158,7 +158,7 @@ export function isHideable<Row>(column: DataTableColumn<Row>): boolean {
  * Whether the LAYOUT itself folds a column away, independent of user choice.
  *
  * Only the tablet grid does: `detail` columns are hidden there and reached via
- * the row expander (§9). This is a presentation decision, so it composes with —
+ * the row expander. This is a presentation decision, so it composes with —
  * rather than being overridden by — the user's stored choice.
  */
 export function layoutHidesColumn<Row>(

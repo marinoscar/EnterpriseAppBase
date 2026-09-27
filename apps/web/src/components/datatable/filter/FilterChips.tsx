@@ -9,9 +9,9 @@
  * ## The one place a horizontal scroller is correct
  *
  * On a phone the strip scrolls sideways (`variant="strip"`) rather than
- * wrapping onto four lines above a card list. That does not contradict §6's
- * "the document must never scroll horizontally" rule — §6 is about a table
- * accidentally pushing the BODY wide. This is an explicit, discoverable,
+ * wrapping onto four lines above a card list. That does not contradict the
+ * "the document must never scroll horizontally" rule — that rule is about a
+ * table accidentally pushing the BODY wide. This is an explicit, discoverable,
  * self-contained control that owns its own overflow, and it is exactly what
  * issue #254 asks for.
  *

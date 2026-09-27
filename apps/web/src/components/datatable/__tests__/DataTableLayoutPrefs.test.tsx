@@ -419,7 +419,7 @@ describe('DataTable — defaults when nothing is stored', () => {
   });
 
   it('draws every column for a stored entry that omits visibleColumns', async () => {
-    // The exact §14.3 hazard: an entry exists (the user set a density once) but
+    // The exact hazard: an entry exists (the user set a density once) but
     // says nothing about columns. That must NOT freeze the column set.
     stubSettings({ jobs: { density: 'compact' } });
     await renderHydrated(1400, { tableId: 'jobs' });
@@ -629,7 +629,7 @@ describe('DataTable — persistence write discipline', () => {
 
     await waitFor(() => expect(patchSpy).toHaveBeenCalled());
     // Density and pageSize ride along untouched: a delta would have silently
-    // erased them (docs/specs/datatable.md §14.5).
+    // erased them.
     expect(patchedNamespaces().at(-1)).toEqual({
       jobs: {
         density: 'compact',
