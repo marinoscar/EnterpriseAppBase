@@ -1,6 +1,7 @@
 // =============================================================================
-// TelemetryAssistantService (issue #536) — driven through the REAL AiService
-// (createAiRuntimeHarness + FakeAiProvider), with the telemetry side faked.
+// TelemetryAssistantService (issue #536, reworked as a troubleshooting agent
+// in #571) — driven through the REAL AiService (createAiRuntimeHarness +
+// FakeAiProvider), with the telemetry side faked.
 // =============================================================================
 
 import type { SystemTelemetryValue } from '../../common/schemas/settings.schema';
@@ -14,15 +15,24 @@ import {
   type AiRuntimeHarnessOptions,
 } from '../../ai/testing/ai-runtime-harness';
 import type { FakeAiScriptedResponse } from '../../ai/testing/fake-ai-provider';
-import type { TelemetryAssistantEventMap, TelemetryAssistantEventName } from '../dto/telemetry-assistant.dto';
+import type { TelemetryAssistantEventMap, TelemetryAssistantEventName, TelemetryAssistantReport } from '../dto/telemetry-assistant.dto';
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from '../query/telemetry-query.errors';
+import { LOGS_TABLE, TRACES_TABLE } from './telemetry-assistant.sql';
 import {
+  buildTelemetryAssistantInstructions,
   CELL_MAX_CHARS,
+  guardReport,
+  parseReport,
+  pickDeployInfo,
+  REPORT_MAX_FINDINGS,
+  REPORT_MAX_QUERIES,
+  REPORT_MAX_RECOMMENDATIONS,
   TELEMETRY_ASSISTANT_AUDIT_ACTION,
   TELEMETRY_ASSISTANT_INSTRUCTIONS,
   TelemetryAssistantService,
   TOOL_OUTPUT_MAX_CHARS,
+  withBudget,
   parseFinalAnswer,
   shapeQueryOutput,
 } from './telemetry-assistant.service';
@@ -34,6 +44,34 @@ const call = (callId: string, name: string, args: unknown): FakeAiScriptedRespon
 const answer = (sql: string | null, explanation: string): FakeAiScriptedResponse => ({
   outputText: JSON.stringify({ sql, explanation }),
 });
+
+const reportAnswer = (report: Partial<TelemetryAssistantReport>): FakeAiScriptedResponse => ({
+  outputText: JSON.stringify({
+    status: 'issue_found',
+    summary: 'summary',
+    findings: [],
+    rootCause: null,
+    confidence: 'medium',
+    recommendations: [],
+    queries: [],
+    ...report,
+  }),
+});
+
+/** Legacy `{ sql, explanation }` re-expressed as the minimal report `fromLegacy` builds. */
+function legacyReport(sql: string | null, explanation: string): TelemetryAssistantReport {
+  const trimmed = sql?.trim() ?? '';
+
+  return {
+    status: 'inconclusive',
+    summary: explanation,
+    findings: [],
+    rootCause: null,
+    confidence: 'low',
+    recommendations: [],
+    queries: trimmed === '' ? [] : [{ title: 'Suggested query', sql: trimmed }],
+  };
+}
 
 function outputsOf(req: AiResponseRequest | undefined): Extract<AiInputItem, { type: 'function_call_output' }>[] {
   if (!req || typeof req.input === 'string') return [];
@@ -47,7 +85,13 @@ const SCHEMA: TelemetrySchema = {
     {
       name: 'opentelemetry_logs',
       rows: 10,
-      columns: [{ name: 'body', type: 'String', semanticType: 'FIELD' }],
+      columns: [
+        { name: 'timestamp', type: 'TimestampNanosecond', semanticType: 'TIMESTAMP' },
+        { name: 'trace_id', type: 'String', semanticType: 'TAG' },
+        { name: 'severity_text', type: 'String', semanticType: 'FIELD' },
+        { name: 'severity_number', type: 'Int32', semanticType: 'FIELD' },
+        { name: 'body', type: 'String', semanticType: 'FIELD' },
+      ],
     },
     {
       name: 'opentelemetry_traces',
@@ -55,6 +99,9 @@ const SCHEMA: TelemetrySchema = {
       columns: [
         { name: 'timestamp', type: 'TimestampNanosecond', semanticType: 'TIMESTAMP' },
         { name: 'duration_nano', type: 'UInt64', semanticType: 'FIELD' },
+        { name: 'trace_id', type: 'String', semanticType: 'TAG' },
+        { name: 'span_status_code', type: 'String', semanticType: 'FIELD' },
+        { name: 'span_name', type: 'String', semanticType: 'FIELD' },
       ],
     },
   ],
@@ -84,6 +131,13 @@ interface Setup {
   configured?: boolean;
   run?: jest.Mock;
   harness?: AiRuntimeHarnessOptions;
+  systemSettings?: Partial<{
+    ai: boolean;
+    maintenanceMode: boolean;
+    databaseBackup: boolean;
+    browserNotifications: boolean;
+    nodeJobSecretBroker: boolean;
+  }>;
 }
 
 function setup(opts: Setup = {}) {
@@ -116,6 +170,21 @@ function setup(opts: Setup = {}) {
       }),
     },
   };
+  const featureFlags = {
+    ai: true,
+    maintenanceMode: false,
+    databaseBackup: false,
+    browserNotifications: true,
+    nodeJobSecretBroker: false,
+    ...opts.systemSettings,
+  };
+  const systemSettings = {
+    getAiPolicy: jest.fn(async () => ({ enabled: featureFlags.ai })),
+    getMaintenancePolicy: jest.fn(async () => ({ enabled: featureFlags.maintenanceMode })),
+    getDatabaseBackupPolicy: jest.fn(async () => ({ enabled: featureFlags.databaseBackup })),
+    getNotificationsPolicy: jest.fn(async () => ({ browserEnabled: featureFlags.browserNotifications })),
+    getNodesPolicy: jest.fn(async () => ({ jobSecretBrokerEnabled: featureFlags.nodeJobSecretBroker })),
+  };
 
   const service = new TelemetryAssistantService(
     h.ai,
@@ -124,6 +193,7 @@ function setup(opts: Setup = {}) {
     { run } as never,
     schema as never,
     prisma as never,
+    systemSettings as never,
   );
 
   const events: Array<{ event: TelemetryAssistantEventName; data: unknown }> = [];
@@ -136,7 +206,44 @@ function setup(opts: Setup = {}) {
 
   const requests = () => h.fake.callsTo('responses.create').map((c) => c.request);
 
-  return { h, service, run, schema, audits, events, emit, of, requests, settings };
+  return { h, service, run, schema, audits, events, emit, of, requests, settings, systemSettings };
+}
+
+/** A `run` mock for `get_trace`: distinguishes the spans and logs statements by table name. */
+function traceRunMock(opts: { failLogs?: boolean } = {}) {
+  return jest.fn(async (_userId: string, sql: string) => {
+    if (sql.includes(LOGS_TABLE)) {
+      if (opts.failLogs) {
+        throw new TelemetryHttpError(TELEMETRY_ERROR_REASONS.QUERY_FAILED, 'logs query failed');
+      }
+      return {
+        columns: [{ name: 'timestamp' }, { name: 'service' }, { name: 'severity_number' }, { name: 'body' }],
+        rows: [['2024-01-01T00:00:01Z', 'api', 17, 'boom']],
+        rowCount: 1,
+        truncated: false,
+        elapsedMs: 1,
+      };
+    }
+
+    if (sql.includes(TRACES_TABLE)) {
+      return {
+        columns: [
+          { name: 'timestamp' },
+          { name: 'service' },
+          { name: 'span_name' },
+          { name: 'is_error' },
+          { name: 'duration_ms' },
+          { name: 'http_status' },
+        ],
+        rows: [['2024-01-01T00:00:00Z', 'api', 'GET /x', false, 12.5, 200]],
+        rowCount: 1,
+        truncated: false,
+        elapsedMs: 1,
+      };
+    }
+
+    return { columns: [{ name: 'n' }], rows: [['1']], rowCount: 1, truncated: false, elapsedMs: 1 };
+  });
 }
 
 describe('TelemetryAssistantService', () => {
@@ -181,18 +288,23 @@ describe('TelemetryAssistantService', () => {
       truncated: false,
       durationMs: expect.any(Number),
     });
-    expect(t.of('answer')).toEqual([{ sql, explanation: 'Counts spans.' }]);
+    expect(t.of('answer')).toEqual([
+      { sql, explanation: 'Counts spans.', report: legacyReport(sql, 'Counts spans.') },
+    ]);
     expect(t.of('done')).toEqual([{}]);
 
     expect(t.run).toHaveBeenCalledWith(HARNESS_USER, sql, expect.objectContaining({ source: 'assistant', maxRows: 5 }));
 
     const first = t.requests()[0]!;
     expect(first.model).toBe(HARNESS_MODEL);
-    expect(first.instructions).toBe(TELEMETRY_ASSISTANT_INSTRUCTIONS);
+    expect(first.instructions).toBe(buildTelemetryAssistantInstructions(6));
     expect(first.tools?.map((tool) => (tool as { name: string }).name)).toEqual([
       'list_tables',
       'describe_table',
       'run_query',
+      'get_app_context',
+      'health_overview',
+      'get_trace',
     ]);
 
     const listed = JSON.parse(outputsOf(t.requests()[1])[0].output);
@@ -200,6 +312,12 @@ describe('TelemetryAssistantService', () => {
       { name: 'opentelemetry_logs', rows: 10 },
       { name: 'opentelemetry_traces', rows: 200 },
     ]);
+    // maxSteps is 6: the first round's tool output stands at round 1 of 6.
+    expect(listed.stepsLeft).toBe(5);
+    expect(listed.budget).toBeUndefined();
+
+    const ranQuery = JSON.parse(outputsOf(t.requests()[2])[0].output);
+    expect(ranQuery.stepsLeft).toBe(4);
 
     expect(t.audits).toEqual([
       expect.objectContaining({
@@ -216,6 +334,37 @@ describe('TelemetryAssistantService', () => {
       }),
     ]);
     expect(JSON.stringify(t.audits)).not.toContain('Counts spans.');
+  });
+
+  it('streams a full structured report from the model, guarded, through the answer event', async () => {
+    const t = setup({
+      script: [
+        reportAnswer({
+          status: 'issue_found',
+          summary: 'Errors spiked on /api/jobs.',
+          findings: [{ title: 'jobs failing', severity: 'high', evidence: '42 error spans', queryIndex: 0 }],
+          rootCause: 'Database timeout',
+          confidence: 'medium',
+          recommendations: ['Check pool saturation.'],
+          queries: [{ title: 'Error spans', sql: 'SELECT 1' }],
+        }),
+      ],
+    });
+
+    await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+    const [final] = t.of('answer');
+    expect(final.sql).toBe('SELECT 1');
+    expect(final.explanation).toBe('Errors spiked on /api/jobs.');
+    expect(final.report).toEqual({
+      status: 'issue_found',
+      summary: 'Errors spiked on /api/jobs.',
+      findings: [{ title: 'jobs failing', severity: 'high', evidence: '42 error spans', queryIndex: 0 }],
+      rootCause: 'Database timeout',
+      confidence: 'medium',
+      recommendations: ['Check pool saturation.'],
+      queries: [{ title: 'Error spans', sql: 'SELECT 1' }],
+    });
   });
 
   it('never sends the model more rows than maxResultRowsToModel, even if the query returned more', async () => {
@@ -276,6 +425,9 @@ describe('TelemetryAssistantService', () => {
     expect(found.columns).toEqual([
       { name: 'timestamp', type: 'TimestampNanosecond', semanticType: 'TIMESTAMP' },
       { name: 'duration_nano', type: 'UInt64', semanticType: 'FIELD' },
+      { name: 'trace_id', type: 'String', semanticType: 'TAG' },
+      { name: 'span_status_code', type: 'String', semanticType: 'FIELD' },
+      { name: 'span_name', type: 'String', semanticType: 'FIELD' },
     ]);
 
     const steps = t.of('step');
@@ -283,7 +435,7 @@ describe('TelemetryAssistantService', () => {
     expect(steps[0].error).toContain('There is no table named');
     expect(steps[1]).toMatchObject({ index: 1, tool: 'describe_table', input: { table: 'opentelemetry_traces' } });
     expect(steps[1].error).toBeUndefined();
-    expect(t.of('answer')).toEqual([{ sql: null, explanation: 'Not answerable.' }]);
+    expect(t.of('answer')).toEqual([{ sql: null, explanation: 'Not answerable.', report: legacyReport(null, 'Not answerable.') }]);
   });
 
   it('returns a rejected or failed query to the model as an error, and lets it retry', async () => {
@@ -304,7 +456,7 @@ describe('TelemetryAssistantService', () => {
 
     await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
 
-    expect(JSON.parse(outputsOf(t.requests()[1])[0].output)).toEqual({
+    expect(JSON.parse(outputsOf(t.requests()[1])[0].output)).toMatchObject({
       error: 'TELEMETRY_QUERY_FAILED',
       message: 'No field named "duration".',
     });
@@ -335,7 +487,8 @@ describe('TelemetryAssistantService', () => {
 
     const [final] = t.of('answer');
     expect(final.sql).toBeNull();
-    expect(final.explanation).toMatch(/^Drops it\.\n\nThe suggested query was withdrawn/);
+    expect(final.explanation).toMatch(/^Drops it\.\n\n1 suggested query was withdrawn/);
+    expect(final.report?.queries).toEqual([]);
   });
 
   it('tolerates a code-fenced final answer, and falls back to plain text', async () => {
@@ -343,14 +496,16 @@ describe('TelemetryAssistantService', () => {
       script: [{ outputText: '```json\n{"sql":"SELECT 1","explanation":"One."}\n```' }],
     });
     await fenced.service.stream(HARNESS_USER, { question: 'q' }, { emit: fenced.emit });
-    expect(fenced.of('answer')).toEqual([{ sql: 'SELECT 1', explanation: 'One.' }]);
+    expect(fenced.of('answer')).toEqual([
+      { sql: 'SELECT 1', explanation: 'One.', report: legacyReport('SELECT 1', 'One.') },
+    ]);
 
     const prose = setup({ script: [{ outputText: 'I cannot help with that.' }] });
     await prose.service.stream(HARNESS_USER, { question: 'q' }, { emit: prose.emit });
-    expect(prose.of('answer')).toEqual([{ sql: null, explanation: 'I cannot help with that.' }]);
+    expect(prose.of('answer')).toEqual([{ sql: null, explanation: 'I cannot help with that.', report: null }]);
   });
 
-  it('on steps_exhausted still answers, with the last good query and a note', async () => {
+  it('on steps_exhausted still answers, inconclusive, with the last good query and a note', async () => {
     const sql = 'SELECT count(*) AS n FROM opentelemetry_traces';
     const t = setup({
       policy: policyWith({ maxSteps: 2 }),
@@ -363,6 +518,8 @@ describe('TelemetryAssistantService', () => {
     const [final] = t.of('answer');
     expect(final.sql).toBe(sql);
     expect(final.explanation).toMatch(/used all 2 of its steps/);
+    expect(final.report?.status).toBe('inconclusive');
+    expect(final.report?.queries).toEqual([{ title: 'Last query that ran successfully', sql }]);
     expect(t.audits[0].meta).toMatchObject({ stopReason: 'steps_exhausted', steps: 2 });
   });
 
@@ -440,6 +597,208 @@ describe('TelemetryAssistantService', () => {
 
     expect(t.run.mock.calls[0][2].signal).toBeInstanceOf(AbortSignal);
   });
+
+  describe('step budget carried on every tool output', () => {
+    it('carries stepsLeft on ordinary rounds, and a budget warning on the second-to-last round', async () => {
+      const t = setup({
+        policy: policyWith({ maxSteps: 3 }),
+        script: [call('c1', 'list_tables', {}), call('c2', 'list_tables', {}), answer(null, 'done')],
+      });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const first = JSON.parse(outputsOf(t.requests()[1])[0].output);
+      expect(first.stepsLeft).toBe(2);
+      expect(first.budget).toBeUndefined();
+
+      const second = JSON.parse(outputsOf(t.requests()[2])[0].output);
+      expect(second.budget).toMatch(/LAST STEP NEXT/);
+      expect(second.stepsLeft).toBeUndefined();
+    });
+  });
+
+  describe('interim thought', () => {
+    it('rides on the first tool call of a round only, bounded to 1000 characters', async () => {
+      const longThought = 'x'.repeat(2_000);
+      const t = setup({
+        script: [
+          {
+            outputText: longThought,
+            output: [
+              { type: 'function_call', callId: 'c1', name: 'list_tables', arguments: '{}' },
+              {
+                type: 'function_call',
+                callId: 'c2',
+                name: 'describe_table',
+                arguments: JSON.stringify({ table: 'opentelemetry_traces' }),
+              },
+            ],
+          },
+          answer(null, 'ok'),
+        ],
+      });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const steps = t.of('step');
+      expect(steps[0].thought).toBe(`${'x'.repeat(999)}…`);
+      expect(steps[0].thought).toHaveLength(1000);
+      expect(steps[1].thought).toBeUndefined();
+    });
+
+    it('is absent when the model wrote no interim text', async () => {
+      const t = setup({ script: [call('c1', 'list_tables', {}), answer(null, 'ok')] });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      expect(t.of('step')[0].thought).toBeUndefined();
+    });
+  });
+
+  describe('get_app_context', () => {
+    it('returns app/telemetry/deploy/features/tables/data, skipping sections without a service column', async () => {
+      const t = setup({ script: [call('c1', 'get_app_context', {}), answer(null, 'ok')] });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
+
+      expect(output.app).toMatchObject({ nodeVersion: process.version });
+      expect(output.telemetry.assistant).toMatchObject({ shareResults: true, maxResultRowsToModel: 5, maxSteps: 6 });
+      expect(output.features).toEqual({
+        ai: true,
+        maintenanceMode: false,
+        databaseBackup: false,
+        browserNotifications: true,
+        nodeJobSecretBroker: false,
+      });
+      expect(output.tables.count).toBe(2);
+      expect(output.tables.list).toEqual([
+        { name: 'opentelemetry_logs', rows: 10 },
+        { name: 'opentelemetry_traces', rows: 200 },
+      ]);
+      // Neither table carries a service column in the test schema.
+      expect(output.data.traceServices).toEqual({ skipped: expect.stringContaining('service') });
+      expect(output.data.logServices).toEqual({ skipped: expect.stringContaining('service') });
+      // But both have a timestamp column, so range/coverage sections DO run.
+      expect(output.data.tracesRange.skipped).toBeUndefined();
+      expect(output.data.logsRange.skipped).toBeUndefined();
+    });
+
+    it('reports the platform features as booleans from an explicit allowlist', async () => {
+      const t = setup({
+        systemSettings: { ai: false, maintenanceMode: true, databaseBackup: true, browserNotifications: false, nodeJobSecretBroker: true },
+        script: [call('c1', 'get_app_context', {}), answer(null, 'ok')],
+      });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
+      expect(output.features).toEqual({
+        ai: false,
+        maintenanceMode: true,
+        databaseBackup: true,
+        browserNotifications: false,
+        nodeJobSecretBroker: true,
+      });
+    });
+  });
+
+  describe('health_overview', () => {
+    it('runs the chosen window and returns every section (none skipped, given the columns)', async () => {
+      const t = setup({ script: [call('c1', 'health_overview', { window: '6h' }), answer(null, 'ok')] });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
+      expect(output.window).toBe('6h');
+
+      for (const key of [
+        'tracesCoverage',
+        'tracesRange',
+        'services',
+        'latencyP95',
+        'failingRoutes',
+        'slowestSpans',
+        'logsCoverage',
+        'logsRange',
+        'logSeverities',
+        'topErrorLogs',
+      ]) {
+        expect(output.sections[key]).toBeDefined();
+        expect(output.sections[key].skipped).toBeUndefined();
+        expect(output.sections[key].unavailable).toBeUndefined();
+      }
+    });
+
+    it('defaults the window to 1h when the model omits it', async () => {
+      const t = setup({ script: [call('c1', 'health_overview', {}), answer(null, 'ok')] });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      expect(t.of('step')[0].input).toEqual({ window: '1h' });
+    });
+  });
+
+  describe('get_trace', () => {
+    it('hides non-shareable cells when shareResults is off, keeping numbers/booleans/timestamps', async () => {
+      const run = traceRunMock();
+      const t = setup({
+        run,
+        policy: policyWith({ shareResults: false }),
+        script: [call('c1', 'get_trace', { traceId: 'a'.repeat(32) }), answer(null, 'ok')],
+      });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
+      expect(output.traceId).toBe('a'.repeat(32));
+      // columns: timestamp, service, span_name, is_error, duration_ms, http_status
+      // shareable: timestamp, is_error, duration_ms, http_status
+      expect(output.spans.rows[0]).toEqual(['2024-01-01T00:00:00Z', null, null, false, 12.5, 200]);
+      expect(output.spans.note).toMatch(/hidden from the assistant by policy/);
+      // columns: timestamp, service, severity_number, body / shareable: timestamp, severity_number
+      expect(output.logs.rows[0]).toEqual(['2024-01-01T00:00:01Z', null, 17, null]);
+    });
+
+    it('lower-cases the trace id it queries with', async () => {
+      const run = traceRunMock();
+      const t = setup({
+        run,
+        script: [call('c1', 'get_trace', { traceId: 'ABCDEF0123456789' }), answer(null, 'ok')],
+      });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
+      expect(output.traceId).toBe('abcdef0123456789');
+    });
+
+    it('a failing section is reported as unavailable, and does not lose the others', async () => {
+      const run = traceRunMock({ failLogs: true });
+      const t = setup({ run, script: [call('c1', 'get_trace', { traceId: 'b'.repeat(32) }), answer(null, 'ok')] });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
+      expect(output.spans.rowCount).toBe(1);
+      expect(output.spans.unavailable).toBeUndefined();
+      expect(output.logs).toEqual({ unavailable: expect.stringContaining('TELEMETRY_QUERY_FAILED') });
+    });
+
+    it('a fatal telemetry failure ends the whole turn instead of one section', async () => {
+      const run = jest
+        .fn()
+        .mockRejectedValue(new TelemetryHttpError(TELEMETRY_ERROR_REASONS.UNREACHABLE, 'store is down'));
+      const t = setup({ run, script: [call('c1', 'get_trace', { traceId: 'c'.repeat(32) }), answer(null, 'ok')] });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      expect(t.events.map((e) => e.event)).toEqual(['error', 'done']);
+      expect(t.of('error')).toEqual([{ code: 'TELEMETRY_UNREACHABLE', message: 'store is down' }]);
+      expect(t.requests()).toHaveLength(1);
+    });
+  });
 });
 
 describe('shapeQueryOutput', () => {
@@ -479,16 +838,250 @@ describe('shapeQueryOutput', () => {
   });
 });
 
+describe('withBudget', () => {
+  it('adds stepsLeft before the second-to-last round', () => {
+    expect(withBudget({ x: 1 }, 1, 5)).toEqual({ x: 1, stepsLeft: 4 });
+    expect(withBudget({ x: 1 }, 3, 5)).toEqual({ x: 1, stepsLeft: 2 });
+  });
+
+  it('adds a budget warning instead, starting at round maxSteps - 1', () => {
+    const out = withBudget({ x: 1 }, 4, 5);
+    expect(out.budget).toMatch(/LAST STEP NEXT/);
+    expect(out.stepsLeft).toBeUndefined();
+  });
+});
+
+describe('buildTelemetryAssistantInstructions', () => {
+  it('injects the given step budget', () => {
+    expect(buildTelemetryAssistantInstructions(9)).toContain('at most 9 steps');
+    expect(buildTelemetryAssistantInstructions(20)).toContain('at most 20 steps');
+  });
+
+  it('forbids handing the analysis back to the user', () => {
+    const instructions = buildTelemetryAssistantInstructions(15);
+    expect(instructions).toContain('if it returns rows');
+    expect(instructions).toMatch(/You RUN the queries and ANALYSE the actual results yourself/);
+  });
+
+  it('the exported default is built at the settings default of 15', () => {
+    expect(TELEMETRY_ASSISTANT_INSTRUCTIONS).toBe(buildTelemetryAssistantInstructions(15));
+  });
+});
+
+describe('parseReport', () => {
+  const REPORT: TelemetryAssistantReport = {
+    status: 'issue_found',
+    summary: 's',
+    findings: [{ title: 't', severity: 'high', evidence: 'e', queryIndex: 0 }],
+    rootCause: 'c',
+    confidence: 'medium',
+    recommendations: ['r'],
+    queries: [{ title: 'q', sql: 'SELECT 1' }],
+  };
+
+  it('parses a well-formed report as-is', () => {
+    expect(parseReport(JSON.stringify(REPORT))).toEqual(REPORT);
+  });
+
+  it('reads JSON embedded in prose', () => {
+    expect(parseReport(`Here you go:\n${JSON.stringify(REPORT)}\nthanks`)).toEqual(REPORT);
+  });
+
+  it('maps a bad status to inconclusive', () => {
+    expect(parseReport(JSON.stringify({ ...REPORT, status: 'nonsense' }))?.status).toBe('inconclusive');
+  });
+
+  it('maps an unknown severity to info', () => {
+    const report = parseReport(
+      JSON.stringify({ ...REPORT, findings: [{ title: 't', severity: 'catastrophic', evidence: 'e' }] }),
+    );
+    expect(report?.findings[0]).toMatchObject({ severity: 'info' });
+  });
+
+  it('caps findings, recommendations and queries at their maximums', () => {
+    const many = (n: number, fn: (i: number) => unknown) => Array.from({ length: n }, (_, i) => fn(i));
+    const report = parseReport(
+      JSON.stringify({
+        ...REPORT,
+        findings: many(REPORT_MAX_FINDINGS + 5, (i) => ({ title: `t${i}`, severity: 'low', evidence: 'e' })),
+        recommendations: many(REPORT_MAX_RECOMMENDATIONS + 5, (i) => `r${i}`),
+        queries: many(REPORT_MAX_QUERIES + 5, (i) => ({ title: `q${i}`, sql: `SELECT ${i}` })),
+      }),
+    );
+
+    expect(report?.findings).toHaveLength(REPORT_MAX_FINDINGS);
+    expect(report?.recommendations).toHaveLength(REPORT_MAX_RECOMMENDATIONS);
+    expect(report?.queries).toHaveLength(REPORT_MAX_QUERIES);
+  });
+
+  it('maps the legacy { sql, explanation } shape to a minimal report', () => {
+    expect(parseReport(JSON.stringify({ sql: 'SELECT 1', explanation: 'ok' }))).toEqual(legacyReport('SELECT 1', 'ok'));
+    expect(parseReport(JSON.stringify({ sql: null, explanation: 'n/a' }))).toEqual(legacyReport(null, 'n/a'));
+    expect(parseReport(JSON.stringify({ sql: '   ', explanation: 'n/a' }))).toEqual(legacyReport(null, 'n/a'));
+  });
+
+  it('returns null for non-JSON or an unrelated shape', () => {
+    expect(parseReport('nope, not JSON')).toBeNull();
+    expect(parseReport('{"foo":"bar"}')).toBeNull();
+    expect(parseReport('[1,2,3]')).toBeNull();
+  });
+});
+
+describe('guardReport', () => {
+  const BASE: TelemetryAssistantReport = {
+    status: 'issue_found',
+    summary: 'summary',
+    findings: [],
+    rootCause: null,
+    confidence: 'low',
+    recommendations: [],
+    queries: [],
+  };
+
+  it('drops a non-read-only query, withdraws it with a note, and remaps queryIndex', () => {
+    const report: TelemetryAssistantReport = {
+      ...BASE,
+      findings: [
+        { title: 'f0', severity: 'high', evidence: 'e', queryIndex: 0 },
+        { title: 'f1', severity: 'low', evidence: 'e', queryIndex: 1 },
+      ],
+      queries: [
+        { title: 'bad', sql: 'DROP TABLE opentelemetry_traces' },
+        { title: 'good', sql: 'SELECT 1' },
+      ],
+    };
+
+    const guarded = guardReport(report);
+
+    expect(guarded.queries).toEqual([{ title: 'good', sql: 'SELECT 1' }]);
+    // f0 pointed at the withdrawn query, so it loses its queryIndex.
+    expect(guarded.findings[0].queryIndex).toBeUndefined();
+    // f1 pointed at the surviving query, remapped from 1 -> 0.
+    expect(guarded.findings[1].queryIndex).toBe(0);
+    expect(guarded.summary).toMatch(/^summary\n\n1 suggested query was withdrawn because it is not a single read-only statement/);
+  });
+
+  it('returns the report unchanged when every query passes the guard', () => {
+    const report: TelemetryAssistantReport = { ...BASE, queries: [{ title: 'q', sql: 'SELECT 1' }] };
+
+    expect(guardReport(report)).toBe(report);
+  });
+
+  it('pluralises the note for more than one withdrawn query', () => {
+    const report: TelemetryAssistantReport = {
+      ...BASE,
+      queries: [
+        { title: 'bad1', sql: 'DELETE FROM opentelemetry_traces' },
+        { title: 'bad2', sql: 'DROP TABLE opentelemetry_logs' },
+      ],
+    };
+
+    expect(guardReport(report).summary).toMatch(/2 suggested queries were withdrawn because they are not/);
+  });
+});
+
+describe('pickDeployInfo', () => {
+  it('keeps only version, commit, deployedAt, lastCommand and lastRunOutcome', () => {
+    const result = pickDeployInfo({
+      status: 'ok',
+      document: {
+        app: { version: '1.2.3', commitSha: 'abc123' },
+        installedAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-02T00:00:00Z',
+        lastCommand: 'deploy',
+        run: { outcome: 'success' },
+      } as never,
+    });
+
+    expect(result).toEqual({
+      status: 'ok',
+      version: '1.2.3',
+      commitSha: 'abc123',
+      deployedAt: '2024-01-02T00:00:00Z',
+      lastCommand: 'deploy',
+      lastRunOutcome: 'success',
+    });
+  });
+
+  it('falls back to installedAt when updatedAt is absent, and a null run outcome', () => {
+    const result = pickDeployInfo({
+      status: 'ok',
+      document: {
+        app: { version: null, commitSha: null },
+        installedAt: '2024-01-01T00:00:00Z',
+        updatedAt: null,
+        lastCommand: null,
+        run: null,
+      } as never,
+    });
+
+    expect(result.deployedAt).toBe('2024-01-01T00:00:00Z');
+    expect(result.lastRunOutcome).toBeNull();
+  });
+
+  it('returns just the status when the document is absent or invalid', () => {
+    expect(pickDeployInfo({ status: 'absent', document: null })).toEqual({ status: 'absent' });
+    expect(pickDeployInfo({ status: 'invalid', document: null })).toEqual({ status: 'invalid' });
+  });
+
+  it('never returns hostname- or path-like fields, whatever the document carries', () => {
+    const result = pickDeployInfo({
+      status: 'ok',
+      document: {
+        app: { version: '1.0.0', commitSha: 'x' },
+        installedAt: null,
+        updatedAt: null,
+        lastCommand: null,
+        run: null,
+        domain: 'example.com',
+        host: { name: 'prod-1' },
+        proxy: { kind: 'nginx' },
+        bindPort: 3535,
+        remote: { url: 'ssh://prod-1/srv/app' },
+      } as never,
+    });
+
+    expect(Object.keys(result)).toEqual(['status', 'version', 'commitSha', 'deployedAt', 'lastCommand', 'lastRunOutcome']);
+  });
+});
+
 describe('parseFinalAnswer', () => {
   it('reads JSON embedded in prose, and normalises an empty sql to null', () => {
     expect(parseFinalAnswer('Here you go: {"sql":"  ","explanation":"none"} thanks')).toEqual({
       sql: null,
       explanation: 'none',
+      report: legacyReport(null, 'none'),
     });
   });
 
   it('returns null for text that is not the answer shape', () => {
     expect(parseFinalAnswer('{"query":"SELECT 1"}')).toBeNull();
     expect(parseFinalAnswer('nope')).toBeNull();
+  });
+
+  it('parses a full structured report', () => {
+    const text = JSON.stringify({
+      status: 'no_issue_found',
+      summary: 'All quiet.',
+      findings: [],
+      rootCause: null,
+      confidence: 'high',
+      recommendations: [],
+      queries: [{ title: 'Check errors', sql: 'SELECT 1' }],
+    });
+
+    expect(parseFinalAnswer(text)).toEqual({
+      sql: 'SELECT 1',
+      explanation: 'All quiet.',
+      report: {
+        status: 'no_issue_found',
+        summary: 'All quiet.',
+        findings: [],
+        rootCause: null,
+        confidence: 'high',
+        recommendations: [],
+        queries: [{ title: 'Check errors', sql: 'SELECT 1' }],
+      },
+    });
   });
 });

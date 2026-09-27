@@ -382,9 +382,10 @@ describe('TelemetryExplorerPage', () => {
     expect(steps[1]).toHaveTextContent('3 rows');
     expect(streamBodies[0]).toEqual({ question: 'Spans per service?' });
 
-    // Default action: insert into the editor and run.
+    // The answer's SQL is inserted into the editor, but never auto-run (#571) —
+    // the report's own Insert / Insert & run buttons run on demand.
     await waitFor(() => expect(textarea.value).toBe(answerSql));
-    await waitFor(() => expect(bodies.map((body) => body.sql)).toContain(answerSql));
+    expect(bodies.map((body) => body.sql)).not.toContain(answerSql);
 
     // A follow-up carries the previous turn as history.
     await user.type(screen.getByRole('textbox', { name: 'Ask the assistant' }), 'Only errors');

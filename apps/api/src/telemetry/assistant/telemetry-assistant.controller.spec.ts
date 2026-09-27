@@ -55,7 +55,7 @@ describe('TelemetryAssistantController', () => {
     const service = {
       stream: jest.fn(async (_u: string, _i: unknown, opts: TelemetryAssistantStreamOptions) => {
         opts.emit('step', { index: 0, tool: 'list_tables', durationMs: 4 });
-        opts.emit('answer', { sql: 'SELECT 1', explanation: 'One.' });
+        opts.emit('answer', { sql: 'SELECT 1', explanation: 'One.', report: null });
         opts.emit('done', {});
       }),
     };
@@ -71,7 +71,7 @@ describe('TelemetryAssistantController', () => {
     expect(raw.writableEnded).toBe(true);
     expect(text()).toBe(
       'event: step\ndata: {"index":0,"tool":"list_tables","durationMs":4}\n\n' +
-        'event: answer\ndata: {"sql":"SELECT 1","explanation":"One."}\n\n' +
+        'event: answer\ndata: {"sql":"SELECT 1","explanation":"One.","report":null}\n\n' +
         'event: done\ndata: {}\n\n',
     );
     expect(service.stream).toHaveBeenCalledWith('user-1', { question: 'q' }, expect.objectContaining({
