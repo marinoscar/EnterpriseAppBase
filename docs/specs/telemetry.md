@@ -1,6 +1,6 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
+> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/stack-agent/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
@@ -592,8 +592,9 @@ organisation key per the AI platform's key policy (CLAUDE.md AI rule 1).
 - Every admin write and every query/export/assistant call is an audit
   event: `telemetry:config_update`, `telemetry:query`, `telemetry:export`,
   `telemetry:assistant_query`, `telemetry:assistant`,
-  `telemetry:connection_update`, `telemetry:connection_reset` — including
-  refused and failed queries, so a rejected `DROP` is on record.
+  `telemetry:connection_update`, `telemetry:connection_reset`,
+  `telemetry:stack_deploy` (§10) — including refused and failed queries, so a
+  rejected `DROP` is on record.
 - **The stored GreptimeDB connection's passwords are encrypted at rest**,
   under credential purpose `telemetry_greptime` (§8) — the same store and
   cipher as every other runtime-configured credential (SMTP, storage, AI,
@@ -639,10 +640,10 @@ use `GREPTIME_WRITER_*`/`GREPTIME_HTTP_PORT`; the API never writes telemetry
 and never speaks GreptimeDB's HTTP API. Storing a write-capable credential
 the API has no use for would widen what a compromise of the application
 database yields, for nothing — least privilege excludes it by design, not by
-oversight. Provisioning the GreptimeDB server itself (the `telemetry.compose.yml`
-overlay, `appctl deploy update --group observability`) also stays an
-infrastructure step: the API only holds the credentials to *reach* a store,
-never to stand one up.
+oversight. Provisioning the GreptimeDB server itself (starting its container)
+stays a separate concern from reaching it: the API only holds the credentials
+to *reach* a store, never the Docker socket needed to stand one up — see §10
+for how an administrator now does that from the admin UI.
 
 **Storage.** `telemetry_connection` is a `system_settings` row of its own,
 not a namespace inside `global`, for the same reason the email settings have
@@ -757,6 +758,136 @@ Excel, DBeaver, Grafana or any other tool that speaks the PostgreSQL wire
 protocol. See the [telemetry runbook](../runbooks/telemetry.md) for the exact
 commands and per-tool notes.
 
+## 10. Deploying the stack (stack-agent)
+
+**The telemetry stack ships with every VPS deployment.** `observability` used
+to be an opt-in group; `effectiveGroups()`
+(`apps/cli/src/deploy/compose-files.ts`) now unions it into every install,
+update, uninstall and health run, so `telemetry.compose.yml` and
+`vps.telemetry.compose.yml` are always in the compose file list and the
+`GREPTIME_*` keys are always in scope for the environment wizard. A
+deployment recorded before this change gains the stack on its next `appctl
+deploy update`, with no flag. `--group observability` is still accepted, as a
+harmless no-op, so an existing script or habit does not break.
+
+Shipping the containers does not turn export on: `telemetry.enabled` (§2)
+still gates whether anything is collected, and the GreptimeDB connection
+(§8) still has to be reachable. Deploying the stack only makes "reachable"
+achievable without a shell session.
+
+### The problem this solves
+
+Before this feature, a fresh install had no `greptimedb` container until an
+operator ran `appctl deploy update --group observability` from a shell, and
+recovering from a stopped or removed container needed the same. That
+contradicts CLAUDE.md's Settings UI posture — everything about a deployment's
+telemetry should be reachable from `/admin/settings/telemetry` — and left the
+admin UI's connection test reporting an unresolvable host with no way to fix
+it from there.
+
+### `stack-agent`: the one holder of the Docker socket
+
+`apps/stack-agent` is a small, zero-runtime-dependency Node service, the
+**only** process in the stack that mounts `/var/run/docker.sock`
+(`infra/compose/vps.compose.yml`). It exposes three routes and nothing else:
+
+| Route | Auth | Does |
+|---|---|---|
+| `GET /health` | none | Liveness probe |
+| `GET /v1/telemetry` | bearer `STACK_AGENT_TOKEN` | `docker compose ps` of `greptimedb` and `otel-collector` |
+| `POST /v1/telemetry/up` | bearer `STACK_AGENT_TOKEN` | `docker compose up -d --no-build greptimedb otel-collector` |
+
+**No route takes a parameter** — not a path segment, query string, header or
+body (the body is drained up to 1 KB and discarded). The project name, the
+compose files and the working directory come from the agent's own
+container's compose labels (`apps/stack-agent/src/compose.ts`), so it cannot
+be redirected at a different project. It answers `/v1/*` only with a
+constant-time bearer check, and refuses everything with `503
+not_configured` when `STACK_AGENT_TOKEN` is unset or shorter than 32
+characters. It is single-flight (`up` refuses a second call with `409` while
+one is running), caps the output it returns, and scrubs its own token from
+anything it might echo back.
+
+**The security trade-off, stated plainly.** Access to the Docker socket is
+root-equivalent on the host: whoever can talk to it can start a privileged
+container that mounts `/`. `vps.compose.yml` confines that access to this one
+small, purpose-built process — published on no port, reachable only from
+`app-network`, read-only root filesystem, every capability dropped,
+`no-new-privileges`, 128 MB memory limit — rather than to the API, which is
+the internet-facing process handling arbitrary requests. What remains is the
+residual risk any socket holder carries: a compromise of `stack-agent` itself
+is a compromise of the host, which is why the agent does as little as
+possible and accepts no input that could steer what it runs.
+
+**Rejected alternative: the socket in the API container.** Mounting
+`/var/run/docker.sock` into the API service directly was rejected. The API is
+a large, internet-facing NestJS process with a broad route surface, request
+body parsing, third-party dependencies and (per the AI platform rules)
+provider SDKs; any bug in any of that would hand an attacker the host, not
+just telemetry. A dedicated sidecar with no HTTP body handling beyond a
+1 KB drain, no dependencies beyond Node's own `http`/`child_process`, and no
+parameters at all shrinks that same capability down to a process small enough
+to read in one sitting.
+
+### The admin deploy flow
+
+`GET /api/admin/telemetry/stack` (`system_settings:read`) and `POST
+/api/admin/telemetry/stack/deploy` (`system_settings:write`) are on
+`TelemetryStackController`
+(`apps/api/src/telemetry/stack/telemetry-stack.controller.ts`) — deliberately
+`system_settings:*`, not `telemetry:*`: starting containers on the host is a
+deployment action with the same reach as the rest of the system-wide
+deployment settings, not a telemetry-policy edit.
+
+- `GET` asks `stack-agent` for the two containers' state (bounded to five
+  seconds) and reads the most recent `telemetry.stack.deploy` job. It always
+  answers 200: `agent` is `available`, `unavailable`, `unauthorized` or
+  `not_configured` — a missing or unreachable agent is a state, not an error.
+- `POST /deploy` enqueues `telemetry.stack.deploy`
+  (`apps/api/src/telemetry/stack/telemetry-stack-deploy.handler.ts`) and
+  answers `202` at once — an image pull can take up to ten minutes, far
+  longer than an admin request should stay open (CLAUDE.md queue rule 1).
+  The job has no subject, so the queue's active-dedup index makes a second
+  click return the job already in flight rather than starting another. It is
+  **never auto-retried** (`maxAttempts: 1`): a failed `up` is a deployment
+  problem an administrator must read, not one the queue should hide behind a
+  retry. The job is **server-only, permanently** — no `nodeResultSchema` /
+  `persistNodeResult` — because `stack-agent` listens only on the
+  deployment's internal network and its bearer token controls the host's
+  Docker daemon, which a worker node must never hold (CLAUDE.md queue rule
+  3). `POST` answers `409` with `details.reason: STACK_AGENT_NOT_CONFIGURED`
+  when this deployment has no `stack-agent` (`STACK_AGENT_URL`/
+  `STACK_AGENT_TOKEN` unset).
+- On success, the handler nudges the telemetry connection snapshot and the
+  export gate to refresh, and enqueues `telemetry.retention.apply` (a fresh
+  GreptimeDB volume has no TTL yet), so the admin page turns green on its
+  next poll without a restart.
+- Every deploy request is audited as `telemetry:stack_deploy` (target type
+  `job`), whether or not the job later succeeds.
+- The API reaches the agent over `STACK_AGENT_URL` (`http://stack-agent:8090`
+  on a VPS) and `STACK_AGENT_TOKEN`, both set by `vps.compose.yml` — never
+  configured in the admin UI, since they name an internal sidecar, not an
+  external service.
+
+The **Telemetry services** section of `/admin/settings/telemetry`
+(`apps/web/src/components/telemetry/TelemetryServicesSection.tsx`) shows the
+two containers and a **Deploy GreptimeDB** / **Redeploy** button, polls the
+job while it runs, and shows the tail of its output on failure. Every message
+shown to an administrator is about "the telemetry services" or "GreptimeDB" —
+never compose, a compose file or the CLI. This is the same posture the
+connection error messages already took (§8's unresolvable-host handling): an
+administrator should never need to know this template runs on Docker Compose
+to operate telemetry from the admin UI.
+
+### `STACK_AGENT_TOKEN`
+
+Generated as 32 hex bytes, without a prompt, on every VPS install and update
+(`apps/cli/src/deploy/env-metadata.ts`) — it carries no `group`, so it is
+generated whether or not `--group observability` was ever passed. Only
+`stack-agent` and the API read it; a hand-set real value is kept, never
+overwritten. `vps.compose.yml` refuses to start `stack-agent` or `api`
+without it (`:?` compose interpolation).
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -778,3 +909,7 @@ commands and per-tool notes.
 - #558: the GreptimeDB connection becomes admin-configurable at runtime
   (`TelemetryConnectionService`, `/api/admin/telemetry/connection`), with
   `GREPTIME_*` kept as the deployment default.
+- #567: the telemetry stack ships with every VPS deployment
+  (`effectiveGroups`); `stack-agent`, the sidecar holding the Docker socket,
+  lets an administrator (re)deploy GreptimeDB and the collector from
+  `/admin/settings/telemetry` with no shell step.

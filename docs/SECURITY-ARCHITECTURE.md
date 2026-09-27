@@ -139,6 +139,7 @@ Every credential the system accepts or holds, and where it is valid.
 | Device-flow token | Session JWT + refresh token, or a `pat_` | As above | `DEVICE_TOKEN_EXPIRY_DAYS` (7) or `DEVICE_PAT_EXPIRY_DAYS` (90) | As above | `DELETE /api/auth/device/sessions/{id}`, immediately, for either kind |
 | Per-job node secret | Short-lived PostgreSQL login role | Only its handle, in `job_node_secrets` | The job's lease + 60 s | The database, from one node, for one job | Job settles, sweep cron, or `VALID UNTIL` |
 | Runtime-configured secret | Provider key, SMTP password, VAPID key, etc. | AES-256-GCM ciphertext | Until replaced | Server-side only, never returned | Replace or delete in the admin UI |
+| `STACK_AGENT_TOKEN` | 32 random hex bytes | Plaintext in `.env`, on both the `api` and `stack-agent` services | Until rotated | Bearer on `stack-agent`'s `/v1/*` routes only, reachable from `app-network` only | Edit `.env` and recreate `stack-agent`/`api` |
 
 `JwtAuthGuard` recognizes the bearer families by prefix before Passport runs:
 `Bearer pat_…` goes to `PatService.validateToken`, `Bearer nod_…` to
@@ -685,6 +686,48 @@ there is no `DATABASE_URL` to configure. `npm run setup` (`appctl init`)
 generates `infra/compose/.env` with random secrets at mode `0600`. Never
 commit `.env`. In production, inject secrets from your platform's secret
 manager and use different values per environment.
+
+### Docker socket / stack-agent
+
+A VPS deployment's `stack-agent` service (`infra/compose/vps.compose.yml`,
+code in `apps/stack-agent/`) is the **only** container in the stack that
+mounts `/var/run/docker.sock`. That socket is root-equivalent on the host:
+whoever can talk to it can start a privileged container that mounts `/`.
+Rather than mount it into the API — a large, internet-facing NestJS process
+with a broad route surface and third-party dependencies — it is confined to
+this one small, purpose-built sidecar, which:
+
+- **accepts no parameters at all.** No path segment, query string, header
+  value or request body (drained up to 1 KB and discarded) is ever read into
+  a command. It runs exactly `docker compose up -d --no-build greptimedb
+  otel-collector` and `docker compose ps` of those same two services, both
+  fixed in the code.
+- **discovers its own project from its own container's compose labels**, so
+  it cannot be redirected at a different project or a different set of
+  services.
+- **is published on no port.** Only containers on `app-network` — in
+  practice, the API — can reach it.
+- **answers `/v1/*` only with `STACK_AGENT_TOKEN`** (constant-time compare),
+  refusing every call with `503` when the token is unset or shorter than 32
+  characters, and scrubbing the token from anything it might otherwise echo
+  back (redacted `compose up` output).
+- **runs read-only**, with every Linux capability dropped and
+  `no-new-privileges`, on a 128 MB memory limit.
+
+What remains is the residual risk any socket holder carries: a compromise of
+`stack-agent` itself is a compromise of the host. Confining the socket to a
+process this small and this constrained is the mitigation, not a claim that
+the risk is eliminated.
+
+**Rejected: mounting the socket into the API.** The API already handles
+arbitrary authenticated requests, parses bodies, and (per the AI platform)
+loads third-party provider SDKs; any bug anywhere in that surface would hand
+an attacker the host, not just the telemetry containers. The sidecar's tiny,
+parameter-free surface is reviewable in one sitting, which the API's is not.
+
+See [specs/telemetry.md §10](specs/telemetry.md#10-deploying-the-stack-stack-agent)
+for the full design and the admin-facing deploy flow, and the credential
+table above for `STACK_AGENT_TOKEN`'s lifecycle.
 
 ---
 

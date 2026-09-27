@@ -300,7 +300,7 @@ Secrets configured at runtime are encrypted with AES-256-GCM under `SECRETS_ENCR
 
 ### 5.17 Observability
 
-The API is instrumented with OpenTelemetry for traces, metrics and logs, and logs structurally with Pino. The optional telemetry stack (OTel Collector + GreptimeDB) runs from `telemetry.compose.yml`, with a SQL explorer and an AI assistant over the collected data. See [§11](#11-observability) and [specs/telemetry.md](specs/telemetry.md).
+The API is instrumented with OpenTelemetry for traces, metrics and logs, and logs structurally with Pino. The optional telemetry stack (OTel Collector + GreptimeDB) runs from `telemetry.compose.yml`, with a SQL explorer and an AI assistant over the collected data. On a VPS deployment the stack ships by default and an administrator can (re)deploy the GreptimeDB/collector containers from `/admin/settings/telemetry`, through `stack-agent` — the sidecar that holds the Docker socket so the API never has to. See [§11](#11-observability) and [specs/telemetry.md](specs/telemetry.md).
 
 ### 5.18 Template tooling
 
@@ -405,8 +405,8 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 
 | Permission | Admin | Contributor | Viewer | Gates |
 |---|:-:|:-:|:-:|---|
-| `system_settings:read` | ✓ | | | Read system settings, email, notification policy, maintenance, About; reach `/admin/settings` |
-| `system_settings:write` | ✓ | | | Change system settings, email, notification policy; open or close maintenance |
+| `system_settings:read` | ✓ | | | Read system settings, email, notification policy, maintenance, About; reach `/admin/settings`; view the telemetry services status |
+| `system_settings:write` | ✓ | | | Change system settings, email, notification policy; open or close maintenance; (re)deploy the telemetry services |
 | `user_settings:read` | ✓ | ✓ | ✓ | Read own settings and own uploaded profile picture |
 | `user_settings:write` | ✓ | ✓ | ✓ | Change own settings; upload or remove own profile picture |
 | `users:read` | ✓ | | | List and view users; reach `/admin/settings` |
@@ -474,6 +474,7 @@ All 23 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `db.restore.old-db-drop` | `db-backup/handlers/db-restore-old-db-drop.handler.ts` | Drops databases a restore displaced once their retention closes | No |
 | `device-auth.code.cleanup` | `device-auth/handlers/device-code-cleanup.handler.ts` | Deletes expired device codes | No |
 | `telemetry.retention.apply` | `telemetry/handlers/telemetry-retention.handler.ts` | Sets GreptimeDB's database-level TTL to `telemetry.retentionDays`; daily and on policy change | No |
+| `telemetry.stack.deploy` | `telemetry/stack/telemetry-stack-deploy.handler.ts` | Starts GreptimeDB and the collector through `stack-agent`, on admin request | No |
 
 Every `ai.*` type is server-only permanently: no AI key is ever brokered to a worker node. `db.backup.run` is offered to nodes only when `nodes.jobSecretBrokerEnabled` and `databaseBackup.nodeOffloadEnabled` are both on and the broker can mint a role.
 
@@ -577,8 +578,8 @@ All files live in `infra/compose/` and are layered with repeated `-f` flags from
 | `devdb.compose.yml` | Opt-in PostgreSQL 16 container (`db`) for development | Local development without a shared database |
 | `telemetry.compose.yml` | OpenTelemetry Collector and GreptimeDB standalone | When you want traces, metrics and logs locally |
 | `prod.compose.yml` | Resource limits, restart policies | Production |
-| `vps.compose.yml` | Publishes nothing on a public interface; the app sits behind a shared host proxy | VPS deployment via `appctl deploy`, after `prod.compose.yml` |
-| `vps.telemetry.compose.yml` | Hardens the telemetry stack for a VPS: no collector host ports, GreptimeDB's Postgres wire port on `127.0.0.1` only | VPS deployment with the `observability` group, after `telemetry.compose.yml` and `vps.compose.yml` |
+| `vps.compose.yml` | Publishes nothing on a public interface; the app sits behind a shared host proxy. Also adds `stack-agent`, the only service that holds the Docker socket — it lets the admin UI (re)deploy the telemetry containers with no shell step. See [specs/telemetry.md §10](specs/telemetry.md#10-deploying-the-stack-stack-agent). | VPS deployment via `appctl deploy`, after `prod.compose.yml` |
+| `vps.telemetry.compose.yml` | Hardens the telemetry stack for a VPS: no collector host ports, GreptimeDB's Postgres wire port on `127.0.0.1` only | VPS deployment, after `telemetry.compose.yml` and `vps.compose.yml` (always layered — the telemetry stack ships with every VPS deployment) |
 | `test.compose.yml` | Disposable PostgreSQL (`db-test`, host port 5433) | Real-database test runs |
 | `worker.compose.yml` | Worker node containers from the published image; scale with `--scale worker=N` | Running a worker fleet |
 | `worker.build.compose.yml` | Builds the worker image from source | Developing the worker itself |

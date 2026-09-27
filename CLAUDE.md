@@ -18,6 +18,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
     cli/                      # `appctl` first-party CLI
       src/commands/           # init, login, api, config, deploy, node
       src/tui/                # interactive ink menu (real terminals only)
+    stack-agent/              # VPS-only sidecar: holds the Docker socket, starts the telemetry stack
   packages/shared/            # product identity (identity.json) shared by api, web, cli
   docs/
     specs/                    # feature design and rationale
