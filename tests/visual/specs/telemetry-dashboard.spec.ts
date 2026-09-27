@@ -24,7 +24,7 @@ import { FIXED_NOW, mockTelemetryDashboard, type DashboardScenario } from '../su
  * in local time. `?refresh=off` keeps auto-refresh from refetching mid-shot.
  */
 
-test.use({ timezoneId: 'UTC', locale: 'en-US', reducedMotion: 'reduce' });
+test.use({ timezoneId: 'UTC', locale: 'en-US' });
 
 /** `telemetry:query` is the route's gate, `ai:use` offers the assistant. No `telemetry:read`: no model caption fetch. */
 const PERMS = ['system_settings:read', 'users:read', 'telemetry:query', 'ai:use'];
