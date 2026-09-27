@@ -225,7 +225,7 @@ describe('DataTable — WCAG contrast (computed against the real theme)', () => 
       expect(secondary).toBeLessThan(primary);
     });
 
-    // The palette-independent anchor (§17): pure black on pure white is
+    // The palette-independent anchor: pure black on pure white is
     // exactly 21:1 by definition, so this pins the calculator rather than the
     // theme and stays valid through any palette change.
     it('black on white is exactly 21:1 regardless of palette', () => {

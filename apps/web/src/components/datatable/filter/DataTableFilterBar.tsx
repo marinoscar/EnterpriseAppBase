@@ -4,7 +4,7 @@
  * Drawn by `DataTable` itself, above whichever renderer is active, for two
  * reasons: the shape of this control is decided by the LAYOUT rather than by
  * how rows are presented, and a renderer that owned the open/draft state would
- * throw it away on every resize (§7.4 — state lives above the renderers).
+ * throw it away on every resize — state lives above the renderers.
  *
  * | layout    | filter surface                                              |
  * | --------- | ----------------------------------------------------------- |

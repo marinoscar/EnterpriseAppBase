@@ -2,12 +2,13 @@
 // In-memory object storage for AI tests (issue #437). TEST-ONLY.
 // =============================================================================
 //
-// Just enough of three collaborators for the REAL `AiStorageInputResolver`
+// Just enough of two collaborators for the REAL `AiStorageInputResolver`
 // and `AiOutputWriter` to run against:
 //
 //   - `prisma`: `storageObject.findUnique/findMany/create/delete` over an
-//     array of rows, and `user.count` answering the `storage:read_any` query
-//     from a set of user ids;
+//     array of rows. Ownership (`uploadedById === userId`) is the only access
+//     check the resolver makes (#516 removed the unseeded `storage:read_any`
+//     bypass), so there is no permission table to fake here any more;
 //   - `provider`: a `StorageProvider` whose `upload`/`download`/`delete` move
 //     bytes in and out of a `Map`, whose `getSignedDownloadUrl` (#441) mints a
 //     fake presigned URL carrying `IN_MEMORY_PRESIGNED_SIGNATURE` (a sentinel
@@ -61,7 +62,6 @@ function pick(row: object, select?: Record<string, boolean>): Record<string, unk
 export function createInMemoryAiStorage() {
   const objects: InMemoryStorageObject[] = [];
   const blobs = new Map<string, Buffer>();
-  const readAnyUsers = new Set<string>();
   let configured = true;
 
   const assertConfigured = () => {
@@ -162,9 +162,6 @@ export function createInMemoryAiStorage() {
         return objects.splice(index, 1)[0];
       }),
     },
-    user: {
-      count: jest.fn(async (args: { where: { id: string } }) => (readAnyUsers.has(args.where.id) ? 1 : 0)),
-    },
   };
 
   return {
@@ -205,20 +202,14 @@ export function createInMemoryAiStorage() {
 
       return row;
     },
-    /** Grant (or revoke) `storage:read_any` for `userId`. */
-    setReadAny(userId: string, granted: boolean) {
-      if (granted) readAnyUsers.add(userId);
-      else readAnyUsers.delete(userId);
-    },
     /** Switch the deployment between configured and unconfigured storage. */
     setConfigured(value: boolean) {
       configured = value;
     },
-    /** Forget every object, blob and grant; configured again. */
+    /** Forget every object and blob; configured again. */
     reset() {
       objects.length = 0;
       blobs.clear();
-      readAnyUsers.clear();
       configured = true;
     },
   };

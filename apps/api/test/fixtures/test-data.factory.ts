@@ -159,6 +159,26 @@ export const mockPermissions = {
     name: 'storage_config:write',
     description: 'Change, test and provision the object-storage configuration',
   },
+  // Object-storage object ACCESS (#516). Mirrored from `prisma/seed-data.ts`
+  // exactly: Admin holds all three; Contributor holds read + write; Viewer
+  // holds read only. `storage:delete_any` is Admin-only — a fixture that gave
+  // it to a viewer or contributor would make an integration test asserting
+  // either is refused pass for the wrong reason.
+  storageRead: {
+    id: randomUUID(),
+    name: 'storage:read',
+    description: 'Read object metadata, get download URLs',
+  },
+  storageWrite: {
+    id: randomUUID(),
+    name: 'storage:write',
+    description: 'Upload, update metadata',
+  },
+  storageDeleteAny: {
+    id: randomUUID(),
+    name: 'storage:delete_any',
+    description: 'Admin: delete any object',
+  },
   // AI platform (#423, #428, epic #419; #499), mirrored from
   // `prisma/seed-data.ts`: `ai_config:*` is Admin-only; `ai:use` is held by
   // Admin and Contributor but deliberately NOT Viewer (#499) — see
@@ -495,11 +515,19 @@ export const rolePermissionsMap = {
     mockPermissions.aiConfigRead,
     mockPermissions.aiConfigWrite,
     mockPermissions.aiUse,
+    // #516 — Admin holds all three object-ACCESS permissions, including
+    // `storage:delete_any` (see the comment on `mockPermissions` above).
+    mockPermissions.storageRead,
+    mockPermissions.storageWrite,
+    mockPermissions.storageDeleteAny,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
     mockPermissions.aiUse,
+    // #516 — read + write, mirroring `prisma/seed-data.ts`; never `delete_any`.
+    mockPermissions.storageRead,
+    mockPermissions.storageWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -507,7 +535,15 @@ export const rolePermissionsMap = {
   // asserting a viewer is refused an AI route pass for the wrong reason. A
   // test that needs an "everyday, allowed" AI caller uses `roleName:
   // 'contributor'` instead.
-  viewer: [mockPermissions.userSettingsRead, mockPermissions.userSettingsWrite],
+  //
+  // #516 — read only, mirroring `prisma/seed-data.ts`; never `storage:write`
+  // or `storage:delete_any`. A test that needs a caller who may write storage
+  // objects uses `roleName: 'contributor'` instead.
+  viewer: [
+    mockPermissions.userSettingsRead,
+    mockPermissions.userSettingsWrite,
+    mockPermissions.storageRead,
+  ],
 };
 
 // ============================================================================

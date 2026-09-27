@@ -2,8 +2,8 @@
  * DataTable — the layout surface: column visibility + density (issue #255).
  *
  * Drawn by `DataTable` itself, next to the filter bar and for exactly the same
- * reason (§7.4): the SHAPE of these controls is decided by the layout, not by
- * how rows are presented, and a renderer owning the menu's open state would
+ * reason: the SHAPE of these controls is decided by the layout, not by how
+ * rows are presented, and a renderer owning the menu's open state would
  * throw it away on every resize.
  *
  * | layout    | surface                                                        |
@@ -17,7 +17,7 @@
  * popover with no focus trap and 32px rows. MUI's `Dialog fullScreen` supplies
  * the trap, the Escape handling and the `aria-modal` semantics for free.
  *
- * Touch rules (§8.5) apply to every control here: ≥44px in both axes, and
+ * Touch rules apply to every control here: ≥44px in both axes, and
  * nothing is hidden with `opacity: 0` while staying hit-testable — the menu and
  * the sheet are mounted only while open, so an invisible-but-tappable control
  * cannot exist in the first place.

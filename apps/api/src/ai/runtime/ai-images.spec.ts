@@ -170,17 +170,6 @@ describe('AiService — images', () => {
       expect(h.runRows).toEqual([]);
     });
 
-    it('allows another user’s image to a holder of storage:read_any', async () => {
-      const { h, client } = setup();
-      const foreign = h.storage.addObject({ uploadedById: HARNESS_OTHER_USER });
-
-      h.storage.setReadAny(HARNESS_USER, true);
-
-      await expect(
-        client.editImage({ model: HARNESS_IMAGE_MODEL, prompt: 'x', imageStorageObjectIds: [foreign.id] }),
-      ).resolves.toMatchObject({ runId: expect.any(String) });
-    });
-
     it('refuses an unknown image with 404', async () => {
       const { client } = setup();
 
