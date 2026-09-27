@@ -649,18 +649,39 @@ fixed at boot from `GREPTIME_*` alone. An administrator can point the API at
 a different GreptimeDB, or rotate the reader/admin passwords, from
 `/admin/settings/telemetry`'s Connection section, with no restart.
 
-**One precedence rule, no per-field merge:**
+**One precedence rule, no per-field merge — the host mode decides who owns
+the whole connection:**
 
-1. a connection **stored** in the admin UI — the `telemetry_connection`
-   `system_settings` row (host, PG port, database, reader/admin usernames)
-   plus the two passwords in the encrypted credential store — wins **wholly**;
-2. otherwise the **`GREPTIME_*` deployment default** (§7's three accounts,
-   read through `config/configuration.ts`'s `greptime` block), when it names
-   a host;
-3. otherwise **none** — telemetry is unavailable.
+1. a connection is **stored** with a **custom** host (a literal an
+   administrator typed: GreptimeDB lives somewhere this deployment did not
+   put it) → the row is the connection, **wholly**: host, port, database,
+   both users, and the two passwords from the encrypted credential store.
+   Nothing is borrowed from the environment, field by field or otherwise.
+2. a connection is **stored** with an **automatic** host (`host: null`) —
+   "the GreptimeDB deployed with this application" → the **deployment** is
+   the connection, wholly: `GREPTIME_HOST` (else the compose service name),
+   `GREPTIME_PG_PORT`, `GREPTIME_DB`, and the `GREPTIME_READER_*`/
+   `GREPTIME_ADMIN_*` logins. The deployment provisioned that GreptimeDB's
+   users, so it is the only party that knows their passwords — an
+   administrator never supplies them. An automatic save stores only
+   `{ host: null }` and deletes any stored reader/admin passwords; a
+   connection test in automatic mode ignores submitted credentials
+   entirely. `source` still reads `stored` (a row exists, has a version,
+   "revert" applies) with `hostMode: 'auto'` and `deploymentManaged: true`.
+3. nothing is **stored** → the **`GREPTIME_*` deployment default** (§7's
+   three accounts, read through `config/configuration.ts`'s `greptime`
+   block), when it names a host. Also automatic and deployment-managed:
+   it is the same GreptimeDB rule 2 resolves to (`source: environment`).
+4. otherwise **none** — telemetry is unavailable.
 
-`GET /api/admin/telemetry/connection` reports which of the three (`source`:
-`stored`/`environment`/`none`) is in force. A per-field merge — host from the
+`GET /api/admin/telemetry/connection` reports `source` (`stored`/
+`environment`/`none`), `hostMode` (`auto`/`custom`), `deploymentManaged`
+(true for rules 2–3), `deployment` (the deployment's own GreptimeDB —
+`host`, `pgPort`, `database`, `readerUser`, `adminUser`,
+`readerConfigured`, `adminConfigured` — whatever is in force, so a form
+switching back to automatic can say what it will get), and `problem` (why a
+deployment-managed connection cannot be used, in administrator language, or
+null; always null for a custom host). A per-field merge — host from the
 form, password from the environment — was rejected: it is a connection
 nobody configured, and it cannot be explained on a status page.
 
@@ -689,8 +710,10 @@ not a namespace inside `global`, for the same reason the email settings have
 one (§3's `email` row): the generic `PUT /api/system-settings` must not be
 able to clobber or silently carry it forward, it must stay out of
 `GET /api/system-settings`, and it needs an `If-Match` version counter that a
-concurrent save of an unrelated setting cannot conflict with. The row itself
-carries no password field — a compile-time check
+concurrent save of an unrelated setting cannot conflict with. An automatic
+save stores exactly `{ host: null }` — no port, database or usernames; a
+custom save stores the whole row (host, port, database, both usernames). The
+row itself carries no password field — a compile-time check
 (`TELEMETRY_CONNECTION_CARRIES_NO_SECRET`) fails the build if one is ever
 added — the two passwords live only in the encrypted credential store, under
 purpose `telemetry_greptime`, names `reader`/`admin`
@@ -725,33 +748,40 @@ rotated password, take effect with no process restart.
 
 | Route | Permission | Notes |
 |---|---|---|
-| `GET /api/admin/telemetry/connection` | `telemetry:read` | Non-secret: `source`, fields, whether each password is present with a masked hint for a stored one |
+| `GET /api/admin/telemetry/connection` | `telemetry:read` | Non-secret: `source`, `hostMode`, `deploymentManaged`, `deployment`, `problem`, fields, whether each password is present with a masked hint for a stored custom one |
 | `PUT /api/admin/telemetry/connection` | `telemetry:write` | Replaces the stored connection wholly; optional `If-Match` → 409 on conflict |
 | `DELETE /api/admin/telemetry/connection` | `telemetry:write` | Deletes the row and both stored passwords — reverts to the deployment default (or none) |
-| `POST /api/admin/telemetry/connection/test` | `telemetry:write` | Always 200; tests the connection **in the request body**, not necessarily the stored one |
+| `POST /api/admin/telemetry/connection/test` | `telemetry:write` | Always 200; tests the connection **in the request body**, not necessarily the stored one; response adds `hostMode` |
 
-**Save semantics.** `readerPassword`/`adminPassword` are write-only: omitted
-or blank keeps the stored password; a save with no stored password to keep
-(nothing stored yet, blank sent) is a 400 — the deployment default's
-password is never copied into the store on save, so the two sources never
-silently merge. `adminUser: null` removes the admin login and its stored
-password (reads still work; retention cannot be applied). The host is
-optional: omitted, null or blank means **automatic** — stored as null and
-resolved at use to the deployment host (`GREPTIME_HOST`, else the compose
-service `greptimedb`), reported as `effectiveHost` with `hostMode: 'auto'`;
-the UI leaves the field empty and names that host, so a value is typed only
-for an external GreptimeDB. Every successful
-save or reset re-applies the export gate (a store may have just become
-reachable, or gone away) and enqueues `telemetry.retention.apply` (the admin
-login may have just become usable), exactly as a policy save does (§3). Each
-is audited — field **names** and which passwords were set/cleared, never a
-value — as `telemetry:connection_update` (PUT) or
-`telemetry:connection_reset` (DELETE).
+**Save semantics.** The host decides the shape of the save. **Custom** — a
+literal `host` — is saved as before: `readerUser`/`adminUser` (or null) are
+required, `readerPassword`/`adminPassword` are write-only (omitted or blank
+keeps the stored password; a save with none stored and none sent is a 400 —
+the deployment's password is never copied into the store), and
+`adminUser: null` removes the admin login and its stored password. **
+Automatic** — `host` omitted, null or blank — stores only `{ host: null }`;
+every other field of the body is accepted (older clients still send them)
+and **ignored**, and any stored reader/admin password is deleted. Nothing is
+required, and there is nothing left for a form to submit. Either way the
+response reports `effectiveHost` and `hostMode: 'auto' | 'custom'`; the UI
+leaves the host field empty and shows the deployment's host as a summary
+instead of credential fields, so a value is typed only for an external
+GreptimeDB. Every successful save or reset re-applies the export gate (a
+store may have just become reachable, or gone away) and enqueues
+`telemetry.retention.apply` (the admin login may have just become usable),
+exactly as a policy save does (§3). Each is audited — field **names** and
+which passwords were set/cleared, never a value — as
+`telemetry:connection_update` (PUT) or `telemetry:connection_reset` (DELETE).
 
 **Test connection.** `POST .../connection/test` runs the reader's
 `SELECT version()` and, when `adminUser` is set, the admin's
 `SHOW CREATE DATABASE <database>`, each on a throwaway `pg` client (never a
-pooled one), bounded to 5 s to connect and 5 s to answer. It always answers
+pooled one), bounded to 5 s to connect and 5 s to answer. A blank/absent
+host in the test body is **automatic**: the deployment's own GreptimeDB is
+probed with the deployment's port, database, logins and passwords — any
+submitted credentials are **ignored**, and a login the deployment does not
+provide shows up in that probe's `error`. For a custom host the body is
+probed as sent. It always answers
 200 with a per-role `{ success, ... }` (and `admin.skipped` when no admin
 user is given), so the caller reads the outcome from the body, not the HTTP
 status — the same shape `TelemetryConnectionTestResultDto` documents. A
@@ -977,3 +1007,11 @@ without it (`:?` compose interpolation).
   (`effectiveGroups`); `stack-agent`, the sidecar holding the Docker socket,
   lets an administrator (re)deploy GreptimeDB and the collector from
   `/admin/settings/telemetry` with no shell step.
+- #570: the host mode, not "stored vs. environment", decides who owns the
+  whole connection. A stored automatic host (`{ host: null }`) now takes
+  port, database, logins and passwords from the deployment, wholly — a
+  stored custom host's own credentials are never borrowed for it. `GET`
+  adds `deploymentManaged`, `deployment` and `problem`; the connection test
+  adds `hostMode` and ignores submitted credentials in automatic mode. The
+  Connection form hides port/database/login fields for a blank host and
+  shows a "Managed by the deployment" summary instead.

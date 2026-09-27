@@ -10,10 +10,12 @@ import { z } from 'zod';
 // WHAT IS STORED, AND WHERE
 // -----------------------------------------------------------------------------
 //
-//   system_settings row 'telemetry_connection'   host (null = automatic), pgPort, database,
-//                                                readerUser, adminUser
-//   credentials (telemetry_greptime, reader)     the reader's password
-//   credentials (telemetry_greptime, admin)      the admin's password
+//   system_settings row 'telemetry_connection'   custom:    host, pgPort, database,
+//                                                           readerUser, adminUser
+//                                                automatic: { host: null } only — the
+//                                                           deployment supplies the rest (#570)
+//   credentials (telemetry_greptime, reader)     the reader's password (custom host only)
+//   credentials (telemetry_greptime, admin)      the admin's password  (custom host only)
 //
 // The two passwords live in the encrypted credential store and nowhere else;
 // the row carries no field able to hold one (compile-time proof below).
@@ -125,14 +127,13 @@ export const telemetryDatabaseSchema = z
 
 export const telemetryUserSchema = z.string().trim().min(1).max(128);
 
-/** The stored row's `value`. Non-secret by construction. */
-export const telemetryConnectionValueSchema = z.object({
-  /**
-   * Null: AUTOMATIC — the deployment host (`telemetryDeploymentHost`),
-   * resolved at every refresh and never stored as a literal (issue #562). A
-   * string is a custom override; every row saved before #562 has one.
-   */
-  host: telemetryHostSchema.nullable(),
+/**
+ * A stored CUSTOM connection: GreptimeDB at a host an administrator chose.
+ * The row (plus the credential store's two passwords) is the connection,
+ * wholly. Every row saved before #562 has this shape.
+ */
+export const telemetryCustomConnectionValueSchema = z.object({
+  host: telemetryHostSchema,
   pgPort: telemetryPgPortSchema,
   database: telemetryDatabaseSchema,
   readerUser: telemetryUserSchema,
@@ -140,6 +141,25 @@ export const telemetryConnectionValueSchema = z.object({
   adminUser: telemetryUserSchema.nullable(),
 });
 
+/**
+ * A stored AUTOMATIC connection: "the GreptimeDB deployed with this
+ * application" (issues #562, #570). A marker only — the deployment supplies
+ * the host, port, database, logins and passwords, resolved at every refresh.
+ * Rows saved between #562 and #570 also carry port/database/users; those are
+ * stripped on parse and never used.
+ */
+export const telemetryAutomaticConnectionValueSchema = z.object({
+  host: z.null(),
+});
+
+/** The stored row's `value`. Non-secret by construction. */
+export const telemetryConnectionValueSchema = z.union([
+  telemetryCustomConnectionValueSchema,
+  telemetryAutomaticConnectionValueSchema,
+]);
+
+export type TelemetryCustomConnectionValue = z.infer<typeof telemetryCustomConnectionValueSchema>;
+export type TelemetryAutomaticConnectionValue = z.infer<typeof telemetryAutomaticConnectionValueSchema>;
 export type TelemetryConnectionValue = z.infer<typeof telemetryConnectionValueSchema>;
 
 // -----------------------------------------------------------------------------
@@ -167,7 +187,10 @@ type TelemetryConnectionSecretFieldNames =
   | 'url';
 
 export type TelemetryConnectionCarriesNoSecret =
-  Extract<keyof TelemetryConnectionValue, TelemetryConnectionSecretFieldNames> extends never
+  Extract<
+    keyof TelemetryCustomConnectionValue | keyof TelemetryAutomaticConnectionValue,
+    TelemetryConnectionSecretFieldNames
+  > extends never
     ? true
     : never;
 

@@ -267,21 +267,22 @@ describe('GreptimeClient', () => {
 
   describe('connect failure reason (issue #564)', () => {
     /**
-     * A client whose connection is the environment default (`GREPTIME_HOST`
-     * set: a CUSTOM host), or — `automatic` — one whose credentials say the
-     * host is the automatic deployment host.
+     * A client whose connection is forced to the requested host mode.
+     *
+     * Since #570 the environment default (`GREPTIME_HOST` set, nothing
+     * stored) resolves as AUTOMATIC, not CUSTOM — so `resolveCredentials` is
+     * always overridden here to pin `automaticHost` to the mode under test,
+     * rather than relying on the environment's own default.
      */
     async function primed({ automatic = false } = {}): Promise<TestableClient> {
       const connection = configService(CONFIGURED);
-      if (automatic) {
-        const original = connection.resolveCredentials.bind(connection);
-        jest
-          .spyOn(connection, 'resolveCredentials')
-          .mockImplementation(async (role) => {
-            const credentials = await original(role);
-            return credentials && { ...credentials, automaticHost: true };
-          });
-      }
+      const original = connection.resolveCredentials.bind(connection);
+      jest
+        .spyOn(connection, 'resolveCredentials')
+        .mockImplementation(async (role) => {
+          const credentials = await original(role);
+          return credentials && { ...credentials, automaticHost: automatic };
+        });
       const client = new TestableClient(connection);
       client.client.query.mockResolvedValue({ fields: [], rows: [] });
       // Build the pool once so createdPools[0] exists to reconfigure `connect`.
@@ -405,7 +406,37 @@ describe('GreptimeClient', () => {
     });
 
     it('reports the host-not-found message on a DNS-coded connect failure, and never throws', async () => {
+      // The environment default (GREPTIME_HOST set, nothing stored) resolves
+      // as AUTOMATIC since #570, so a DNS-coded failure names the built-in
+      // host and points at "Deploy GreptimeDB", not the custom-host text.
       const client = new TestableClient(configService(CONFIGURED));
+      client.client.query.mockResolvedValue({ fields: [], rows: [] });
+      await client.queryReader('SELECT 1', { timeoutMs: 1000 });
+      client.hostResolution = jest.fn(async () => 'should not be called');
+      client.createdPools[0].connect.mockRejectedValue(
+        Object.assign(new Error('getaddrinfo ENOTFOUND greptimedb'), { code: 'ENOTFOUND' }),
+      );
+
+      const result = await client.ping();
+
+      expect(result.reachable).toBe(false);
+      expect('error' in result && result.error).toContain('greptimedb');
+      expect('error' in result && result.error).toContain('does not exist on its network');
+      expect('error' in result && result.error).toContain('Deploy GreptimeDB');
+      expect('error' in result && result.error).not.toMatch(/compose|appctl/i);
+      expect(client.hostsAsked).toEqual([]);
+    });
+
+    it('reports the custom-host message on a DNS-coded connect failure for a forced-custom connection', async () => {
+      const connection = configService(CONFIGURED);
+      const original = connection.resolveCredentials.bind(connection);
+      jest
+        .spyOn(connection, 'resolveCredentials')
+        .mockImplementation(async (role) => {
+          const credentials = await original(role);
+          return credentials && { ...credentials, automaticHost: false };
+        });
+      const client = new TestableClient(connection);
       client.client.query.mockResolvedValue({ fields: [], rows: [] });
       await client.queryReader('SELECT 1', { timeoutMs: 1000 });
       client.hostResolution = jest.fn(async () => 'should not be called');

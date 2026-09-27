@@ -14,11 +14,13 @@ import type {
   UpdateTelemetryConnectionInput,
 } from './dto/telemetry-connection.dto';
 import {
+  TELEMETRY_CONNECTION_ROLES,
   TELEMETRY_CONNECTION_SETTINGS_KEY,
   TELEMETRY_GREPTIME_CREDENTIAL_LABELS,
   TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE,
   type TelemetryConnectionRole,
   type TelemetryConnectionValue,
+  type TelemetryCustomConnectionValue,
 } from './telemetry-connection.schema';
 import { TelemetryConnectionService, type TelemetryConnectionState } from './telemetry-connection.service';
 
@@ -32,10 +34,13 @@ import { TelemetryConnectionService, type TelemetryConnectionState } from './tel
 //
 //   1. `If-Match` refused BEFORE anything is written (409) — against the
 //      `telemetry_connection` row's own version;
-//   2. a missing password refused (400) — "blank preserves" only works when
-//      something is stored to preserve;
+//   2. a CUSTOM host: a missing password refused (400) — "blank preserves"
+//      only works when something is stored to preserve; an AUTOMATIC host
+//      (issue #570): nothing is required, every submitted port, database,
+//      user and password is ignored, and both stored passwords are deleted —
+//      the deployment supplies that connection wholly;
 //   3. the passwords first (so the row never names a login whose password is
-//      not stored yet), then the row;
+//      not stored yet), then the row (`{ host: null }` when automatic);
 //   4. the connection snapshot refreshed on THIS instance before anything else
 //      (every other instance follows within `TELEMETRY_CONNECTION_REFRESH_MS`),
 //      which is also what makes `GreptimeClient` rebuild its pools;
@@ -73,7 +78,11 @@ export class TelemetryConnectionAdminService {
     return toResponse(await this.connection.refresh(), this.connection);
   }
 
-  /** `PUT` — full replace of the stored connection. See the header for the order. */
+  /**
+   * `PUT` — full replace of the stored connection. See the header for the
+   * order. An automatic host stores the marker only and clears both stored
+   * passwords; a custom host stores the row and its passwords.
+   */
   async replace(
     input: UpdateTelemetryConnectionInput,
     userId: string,
@@ -84,47 +93,68 @@ export class TelemetryConnectionAdminService {
 
     // Named locals, so the passwords never travel with the rest of the body.
     const { readerPassword, adminPassword, ...fields } = input;
-    const next: TelemetryConnectionValue = {
-      host: fields.host,
-      pgPort: fields.pgPort,
-      database: fields.database,
-      readerUser: fields.readerUser,
-      adminUser: fields.adminUser,
-    };
-
-    const readerSupplied = !isBlankSecret(readerPassword);
-    const adminSupplied = next.adminUser !== null && !isBlankSecret(adminPassword);
-
-    if (!readerSupplied && !before.credentials.reader) {
-      throw new BadRequestException(
-        'readerPassword is required: no GreptimeDB reader password is stored yet. ' +
-          '(A blank password keeps the stored one; the deployment default\'s password is never copied.)',
-      );
-    }
-
-    if (next.adminUser !== null && !adminSupplied && !before.credentials.admin) {
-      throw new BadRequestException(
-        'adminPassword is required when adminUser is set: no GreptimeDB admin password is stored yet. ' +
-          'Send adminUser as null for no admin login.',
-      );
-    }
-
     const change: Record<TelemetryConnectionRole, CredentialChange> = {
       reader: 'unchanged',
       admin: 'unchanged',
     };
+    let next: TelemetryConnectionValue;
+    let ignoredFields: string[] = [];
 
-    if (readerSupplied) {
-      await this.setPassword('reader', readerPassword as string, userId);
-      change.reader = 'set';
-    }
+    if (fields.host === null) {
+      // AUTOMATIC (issue #570): the deployment supplies the whole connection.
+      // Store the marker only, ignore whatever else was sent (older clients
+      // send the full form), and delete any stored password — it would never
+      // be used, and a stale secret must not linger for a later custom host.
+      next = { host: null };
+      ignoredFields = submittedAutomaticFieldNames(input);
 
-    if (adminSupplied) {
-      await this.setPassword('admin', adminPassword as string, userId);
-      change.admin = 'set';
-    } else if (next.adminUser === null && before.credentials.admin) {
-      await this.credentials.deleteSecret(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'admin');
-      change.admin = 'cleared';
+      for (const role of TELEMETRY_CONNECTION_ROLES) {
+        if (before.credentials[role]) {
+          await this.credentials.deleteSecret(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, role);
+          change[role] = 'cleared';
+        }
+      }
+    } else {
+      // CUSTOM: the row and the credential store are the connection, wholly.
+      // The schema guarantees both users were sent for a custom host.
+      const custom: TelemetryCustomConnectionValue = {
+        host: fields.host,
+        pgPort: fields.pgPort,
+        database: fields.database,
+        readerUser: fields.readerUser as string,
+        adminUser: fields.adminUser ?? null,
+      };
+      next = custom;
+
+      const readerSupplied = !isBlankSecret(readerPassword);
+      const adminSupplied = custom.adminUser !== null && !isBlankSecret(adminPassword);
+
+      if (!readerSupplied && !before.credentials.reader) {
+        throw new BadRequestException(
+          'readerPassword is required: no GreptimeDB reader password is stored yet. ' +
+            '(A blank password keeps the stored one; the deployment\'s password is never copied.)',
+        );
+      }
+
+      if (custom.adminUser !== null && !adminSupplied && !before.credentials.admin) {
+        throw new BadRequestException(
+          'adminPassword is required when adminUser is set: no GreptimeDB admin password is stored yet. ' +
+            'Send adminUser as null for no admin login.',
+        );
+      }
+
+      if (readerSupplied) {
+        await this.setPassword('reader', readerPassword as string, userId);
+        change.reader = 'set';
+      }
+
+      if (adminSupplied) {
+        await this.setPassword('admin', adminPassword as string, userId);
+        change.admin = 'set';
+      } else if (custom.adminUser === null && before.credentials.admin) {
+        await this.credentials.deleteSecret(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'admin');
+        change.admin = 'cleared';
+      }
     }
 
     await this.prisma.systemSettings.upsert({
@@ -145,15 +175,20 @@ export class TelemetryConnectionAdminService {
     const after = await this.connection.refresh();
     const changedFields = diffConnectionFieldNames(before.stored, next);
 
+    const hostMode = next.host === null ? 'auto' : 'custom';
+
     await this.audit(userId, TELEMETRY_CONNECTION_UPDATE_AUDIT_ACTION, {
       previousSource: before.snapshot.source,
+      hostMode,
       changedFields,
       credentials: change,
+      // Names only: what an automatic save received and did not use.
+      ...(ignoredFields.length > 0 ? { ignoredFields } : {}),
     });
 
     this.logger.log(
       `Telemetry connection saved by user ${userId} ` +
-        `(previousSource=${before.snapshot.source} changed=${changedFields.join(',') || '(none)'} ` +
+        `(previousSource=${before.snapshot.source} hostMode=${hostMode} changed=${changedFields.join(',') || '(none)'} ` +
         `readerPassword=${change.reader} adminPassword=${change.admin})`,
     );
 
@@ -254,22 +289,44 @@ export function diffConnectionFieldNames(
   before: TelemetryConnectionValue | null,
   after: TelemetryConnectionValue,
 ): string[] {
-  if (!before) return [...CONNECTION_FIELDS];
+  if (!before) return after.host === null ? ['host'] : [...CONNECTION_FIELDS];
 
-  return CONNECTION_FIELDS.filter((field) => before[field] !== after[field]);
+  // An automatic value stores no field but the host: read the others as absent.
+  const field = (value: TelemetryConnectionValue, name: (typeof CONNECTION_FIELDS)[number]) =>
+    value.host === null && name !== 'host' ? undefined : (value as Record<string, unknown>)[name];
+
+  return CONNECTION_FIELDS.filter((name) => field(before, name) !== field(after, name));
+}
+
+/** The NAMES of the fields an automatic save was sent and ignores. Never a value. */
+function submittedAutomaticFieldNames(input: UpdateTelemetryConnectionInput): string[] {
+  const ignored: string[] = [];
+
+  if (input.readerUser !== undefined) ignored.push('readerUser');
+  if (!isBlankSecret(input.readerPassword)) ignored.push('readerPassword');
+  if (input.adminUser !== undefined && input.adminUser !== null) ignored.push('adminUser');
+  if (!isBlankSecret(input.adminPassword)) ignored.push('adminPassword');
+
+  return ignored;
 }
 
 /** The admin view of a state. Non-secret by construction: it never sees a password. */
 export function toResponse(
   state: TelemetryConnectionState,
-  connection: Pick<TelemetryConnectionService, 'isConfigured' | 'isAdminConfigured' | 'deploymentHost'>,
+  connection: Pick<
+    TelemetryConnectionService,
+    'isConfigured' | 'isAdminConfigured' | 'deploymentHost' | 'describeDeployment' | 'configurationProblem'
+  >,
 ): TelemetryConnectionResponse {
   const { snapshot } = state;
 
   const status = (role: TelemetryConnectionRole) => {
     const login = role === 'reader' ? snapshot.reader : snapshot.admin;
 
-    if (snapshot.source === 'stored') {
+    // Only a CUSTOM stored connection uses the credential store. A stored
+    // automatic one uses the deployment's logins (issue #570): describing a
+    // stale stored password there would claim a credential that is not used.
+    if (snapshot.source === 'stored' && !snapshot.deploymentManaged) {
       // A stored admin password with no admin user cannot exist (a save with
       // adminUser null deletes it), but say "not configured" if it ever does.
       const info: CredentialInfo | null = login ? state.credentials[role] : null;
@@ -296,6 +353,9 @@ export function toResponse(
     host: snapshot.hostMode === 'auto' ? null : snapshot.host,
     effectiveHost: snapshot.source === 'none' ? connection.deploymentHost : snapshot.host,
     hostMode: snapshot.hostMode,
+    deploymentManaged: snapshot.deploymentManaged,
+    deployment: connection.describeDeployment(),
+    problem: connection.configurationProblem('admin'),
     pgPort: snapshot.pgPort,
     database: snapshot.database,
     readerUser: snapshot.reader.user,

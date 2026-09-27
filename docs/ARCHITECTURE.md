@@ -367,7 +367,7 @@ Two indexes exist only in hand-written migration SQL because Prisma cannot expre
 | `global` | The namespaced system settings document below | Per-namespace admin pages and `/api/system-settings` |
 | `email` | Email transport (`ses` or `smtp`) and sender settings; the SMTP password is in `credentials` | `/admin/settings/email` |
 | `webPush` | `{ enabled, publicKey, subject }`; the private key is in `credentials` | `/admin/settings/push` |
-| `telemetry_connection` | Stored GreptimeDB connection (host, PG port, database, reader/admin usernames); its own version counter; not reachable through `/api/system-settings`. Absent row = nothing stored, so the `GREPTIME_*` deployment default applies. See [specs/telemetry.md §8](specs/telemetry.md#8-runtime-connection). | `/admin/settings/telemetry` (Connection section) |
+| `telemetry_connection` | Stored GreptimeDB connection; own version counter; not reachable through `/api/system-settings`. A custom (literal) host stores the whole row (host, PG port, database, reader/admin usernames) and its own credentials wholly. An automatic host (`{ host: null }`), or an absent row, means the `GREPTIME_*` deployment default applies wholly — port, database, logins and passwords included. See [specs/telemetry.md §8](specs/telemetry.md#8-runtime-connection). | `/admin/settings/telemetry` (Connection section) |
 
 Namespaces of the `global` document (`systemSettingsSchema`):
 
