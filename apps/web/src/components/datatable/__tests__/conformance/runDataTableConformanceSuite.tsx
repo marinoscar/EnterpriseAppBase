@@ -40,9 +40,9 @@
  * });
  * ```
  *
- * See docs/specs/datatable.md §17 for the accessibility contract and
- * keyboard model this suite enforces, and for the full "what a migrating
- * page still needs to test" contract.
+ * See below for the accessibility contract and keyboard model this suite
+ * enforces, and for the full "what a migrating page still needs to test"
+ * contract.
  *
  * ## What it covers
  *
@@ -53,7 +53,7 @@
  * #243 "invisible but tappable" guard; "no horizontal document scroll at
  * 360px"; automated axe checks in both renderers and both themes; the row/list
  * semantics, live-region announcements, and focus-management rules from the
- * accessibility contract (§17); and that DataGrid's own keyboard cell
+ * accessibility contract; and that DataGrid's own keyboard cell
  * navigation survives a column whose `render` produces interactive content
  * (chips, links, buttons).
  */
@@ -688,7 +688,7 @@ export function runDataTableConformanceSuite<Row = ConformanceRow>(
         selection: { selectedIds: new Set<string>(), onSelectionChange: vi.fn() },
       });
 
-      // The three containment layers named in §6 of the spec.
+      // The three containment layers of the horizontal-scroll containment rule.
       const outer = wrapper();
       expect(getComputedStyle(outer).maxWidth).toBe('100%');
       expect(getComputedStyle(outer).minWidth).toBe('0px');

@@ -13,7 +13,7 @@
  *    scalar behind the chip. Serializing a ReactNode is either impossible or
  *    (worse) accidentally lossy — `[object Object]`, or the chip's label
  *    without its meaning. This is the whole reason `render` and `value` are two
- *    fields in the contract (§4).
+ *    fields in the column contract.
  * 2. **Only what is on screen.** The columns are the ones the user currently has
  *    visible (#255), minus any column declaring `exportable: false`.
  * 3. **Only what the API already returned.** The export never re-queries with
