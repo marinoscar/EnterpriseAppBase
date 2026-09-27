@@ -191,6 +191,7 @@ describe('GreptimeClient', () => {
         constructor: TelemetryQueryFailedError,
         message: 'Table not found: nope',
         code: '42P01',
+        origin: 'server',
       });
       expect(client.client.release).toHaveBeenCalledWith(undefined);
     });
@@ -199,9 +200,10 @@ describe('GreptimeClient', () => {
       const client = new TestableClient(configService(CONFIGURED));
       client.client.query.mockRejectedValue(new Error('Connection terminated unexpectedly'));
 
-      await expect(client.queryReader('SELECT 1', { timeoutMs: 1000 })).rejects.toBeInstanceOf(
-        TelemetryQueryFailedError,
-      );
+      await expect(client.queryReader('SELECT 1', { timeoutMs: 1000 })).rejects.toMatchObject({
+        constructor: TelemetryQueryFailedError,
+        origin: 'connection',
+      });
       expect(client.client.release).toHaveBeenCalledWith(true);
     });
 
@@ -213,6 +215,7 @@ describe('GreptimeClient', () => {
       const error = await client.queryReader('SELECT 1', { timeoutMs: 1000 }).catch((e: Error) => e);
 
       expect(error).toBeInstanceOf(TelemetryQueryFailedError);
+      expect((error as TelemetryQueryFailedError).origin).toBe('connection');
       expect((error as Error).message).toContain('ECONNREFUSED');
       expect((error as Error).message).not.toContain('reader-pw');
     });

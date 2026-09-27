@@ -299,9 +299,14 @@ export class GreptimeClient implements OnModuleDestroy {
 
       // A server-side error (it has a `severity`) leaves the connection
       // usable; anything else (a reset socket) does not.
-      client.release(isServerError(error) ? undefined : true);
+      const fromServer = isServerError(error);
+      client.release(fromServer ? undefined : true);
 
-      throw new TelemetryQueryFailedError(describeError(error), sqlState(error));
+      throw new TelemetryQueryFailedError(
+        describeError(error),
+        sqlState(error),
+        fromServer ? 'server' : 'connection',
+      );
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -311,7 +316,11 @@ export class GreptimeClient implements OnModuleDestroy {
     try {
       return await pool.connect();
     } catch (error) {
-      throw new TelemetryQueryFailedError(`Could not connect to GreptimeDB: ${describeError(error)}`, sqlState(error));
+      throw new TelemetryQueryFailedError(
+        `Could not connect to GreptimeDB: ${describeError(error)}`,
+        sqlState(error),
+        'connection',
+      );
     }
   }
 

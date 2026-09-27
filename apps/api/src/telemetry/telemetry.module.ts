@@ -2,11 +2,15 @@ import { Module } from '@nestjs/common';
 
 import { JobsModule } from '../jobs/jobs.module';
 import { SettingsModule } from '../settings/settings.module';
+import { TelemetryExportService } from './export/telemetry-export.service';
 import { GreptimeClient } from './greptime/greptime.client';
 import { TelemetryRetentionHandler } from './handlers/telemetry-retention.handler';
+import { TelemetryQueryService } from './query/telemetry-query.service';
+import { TelemetrySchemaService } from './query/telemetry-schema.service';
 import { TelemetryRetentionTask } from './tasks/telemetry-retention.task';
 import { TelemetryAdminController } from './telemetry-admin.controller';
 import { TelemetryConfigController } from './telemetry-config.controller';
+import { TelemetryExplorerController } from './telemetry-explorer.controller';
 import { TelemetrySettingsService } from './telemetry-settings.service';
 import { TelemetryStatusService } from './telemetry-status.service';
 
@@ -18,28 +22,33 @@ import { TelemetryStatusService } from './telemetry-status.service';
 // export gate they drive), the GreptimeDB client, the store's status, and the
 // server-only `telemetry.retention.apply` job with its enqueue-only cron.
 //
-// EXTENSION POINTS for the stories that follow:
-//   - #535 (explorer query/export): add a `TelemetryQueryService` here that
-//     validates a single read-only statement, wraps it with the row cap from
-//     `TelemetrySettingsService.getPolicy().query`, and runs it through
-//     `GreptimeClient.queryReader(sql, { timeoutMs })`; its controller is gated
-//     on `telemetry:query`.
-//   - #536 (assistant): tools that call the same query service, so the
-//     assistant is held to exactly the explorer's guard and bounds.
+// The explorer (#535): `TelemetryQueryService` (the one entry point for
+// caller-supplied SQL: guard, row cap, timeout, audit), `TelemetrySchemaService`
+// (tables and columns) and `TelemetryExportService` (csv/ndjson/xlsx/parquet),
+// behind `TelemetryExplorerController` on `telemetry:query`.
 //
-// `GreptimeClient` and `TelemetrySettingsService` are exported for them.
+// EXTENSION POINT: #536 (assistant) — tools call `TelemetryQueryService.run`
+// with `source: 'assistant'`, so the assistant is held to exactly the
+// explorer's guard and bounds, and `TelemetrySchemaService` to list and
+// describe tables.
+//
+// `GreptimeClient`, `TelemetrySettingsService` and the two query services are
+// exported for it.
 // =============================================================================
 
 @Module({
   imports: [JobsModule, SettingsModule],
-  controllers: [TelemetryAdminController, TelemetryConfigController],
+  controllers: [TelemetryAdminController, TelemetryConfigController, TelemetryExplorerController],
   providers: [
     GreptimeClient,
     TelemetrySettingsService,
     TelemetryStatusService,
     TelemetryRetentionHandler,
     TelemetryRetentionTask,
+    TelemetryQueryService,
+    TelemetrySchemaService,
+    TelemetryExportService,
   ],
-  exports: [GreptimeClient, TelemetrySettingsService],
+  exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })
 export class TelemetryModule {}
