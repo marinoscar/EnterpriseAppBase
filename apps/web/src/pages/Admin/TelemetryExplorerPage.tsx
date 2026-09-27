@@ -17,7 +17,7 @@
  * the schema in a drawer and the assistant full-screen. `sm` (600px) is the
  * only breakpoint, per the settings UI spec.
  */
-import { Suspense, lazy, useCallback, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import {
   Alert,
@@ -48,7 +48,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import CloseIcon from '@mui/icons-material/Close';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useTelemetryAssistantAvailable } from '../../hooks/useTelemetryAssistantAvailable';
 import {
@@ -73,6 +73,7 @@ import { AssistantPanel } from '../../components/telemetry/AssistantPanel';
 import { ASSISTANT_WIDTH, AssistantContainer } from '../../components/telemetry/AssistantContainer';
 import { STARTER_QUERIES, traceQuery } from '../../components/telemetry/starterQueries';
 import { pushQueryHistory, readQueryHistory } from '../../components/telemetry/queryHistory';
+import { EXPLORER_SQL_PARAM, readExplorerHandoff } from '../../components/telemetry/explorerHandoff';
 
 // The editor is its own chunk: CodeMirror is by far the heaviest thing here.
 const SqlEditor = lazy(() => import('../../components/telemetry/SqlEditor'));
@@ -139,7 +140,15 @@ export default function TelemetryExplorerPage() {
   const schema = useTelemetrySchema();
   const query = useTelemetryQuery();
 
-  const [sql, setSql] = useState<string>(STARTER_QUERIES[0].sql);
+  // A statement handed over by the Telemetry Dashboard (#579) — `state.sql`,
+  // or `?sql=` from a plain link. Read ONCE: it seeds the editor and is never
+  // run; the reader reviews it and presses Run.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [handoff] = useState(() => readExplorerHandoff(location.state, new URLSearchParams(location.search)));
+  const [handoffNotice, setHandoffNotice] = useState(handoff !== null);
+
+  const [sql, setSql] = useState<string>(() => handoff ?? STARTER_QUERIES[0].sql);
   const [history, setHistory] = useState<string[]>(() => readQueryHistory());
   const [schemaOpen, setSchemaOpen] = useState(true);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
@@ -157,6 +166,19 @@ export default function TelemetryExplorerPage() {
   const modelCaption = useTelemetryAssistantModel(
     assistantAvailable && hasPermission('telemetry:read'),
   );
+
+  // Drop the handoff from the URL and the history entry (replace), so a
+  // reload or a shared link does not carry it again. Once, on mount.
+  const initialLocation = useRef(location);
+  useEffect(() => {
+    const { pathname, search, hash, state } = initialLocation.current;
+    const params = new URLSearchParams(search);
+    const hasState = typeof state === 'object' && state !== null && 'sql' in state;
+    if (!params.has(EXPLORER_SQL_PARAM) && !hasState) return;
+    params.delete(EXPLORER_SQL_PARAM);
+    const rest = params.toString();
+    navigate({ pathname, search: rest ? `?${rest}` : '', hash }, { replace: true, state: null });
+  }, [navigate]);
 
   const { run } = query;
   const runSql = useCallback(
@@ -376,6 +398,17 @@ export default function TelemetryExplorerPage() {
             </MenuItem>
           ))}
         </Menu>
+
+        {handoffNotice && (
+          <Alert
+            severity="info"
+            data-testid="handoff-notice"
+            sx={{ mb: 2 }}
+            onClose={() => setHandoffNotice(false)}
+          >
+            Query loaded from the Telemetry Dashboard. Review it and press Run.
+          </Alert>
+        )}
 
         {exportError && (
           <ErrorAlert error={exportError} testId="export-error" onClose={() => setExportError(null)} />
