@@ -12,7 +12,8 @@ import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 
-import { UPLOADS_KEY_PREFIX } from '../storage-key-prefixes';
+import { AVATARS_KEY_PREFIX, UPLOADS_KEY_PREFIX } from '../storage-key-prefixes';
+import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
@@ -479,10 +480,28 @@ export class ObjectsService {
   }
 
   /**
-   * Delete object from storage and database
+   * Delete object from storage and database.
+   *
+   * By default only the owner may delete (the same ownership check every other
+   * method applies). A caller holding `storage:delete_any` passes
+   * `canDeleteAny: true`, which lifts the ownership check for every object
+   * EXCEPT another user's profile image: an avatar row is referenced by that
+   * user's `profile.imageObjectId`, and deleting it here would leave the
+   * setting pointing at nothing. Avatars are removed through
+   * `DELETE /api/user-settings/profile-image` by their owner, which clears the
+   * reference in the same operation.
+   *
+   * When the actor is not the owner, the audit event records the owner's id
+   * (`ownerUserId`) so the trail says whose object was removed.
    */
-  async delete(id: string, userId: string): Promise<void> {
-    const object = await this.getObjectWithAuthCheck(id, userId);
+  async delete(
+    id: string,
+    userId: string,
+    options: { canDeleteAny?: boolean } = {},
+  ): Promise<void> {
+    const object = options.canDeleteAny
+      ? await this.getObjectForDeleteAny(id, userId)
+      : await this.getObjectWithAuthCheck(id, userId);
 
     this.logger.log(`Deleting object ${id} from storage and database`);
 
@@ -499,6 +518,9 @@ export class ObjectsService {
       name: object.name,
       size: object.size.toString(),
       mimeType: object.mimeType,
+      ...(object.uploadedById !== userId
+        ? { ownerUserId: object.uploadedById }
+        : {}),
     });
 
     this.logger.log(`Object deleted: ${id}`);
@@ -560,6 +582,49 @@ export class ObjectsService {
     }
 
     return object;
+  }
+
+  /**
+   * Load an object for a `storage:delete_any` delete: no ownership check,
+   * except that another user's profile image is refused. An object counts as
+   * an avatar when EITHER marker is present (key under `avatars/` or
+   * `metadata.purpose === 'avatar'`), so a row carrying only one of them is
+   * still protected.
+   * @private
+   */
+  private async getObjectForDeleteAny(id: string, userId: string) {
+    const object = await this.prisma.storageObject.findUnique({
+      where: { id },
+    });
+
+    if (!object) {
+      throw new NotFoundException('Object not found');
+    }
+
+    if (object.uploadedById !== userId && this.isAvatarObject(object)) {
+      throw new ForbiddenException(
+        "This object is another user's profile image and cannot be deleted " +
+          'through the storage API; it is removed by its owner via ' +
+          'DELETE /api/user-settings/profile-image',
+      );
+    }
+
+    return object;
+  }
+
+  private isAvatarObject(object: {
+    storageKey: string;
+    metadata: Prisma.JsonValue | null;
+  }): boolean {
+    const metadata = object.metadata;
+    const purpose =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>).purpose
+        : undefined;
+    return (
+      object.storageKey.startsWith(AVATARS_KEY_PREFIX) ||
+      purpose === AVATAR_PURPOSE
+    );
   }
 
   /**

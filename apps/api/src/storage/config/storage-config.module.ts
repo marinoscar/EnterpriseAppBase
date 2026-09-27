@@ -31,9 +31,10 @@ import { StorageConnectionTestService } from './storage-connection-test.service'
 // route that should be a visible module in `AppModule`'s list.
 //
 // ⚠ NOT `StorageModule` either, which is the other obvious candidate. That
-// module is the OBJECT surface: `ObjectsController` gated on `storage:read` /
-// `storage:write`, plus the upload pipeline, the cleanup job and the processing
-// chain. It imports `JobsModule` and `ObjectProcessingModule` for that work, and
+// module is the OBJECT surface: `ObjectsController`, each route gated on
+// `storage:read` (list, get, download) or `storage:write` (upload, metadata,
+// delete; `storage:delete_any` widens delete to other users' objects, #516),
+// plus the upload pipeline, the cleanup job and the processing chain. It imports `JobsModule` and `ObjectProcessingModule` for that work, and
 // a settings page has no use for either. The two surfaces also differ on the one
 // axis that matters most here: `StorageModule`'s routes are for EVERY user of
 // the application (Viewer holds `storage:read`), and these routes are for the
