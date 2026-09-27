@@ -1146,11 +1146,13 @@ describe('the Observability group (#537)', () => {
   const titles = (hasPermission: (permission: string) => boolean, features = {}) =>
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
 
-  it('is APPENDED as the last group, with exactly two cards in order', () => {
+  it('is APPENDED as the last group, with its cards in declaration order', () => {
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(observability);
+    // `Telemetry Dashboard` (#578) was appended after the Explorer.
     expect(observability?.cards.map((card) => card.title)).toEqual([
       'Telemetry',
       'Telemetry Explorer',
+      'Telemetry Dashboard',
     ]);
   });
 
@@ -1220,7 +1222,7 @@ describe('the Observability group (#537)', () => {
     const readOnly = titles((permission) => permission === 'telemetry:read', { telemetry: true });
     expect(readOnly).toEqual(['Telemetry']);
     const queryOnly = titles((permission) => permission === 'telemetry:query', { telemetry: true });
-    expect(queryOnly).toEqual(['Telemetry Explorer']);
+    expect(queryOnly).toEqual(['Telemetry Explorer', 'Telemetry Dashboard']);
   });
 
   it('drops the whole group for a viewer', () => {

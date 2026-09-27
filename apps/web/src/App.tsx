@@ -98,6 +98,9 @@ const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // editor, so neither weighs on the entry chunk.
 const TelemetrySettingsPage = lazy(() => import('./pages/Admin/TelemetrySettingsPage'));
 const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorerPage'));
+// Issue #578, epic #576 — the at-a-glance dashboard; lazy, and its charts
+// (`@mui/x-charts`) travel in its own chunk.
+const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -670,6 +673,22 @@ function AppRoutes() {
                       >
                         <RequireTelemetryEnabled>
                           <TelemetryExplorerPage />
+                        </RequireTelemetryEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #578, epic #576. The SAME gates as the explorer:
+                      `telemetry:query` (what the dashboard controller enforces)
+                      plus the `telemetry` feature. */}
+                  <Route
+                    path="/admin/settings/telemetry/dashboard"
+                    element={
+                      <RequirePermission
+                        permission="telemetry:query"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireTelemetryEnabled>
+                          <TelemetryDashboardPage />
                         </RequireTelemetryEnabled>
                       </RequirePermission>
                     }
