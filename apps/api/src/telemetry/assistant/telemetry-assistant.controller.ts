@@ -13,7 +13,7 @@ import { TelemetryAssistantService } from './telemetry-assistant.service';
 import { openTelemetrySse } from './telemetry-assistant.sse';
 
 // =============================================================================
-// TelemetryAssistantController (issue #536, epic #528)
+// TelemetryAssistantController (issue #536, reworked in #571; epic #528)
 // =============================================================================
 //
 //   POST /api/admin/telemetry/assistant/stream   telemetry:query AND ai:use (SSE)
@@ -50,23 +50,34 @@ export class TelemetryAssistantController {
   @HttpCode(HttpStatus.OK)
   @ApiProduces('text/event-stream')
   @ApiOperation({
-    summary: 'Ask the telemetry AI assistant a question (SSE)',
+    summary: 'Ask the telemetry AI assistant to investigate (SSE)',
     description:
-      'Turns a natural-language question into ONE read-only SQL query over the telemetry store, ' +
-      'with an explanation. The assistant explores the store with three tools (`list_tables`, ' +
-      '`describe_table`, `run_query`); every `run_query` goes through the same guard, row cap, ' +
-      'timeout and audit trail as `POST /api/admin/telemetry/query` (audited as ' +
-      '`telemetry:assistant_query`), and each turn is audited as `telemetry:assistant`. The AI ' +
-      'call spends **your** key for the configured provider (or the organisation key, per the key ' +
-      'policy). Query rows are shown to the model only when `telemetry.assistant.shareResults` ' +
-      'is on, and never more than `telemetry.assistant.maxResultRowsToModel` (at most 100).\n\n' +
+      'A troubleshooting agent for this application: it investigates a question (errors, slowness, "is ' +
+      'anything wrong?", or simply "write me a query") over the telemetry store and answers with a ' +
+      'structured report. Tools: `get_app_context` (deployment, configuration, tables, data range), ' +
+      '`health_overview` (a baseline over a window: per-service errors and latency, failing routes, log ' +
+      'severities, top error messages, slowest spans), `get_trace` (every span and log of one trace), ' +
+      '`run_query`, `list_tables` and `describe_table`. Every statement — the model\'s and the ones the ' +
+      'server builds for the baseline and trace tools — goes through the same guard, row cap, timeout and ' +
+      'audit trail as `POST /api/admin/telemetry/query` (audited as `telemetry:assistant_query`), and each ' +
+      'turn is audited as `telemetry:assistant`. A turn takes at most `telemetry.assistant.maxSteps` model ' +
+      'round-trips (at most 20). The AI call spends **your** key for the configured provider (or the ' +
+      'organisation key, per the key policy). Row values are shown to the model only when ' +
+      '`telemetry.assistant.shareResults` is on (otherwise only shapes, counts, durations and timestamps), ' +
+      'and never more than `telemetry.assistant.maxResultRowsToModel` (at most 100) rows per statement.\n\n' +
       '`history` carries up to 20 earlier turns of the conversation (oldest first, each at most ' +
-      '8000 characters).\n\n' +
+      '8000 characters); send an assistant turn as plain text.\n\n' +
       '**Frames.** `event: <name>` plus `data: <json>`:\n' +
-      '- `step` — `{ index, tool, input?: { table?, sql? }, rowCount?, truncated?, durationMs, error? }`, ' +
-      'one per tool call (`index` is 0-based);\n' +
-      '- `answer` — `{ sql: string | null, explanation }` (`sql` is null when the question cannot be ' +
-      'answered from telemetry, or the suggested statement was not read-only);\n' +
+      '- `step` — `{ index, tool, input?: { table?, sql?, window?, traceId? }, rowCount?, truncated?, ' +
+      'durationMs, error?, thought? }`, one per tool call (`index` is 0-based; `thought` is the model\'s ' +
+      'interim reasoning for that round, on the round\'s first call only, at most 1000 characters);\n' +
+      '- `answer` — `{ sql: string | null, explanation, report }` where `report` is `{ status: ' +
+      '"issue_found" | "no_issue_found" | "inconclusive" | "no_data", summary, findings: [{ title, severity: ' +
+      '"critical" | "high" | "medium" | "low" | "info", evidence, queryIndex? }], rootCause: string | null, ' +
+      'confidence: "high" | "medium" | "low", recommendations: string[], queries: [{ title, sql }] }` or ' +
+      '`null` when the model did not return a report (then `explanation` is its raw text). `sql` is ' +
+      '`queries[0].sql` (or null) and `explanation` the summary, for older clients. Every report query ' +
+      'passed the read-only SQL guard; a refused one is withdrawn with a note in the summary;\n' +
       '- `error` — `{ code, message }` (an `AI_*` code, a `TELEMETRY_*` reason, or `INTERNAL_ERROR`);\n' +
       '- `done` — `{}`, always last.\n' +
       `A \`: ping\` comment is sent every ${AI_SSE_HEARTBEAT_MS / 1000} seconds.\n\n` +
@@ -83,10 +94,12 @@ export class TelemetryAssistantController {
         schema: {
           type: 'string',
           example:
-            'event: step\ndata: {"index":0,"tool":"list_tables","durationMs":12}\n\n' +
-            'event: step\ndata: {"index":1,"tool":"run_query","input":{"sql":"SELECT count(*) AS spans FROM opentelemetry_traces"},"rowCount":1,"truncated":false,"durationMs":40}\n\n' +
+            'event: step\ndata: {"index":0,"tool":"get_app_context","durationMs":85,"thought":"Checking what is deployed and how much telemetry there is."}\n\n' +
+            'event: step\ndata: {"index":1,"tool":"health_overview","input":{"window":"1h"},"durationMs":420,"thought":"Taking a one-hour baseline of errors and latency."}\n\n' +
+            'event: step\ndata: {"index":2,"tool":"run_query","input":{"sql":"SELECT span_name, count(*) AS errors FROM opentelemetry_traces WHERE span_status_code = \'STATUS_CODE_ERROR\' AND timestamp > now() - INTERVAL \'1 hour\' GROUP BY span_name ORDER BY errors DESC LIMIT 10"},"rowCount":2,"truncated":false,"durationMs":40,"thought":"Most errors are on one route; breaking them down by span."}\n\n' +
+            'event: step\ndata: {"index":3,"tool":"get_trace","input":{"traceId":"4bf92f3577b34da6a3ce929d0e0e4736"},"rowCount":7,"truncated":false,"durationMs":55}\n\n' +
             ': ping\n\n' +
-            'event: answer\ndata: {"sql":"SELECT count(*) AS spans FROM opentelemetry_traces","explanation":"Counts every span."}\n\n' +
+            'event: answer\ndata: {"sql":"SELECT span_name, count(*) AS errors FROM opentelemetry_traces WHERE span_status_code = \'STATUS_CODE_ERROR\' AND timestamp > now() - INTERVAL \'1 hour\' GROUP BY span_name ORDER BY errors DESC LIMIT 10","explanation":"42 of 1,310 requests (3.2%) failed in the last hour, all on POST /api/jobs.","report":{"status":"issue_found","summary":"42 of 1,310 requests (3.2%) failed in the last hour, all on POST /api/jobs.","findings":[{"title":"POST /api/jobs failing","severity":"high","evidence":"42 error spans since 10:05 UTC; sample trace 4bf92f3577b34da6a3ce929d0e0e4736 ends in a database timeout.","queryIndex":0}],"rootCause":"Database timeouts on the jobs insert.","confidence":"medium","recommendations":["Check database connection pool saturation."],"queries":[{"title":"Error spans by name","sql":"SELECT span_name, count(*) AS errors FROM opentelemetry_traces WHERE span_status_code = \'STATUS_CODE_ERROR\' AND timestamp > now() - INTERVAL \'1 hour\' GROUP BY span_name ORDER BY errors DESC LIMIT 10"}]}}\n\n' +
             'event: done\ndata: {}\n\n',
         },
       },
