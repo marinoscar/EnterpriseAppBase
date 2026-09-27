@@ -4,7 +4,7 @@
  * Ad-hoc, read-only SQL over the deployment's telemetry (GreptimeDB): a schema
  * browser, a CodeMirror SQL editor with schema-aware completion, a result
  * grid, export (CSV, Excel, Parquet, NDJSON), starter queries, a per-browser
- * history, and an AI assistant that writes and checks queries server-side.
+ * history, and an AI assistant that investigates by running queries server-side.
  *
  * Gates: the route requires `telemetry:query` (what the explorer controller
  * enforces) AND the `telemetry` feature (`RequireTelemetryEnabled`). The
@@ -177,12 +177,10 @@ export default function TelemetryExplorerPage() {
   );
 
   const assistant = useTelemetryAssistant({
-    // Product decision: an answer's SQL goes straight into the editor and runs.
+    // The agent already ran its queries (#571): the answer's primary query goes
+    // into the editor, but is not re-run — the report's buttons run on demand.
     onAnswer: (answer) => {
-      if (answer.sql) {
-        setSql(answer.sql);
-        runSql(answer.sql);
-      }
+      if (answer.sql) setSql(answer.sql);
     },
   });
 

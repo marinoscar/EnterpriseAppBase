@@ -760,7 +760,7 @@ export default function TelemetrySettingsPage() {
                     form={form}
                     errors={errors}
                     disabled={locked}
-                    helper="Tool calls per question, from 1 to 12."
+                    helper="Tool calls per question, from 1 to 20. 15 is recommended for investigations."
                     onChange={updateNumber}
                   />
                 </Stack>
