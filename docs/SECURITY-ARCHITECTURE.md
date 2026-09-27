@@ -620,12 +620,24 @@ apply to error responses:
 | `X-Frame-Options` | `SAMEORIGIN` |
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
-| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=()` |
+| `Permissions-Policy` | `camera=(), microphone=(self), geolocation=(), payment=()` |
 | `X-XSS-Protection` | `1; mode=block` (legacy browsers) |
+
+`microphone=(self)`, not `()`: an empty allowlist disables the device for the
+app's own origin too, so the AI Playground's Voice mode could never get a
+microphone, no matter what the browser or site permission said.
 
 The CSP is chosen by a `map $uri $csp_policy`:
 
-- **Default (the app)**: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`.
+- **Default (the app)**: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`.
+  `connect-src` allows `https:` so Voice mode can POST its WebRTC SDP offer
+  directly to the runtime-configured provider connect URL (e.g.
+  `https://api.openai.com/v1/realtime/calls`) with the server-minted
+  ephemeral secret; that host isn't knowable in advance, so it can't be
+  listed explicitly. The trade-off is scoped: `connect-src`
+  governs fetch/WebSocket/WebRTC destinations, not script execution — the
+  XSS control is `script-src 'self'`, which stays strict. `/api/docs` keeps
+  `connect-src 'self'`, since the Scalar reference has no such caller.
 - **`/api/docs`**: additionally allows scripts and styles from
   `cdn.jsdelivr.net` and fonts from `fonts.scalar.com`, for the Scalar reference.
 - **Development**: `dev.compose.yml` mounts `csp.dev.conf` instead, which adds

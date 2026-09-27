@@ -743,7 +743,12 @@ client. It calls only the HTTP surface.
   matrix.
 - **Voice** is hidden unless `allowRealtime` is true. `useAiRealtimeSession`
   (`apps/web/src/hooks/useAiRealtimeSession.ts`) asks for the microphone
-  first, mints, and keeps `clientSecret` in a local variable only.
+  first, mints, and keeps `clientSecret` in a local variable only. The
+  deployment must allow the microphone via `Permissions-Policy:
+  microphone=(self)` and `connect-src` must be able to reach the
+  runtime-configured provider host, since the browser posts the WebRTC SDP
+  offer straight there; see [SECURITY-ARCHITECTURE.md
+  §9](../SECURITY-ARCHITECTURE.md#security-headers).
 - Errors render through one `AiErrorAlert` mapping.
 
 ## 3. Configuration and permissions
