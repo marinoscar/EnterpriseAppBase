@@ -695,7 +695,12 @@ or blank keeps the stored password; a save with no stored password to keep
 (nothing stored yet, blank sent) is a 400 — the deployment default's
 password is never copied into the store on save, so the two sources never
 silently merge. `adminUser: null` removes the admin login and its stored
-password (reads still work; retention cannot be applied). Every successful
+password (reads still work; retention cannot be applied). The host is
+optional: omitted, null or blank means **automatic** — stored as null and
+resolved at use to the deployment host (`GREPTIME_HOST`, else the compose
+service `greptimedb`), reported as `effectiveHost` with `hostMode: 'auto'`;
+the UI leaves the field empty and names that host, so a value is typed only
+for an external GreptimeDB. Every successful
 save or reset re-applies the export gate (a store may have just become
 reachable, or gone away) and enqueues `telemetry.retention.apply` (the admin
 login may have just become usable), exactly as a policy save does (§3). Each

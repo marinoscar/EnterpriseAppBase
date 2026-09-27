@@ -185,8 +185,10 @@ Observability → Telemetry**, in the **Connection** section
 no container recreate. See [the spec, §8](../specs/telemetry.md#8-runtime-connection)
 for the precedence rule and what is and is not configurable here.
 
-1. Open the Connection section and fill in the host, PG port, database, and
-   the reader login (username + password). Add the admin login too if you
+1. Open the Connection section and fill in the reader login (username +
+   password); PG port and database default to `4003` and `public`. Leave
+   **Host (optional)** blank to use the GreptimeDB deployed next to the app
+   (the form names it); type a host only for an external GreptimeDB. Add the admin login too if you
    want retention (TTL) applied from this deployment.
 2. **Test first.** Click **Test connection** before saving — it checks the
    reader (and the admin, if given) against the values in the form, not
