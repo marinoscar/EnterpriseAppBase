@@ -583,14 +583,14 @@ export class TelemetryDashboardService {
       instances: i.slice(0, DISTINCT_VALUES_MAX),
       truncated: s.length > DISTINCT_VALUES_MAX || i.length > DISTINCT_VALUES_MAX,
       sql: runner.sql,
-      generatedAt: new Date().toISOString(),
+      generatedAt: new Date(Date.now()).toISOString(),
     };
   }
 
   // ---- summary ---------------------------------------------------------------
 
   private async computeSummary({ window, filters, catalog, runner }: ComputeContext): Promise<TelemetryDashboardSummary> {
-    const now = new Date();
+    const now = new Date(Date.now());
     const runtimeBucket = Math.max(window.bucketSeconds, RUNTIME_MIN_BUCKET_SECONDS);
     const runtimeService = filters.service ?? null;
     const lastDataSince = new Date(now.getTime() - LAST_DATA_LOOKBACK_MS);
@@ -750,7 +750,7 @@ export class TelemetryDashboardService {
     const starts = bucketStarts(window.from, window.to, window.bucketSeconds);
     const envelope = (sql: string[]) => ({
       range: rangeOf(window),
-      generatedAt: new Date().toISOString(),
+      generatedAt: new Date(Date.now()).toISOString(),
       truncated: false,
       sql: sql[0] ?? '',
     });
@@ -801,7 +801,7 @@ export class TelemetryDashboardService {
     { window, filters, catalog, runner }: ComputeContext,
     kind: 'routes' | 'errors',
   ): Promise<TelemetryDashboardTop> {
-    const base = () => ({ range: rangeOf(window), generatedAt: new Date().toISOString(), sql: runner.sql[0] ?? '' });
+    const base = () => ({ range: rangeOf(window), generatedAt: new Date(Date.now()).toISOString(), sql: runner.sql[0] ?? '' });
 
     if (kind === 'routes') {
       const rows = objects(await runner.maybe(catalog.traces ? topRoutesSql(window, filters) : null));
@@ -848,7 +848,7 @@ export class TelemetryDashboardService {
     q: string | null,
     cursor: EventsCursor | null,
   ): Promise<TelemetryDashboardEvents> {
-    const envelope = { range: rangeOf(window), generatedAt: new Date().toISOString(), truncated: false };
+    const envelope = { range: rangeOf(window), generatedAt: new Date(Date.now()).toISOString(), truncated: false };
 
     if (!catalog.logs) {
       return { ...envelope, sql: '', items: [], nextCursor: null };
