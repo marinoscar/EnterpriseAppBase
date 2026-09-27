@@ -14,7 +14,7 @@
 //
 // SERVER-ONLY, PERMANENTLY. No `nodeResultSchema`/`persistNodeResult`: this
 // job decrypts USERS' OWN provider keys, and no AI key may ever reach a worker
-// node (docs/specs/ai-platform.md §9).
+// node (docs/specs/ai-platform.md §2.20).
 //
 // KILL SWITCH. AI or the provider switched off (before or during the sweep) is
 // an expected stop, not a failure: the handler returns normally, so it burns

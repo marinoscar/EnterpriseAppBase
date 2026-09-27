@@ -2,7 +2,7 @@
  * The user's default AI model — issue #430, epic #419.
  *
  * Stored in the user settings DOCUMENT as `ai.defaultModel: { provider,
- * modelId } | null` (see `docs/specs/ai-platform.md` §2), through the existing
+ * modelId } | null` (see `docs/specs/ai-platform.md` §2.1), through the existing
  * `useUserSettings` hook's PATCH — not a new endpoint. Only models with the
  * `responses` capability are offered, since a default is what a plain
  * request (the Playground, a fork's feature) falls back to.

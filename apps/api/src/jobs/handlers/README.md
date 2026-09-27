@@ -1,7 +1,7 @@
 # Job Handlers
 
 This directory contains job handler implementations for the background job
-queue (epic #254). One class per job type; the queue itself never changes.
+queue. One class per job type; the queue itself never changes.
 
 ## Overview
 
@@ -138,7 +138,7 @@ Two more optional fields worth knowing about:
 
 The full reasoning — why the database decides dedup instead of a
 `findFirst` pre-check, and why `skipDedup` costs nothing — is
-[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md) §4.
+[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md#enqueue-and-dedup).
 
 ### The Type Appears in the Dashboard Automatically
 
@@ -159,7 +159,7 @@ database connection (`db.backup.run`, for `pg_dump`) may declare a
 `nodeSecretBroker` that mints one short-lived, job-scoped credential per job,
 held in the node's memory only and revoked when the job settles — see
 `../job-secret-broker.ts` and
-[`docs/specs/database-backup.md` §16](../../../../../docs/specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345).
+[`docs/specs/database-backup.md`](../../../../../docs/specs/database-backup.md#running-the-dump-on-a-worker-node).
 Nothing brokered this way is ever written to disk, to config, or to a log
 line; that is the rule this section's opening claim narrows to, not one it
 gives up.
@@ -199,7 +199,7 @@ node-eligible: drop both members.
 
 ### What a node-eligible handler looks like
 
-`example-checksum.handler.ts` is the worked example (#269). It is the same
+`example-checksum.handler.ts` is the worked example. It is the same
 four steps above plus the two members, and it is worth reading alongside this
 section because it is a live implementation rather than a sketch. The shape:
 
@@ -381,8 +381,8 @@ never be auto-retried).
 
 ### A per-job credential (`nodeSecretBroker`, optional)
 
-A node has no *durable* database access or storage credentials (§8 of
-[`docs/specs/worker-nodes.md`](../../../../../docs/specs/worker-nodes.md)), so
+A node has no *durable* database access or storage credentials (see the data plane in
+[`docs/specs/worker-nodes.md`](../../../../../docs/specs/worker-nodes.md#data-plane)), so
 almost every node-eligible type needs none. The exception is a type whose work
 genuinely requires a live connection to something this deployment guards — a
 `pg_dump` needs PostgreSQL — and for that, presence of a `nodeSecretBroker`
@@ -399,14 +399,14 @@ destroys it again when the job settles or on the sweep that catches what the
 settle path cannot. **Nothing it returns may be persisted except the handle**
 — `job_node_secrets` has no column that could hold the material itself. See
 `../job-secret-broker.ts` for the full contract and
-[`docs/specs/database-backup.md` §16](../../../../../docs/specs/database-backup.md#16-running-the-dump-on-a-worker-node-352-epic-345)
+[`docs/specs/database-backup.md`](../../../../../docs/specs/database-backup.md#running-the-dump-on-a-worker-node)
 for the worked example, including the two separate opt-in settings that gate
 whether this ever reaches a node at all.
 
 ### Vetoing an admin delete (`canDelete`, optional)
 
 Most handlers need nothing here: any non-`running` row of their type may be
-deleted from the admin Jobs page, exactly as before #480. Implement
+deleted from the admin Jobs page. Implement
 `canDelete(job)` only when a **non-terminal** row of this type is load-bearing
 for state your feature keeps outside the `jobs` table — a row whose deletion
 would strand that state with nothing left to advance it:
@@ -440,11 +440,11 @@ the 409's `message` verbatim — or `null` to allow the delete. Three rules:
   when you cannot say "yes", say "no".
 
 `broadcast-job-delete-guard.ts` (shared by `BroadcastStartHandler` and
-`BroadcastChunkHandler`, #480) is the worked example: it refuses while the
+`BroadcastChunkHandler`) is the worked example: it refuses while the
 job is non-terminal and its broadcast is `scheduled` or `sending` — the
 pending row is what advances that broadcast, and deleting it would strand it
 with nothing left to do so. See
-[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md) §8.5 and
+[`docs/specs/job-queue.md`](../../../../../docs/specs/job-queue.md#admin-api-behaviour) and
 [`docs/specs/notification-broadcasts.md`](../../../../../docs/specs/notification-broadcasts.md)
 for the full reasoning.
 
@@ -454,13 +454,13 @@ See `example-echo.handler.ts` — a server-only handler that logs its payload
 and returns. It is deliberately trivial and side-effect free, and it is a live
 implementation of the contract rather than a comment about one.
 
-See `example-checksum.handler.ts` (#269) for the node-eligible counterpart: it
+See `example-checksum.handler.ts` for the node-eligible counterpart: it
 streams a `StorageObject`, computes its SHA-256 and byte count, and stores them
 in the object's `metadata`. It is deliberately generic — provider-agnostic, no
 native dependency, and useful rather than a toy — and it is the type that makes
 a worker node's claim return anything at all.
 
-For a handler that does real work, see `job-history-purge.handler.ts` (#263):
+For a handler that does real work, see `job-history-purge.handler.ts`:
 the queue's own housekeeping, and the same four steps applied to a settings
 read, a batched loop and a transaction. Its scheduling half lives in
 `../tasks/job-history-purge.task.ts` and shows the other end of the recipe — a
@@ -480,4 +480,4 @@ observable, retried on the queue's budget, and executed on a worker slot.
 | `../../nodes/node-data-plane.service.ts` | The presigned download/upload routes a node uses |
 | `../jobs.module.ts` | Where the registry and the example handlers are provided |
 | `docs/specs/job-queue.md` | The design spec: decisions, rejected alternatives |
-| `docs/specs/worker-nodes.md` | The node planes: control (#268) and data (#269) |
+| `docs/specs/worker-nodes.md` | The node planes: control and data |

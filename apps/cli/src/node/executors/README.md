@@ -1,6 +1,6 @@
 # Node executors
 
-The CLI-side half of a job type (issue #274, epic #254). A type that a worker
+The CLI-side half of a job type. A type that a worker
 node can run needs **two** things, and they live in two different places:
 
 | Half | Where | What it decides |

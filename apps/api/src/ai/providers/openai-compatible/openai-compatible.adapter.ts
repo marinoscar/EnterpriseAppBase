@@ -28,7 +28,7 @@
 //
 // KEYLESS (`requiresKey: false`). The key resolver answers `keySource:
 // 'none'` with the `AI_KEYLESS_API_KEY` marker, and the client factory then
-// sends no credential at all. See docs/specs/ai-platform.md §14.3.
+// sends no credential at all. See docs/specs/ai-platform.md §2.24.
 //
 // PORTS. `responses` and `embeddings` (`POST {baseUrl}/embeddings` — Ollama,
 // vLLM and LM Studio all serve it, through the same mapper OpenAI uses).

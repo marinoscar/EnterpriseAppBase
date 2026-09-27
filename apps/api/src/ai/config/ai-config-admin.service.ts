@@ -58,7 +58,7 @@ import type { UpdateAiConfigInput } from './dto/update-ai-config.dto';
 // Audit rows are written directly through Prisma — there is no audit service in
 // this codebase — with `targetType` `ai_config` and codes / field NAMES only in
 // `meta`, never a key and never a value that could hold one
-// (docs/specs/ai-platform.md §12).
+// (docs/specs/ai-platform.md §2.21).
 // =============================================================================
 
 /** Stable reason codes for the 400s this service raises (in `details.reason`). */

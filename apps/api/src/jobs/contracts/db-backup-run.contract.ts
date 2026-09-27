@@ -43,12 +43,12 @@
 // -----------------------------------------------------------------------------
 //
 // NO `verified` FLAG, and no field a node could set to assert that its own
-// archive is good. §6 of `docs/specs/database-backup.md` already settled what
-// verification means here — "read back what the BUCKET holds and parse its
-// table of contents" — and `persistNodeResult` does exactly that, server-side,
-// before it writes `verified_at`. A node vouching for its own upload is not
-// evidence; it is the machine with the least reason to be trusted attesting to
-// the one fact the whole subsystem rests on.
+// archive is good. `docs/specs/database-backup.md`, "Read-back verification",
+// already settled what verification means here — "read back what the BUCKET
+// holds and parse its table of contents" — and `persistNodeResult` does exactly
+// that, server-side, before it writes `verified_at`. A node vouching for its
+// own upload is not evidence; it is the machine with the least reason to be
+// trusted attesting to the one fact the whole subsystem rests on.
 //
 // `sha256` is therefore recorded as THE NODE'S CLAIM about the bytes it
 // streamed, not as proof. It is worth having — it is what an operator compares
@@ -98,10 +98,11 @@ export const dbBackupRunResultSchema = z.object({
    * The key the SERVER handed this job through `deriveOutputKey`, repeated.
    *
    * ⚠ THE HANDLER REFUSES ANYTHING ELSE. A node may only report the key it was
-   * given: it does not choose where a backup lands (§15 and
-   * `job-handler.interface.ts`), and a result naming a different key is either
-   * a confused executor or an attempt to point this deployment's restore path
-   * at bytes of somebody else's choosing. Both are refusals, not corrections.
+   * given: it does not choose where a backup lands (`worker-nodes.md`,
+   * "Data plane", and `job-handler.interface.ts`), and a result naming a
+   * different key is either a confused executor or an attempt to point this
+   * deployment's restore path at bytes of somebody else's choosing. Both are
+   * refusals, not corrections.
    */
   storageKey: z.string().min(1).max(1024),
 

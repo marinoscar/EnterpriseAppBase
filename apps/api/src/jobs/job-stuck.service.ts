@@ -69,10 +69,11 @@
 // forever, at one crash per stuck threshold, with the container restarting
 // under it each time. The ONLY reason this loop terminates is that
 // `job-claim.service.ts` increments `attempts` in the claiming UPDATE itself
-// (§4.5 of docs/specs/job-queue.md: `attempts` means "attempts STARTED", not
-// "attempts that reported back"). The count therefore survives the death of
-// the process that was running the job, and after `JOBS_MAX_ATTEMPTS` deaths
-// the reaper can say "this has had its budget" with evidence.
+// (docs/specs/job-queue.md, "Attempts are charged at claim": `attempts` means
+// "attempts STARTED", not "attempts that reported back"). The count therefore
+// survives the death of the process that was running the job, and after
+// `JOBS_MAX_ATTEMPTS` deaths the reaper can say "this has had its budget"
+// with evidence.
 //
 // Charge `attempts` on failure instead and this phase becomes unimplementable
 // — there is nothing to compare against — which is why that decision and this

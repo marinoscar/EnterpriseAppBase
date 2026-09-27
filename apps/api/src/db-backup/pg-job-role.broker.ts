@@ -12,7 +12,7 @@
 //
 // What it exists to unblock is decision 2 of epic #345: running the database
 // dump off the API server. A worker node has no database access and no storage
-// credentials (`docs/specs/worker-nodes.md` §8) — every fact it needs arrives
+// credentials (`docs/specs/worker-nodes.md` §1) — every fact it needs arrives
 // in an HTTP response — and no amount of presigning produces a database
 // connection. This is that connection, and it is deliberately the smallest one
 // that can still produce a correct archive.

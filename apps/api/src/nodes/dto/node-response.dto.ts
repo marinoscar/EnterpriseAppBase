@@ -41,7 +41,7 @@
 // and the obvious fix, a longer expiry, widens exactly the window a short
 // expiry exists to close. They are minted on demand instead, by
 // `POST /nodes/:id/jobs/:jobId/download-url` and `…/upload-url`. See
-// `node-data-plane.service.ts` and docs/specs/worker-nodes.md §18.
+// `node-data-plane.service.ts` and docs/specs/worker-nodes.md, "Data plane".
 //
 // Keeping the two bags apart still matters, and now for the general case: a
 // reader can always tell "this came out of the row" from "this server minted

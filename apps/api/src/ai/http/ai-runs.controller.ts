@@ -23,7 +23,7 @@ import { AiRunDto, AiRunStartedDto, type AiRunHttpView } from './dto/ai-response
 //   POST /api/ai/runs/:runId/cancel    ai:use   cancel it        -> AiRun
 //
 // A run is an `ai_runs` row executed by one `ai.response.run` queue job
-// (docs/specs/ai-platform.md §9; CLAUDE.md "every long-running activity is a
+// (docs/specs/ai-platform.md §2.20; CLAUDE.md "every long-running activity is a
 // queue job"). The gates run when it is queued — an unusable request fails
 // fast, as the same JSON error `POST /api/ai/responses` answers — and again
 // when the job executes.

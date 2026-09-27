@@ -25,9 +25,9 @@
 // `test/nodes/node-credential.integration.spec.ts` now does exactly that.
 //
 // ⚠ CONSEQUENCE WORTH KNOWING BEFORE ADDING A ROUTE HERE: everything mounted
-// under this controller is reachable by a node credential. That is the
-// intended blast radius (`docs/specs/worker-nodes.md` §1), and it means a
-// route added here is a route an unattended, months-old credential on
+// under this controller is reachable by a node credential. That is the intended
+// blast radius (`docs/specs/worker-nodes.md`, "Route allowlist"), and it means
+// a route added here is a route an unattended, months-old credential on
 // somebody else's box can call. Anything that is not part of the node
 // conversation belongs on a different prefix.
 //

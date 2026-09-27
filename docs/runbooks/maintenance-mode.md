@@ -115,7 +115,7 @@ seconds, because each caches its read of the settings row briefly.
 If the application still appears to be down after this, **do not repeat the
 call** — go to section 4 and find out which layer is deciding.
 
-## 4. "I turned it off and it is still on"
+## 4. Troubleshooting: "I turned it off and it is still on"
 
 `GET /api/admin/maintenance` reports the effective state **and every
 contributing layer separately**, which is exactly the question to ask here:

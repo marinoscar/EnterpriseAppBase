@@ -3,13 +3,12 @@
 // (issue #349, epic #345)
 // =============================================================================
 //
-// `docs/specs/worker-nodes.md` §14 named this seam years before it existed:
-// *"A fork that needs it adds it where the claim response is built, next to
-// #269's presigned URLs, which is the same seam."* This is that fork, and this
-// is that seam. #269 solved "a node with no storage credentials must move
-// bytes"; this solves "a node with no credentials at all must run work that
-// genuinely needs one" — a `pg_dump` needs a database connection, and no
-// amount of presigning produces one.
+// The worker-node design reserved this seam before it existed: where the claim
+// response is built, next to #269's presigned URLs. This is that seam,
+// described in `docs/specs/worker-nodes.md`, "Per-job secrets". #269 solved "a
+// node with no storage credentials must move bytes"; this solves "a node with
+// no credentials at all must run work that genuinely needs one" — a `pg_dump`
+// needs a database connection, and no amount of presigning produces one.
 //
 // THE OWNER'S RULE, WHICH EVERY DECISION BELOW SERVES: a node never PERSISTS a
 // job-scoped credential. It is obtained per job from the server, it is

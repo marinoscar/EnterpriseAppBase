@@ -24,7 +24,7 @@ import {
 // Same `/api/admin/ai` prefix, permission pair and posture as
 // `AiAdminController`: NOT behind `AiEnabledGuard` — an administrator reading
 // what the platform cost while it is switched off is exactly the case that
-// must keep working (docs/specs/ai-platform.md §8).
+// must keep working (docs/specs/ai-platform.md §2.19).
 // =============================================================================
 
 @ApiTags('AI Administration')

@@ -68,7 +68,7 @@ export class AiCatalogRefreshTask {
 
   /**
    * The providers a refresh is due for: every enabled provider, and none at
-   * all while the platform's kill switch is off (docs/specs/ai-platform.md §8).
+   * all while the platform's kill switch is off (docs/specs/ai-platform.md §2.19).
    */
   async dueProviders(): Promise<string[]> {
     const policy = await this.systemSettings.getAiPolicy();

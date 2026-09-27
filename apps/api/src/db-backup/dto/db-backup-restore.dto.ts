@@ -53,7 +53,7 @@
 // operator can perform the same restore by hand with a superuser. Answering
 // `4xx` would tell them, in the middle of an incident, that their platform is
 // unsupported. It is not: it is a platform this design PLANNED for. See
-// `docs/specs/database-restore.md` §3.
+// `docs/specs/database-restore.md`, "Outcomes and precedence".
 //
 // `blocked` is likewise a 200: the schema gate found a migration mismatch, and
 // the caller's next move is to re-send with `overrideSchemaCheck: true`. That

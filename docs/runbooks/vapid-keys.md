@@ -8,12 +8,11 @@ the delivery mechanism itself — see
 for why Web Push exists, how it fits alongside the browser-toast channel, and
 what it does and does not guarantee.
 
-**As of issue #355, the recommended path is the admin UI** at
-`/admin/settings/push` — generate, enable, rotate, or remove a VAPID key pair
-live, with no restart. Section 2 covers that path. The original env-var
-procedure (Section 3) still works and is kept as a documented fallback for a
-deployment that has not touched the admin UI — see Section 1.1 for exactly
-how the two interact when both are present.
+**The recommended path is the admin UI** at `/admin/settings/push`:
+generate, enable, rotate, or remove a VAPID key pair live, with no restart.
+Section 2 covers that path. The environment-variable procedure (Section 3) is
+a fallback for a deployment that has never saved the admin page. Section 1.1
+says exactly how the two interact when both are present.
 
 Source of truth for every claim below:
 
@@ -37,9 +36,12 @@ Source of truth for every claim below:
   sender, including what happens when a send fails.
 - `apps/api/src/notifications/notifications.module.ts` — registers the push
   channel unconditionally (like email/browser); see its header comment for
-  why that changed with #355.
+  why.
 - `apps/web/src/pages/Admin/PushConfigPage.tsx` and
   `apps/web/src/components/admin/PushConfigConfirmDialog.tsx` — the admin UI.
+- `apps/web/src/services/pushSubscription.ts` and
+  `apps/web/src/hooks/usePushSubscriptionSync.ts` — the client's re-subscribe
+  after a key change (Section 4).
 - `infra/compose/.env.example` — the three fallback environment variables,
   commented out by default.
 
@@ -75,9 +77,8 @@ is made, for every send and every subscribe attempt. Four cases, in order:
 
 1. **No `webPush` row exists at all** (the admin page has never been saved
    on) → fall back to the `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
-   `VAPID_SUBJECT` environment variables, exactly as before #355. A
-   deployment that only ever used Section 3's procedure needs to do nothing
-   differently.
+   `VAPID_SUBJECT` environment variables. A deployment that only uses
+   Section 3's procedure needs nothing else.
 2. **A `webPush` row exists, `enabled: true`, and both a public key and the
    private-key credential are present** → the database wins, **even over
    env vars that are still set**. The moment an admin saves anything through
@@ -184,8 +185,8 @@ to the public key it was created with (`applicationServerKey`) — there is no
 "re-key in place" operation on either side of the Web Push protocol. This is
 expected behavior of the protocol, not a bug in this implementation. What
 happens on the next send attempt against a subscription negotiated under the
-old keys, per `push-notification.channel.ts`'s failure handling (Section 9 of
-the spec document covers this in full): the push service rejects the send.
+old keys, per `push-notification.channel.ts`'s failure handling (the spec
+document covers this in full): the push service rejects the send.
 Whether that arrives as a 404/410 (immediate deletion of the row) or some
 other error code that instead increments `failureCount` toward the 5-attempt
 threshold (`MAX_PUSH_FAILURE_COUNT`) depends on how the specific push service
@@ -194,35 +195,24 @@ special-case that response, so expect anywhere from immediate pruning to up
 to 5 silently failed deliveries per stale subscription before the row is
 cleaned up automatically.
 
-**⚠ Recovery is now automatic for a still-permitted browser, since issue
-#365 — but only for one.** Before #365, there was **no** client-side
-re-subscribe-on-reopen mechanism anywhere in this codebase: `sw.ts`'s
-`pushsubscriptionchange` handler only re-subscribes when the *browser
-itself* rotates a subscription out from under the page (a browser-initiated
-event, unrelated to a server-side key rotation) — it has no way to detect
-"the server changed its VAPID keys," because nothing tells it that.
+**Recovery is automatic, but only for a browser whose permission is still
+granted.** On every app boot, the client compares its existing subscription's
+`applicationServerKey` against the deployment's current `vapidPublicKey`. On a
+mismatch, it unsubscribes the stale subscription, calls
+`pushManager.subscribe({ applicationServerKey: <new public key> })`, and
+`POST`s the result to `/api/notifications/push/subscriptions`, which upserts
+by `endpoint`. `sw.ts`'s `pushsubscriptionchange` handler is a separate,
+browser-initiated path and does not detect a server-side key change.
 
-Issue #365 added the missing piece: on every app boot, the client compares
-its existing subscription's `applicationServerKey` against the deployment's
-current `vapidPublicKey`. On a mismatch, it unsubscribes the stale
-subscription and calls `pushManager.subscribe({ applicationServerKey: <new
-public key> })` itself, then `POST`s the result to `POST
-/api/notifications/push/subscriptions` —
-`PushSubscriptionService.subscribe` upserts by `endpoint`, replacing whatever
-row existed. See [`docs/specs/browser-notifications.md` Section
-12](../specs/browser-notifications.md#12-the-client-subscribes-itself-and-prompts-automatically-issue-365)
-for the full mechanism.
-
-**The boundary that still needs a human:** this self-heals only a browser
-whose notification permission is still `granted` at the moment it next boots
-the app. A browser that was never granted, whose permission has since been
-revoked, or that simply never reopens the app, is still dead weight —
-nothing re-prompts a denied origin, and nothing runs this sync without a page
-load. For those cases the remedy is still manual: the
-`NotificationPermissionBanner`'s **Enable notifications** button, or a user
-toggling notifications off and back on. Until one of those happens, that
-subscription keeps failing every send and eventually prunes itself via the
-failure-threshold mechanism above.
+**The boundary that still needs a human:** a browser that was never granted,
+whose permission has since been revoked, or that never reopens the app, does
+not self-heal. Nothing re-prompts a denied origin, and nothing runs the sync
+without a page load. The remedy is manual: the
+`NotificationPermissionBanner`'s **Enable notifications** button, or the user
+toggling notifications off and back on. Until then, that subscription keeps
+failing every send and eventually prunes itself via the failure threshold
+above. Section 4 is the reference for this mechanism; the client design is in
+[`docs/specs/browser-notifications.md`](../specs/browser-notifications.md).
 
 ### 2.5 Removing the configuration
 
@@ -251,8 +241,7 @@ browser re-subscribes, or until the 404/410 pruning path removes them.
 
 ## 3. The environment-variable path (fallback)
 
-This is the original, deploy-time-only mechanism from before #355. It still
-works, unchanged, and is the automatic behavior for any deployment that has
+This is a deploy-time mechanism. It is the automatic behavior for any deployment that has
 never saved anything through `/admin/settings/push` (Section 1.1, case 1).
 Use it if you would rather manage Web Push the same way as `JWT_SECRET` or
 `GOOGLE_CLIENT_SECRET` — provisioned once at deploy time, outside the
@@ -271,7 +260,7 @@ key pairs.
 
 ### 3.2 Where the keys go
 
-Set three environment variables (`infra/compose/.env.example:86-93` documents
+Set three environment variables (`infra/compose/.env.example` documents
 them, commented out by default):
 
 ```bash
@@ -321,38 +310,43 @@ This section is the single source both Section 2.4 (admin UI rotate/remove)
 and Section 3 (env-var changes) point back to, so the claim is checked once,
 not re-asserted per path.
 
-**As of issue #365, this codebase has a client-side re-subscribe-on-reopen
-mechanism, in both paths — bounded by one condition.** The boot-time sync
-described in [`docs/specs/browser-notifications.md` Section
-12](../specs/browser-notifications.md#12-the-client-subscribes-itself-and-prompts-automatically-issue-365)
-runs on every app load: it reads the deployment's current `vapidPublicKey`
-from `GET /api/notifications/config`, compares it against any existing
-subscription's `applicationServerKey`, and on a mismatch unsubscribes and
-calls `pushManager.subscribe()` against the new key — then `POST`s the
-result to `POST /api/notifications/push/subscriptions`, which upserts by
-`endpoint`. This applies identically whether the active key pair came from
-the admin UI (Section 2) or the environment-variable fallback (Section 3):
-the sync reads whatever `resolveActiveVapidConfig()` currently resolves to,
-with no awareness of which path produced it.
+**The client re-subscribes itself on reopen, in both paths, under one
+condition.** On every app load it reads the deployment's current
+`vapidPublicKey` from `GET /api/notifications/config`, compares it against any
+existing subscription's `applicationServerKey`, and on a mismatch unsubscribes
+and calls `pushManager.subscribe()` against the new key, then `POST`s the
+result to `/api/notifications/push/subscriptions`, which upserts by
+`endpoint`. This applies identically whether the active key pair came from the
+admin UI (Section 2) or the environment-variable fallback (Section 3): the
+sync reads whatever `resolveActiveVapidConfig()` currently resolves to.
 
-**The one condition: notification permission must still be `granted` on
-that browser.** The sync runs from page code, which can only call
-`pushManager.subscribe()` without prompting when permission is already
-`granted` — it does not itself re-prompt. A browser that was never granted,
-that has since moved to `denied`, or that simply never loads the app again,
-does **not** self-heal; it needs the manual path (the
-`NotificationPermissionBanner`'s button, or a user re-toggling notifications)
-before anything can resubscribe it. Verified directly against
-`apps/web/src/services/pushSubscription.ts` (`syncPushSubscription`,
-`subscriptionUsesKey`), `apps/web/src/hooks/usePushSubscriptionSync.ts` (what
-triggers the sync, and only while `permission === 'granted'`), and
-`apps/web/src/sw.ts`'s `pushsubscriptionchange` handler (still a
-browser-initiated-only, best-effort path, unchanged by #365 — see that spec
-section's corrected "Rejected alternatives" entry). Do not write or accept
-documentation, UI copy, or code comments claiming "reopening the app
-*always* re-subscribes"
-without the granted-permission qualifier — that is the detail most likely to
-get silently dropped when this file is next revised.
+**The condition: notification permission must still be `granted` on that
+browser.** The sync runs from page code, which can call
+`pushManager.subscribe()` without prompting only when permission is already
+`granted`; it does not re-prompt. A browser that was never granted, that has
+since moved to `denied`, or that never loads the app again, does **not**
+self-heal. It needs the manual path (the `NotificationPermissionBanner`'s
+button, or the user re-toggling notifications).
+
+Where this lives: `apps/web/src/services/pushSubscription.ts`
+(`syncPushSubscription`, `subscriptionUsesKey`),
+`apps/web/src/hooks/usePushSubscriptionSync.ts` (what triggers the sync, and
+only while `permission === 'granted'`), and `apps/web/src/sw.ts`'s
+`pushsubscriptionchange` handler (browser-initiated only). Any copy that says
+"reopening the app re-subscribes" must keep the granted-permission qualifier.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Generate & enable` answers `409` | A key pair already exists | Use **Rotate keys** (Section 2.4) |
+| Enabling answers `409` | No key pair has been generated | **Generate & enable** first (Section 2.1) |
+| Rotate answers `400` | Nothing is configured yet | **Generate & enable** (Section 2.1) |
+| New subscriptions rejected with `409` | Push is disabled (`enabled: false`) | Turn the switch back on (Section 2.2) |
+| Env vars set, restarted, but `pushEnabled` is still `false` | A `webPush` row exists, so the database decides (Section 1.1, cases 2–4) | Manage push in the admin UI instead |
+| Push off although the row says `enabled: true` | The private-key credential is missing (Section 1.1, case 4); the API logs it loudly | Rotate or remove and generate again |
+| Every delivery logs a warning about the subject | No subject set; the generic fallback is used | Set a real `mailto:` or `https:` subject (Section 2.3) |
+| Some users stop receiving push after a rotation | Their browser permission is not `granted`, so they cannot self-heal | They re-enable notifications (Section 4) |
 
 ## 5. Summary checklist
 
@@ -365,7 +359,7 @@ get silently dropped when this file is next revised.
 - [ ] `GET /api/notifications/config` confirms `pushEnabled: true` and
       `vapidPublicKey` matches
 - [ ] If rotating or removing: typed the exact confirmation literal
-      (`ROTATE`/`REMOVE`), and understood that recovery now happens
+      (`ROTATE`/`REMOVE`), and understood that recovery happens
       automatically the next time each subscriber's browser boots the app
       *while its notification permission is still granted* (Section 4); a
       browser that isn't still granted needs the manual path instead

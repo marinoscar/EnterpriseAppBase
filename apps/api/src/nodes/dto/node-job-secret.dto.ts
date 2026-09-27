@@ -61,13 +61,14 @@
 // POST, NOT GET, AND `Cache-Control: no-store`
 // -----------------------------------------------------------------------------
 //
-// The same reason §15 already gives for the two data-plane routes, and it
-// applies harder here because what comes back is not a scoped, minutes-long URL
-// but a credential. A `GET`'s URL is what every layer between the server and
-// the node writes down — proxy access logs, a CDN cache key, an APM trace's
-// endpoint label — and a response body containing a credential has no business
-// being cacheable by anything. `POST` is uncacheable by default; `no-store` says
-// so out loud for the intermediary that decides to be clever anyway.
+// The same reason `worker-nodes.md`, "Data plane", gives for the two data-plane
+// routes, and it applies harder here because what comes back is not a scoped,
+// minutes-long URL but a credential. A `GET`'s URL is what every layer between
+// the server and the node writes down — proxy access logs, a CDN cache key, an
+// APM trace's endpoint label — and a response body containing a credential has
+// no business being cacheable by anything. `POST` is uncacheable by default;
+// `no-store` says so out loud for the intermediary that decides to be clever
+// anyway.
 // =============================================================================
 
 import { ApiProperty } from '@nestjs/swagger';

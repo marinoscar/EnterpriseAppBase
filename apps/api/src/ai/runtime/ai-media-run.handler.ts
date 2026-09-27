@@ -1,6 +1,6 @@
 // =============================================================================
 // AiMediaRunHandler — the lifecycle every media run job shares
-// (issues #437, #438; docs/specs/ai-platform.md §5.2, §9)
+// (issues #437, #438; docs/specs/ai-platform.md §2.12, §2.20)
 // =============================================================================
 //
 // `ai.image.generate`, `ai.audio.transcribe` (and every later media job) do

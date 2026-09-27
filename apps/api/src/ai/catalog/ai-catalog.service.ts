@@ -4,7 +4,7 @@
 //
 // Discovers one provider's models with the ADMIN key, classifies each through
 // the adapter's own `classifyModel`, and persists the result in `ai_models`.
-// See docs/specs/ai-platform.md §6 for the rules this file implements.
+// See docs/specs/ai-platform.md §2.17 for the rules this file implements.
 // =============================================================================
 
 import { randomUUID } from 'node:crypto';
@@ -113,7 +113,7 @@ export class AiCatalogService {
   /**
    * Discovers, classifies and persists `providerId`'s model catalog.
    *
-   * The preservation rules (docs/specs/ai-platform.md §6) are the point:
+   * The preservation rules (docs/specs/ai-platform.md §2.17) are the point:
    *
    *   - a NEW model is inserted `enabled: false`, classified or `unclassified`;
    *   - an EXISTING model gets `lastSeenAt` and a cleared `deprecatedAt`, its

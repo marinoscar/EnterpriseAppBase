@@ -18,7 +18,7 @@ import type { UsableAiModel } from './dto/usable-ai-model.dto';
 // UsableModelsService — "which models can I use?" (issue #431, epic #419)
 // =============================================================================
 //
-// docs/specs/ai-platform.md §7. Not a new source of truth: it intersects two
+// docs/specs/ai-platform.md §2.18. Not a new source of truth: it intersects two
 // facts that already exist —
 //
 //   - the ADMIN's decision: `ai_models` rows with `enabled` and no

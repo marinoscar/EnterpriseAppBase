@@ -1,6 +1,6 @@
 /**
  * The Playground's Voice mode — issue #449, epic #421
- * (docs/specs/ai-platform.md §5.8).
+ * (docs/specs/ai-platform.md §2.15).
  *
  * A live speech-to-speech call with a `realtime` model. The server mints a
  * short-lived, single-session secret with the user's key; the BROWSER then

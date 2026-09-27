@@ -12,12 +12,10 @@ endpoints always answer `200`, and what the switch confirmation does and
 does not do.
 
 **Object storage is configured entirely through the admin UI**, at
-`/admin/settings/storage` — there is no environment-variable path, and there
-has not been one since issue #377. A fresh deployment starts with **no**
+`/admin/settings/storage`. There is no environment-variable path. A fresh deployment starts with **no**
 object storage configured; uploads, avatar uploads, job artifacts, and
 database backups all answer `503` until an administrator fills in the form
-below. See [§6](#6-recovering-from-a-misconfigured-or-accidentally-switched-deployment)
-for what that looks like and how to tell it apart from other outages.
+below. See §6 for what that looks like and how to tell it apart from other outages.
 
 Source of truth for every claim below:
 
@@ -39,13 +37,14 @@ Source of truth for every claim below:
   `apps/web/src/components/admin/StorageSwitchConfirmDialog.tsx` — the admin
   UI.
 - `infra/compose/.env.example` — confirms there is nothing storage-specific
-  left to set there (§10 of the spec document).
+  to set there.
 
 You need `storage_config:read` to view the configuration and
 `storage_config:write` to change it, test it, or create the bucket — a
 permission pair of its own, **not** a reuse of `system_settings:*` or
-`storage:*`. See [`docs/specs/storage-providers.md` §8](../specs/storage-providers.md#8-permissions-storage_configread-storage_configwrite)
-for why. Both are seeded Admin-only.
+`storage:*`. The permissions section of
+[`docs/specs/storage-providers.md`](../specs/storage-providers.md) explains
+why. Both are seeded Admin-only.
 
 ---
 
@@ -90,7 +89,7 @@ write-only (§4 covers why) and the form always renders it empty.
 | Endpoint | Leave empty. The SDK derives AWS's own regional host from the region above. Only set this to point `s3` at a non-AWS host you are testing against (e.g. a local MinIO during development) — an explicit endpoint always wins over the SDK's own derivation. |
 | Account ID | Not used by `s3`. Leave empty. |
 | Access key ID / Secret access key | An IAM user or role's credential pair. See the IAM policy below. |
-| Force path style | Leave as **"Use provider default"** (virtual-host style) unless you have a specific reason to override it — see [`docs/specs/storage-providers.md` §5](../specs/storage-providers.md#5-one-driver-three-provider-shapes-374). |
+| Force path style | Leave as **"Use provider default"** (virtual-host style) unless you have a specific reason to override it (see the "one driver, three provider shapes" section of [`docs/specs/storage-providers.md`](../specs/storage-providers.md)). |
 
 **Minimum IAM policy for uploads/downloads (no bucket administration):**
 
@@ -180,7 +179,7 @@ that server provides instead.
 Once the provider, bucket and credential fields are filled in, two buttons
 become active:
 
-- **Test connection** (`POST /admin/storage-config/test`) — runs four
+- **Test connection** (`POST /api/admin/storage-config/test`) — runs four
   checks against **what is currently on screen**, not what is saved: the
   credential is accepted, the bucket exists and is reachable, a write/read/
   delete round trip succeeds, and a presigned URL this API would hand to a
@@ -189,7 +188,7 @@ become active:
   message — read the `detail` next to whichever check failed, not just
   whether the whole thing passed. **This always returns 200; read the
   result, not the HTTP status.**
-- **Create bucket** (`POST /admin/storage-config/bucket`) — appears once
+- **Create bucket** (`POST /api/admin/storage-config/bucket`) — appears once
   the connection test reports the bucket is missing (`bucket_missing`).
   Creates the bucket and applies what this application needs: all public
   access blocked and default encryption on (AWS only — R2 is private and
@@ -242,9 +241,9 @@ encrypted credential store on every storage operation), and the built
 key produces a new fingerprint, misses the client cache, and a fresh client
 signed with the new credential is built on the very next call. The old
 credential can be deactivated or deleted at the provider immediately after
-saving; there is no window to wait out. See
-[`docs/specs/storage-providers.md` §3–§4](../specs/storage-providers.md#3-resolution-storageconfigservice-its-cache-and-resolvestorageconfig)
-for the mechanics.
+saving; there is no window to wait out. The resolution and cache sections of
+[`docs/specs/storage-providers.md`](../specs/storage-providers.md) describe
+the mechanics.
 
 **Before deactivating the old key at the provider**, click **Test
 connection** once with the new secret saved, to confirm it is accepted and
@@ -263,7 +262,7 @@ a stored secret through this endpoint (only to overwrite it — §4). An admin
 who wants storage off simply empties `bucket`; the stored credential sits
 inert.
 
-## 6. Recovering from a misconfigured or accidentally switched deployment
+## 6. Troubleshooting: misconfigured or accidentally switched deployment
 
 ### 6.1 "Storage is not configured" / every upload returns 503
 
@@ -287,9 +286,8 @@ This happens only after a **switch** — saving a different provider,
 bucket, or effective endpoint than the one previously configured. The save
 API refuses this with a `409` and the exact row counts unless you send the
 typed `SWITCH` confirmation (the admin page's confirmation dialog does this
-for you); see
-[`docs/specs/storage-providers.md` §7](../specs/storage-providers.md#7-the-switch-confirmation-and-what-it-does-not-do)
-for exactly what counts as a switch and why `region`/`accessKeyId`/
+for you); the switch confirmation section of
+[`docs/specs/storage-providers.md`](../specs/storage-providers.md) says exactly what counts as a switch and why `region`/`accessKeyId`/
 `forcePathStyle` do not.
 
 **⚠ Confirming the switch does not move any bytes.** Every existing
@@ -309,7 +307,7 @@ button on this page.
 
 **To avoid this entirely:** before changing `provider`, `bucket`, or the
 effective endpoint on a deployment that has been in use, check
-`GET /admin/storage-config` (or just attempt the save — the `409` body
+`GET /api/admin/storage-config` (or just attempt the save — the `409` body
 names the counts) to know how many objects and backups are at stake before
 confirming.
 
@@ -355,7 +353,7 @@ permissions from §2's tables, and save it the same way as §4.
 
 **Switching provider/bucket/endpoint (understand before confirming):**
 - [ ] Checked how many objects/backups are at the old location (the `409`
-      body, or `GET /admin/storage-config`)
+      body, or `GET /api/admin/storage-config`)
 - [ ] Understood that confirming does **not** copy any bytes — the old
       location becomes unreachable from this deployment, permanently,
       until switched back

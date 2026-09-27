@@ -1,24 +1,35 @@
-# Runbook: per-job database credentials for worker nodes
+# Runbook: Per-Job Database Credentials for Worker Nodes
 
-**Audience:** whoever operates this deployment's database and its worker node
-fleet.
-**Applies to:** the `postgres.readonly` credential kind minted by
-`apps/api/src/db-backup/pg-job-role.broker.ts` (issue #350, epic #345).
+Use this when you operate the database and the worker node fleet and want a
+node to take database backups: deciding whether to turn the credential broker
+on, finding and removing grants that outlived their job, and diagnosing a
+deployment that cannot mint at all.
 
-A worker node has no database access of its own. When it is asked to run a job
-whose handler declares a **secret broker** — today only `db.backup.run`, because
-`pg_dump` needs a connection and no amount of presigning produces one — the API
-mints a **short-lived, SELECT-only PostgreSQL login role** for that one job,
-hands it over in exactly one HTTP response, and drops it again when the job
-settles.
+A worker node has no database access of its own. When it runs a job whose
+handler declares a **secret broker** (today only `db.backup.run`: `pg_dump`
+needs a connection, and no presigned URL provides one), the API mints a
+**short-lived, SELECT-only PostgreSQL login role** for that one job, hands it
+over in exactly one HTTP response, and drops it again when the job settles.
 
-This runbook covers the three things an operator actually has to do: decide
-whether to turn it on, find and remove grants that outlived their job, and
-diagnose a deployment that cannot mint at all.
+Design: [`docs/specs/worker-nodes.md`](../specs/worker-nodes.md) (the fleet,
+the claim, the lease, why a node persists no job credential) and
+[`docs/specs/database-backup.md`](../specs/database-backup.md) (what a backup
+is). Running a node: [`docs/runbooks/run-worker-nodes.md`](run-worker-nodes.md).
+A `pg_dump` client/server mismatch: [`postgres-client-version.md`](postgres-client-version.md).
+
+Source of truth for every claim below:
+
+- `apps/api/src/db-backup/pg-job-role.broker.ts` — the `postgres.readonly`
+  broker: role name, privileges, attributes, lifetime.
+- `apps/api/src/nodes/node-secret-broker.service.ts` — issue, revoke, and every
+  refusal reason in the troubleshooting table.
+- `apps/api/src/nodes/tasks/node-secret-sweep.task.ts` — the sweeper.
+- `apps/api/src/db-backup/db-backup.controller.ts` —
+  `GET /api/admin/db-backup/node-credential-preflight`.
 
 ---
 
-## 1. What is created, and what it can do
+## 1. Before you start: what is created, and what it can do
 
 | | |
 |---|---|
@@ -41,9 +52,9 @@ working at that moment.
 
 ---
 
-## 2. Turning it on
+## 2. Turn it on
 
-Two independent switches, and both must be on:
+Three independent switches, and all must be on for a backup to run on a node:
 
 1. **Capability** — this API's database role must hold `CREATEROLE`.
    Check it, without changing anything:
@@ -55,13 +66,20 @@ Two independent switches, and both must be on:
    `outcome: "ok"` means it can mint. `outcome: "guided"` means it cannot, and
    the response carries the SQL that fixes it — see §5. **A `guided` answer is a
    `200`, not an error.** Nothing is broken; node offload is simply off and the
-   API takes its own backups, exactly as it did before this feature existed.
+   API takes its own backups.
 
 2. **Policy** — an administrator must set the `nodes.jobSecretBrokerEnabled`
    system setting to `true`. It ships **off**, and while it is off no node is
    even offered a job of a type that needs a credential (the type is withheld
    from the claim), so nothing fails and nothing is refused mid-run. The
    pre-flight above reports this as `brokerEnabled`.
+
+3. **Workload** — the `databaseBackup.nodeOffloadEnabled` system setting must
+   be `true`. It also ships **off**. It is separate from switch 2 on purpose:
+   switch 2 says whether nodes may hold any short-lived credential; this one
+   says whether this particular workload may leave the server.
+
+Verify with the pre-flight: `outcome: "ok"` and `brokerEnabled: true`.
 
 ### ⚠ The node also needs a network route to PostgreSQL
 
@@ -77,7 +95,7 @@ supported configuration, not a degraded one.
 
 ---
 
-## 3. Finding outstanding grants
+## 3. Find outstanding grants
 
 Every role this broker creates carries the `appjob_` prefix, precisely so that
 the cluster can be audited with no application state at all:
@@ -116,7 +134,7 @@ The two lists should agree. Where they do not:
 
 ---
 
-## 4. Removing a grant by hand
+## 4. Remove a grant by hand
 
 Three revocation mechanisms exist and they are not redundant:
 
@@ -206,11 +224,12 @@ refused.
 
 ---
 
-## 6. Diagnosing a refusal
+## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `403`, `details.reason: "job_secret_broker_disabled"` | `nodes.jobSecretBrokerEnabled` is off | §2, switch 2 |
+| Backups never reach a node although the broker is on | `databaseBackup.nodeOffloadEnabled` is off, so the type is not offered | §2, switch 3 |
 | `503`, `details.reason: "broker_unusable"` | The broker's `usable()` said no. `details.remedy` carries the SQL | §5 |
 | `503` naming an unreachable maintenance database | The API cannot open a session on `postgres`/`template1` | Fix connectivity; the privilege could not even be checked |
 | `404`, `details.reason: "no_broker_for_type"` | The job's type declares no broker | Run the job without a credential; this will not change on a retry |
@@ -223,13 +242,13 @@ one in a log, that is a bug worth reporting.
 
 ---
 
-## See also
+## Summary checklist
 
-- [`docs/specs/worker-nodes.md`](../specs/worker-nodes.md) — the fleet, the
-  claim, the lease, and why a node holds no persisted credentials
-- [`docs/specs/database-backup.md`](../specs/database-backup.md) — what a backup
-  is and why it is not an ordinary queue job
-- [`docs/deployment/worker-nodes.md`](../deployment/worker-nodes.md) — running a
-  node
-- [`docs/runbooks/postgres-client-version.md`](postgres-client-version.md) — a
-  `pg_dump` client/server version mismatch
+- [ ] `GET /api/admin/db-backup/node-credential-preflight` answers `outcome: "ok"`
+      (or the `guided` SQL has been run, §5)
+- [ ] `nodes.jobSecretBrokerEnabled` is `true`
+- [ ] `databaseBackup.nodeOffloadEnabled` is `true`
+- [ ] The node has a network route to the database host and port
+- [ ] `NODE_SECRET_SWEEP_ENABLED` is not `false`
+- [ ] After a node-run backup, the `pg_roles` query in §3 returns no expired
+      `appjob_` rows

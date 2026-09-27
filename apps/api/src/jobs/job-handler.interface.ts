@@ -146,7 +146,7 @@
 // -----------------------------------------------------------------------------
 //
 // The node plane's founding constraint is that a node holds NO credentials
-// (`docs/specs/worker-nodes.md` §8), which is why it could only ever run pure
+// (`docs/specs/worker-nodes.md` §1), which is why it could only ever run pure
 // compute over presigned bytes. Some work genuinely needs one — a `pg_dump`
 // needs a database connection — so a handler may carry a BROKER: an object
 // that mints a short-lived, job-scoped credential and can destroy it again.

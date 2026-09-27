@@ -1,6 +1,6 @@
 // =============================================================================
 // `ai.audio.transcribe` job handler — one transcription
-// (issue #438, epic #420; docs/specs/ai-platform.md §5.3, §9)
+// (issue #438, epic #420; docs/specs/ai-platform.md §2.13, §2.20)
 // =============================================================================
 //
 // Payload `{ runId }`, subjectType `'ai_run'`. Enqueued by

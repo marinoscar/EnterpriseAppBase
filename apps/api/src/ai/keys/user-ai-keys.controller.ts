@@ -42,7 +42,7 @@ import { UserAiKeysService } from './user-ai-keys.service';
 //
 // `AiEnabledGuard` on the CLASS: while `ai.enabled` is false every route here
 // answers `403` with `details.reason: 'AI_DISABLED'` (docs/specs/ai-platform.md
-// §8). Only `GET /api/ai/config` (AiPublicController) escapes that guard.
+// §2.19). Only `GET /api/ai/config` (AiPublicController) escapes that guard.
 //
 // Every route acts on `@CurrentUser('id')` — there is no `:userId` anywhere, so
 // no request can name another user's key.

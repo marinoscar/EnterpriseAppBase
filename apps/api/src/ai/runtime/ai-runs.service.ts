@@ -4,7 +4,7 @@
 // =============================================================================
 //
 // A background run is an `ai_runs` row (what the user asked for, what came
-// back) executed by one job (docs/specs/ai-platform.md §9): `ai.response.run`
+// back) executed by one job (docs/specs/ai-platform.md §2.20): `ai.response.run`
 // for a response, `ai.image.generate` for an image generation or edit (#437),
 // `ai.audio.transcribe` for a transcription (#438), `ai.audio.speech` for
 // speech (#439); `request.operation`

@@ -7,7 +7,7 @@
 // makes every stored user key permanently undecryptable — it is not a rename.
 // It is deliberately NOT the admin key's `'ai'` purpose
 // (`config/ai-credential.constants.ts`): the two secret spaces cannot decrypt
-// each other's ciphertext by construction (docs/specs/ai-platform.md §2).
+// each other's ciphertext by construction (docs/specs/ai-platform.md §2.1).
 // =============================================================================
 
 /** `encryptSecret`/`decryptSecret` purpose for every `user_ai_keys.secret`. */

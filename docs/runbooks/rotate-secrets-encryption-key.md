@@ -1,29 +1,40 @@
 # Runbook: Rotate `SECRETS_ENCRYPTION_KEY`
 
-This runbook covers rotating the key that encrypts runtime-configured credentials
-(the `credentials` table), the two per-user BYOK tables that also derive their
-keys from it (`user_credentials`, `user_ai_keys`), and the separate, more
-serious situation of losing that key entirely.
+Use this to rotate the key that encrypts stored credentials, or to recover
+after that key is lost. Audience: whoever holds the deployment's environment
+and database access.
 
-**⚠ `SECRETS_ENCRYPTION_KEY` now protects THREE tables, not one: `credentials`,
-`user_credentials` (issue #387), and `user_ai_keys` (epic #419).** A rotation
-script that reads only `prisma.credential.findMany(...)` — which is what
-every version of this runbook described before per-user stores existed —
-will re-encrypt `credentials` correctly and **silently leave every row in
-`user_credentials` and `user_ai_keys` decryptable only under the OLD key**.
-Nothing at boot catches this (the startup check only counts rows in
-`credentials` — see `SECURITY-ARCHITECTURE.md` §14): every affected user's
-key looks fine until the first read after cutover, which throws
-`InternalServerErrorException` from `UserCredentialsService.getSecret` or
-`UserAiKeysService`'s equivalent, telling that one user their key "must be
-re-entered" — a rotation that silently orphaned every user's stored key,
-discovered one support ticket at a time. **Section 4 below re-encrypts all
-three tables in the same pass; do not adapt an old script that only touches
-`credentials`.**
+The key protects **three tables**:
 
-For the underlying cipher and key model, see
-[`docs/SECURITY-ARCHITECTURE.md`, section 14](../SECURITY-ARCHITECTURE.md#14-encrypted-credential-storage-runtime-configured-secrets)
-and [`docs/specs/user-credentials.md`](../specs/user-credentials.md).
+| Table | What it holds | Cipher domain |
+|---|---|---|
+| `credentials` | Deployment-owned secrets: SMTP password, Web Push private key, object-storage secret access key, AI admin/org keys | the row's `purpose` (`smtp`, `push_vapid`, `storage`, `ai`) |
+| `user_credentials` | Per-user secrets | owner-bound: `userCredentialPurpose(userId, purpose)` |
+| `user_ai_keys` | Each user's own AI provider key | the fixed string `ai_user_key`, shared by every user |
+
+**A rotation must re-encrypt all three.** A script that reads only
+`credentials` leaves every `user_credentials` and `user_ai_keys` row
+decryptable only under the OLD key. The startup check counts only
+`credentials`, so nothing fails at boot; each affected user's key fails on its
+first read after cutover with a "must be re-entered" error.
+
+**No rotation command ships with this repository.** There is no script under
+`scripts/` or `apps/api/scripts/` and no `appctl` subcommand for it. Section 4
+describes how to write and run a one-off script safely; it is not a command to
+copy and paste.
+
+**Expect a short outage at the restart.** The running application keeps
+decrypting under the OLD key while your script runs (Phases A–D). From the
+moment the deployment's `SECRETS_ENCRYPTION_KEY` is switched to the NEW key
+(step 16) until the application is healthy again (step 17), uploads, avatars,
+job artifacts, database backups, email, Web Push and AI calls on the org key
+are unavailable. That is an ordinary restart-bounded outage, not a new
+incident.
+
+Design: the encrypted credential storage section of
+[`docs/SECURITY-ARCHITECTURE.md`](../SECURITY-ARCHITECTURE.md) and
+[`docs/specs/user-credentials.md`](../specs/user-credentials.md).
+
 Source of truth for every claim below:
 
 - `apps/api/src/common/crypto/secret-cipher.ts` — the cipher, key derivation,
@@ -31,33 +42,11 @@ Source of truth for every claim below:
 - `apps/api/src/common/crypto/encryption-key-startup-check.ts` — boot-time validation.
 - `apps/api/src/credentials/credentials.service.ts` — the deployment-owned store.
 - `apps/api/src/user-credentials/user-credentials.service.ts` — the per-user
-  store (issue #387).
-- `apps/api/src/ai/keys/user-ai-keys.service.ts` — the AI BYOK store, which
-  predates #387 and is **not** owner-bound (see step 9 below).
-
-**There is no shipped rotation script in this codebase.** Automatic
-rotation/re-encryption tooling was scoped out of epic #108 as unnecessary at
-this size — manual rotation, run by an operator as a one-off script, is
-considered acceptable. This runbook describes how to write and run that
-script safely, not a command you can copy-paste as-is.
-
-**⚠ This key now protects credentials that most deployments cannot run
-without.** When this runbook was first written, the credential store had a
-single, optional consumer (SMTP). Since issue #355 (Web Push) and, notably,
-epic #372 (object storage — see
-[`docs/specs/storage-providers.md`](../specs/storage-providers.md)), the
-rows this key protects include the **object-storage secret access key**.
-The running application keeps decrypting under the OLD key throughout
-Phases A–D below (nothing about the live process changes until step 12), so
-storage, SMTP and Web Push all keep working normally while the rotation
-script itself runs. The actual outage is Phase E's **restart** — from the
-moment the deployment's `SECRETS_ENCRYPTION_KEY` env var is flipped to the
-NEW key (step 12) until the application is back up and healthy (step 13) —
-during which **uploads, avatar uploads, job artifacts, and database
-backups are unavailable**, exactly as SMTP sending and Web Push already
-are for the same window. This is an ordinary restart-bounded outage, not
-something specific to storage, but it is worth saying explicitly now that a
-storage-shaped failure during that window is expected, not a new incident.
+  store.
+- `apps/api/src/ai/keys/user-ai-keys.service.ts` — the AI BYOK store, which is
+  **not** owner-bound (see step 6 below).
+- `apps/api/prisma/schema.prisma` — models `Credential`, `UserCredential`,
+  `UserAiKey`.
 
 ---
 
@@ -86,7 +75,7 @@ storage-shaped failure during that window is expected, not a new incident.
 |---|---|
 | `CredentialsService.describe` / `.list`, `UserCredentialsService.describe` / `.list` (reads that never touch `secret`) | Yes — unaffected by a rotation running elsewhere |
 | Reading a credential via `getSecret` for existing, unrotated rows, in any of the three tables | Yes, as long as the app's configured key is still the OLD key |
-| **Writing a new credential** — `CredentialsService.setSecret` (the SMTP settings save, Web Push generate/rotate, a storage-configuration save at `/admin/settings/storage`), `UserCredentialsService.setSecret` (any feature built on the #387 per-user store), or `UserAiKeysService`'s equivalent (a user setting/replacing their own AI provider key) | **No** — see section 4 |
+| **Writing a new credential** — `CredentialsService.setSecret` (the SMTP settings save, Web Push generate/rotate, a storage-configuration save at `/admin/settings/storage`, an AI admin key save at `/admin/settings/ai`), `UserCredentialsService.setSecret` (any feature built on the per-user store), or `UserAiKeysService`'s equivalent (a user setting/replacing their own AI provider key) | **No** — see section 4 |
 
 Reads that never touch the ciphertext (`describe`, `list`) are always safe,
 in every one of the three tables. The dangerous operation is a **write**
@@ -149,10 +138,7 @@ at all), and it applies equally to your script's own `console.log` calls.
 3. Read every row of all three tables:
    - `prisma.credential.findMany({ select: { id: true, purpose: true, name: true, secret: true } })`
    - `prisma.userCredential.findMany({ select: { id: true, userId: true, purpose: true, name: true, secret: true } })`
-   - `prisma.userAiKey.findMany({ select: { id: true, secret: true } })` (or
-     whatever the actual model/column names are as of this writing — check
-     `user-ai-keys.service.ts` and `schema.prisma`; the field names in this
-     runbook may drift from the code)
+   - `prisma.userAiKey.findMany({ select: { id: true, secret: true } })`
 4. For each `credentials` row, call `decryptSecret(row.secret, row.purpose)`.
 5. For each `user_credentials` row, call
    `decryptSecret(row.secret, userCredentialPurpose(row.userId, row.purpose))`
@@ -163,7 +149,7 @@ at all), and it applies equally to your script's own `console.log` calls.
 6. For each `user_ai_keys` row, call
    `decryptSecret(row.secret, AI_USER_KEY_PURPOSE)` — the fixed string
    `'ai_user_key'` (`ai/keys/ai-user-key.constants.ts`), **the same string
-   for every user**. This table predates #387 and is **not** owner-bound:
+   for every user**. This table is **not** owner-bound:
    every user's AI key is encrypted under one shared sub-key, unlike
    `user_credentials`. Do not "fix" this by inventing a per-user domain for
    it during a rotation — that is a data-model change with its own
@@ -210,7 +196,8 @@ at all), and it applies equally to your script's own `console.log` calls.
     Remember: **this check does not verify the key can decrypt existing
     rows, and it only ever counts the `credentials` table** — it says
     nothing about `user_credentials` or `user_ai_keys` at all (see the
-    decision table in `SECURITY-ARCHITECTURE.md` section 14). A row missed
+    decision table in the encrypted credential storage section of
+    `SECURITY-ARCHITECTURE.md`). A row missed
     in step 3 (written after your read pass, still under the OLD key), in
     ANY of the three tables, will pass this boot check silently and only
     fail later — as an `InternalServerErrorException` from
@@ -250,9 +237,9 @@ timestamps remain fully readable regardless of key state. This makes them
 (and the equivalent raw query) the correct tool for finding what needs
 re-entry after key loss.
 
-`CredentialsService` itself still has **no HTTP controller of its own** —
+`CredentialsService` itself has **no HTTP controller of its own** —
 each consumer's own admin page (`/admin/settings/email`,
-`/admin/settings/push`, `/admin/settings/storage`) reports whether *its*
+`/admin/settings/push`, `/admin/settings/storage`, `/admin/settings/ai`) reports whether *its*
 credential is configured (via that page's own `secretStatus`/
 `privateKeyStatus` field), but there is no single cross-purpose admin view
 that lists every row in the `credentials` table. So a lookup spanning all
@@ -262,10 +249,9 @@ flow. Two concrete options:
 **(a) Programmatic access**, if you have a REPL or script with access to a
 constructed `CredentialsService` (e.g. a Nest application-context script):
 ```ts
-// Repeat per known purpose — as of this writing: 'smtp', 'push_vapid',
-// 'storage' (STORAGE_CREDENTIAL_PURPOSE in
-// storage/storage-credential.constants.ts). A fork that adds a fourth
-// consumer adds a fourth purpose string here.
+// Repeat per purpose: 'smtp', 'push_vapid', 'storage', 'ai' (the
+// *_CREDENTIAL_PURPOSE constants). A fork that adds a consumer adds its
+// purpose string here.
 const affected = await credentialsService.list('smtp');
 // affected[i].purpose, .name, .label, .hint, .updatedAt are all populated;
 // affected[i] has no field capable of holding the secret itself.
@@ -305,6 +291,16 @@ admin re-entry path for a user's own key — `UserCredentialsService` and
 Once you have that list, contact whoever owns each `purpose`/`name` pair and
 have them re-enter the secret through the normal write path once one exists
 for that purpose.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| After cutover, one user's AI key or per-user credential "must be re-entered"; deployment secrets work | The script skipped `user_ai_keys` or `user_credentials`, or used the wrong cipher domain | Restore the OLD key, restart, and re-run the script over all three tables (steps 5, 6, 12, 13) |
+| Every row fails to decrypt in Phase A | The script's cipher module still holds a cached key | Reload the module between phases (section 3) |
+| A single deployment secret fails after cutover | It was written after the Phase A read, under the OLD key | Re-enter it through its admin page; freeze writes next time (section 2) |
+| Boot log says the key is malformed | The NEW key is not base64 of 32 bytes | Regenerate with `openssl rand -base64 32` |
+| Everything fails and the OLD key is gone | Key loss, not a failed rotation | Section 5 |
 
 ## 6. Summary checklist
 

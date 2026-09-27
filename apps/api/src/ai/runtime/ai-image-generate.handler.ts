@@ -1,6 +1,6 @@
 // =============================================================================
 // `ai.image.generate` job handler — one image generation or edit
-// (issue #437, epic #420; docs/specs/ai-platform.md §5.2, §9)
+// (issue #437, epic #420; docs/specs/ai-platform.md §2.12, §2.20)
 // =============================================================================
 //
 // Payload `{ runId }`, subjectType `'ai_run'`. Enqueued by

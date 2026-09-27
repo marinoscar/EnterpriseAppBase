@@ -33,7 +33,7 @@ import {
 // through `AiCatalogService.enqueueRefresh`, the one place that knows the job's
 // type, subject and payload.
 //
-// The rules it enforces are docs/specs/ai-platform.md §6's:
+// The rules it enforces are docs/specs/ai-platform.md §2.17's:
 //   - enabling is exclusively an administrator's act, and
 //   - a deprecated model cannot be enabled (409), and
 //   - an unclassified model must be classified (capabilities supplied) before
@@ -159,7 +159,7 @@ export class AiModelsAdminService {
   /**
    * `POST /api/admin/ai/models/refresh` — enqueue `ai.catalog.refresh` for one
    * provider. 409 when no admin key is stored: discovery runs under that key
-   * (§6), so the job could only fail — unless the provider is keyless
+   * (§2.17), so the job could only fail — unless the provider is keyless
    * (#448), which discovers with no key at all.
    *
    * Enqueued with the provider as the job's subject, so a second click while a

@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // The preservation rules are the point of this file (docs/specs/ai-platform.md
-// §6): a refresh never turns a model on, never flips `enabled` on a model the
+// §2.17): a refresh never turns a model on, never flips `enabled` on a model the
 // provider still lists, never overwrites an `admin_override`, and deprecates +
 // force-disables (never deletes) a model the provider withdrew.
 //

@@ -1914,7 +1914,8 @@ describe('completeNodeRun: one write, two paths', () => {
 
     // The order is the assertion. `verified_at` may only be written after this
     // process has read what the BUCKET holds — a node vouching for its own
-    // upload is not evidence (§6 of docs/specs/database-backup.md).
+    // upload is not evidence (docs/specs/database-backup.md,
+    // "Read-back verification").
     expect(h.order).toEqual([
       'findUnique',
       'download',

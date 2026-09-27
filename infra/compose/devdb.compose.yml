@@ -31,7 +31,7 @@
 # Development only, and it says so in three places for a reason: the credentials
 # below are the well-known `postgres`/`postgres` pair, and the port is published
 # on the host. Do not add this overlay to a production `docker compose` command.
-# Production points POSTGRES_* at a real database — see docs/deployment/vps.md.
+# Production points POSTGRES_* at a real database — see docs/runbooks/deploy-to-vps.md.
 #
 # The test database is a DIFFERENT service in `test.compose.yml`, on a different
 # port (5433) with its own volume, so that running the test suite never touches

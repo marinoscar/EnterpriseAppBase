@@ -16,7 +16,7 @@ import { AI_REALTIME_INSTRUCTIONS_MAX_CHARS } from '../../core/types/media.types
 // `.strict()`: an unknown key is a 400 rather than silently dropped.
 // ⚠ No REQUEST field can carry a key. The RESPONSE carries exactly one
 // credential, `clientSecret` — the provider's ephemeral, single-session
-// secret, never the caller's key (docs/specs/ai-platform.md §5.8).
+// secret, never the caller's key (docs/specs/ai-platform.md §2.15).
 // =============================================================================
 
 export const aiRealtimeSessionRequestSchema = z

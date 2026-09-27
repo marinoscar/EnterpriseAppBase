@@ -43,8 +43,10 @@ device-auth/
 │   └── index.ts
 ├── exceptions/
 │   └── device-token-error.exception.ts   # Throws RFC 8628 error bodies verbatim
+├── handlers/
+│   └── device-code-cleanup.handler.ts    # `device-auth.code.cleanup` job: deletes expired codes
 ├── tasks/
-│   └── device-code-cleanup.task.ts       # Scheduled cleanup of expired codes
+│   └── device-code-cleanup.task.ts       # Daily cron that enqueues the cleanup job
 ├── __tests__/
 │   └── device-auth.service.spec.ts       # Service unit tests
 ├── device-auth.controller.ts             # REST API endpoints
@@ -403,9 +405,15 @@ User codes are generated using a safe character set to avoid confusion:
 
 ### Device Code Cleanup
 
-Runs daily at 2 AM to remove:
-- Expired device codes
-- Codes marked as expired more than 24 hours ago
+Expired codes are removed by the `device-auth.code.cleanup` queue job
+(`handlers/device-code-cleanup.handler.ts`). The `@Cron` in
+`tasks/device-code-cleanup.task.ts` runs daily at 2 AM and only enqueues that
+job (through `jobs/housekeeping.enqueue.ts`); it deletes nothing itself. The job
+removes:
+- Device codes whose `expiresAt` has passed
+- Codes marked `expired` (already used) more than 24 hours ago
+
+Each run appears in the admin Jobs page like any other job.
 
 ## Integration Examples
 

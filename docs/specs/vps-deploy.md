@@ -1,1191 +1,491 @@
-# Design Spec: `appctl deploy` (VPS deployment)
+# VPS Deployment (`appctl deploy`)
 
-This is the durable design for a new `appctl deploy` command family in
-`apps/cli` that installs and updates this application on a single VPS: git
-clone/pull, `docker compose build`, database migration and seeding, and TLS
-via a shared host-level proxy. An epic and its child issues link here instead
-of restating the design — read this first, then the issue you were sent to
-implement.
+> **Status:** shipped · **Code:** `apps/cli/src/deploy/`, `apps/cli/src/commands/deploy.ts`, `apps/cli/src/tui/screens/deploy.tsx`, `infra/compose/vps.compose.yml`, `apps/api/src/about/`, `apps/web/src/pages/Admin/AboutPage.tsx` · **API:** `GET /api/admin/about` (see `/api/docs`) · **Admin UI:** `/admin/settings/about` · **Runbooks:** [deploy-to-vps.md](../runbooks/deploy-to-vps.md), [deployment-info.md](../runbooks/deployment-info.md) · **Command reference:** [apps/cli/README.md](../../apps/cli/README.md#deploying-to-a-server)
 
-Source of truth for every claim below:
+`appctl deploy` installs, updates, inspects and removes this application on a
+Linux server with Docker. The operator runs it on the server itself. It clones
+the fork, writes `.env` through a wizard generated from `.env.example`, builds
+images, migrates and seeds an external PostgreSQL database, starts the stack
+on a loopback port, and publishes it through a shared host reverse proxy that
+terminates TLS. It leaves a state file and a deployment document behind, which
+the admin About page reads.
 
-- `apps/cli/src/program.ts` — command registration, the two stdout/stderr and
-  non-zero-exit rules every command (including `deploy`) must keep.
-- `apps/cli/src/errors.ts` — `CliError`, the `EXIT` table, and why `ApiError`
-  and `NetworkError` are separate types.
-- `apps/cli/src/device-login.ts` — the hooks pattern this design copies for
-  `DeployHooks`.
-- `apps/cli/src/config.ts` — `~/.appctl/config.json` and the atomic-write
-  trick deploy state must repeat, in a different file, for the same reason.
-- `apps/cli/src/prompt.ts` — the one prompt primitive that exists today
-  (`prompt()`), and the TTY-or-fail rule the wizard inherits.
-- `apps/cli/src/tui/tty.ts`, `apps/cli/src/tui/routes.ts`,
-  `apps/cli/src/tui/scroll-box.tsx`, `apps/cli/src/tui/layout.tsx` — the TUI
-  gate, the closed route union, and the bounded-viewport rule a live deploy
-  log must obey.
-- `apps/cli/src/commands/api.ts` — the "thin `register*`, real work in a
-  separate `run*`" shape every deploy subcommand follows.
-- `infra/compose/base.compose.yml`, `infra/compose/prod.compose.yml`,
-  `infra/compose/.env.example` — the compose layering and the environment
-  contract deploy generates a `.env` against.
-- `infra/nginx/nginx.conf` — the in-compose single-origin proxy; the thing
-  this design puts *behind* a second, host-level proxy, not the thing it
-  replaces.
-- `apps/api/scripts/prisma-env.js`, `apps/api/src/config/configuration.ts`,
-  `apps/api/src/prisma/prisma.service.ts` — the three places `DATABASE_URL`
-  gets rebuilt from `POSTGRES_*`, and the encoding inconsistency between them.
-- `apps/api/prisma/seed.ts` — the idempotent seed the update pipeline
-  deliberately re-runs by default.
-- `apps/api/src/health/health.controller.ts` — `/api/health/ready`, and why
-  it is not evidence a migration ran.
-- `apps/api/scripts/smoke-test.mjs` — the closest existing thing to a
-  deploy-verification script, and the model for `health.ts`'s external check.
-- `.github/workflows/deploy.yml` — the GHCR build pipeline whose deploy jobs
-  are `echo` stubs; the rejected-alternative section below explains why this
-  design does not consume it yet.
-- `docs/runbooks/rotate-secrets-encryption-key.md` — the house style this
-  document follows, and the key model `env-metadata.ts`'s validator for
-  `SECRETS_ENCRYPTION_KEY` must match.
+## 1. Purpose
 
-**Everything described past this line has been built.** `apps/cli/src/deploy/`,
-the `deploy` subcommand family, the `deploy` TUI screen and route,
-`infra/compose/vps.compose.yml`, and the four Phase 0 infra fixes in section 2
-all shipped under epic #168. This document was written before any of that
-landed, and for a long time correctly warned that it described a design, not
-code — that warning is itself now stale, and has been since #168 closed;
-leaving it in place stopped being honest documentation and started being a
-trap for the next reader. Sections 1–12 below remain the durable design
-record: they describe what was built and, where a later issue changed the
-detail (the `checks/`, `steps/` and `proxy.ts` module shapes in particular
-evolved once real code existed to make them concrete), the surrounding prose
-has been kept in the present tense to describe the actual implementation
-rather than a plan for one. Treat a disagreement between this document and
-the source it cites as this document being out of date, and fix the
-document — the source files listed above remain the source of truth.
+- **What it is.** The only deployment tool in this repository. There is no
+  separate deploy script or Ansible playbook, and there should not be one.
+  A fork deploys itself: nothing about the repository URL or product name is
+  hard-coded.
+- **What it is not.**
+  - Not a remote orchestrator: the CLI contains no SSH client.
+  - Not a registry-based deploy: images are built on the server; nothing pulls
+    from GHCR.
+  - Not a database host: PostgreSQL is always external.
+  - No automatic rollback of a failed `update`.
+- **Not implemented.** `deploy uninstall --drop-database` validates the typed
+  confirmation but does not yet drop the database. `dropDatabase()` in
+  `database-drop.ts` exists and is unit-tested, but nothing calls it.
+- **Problem it solves.** A team that forks the template gets a repeatable,
+  resumable, idempotent path from "a VPS with Docker" to "served over HTTPS at
+  a real domain", with several applications able to share one server.
 
-**Epic #388 is the second wave.** #168 built the command family against an
-*assumed* server shape: a host `nginx` and a host `certbot`, no `gh`, a
-database the operator had already created, OAuth credentials taken on faith,
-and no record of any of it left for the running application to read. Running
-the pipeline against the actual documented target architecture — one
-long-lived, *containerised* nginx fronting every app on the box — surfaced
-five gaps that only show up once a real VPS is in the loop, closed by
-issues #389–#393 and documented in section 19. Section 10 below is updated in
-place to describe the resulting `ProxyRuntime` split; a new section 19 covers
-the four gaps that did not fit naturally into an existing section (renewal
-ownership, the database-creation prompt, the OAuth probe, and the v2 state
-shape / About-page carrier decision) rather than scattering them through
-sections written before any of the five gaps were known.
+## 2. How it works
 
----
+### Design decisions in force
 
-## 1. Scope and the four decisions already made
-
-`appctl deploy` takes this repository (or, far more likely, a fork of it —
-see the Architecture Principles in `CLAUDE.md`: this is a template) from "an
-empty VPS with Docker installed" to "running, migrated, seeded, and served
-over HTTPS at a real domain," and back again on every subsequent `update`.
-Four decisions are locked in; do not re-open them in a child issue without
-raising it back at the epic level, because each one shapes several modules
-at once.
-
-| Decision | What it means | What it rules out |
+| Decision | Meaning | Rules out |
 |---|---|---|
-| **Runs on the VPS** | The operator SSHes in with their own credentials, then runs `appctl deploy install`. The CLI never dials out over SSH itself. | An SSH client or library (`ssh2`) in the CLI; a laptop-driven orchestrator; managing the operator's SSH keys. |
-| **Code delivery is git + build** | `git clone`/`git fetch` + `docker compose build` on the server, every time. No image registry in the loop. | Pulling pre-built images from GHCR (see the rejected-alternatives table — the workflow that pushes them exists, but nothing downstream of it does). |
-| **TLS via a shared host proxy** | A single nginx + certbot stack at `/opt/infra/proxy`, outside this repository, terminates TLS for every app on the box. The app stack binds `127.0.0.1` only. | Each app owning its own port 443, its own certbot timer, its own nginx process. |
-| **External PostgreSQL** | The operator supplies `POSTGRES_*` for a database that already exists; deploy validates it, never creates or manages it. | A `postgres:` service in any compose file. `base.compose.yml` deliberately has none — see its header comment. |
-
-The git-clone-on-server model is also the answer to "how does this stay safe
-for a fork of the template": nothing about repo URL or ref is hardcoded
-anywhere in the CLI. `repo.ts` (section 5) reads it from the operator's own
-checkout, so a fork deploys itself, never the upstream template.
-
-## 2. Phase 0: fix these first, in application code, not CLI code
-
-Four defects exist in the repository today that would make an otherwise
-correct `deploy install` fail or silently misbehave. None of them are
-deploy-specific bugs — they are pre-existing gaps in `base.compose.yml`,
-`prod.compose.yml`, `infra/nginx/nginx.conf`, and `configuration.ts` that
-nobody hit yet because nothing has run `base + prod` against a real domain
-before. Fix these as ordinary `fix:`/`chore:` commits, independent of and
-before the `deploy` command lands, because every later phase assumes they are
-already fixed.
-
-| # | Where | The defect | The fix |
-|---|---|---|---|
-| 1 | `infra/nginx/nginx.conf` (`web_upstream`) | Proxies `/` to `web:5173` — Vite's dev port. The `production` target of `apps/web/Dockerfile` serves the built static files from **nginx on port 80**. `base + prod` today has a frontend upstream nothing listens on. | Add a second nginx config, e.g. `infra/nginx/nginx.prod.conf`, with `web:80` as the upstream, and have `prod.compose.yml` mount it over the default. `dev.compose.yml` keeps using the existing file unchanged — it is correct for the dev target. |
-| 2 | `base.compose.yml` (`api.environment`) | **Fixed** (`env_file: .env` landed on the `api` service — see `base.compose.yml`'s own comment on that block). The `api` service's `environment:` block *was* a hand-maintained allowlist that never passed `APP_URL`, `COOKIE_SECRET`, `SECRETS_ENCRYPTION_KEY`, `MAX_FILE_SIZE`, `ALLOWED_MIME_TYPES`, `SIGNED_URL_EXPIRY`, `STORAGE_PART_SIZE`, or any `DEVICE_*` variable — all of which `configuration.ts` reads. (Two of the original examples of a silently-dropped variable, `STORAGE_PROVIDER` and `S3_ENDPOINT`, no longer exist at all — epic #372 retired every storage environment variable in favor of the runtime-configurable `storage` settings namespace at `/admin/settings/storage`; see [`docs/specs/storage-providers.md`](storage-providers.md). Their removal is unrelated to this fix and would not have changed whether this row needed one.) | Replaced the allowlist with `env_file: .env` on the `api` service (docker compose resolves that path relative to the compose file's directory, i.e. `infra/compose/.env` — exactly where local dev already puts it). This is also what makes a fork's own added variables reach the container with zero compose-file changes. |
-| 3 | `base.compose.yml` (`nginx.ports`) | `"3535:80"` binds `0.0.0.0`. Fine for local dev; on a VPS behind a shared proxy it exposes the app stack directly on the public interface, bypassing the proxy and its TLS entirely. | Not fixed in `base.compose.yml` itself, since local dev legitimately wants `0.0.0.0`. Fixed by `vps.compose.yml` (section 10) overriding it to `"127.0.0.1:3535:80"`. Listed here because it is the same family of bug as #1 and #2 and must be understood together with them. |
-| 4 | `apps/api/src/config/configuration.ts` | `constructDatabaseUrl` does **not** URL-encode `POSTGRES_PASSWORD`, while `apps/api/scripts/prisma-env.js` and `PrismaService`'s `buildConnectionString` both do. A password containing `@`, `:`, `/`, or `#` builds a URL here that Prisma's own tooling would have encoded correctly, and the two can disagree about what host/port/db the connection string even means. | `encodeURIComponent(password)` in `configuration.ts`, matching the other two call sites. Low blast radius on generated passwords (unlikely to contain reserved characters) but a real trap for an operator who reuses an existing DB password that does. `env-wizard.ts` (section 6) should also warn, not silently accept, a password containing URL-reserved characters until this is fixed. |
-
-## 3. Command surface and exit codes
-
-```
-appctl deploy install [--repo <url>] [--ref <ref>] [--path <dir>] [--domain <fqdn>]
-                       [--all] [--non-interactive] [--dry-run] [--skip-seed]
-appctl deploy update   [--force] [--skip-seed] [--dry-run]
-appctl deploy status   [--raw]
-appctl deploy doctor   [--all]
-```
-
-Each is a thin `registerXCommand` delegating to a `runX` function, exactly
-like `registerApiCommand`/`runApiCommand` in `commands/api.ts` — the split
-exists so a test can call `runInstall(...)` directly without going through
-commander's argument parsing.
-
-`deploy install` is idempotent and resumable by design (section 7): running
-it again after a partial failure re-does only what has not already
-succeeded, rather than requiring an operator to hand-diagnose which step to
-resume from. `deploy update` is the day-2 command; it refuses to run against
-a directory `install` has not already set up (section 8).
-
-New exit code, additive per `errors.ts`'s own contract ("Add new codes; do
-not renumber existing ones"):
-
-```ts
-export const EXIT = {
-  OK: 0,
-  FAILURE: 1,
-  USAGE: 2,
-  API: 3,
-  NETWORK: 4,
-  AUTH: 5,
-  /**
-   * A required doctor/preflight check failed before any destructive step ran.
-   * Distinct from FAILURE because "your DB is unreachable" and "this CLI hit
-   * a bug" have different owners and different next actions — a script
-   * driving `deploy install` in a bootstrap pipeline should be able to tell
-   * "environment isn't ready yet, retry after fixing DNS" apart from
-   * "something is actually broken here."
-   */
-  PRECONDITION: 6,
-} as const;
-```
-
-`PreconditionError extends CliError` with `exitCode = EXIT.PRECONDITION`,
-thrown by `doctor.ts` and by the preflight step of `install.ts`/`update.ts`.
-Everything else deploy throws is an existing `CliError` subclass where one
-already fits (`UsageError` for a bad flag, `NetworkError` for an unreachable
-DB or registry, a new narrow `DeployStepError` — see section 4 — for a step
-that ran and failed on its own terms).
-
-## 4. Module map
-
-```
-apps/cli/src/deploy/
-  executor.ts       # spawn wrapper: argv only, no shell, timeout, streamed capture
-  journal.ts        # run log to disk (human .log + machine .jsonl), retention, redaction
-  state.ts          # deploy state file, separate from ~/.appctl/config.json
-  hooks.ts          # DeployHooks — the CLI/TUI seam
-  env-spec.ts       # parse .env.example -> EnvSpec[]
-  env-metadata.ts   # annotations for the keys needing special handling
-  env-wizard.ts     # prompt loop -> writes .env (0600)
-  repo.ts           # resolve origin/ref dynamically; clone/fetch/checkout
-  proxy.ts          # vhost render/install/validate/rollback + certbot webroot
-  health.ts         # container status, /api/health/ready polling, external HTTPS
-  checks/           # doctor check registry (one module per check, see section 9)
-  steps/            # named steps consumed by install.ts and update.ts
-  doctor.ts
-  install.ts
-  update.ts
-  status.ts
-apps/cli/src/commands/deploy.ts     # registers install/update/status/doctor, renders hooks to stderr
-apps/cli/src/tui/screens/deploy.tsx # renders the same hooks as React state
-infra/compose/vps.compose.yml       # the third compose overlay (section 10)
-```
-
-Every file above but `checks/` and `steps/` is a single module with one job;
-`checks/` and `steps/` are directories because both are meant to grow by
-adding a file and one registry entry, not by editing a long `switch`.
-
-## 5. `repo.ts`: resolving the repo without hardcoding it
-
-The operator's workflow is: SSH in, `git clone` (or already have cloned)
-**their fork**, `cd` into it, build `appctl` from source
-(`npm run build --workspace=cli`, per the CLI's own README), and run
-`appctl deploy install` from inside that checkout. `repo.ts` leans on
-exactly that: it walks upward from `process.cwd()` looking for a `.git`
-directory (the same thing `git` itself does to find the repository root),
-and when it finds one, reads:
-
-```bash
-git -C <root> remote get-url origin
-git -C <root> rev-parse --abbrev-ref HEAD   # falls back to a symbolic-ref
-                                             # lookup if HEAD is detached
-```
-
-as the defaults for `--repo` and `--ref`. This is what makes the tool fork-
-safe with zero configuration: the template repository's URL never appears
-anywhere in `apps/cli`, so a fork that has renamed everything still deploys
-itself. `--repo`/`--ref` override the detected values outright; if `cwd` is
-not inside a git working tree at all and neither flag is given, `install`
-fails fast with a `UsageError` naming both flags — there is no silent
-fallback to the template's own origin, because guessing wrong here means
-deploying the wrong application.
-
-The **deploy root** (default `/opt/<repo-name>`, overridable with `--path`) —
-**superseded by section 18's multi-app layout**: the flag shipped as `--root`,
-not `--path`, and the default became `/opt/infra/apps` (an *apps root*, not
-one deployment's own directory) once a single VPS hosting several
-applications turned out to be the ordinary case, not the exception. The rest
-of this paragraph's reasoning is unchanged; only the default and the flag
-name moved.
-is where the CLI manages its own clone and everything else it writes (`.env`,
-the state file, the run journal). It is deliberately not required to be the
-same directory as the checkout `repo.ts` read the defaults from — an
-operator who builds `appctl` in `~/src/myfork` and deploys to `/opt/myapp` is
-a normal, supported split. On a first `install`, `repo.ts` clones
-`--repo`/detected URL at `--ref`/detected ref into `<deploy-root>/repo`; on
-`update`, it `git fetch`s and compares the resolved ref's SHA against
-`state.json`'s recorded `commitSha` before doing anything else (section 8).
-
-`executor.ts` is what actually runs `git`, `docker`, `docker compose`,
-`certbot`, and `openssl`-equivalent operations. It generalizes the one
-existing subprocess precedent, `browser.ts`'s use of `spawn`: explicit
-`argv` (never a shell string — the domain, repo URL and ref are all
-operator-supplied and must never be interpolated into something a shell
-re-parses), `shell: false`, `once('error')`/`once('spawn')` handling, and a
-timeout. It adds two things `browser.ts` didn't need: **streamed capture**
-(stdout/stderr are both relayed line-by-line to `DeployHooks.onLog` *and*
-accumulated for the journal, because a `docker compose build` can run for
-minutes and an operator watching it — in the plain command or the TUI —
-needs to see it happen, not receive a wall of text after the fact) and an
-`AbortSignal` that SIGTERMs the child (the TUI's Esc-to-cancel, section 11,
-depends on this).
-
-## 6. The env wizard: generated from `.env.example`, not hardcoded
-
-This is the property that keeps the wizard correct against a fork's own
-edits, for the same reason `commands/api.ts` is one generic command instead
-of one hand-written subcommand per resource: a wizard with its own list of
-34 field names goes stale the day a fork adds `STRIPE_SECRET_KEY` or removes
-the Microsoft OAuth block. Instead:
-
-**`env-spec.ts`** parses `infra/compose/.env.example` structurally, not with
-a hardcoded key list:
-
-- `# ---...---` banner pairs become section headers (`Application`,
-  `Database (PostgreSQL)`, `JWT / Session`, ...).
-- Consecutive `#`-prefixed lines immediately above a key become that key's
-  help text (this is exactly the prose already in the file — e.g. the whole
-  `SECRETS_ENCRYPTION_KEY` block explaining when it's optional).
-- An active `KEY=value` line is a required-shape entry; a commented-out
-  `# KEY=value` line (the Microsoft OAuth block) is an **optional** entry —
-  present in the parsed spec, but not written to the generated `.env` unless
-  the operator opts in.
-- A trailing inline comment on the value (`MAX_FILE_SIZE=10737418240  # 10GB
-  in bytes`) is stripped from the value and folded into the help text.
-  Compose's own `.env` parser does not strip these — a `.env` written
-  verbatim from a value that still carries `  # 10GB in bytes` would hand
-  that whole string to the container as `MAX_FILE_SIZE`, and Node's
-  `parseInt` would silently truncate it at the first non-digit rather than
-  erroring, so this step is not cosmetic.
-
-Result: `EnvSpec[]`, each entry `{ key, section, defaultValue, help,
-required: boolean, commentedOut: boolean }`.
-
-**`env-metadata.ts`** is the *only* hardcoded list in the whole subsystem,
-and it is deliberately small — annotations for keys that need behavior
-`env-spec.ts` cannot infer from the file's own text:
-
-| Kind | Applies to | Behavior |
-|---|---|---|
-| `secret: true` | `JWT_SECRET`, `COOKIE_SECRET`, `SECRETS_ENCRYPTION_KEY`, `GOOGLE_CLIENT_SECRET`, `POSTGRES_PASSWORD`, `AWS_SECRET_ACCESS_KEY`, the `UPTRACE_*`/`CLICKHOUSE_PASSWORD` credentials | Masked input when typed (see `promptSecret` below); the value feeds `journal.ts`'s redaction list (section 7) unconditionally, whether the operator typed it or the wizard generated it. |
-| `generate: 'base64-32'` | `JWT_SECRET`, `COOKIE_SECRET`, `SECRETS_ENCRYPTION_KEY` | The wizard offers "generate one" as the default action, using `node:crypto`'s `randomBytes(32).toString('base64')` **in-process** — not a shell-out to `openssl`, even though the `.env.example` comment tells a *human* to run `openssl rand -base64 32`. Shelling out would make `openssl` a new precondition this doctor check would have to verify on every VPS; Node already has the primitive. |
-| `validate: minLength(32)` | `JWT_SECRET`, `COOKIE_SECRET` | Matches the API's own documented minimum. |
-| `validate: base64Decodes32Bytes` | `SECRETS_ENCRYPTION_KEY` | Must decode to exactly 32 bytes — this is the AES-256 key `secret-cipher.ts` expects (see `rotate-secrets-encryption-key.md` for the cipher this key feeds). A key that merely looks base64 but decodes to the wrong length must be rejected here, before it becomes a boot-time failure the operator sees an hour later. |
-| `derivedFrom` | `GOOGLE_CALLBACK_URL` from `APP_URL`; `APP_URL` from the one domain question | The wizard asks for the public domain once ("What domain will this be served at?") and derives `APP_URL=https://<domain>` and `GOOGLE_CALLBACK_URL=https://<domain>/api/auth/google/callback`, showing both as defaults the operator can still override — never silently computed with no visibility. |
-| `essential: true` | `APP_URL`, all six `POSTGRES_*`, `JWT_SECRET`, `COOKIE_SECRET`, `SECRETS_ENCRYPTION_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `INITIAL_ADMIN_EMAIL` (~13 keys) | Prompted by default. Everything else in the spec takes its template default silently unless `--all` is passed, in which case the wizard walks every key — required and optional/commented-out alike — offering keep-default / edit / (for optional keys) skip. |
-
-A key present in `.env.example` with no `env-metadata.ts` entry still gets a
-prompt when it's `essential` by inference (no safe non-empty default) or is
-silently defaulted otherwise — the metadata file narrows behavior for known
-keys, it does not gate which keys the wizard can see. A fork that adds
-`STRIPE_SECRET_KEY` to `.env.example` and nothing to `env-metadata.ts` still
-gets asked for it (plain-text prompt, no masking, no generation) rather than
-being invisible to the wizard; the fork can add a `secret: true` entry later
-to upgrade that experience.
-
-**`env-wizard.ts`** is the prompt loop, and it needs primitives `prompt.ts`
-does not have today — that file has exactly one, free-text `prompt()`, by
-design (see its own header: "this CLI asks exactly one question"). Deploy
-needs three more, added to `prompt.ts` rather than duplicated in
-`env-wizard.ts`, so the TUI's future rich equivalents (`ink-text-input` /
-`ink-select-input`, already dependencies) have one command-line behavior to
-match:
-
-- **`promptConfirm(question, default)`** — yes/no, same TTY-or-throw rule as
-  `prompt()`.
-- **`promptSecret(question)`** — masked input. `node:readline` has no
-  built-in echo suppression; the standard workaround is a custom output
-  `Writable` (or overriding the `Interface`'s internal `_writeToOutput`)
-  that substitutes `*` for each keystroke instead of echoing it, restoring
-  normal output once the line is submitted. This is exactly the kind of
-  fiddly terminal-mode code `prompt.ts`'s own header calls out as the reason
-  a bare readline interface — not a dependency — was chosen for the simple
-  case; it stays true here, it is just more work for this one case.
-  **Only used for values a human types** (`GOOGLE_CLIENT_SECRET`,
-  `POSTGRES_PASSWORD` when not already known) — generated secrets never go
-  through a prompt at all.
-- **`promptSelect(question, choices, default)`** — a fixed-choice prompt:
-  type a number or the first few characters, or (in the ink TUI) an actual
-  arrow-key list via the existing `ink-select-input` dependency. Used by the
-  `--all` review loop's keep/edit/skip choice per key.
-
-The finished `.env` is written to `<deploy-root>/repo/infra/compose/.env` —
-the exact path local development already uses (`cp
-infra/compose/.env.example infra/compose/.env`), which is also where docker
-compose looks for a `.env` file by default when invoked from that directory
-(the existing `Key Commands` in `CLAUDE.md` already `cd infra/compose`
-before every `docker compose` invocation; deploy's `executor.ts` does the
-same). It is written with the identical atomic-write discipline as
-`config.ts`'s `writeConfigFile`: a freshly-created `wx`-flagged temp file at
-mode `0600` in the same directory, then `renameSync` over the target — never
-`writeFileSync` directly over an existing file, because (per that function's
-own extensive comment) `mode` only applies to file *creation*, so overwriting
-in place would silently leave a previously-`0644` `.env` world-readable
-forever. `env-wizard.ts` should treat this as a library call into (or a
-copy of the documented technique from) `config.ts`, not a new, weaker
-reimplementation.
-
-## 7. Install pipeline
-
-Every step is individually idempotent and safe to re-run — `install`'s
-whole contract is "run it again after any failure and it picks up where it
-left off," not "resume from a saved cursor." Steps, in order:
-
-1. **Preflight** — every `required`-level doctor check (section 9) must
-   pass; a `recommended` failure prints a warning and continues. Throws
-   `PreconditionError` (exit 6) on any required failure, before anything is
-   written or fetched.
-2. **Resolve deploy root** — create `<deploy-root>` if absent (`mkdir -p`).
-3. **Clone/checkout at ref** (`repo.ts`) — clone if `<deploy-root>/repo`
-   doesn't exist; if it does (a re-run after a partial failure), fetch and
-   checkout instead of re-cloning.
-4. **Env wizard** (`env-wizard.ts`) — skipped if a valid `.env` already
-   exists at the target path *and* `--non-interactive` was passed; otherwise
-   always offered, because a re-run is exactly when an operator fixes a
-   typo'd credential.
-5. **Validate env** — DB connectivity + credentials + "does this database
-   exist" (a real `SELECT 1` against the configured `POSTGRES_*`, not a
-   syntax check on the connection string), format validation on every
-   `env-metadata.ts` `validate` entry, best-effort S3 reachability (a
-   warning, not a hard failure — an admin can configure storage after first
-   login).
-6. **Build images** — `docker compose -f base.compose.yml -f prod.compose.yml
-   -f vps.compose.yml build`, streamed through `executor.ts`.
-7. **Migrate** — `npm run prisma:migrate` (i.e. `prisma migrate deploy`)
-   run **inside the built `api` image** (`docker compose run --rm api npm
-   run prisma:migrate`), with `POSTGRES_*` exported into that run's
-   environment explicitly. This matters because `prisma-env.js` only loads
-   `.env` files when `NODE_ENV !== 'production'` — a production migrate step
-   that relied on dotenv loading would silently see no `POSTGRES_*` at all
-   and fall back to the hardcoded `localhost`/`postgres`/`postgres`
-   defaults, which is a believable way to migrate the wrong database. This
-   step's own exit code is the only thing that step of the pipeline trusts
-   as proof migrations ran — see the note on `/api/health/ready` below.
-8. **Seed** — `docker compose run --rm api npm run prisma:seed`. Safe to
-   re-run: `apps/api/prisma/seed.ts` is fully idempotent (every write is an
-   upsert).
-9. **`up -d`** — start `nginx`, `api`, `web` per the compose overlay.
-10. **Wait for health** — poll `http://127.0.0.1:<bound-port>/api/health/ready`
-    (loopback, before the shared proxy is even touched) with backoff up to a
-    timeout. **This step proves the process is up and can reach Postgres at
-    all — nothing more.** `HealthController`'s Terminus check issues a bare
-    `SELECT 1`, which **passes against an empty, unmigrated database**. It
-    is not, and must never be treated as, evidence step 7 succeeded; step
-    7's own exit code is that evidence. Conflating the two is exactly the
-    kind of "it looked healthy" false confidence this document exists to
-    prevent someone from re-discovering the hard way.
-11. **Install vhost + issue certificate + validate + reload** (`proxy.ts`,
-    section 10). Rolled back on any validation failure — see that section
-    for the mechanics.
-12. **External HTTPS verification** — an outbound request to
-    `https://<domain>/api/health/ready`, following redirects, checking both
-    the HTTP status and that the TLS handshake actually completed against a
-    certificate for that name (a self-signed fallback or a proxy
-    misconfiguration can serve 200 over broken TLS just as easily as over
-    good TLS — this check must fail on the second case too). Modeled on
-    `apps/api/scripts/smoke-test.mjs`'s own "boot it and hit the health
-    endpoints" verification, one layer further out.
-13. **Summary** — print (stderr for the command, a final screen state for
-    the TUI) the domain, the commit SHA deployed, and the exact next steps
-    (log in as `INITIAL_ADMIN_EMAIL`, where the state/journal files live).
-
-## 8. Update pipeline
-
-```
-require state.json + <deploy-root>/repo + .env + the compose files
-  -> else: "not installed here, run `appctl deploy install`" (PreconditionError)
-fetch; compare resolved ref's SHA against state.commitSha
-  -> unchanged and no --force: print "already up to date at <sha>", exit 0, do nothing else
-record previous SHA (for the summary; there is no automatic rollback — see below)
-env drift check: any .env.example key with no counterpart in the existing .env
-  -> interactive: offer to run the wizard for just the new keys
-  -> --non-interactive: PreconditionError naming the missing keys
-build
-migrate  (prisma migrate deploy is itself additive/idempotent against a DB
-          already at a later state — this is Prisma's own guarantee, not
-          something this pipeline adds)
-seed, BY DEFAULT — a deliberate divergence from any shell-script precedent,
-  which never re-seeds. The seed is idempotent, so this is how permissions
-  or role rows added by a newer version of the seed actually land on an
-  existing install. `--skip-seed` opts out for an operator who has hand-
-  edited seeded rows and does not want them upserted back.
-up -d
-wait for health
-refresh vhost / renew certificate if within certbot's renewal window
-  (proxy.ts owns "is this cert due"; update does not force-reissue every run)
-external verification
-summary, including the previous SHA so a stuck update is easy to read as a diff
-```
-
-There is deliberately no automatic rollback on a failed `update`. Recording
-the previous SHA is for the operator's own `git checkout <previous-sha>` +
-re-run of `install`, not for the CLI to attempt unattended — reverting a
-database migration safely is a decision that needs a human, not a heuristic.
-
-## 9. Doctor: the preflight check registry
-
-`checks/` holds one module per check, each exporting the same shape,
-consumed by both `appctl deploy doctor` directly and by `install`/`update`'s
-own preflight step — one registry, two callers, the same pattern this
-codebase already uses for `NOTIFICATION_EVENTS` and the settings-page
-registries: declare the check once, let every consumer read the same list
-instead of maintaining a second one that can drift.
-
-```ts
-interface DeployCheck {
-  id: string;                       // e.g. 'docker-daemon', 'dns-resolves'
-  level: 'required' | 'recommended';
-  description: string;              // shown in `doctor` output
-  run(ctx: DeployCheckContext): Promise<CheckResult>;
-}
-
-type CheckResult =
-  | { status: 'pass' }
-  | { status: 'warn'; message: string }
-  | { status: 'fail'; message: string; remedy?: string };
-```
-
-Checks to include at minimum: `docker` and `docker compose` v2 present and
-the daemon reachable; `git` present; outbound network reachable (DNS
-resolves, a TCP connect to the configured `POSTGRES_HOST:POSTGRES_PORT`
-succeeds); the configured domain's DNS actually resolves to this host's
-public IP (a certbot HTTP-01 challenge will otherwise fail with a message
-that does not mention DNS at all); `<deploy-root>` exists or is creatable
-and has free disk space above a floor; nothing else is already bound to the
-port `vps.compose.yml` binds nginx to; database connectivity + credentials
-+ "database exists" (the same check the install pipeline's step 5 runs —
-`doctor` runs it standalone so an operator can diagnose DB access *before*
-attempting a full install).
-
-`appctl deploy doctor` with no flags runs `required` checks only and exits
-`PRECONDITION` on any failure; `--all` also runs `recommended` checks and
-reports warnings without affecting the exit code.
-
-## 10. `proxy.ts`: the shared host proxy and the app's own vhost
-
-`/opt/infra/proxy` is a second, independent Docker Compose project —
-**outside this git repository**, living only on the VPS's filesystem — that
-this design assumes is either already running (a second app on the same box
-deployed it first) or gets bootstrapped by the first `appctl deploy install`
-to ever run on a given VPS. It is not part of `infra/compose/` and is not
-versioned alongside the application; it is host infrastructure, shared by
-every app deployed to that box. `proxy.ts`'s job:
-
-1. **Bootstrap if absent** — check for `/opt/infra/proxy/docker-compose.yml`;
-   if missing, write a minimal nginx + certbot compose project (an nginx
-   container publishing `0.0.0.0:80` and `0.0.0.0:443`, a `conf.d/` directory
-   mounted in for per-app vhosts, a `webroot/` directory mounted in for
-   ACME HTTP-01 challenges, a certs volume) and `docker compose up -d` it.
-   This is the **only** thing in the whole design that binds a public port —
-   everything else in `vps.compose.yml` is loopback-only.
-2. **Render the vhost** for this app's domain into
-   `/opt/infra/proxy/conf.d/<domain>.conf`, proxying to
-   `127.0.0.1:<bound-port>` (the port `vps.compose.yml`'s nginx service
-   binds — default `3535`, matching local dev, but distinct per app on a box
-   hosting more than one).
-3. **Issue the certificate** via certbot's **webroot** method against the
-   shared proxy's `webroot/` mount — never the standalone/`--nginx` plugin
-   method, because that plugin wants to own nginx's config itself, which
-   conflicts with a proxy shared across apps it doesn't know about.
-4. **Validate**: run `nginx -t` *inside the proxy container* against the
-   newly rendered config before reloading anything.
-5. **Reload** (`docker exec <proxy-container> nginx -s reload`) only if
-   validation passed.
-6. **Roll back** on any failure in 3-4: restore the previous vhost file (or
-   remove it, on a first install with nothing to restore to) and leave the
-   previous, known-good nginx state serving traffic. A failed cert issuance
-   or a bad vhost render must never take down every other app sharing that
-   proxy.
-
-**`ProxyRuntime`: making "container or host" an explicit fact, not an
-assumption (issue #389).** Steps 1–6 above describe the containerised proxy
-this whole design targets, but the first implementation of `proxy.ts` did not
-actually carry that distinction anywhere — `renderVhost` and `issueCertificate`
-simply assumed host binaries (a host `nginx`, a host `certbot` writing under
-`<proxyRoot>/letsencrypt`), which happens to render a working config only when
-the proxy is *not* containerised. Every certificate and webroot path exists in
-two forms — the **host** path (`<proxyRoot>/letsencrypt/...`), which is what
-this process itself stats and what `openssl` reads, and the **config** path,
-which is what has to appear inside an nginx vhost or a certbot invocation. In
-host mode those two coincide. In container mode — one long-lived nginx
-container fronting every app on the box, with `./letsencrypt` mounted at
-`/etc/letsencrypt` and `./webroot` at `/var/www/certbot` — they do not, and a
-host path written into a vhost names a file that does not exist inside the
-container, which fails `nginx -t` for *every* site sharing that proxy, not
-just this one.
-
-The fix makes the runtime an explicit, resolved value — `ProxyRuntime`
-(`apps/cli/src/deploy/proxy.ts`), carrying `mode: 'container' | 'host'`, the
-container name (default `proxy-nginx`), and `certRoot`/`webroot` **as nginx
-sees them**: `/etc/letsencrypt` and `/var/www/certbot` in container mode, the
-literal host paths in host mode. `livePath()` stays the host accessor
-(`certificateStatus`, the TLS doctor checks); a separate `configLivePath()`
-is what `renderVhost` uses, and nothing else may write a certificate path into
-a config. `resolveProxyRuntime` decides which mode applies, in order: an
-explicit `--proxy-mode`/`--proxy-container` flag wins outright; otherwise
-`docker inspect` finding a running container of that name means container
-mode; otherwise a host `nginx -v` succeeding means host mode; **otherwise
-container mode**, because that is the documented target architecture (the
-six-step recipe above) and the shape a fresh, undecided server is being
-prepared for — defaulting to host would silently do the wrong thing on the
-one server this whole design is written for. `resolveRecordedProxyRuntime`
-layers a fourth source between the flag and detection: the deployment's own
-recorded `proxyMode`/`proxyContainer` from a previous run, so `update`,
-`certs` and `uninstall` act under the same runtime `install` resolved rather
-than re-detecting against a proxy that happens to be stopped at that moment.
-
-In container mode, `validateProxy`/`reloadProxy` run `docker exec
-<container> nginx -t`/`nginx -s reload` instead of the bare host binary (the
-missing half of steps 4–5 above — the runtime was accepted as a parameter but
-no caller ever passed one), and `issueCertificate` runs the **dockerised**
-certbot (`certbot/certbot:latest`, `docker run --rm` with the same two mounts
-the proxy container uses) with **no** `--config-dir`/`--work-dir`/`--logs-dir`
-— those flags are exactly what write host paths into
-`letsencrypt/renewal/<domain>.conf`, which a dockerised `certbot renew` then
-cannot follow (it reports the target "expected ... to be a symlink" and the
-certificate silently stops renewing). Host mode keeps the original argv,
-config-dir flags included, because there the host paths are the *correct*
-paths. Two doctor checks turn each of those failure modes into something
-`doctor` reports before an install ever reaches them: `certificate-renewal-paths`
-fails when this deployment's own `letsencrypt/renewal/<domain>.conf` still
-records host paths under a containerised proxy, and `certificate-served`
-compares the certificate the proxy actually serves against the one on disk
-and warns when disk is newer — a renewed certificate on disk is not a served
-certificate; the gap between the two is a reload that did not happen, and it
-presents as an expired certificate on a server whose files all look correct.
-`certbot-installed` is `required` only when the resolved runtime is `host` (or
-unknown) — in container mode a missing host `certbot` binary is not a defect,
-and failing `doctor` over it would fail a correctly configured server.
-
-Illustrative shape of a rendered vhost (abbreviated — the real template also
-carries the standard TLS cipher/protocol hardening lines, omitted here):
-
-```nginx
-server {
-    listen 80;
-    server_name app.example.com;
-    location /.well-known/acme-challenge/ { root /webroot; }
-    location / { return 301 https://$host$request_uri; }
-}
-
-server {
-    listen 443 ssl;
-    server_name app.example.com;
-    ssl_certificate     /etc/letsencrypt/live/app.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/app.example.com/privkey.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:3535;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-```
-
-Note `X-Forwarded-Proto` is set **here**, at the shared proxy — the
-in-compose `infra/nginx/nginx.conf` already forwards it onward
-(`proxy_set_header X-Forwarded-Proto $scheme` in its own `/api` and `/`
-blocks) but is itself sitting behind another proxy on a VPS, so the value it
-sees and passes on must originate at the outermost hop, not be invented
-partway through. `apps/api/src/main.ts`'s trust-proxy configuration (outside
-this document's scope) is what makes NestJS honor it once it arrives.
-
-## 11. The CLI/TUI seam: `DeployHooks`
-
-This is the single most important pattern to get right, and it is not new —
-it is `device-login.ts` copied faithfully. `apps/cli/src/device-login.ts`'s
-own header states the rule: **nothing in the business-logic module writes
-to a terminal.** Everything a human would see is delivered through a hooks
-object; `commands/login.ts` renders those hooks as stderr lines and
-`tui/screens/login.tsx` renders the identical callbacks as React state. Two
-renderers, one sequence, and the sequence is the thing that gets tested.
-
-```ts
-export interface DeployStep {
-  id: string;            // matches a steps/ module, e.g. 'migrate'
-  label: string;          // "Running database migrations"
-}
-
-export interface StepResult {
-  status: 'ok' | 'skipped' | 'failed';
-  message?: string | undefined;
-  durationMs: number;
-}
-
-export interface DeployHooks {
-  onStepStart?: ((step: DeployStep) => void) | undefined;
-  onStepResult?: ((step: DeployStep, result: StepResult) => void) | undefined;
-  /** A line of subprocess output, already ANSI-stripped. */
-  onLog?: ((line: string, level: 'info' | 'warn' | 'error') => void) | undefined;
-  /** For a long step (build, migrate) that has no natural sub-steps to report. */
-  onProgress?: ((info: { completed: number; total: number }) => void) | undefined;
-}
-```
-
-`install.ts`/`update.ts` take `hooks?: DeployHooks` exactly like
-`runDeviceLogin` takes `options.hooks`, and neither ever calls
-`process.stdout.write`/`process.stderr.write` directly — `commands/deploy.ts`
-does that, formatting `onLog` as a line and `onStepResult` as a
-`✓ Migrated database (2.1s)`-shaped line, following `formatStatusLine`'s
-existing precedent in `output.ts`. `tui/screens/deploy.tsx` instead
-accumulates `onLog` lines into component state feeding a `ScrollBox`
-(section 12) and renders `onStepResult` as a checklist.
-
-## 12. Logging: the run journal
-
-Every invocation of `install`/`update`/`doctor` writes two files under
-`<deploy-root>/logs/`: a timestamped human-readable `.log` and a matching
-machine-readable `.jsonl`, one JSON object per executed command —
-`{ argv, cwd, exitCode, durationMs, stdout, stderr, startedAt }`. Retention
-keeps the newest N runs (a small constant, e.g. 20) and deletes older ones
-at the start of each run, the same "prune on write, not on a schedule"
-approach as nothing needing a cron job.
-
-**Redaction is mandatory and happens before a single byte reaches disk.**
-Every value `env-metadata.ts` marks `secret: true` — whether generated by
-the wizard or typed by the operator — is collected into a redaction list
-once the `.env` is known, and `journal.ts` does a literal substring replace
-of each value with a fixed placeholder across every line of captured
-stdout/stderr and every recorded `argv`, for both the `.log` and the
-`.jsonl`. State the honest boundary of this: it is a substring match against
-*known* secret values, not a pattern-based scan — a value `env-metadata.ts`
-does not know to be secret (a fork's own newly added credential with no
-metadata entry) will not be redacted, because there is nothing to compare
-against. This is precisely why section 6 says a fork adding a new secret-ish
-key should add a `secret: true` entry: doing so is what makes both masking
-*and* redaction apply to it. Console output during a run gets the *rendered*
-summary (via `DeployHooks`, already free of raw secret material by
-construction — nothing puts a secret value into an `onLog` line in the
-first place); the file gets the full captured output, redacted the same
-way.
-
-## 13. Deploy state
-
-`<deploy-root>/state.json`, **not** `~/.appctl/config.json` — this is a hard
-requirement, not a style preference. `writeConfigFile` "replaces the whole
-file and drops unknown keys" (`config.ts`'s own words); if deploy state
-shared that file, the next `appctl login` on the same VPS (an operator
-re-authenticating the CLI itself against the API, entirely unrelated to
-deploy) would silently erase every field deploy had written. `state.ts`
-must implement the identical temp-file-then-rename, mode-at-creation
-pattern `writeConfigFile` uses (section 6 makes the same requirement for
-`.env`), for the identical reason: a crash or a full disk mid-write must
-leave the previous, valid state file intact rather than a truncated one that
-reads as corrupt.
-
-```ts
-interface DeployState {
-  repoUrl: string;
-  ref: string;
-  commitSha: string;          // as of the last successful install/update
-  domain: string;
-  boundPort: number;          // what vps.compose.yml bound nginx to, locally
-  installedAt: string;        // ISO 8601, set once, never overwritten
-  updatedAt: string;          // ISO 8601, set on every successful run
-  appctlVersion: string;      // CLI_VERSION at time of write
-  lastCommand: 'install' | 'update';
-  lastSuccessAt: string;      // ISO 8601
-}
-```
-
-`status.ts` reads this file (never required to exist — `status` on a
-never-installed directory reports that plainly, not as an error) and
-augments it with live data: `docker compose ps` per-service state, an
-immediate `/api/health/ready` poll, the certificate's expiry date, and how
-many commits (if any) the tracked ref is ahead of `state.commitSha` — the
-last one answering "is there an update available" without performing one.
-
-## 14. TUI integration
-
-A new route joins the closed union in `tui/routes.ts`:
-
-```ts
-export type Route = 'menu' | 'login' | 'invoke' | 'status' | 'logout' | 'deploy';
-```
-
-...listed in `screens/menu.tsx`, switched on in `app.tsx`, and
-`tui/screens/deploy.tsx` follows the existing screen contract exactly: one
-`onDone: () => void` prop, a discriminated-union state machine, an
-`AbortController` in a ref aborted on unmount, `useInput` gated by
-`isActive` whenever a child (a text field, the confirm prompt, the eventual
-select list) owns the keyboard.
-
-The live step/log view reuses `ScrollBox` — its own header already explains
-why: ink redraws the *entire* frame on every state change, so an unbounded
-list of `<Text>` lines behind a minutes-long `docker compose build` is
-exactly the failure mode that component exists to prevent. Two things
-`ScrollBox` does not do today that this screen needs:
-
-- **`followTail`** — a new prop, off by default (matching the existing
-  behavior an operator scrolling old JSON output relies on) but the natural
-  default *while a deploy step is actively running*: new log lines should
-  keep the viewport pinned to the bottom unless the operator has manually
-  scrolled up, at which point auto-follow disengages until they return to
-  the bottom. This is genuinely new work, not a trivial prop threading.
-- **ANSI-free input, still enforced** — `executor.ts` must strip ANSI
-  escapes from captured output before it ever reaches a hook (section 5),
-  which is what keeps this a non-issue for `ScrollBox` rather than a second
-  place needing the same fix `screens/invoke.tsx`'s existing note about
-  colour-run slicing already documents.
-
-**The abort-safety honesty this screen must carry**: unlike
-`device-login.ts`'s poll loop, which is safe to abort at any point because
-polling has no side effect of its own, a deploy step mid-flight
-(`docker compose build`, a migration) is not uniformly safe to interrupt.
-`executor.ts` SIGTERMs the child on abort, and `docker compose build`
-interrupted mid-layer or a migration interrupted mid-statement can leave a
-genuinely partial state. The screen must say so on Esc — a confirmation
-naming the risk ("this may leave a partial deployment; re-running install
-will resume safely") — rather than implying cancellation is free the way it
-is on the login screen. This is the one place this design's "everything is
-idempotent, so re-running is always the fix" promise needs a caveat spoken
-out loud to the operator at the moment it matters, not buried in this
-document.
-
-**The exit-code inversion also matters here.** `tui/index.tsx` today lets a
-failed *interactive* operation still exit the process with 0 — the TUI
-itself completed even though the thing it did failed. `appctl deploy
-install` run as an explicit subcommand must not inherit that: a scripted
-`appctl deploy install --non-interactive` in a bootstrap pipeline needs the
-real exit code (0, or `PRECONDITION`/`FAILURE`/etc.), because that is
-exactly the class of automation `program.ts`'s two binding rules exist to
-serve. The TUI screen's own "operation failed" state can still return 0 to
-`onDone` for the *menu* to keep working — but the explicit `deploy install`
-command path, going through `program.ts`'s ordinary `run()`, must not.
-
-## 15. `infra/compose/vps.compose.yml`
-
-A third overlay, layered the same way `dev.compose.yml` and
-`prod.compose.yml` already are:
-
-```bash
-docker compose -f base.compose.yml -f prod.compose.yml -f vps.compose.yml up -d
-```
-
-Its whole job, once Phase 0's fixes land in `base.compose.yml` and
-`prod.compose.yml` themselves, is the one override that is legitimately
-VPS-specific and wrong for local dev: binding nginx to loopback only.
-
-```yaml
-services:
-  nginx:
-    ports:
-      - "127.0.0.1:3535:80"
-```
-
-Nothing else belongs in this file. The `env_file` fix, the `nginx.prod.conf`
-mount, and the memory limits all belong in `base.compose.yml`/
-`prod.compose.yml` because they are correct for *any* production-like run,
-VPS or otherwise — keeping `vps.compose.yml` to the one line that is
-specifically "there is a shared proxy in front of me" is what keeps the
-compose layering legible instead of every overlay re-deciding the same
-things slightly differently.
-
-## 16. Rejected alternatives
-
-| Alternative | Why it lost |
+| Runs on the VPS | The operator SSHes in with their own credentials and runs `appctl` there | An SSH library in the CLI, laptop-driven orchestration, managing SSH keys |
+| Git + build | `git clone`/`fetch` and `docker compose build` on the server, every time | Pulling pre-built images |
+| TLS by a shared host proxy | One nginx + certbot stack at `/opt/infra/proxy`, outside this repository, serves every app on the box. The app binds `127.0.0.1` only | Per-app port 443, per-app certbot timers |
+| External PostgreSQL | `POSTGRES_*` point at a server the operator provides. There is no `db` service in any production compose file | The CLI managing database volumes, backups or upgrades |
+| A state document written by the CLI | The CLI records what it deployed (`.appctl-deploy.json`) and publishes `deploy-info/info.json`, which the API reads through a read-only bind mount | A second deployment registry, the API guessing its own provenance |
+
+### Commands
+
+| Subcommand | Does |
 |---|---|
-| **Drive the VPS over SSH from a laptop** | Requires bundling an SSH client/library (`ssh2` or a shell-out to system `ssh`), a private-key or agent-forwarding story, and turns ordinary network flakiness between the laptop and the VPS into deploy failures. The confirmed model instead reuses the operator's own already-authenticated interactive SSH session and never needs a second credential. |
-| **Pull pre-built images from GHCR** | `.github/workflows/deploy.yml` already builds and pushes `ghcr.io/<repo>-api`/`-web` on every tag — but its `deploy-staging`/`deploy-production` jobs are literal `echo` stubs, no compose file anywhere uses `image:` (both `api` and `web` are `build:`-only), and consuming a GHCR image from a VPS needs registry credentials staged there too. This is the obvious next integration once `appctl deploy` exists — a `--from-registry` mode that skips the build step — but it is a second, separable piece of work, not part of v1. |
-| **A self-contained per-app nginx + certbot** | A VPS hosting one app today is a VPS hosting a second one within a year. Per-app TLS termination means N certbot renewal timers and N nginx processes contending for port 443, with no coherent answer for "what's already bound there" the moment a second app deploys. The shared proxy owns 443 exactly once. |
-| **PostgreSQL inside the app stack** | `base.compose.yml` deliberately ships no Postgres service — bundling one here would make the CLI additionally responsible for its backups, volumes, and version upgrades, none of which this repository does for any other stateful dependency (S3/storage is always external too). External-and-validated keeps deploy's blast radius to the stateless tier. |
-| **A hardcoded env-var list in the wizard** | The same drift risk `commands/api.ts`'s "one generic command" design exists to avoid — a fork that edits `.env.example` would silently desync from a wizard that doesn't read it. Parsing the file at run time is the only shape that survives a fork's own edits. |
-| **A single 34-field TUI form** | Most installs only ever touch the same dozen fields (domain, DB credentials, Google OAuth, admin email); stepping through all 34 including `UPTRACE_ADMIN_PASSWORD` on every single install is exactly the kind of form an operator abandons partway through. The essential-subset-plus-`--all` split targets the common path while keeping the full set one flag away. |
+| `doctor` | Runs the prerequisite checks; exits `6` (`PRECONDITION`) on any required failure |
+| `install` | Full pipeline on a new deployment directory |
+| `update` | Brings an existing deployment to the latest revision of its ref |
+| `status` | Containers, local and external health, migrations, certificate |
+| `list` | Every deployment under the apps root |
+| `about` | Prints `deploy-info/info.json` from disk (never asks the API) |
+| `certs` | Inspects or renews the certificate (`--renew`, `--force`, `--staging`) |
+| `uninstall` | Removes a deployment, after a read-only inventory (`--dry-run` shows it) |
 
-## 17. Suggested phasing (non-binding)
+Flags per subcommand are in [apps/cli/README.md](../../apps/cli/README.md#deploying-to-a-server).
+Every subcommand keeps the CLI's two rules: human output on stderr, `--json`
+on stdout only, and failure is a non-zero exit.
 
-Not the actual issue list — the epic owns that — but a grouping that keeps
-each piece reviewable on its own and roughly matches the module boundaries
-above, for whoever slices this into the 17 child issues:
+### Layout on the server
 
-1. Phase 0 fixes (section 2) — no CLI code, must land first.
-2. Foundations: `executor.ts`, `journal.ts`, `state.ts`, `hooks.ts`, the
-   `PRECONDITION` exit code, the three new `prompt.ts` primitives.
-3. `repo.ts` + `checks/` + `doctor.ts`.
-4. `env-spec.ts` + `env-metadata.ts` + `env-wizard.ts`.
-5. `proxy.ts`, including the shared-proxy bootstrap.
-6. `health.ts` + `steps/` + `install.ts` end to end.
-7. `update.ts`.
-8. `status.ts`.
-9. `commands/deploy.ts` (stderr rendering for all four subcommands).
-10. `tui/screens/deploy.tsx` + the route/menu wiring, including
-    `ScrollBox`'s `followTail`.
-11. `infra/compose/vps.compose.yml` + this document's own follow-up: once
-    real usage exists, fold anything this design got wrong back into it.
+```
+/opt/infra/proxy/                 # shared proxy (not in this repo)
+  docker-compose.yml, conf.d/<domain>.conf, webroot/, letsencrypt/
+/opt/infra/apps/<app-name>/       # one deployment (DEFAULT_APPS_ROOT)
+  repo/                           # the CLI's own clone of the fork
+    infra/compose/.env            # written here today (legacy location)
+  .env                            # preferred by readers when present
+  .appctl-deploy.json             # deploy state (0600, atomic write)
+  deploy-info/info.json           # the document the API reads
+  logs/<run>.log, <run>.jsonl     # run journal
+```
 
-## 18. Epic #397: multi-app hosting, evidence-based deployments, and removal
+`.env` is written at `repo/infra/compose/.env`. `resolveEnvPath` already
+prefers `<root>/.env` when it exists, in anticipation of moving it out of the
+checkout.
 
-Epic #168 above assumed one VPS, one application, one deploy root. Epic #397
-(issues #398-#405) is what happens once that assumption meets a real fleet:
-a box hosting a second application within a year, an operator standing inside
-their own deployment being told to pass a flag naming the thing they're
-standing in, and a deployment whose bookkeeping file is lost being treated as
-if it does not exist. Three decisions here are as load-bearing as the four in
-section 1, and a later change should not reopen them without reading why they
-landed this way.
+### Locating a deployment
 
-### 18.1 A deployment is evidence, not a record
+`layout.ts`'s `locateApp` resolves which deployment a command acts on, in five
+ranks:
 
-`deployment-evidence.ts`'s predicate is deliberately narrow: a deployment is
-a git checkout at `<root>/repo` **and** a readable `.env` — nothing else.
-Earlier code asked "does `state.json` exist," which is a question about this
-CLI's own bookkeeping, not about whether a deployment is *there*. A directory
-with a live checkout, a working `.env`, running containers, an issued
-certificate and a serving site — but a state file lost to a bad snapshot
-restore — failed that older predicate, and `update` pointed the operator at
-`install`, whose own precondition is the opposite situation. Both
-`layout.ts`'s enumeration and `update.ts`'s adoption path import the same
-`isDeployment` — deliberately, because when each had its own idea of what a
-deployment was, fixing one left the other calling code that still could not
-find the deployment it was written to rescue.
+1. an explicit `--root`;
+2. an explicit `--name` (under `--apps-root`, default `/opt/infra/apps`);
+3. the deployment the current directory is inside (bounded by the apps root);
+4. the sole installed deployment;
+5. otherwise **refuse, naming every candidate**. It never picks one.
 
-Adoption (`adopt.ts`) rebuilds a record from what is actually knowable — the
-checkout's own origin and ref, the `.env`'s bind port — and invents nothing
-for the rest. `installedAt` is not approximated from a directory `mtime`
-(that records the last write to the directory, not the install), so an
-adopted record carries `adoptedAt` as a third timestamp axis, distinct from
-`installedAt` and `lastDeployedAt`, so a later reader can tell "this was
-adopted, and the earlier history is genuinely unknown" from "this was
-installed, then, and last deployed, then."
+`DEPLOY_ROOT` is written into `.env` by the CLI and is deliberately absent from
+`.env.example`. It marks a deployment this CLI wrote, so enumeration can skip a
+foreign application sharing the apps root. Two forks of this template on one
+host are still ambiguous; rank 3 is what resolves that in practice.
 
-### 18.2 Multi-app layout: five resolution ranks, and ambiguity refuses
+### Deployment evidence and adoption
 
-`layout.ts` lays deployments out at `<apps-root>/<app-name>/`
-(`DEFAULT_APPS_ROOT = /opt/infra/apps`) and defines `locateApp`'s five ranks:
-an explicit `--root`; an explicit `--name`; the deployment the current
-working directory is standing inside, walking upward but bounded strictly
-inside the apps root; the sole installed deployment; and, failing all four, a
-refusal that **names every candidate** rather than picking one. Rank 3 is the
-one that matters in practice: without it, an operator standing inside their
-own deployment on a seven-app host was told `Pass --name` by the exact
-command whose error message had just left them in the directory that answers
-the question. Rank 5 refuses and never prefers — narrowing by the deployment
-marker (below) down to one candidate and silently taking it was considered
-and rejected, because the marker cannot distinguish "not ours" from "ours,
-deployed before the marker existed," and every deployment from an earlier CLI
-is the latter. Inventing a tiebreak at the exact moment the operator most
-needs to be asked is the failure mode rank 5 exists to rule out.
+A deployment **is** a git checkout at `<root>/repo` **and** a readable `.env`
+(`deployment-evidence.ts`, `isDeployment`). The state file is not required.
+`layout.ts` and `update.ts` share that predicate. When the state file is
+missing, `update` **adopts** the deployment (`adopt.ts`): it rebuilds a record
+from the checkout's origin and ref and the `.env`'s `APP_BIND_PORT`, sets
+`adoptedAt`, and invents nothing else.
 
-`DEPLOY_ROOT_MARKER` (`DEPLOY_ROOT`, an env key absent from `.env.example` on
-purpose) lets enumeration tell a deployment this CLI family wrote from a
-foreign application sharing the same apps root; `COMPOSE_PROJECT_NAME` was
-considered and rejected for this job because Compose itself defines that
-variable, so a neighbour's `.env` may legitimately carry it. The honest limit,
-stated in the module's own header: two forks of this same template on one
-host are still genuinely ambiguous, and no marker can separate them — rank 3
-is what actually resolves the operator's problem; the marker only excludes
-genuinely foreign applications.
+### Install pipeline
 
-⚠ **As landed, only `deploy list` reads this layout** (via `enumerateDeployments`
-and its own `--apps-root`). `locateApp`'s five-rank resolution is implemented
-and unit-tested but not yet wired into `install`/`update`/`status`/`doctor`/
-`certs`/`uninstall`'s command-line surface — each of those still takes a
-plain `--root` naming one deployment directly, with no `--name` flag. Wiring
-the rest of the command surface to `locateApp` is follow-up work, not a
-design question left open here.
+Each step is idempotent. A failed run records `completedSteps` and
+`lastFailedStep`; `--resume` continues from the failed step. `install` refuses
+a directory that already holds a deployment unless `--reinstall` or `--resume`
+is passed.
 
-### 18.3 Removing a deployment, and the shape every destructive extra follows
+| Step | Does |
+|---|---|
+| `preflight` | Required doctor checks (skippable with `--skip-doctor`) |
+| `checkout` | Clone or fetch the repo at `--ref`. For a private GitHub HTTPS URL with `gh` logged in, runs `gh auth setup-git` first |
+| `environment` | The env wizard, or answers from `--answer`/`--answers-file` |
+| `validate-environment` | Formats, database reachability and credentials, OAuth probe |
+| `ensure-database` | Create the database if it is the only thing missing (see below) |
+| `version` | Choose, write and commit the release version (see below) |
+| `build` | `docker compose -f base -f prod -f vps build` (`--no-cache` available) |
+| `migrate` | `docker compose run --rm --no-deps api npm run prisma:migrate` |
+| `seed` | `… npm run prisma:seed` (idempotent upserts; `--skip-seed` to skip) |
+| `start` | `up -d` |
+| `health` | Poll `http://127.0.0.1:<port>/api/health/ready` |
+| `deploy-info` | Write `deploy-info/info.json` (first write, at the health gate) |
+| `proxy-bootstrap` | Create the shared proxy if absent (asks, or `--bootstrap-proxy`) |
+| `publish` | Render the vhost, issue the certificate, validate, reload (`--skip-proxy` to skip) |
+| `renewal` | Schedule renewal unless something already owns it (`--skip-renewal`) |
+| `verify` | Containers, local ready and frontend, pending migrations (`prisma migrate status`), external HTTPS, OAuth smoke |
+| `publish-version` | Push the version commit (last; a failed push is a warning) |
 
-`uninstall.ts` runs a read-only inventory (`planUninstall`) before anything
-is asked or removed — nobody can consent to a number they were not shown,
-and that inventory is what a confirmation is *about*. It refuses, always, to
-touch four things because each is shared infrastructure this deployment is a
-tenant of, not an owner of: the shared Docker network, the shared proxy
-container, the TLS certificate (Let's Encrypt's 5-duplicate-per-week limit
-means keeping it is what makes a reinstall possible), and the per-host
-renewal cron entry/timer (it renews every application's certificate).
+`/api/health/ready` passes against an empty, unmigrated database. Only the
+`migrate` step's exit code and `verify`'s migration status prove migrations
+ran.
 
-The two opt-in extras — `--drop-database`/`--purge-storage` — establish the
-pattern any future destructive extra should follow: its own flag, **and** a
-typed confirmation of that resource's **own real name**, never a shared magic
-word like `DELETE`. The reasoning is not abstract — an operator who has
-decided to drop a database has not thereby decided to empty a bucket, and a
-single word typed once would authorize both. `confirmationMatches` checks
-each extra against its own resource's name, and each is validated
-independently before anything runs.
+### Update pipeline
 
-### 18.4 Object storage is where this design and the portable spec diverge
+`preflight`, `fetch`, `environment-drift`, `ensure-database`, `version`,
+`build`, `migrate`, `seed`, `restart`, `health`, `deploy-info`, `publish`,
+`renewal`, `verify`, `publish-version`.
 
-The original assumption — every credential a deployment needs lives in
-`.env` — stopped holding the moment epic #372/#377 moved the object-storage
-bucket and credential into the `storage` system-settings namespace plus an
-encrypted `credentials` row, resolved by the running application, never by a
-file on disk. `--purge-storage` cannot be a CLI-side operation for exactly
-that reason: nothing outside the running api process can decrypt that
-credential to act on it, or even to check the typed bucket name against the
-real one. So the purge runs **inside the built api image**
-(`docker compose run --rm --no-deps api npm run storage:purge -- --confirm
---bucket <name>`), before the stack and the clone are torn down, so it still
-has the image and the live configuration to work with. `apps/cli`'s own
-`tsconfig.build.json` pins `rootDir: ./src`, which makes it structurally
-impossible for the CLI to import anything from `apps/api` — duplicating the
-cipher and the storage key-prefix list into a package that provably cannot
-import the originals is the failure mode this divergence avoids, not a
-limitation to route around. See
-[`docs/specs/storage-providers.md`](storage-providers.md) for the settings/
-secret split this depends on.
+- `fetch` compares the ref's SHA with the recorded `commitSha`. Unchanged and
+  no `--force`: report "up to date" and do nothing.
+- `environment-drift` finds `.env.example` keys missing from `.env`. It prompts
+  for just those keys, or fails under `--non-interactive`.
+- The seed re-runs by default, so new permissions and roles reach existing
+  installs.
+- There is no automatic rollback. The previous SHA is recorded
+  (`previousSha`) for a manual `git checkout` and re-run.
 
-`--drop-database` does not have the same excuse — PostgreSQL connection
-parameters are ordinary `.env` values `database-drop.ts` can read directly,
-which is exactly why it is implemented as a standalone, runnable, unit-tested
-function (`dropDatabase`, in `database-drop.ts`) rather than needing a
-detour through the api image. As landed, though, `runUninstall` validates the
-typed confirmation against the real database name but does not yet call
-`dropDatabase` — the confirmation gate is real, the drop itself is not yet
-wired to it. Closing that gap is follow-up work on this same module, not a
-design question: the function, its two-explicit-`DROP DATABASE`-attempts
-shape, and its scoped-termination-on-`object_in_use` behavior are already
-decided and already tested; only the call site is missing.
+### Environment wizard
 
-### 18.5 The compose project name is recorded, never derived
+- **`env-spec.ts`** parses `infra/compose/.env.example` at run time: banners
+  become sections, comments above a key become its help, an active `KEY=value`
+  is a required-shape entry, a commented `# KEY=value` is optional, and
+  trailing inline comments are stripped from values.
+- **`env-metadata.ts`** is the only hard-coded list: `secret` (masked input,
+  redacted in logs), `generate` (`randomBytes(32)` in-process for
+  `JWT_SECRET`, `COOKIE_SECRET`, `SECRETS_ENCRYPTION_KEY`), validators (32-char
+  minimum; `SECRETS_ENCRYPTION_KEY` must decode to 32 bytes), `derivedFrom`
+  (`APP_URL` and `GOOGLE_CALLBACK_URL` from the one domain question),
+  `essential` (prompted by default), and optional `group`s such as
+  `observability` and `email`, opted into with `--group`.
+- `--all` reviews every key. A key a fork adds to `.env.example` with no
+  metadata entry is still prompted as plain text.
+- `.env` is written with mode `0600` via a temp file and rename.
 
-Without `-p <project>`, Compose derives a project's name from the compose
-file's directory, which is `compose` for every deployment on a box, because
-every deployment resolves the same `infra/compose` path relative to its own
-checkout — so a second application's `up -d` fights the first one's
-containers over one project. The fix is not "always pass `-p
-<deployment-name>`": renaming an **existing** deployment's project makes
-Compose see no containers under the new name and build a parallel stack that
-collides with the still-running old one on the same bind port — a
-bookkeeping change causing an outage. So the project name is **recorded** at
-install time (`state.composeProject`) and never re-derived at a call site: a
-fresh install gets its own name (the deployment directory's basename); a
-deployment that predates this feature keeps the literal name `compose`
-forever, because that is what a `docker compose` invocation with no `-p` was
-always naming it.
+### Doctor checks
 
-### 18.6 What this epic did not change
+Registered in `apps/cli/src/deploy/checks/`, one module per area, shared by
+`doctor` and the pipelines' `preflight`:
 
-Deploy-time versioning (choosing and stamping a release version during
-install/update, à la the portable spec's `--app-version`/
-`--no-version-bump`) and relocating `.env` out of the checkout to
-`<deployRoot>/.env` with a legacy symlink are both **out of scope for the
-work this section documents** — `deployment-evidence.ts` already prefers the
-new `.env` location when reading (`resolveEnvPath` checks
-`<deployRoot>/.env` before the legacy `<deployRoot>/repo/infra/compose/.env`),
-anticipating that move, but `install.ts`/`update.ts` still *write* `.env` at
-the legacy path only, and neither pipeline has a version step. Whoever picks
-either of these up next should read `deployment-evidence.ts`'s existing
-forward compatibility before assuming the read side needs work too.
+| Area | Check ids |
+|---|---|
+| Host | `docker-installed`, `docker-daemon`, `docker-compose-v2`, `git-installed`, `node-version`, `disk-space`, `memory`, `bind-port-free` |
+| Source | `gh-installed`, `gh-authenticated` |
+| Database | `database-reachable`, `database-credentials`, `database-exists`, `database-privileges`, `database-ssl`, `database-create-privilege` |
+| DNS | `dns-resolves`, `dns-points-here` |
+| Proxy and TLS | `proxy-root`, `proxy-conf-writable`, `acme-webroot`, `certbot-installed`, `proxy-container`, `proxy-config-valid`, `certificate-present`, `certificate-validity`, `certificate-renewal`, `certificate-renewal-paths`, `certificate-served` |
 
-## 19. Epic #388: closing the gaps a real VPS surfaced
+`certbot-installed` is required only when the proxy runs on the host. DNS and
+TLS checks run when `--domain` is given.
 
-Sections 1–18 describe a pipeline built against an *assumed* server. Running
-it against the actual documented target architecture (section 10's
-container proxy, a private GitHub repository, an operator who has not
-necessarily already run `CREATE DATABASE` or typed their OAuth secret
-correctly) surfaced four more gaps, closed by issues #390–#392. Section 10
-above already covers the proxy-runtime half (#389); this section covers the
-rest.
+### Shared proxy and TLS
 
-### 19.1 Renewal ownership: acting on "who already renews here", not assuming nobody does
+- **`ProxyRuntime`** (`proxy.ts`) makes the proxy's shape explicit:
+  `mode: 'container' | 'host'`, the container name (default `proxy-nginx`),
+  and the certificate and webroot paths **as nginx sees them**
+  (`/etc/letsencrypt`, `/var/www/certbot` in container mode). Resolution order:
+  `--proxy-mode`/`--proxy-container`; the deployment's recorded values;
+  `docker inspect` finding the container; a host `nginx -v`; otherwise
+  container mode.
+- **Publishing** renders `conf.d/<domain>.conf` (HTTP-01 challenge location,
+  redirect to HTTPS, `proxy_pass http://127.0.0.1:<APP_BIND_PORT>`, and
+  `X-Forwarded-Proto` set at this outermost hop), issues the certificate with
+  certbot's **webroot** method (the dockerised `certbot/certbot:latest` in
+  container mode), runs `nginx -t` (inside the container in container mode),
+  and reloads only if validation passed. Any failure restores the previous
+  vhost, so one app cannot take down its neighbours. Vhosts carry a
+  `# Managed by appctl deploy` sentinel; uninstall never removes one without it.
+- **Renewal ownership** (`renewal.ts`, `detectRenewalOwner`): a central script,
+  then a systemd `certbot.timer`, then another direct cron line, then this
+  CLI's own `/etc/cron.d/<cli>-certbot-renew`, then none. Only `none` makes the
+  CLI install its twice-daily entry (`17 3,15 * * *`), which renews **and
+  reloads** the proxy. In container mode, a host mechanism that does not touch
+  the proxy's `letsencrypt/` mount is reported but not counted as the owner.
+- `certs --renew` renews within 30 days of expiry (`RENEW_WITHIN_DAYS`).
 
-`certificate-renewal` (`checks/tls.ts`) used to look only for a systemd
-`certbot.timer` or `/etc/cron.d/certbot`. A server whose certificates are
-renewed by a **central script** covering every application on the box —
-the ordinary shape on a multi-app VPS — has neither, so the check reported
-"no renewal timer or cron entry found," which is not merely unhelpful but
-actively wrong: acting on it schedules a *second* renewal process against
-the same certificates, which is not redundancy, it is a race that also
-spends a Let's Encrypt rate-limit budget shared by every subdomain on the
-box.
+### Database creation
 
-`detectRenewalOwner` answers a different, more specific question: not
-"does anything renew," but "which mechanism owns it, by precedence" —
-a central script (a cron line, in root's crontab, `/etc/crontab` or
-`/etc/cron.d/*`, that runs an existing file which itself invokes
-`certbot ... renew`), then a systemd timer (`certbot.timer` enabled), then
-any other direct cron line invoking `certbot ... renew`, then this CLI's own
-file (`CLI_RENEWAL_CRON_PATH`, `/etc/cron.d/<cli-name>-certbot-renew`), then
-`none`. The install step built on top of it (`renewal.ts`'s `ensureRenewal`)
-acts on exactly that answer: an owner other than `none`/`appctl` means
-**do nothing**, and say which mechanism owns it; `appctl`'s own file means
-make sure its content is current; `none` means install a twice-daily entry
-running the dockerised `certbot renew`, followed by a validate-and-reload of
-the proxy — the reload is the load-bearing half, because nginx reads
-certificates only when it loads its configuration, so a renewal that writes
-a new certificate to disk without reloading leaves the *old* one served
-until it expires, on a server whose files all look correct.
+`ensureDatabase` (`database.ts`) creates the database only when the server is
+reachable, the credentials work, and the only problem is that the database does
+not exist (`3D000`). It asks first, or needs `--create-database` under
+`--non-interactive`, because a typo in `POSTGRES_DB` looks exactly like a
+missing database. It only ever issues `CREATE DATABASE "<name>"` on the
+`postgres` maintenance database, with the name checked against
+`^[A-Za-z_][A-Za-z0-9_$]*$` and the password passed via `PGPASSWORD`.
 
-**Why a host certbot timer does not count as an owner in container mode.**
-A host-mode `certbot.timer` or a cron line running the host `certbot`
-binary renews `/etc/letsencrypt` **on the host filesystem**. When the proxy
-is containerised, that is not the same tree the container reads its
-certificates from at all (the container's `/etc/letsencrypt` is the
-`<proxyRoot>/letsencrypt` bind mount, not the host's own `/etc/letsencrypt`
-path) — so a host timer renewing host state has renewed nothing this proxy
-will ever see. `RenewalMechanism.owns` records exactly this: `cronLineOwns`
-treats a direct cron line as owning renewal unconditionally outside
-container mode, but inside it only when the line names the proxy root or
-invokes the dockerised `certbot/certbot` image. A host mechanism that does
-not own the containerised proxy's certificates is still reported (so it is
-never silently lost from the diagnosis) but never returned as the *owner* —
-counting it would tell an operator renewal is handled when the certificate
-their site actually serves is not being touched at all.
+### OAuth probe
 
-### 19.2 The database-creation prompt: why a prompt, not a silent `CREATE DATABASE`
+`oauth-check.ts`, run in `validate-environment` and again in `verify`:
 
-`database-exists` used to fail with a `createdb` remedy even when the
-server was reachable, the credentials worked, and the configured role held
-`CREATEDB` — an install that could have proceeded stopped anyway to have a
-human type one command. `ensureDatabase` (`database.ts`) closes that gap,
-under three rules, each pinned by its own test:
+1. **Shape:** `GOOGLE_CLIENT_ID` matches
+   `^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$`.
+2. **Callback:** `GOOGLE_CALLBACK_URL` is exactly
+   `https://<domain>/api/auth/google/callback`.
+3. **Live probe:** a POST to `https://oauth2.googleapis.com/token` with a
+   deliberately invalid code. `invalid_grant` is a **pass** (Google accepted the
+   client before rejecting the code). `invalid_client`, `unauthorized_client`
+   and `redirect_uri_mismatch` fail. Anything else (timeout, egress blocked) is
+   a warning.
 
-1. **Only the one failure.** The database is created only when the server
-   is reachable, the credentials authenticate, and the *only* problem is
-   that the named database does not exist (`3D000`). Anything else —
-   refused, bad password, `pg_hba` — is reported exactly as before;
-   creating a database is not the remedy for any of those.
-2. **Never silently — this is the reason it prompts at all.** A typo in
-   `POSTGRES_DB` is, from here, indistinguishable from a database that
-   simply does not exist yet. Creating it unconditionally would silently
-   migrate into a second, empty database, and the operator's first evidence
-   of the mistake would be an application with no data days later. A prompt
-   — or `--create-database`/`--non-interactive`'s explicit consent — is what
-   distinguishes "it does not exist yet, please create it" from "I pointed
-   this at the wrong name."
-3. **Create, never drop or alter.** The only statement ever issued is
-   `CREATE DATABASE "<name>"`, against the `postgres` maintenance database,
-   with the password passed through `PGPASSWORD` (by name in the argv, by
-   value in the environment) rather than ever appearing in a command line an
-   operator or a process list could read. The identifier is validated against
-   a conservative grammar (`CREATABLE_DATABASE_NAME`, no quotes, no spaces)
-   and then double-quoted, so nothing from `.env` can extend the statement.
+`--skip-oauth-check` skips the live probe and downgrades a malformed id to a
+warning, for test deployments with dummy credentials.
 
-`doctor`'s `database-create-privilege` check (a live `CREATEDB` probe, added
-alongside `certificate-renewal-paths`/`certificate-served` by issue #390)
-answers the capability question ahead of time, so a role that cannot create
-databases gets a `GRANT`/`ALTER ROLE` remedy immediately rather than a
-prompt it could never act on successfully.
+### Deploy-time version bump
 
-### 19.3 The OAuth probe: three layers, and why `invalid_grant` is a pass
+The `version` step asks for (or takes `--app-version`) the release version,
+writes it into the manifests listed in `app-version.ts` (`VERSIONED_MANIFESTS`)
+and the lockfile's workspace entries **textually**, and commits in the same
+step. `publish-version` pushes it last, as
+`git push origin HEAD:refs/heads/<ref>`, never with `--force` and never
+retried. A failed push is a warning and the local commit is rolled back, so the
+clone always ends at `origin/<ref>`. `--no-version-bump` deploys the current
+version with no write, commit or push.
 
-The environment wizard validates that `GOOGLE_CLIENT_ID` is not a
-placeholder, which cannot tell a well-formed *wrong* value from a right one
-— a mismatched client secret was previously discovered only when the first
-user tried to sign in, after the build, the migration, the seed, the
-certificate and the vhost had all already succeeded. `oauth-check.ts` adds
-three layers, cheapest first, run inside `validate-environment` at install
-time and again as a post-deploy smoke in `verify`/`status`:
+### Compose project name
 
-1. **Shape** — `GOOGLE_CLIENT_ID` matches
-   `<digits>-<token>.apps.googleusercontent.com`. Catches a paste error in
-   microseconds, with no network call.
-2. **Callback** — `GOOGLE_CALLBACK_URL` matches
-   `https://<domain>/api/auth/google/callback` **exactly**, derived from the
-   same `env-metadata.ts` the wizard itself uses so the two cannot disagree
-   about the path. This is the top row of the operator runbook's
-   troubleshooting table, and a mismatch that otherwise "looks right" at a
-   glance.
-3. **A live credential probe** — a POST to Google's token endpoint
-   (`https://oauth2.googleapis.com/token`) with `grant_type=authorization_code`
-   and a deliberately invalid, recognisably-fake code
-   (`INVALID_PROBE_CODE`). Google validates the **client** before it looks at
-   the code, so the response classifies the credentials themselves:
-   - `invalid_client`/`unauthorized_client` → the client id and secret do not
-     belong together, or the client was deleted — a **fail**;
-   - `redirect_uri_mismatch` → the client is real but does not allow this
-     redirect URI — a **fail**, with the console link to add it;
-   - **`invalid_grant` → the client id and secret were *accepted*, and only
-     the deliberately-wrong code was rejected. This is the pass.** It is
-     counterintuitive only until the ordering is stated plainly: Google
-     cannot get as far as evaluating an authorization code without first
-     accepting the client presenting it, so a rejected code is proof the
-     client was accepted, not evidence against it.
-   - anything else (a non-JSON body, an unrecognised error, a timeout) is a
-     **warning**, never a hard failure — an egress firewall blocking
-     `oauth2.googleapis.com` is not a wrong secret, and failing the install
-     over a network condition unrelated to the credentials would be exactly
-     the wrong failure mode.
+Recorded at install (`composeProject`, the deployment directory's basename)
+and passed as `-p` on every call; never re-derived. A deployment that predates
+the field keeps the name `compose`, which is what Compose derived for it
+originally. Renaming an existing project would start a second stack on the same
+port.
 
-   No browser is opened, no user consents, and no real token is ever issued
-   — the probe only asks "would Google recognise this client if a real flow
-   reached it." The client secret never appears in a thrown message or log
-   line built by this module; it travels only in the POST body, and the
-   install pipeline registers it with the journal's redactor *before* this
-   check runs, so even a runtime error quoting the request cannot put it in
-   the log.
+### Run journal
 
-`--skip-oauth-check` disables the live probe and downgrades a malformed
-client id to a warning — a test deployment with dummy credentials must
-still be installable.
+Every run writes `<root>/logs/<run>.log` and `.jsonl` (argv, cwd, exit code,
+duration, output) in a `0700` directory, keeping the newest 10 runs. Every
+value marked `secret`, typed or generated, is replaced by a placeholder before
+anything is written. Redaction is a literal match against known values, so a
+fork's new secret needs a `secret: true` metadata entry.
 
-### 19.4 Deploy state v2, and the About page as its carrier
+### Deploy state
 
-Issue #392 is `DEPLOY_STATE_VERSION` moving from 1 to 2, adding `host`
-(hostname, OS, kernel, architecture, CPU count, memory, Docker and Compose
-versions, all captured once per successful run by `collectHostFacts` and
-each individually `null` rather than throwing when a probe fails), `history`
-(one entry per successful `install`/`update`, newest first, capped at 20 —
-timestamp, command, commit, previous commit, ref, duration, `appctl`
-version; **success-only by construction**, not by filtering, since an entry
-is appended only from the success path and a failed run therefore leaves
-the prior list exactly as it found it), and `proxy` (domain, bind port,
-mode, container, certificate expiry — the resolved `ProxyRuntime`'s own
-facts, recorded so a later command need not re-detect against a proxy that
-happens to be stopped at that moment). `upgradeState` is what makes the bump
-survive contact with a server already running a v1 file: a v1 record is
-upgraded forward in place (`history: []`, `host`/`proxy` left **absent**
-rather than fabricated, since nothing observed them yet) rather than
-refused, because a hard refusal on version mismatch would make this build
-of the CLI report a live, working deployment as uninstalled the first time
-it ran against a server predating this change. Only a version this CLI has
-never written at all — a hand edit, or a state file from a *newer* appctl —
-is refused, with a message naming the exact remedy (upgrade the CLI, or
-remove the file to reinstall).
+`<root>/.appctl-deploy.json`, never `~/.appctl/config.json` (which `appctl
+login` rewrites whole). Version `2` (`DEPLOY_STATE_VERSION`). A v1 file is
+upgraded in place (`history: []`, `host`/`proxy` absent); an unknown version is
+refused with the remedy.
 
-**Why the About page, and not a new Deployment page (issue #392's
-recorded decision).** Epic #397's own design (section 18 above; issue #401
-in particular) had already built an About page and a `deploy-info/info.json`
-document read by `apps/api/src/about/deploy-info.ts` and mounted read-only
-into the api container by `vps.compose.yml` — before issue #392's v2 state
-fields existed to put there. The natural-looking alternative was a second,
-parallel "Deployment" admin page and a `GET /api/admin/deployment` endpoint
-under a new `deployment:read` permission, one for each new field this issue
-adds. That was rejected in favour of **extending** the existing carrier
-(decision recorded in a comment on issue #392):
-the new fields (`lastCommand`, `bindPort`, `proxy`, `host`, `history`) are
-additive members of the same `deploy-info/info.json` document, `schema`
-stays `1` (the reader already validates leniently field-by-field, dropping
-anything invalid rather than bumping a version that would make every
-already-deployed API answer `invalid` the instant a newer CLI wrote its
-file, before the container it describes had necessarily restarted), the
-endpoint stays `GET /api/admin/about` gated on the existing
-`system_settings:read`, and the card stays **About** at
-`/admin/settings/about` — `/admin/settings/deployment` is a redirect to it,
-not a second destination (Settings UI Pattern rule 2: this is one
-destination gaining more content, not two destinations answering
-overlapping questions). The API's one addition is a **live** `runtime`
-block (`processStartedAt`, `nodeVersion`, `environment`) describing the
-process answering the request right now, layered alongside the document's
-own, CLI-observed-at-deploy-time facts — the two are never conflated: a
-CLI-recorded `host`/`proxy` fact is what the *server* looked like when it
-was last deployed, and `runtime` is what the *process* looks like at this
-exact moment. See [`docs/runbooks/deployment-info.md`](../runbooks/deployment-info.md)
-for the operator-facing picture of what the page shows and why it can
-legitimately read "not configured."
+| Field group | Fields |
+|---|---|
+| Source | `repoUrl`, `ref`, `commitSha`, `previousSha` |
+| Placement | `deployRoot`, `domain`, `bindPort`, `composeProject`, `groups` |
+| Proxy | `proxyRoot`, `proxyMode`, `proxyContainer`, `proxy` (domain, port, mode, container, certificate expiry) |
+| Timeline | `installedAt` (never overwritten), `lastDeployedAt`, `adoptedAt`, `lastCommand`, `appctlVersion` |
+| Resume | `completedSteps`, `lastOutcome`, `lastFailedStep`, `lastAttemptAt` |
+| Host | `host`: hostname, OS, kernel, arch, CPUs, memory, Docker and Compose versions (each `null` if a probe fails) |
+| History | `history`: successful runs only, newest first, capped at 20 |
+
+### Deployment info and the About page
+
+The CLI publishes what it deployed; the running application reports it.
+
+- **The document.** `<root>/deploy-info/info.json`, written by
+  `deploy-info.ts` atomically (temp file, rename). It is written **at the
+  health gate** (so a run that fails later still describes a running
+  deployment) and rewritten at the end of a successful run with that run's
+  history entry and certificate. `schema` is `1` and stays `1`: the reader
+  validates `schema` strictly and every other field leniently, so new fields
+  never need a bump. `null` means "known to be absent".
+- **Fields:** `app` (name, version, commitSha, ref), `installedAt`,
+  `updatedAt`, `deployedBy` (cli, version), `domain`, `remote`
+  (commitsBehind, checkedAt; currently `null`), `run` (completed steps,
+  failedStep, outcome), `lastCommand`, `bindPort`, `proxy` (mode, container,
+  certificateExpiresAt), `host` (as in state), `history` (at, command,
+  commitSha, previousCommitSha, ref, durationMs, cliVersion, outcome).
+- **The mount.** `vps.compose.yml` mounts `${DEPLOY_ROOT}/deploy-info` at
+  `/app/deploy-info` **read-only**, and sets `DEPLOY_INFO_PATH`. The directory
+  is mounted, not the file, so an atomic rename is visible without a restart.
+  Install creates the directory before `up`, or Docker would create it
+  root-owned.
+- **The API.** `apps/api/src/about/` serves `GET /api/admin/about`
+  (`system_settings:read`, no permission of its own). It always answers `200`:
+  `deployInfoStatus` is `ok`, `absent` or `invalid` (with `deployInfoPath` and
+  `deployInfoError`), alongside the API's own `api.version`, a live `runtime`
+  block (`processStartedAt`, `nodeVersion`, `environment`) and a database
+  liveness check. `runtime` describes the process now; the document describes
+  the server as last deployed. The two are never merged.
+- **The UI.** The About card at `/admin/settings/about` (Operations group).
+  `/admin/settings/deployment` redirects there; it is one destination, not two.
+- **The CLI.** `appctl deploy about` reads the same file from disk, so it works
+  while the app is down and needs no login.
+
+What the page shows, and how to re-point the mount, is in
+[deployment-info.md](../runbooks/deployment-info.md).
+
+### Removing a deployment
+
+`uninstall` builds a read-only inventory first (`planUninstall`), then removes
+the stack (`down -v`), its vhost, and `repo/`, `logs/`, `deploy-info/`,
+`.env` and the state file. It never touches shared
+infrastructure: the Docker network, the proxy container, the TLS certificate,
+or the renewal cron entry.
+
+Destructive extras each need their own flag **and** the resource's real name
+typed back:
+
+- `--purge-storage --confirm-bucket <name>` runs
+  `npm run storage:purge` inside the built `api` image before teardown, because
+  only the running application can decrypt the runtime-configured storage
+  credential. A purge that does not happen stops the uninstall.
+- `--drop-database --confirm-database <name>`: confirmation only; see §1.
+
+### CLI and TUI seam
+
+`install.ts`/`update.ts` never write to the terminal. They report through
+`DeployHooks` (step start and result, log lines, progress).
+`commands/deploy.ts` renders them to stderr; `tui/screens/deploy.tsx` renders
+the same callbacks as React state, inside a bounded `ScrollBox`. Subprocesses
+run through `executor.ts`: argv only, `shell: false`, a timeout, streamed and
+ANSI-stripped output, and an `AbortSignal`.
+
+### Exit codes
+
+`0` OK, `1` failure, `2` usage, `3` API, `4` network, `5` auth, `6`
+`PRECONDITION` (a required check failed before anything destructive ran).
+Defined in `apps/cli/src/errors.ts`.
+
+## 3. Configuration and permissions
+
+### Environment variables
+
+- `APP_BIND_PORT` — loopback port nginx publishes on (default `3535`); the
+  proxy forwards to it. In `.env.example`.
+- `DEPLOY_ROOT` — written by the CLI only; locates `deploy-info/` for the bind
+  mount and marks a CLI-written `.env`. Never in `.env.example`.
+- `DEPLOY_INFO_PATH` — where the API reads the document (default
+  `/app/deploy-info/info.json`, set by `vps.compose.yml`).
+
+Everything else comes from `infra/compose/.env.example`; see the wizard above.
+
+### Compose overlay
+
+`infra/compose/vps.compose.yml`, layered after `base` and `prod`:
+
+- `nginx.ports: !override ["127.0.0.1:${APP_BIND_PORT:-3535}:80"]`. The
+  `!override` tag replaces the inherited list; a plain `ports:` would merge and
+  keep `0.0.0.0:3535`.
+- The read-only `deploy-info` bind mount and `DEPLOY_INFO_PATH` on `api`.
+- `json-file` log rotation (10 MB × 3) on `nginx`, `api` and `web`.
+
+### Permissions and API
+
+| Method + route | Purpose | Permission |
+|---|---|---|
+| `GET /api/admin/about` | API version, deployment document, runtime, database liveness | `system_settings:read` |
+
+## 4. Extending it in a fork
+
+- **New environment variables.** Add them to `infra/compose/.env.example`; the
+  wizard picks them up. Add an `env-metadata.ts` entry for anything secret
+  (`secret: true`), generated, derived, essential or grouped. Never add a
+  commented `# KEY=value` example line that is not a real optional key: the
+  parser treats it as a declaration.
+- **A new doctor check.** Add it to the matching module in `checks/` and to
+  its registry export; `doctor` and `preflight` both read it.
+- **A new pipeline step.** Add it to `install.ts` and/or `update.ts`. Make it
+  idempotent, since `--resume` re-enters after the last completed step.
+- **A new About field.** Add it to the document builder in
+  `apps/cli/src/deploy/deploy-info.ts` and to the reader
+  (`apps/api/src/about/deploy-info.ts`) and DTO. Do not bump `schema`.
+- **Different hosting.** Not a CLI flag. A registry-based deploy
+  (`deploy.yml` already builds images) would be a new mode that skips `build`.
+
+## 5. Guardrails
+
+| Guardrail | Enforces |
+|---|---|
+| `.github/workflows/deploy-e2e.yml` | Real Docker, a real PostgreSQL service, a fake VPS layout: unattended `install`, the version bump rolled back (not left ahead of origin), the document reaching the running container, `update` twice with nothing moved and no image rebuilt, journal redaction, `status` healthy. Runs on changes to `apps/cli/**`, `infra/compose/**` or the Dockerfiles, and nightly |
+| `.github/workflows/deploy.yml` | Not this CLI: tag-triggered build and push of the `api`, `web` and `worker` images to GHCR. Its staging/production deploy jobs are `echo` stubs. Kept separate from `deploy-e2e.yml` on purpose |
+| `apps/cli/src/deploy/testing/fake-vps.test.ts` | Pipelines against a simulated server |
+| `apps/cli/src/deploy/install.test.ts`, `install-hardening.test.ts`, `update.test.ts`, `update-publish.test.ts`, `version-step.test.ts` | Step order, resume, adoption, version push rules |
+| `apps/cli/src/deploy/layout.test.ts`, `deployment-evidence.test.ts`, `adopt.test.ts`, `compose-project.test.ts` | Five ranks, the evidence predicate, adoption, recorded project names |
+| `apps/cli/src/deploy/proxy.test.ts`, `proxy-certs.test.ts`, `proxy-bootstrap.test.ts`, `renewal.test.ts`, `checks/tls.test.ts` | Container vs host paths, validate-then-reload, rollback, renewal ownership |
+| `apps/cli/src/deploy/env-spec.test.ts`, `env-wizard.test.ts`, `journal.test.ts`, `journal-hook.test.ts` | `.env.example` parsing, wizard behaviour, redaction |
+| `apps/cli/src/deploy/database.test.ts`, `oauth-check.test.ts`, `uninstall.test.ts`, `state.test.ts`, `deploy-info.test.ts` | Database creation rules, OAuth classification, uninstall confirmations, state upgrade, document shape |
+| `apps/api/src/about/deploy-info.spec.ts`, `apps/api/test/about/deploy-info-contract.spec.ts`, `apps/api/test/about/about.integration.spec.ts` | Lenient reader, CLI/API contract, the endpoint and its permission |
+| `apps/web/src/__tests__/pages/Admin/AboutPage.test.tsx`, `apps/web/src/__tests__/hooks/useAbout.test.ts` | The About page's states |
+
+## 6. Design decisions
+
+- **Run on the server, no SSH client.** Reuses the operator's authenticated
+  session; no key handling, and laptop network flakiness cannot break a deploy.
+- **Build on the server, not pull from GHCR.** No registry credentials on the
+  server and no compose file using `image:`. A `--from-registry` mode is the
+  natural later addition.
+- **Shared host proxy, not per-app TLS.** A second app on the box is normal;
+  only one process can own port 443 and one renewal schedule.
+- **External PostgreSQL.** Keeps the CLI's blast radius to the stateless tier.
+- **Wizard generated from `.env.example`.** A hard-coded list goes stale the
+  day a fork edits the file. An essential subset plus `--all` keeps the common
+  path short.
+- **State in its own file.** `~/.appctl/config.json` is rewritten whole by
+  `appctl login`.
+- **Evidence, not bookkeeping.** A lost state file must not make a live
+  deployment "uninstalled". Adoption invents nothing (no `installedAt` from
+  `mtime`).
+- **Ambiguity refuses.** No tiebreak at rank 5; the marker cannot tell "ours,
+  older" from "not ours".
+- **Recorded compose project name.** Re-deriving would start a parallel stack.
+- **Typed resource names for destructive extras**, never a shared word like
+  `DELETE`: dropping a database is not consent to empty a bucket.
+- **Storage purge inside the api image.** The CLI cannot import `apps/api`
+  (`rootDir: ./src`) and cannot decrypt the credential.
+- **Prompt before `CREATE DATABASE`.** A typo would otherwise migrate into a
+  new empty database.
+- **`invalid_grant` is a pass.** Google validates the client before the code.
+- **Act on the existing renewal owner.** A second renewer races and spends a
+  shared Let's Encrypt budget.
+- **Extend the About page, not a new Deployment page.** One destination
+  gaining content (Settings UI rule 2); no new permission.
+- **`schema` stays `1`.** A bump would make every running API report `invalid`
+  the moment a newer CLI writes the file.
+- **Version at deploy time.** Accepted costs: the running commit is not the one
+  CI built (bounded to version fields), and the server can push. Push last,
+  never force, never retry.
+- **No automatic rollback.** Reverting a migration needs a human.
+
+## 7. Verification
+
+On a disposable VPS with Docker, DNS pointing at it, and an external
+PostgreSQL:
+
+1. Build the CLI in a checkout of your fork (`npm run build --workspace=cli`,
+   see [apps/cli/README.md](../../apps/cli/README.md)), then:
+   ```bash
+   appctl deploy doctor --domain app.example.com
+   ```
+   Expect every required check to pass, or exit `6` with a remedy.
+2. Install with Let's Encrypt staging first:
+   ```bash
+   appctl deploy install --domain app.example.com --staging
+   ```
+   Watch each step report; `verify` should show containers up, ready, frontend
+   up, no pending migrations, external HTTPS.
+3. Check the binding: `docker compose -f base.compose.yml -f prod.compose.yml
+   -f vps.compose.yml config` (in `repo/infra/compose`) shows one `nginx` port
+   with `host_ip: 127.0.0.1`.
+4. `appctl deploy status` and `appctl deploy about` agree with the About page
+   at `/admin/settings/about` (`deployInfoStatus: "ok"`).
+5. `appctl deploy update`: with no new commits it reports "up to date" and
+   rebuilds nothing.
+6. `grep` a known secret value in `<root>/logs/*.log`: no match.
+7. `appctl deploy uninstall --dry-run` lists what would go and what is kept.
+8. Tests: `npm test --workspace=cli -- --run`; the `Deploy E2E` workflow for
+   the full pipeline against real Docker.
+
+The operator procedure, prerequisites and troubleshooting are in
+[deploy-to-vps.md](../runbooks/deploy-to-vps.md).
+
+## History
+
+- Epic #168: the `appctl deploy` command family, `vps.compose.yml`, the TUI
+  screen, and the infra fixes it needed (`env_file` on `api`, loopback bind,
+  password URL-encoding in the database URL builder).
+- Epic #397 (#398–#405): multi-app layout and five-rank resolution, evidence
+  and adoption, `uninstall`, recorded compose project names, deploy-info and
+  the About page (#401), deploy-time versioning (#405); #407 added the Deploy
+  E2E workflow.
+- Epic #388 (#389–#393): `ProxyRuntime` container/host split (#389); renewal
+  ownership, the database-creation prompt, the OAuth probe and new doctor
+  checks (#390–#392); deploy state v2 carried by the About page (#392).

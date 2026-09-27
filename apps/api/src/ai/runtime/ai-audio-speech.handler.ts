@@ -1,6 +1,6 @@
 // =============================================================================
 // `ai.audio.speech` job handler — one text-to-speech synthesis
-// (issue #439, epic #420; docs/specs/ai-platform.md §5.4, §9)
+// (issue #439, epic #420; docs/specs/ai-platform.md §2.14, §2.20)
 // =============================================================================
 //
 // Payload `{ runId }`, subjectType `'ai_run'`. Enqueued by

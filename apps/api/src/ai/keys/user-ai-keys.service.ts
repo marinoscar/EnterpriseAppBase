@@ -41,7 +41,7 @@ import type {
 //     audit row; provider error strings are redacted before they leave.
 //
 // NEVER TO A WORKER NODE. A user's key may never be brokered to a remote
-// executor (docs/specs/ai-platform.md §9), so every provider round trip in
+// executor (docs/specs/ai-platform.md §2.20), so every provider round trip in
 // this file runs on the server, and the recheck job type is server-only.
 // =============================================================================
 

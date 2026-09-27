@@ -1,5 +1,5 @@
 /**
- * Chat attachments — issue #445 (API: #441, docs/specs/ai-platform.md §5.3).
+ * Chat attachments — issue #445 (API: #441, docs/specs/ai-platform.md §2.9).
  *
  * A chat turn may carry the caller's own storage objects as `image`/`file`
  * content parts, named by `storageObjectId`. The rules mirror the API's
@@ -101,7 +101,7 @@ export function chatTurnInput(text: string, attachments: readonly AiChatAttachme
 /**
  * A failed turn that carried attachments, explained. The API answers an
  * attachment that no longer exists with a plain 404, and one that is not
- * the caller's with a plain 403 (the storage API's own answers, §5.3) —
+ * the caller's with a plain 403 (the storage API's own answers, §2.9) —
  * neither carries an AI code, so without this they would read as a generic
  * failure. Everything else passes through unchanged.
  */

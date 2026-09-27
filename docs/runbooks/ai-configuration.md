@@ -1,333 +1,296 @@
-# Runbook: Configuring the AI Platform
+# Runbook: Configure the AI Platform
 
-This runbook is the operator-facing procedure for turning AI on for a
-deployment of this application, curating what it can do, choosing who pays
-for it, and turning it off again — calmly, in an emergency, or forever. It
-does not explain *why* the platform is shaped this way; that is
-[`docs/specs/ai-platform.md`](../specs/ai-platform.md), which this runbook
-links back to rather than restates. The developer-facing recipe for adding
-AI to a feature, or a new provider adapter, is
-[`CLAUDE.md`](../../CLAUDE.md)'s "MANDATORY: AI Platform Rules" section and
+Use this to turn AI on for a deployment, choose who pays for it, curate which
+providers and models users can reach, and turn it off again, calmly or in an
+emergency. Audience: administrators holding `ai_config:read`/`ai_config:write`.
+
+Why the platform is shaped this way is
+[`docs/specs/ai-platform.md`](../specs/ai-platform.md). Adding AI to a feature,
+or a new provider adapter, is
 [`apps/api/src/ai/README.md`](../../apps/api/src/ai/README.md).
 
-Everything in this document happens through the admin UI at
-`/admin/settings/ai` (and `/admin/settings/ai/models`) or through
-`appctl api` calls against the same endpoints — there is no environment
-variable for any of it, and there must never be one (CLAUDE.md's
-"Environment Variables" section states this explicitly).
+Everything here happens in the admin UI at `/admin/settings/ai` (and
+`/admin/settings/ai/models`, `/admin/settings/ai/usage`) or through
+`appctl api` against the same endpoints. There is no environment variable for
+any of it, and there must never be one.
 
-## 0. Prerequisites
+Source of truth for every claim below:
+
+- `apps/api/src/ai/config/ai-admin.controller.ts` — every `/api/admin/ai/*`
+  route this runbook calls.
+- `apps/api/src/ai/config/ai-config-admin.service.ts` — the configuration
+  save path and its refusals.
+- `apps/api/src/common/schemas/settings.schema.ts` — the `ai` system-settings
+  namespace: `enabled`, `keyPolicy`, `providers`, `defaults`, `hostedTools`,
+  `limits`.
+- `apps/api/src/ai/keys/` — `AiKeyResolver` (the key policy) and the user BYOK
+  store.
+- `apps/api/src/ai/core/ai-error.ts` — every `AiErrorCode` in the
+  troubleshooting table.
+- `apps/api/src/ai/providers/<provider>/` — each provider adapter and its
+  model classifier.
+- `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`,
+  `AiUsagePage.tsx` — the admin UI.
+
+---
+
+## 1. Before you start
 
 - **`SECRETS_ENCRYPTION_KEY` must be set** on the API process before any key
-  — admin/org or a user's own — can be stored. The admin/org key lives in
-  `CredentialsService` (`purpose: 'ai'`), and BYOK keys live in the
-  dedicated `user_ai_keys` table, encrypted with a separate cipher purpose
-  (`'ai_user_key'`); both paths call the same `SECRETS_ENCRYPTION_KEY`-backed
-  encryption underneath. If this key is unset, saving any AI key fails —
-  see `docs/runbooks/rotate-secrets-encryption-key.md` if you need to
-  generate or rotate it.
-- **Admin access** (`ai_config:read`/`ai_config:write`, seeded to the Admin
-  role only) to reach `/admin/settings/ai`.
-- Decide **before** you configure anything: will every user bring their own
-  provider key (`byok`, the default and the safer starting posture), or
-  should users with no key of their own fall back to a deployment-wide
-  admin/org key (`byok_with_org_fallback`)? This is a deployment-wide
-  policy decision, not a per-user one — see §3 below and
-  `docs/specs/ai-platform.md` §3.
+  (admin/org or a user's own) can be stored. The admin/org key lives in
+  `CredentialsService` (`purpose: 'ai'`); BYOK keys live in `user_ai_keys`,
+  under a separate cipher purpose (`'ai_user_key'`). If the key is unset,
+  saving any AI key fails. See
+  [`rotate-secrets-encryption-key.md`](rotate-secrets-encryption-key.md).
+- **Admin access**: `ai_config:read`/`ai_config:write`, seeded to Admin only.
+- **Decide the key policy first.** Either every user brings their own provider
+  key (`byok`, the default and the safer posture), or users with no key fall
+  back to a deployment-wide admin/org key (`byok_with_org_fallback`). This is
+  a deployment-wide decision (section 7).
 
-## 1. Turning AI on
-
-1. Sign in as an Admin and open `/admin/settings/ai`. This card is
-   reachable even while AI is off — it is the page that turns it on, so it
-   deliberately carries no `feature` gate of its own (unlike every other AI
-   card in the app).
-2. Toggle **Enabled**. Until you do, every consumer-facing route under
-   `/api/ai/*` (except `GET /api/ai/config`, which is how the web app
-   learns AI is off at all) answers `403` with `details.reason:
-   "AI_DISABLED"`, and no AI-shaped card or navigation entry appears
-   anywhere else in the app.
-3. Enable the provider(s) you intend to use — `openai` and, since #446,
-   `anthropic` (§13 covers what is different about Anthropic), and since
-   #447 `gemini` (§14).
-   Enabling AI overall does nothing by itself if every individual provider
-   stays disabled — a provider existing in the adapter registry does not
-   mean it is reachable.
-
-Equivalently, from the CLI:
-
-```bash
-appctl api PATCH /system-settings --data '{"ai":{"enabled":true}}'
-```
-
-(`PATCH /api/system-settings` and `PUT/PATCH /api/admin/ai/config` both work
-against the same `ai` namespace; the dedicated `ai_config:*`-gated route is
-the one the admin UI itself uses and the one this runbook otherwise assumes.)
-
-## 2. Adding the admin (org) key
-
-The admin/org key exists for exactly two purposes — discovering and
-classifying a provider's models (§4 below), and, only under
-`byok_with_org_fallback`, serving a request for a user who has not brought
-their own key. It is **never** a default key for everyone regardless of
-policy, and no endpoint anywhere ever returns it once stored.
-
-1. On `/admin/settings/ai`, open the provider's row and paste the key.
-2. The server verifies it against the provider **before** storing anything
-   (`adapter.verifyKey`) — a rejected key comes back as a clear error and
-   nothing is saved.
-3. Once stored, the UI shows only a masked hint (`keyStatus`), never the key
-   itself — this is true of every AI key surface in this platform, admin or
-   user.
-
-## 3. Testing the admin key
-
-Use the **Test** action on the provider's row
-(`POST /api/admin/ai/providers/:provider/test`). This always answers `200`
-— a failed test is a successful diagnosis, not an error response — so read
-the `success` field and each check's own `status`/`code`. Three checks run,
-in order:
-
-1. `credentials` — does the provider accept the key at all.
-2. `list_models` — how many catalog models the key can see.
-3. `responses_smoke` — one tiny, real, **billed** response call, to prove
-   the key can actually answer a request and not merely list models.
-
-That third check is deliberate and admin-only: it is this platform's own
-money being spent to prove the deployment's key works, which is why the
-equivalent *user* key test (`POST /api/ai/keys/:provider/test`, §6 below)
-stops at the first two checks and never bills a user's own account on their
-behalf.
-
-## 4. Refreshing the model catalog
-
-Discovery lists a provider's model ids; classification guesses their
-capabilities. Neither happens automatically on a schedule you don't
-control beyond the platform's own daily backfill — trigger a refresh
-on demand from `/admin/settings/ai/models` (**Refresh catalog**), or:
-
-```bash
-appctl api POST /admin/ai/models/refresh --data '{"provider":"openai"}'
-appctl api POST /admin/ai/models/refresh --data '{"provider":"anthropic"}'
-```
-
-This enqueues the `ai.catalog.refresh` job (server-only, always — see
-`docs/specs/ai-platform.md` §9) and answers `{ jobId }` at once; watch its
-outcome at `/admin/settings/jobs`. It requires an admin key for that
-provider (409 without one) because discovery and classification always run
-under the admin/org key, unconditionally, regardless of the deployment's key
-policy.
-
-A refresh that actually ran a sync also fires `AI_CATALOG_SYNCED_EVENT`,
-which the keys module listens for to re-check affected users' stored keys
-against the newly discovered or reclassified models right away, rather than
-waiting for the weekly `ai.keys.recheck` cron.
-
-## 5. Classifying unclassified models and enabling them
-
-A freshly discovered model starts `enabled: false` with
-`capabilitySource: 'unclassified'` — discovery alone changes nothing a user
-can reach. On `/admin/settings/ai/models`:
-
-1. Filter by `capabilitySource: unclassified` (or the equivalent
-   `?includeDeprecated=false&...` query on `GET /api/admin/ai/models`) to
-   find models the provider's own classifier didn't recognize.
-2. For each one, either accept a best guess or set its capabilities
-   explicitly (`PATCH /api/admin/ai/models/:id`, body
-   `{ capabilities: {...} }`) — this sets `capabilitySource:
-   'admin_override'`, which nothing automated ever overwrites again.
-3. Flip **Enabled** on the models you want callable. A model must be both
-   admin-enabled and reachable with whichever key resolves for a given
-   caller (§7 of the spec) before anyone can actually use it — enabling it
-   here is necessary but not sufficient on its own.
-
-Enabling a deprecated model, or enabling an unclassified model with no
-capabilities supplied, is refused (409 / 400 respectively) — an operator
-must make an explicit capability decision rather than the platform guessing
-one into existence.
-
-## 6. Choosing the key policy
-
-- **`byok` (default)** — every user must bring their own key
-  (`/settings/ai`, gated by `ai:use`, seeded to Admin and Contributor — NOT
-  Viewer, since issue #499) before they can call any model. No admin key,
-  however well-funded, is ever used to
-  serve a user's request under this policy — this is the platform's core
-  security invariant, and it is enforced in one place
-  (`AiKeyResolver.resolve`), not scattered across call sites.
-- **`byok_with_org_fallback`** — a user with no key of their own is served
-  by the admin/org key instead, for whichever providers have one configured.
-  Setting this policy while a provider has no admin key configured is
-  refused (400 `AI_KEY_REQUIRED`).
-
-Switch it on `/admin/settings/ai`, or:
-
-```bash
-appctl api PUT /admin/ai/config --data '{"keyPolicy":"byok_with_org_fallback", ...}'
-```
-
-(`PUT` replaces the whole non-secret configuration and takes an `If-Match`
-version header, like the storage-configuration endpoint — read the current
-config first to get the current `version`.)
-
-### Letting Viewers use AI
-
-Viewer no longer holds `ai:use` by default (issue #499) — it is the DEFAULT
-role every new signup lands in, and under `byok_with_org_fallback` a
-default grant meant a brand-new account could spend the deployment's own
-org key with no administrator having decided that. To let a Viewer use AI
-anyway, either:
-
-- Grant `ai:use` back to that account specifically (or to the whole Viewer
-  role) via `rbac:manage` — add a `role_permissions` row for
-  `('viewer', 'ai:use')` if you want every Viewer to have it; or
-- Promote the account to Contributor, which already carries the grant.
-
-## 7. How users add their own key
-
-Point users at `/settings/ai` (the **AI Keys** card, visible only once AI is
-enabled — it declares `feature: 'ai'`). From there a user can:
-
-- Paste a key for any enabled provider (`PUT /api/ai/keys/:provider`). It is
-  verified against the provider first, then the models it can actually
-  reach are computed and stored as `reachableModelIds`, and only then is
-  anything saved — a rejected key is never stored.
-- **Test** their stored (or a not-yet-saved) key
-  (`POST /api/ai/keys/:provider/test`) — two checks only (`credentials`,
-  `list_models`), never a billed smoke call against their own account.
-- See which models they can actually call right now (`GET /api/ai/models`)
-  — the intersection of admin-enabled models and what their key (or the org
-  key, under fallback) can reach.
-- Remove a key (`DELETE /api/ai/keys/:provider`) — idempotent, 204 either
-  way.
-
-A key's reachable-model list is re-verified weekly by the `ai.keys.recheck`
-job (and sooner, per §4, right after a catalog sync touches that provider) —
-a key's tier or organization restrictions are real and can change without
-the user doing anything, so this list does not stay a one-time snapshot.
-
-## 8. Turning AI off in an emergency
+## 2. Turn AI off in an emergency
 
 The kill switch (`ai.enabled = false`) is total on the consumer side and
-leaves the admin side reachable, specifically so you are never locked out of
-turning it back on:
+leaves the admin side reachable, so you are never locked out of turning it
+back on.
 
-- **From the UI**: `/admin/settings/ai` → toggle **Enabled** off. Takes
-  effect immediately; every `/api/ai/*` route except `GET /api/ai/config`
-  starts answering `403 AI_DISABLED`.
-- **From the CLI**, when the UI itself is unreachable or you are scripting
-  an incident response:
+1. **From the UI**: `/admin/settings/ai`, toggle **Enabled** off. It takes
+   effect immediately.
+2. **From the CLI**, when the UI is unreachable or you are scripting an
+   incident response (needs `system_settings:write`):
 
-  ```bash
-  appctl api PATCH /system-settings --data '{"ai":{"enabled":false}}'
-  ```
+   ```bash
+   appctl api PATCH /api/system-settings --data '{"ai":{"enabled":false}}'
+   ```
 
-`/api/admin/ai/*` (and the admin UI itself) stays reachable throughout, so
-you can inspect what is configured or fix a bad setting even with the
-platform switched off. Any in-flight `ai.response.run` job that has not yet
-reached the provider fails cleanly (its run row records `AI_DISABLED`, and
-the *job* still succeeds — this is an expected outcome, not an incident, so
-it does not fire `jobs.job_failed`); a background run that has already made
-its provider call runs to completion.
+3. **Verify**: any `/api/ai/*` route except `GET /api/ai/config` answers
+   `403` with `details.reason: "AI_DISABLED"`, and `GET /api/ai/config`
+   reports `enabled: false`.
 
-## 9. Rotating the admin key
+`/api/admin/ai/*` and the admin UI stay reachable throughout, so you can
+inspect or fix the configuration with the platform off. An in-flight
+`ai.response.run` job that has not reached the provider yet fails cleanly: its
+run row records `AI_DISABLED`, and the *job* still succeeds, so it does not
+fire `jobs.job_failed`. A background run that has already made its provider
+call runs to completion.
 
-Provider key rotation (a leaked key, a routine rotation policy, moving to a
-different provider account):
+## 3. Turn AI on
 
-1. `/admin/settings/ai` → the provider's row → set a new key. It is
-   verified before it replaces the old one, so a bad replacement key never
-   leaves you without a working one silently.
-2. Or remove it outright (`DELETE /api/admin/ai/providers/:provider/key`,
-   body `{"confirmation":"REMOVE"}`) if you are decommissioning that
-   provider. Under `byok_with_org_fallback`, removing the only admin key a
-   provider has answers with `warnings: ["ORG_FALLBACK_WITHOUT_KEY"]` — users
-   with no key of their own for that provider will start seeing
-   `AI_KEY_REQUIRED` until you either restore an admin key or every affected
-   user brings their own.
-3. There is nothing else to rotate — user BYOK keys are each that user's own
-   responsibility, revocable individually from `/settings/ai`.
+1. Sign in as an Admin and open `/admin/settings/ai`. This card is reachable
+   even while AI is off: it is the page that turns AI on, so it carries no
+   `feature` gate (unlike every other AI card).
+2. Toggle **Enabled**. Until you do, every consumer route under `/api/ai/*`
+   (except `GET /api/ai/config`, which is how the web app learns AI is off)
+   answers `403` with `details.reason: "AI_DISABLED"`, and no AI card or
+   navigation entry appears anywhere else in the app.
+3. Enable the provider(s) you intend to use and configure each one
+   (section 10). Enabling AI overall does nothing by itself while every
+   provider stays disabled.
 
-## 10. Troubleshooting by error code
+From the CLI:
 
-Every failure this platform raises is an `AiError` with a stable `code`,
-surfaced as `details.reason` on the HTTP response (the envelope's
-top-level `code` is always the ordinary status-derived
-`FORBIDDEN`/`BAD_REQUEST`/etc. this API already uses everywhere — the AI
-code is specifically in `details.reason`). This table is the quick
-reference; the full one is `docs/specs/ai-platform.md` §13.
+```bash
+appctl api PATCH /api/system-settings --data '{"ai":{"enabled":true}}'
+```
 
-| `details.reason` | HTTP | What it means | What to check |
+`PATCH /api/system-settings` (`system_settings:write`) and
+`PUT /api/admin/ai/config` (`ai_config:write`) both write the same `ai`
+namespace. The admin UI uses the dedicated `ai_config:*` route, and the rest
+of this runbook assumes it.
+
+## 4. Add and test the admin (org) key
+
+The admin/org key has exactly two uses: discovering and classifying a
+provider's models (section 5), and, only under `byok_with_org_fallback`,
+serving a request for a user who has not brought their own key. It is
+**never** a default key for everyone regardless of policy, and no endpoint
+returns it once stored.
+
+### 4.1 Add the key
+
+1. On `/admin/settings/ai`, open the provider's row and paste the key
+   (`PUT /api/admin/ai/providers/{provider}/key`).
+2. The server verifies it against the provider **before** storing anything.
+   A rejected key answers `400 AI_KEY_INVALID` and nothing is saved.
+3. Once stored, the UI shows only a masked hint (`keyStatus`), never the key.
+   This is true of every AI key surface, admin or user.
+
+### 4.2 Test the key
+
+Use the **Test** action on the provider's row
+(`POST /api/admin/ai/providers/{provider}/test`). It always answers `200`; read
+`success` and each check's own `status`/`code`. Three checks run, in order:
+
+1. `credentials` — the provider accepts the key.
+2. `list_models` — how many catalog models the key can see.
+3. `responses_smoke` — one tiny, real, **billed** response call, proving the
+   key can answer a request and not merely list models.
+
+The third check is admin-only on purpose: it spends the deployment's money.
+The equivalent user test (`POST /api/ai/keys/{provider}/test`, section 8)
+stops after the first two and never bills a user's account.
+
+## 5. Refresh the model catalog
+
+Discovery lists a provider's model ids; classification assigns their
+capabilities. Beyond the platform's own daily backfill, trigger a refresh on
+demand from `/admin/settings/ai/models` (**Refresh from provider**), or:
+
+```bash
+appctl api POST /api/admin/ai/models/refresh --data '{"provider":"openai"}'
+```
+
+This enqueues the server-only `ai.catalog.refresh` job and answers with its
+job id at once; watch the outcome at `/admin/settings/jobs`. It needs an admin
+key for that provider (`409` without one), because discovery and
+classification always run under the admin/org key, whatever the key policy.
+The one exception is a keyless OpenAI-compatible server (section 10.5).
+
+A refresh that ran a sync fires `AI_CATALOG_SYNCED_EVENT`, and the keys module
+re-checks affected users' stored keys against the new models right away rather
+than waiting for the weekly `ai.keys.recheck` job.
+
+## 6. Classify and enable models
+
+A freshly discovered model starts `enabled: false`, and a model the provider's
+classifier did not recognise starts with `capabilitySource: 'unclassified'`.
+Discovery alone changes nothing a user can reach. On
+`/admin/settings/ai/models`:
+
+1. Find the models to review. The page filters by provider, capability and
+   search text; each row shows its capability source. From the CLI, list them
+   with `appctl api GET /api/admin/ai/models --query provider=openai --raw`
+   and look for `"capabilitySource": "unclassified"`.
+2. For each unclassified model, state its capabilities (**Edit
+   capabilities**, or `PATCH /api/admin/ai/models/{id}` with
+   `{ "capabilities": {...} }`). This sets `capabilitySource:
+   'admin_override'`, which nothing automated overwrites.
+3. Flip **Enabled** on the models users may call. A model must be both
+   admin-enabled and reachable with whichever key resolves for the caller
+   before anyone can use it.
+
+Enabling a deprecated model is refused (`409`), and so is enabling an
+unclassified model with no capabilities supplied (`400`): an operator makes the
+capability decision, the platform does not guess one.
+
+## 7. Choose the key policy
+
+- **`byok` (default)** — every user must bring their own key (`/settings/ai`,
+  gated by `ai:use`) before they can call any model. No admin key is ever used
+  to serve a user's request under this policy. `AiKeyResolver.resolve` enforces
+  this in one place.
+- **`byok_with_org_fallback`** — a user with no key of their own is served by
+  the admin/org key, for whichever providers have one. Setting this policy
+  while a provider has no admin key is refused (`400 AI_KEY_REQUIRED`).
+
+Switch it on `/admin/settings/ai`, or with `PUT /api/admin/ai/config`. `PUT`
+replaces the whole non-secret configuration and takes an `If-Match` version
+header: read `GET /api/admin/ai/config` first for the current `version`
+(section 12 has a full body).
+
+### 7.1 Letting Viewers use AI
+
+`ai:use` is seeded to Admin and Contributor, not Viewer. Viewer is the role
+every new signup lands in, and under `byok_with_org_fallback` a default grant
+would let a brand-new account spend the org key with no administrator
+deciding it. To let a Viewer use AI, either:
+
+- grant `ai:use` to that account's role with `rbac:manage` (a `role_permissions`
+  row for `('viewer', 'ai:use')` grants it to every Viewer), or
+- promote the account to Contributor, which already has it.
+
+## 8. How users add their own key
+
+Point users at `/settings/ai` (the **AI Keys** card, visible only while AI is
+enabled because it declares `feature: 'ai'`). A user can:
+
+- Paste a key for any enabled provider (`PUT /api/ai/keys/{provider}`). It is
+  verified first, the models it can reach are computed and stored as
+  `reachableModelIds`, and only then is anything saved.
+- **Test** a stored or unsaved key (`POST /api/ai/keys/{provider}/test`): two
+  checks (`credentials`, `list_models`), never a billed call.
+- See which models they can call right now (`GET /api/ai/models`): the
+  intersection of admin-enabled models and what their key (or the org key,
+  under fallback) reaches.
+- Remove a key (`DELETE /api/ai/keys/{provider}`): idempotent, `204` either way.
+
+The weekly `ai.keys.recheck` job re-verifies each key's reachable models, and
+so does a catalog sync (section 5). A key's tier or organization restrictions
+can change without the user doing anything.
+
+## 9. Rotate or remove the admin key
+
+For a leaked key, a routine rotation, or a move to another provider account:
+
+1. `/admin/settings/ai`, the provider's row, set a new key. It is verified
+   before it replaces the old one, so a bad replacement never silently leaves
+   you without a working key.
+2. To decommission the provider, remove the key
+   (`DELETE /api/admin/ai/providers/{provider}/key`, body
+   `{"confirmation":"REMOVE"}`). Under `byok_with_org_fallback`, removing the
+   only admin key a provider has answers with
+   `warnings: ["ORG_FALLBACK_WITHOUT_KEY"]`: users with no key of their own for
+   that provider see `AI_KEY_REQUIRED` until you restore an admin key or they
+   bring their own.
+3. Nothing else needs rotating. User BYOK keys belong to each user and are
+   revocable individually from `/settings/ai`.
+
+## 10. Configure a provider
+
+Five providers ship: `openai`, `anthropic`, `gemini`, `azure-openai` and
+`openai-compatible`. Each is configured the same way: switch it on under its
+row on `/admin/settings/ai` (or `providers.<id>.enabled: true` in
+`PUT /api/admin/ai/config`), add and test the admin key (section 4), refresh
+the catalog (section 5), and enable models (section 6). Users then add their
+own keys (section 8) under the policy you chose (section 7). No provider reads
+an environment variable, and none needs a restart.
+
+| Provider | `previousResponseId` | Hosted tools | Capability ports besides `responses` |
 |---|---|---|---|
-| `AI_DISABLED` | 403 | The kill switch is off. | §1 — enable AI at `/admin/settings/ai`. |
-| `AI_PROVIDER_DISABLED` | 403 | AI is on, but this specific provider is not. | Enable the provider on `/admin/settings/ai`. |
-| `AI_KEY_REQUIRED` | 403 | No key resolves for this user/provider under the active policy. | Under `byok`: the user has no key — §7. Under `byok_with_org_fallback`: neither the user nor the deployment has one — §2/§9. |
-| `AI_KEY_INVALID` | 400 | A submitted key was rejected by the provider. | The key is wrong, revoked, or scoped incorrectly at the provider. Nothing was stored. |
-| `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` — §5. |
-| `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
-| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, Gemini, Azure OpenAI or an OpenAI-compatible server, send the conversation as `input` instead of chaining (§13, §14, §17, §18). |
-| `AI_REALTIME_DISABLED` | 403 | A realtime voice session was requested, but realtime is switched off (the default). | §16 — set `defaults.allowRealtime` on `/admin/settings/ai` if you want voice sessions. |
-| `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | §12 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
-| `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it — §15. |
-| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. For Azure OpenAI or an OpenAI-compatible server, also the endpoint itself: `details.providerCode: "redirect_refused"` means it answered with a redirect, which is never followed (usually a wrong `baseUrl`), and `details.missing: "baseUrl"` that none is configured — §17, §18. |
-| `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
-| `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
-| `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output didn't parse against the requested schema. | Usually a model/schema mismatch, or a model too weak to reliably follow the schema; consider `strict: true` or a different model. |
+| OpenAI | yes | yes | embeddings, images, audio, realtime |
+| Anthropic | no | no | none |
+| Google Gemini | no | no | embeddings |
+| Azure OpenAI | no | no | embeddings |
+| OpenAI-compatible | no | no | embeddings |
 
-## 11. Privacy: prompt logging
+Where `previousResponseId` is "no", clients send the conversation as `input`.
+`GET /api/ai/config` publishes `supportsPreviousResponseId` per provider;
+`runTools()` and the AI Playground (`/ai`) already resend the conversation.
 
-`ai.logPromptContent` (default **off**) is a deliberate, named privacy
-switch — when off, no prompt text (instructions or input) is ever written
-to a debug log line. Turning it on is a real decision, not a debugging
-convenience left on by accident: prompt content can include anything a user
-typed, and every log line derived from a call already redacts key material
-unconditionally regardless of this setting (that part is not optional). Even
-with it on, logged text is truncated to `AI_PROMPT_LOG_MAX_CHARS`
-(2048 characters, `runtime/ai.service.ts`) and the key is never in scope to
-log by construction — but the prompt text itself is the user's, so treat
-this switch the same way you would treat verbose request logging anywhere
-else in the app: on only for as long as you are actively debugging, and off
-by default.
+### 10.1 OpenAI
 
-## 12. Hosted tools
+1. Create an API key in the OpenAI platform dashboard.
+2. Switch the **OpenAI** provider on. `baseUrl` is optional; leave it empty
+   for `https://api.openai.com/v1`.
+3. Add and **Test** the admin key (section 4), then refresh the catalog for
+   `openai` (section 5) and enable models (section 6).
 
-Under **Hosted tools** on `/admin/settings/ai` there is one switch per
-provider-hosted tool — web search, file search, code interpreter, image
-generation and remote MCP servers — all **off** on a fresh deployment. Each
-reaches outside this deployment (the open web, a third-party MCP server) and
-is billed per use by the provider on whichever key pays for the call (§6), so
-switch on only what users need. A request naming a switched-off tool is
-refused with `AI_TOOL_DISABLED`; users also need a model that declares
-**Hosted tools** on `/admin/settings/ai/models`.
+OpenAI is the only provider with every capability port: responses (including
+`previousResponseId` chaining and the hosted tools in section 11),
+embeddings, images, audio transcription and speech, and realtime voice
+sessions (section 13).
 
-**Allowed MCP hosts** narrows which servers users may point the model at —
-one hostname per line (`mcp.example.com`), or `*.example.com` for its
-subdomains. Leave it empty to allow any `https://` server (the page warns
-while MCP is on with no list). MCP credentials are never configured here:
-users send them per request in the tool's `headers`, which are never stored,
-logged or returned — and a background run cannot carry them at all.
+### 10.2 Anthropic
 
-## 13. Enabling Anthropic
-
-Anthropic (issue #446) is configured exactly like OpenAI — nothing here is
-an environment variable, and nothing needs a restart:
+Anthropic is configured exactly like OpenAI:
 
 1. On `/admin/settings/ai`, switch the **Anthropic** provider on (or
    `PUT /api/admin/ai/config` with `providers.anthropic.enabled: true`).
    `baseUrl` is optional and only for a gateway that speaks Anthropic's own
    API; leave it empty for `https://api.anthropic.com`.
 2. Add the admin (org) key from the Anthropic Console on the provider's row
-   (§2) and **Test** it (§3). The key is verified with `GET /v1/models`
+   (section 4.1) and **Test** it (section 4.2). The key is verified with `GET /v1/models`
    before anything is stored; the third, billed `responses_smoke` check is
    one tiny Messages call.
-3. Refresh the catalog for `anthropic` (§4). The classifier recognises the
+3. Refresh the catalog for `anthropic` (section 5). The classifier recognises the
    Claude families (Claude 3 through the current Opus, Sonnet, Haiku, Fable
    and Mythos releases) and marks every other id `unclassified` — enable
-   the models users should see (§5). No Anthropic model declares **Hosted
+   the models users should see (section 6). No Anthropic model declares **Hosted
    tools**, embeddings, images or audio: the adapter implements text,
    reasoning, function tools, structured output, streaming, and image and
    PDF input only.
 4. Users add their own Anthropic key on `/settings/ai` exactly as for
-   OpenAI (§7), under the key policy you chose (§6).
+   OpenAI (section 8), under the key policy you chose (section 7).
 
 What is different, and worth telling users:
 
@@ -358,12 +321,11 @@ What is different, and worth telling users:
   the provider's `retry-after`; a background run defers on the latter
   without charging an attempt.
 
-## 14. Enabling Google Gemini
+### 10.3 Google Gemini
 
-Gemini (issue #447) is configured exactly like OpenAI and Anthropic — no
-environment variable (the adapter deliberately ignores `GEMINI_API_KEY`,
+Gemini is configured exactly like OpenAI and Anthropic. The adapter ignores `GEMINI_API_KEY`,
 `GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL` and `GOOGLE_GENAI_USE_VERTEXAI`
-if they happen to be set on the host), no restart:
+if they happen to be set on the host.
 
 1. Create an API key in Google AI Studio (the **Gemini Developer API** — this
    adapter does not use Vertex AI or a service account).
@@ -371,13 +333,13 @@ if they happen to be set on the host), no restart:
    `PUT /api/admin/ai/config` with `providers.gemini.enabled: true`).
    `baseUrl` is optional and only for a gateway that speaks the Gemini API
    itself; leave it empty for `https://generativelanguage.googleapis.com`.
-3. Add the admin (org) key on the provider's row (§2) and **Test** it (§3).
+3. Add the admin (org) key on the provider's row (section 4.1) and **Test** it (section 4.2).
    The key is verified by listing models before anything is stored — Google
    answers a bad key with `400 API_KEY_INVALID`, which the platform reports
    as `AI_KEY_INVALID` like any other provider's rejection. The billed
    `responses_smoke` check is one tiny `generateContent` call.
-4. Refresh the catalog for `gemini` (§4):
-   `appctl api POST /admin/ai/models/refresh --data '{"provider":"gemini"}'`.
+4. Refresh the catalog for `gemini` (section 5):
+   `appctl api POST /api/admin/ai/models/refresh --data '{"provider":"gemini"}'`.
    Gemini's model list says more than the others' — token limits, supported
    methods, whether a model thinks — so the classifier uses it: context
    window and output limit come from Google, and an alias such as
@@ -385,17 +347,17 @@ if they happen to be set on the host), no restart:
    Image-output, text-to-speech, Live/native-audio, computer-use and
    robotics variants, and Imagen, Veo and Gemma, stay `unclassified` —
    nothing in this platform drives them. Enable the models users should
-   see (§5), including an embedding model (`gemini-embedding-001`) if
+   see (section 6), including an embedding model (`gemini-embedding-001`) if
    anything calls `POST /api/ai/embeddings`.
 5. Users add their own Gemini key on `/settings/ai` exactly as for OpenAI
-   (§7), under the key policy you chose (§6).
+   (section 8), under the key policy you chose (section 7).
 
 What is different, and worth telling users:
 
-- **No `previousResponseId`**, exactly as for Anthropic (§13): send the
+- **No `previousResponseId`**, exactly as for Anthropic (section 10.2): send the
   conversation as `input`; `runTools()` and the AI Playground already do.
 - **No hosted tools.** Google Search grounding and code execution are not
-  mapped yet (their results do not fit the platform's citation and
+  mapped (their results do not fit the platform's citation and
   code-interpreter shapes honestly); the provider row does not list
   **Hosted tools**, and a request with one is refused with
   `AI_CAPABILITY_UNSUPPORTED`.
@@ -417,104 +379,12 @@ What is different, and worth telling users:
   `AI_PROVIDER_UNAVAILABLE`; a background run defers on a rate limit
   without charging an attempt.
 
-## 15. Rate limits and output caps
+### 10.4 Azure OpenAI
 
-`ai.limits` protects the deployment from runaway request volume, the
-organization key from one user draining it, and budgets from runaway
-generation. **Nothing is limited on a fresh deployment** — every field is
-optional, and an absent field is no limit at all.
-
-| Setting | What it limits |
-|---|---|
-| `perUser.requestsPerMinute` | Each user's AI calls in any 60 seconds, whoever's key pays. |
-| `perUser.requestsPerDay` | Each user's AI calls per UTC day, whoever's key pays. |
-| `orgKey.requestsPerDayPerUser` | Each user's calls **paid by the organization key**, per UTC day. Users on their own key are never counted. |
-| `orgKey.tokensPerDayPerUser` | Input + output tokens each user may spend **on the organization key** per UTC day. |
-| `perModel["openai:<modelId>"].requestsPerMinutePerUser` | Each user's calls to that one model in any 60 seconds. |
-| `perModel["openai:<modelId>"].maxOutputTokens` | Caps every call's output tokens for that model. Combined with **Max output tokens** (the deployment cap) — the smaller wins — and applied even when the caller asked for no limit. |
-
-Configure them in the **Limits** section of `/admin/settings/ai` (per-model
-fields are in the model's override dialog on `/admin/settings/ai/models`), or
-through the API. `limits` in `PUT /api/admin/ai/config` is sent **whole**:
-what you send replaces every stored limit, so leaving a field out lifts it,
-and `{}` lifts them all; omitting `limits` from the body keeps what is
-stored. A per-model key is the provider id, a colon, and the model id exactly
-as the catalog lists it:
-
-```bash
-curl -X PUT https://app.example.com/api/admin/ai/config \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -H "If-Match: $VERSION" \
-  -d '{
-    "enabled": true, "keyPolicy": "byok_with_org_fallback", "logPromptContent": false,
-    "defaults": { "allowBackgroundRuns": true, "maxOutputTokensCap": 4096 },
-    "providers": { "openai": { "enabled": true } },
-    "limits": {
-      "perUser":  { "requestsPerMinute": 20, "requestsPerDay": 1000 },
-      "orgKey":   { "requestsPerDayPerUser": 200, "tokensPerDayPerUser": 500000 },
-      "perModel": { "openai:gpt-4.1": { "maxOutputTokens": 2048, "requestsPerMinutePerUser": 5 } }
-    }
-  }'
-```
-
-(`appctl api put /api/admin/ai/config …` sends the same body.) Changes apply
-within about five seconds on every API instance, with no restart.
-
-**What users see.** A call over a limit is refused with **429**,
-`details.reason: "AI_RATE_LIMITED"`, `details.limit` naming the limit (for
-example `"orgKey.tokensPerDayPerUser"`), and a `Retry-After` header: for a
-per-minute limit, until enough earlier calls leave the 60-second window; for a
-daily one, until midnight UTC. A queued job (a background response, an image,
-a transcription, speech) that meets a limit is **deferred and retried then**,
-never failed; the queued request itself is counted only when it runs.
-
-**What counts, and how precise it is.** Every call that reaches a provider
-counts once — including each step of a tool-calling loop and failed calls —
-and a refused call does not. Per-minute limits are exact within one API
-instance; with several instances they can be overshot by the calls still in
-flight on the others (there is deliberately no Redis — see
-`docs/specs/ai-platform.md` §15). Use the **AI Usage** page, not these limits,
-for accounting. Catalog refreshes run on the admin key and never count.
-
-## 16. Realtime voice sessions
-
-`POST /api/ai/realtime/sessions` mints a short-lived **ephemeral** provider
-secret (OpenAI `ek_…`, 60 seconds to connect). The user's browser uses it to
-talk to the provider **directly** over WebRTC. The user's key (or the org key,
-under fallback) is spent on the server to mint it and never reaches the
-browser. It is **off by default**: once a session is connected, this server
-can no longer see, cap or meter the conversation. Switch it on only if you
-accept that. On `/admin/settings/ai`, turn on **Allow realtime voice
-sessions** under *Defaults* (it needs `ai_config:write`) and save. Or use the
-API:
-
-```bash
-curl -X PUT https://app.example.com/api/admin/ai/config \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -H "If-Match: $VERSION" \
-  -d '{ "enabled": true, "keyPolicy": "byok", "logPromptContent": false,
-        "defaults": { "allowBackgroundRuns": true, "allowRealtime": true },
-        "providers": { "openai": { "enabled": true } } }'
-```
-
-(`allowRealtime` omitted from the body keeps the stored value.) Users also
-need an **enabled** realtime model (`gpt-realtime*`, `gpt-4o-realtime-preview*`,
-`gpt-4o-mini-realtime*`) on `/admin/settings/ai/models`, and a key that
-reaches it. `GET /api/ai/config` publishes `allowRealtime`, so the AI
-Playground (`/ai`) hides its **Voice** mode while it is off. Each mint counts as one request against the §15
-limits and is recorded on the **AI Usage** page as operation `realtime`,
-`units.sessions` = 1. No tokens are recorded, because the audio never passes
-through this server; see the provider's own dashboard for realtime cost. If a
-provider base URL is set (a gateway), browsers are sent to that gateway's
-`/realtime/calls` too, so it must be reachable from users' browsers.
-
-## 17. Enabling Azure OpenAI
-
-Azure OpenAI (issue #448) serves OpenAI's models from your own Azure
-resource. It is configured like every provider — no environment variable
-(the adapter deliberately ignores `AZURE_OPENAI_ENDPOINT`,
-`AZURE_OPENAI_API_KEY`, `OPENAI_API_VERSION` and `OPENAI_BASE_URL` if they
-happen to be set on the host), no restart.
+Azure OpenAI serves OpenAI's models from your own Azure resource. The
+adapter ignores `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY`,
+`OPENAI_API_VERSION` and `OPENAI_BASE_URL` if they happen to be set on the
+host.
 
 1. In the Azure portal, open the Azure OpenAI resource and note its
    **endpoint** (`https://<resource>.openai.azure.com`) and one of its
@@ -540,30 +410,30 @@ happen to be set on the host), no restart.
        "deployments": { "gpt-4o": "prod-gpt4o", "text-embedding-3-small": "embed" } } } }'
    ```
 
-3. Add the resource key as the admin (org) key on the provider's row (§2)
-   and **Test** it (§3). The key travels in Azure's `api-key` header.
-4. Refresh the catalog for `azure-openai` (§4). **With a `deployments` map,
+3. Add the resource key as the admin (org) key on the provider's row
+   (section 4.1) and **Test** it (section 4.2). The key travels in Azure's `api-key` header.
+4. Refresh the catalog for `azure-openai` (section 5). **With a `deployments` map,
    its keys are the model list** — Azure cannot list a resource's
    deployments, and what it can list is every model the region offers,
    deployed or not. Without a map you get that full regional list; enable
    only what is actually deployed, each under a deployment named after the
    model. Model ids classify like OpenAI's (`gpt-35-turbo` and custom names
-   stay unclassified — declare them in §5). Enable the models users should
-   see (§5).
-5. Users add their own Azure key on `/settings/ai` (§7) — it must be a key
+   stay unclassified — declare them in section 6). Enable the models users
+   should see (section 6).
+5. Users add their own Azure key on `/settings/ai` (section 8) — it must be a key
    for **this** resource, since the endpoint is the administrator's.
 
 What is different, and worth telling users:
 
-- **No `previousResponseId`** in either API style (as for Anthropic, §13):
+- **No `previousResponseId`** in either API style (as for Anthropic, section 10.2):
   send the conversation as `input`; `runTools()` and the Playground do.
-- **No hosted tools**, and no image or audio generation through Azure yet —
+- **No hosted tools**, and no image or audio generation through Azure:
   responses (text, vision, files, tools, structured output, streaming) and
   embeddings only.
 - In the `chat_completions` style there is **no reasoning effort** (it is
   refused) and no reasoning summary.
 
-Troubleshooting:
+Troubleshooting Azure OpenAI:
 
 | Symptom | Likely cause |
 |---|---|
@@ -574,9 +444,9 @@ Troubleshooting:
 | `AI_INVALID_REQUEST` on every response | The `api-version` does not serve the Responses API — set `apiStyle` to `chat_completions`, or use a newer `apiVersion`. |
 | `AI_PROVIDER_UNAVAILABLE`, `details.providerCode: "redirect_refused"` | The endpoint answered with a redirect; redirects are never followed. Check the endpoint (a custom domain or gateway in front of Azure). |
 
-## 18. Enabling a self-hosted OpenAI-compatible server (Ollama/vLLM/LM Studio)
+### 10.5 OpenAI-compatible server (Ollama, vLLM, LM Studio)
 
-The **OpenAI-compatible** provider (issue #448) talks to any server that
+The **OpenAI-compatible** provider talks to any server that
 speaks OpenAI's API at a base URL you choose — Ollama, vLLM, LM Studio,
 llama.cpp's server, a LiteLLM gateway.
 
@@ -616,10 +486,10 @@ llama.cpp's server, a LiteLLM gateway.
    and the catalog refresh work without an admin key, and usage is recorded
    with key source **"No key (keyless server)"** (`keySource: "none"`) — per-user and per-model
    limits still apply, the organization-key limits never do. With
-   `requiresKey` on, keys work exactly as for OpenAI (§2, §6, §7).
-4. Refresh the catalog for `openai-compatible` (§4). Every model the server
+   `requiresKey` on, keys work exactly as for OpenAI (sections 4, 7, 8).
+4. Refresh the catalog for `openai-compatible` (section 5). Every model the server
    reports is stored **unclassified** — a local model's name says nothing
-   reliable about what it can do. Declare each one's capabilities (§5):
+   reliable about what it can do. Declare each one's capabilities (section 6):
    typically `responses`, `streaming` and `tools`, plus `structured_output`
    if the server enforces JSON schemas, `vision_input` for a vision model,
    and `embeddings` for an embedding model (`nomic-embed-text`). Then enable
@@ -635,7 +505,7 @@ What is different, and worth telling users:
 - Only responses (text, vision, tools, structured output, streaming) and
   embeddings — no images or audio through this provider.
 
-Troubleshooting:
+Troubleshooting an OpenAI-compatible server:
 
 | Symptom | Likely cause |
 |---|---|
@@ -645,5 +515,180 @@ Troubleshooting:
 | `AI_PROVIDER_UNAVAILABLE`, `details.transport: "connection"` | The API cannot reach the server (DNS, firewall, the server bound to `127.0.0.1` only — Ollama needs `OLLAMA_HOST=0.0.0.0`). |
 | `AI_PROVIDER_UNAVAILABLE`, `details.providerCode: "redirect_refused"` | The URL redirects — usually a missing `/v1` or a trailing-slash rule on a proxy. Use the final URL. |
 | `AI_INVALID_REQUEST` (404) on every response | `apiStyle` is `responses` but the server serves only Chat Completions — switch it to `chat_completions`. |
-| `AI_CAPABILITY_UNSUPPORTED` | A model not yet classified (§5), a reasoning effort in the Chat Completions style, or a hosted tool. |
+| `AI_CAPABILITY_UNSUPPORTED` | A model not yet classified (section 6), a reasoning effort in the Chat Completions style, or a hosted tool. |
 | `AI_STRUCTURED_OUTPUT_INVALID` | The server ignored the JSON schema (many do); do not declare `structured_output` for that model. |
+
+## 11. Hosted tools
+
+Under **Hosted tools** on `/admin/settings/ai` there is one switch per
+provider-hosted tool — web search, file search, code interpreter, image
+generation and remote MCP servers — all **off** on a fresh deployment. Each
+reaches outside this deployment (the open web, a third-party MCP server) and
+is billed per use by the provider on whichever key pays for the call (section 7), so
+switch on only what users need. A request naming a switched-off tool is
+refused with `AI_TOOL_DISABLED`; users also need a model that declares
+**Hosted tools** on `/admin/settings/ai/models`.
+
+**Allowed MCP hosts** narrows which servers users may point the model at —
+one hostname per line (`mcp.example.com`), or `*.example.com` for its
+subdomains. Leave it empty to allow any `https://` server (the page warns
+while MCP is on with no list). MCP credentials are never configured here:
+users send them per request in the tool's `headers`, which are never stored,
+logged or returned — and a background run cannot carry them at all.
+
+## 12. Rate limits and output caps
+
+`ai.limits` protects the deployment from runaway request volume, the
+organization key from one user draining it, and budgets from runaway
+generation. **Nothing is limited on a fresh deployment** — every field is
+optional, and an absent field is no limit at all.
+
+| Setting | What it limits |
+|---|---|
+| `perUser.requestsPerMinute` | Each user's AI calls in any 60 seconds, whoever's key pays. |
+| `perUser.requestsPerDay` | Each user's AI calls per UTC day, whoever's key pays. |
+| `orgKey.requestsPerDayPerUser` | Each user's calls **paid by the organization key**, per UTC day. Users on their own key are never counted. |
+| `orgKey.tokensPerDayPerUser` | Input + output tokens each user may spend **on the organization key** per UTC day. |
+| `perModel["openai:<modelId>"].requestsPerMinutePerUser` | Each user's calls to that one model in any 60 seconds. |
+| `perModel["openai:<modelId>"].maxOutputTokens` | Caps every call's output tokens for that model. Combined with **Max output tokens** (the deployment cap) — the smaller wins — and applied even when the caller asked for no limit. |
+
+Configure them in the **Limits** section of `/admin/settings/ai` (per-model
+fields are in the model's override dialog on `/admin/settings/ai/models`), or
+through the API. `limits` in `PUT /api/admin/ai/config` is sent **whole**:
+what you send replaces every stored limit, so leaving a field out lifts it,
+and `{}` lifts them all; omitting `limits` from the body keeps what is
+stored. A per-model key is the provider id, a colon, and the model id exactly
+as the catalog lists it:
+
+```bash
+curl -X PUT https://app.example.com/api/admin/ai/config \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H "If-Match: $VERSION" \
+  -d '{
+    "enabled": true, "keyPolicy": "byok_with_org_fallback", "logPromptContent": false,
+    "defaults": { "allowBackgroundRuns": true, "maxOutputTokensCap": 4096 },
+    "providers": { "openai": { "enabled": true } },
+    "limits": {
+      "perUser":  { "requestsPerMinute": 20, "requestsPerDay": 1000 },
+      "orgKey":   { "requestsPerDayPerUser": 200, "tokensPerDayPerUser": 500000 },
+      "perModel": { "openai:gpt-4.1": { "maxOutputTokens": 2048, "requestsPerMinutePerUser": 5 } }
+    }
+  }'
+```
+
+(`appctl api PUT /api/admin/ai/config --data @body.json` sends the same body.) Changes apply
+within about five seconds on every API instance, with no restart.
+
+**What users see.** A call over a limit is refused with **429**,
+`details.reason: "AI_RATE_LIMITED"`, `details.limit` naming the limit (for
+example `"orgKey.tokensPerDayPerUser"`), and a `Retry-After` header: for a
+per-minute limit, until enough earlier calls leave the 60-second window; for a
+daily one, until midnight UTC. A queued job (a background response, an image,
+a transcription, speech) that meets a limit is **deferred and retried then**,
+never failed; the queued request itself is counted only when it runs.
+
+**What counts, and how precise it is.** Every call that reaches a provider
+counts once — including each step of a tool-calling loop and failed calls —
+and a refused call does not. Per-minute limits are exact within one API
+instance; with several instances they can be overshot by the calls still in
+flight on the others (there is deliberately no Redis; see
+[`docs/specs/ai-platform.md`](../specs/ai-platform.md)). Use the **AI Usage** page, not these limits,
+for accounting. Catalog refreshes run on the admin key and never count.
+
+## 13. Realtime voice sessions
+
+`POST /api/ai/realtime/sessions` mints a short-lived **ephemeral** provider
+secret (OpenAI `ek_…`, 60 seconds to connect). The user's browser uses it to
+talk to the provider **directly** over WebRTC. The user's key (or the org key,
+under fallback) is spent on the server to mint it and never reaches the
+browser. It is **off by default**: once a session is connected, this server
+can no longer see, cap or meter the conversation. Switch it on only if you
+accept that. On `/admin/settings/ai`, turn on **Allow realtime voice
+sessions** under *Defaults* (it needs `ai_config:write`) and save. Or use the
+API:
+
+```bash
+curl -X PUT https://app.example.com/api/admin/ai/config \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H "If-Match: $VERSION" \
+  -d '{ "enabled": true, "keyPolicy": "byok", "logPromptContent": false,
+        "defaults": { "allowBackgroundRuns": true, "allowRealtime": true },
+        "providers": { "openai": { "enabled": true } } }'
+```
+
+(`allowRealtime` omitted from the body keeps the stored value.) Users also
+need an **enabled** realtime model (`gpt-realtime*`, `gpt-4o-realtime-preview*`,
+`gpt-4o-mini-realtime*`) on `/admin/settings/ai/models`, and a key that
+reaches it. `GET /api/ai/config` publishes `allowRealtime`, so the AI
+Playground (`/ai`) hides its **Voice** mode while it is off. Each mint counts
+as one request against the section 12 limits and is recorded on the **AI Usage** page as operation `realtime`,
+`units.sessions` = 1. No tokens are recorded, because the audio never passes
+through this server; see the provider's own dashboard for realtime cost. If a
+provider base URL is set (a gateway), browsers are sent to that gateway's
+`/realtime/calls` too, so it must be reachable from users' browsers.
+
+## 14. Privacy: prompt logging
+
+`ai.logPromptContent` (default **off**) is a deliberate, named privacy
+switch — when off, no prompt text (instructions or input) is ever written
+to a debug log line. Turning it on is a real decision, not a debugging
+convenience left on by accident: prompt content can include anything a user
+typed, and every log line derived from a call already redacts key material
+unconditionally regardless of this setting (that part is not optional). Even
+with it on, logged text is truncated to `AI_PROMPT_LOG_MAX_CHARS`
+(2048 characters, `runtime/ai.service.ts`) and the key is never in scope to
+log by construction — but the prompt text itself is the user's, so treat
+this switch the same way you would treat verbose request logging anywhere
+else in the app: on only for as long as you are actively debugging, and off
+by default.
+
+## Troubleshooting
+
+Every failure this platform raises is an `AiError` with a stable `code`,
+surfaced as `details.reason` on the HTTP response (the envelope's
+top-level `code` is always the ordinary status-derived
+`FORBIDDEN`/`BAD_REQUEST`/etc. this API already uses everywhere — the AI
+code is specifically in `details.reason`). This table is the quick
+reference; the full one is in [`docs/specs/ai-platform.md`](../specs/ai-platform.md).
+
+| `details.reason` | HTTP | What it means | What to check |
+|---|---|---|---|
+| `AI_DISABLED` | 403 | The kill switch is off. | Section 3 — enable AI at `/admin/settings/ai`. |
+| `AI_PROVIDER_DISABLED` | 403 | AI is on, but this specific provider is not. | Enable the provider on `/admin/settings/ai`. |
+| `AI_KEY_REQUIRED` | 403 | No key resolves for this user/provider under the active policy. | Under `byok`: the user has no key (section 8). Under `byok_with_org_fallback`: neither the user nor the deployment has one (sections 4, 9). |
+| `AI_KEY_INVALID` | 400 | A submitted key was rejected by the provider. | The key is wrong, revoked, or scoped incorrectly at the provider. Nothing was stored. |
+| `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` (section 6). |
+| `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |
+| `AI_CAPABILITY_UNSUPPORTED` | 400 | The model or provider lacks a capability the request needs (e.g. structured output, a tool, vision input), or the request chains with `previousResponseId` on a provider that stores no responses (Anthropic, Gemini — `details.capability: "previous_response_id"`). | Pick a model/provider that declares it, or drop that part of the request; for Anthropic, Gemini, Azure OpenAI or an OpenAI-compatible server, send the conversation as `input` instead of chaining (section 10). |
+| `AI_REALTIME_DISABLED` | 403 | A realtime voice session was requested, but realtime is switched off (the default). | Section 13 — set `defaults.allowRealtime` on `/admin/settings/ai` if you want voice sessions. |
+| `AI_TOOL_DISABLED` | 403 | A hosted tool (web search, file search, code interpreter, image generation, MCP) that is switched off, or an MCP server host outside the allowlist. | Section 11 — switch the tool on, or add the host, under **Hosted tools** on `/admin/settings/ai`. |
+| `AI_RATE_LIMITED` | 429 | The provider throttled the call, or one of this deployment's own limits was reached — then `details.limit` names which one. | Transient: wait `Retry-After` seconds (also `details.retryAfterMs`). For a background run this defers automatically rather than charging an attempt. If users hit a limit of yours too often, raise it (section 12). |
+| `AI_PROVIDER_UNAVAILABLE` | 503 | The provider is unreachable or erroring at the transport level. | A provider-side outage, or `AI_PROVIDER_UNAVAILABLE` after an aborted/cancelled call. Check the provider's own status page. For Azure OpenAI or an OpenAI-compatible server, also the endpoint itself: `details.providerCode: "redirect_refused"` means it answered with a redirect, which is never followed (usually a wrong `baseUrl`), and `details.missing: "baseUrl"` that none is configured (sections 10.4, 10.5). |
+| `AI_CONTENT_FILTERED` | 422 | The provider's own content filter rejected the request or response. | Not a platform bug — the provider refused this specific content. |
+| `AI_INVALID_REQUEST` | 400 | The request itself is malformed (no model/provider resolvable, a background run given a function tool, an invalid `maxOutputTokens`). | Check the request shape; function tools cannot run in a background run — use `runTools()` in-process instead. |
+| `AI_STRUCTURED_OUTPUT_INVALID` | 502 | The model's output didn't parse against the requested schema. | Usually a model/schema mismatch, or a model too weak to reliably follow the schema; consider `strict: true` or a different model. |
+
+Provider-specific symptoms: Azure OpenAI in section 10.4, an OpenAI-compatible
+server in section 10.5.
+
+## Summary checklist
+
+**Turning AI on**
+
+- [ ] `SECRETS_ENCRYPTION_KEY` is set on the API
+- [ ] Key policy decided: `byok` or `byok_with_org_fallback`
+- [ ] AI **Enabled** on `/admin/settings/ai`
+- [ ] Each provider you need switched on and configured (section 10)
+- [ ] Admin key added and **Test** shows all three checks passing, where the
+      provider needs one
+- [ ] Catalog refreshed; unclassified models given capabilities; the models
+      users should see enabled
+- [ ] `ai:use` granted to whoever should use AI beyond Admin and Contributor
+- [ ] Hosted tools, realtime and limits set deliberately (sections 11–13)
+- [ ] `logPromptContent` left off unless you are actively debugging
+
+**In an emergency**
+
+- [ ] AI toggled off (UI, or `PATCH /api/system-settings`)
+- [ ] `/api/ai/*` answers `403 AI_DISABLED`
+- [ ] Leaked admin key replaced or removed (section 9)

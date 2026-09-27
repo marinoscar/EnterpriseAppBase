@@ -97,9 +97,18 @@ checking the **new** name. If it fails, it names the offending `file:line`.
 ## Step 4 — the visual baselines
 
 ```bash
-docker run --rm -it -v "$PWD":/w -w /w mcr.microsoft.com/playwright:v1.62.1-noble \
-  npx playwright test --config=tests/visual/playwright.config.ts --update-snapshots
+REPO=$(git rev-parse --show-toplevel)
+docker run --rm --user "$(id -u):$(id -g)" -v "$REPO:$REPO" -w "$REPO" \
+  mcr.microsoft.com/playwright:v1.62.1-noble \
+  tests/visual/node_modules/.bin/playwright test --config=tests/visual/playwright.config.ts --update-snapshots
 ```
+
+It needs the root and `tests/visual` dependencies installed for Linux (`npm ci`
+and `npm ci --prefix tests/visual` on a Linux host). Invoke the pinned binary,
+never `npx playwright`, which loads a second, unpinned Playwright. Without
+Docker, or on macOS or Windows, tell the user to run the **Regenerate visual
+baselines** workflow (`.github/workflows/visual-baselines.yml`) on their branch
+instead; it runs the same command in the same image and commits the result.
 
 **Tell the user plainly that CI is red until this is done, and that this is
 expected rather than a regression.** Seven of eleven baselines are full-page

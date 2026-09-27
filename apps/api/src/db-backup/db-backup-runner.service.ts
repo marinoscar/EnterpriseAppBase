@@ -1470,11 +1470,11 @@ export class DatabaseBackupRunnerService {
         bytesWritten: bytes,
         sizeBytes: bytes,
         checksumSha256: input.checksumSha256,
-        // ⚠ THE SERVER'S OWN READ-BACK IS WHAT SETS THIS, on both paths. A
-        // node reporting `verified: true` would be the machine with the least
-        // reason to be trusted attesting to the one fact this subsystem rests
-        // on; see §6 of docs/specs/database-backup.md and the result
-        // contract's header.
+        // ⚠ THE SERVER'S OWN READ-BACK IS WHAT SETS THIS, on both paths. A node
+        // reporting `verified: true` would be the machine with the least reason
+        // to be trusted attesting to the one fact this subsystem rests on; see
+        // docs/specs/database-backup.md, "Read-back verification", and the
+        // result contract's header.
         verifiedAt: at,
         lastError: null,
         ...input.audit,
@@ -1643,10 +1643,10 @@ export class DatabaseBackupRunnerService {
    *   3. VERIFY SERVER-SIDE, ALWAYS. `download(key)` → `readTocEntryCount` →
    *      `> 0`. The node's `sha256` is recorded as THE NODE'S CLAIM about what
    *      it streamed; `verifiedAt` is set only because THIS process read the
-   *      object back out of the bucket. §6 of docs/specs/database-backup.md
-   *      already settled that verification means "what the bucket holds", and
-   *      the cost — one download per backup — is the cost this path already
-   *      pays on the server.
+   *      object back out of the bucket. docs/specs/database-backup.md,
+   *      "Read-back verification", already settled that verification means
+   *      "what the bucket holds", and the cost — one download per backup — is
+   *      the cost this path already pays on the server.
    *   4. WRITE THROUGH {@link completeRun}, the same method `executeRun` uses.
    *
    * ⚠ THIS IS NOT A SECOND DUMP ENGINE AND MUST NOT BECOME ONE. It does not

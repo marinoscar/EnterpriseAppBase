@@ -8,7 +8,7 @@
 // Same contract as `openai-model-catalog.ts`: `GET /v1/models` lists ids, and
 // `classifyModel()` answers from this ORDERED rule list — FIRST MATCH WINS,
 // no match means `null` (the catalog stores the model as `unclassified` and
-// an administrator decides; docs/specs/ai-platform.md §6). Every pattern is a
+// an administrator decides; docs/specs/ai-platform.md §2.17). Every pattern is a
 // prefix match so a dated snapshot (`claude-opus-4-5-20251101`) classifies
 // like its alias (`claude-opus-4-5`).
 //

@@ -77,10 +77,11 @@ export interface BackoffInput {
    * (shortest) delay.
    *
    * ⚠ Callers pass `job.attempts`, which the claim statement already
-   * incremented — so a job on its first run passes `1` and gets the base
-   * delay, not double it. See §4.5 of docs/specs/job-queue.md. Values below
-   * 1 are clamped rather than trusted, so a caller that reads a stale or
-   * un-charged row cannot produce a fractional (sub-base) delay.
+   * incremented — so a job on its first run passes `1` and gets the base delay,
+   * not double it. See docs/specs/job-queue.md,
+   * "Attempts are charged at claim". Values below 1 are clamped rather than
+   * trusted, so a caller that reads a stale or un-charged row cannot produce a
+   * fractional (sub-base) delay.
    */
   attempt: number;
 

@@ -4,7 +4,7 @@
 //
 // What a fork codes against. Everything here is provider-neutral and carries
 // no key: the facade resolves the key per call and hands it straight to the
-// adapter (docs/specs/ai-platform.md §3), so no type in this file has a field
+// adapter (docs/specs/ai-platform.md §2.2), so no type in this file has a field
 // able to hold one.
 // =============================================================================
 
@@ -112,7 +112,7 @@ export interface AiSpeakRequest {
 }
 
 /**
- * `createRealtimeSession`'s request (#449, docs/specs/ai-platform.md §5.8).
+ * `createRealtimeSession`'s request (#449, docs/specs/ai-platform.md §2.15).
  *
  * `model` is optional: omitted, the first model the caller can use that
  * declares `realtime` (in `GET /api/ai/models` order) — never the chat

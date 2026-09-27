@@ -26,7 +26,7 @@ import {
 // mints the ephemeral secret it connects with, using the caller's key (or
 // the org key, under fallback) server-side. The response carries that
 // ephemeral secret — the single, deliberate exception to "no credential
-// leaves the server" (docs/specs/ai-platform.md §5.8) — and never the key.
+// leaves the server" (docs/specs/ai-platform.md §2.15) — and never the key.
 //
 // Synchronous: one short provider round trip, no job (the long-running part
 // is the call itself, which never touches this server). Refused 403

@@ -96,9 +96,9 @@ export const databaseBackupConfigSchema = systemDatabaseBackupSchema.extend({
    * ⚠ A DISPLAY VALUE, AND NOT A PRE-FLIGHT CHECK. Nothing may read this and
    * conclude that a `POST runs` will succeed: between this read and that write
    * the scheduler on another replica can claim the slot. The arbiter is the
-   * partial unique index and it always will be — see §2 of
-   * `docs/specs/database-backup.md` for why a `findFirst` before the insert is
-   * racy exactly when it matters.
+   * partial unique index and it always will be — see
+   * `docs/specs/database-backup.md`, "Indexes and the single-active-run guard",
+   * for why a `findFirst` before the insert is racy exactly when it matters.
    */
   activeRunId: z.uuid().nullable(),
 });

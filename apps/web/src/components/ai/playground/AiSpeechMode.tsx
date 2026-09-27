@@ -1,6 +1,6 @@
 /**
  * The Playground's Speech mode — issue #445 (API: #439,
- * docs/specs/ai-platform.md §5.6).
+ * docs/specs/ai-platform.md §2.14).
  *
  * Text (1–4096 characters, with a live counter), a voice from the selected
  * model's own `capabilities.voices`, an output format and optional style
