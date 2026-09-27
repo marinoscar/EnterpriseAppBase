@@ -357,6 +357,81 @@ jobs:
           NODE_ENV: production
           SMOKE_PORT: '3001'
 
+  greptime-test:
+    name: API Tests (GreptimeDB)
+    runs-on: ubuntu-latest
+    # No `needs:` — runs concurrently with `build`, like `openapi`/`smoke` do.
+    #
+    # WHY A `docker run` STEP INSTEAD OF A `services:` CONTAINER
+    # -------------------------------------------------------------------------
+    # Every other real-backend job in this workflow (`smoke`) uses a `services:`
+    # container, but GitHub Actions' `services:` cannot pass a custom command
+    # or args to the image — only `image`, `env`, `ports`, `volumes` and
+    # `options`. GreptimeDB's image has no entrypoint default that starts
+    # `standalone` with a configurable `--user-provider`, so the reader/admin
+    # split this suite needs (`telemetry.greptime.spec.ts`) cannot be expressed
+    # as a `services:` block. A plain `docker run -d` step, waited on with the
+    # image's own `/health` endpoint before Jest runs, is simple and
+    # deterministic instead.
+    #
+    # Users, ports and versions here MUST match `infra/compose/test.compose.yml`
+    # (`greptime-test` service) — that file is what a contributor runs locally,
+    # and this job is that same container, minus Compose.
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # The spec imports PrismaService transitively (TelemetryQueryService ->
+      # PrismaService), so the generated client must exist even though this
+      # tier touches no PostgreSQL.
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      - name: Start GreptimeDB
+        run: |
+          docker run -d --name greptime-test \
+            -p 14013:4003 -p 14010:4000 \
+            -e GREPTIMEDB_STANDALONE__ENABLE_TELEMETRY=false \
+            greptime/greptimedb:v1.2.1 standalone start \
+            --http-addr=0.0.0.0:4000 --rpc-bind-addr=0.0.0.0:4001 \
+            --mysql-addr=0.0.0.0:4002 --postgres-addr=0.0.0.0:4003 \
+            --user-provider='static_user_provider:cmd:admin=test-admin,writer=test-writer,reader:readonly=test-reader'
+
+      # The image needs a few seconds to bind its ports; `/health` on the HTTP
+      # endpoint (verified in the #529 spike) returns `{}` once it is ready.
+      # 60 x 1s comfortably covers the ~2-5s a cold pull-then-boot takes; a
+      # slower runner still fails loudly (curl's own timeout) rather than
+      # hanging the job.
+      - name: Wait for GreptimeDB
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:14010/health >/dev/null 2>&1; then
+              echo "GreptimeDB is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "GreptimeDB did not become healthy in time" >&2
+          docker logs greptime-test || true
+          exit 1
+
+      - run: npm run test:greptime --workspace=api
+        env:
+          GREPTIME_TEST_URL: postgres://reader:test-reader@localhost:14013/public
+          GREPTIME_TEST_ADMIN_URL: postgres://admin:test-admin@localhost:14013/public
+
+      - name: Stop GreptimeDB
+        if: always()
+        run: docker rm -f greptime-test
+
   visual:
     name: Visual regression (issue #107)
     runs-on: ubuntu-latest
