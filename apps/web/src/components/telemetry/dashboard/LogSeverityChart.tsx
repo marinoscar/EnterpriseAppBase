@@ -55,7 +55,7 @@ export function LogSeverityChart({
           color: band.color,
         }))}
         xAxis={[timelineXAxis(starts, spanMs, compact ? 4 : undefined)]}
-        yAxis={[{ width: compact ? 36 : 48, min: 0 }]}
+        yAxis={[{ width: compact ? 44 : 48, min: 0 }]}
         grid={{ horizontal: true }}
         margin={{ top: 8, right: 8, bottom: 4, left: 4 }}
         slotProps={{ legend: { position: { vertical: compact ? 'bottom' : 'top', horizontal: 'center' } } }}

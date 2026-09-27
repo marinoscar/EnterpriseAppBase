@@ -214,6 +214,7 @@ export default function TelemetryDashboardPage() {
               isLoading={summary.isLoading}
               error={summary.error}
               onRetry={summary.reload}
+              compact={isPhone}
             />
 
             <DashboardPanel

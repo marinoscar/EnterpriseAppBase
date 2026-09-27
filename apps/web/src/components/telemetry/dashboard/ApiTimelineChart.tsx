@@ -80,7 +80,7 @@ export function ApiTimelineChart({ buckets, height, spanMs, compact, zoom, onZoo
         ]}
         xAxis={[timelineXAxis(starts, spanMs, compact ? 4 : undefined)]}
         yAxis={[
-          { id: 'requests', position: 'left', width: compact ? 36 : 48, min: 0 },
+          { id: 'requests', position: 'left', width: compact ? 44 : 48, min: 0 },
           {
             id: 'latency',
             position: 'right',
