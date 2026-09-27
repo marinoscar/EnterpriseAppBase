@@ -10,6 +10,7 @@ import type {
   TelemetryAdminConfig,
   TelemetryConnection,
   TelemetryConnectionTestResult,
+  TelemetryDeploymentConnection,
   TelemetryPublicConfig,
   TelemetryQueryResult,
   TelemetrySchema,
@@ -116,19 +117,68 @@ export const mockTelemetryQueryResult: TelemetryQueryResult = {
 };
 
 // -----------------------------------------------------------------------------
-// GreptimeDB connection (#558). The default handler answers the STORED one.
+// GreptimeDB connection (#558, #570). The default handler answers the STORED
+// AUTOMATIC one: the deployment supplies the whole connection.
 // -----------------------------------------------------------------------------
 
-export const mockTelemetryConnectionStored: TelemetryConnection = {
-  source: 'stored',
-  // Automatic host (#562): nothing stored, the deployment host is used.
-  host: null,
-  effectiveHost: 'greptimedb',
-  hostMode: 'auto',
+/** The GreptimeDB deployed with this application, both logins provisioned. */
+export const mockTelemetryDeployment: TelemetryDeploymentConnection = {
+  host: 'greptimedb',
   pgPort: 4003,
   database: 'public',
   readerUser: 'readonly',
   adminUser: 'admin',
+  readerConfigured: true,
+  adminConfigured: true,
+};
+
+/** A deployment-supplied password: present, but never described by a hint. */
+const deploymentPassword = { configured: true, hint: null, updatedAt: null, updatedByUserId: null };
+const noPassword = { configured: false, hint: null, updatedAt: null, updatedByUserId: null };
+
+/** Stored automatic marker (`{ host: null }`): deployment-managed, revert has nothing to do. */
+export const mockTelemetryConnectionAutomaticStored: TelemetryConnection = {
+  source: 'stored',
+  host: null,
+  effectiveHost: 'greptimedb',
+  hostMode: 'auto',
+  deploymentManaged: true,
+  deployment: mockTelemetryDeployment,
+  problem: null,
+  pgPort: 4003,
+  database: 'public',
+  readerUser: 'readonly',
+  adminUser: 'admin',
+  configured: true,
+  adminConfigured: true,
+  credentials: { reader: deploymentPassword, admin: deploymentPassword },
+  version: 3,
+  updatedAt: '2026-09-01T10:00:00.000Z',
+  updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
+};
+
+/** Nothing stored: the deployment's own GreptimeDB (`GREPTIME_*`). */
+export const mockTelemetryConnectionAutomaticEnvironment: TelemetryConnection = {
+  ...mockTelemetryConnectionAutomaticStored,
+  source: 'environment',
+  version: 0,
+  updatedAt: null,
+  updatedBy: null,
+};
+
+/** A stored custom host: an external GreptimeDB with its passwords in the credential store. */
+export const mockTelemetryConnectionCustomStored: TelemetryConnection = {
+  source: 'stored',
+  host: 'greptime.internal',
+  effectiveHost: 'greptime.internal',
+  hostMode: 'custom',
+  deploymentManaged: false,
+  deployment: mockTelemetryDeployment,
+  problem: null,
+  pgPort: 4004,
+  database: 'telemetry',
+  readerUser: 'ext_reader',
+  adminUser: 'ext_admin',
   configured: true,
   adminConfigured: true,
   credentials: {
@@ -145,48 +195,49 @@ export const mockTelemetryConnectionStored: TelemetryConnection = {
       updatedByUserId: 'admin-user-id',
     },
   },
-  version: 3,
+  version: 5,
   updatedAt: '2026-09-01T10:00:00.000Z',
   updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
 };
 
-/** The `GREPTIME_*` deployment default: passwords present, but not the store's to describe. */
-export const mockTelemetryConnectionEnvironment: TelemetryConnection = {
-  source: 'environment',
-  // GREPTIME_HOST is a literal, so the environment's host reads as custom.
-  host: 'greptimedb',
-  effectiveHost: 'greptimedb',
-  hostMode: 'custom',
-  pgPort: 4003,
-  database: 'public',
-  readerUser: 'readonly',
-  adminUser: 'admin',
-  configured: true,
-  adminConfigured: true,
-  credentials: {
-    reader: { configured: true, hint: null, updatedAt: null, updatedByUserId: null },
-    admin: { configured: true, hint: null, updatedAt: null, updatedByUserId: null },
-  },
-  version: 0,
-  updatedAt: null,
-  updatedBy: null,
+/** Deployment-managed, but the deployment provisions no admin login. */
+export const mockTelemetryConnectionAutomaticProblem: TelemetryConnection = {
+  ...mockTelemetryConnectionAutomaticEnvironment,
+  deployment: { ...mockTelemetryDeployment, adminUser: null, adminConfigured: false },
+  problem:
+    'The deployment provisions no GreptimeDB admin login, so retention cannot be applied. Set GREPTIME_ADMIN_USER and GREPTIME_ADMIN_PASSWORD in the deployment.',
+  adminUser: null,
+  adminConfigured: false,
+  credentials: { reader: deploymentPassword, admin: noPassword },
 };
+
+/** The historical names: the default (stored automatic) and the deployment default. */
+export const mockTelemetryConnectionStored = mockTelemetryConnectionAutomaticStored;
+export const mockTelemetryConnectionEnvironment = mockTelemetryConnectionAutomaticEnvironment;
 
 export const mockTelemetryConnectionNone: TelemetryConnection = {
   source: 'none',
   host: null,
   effectiveHost: 'greptimedb',
   hostMode: 'auto',
+  deploymentManaged: false,
+  deployment: {
+    host: 'greptimedb',
+    pgPort: 4003,
+    database: 'public',
+    readerUser: '',
+    adminUser: null,
+    readerConfigured: false,
+    adminConfigured: false,
+  },
+  problem: null,
   pgPort: 4003,
   database: 'public',
   readerUser: '',
   adminUser: null,
   configured: false,
   adminConfigured: false,
-  credentials: {
-    reader: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
-    admin: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
-  },
+  credentials: { reader: noPassword, admin: noPassword },
   version: 0,
   updatedAt: null,
   updatedBy: null,
@@ -194,6 +245,7 @@ export const mockTelemetryConnectionNone: TelemetryConnection = {
 
 export const mockTelemetryConnectionTestResult: TelemetryConnectionTestResult = {
   host: 'greptimedb',
+  hostMode: 'auto',
   reader: { success: true, latencyMs: 12, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' },
   admin: { success: false, latencyMs: 8, error: 'password authentication failed for user "admin"' },
 };
