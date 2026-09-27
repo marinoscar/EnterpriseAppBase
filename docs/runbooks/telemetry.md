@@ -126,6 +126,27 @@ well-known credential.
 3. The save also enqueues a `telemetry.retention.apply` job, so the
    retention you chose reaches GreptimeDB right away rather than at the next
    nightly run.
+4. **Set the instance identifier if this telemetry store is shared.** Every
+   span, log record and metric batch is labelled with `instanceId` (the
+   `app.instance.id` resource attribute) — by default the application's own
+   slug, which is enough as long as only one deployment writes to this store.
+   If more than one deployment (two forks, or staging and production of one
+   fork) shares this GreptimeDB or the dashboards built on it, give each a
+   distinct `instanceId` so their data can be told apart:
+
+   ```bash
+   curl -sS -X PUT https://<your-deployment>/api/admin/telemetry/config \
+     -H "Authorization: Bearer <admin access token>" \
+     -H 'Content-Type: application/json' \
+     -d '{"instanceId": "acme-prod"}'
+   ```
+
+   **Keep it stable once set.** Changing it later splits one deployment's
+   history in two in every query and dashboard filtered by it — treat it like
+   a hostname, not a display label. Send `"instanceId": null` to return to
+   the `APP_SLUG` default. The change takes effect for the next batch
+   exported, on the same refresh interval as step 2 above; see
+   [the spec's instance identifier subsection](../specs/telemetry.md#the-instance-identifier).
 
 ## 5. Set retention
 
@@ -318,6 +339,7 @@ configured to do.
 - [ ] Overlay running (dev: `telemetry.compose.yml`; VPS: `observability` group)
 - [ ] `GET /api/admin/telemetry/status` reports `configured: true`, `reachable: true`
 - [ ] `telemetry.enabled` turned on; retention set deliberately
+- [ ] `instanceId` set if this store is shared by more than one deployment
 - [ ] A starter query in the explorer returns rows
 - [ ] (Optional) assistant configured and answers a test question
 
