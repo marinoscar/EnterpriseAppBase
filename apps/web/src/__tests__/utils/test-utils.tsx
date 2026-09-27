@@ -12,6 +12,15 @@ import {
   mockAiPublicConfigDisabled,
   mockAiPublicConfigEnabled,
 } from '../mocks/fixtures/ai';
+import {
+  TelemetryConfigContext,
+  type UseTelemetryConfigReturn,
+} from '../../hooks/useTelemetryConfig';
+import {
+  mockTelemetryPublicConfigDisabled,
+  mockTelemetryPublicConfigEnabled,
+} from '../mocks/fixtures/telemetry';
+import type { TelemetryPublicConfig } from '../../services/telemetry';
 import type { AuthProvider as AuthProviderType } from '../../types';
 
 interface WrapperOptions {
@@ -28,6 +37,15 @@ interface WrapperOptions {
    * `useAiConfig()` fetches `GET /ai/config` itself (MSW default: disabled).
    */
   aiEnabled?: boolean;
+  /**
+   * Stand in for the shell's `TelemetryConfigProvider` (#537) with a settled
+   * answer: `true` → available, collecting and the assistant on
+   * (`mockTelemetryPublicConfigEnabled`), `false` → no store. An object is
+   * used verbatim. Omitted, no provider is mounted — `useTelemetryFeatures()`
+   * answers "off" and `useTelemetryConfig()` fetches `GET /telemetry/config`
+   * itself (MSW default: unavailable).
+   */
+  telemetryEnabled?: boolean | TelemetryPublicConfig;
 }
 
 export interface MockUser {
@@ -166,6 +184,7 @@ function createWrapper(options: WrapperOptions = {}) {
     isLoading = false,
     providers = defaultMockProviders,
     aiEnabled,
+    telemetryEnabled,
   } = options;
 
   const aiValue: UseAiConfigReturn | null =
@@ -178,7 +197,27 @@ function createWrapper(options: WrapperOptions = {}) {
           refresh: vi.fn().mockResolvedValue(undefined),
         };
 
+  const telemetryValue: UseTelemetryConfigReturn | null =
+    telemetryEnabled === undefined
+      ? null
+      : {
+          config:
+            typeof telemetryEnabled === 'object'
+              ? telemetryEnabled
+              : telemetryEnabled
+                ? mockTelemetryPublicConfigEnabled
+                : mockTelemetryPublicConfigDisabled,
+          isLoading: false,
+          error: null,
+          refresh: vi.fn().mockResolvedValue(undefined),
+        };
+
   return function Wrapper({ children }: { children: ReactNode }) {
+    const withTelemetry = telemetryValue ? (
+      <TelemetryConfigContext.Provider value={telemetryValue}>{children}</TelemetryConfigContext.Provider>
+    ) : (
+      children
+    );
     return (
       <MemoryRouter initialEntries={[route]}>
         <ThemeContextProvider>
@@ -190,9 +229,9 @@ function createWrapper(options: WrapperOptions = {}) {
             providers={providers}
           >
             {aiValue ? (
-              <AiConfigContext.Provider value={aiValue}>{children}</AiConfigContext.Provider>
+              <AiConfigContext.Provider value={aiValue}>{withTelemetry}</AiConfigContext.Provider>
             ) : (
-              children
+              withTelemetry
             )}
           </MockAuthProvider>
         </ThemeContextProvider>

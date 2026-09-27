@@ -348,6 +348,13 @@ describe('admin sections — registry against the live routes', () => {
     expect(gates.get('/admin')).toBeNull();
   });
 
+  it('routes both Observability cards (#537) under the permission each declares', () => {
+    const gates = declaredRouteGates();
+    expect(gates.get('/admin/settings/telemetry')).toBe('telemetry:read');
+    expect(gates.get('/admin/settings/telemetry/explorer')).toBe('telemetry:query');
+    expect(resolveActiveDestination('/admin/settings/telemetry/explorer')).toBe('console');
+  });
+
   it('puts every card inside the Console destination', () => {
     for (const card of ADMIN_SECTIONS.flatMap((section) => section.cards)) {
       if (!card.path) continue;

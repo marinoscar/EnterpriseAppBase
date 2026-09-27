@@ -21,6 +21,13 @@ import {
   mockUserAiKeys,
   toSseBody,
 } from './fixtures/ai';
+import {
+  mockTelemetryAdminConfig,
+  mockTelemetryPublicConfigDisabled,
+  mockTelemetryQueryResult,
+  mockTelemetrySchema,
+  mockTelemetryStatus,
+} from './fixtures/telemetry';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -316,6 +323,57 @@ export const handlers = [
   // stories (#429, #430, #434) reuse them. `GET /ai/config` defaults to AI
   // DISABLED — a fresh deployment; override it per test to switch AI on.
   // ===========================================================================
+
+  // ===========================================================================
+  // Telemetry (issue #537, epic #528). `GET /telemetry/config` defaults to
+  // UNAVAILABLE — a deployment without a telemetry store. Fixtures live in
+  // `./fixtures/telemetry.ts`.
+  // ===========================================================================
+
+  http.get(`${API_BASE}/telemetry/config`, () => {
+    return HttpResponse.json({ data: mockTelemetryPublicConfigDisabled });
+  }),
+
+  http.get(`${API_BASE}/admin/telemetry/config`, () => {
+    return HttpResponse.json({ data: mockTelemetryAdminConfig });
+  }),
+
+  http.put(`${API_BASE}/admin/telemetry/config`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const ifMatch = request.headers.get('If-Match');
+    if (ifMatch !== null && Number(ifMatch) !== mockTelemetryAdminConfig.version) {
+      return HttpResponse.json(
+        { code: 'CONFLICT', message: 'The telemetry configuration was changed by someone else' },
+        { status: 409 },
+      );
+    }
+    return HttpResponse.json({
+      data: { ...mockTelemetryAdminConfig, ...body, version: mockTelemetryAdminConfig.version + 1 },
+    });
+  }),
+
+  http.get(`${API_BASE}/admin/telemetry/status`, () => {
+    return HttpResponse.json({ data: mockTelemetryStatus });
+  }),
+
+  http.get(`${API_BASE}/admin/telemetry/schema`, () => {
+    return HttpResponse.json({ data: mockTelemetrySchema });
+  }),
+
+  http.post(`${API_BASE}/admin/telemetry/query`, () => {
+    return HttpResponse.json({ data: mockTelemetryQueryResult });
+  }),
+
+  http.post(`${API_BASE}/admin/telemetry/export`, () => {
+    return new HttpResponse('a,b\n1,2\n', {
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': 'attachment; filename=telemetry-1.csv',
+        'X-Telemetry-Row-Count': '1',
+        'X-Telemetry-Truncated': 'false',
+      },
+    });
+  }),
 
   http.get(`${API_BASE}/ai/config`, () => {
     return HttpResponse.json({ data: mockAiPublicConfigDisabled });
