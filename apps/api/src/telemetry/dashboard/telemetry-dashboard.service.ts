@@ -44,6 +44,7 @@ import {
   type EventsCursor,
   HEAP_USED_TABLE,
   heapUsedSql,
+  isStreamingRoute,
   lastDataSql,
   LOGS_TABLE,
   logsTimeseriesSql,
@@ -632,7 +633,9 @@ export class TelemetryDashboardService {
 
     const routeRows = objects(routes);
     const topErrorRow = routeRows.find((r) => num(r.errors) > 0);
-    const slowest = routeRows.reduce<Record<string, unknown> | null>(
+    // Streaming (SSE) routes are never the latency offender: their span is the
+    // connection's lifetime (see STREAM_SPAN_PREDICATE).
+    const slowest = routeRows.filter((r) => !isStreamingRoute(str(r.route))).reduce<Record<string, unknown> | null>(
       (worst, r) => ((nsToMs(r.p95_ns) ?? -1) > (worst ? nsToMs(worst.p95_ns) ?? -1 : -1) ? r : worst),
       null,
     );

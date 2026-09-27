@@ -10,12 +10,15 @@ import {
   eventLoopDelayP99Sql,
   eventsSql,
   heapUsedSql,
+  isStreamingRoute,
+  LATENCY_P95_NS,
   lastDataSql,
   likeContainsPattern,
   literal,
   logsTimeseriesSql,
   logsTotalsSql,
   SEARCH_MAX_LENGTH,
+  STREAM_SPAN_PREDICATE,
   timestampLiteral,
   topErrorsSql,
   topRoutesSql,
@@ -73,6 +76,49 @@ describe('telemetry dashboard SQL templates', () => {
       const sql = build(FILTERED);
       expect(sql).toMatchSnapshot();
       expectGuarded(sql);
+    });
+  });
+
+  describe('streaming (SSE) exclusion', () => {
+    const P95_ALL = 'approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY "duration_nano")';
+
+    it('is a suffix match on the server span path', () => {
+      expect(STREAM_SPAN_PREDICATE).toBe(`"span_attributes.url.path" LIKE '%/stream'`);
+      expect(LATENCY_P95_NS).toBe(
+        `approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY CASE WHEN ${STREAM_SPAN_PREDICATE} THEN NULL ELSE "duration_nano" END)`,
+      );
+    });
+
+    it.each([
+      ['apiTimeseries', apiTimeseriesSql(WINDOW, NONE)],
+      ['apiTotals', apiTotalsSql(PREVIOUS_FROM, WINDOW, NONE)],
+    ])('%s excludes streams from p95 only, never from counts', (_name, sql) => {
+      expect(sql).toContain(`${LATENCY_P95_NS} AS p95_ns`);
+      expect(sql).not.toContain(P95_ALL);
+      // The predicate appears once: inside the percentile, not in WHERE or a count.
+      expect(sql.split(STREAM_SPAN_PREDICATE)).toHaveLength(2);
+      expect(sql).toMatch(/count\(\*\) AS (total|requests)/);
+      const where = sql.slice(sql.indexOf(' WHERE '));
+      expect(where).not.toContain('stream');
+      for (const count of sql.match(/sum\(CASE WHEN [^)]*END\)/g) ?? []) expect(count).not.toContain('stream');
+    });
+
+    it('keeps streams (and their p95) in the per-route table', () => {
+      const sql = topRoutesSql(WINDOW, NONE);
+      expect(sql).toContain(`${P95_ALL} AS p95_ns`);
+      expect(sql).not.toContain('stream');
+    });
+
+    it.each([
+      ['/api/notifications/stream', true],
+      ['/api/ai/responses/stream', true],
+      ['/api/admin/telemetry/assistant/stream', true],
+      ['/api/streams', false],
+      ['/api/stream/:id', false],
+      ['/api/users/:id', false],
+      [null, false],
+    ])('isStreamingRoute(%p) is %p', (route, expected) => {
+      expect(isStreamingRoute(route)).toBe(expected);
     });
   });
 

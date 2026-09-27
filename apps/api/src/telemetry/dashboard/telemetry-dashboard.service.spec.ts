@@ -504,6 +504,37 @@ describe('summary', () => {
     expect(summary.truncated).toBe(false);
   });
 
+  it('never names a streaming (SSE) route as the slowest offender', async () => {
+    const routes = result(
+      ['method', 'route', 'requests', 'errors', 'p95_ns'],
+      [
+        ['POST', '/api/jobs', '100', '70', '900000000'],
+        ['GET', '/api/notifications/stream', '50', '0', '600000000000'],
+        ['POST', '/api/ai/responses/stream', '5', '0', '90000000000'],
+        ['GET', '/api/users/:id', '200', '2', '4000000000'],
+      ],
+    );
+    const { service } = setup({ overrides: { topRoutes: routes } });
+    const summary = await service.summary('u1', {});
+    const p95Reason = summary.verdict.reasons.find((r) => r.startsWith('p95 latency'));
+    expect(p95Reason).toBe('p95 latency 3450 ms (> 3000 ms) — slowest: GET /api/users/:id');
+    expect(summary.verdict.reasons.join('\n')).not.toContain('/stream');
+
+    // Streams stay in the top-routes table, with their own p95.
+    const top = await service.top('u1', { kind: 'routes' });
+    expect(top.items.map((i) => ('route' in i ? i.route : null))).toContain('/api/notifications/stream');
+  });
+
+  it('names no slowest route when only streams are listed', async () => {
+    const routes = result(
+      ['method', 'route', 'requests', 'errors', 'p95_ns'],
+      [['GET', '/api/notifications/stream', '50', '0', '600000000000']],
+    );
+    const { service } = setup({ overrides: { topRoutes: routes } });
+    const summary = await service.summary('u1', {});
+    expect(summary.verdict.reasons).toContain('p95 latency 3450 ms (> 3000 ms)');
+  });
+
   it('is no_data when the latest record is older than 5 minutes', async () => {
     const { service } = setup({
       overrides: { lastData: result(['traces_last', 'logs_last'], [['2026-09-27 21:48:00.000000', null]]) },
