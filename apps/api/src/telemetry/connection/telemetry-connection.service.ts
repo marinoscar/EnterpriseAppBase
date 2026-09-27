@@ -13,6 +13,7 @@ import {
   telemetryConnectionValueSchema,
   type TelemetryConnectionRole,
   type TelemetryConnectionValue,
+  type TelemetryCustomConnectionValue,
 } from './telemetry-connection.schema';
 
 // =============================================================================
@@ -20,30 +21,44 @@ import {
 // (issue #558, epic #528)
 // =============================================================================
 //
-// ONE PRECEDENCE RULE, NO PER-FIELD MERGE:
+// ONE PRECEDENCE RULE, NO PER-FIELD MERGE — THE HOST MODE DECIDES WHO OWNS
+// THE WHOLE CONNECTION (issue #570):
 //
-//   1. a connection is STORED (the `telemetry_connection` row exists)
-//        → it is the connection, wholly: host, port, database, both users,
-//          and the two passwords from the credential store. Nothing is
-//          borrowed from the environment, field by field or otherwise —
-//          with ONE deliberate exception: a stored `host: null` is AUTOMATIC
-//          and resolves, at every refresh, to the DEPLOYMENT HOST
-//          (`GREPTIME_HOST` when non-blank, else `TELEMETRY_DEFAULT_HOST`,
-//          the compose service name; issue #562). That is where GreptimeDB
-//          is in every supported deployment, so an operator need not know
-//          or type it, and the connection follows the deployment if it
-//          moves. The fingerprint carries the EFFECTIVE host, so such a move
-//          rebuilds the pools.
-//   2. otherwise the DEPLOYMENT DEFAULT, derived from `GREPTIME_*` (the
-//      `greptime` block of `config/configuration.ts`), when it names a host;
-//   3. otherwise none — telemetry is not available.
+//   1. a connection is STORED with a CUSTOM host (a literal an administrator
+//      typed: GreptimeDB lives somewhere this deployment did not put it)
+//        → the row is the connection, wholly: host, port, database, both
+//          users, and the two passwords from the credential store. Nothing is
+//          borrowed from the environment, field by field or otherwise.
+//   2. a connection is STORED with an AUTOMATIC host (`host: null`) — "the
+//      GreptimeDB deployed with this application" (issues #562, #570)
+//        → the DEPLOYMENT is the connection, wholly: the deployment host
+//          (`GREPTIME_HOST` when non-blank, else `TELEMETRY_DEFAULT_HOST`, the
+//          compose service name), `GREPTIME_PG_PORT`, `GREPTIME_DB`, and the
+//          `GREPTIME_READER_*` / `GREPTIME_ADMIN_*` logins. The deployment
+//          provisioned that GreptimeDB's users, so it is the only party that
+//          knows their passwords; an administrator never supplies them. Any
+//          port, database, user or credential-store password attached to
+//          such a row (rows saved before #570 carry them) is IGNORED here —
+//          not deleted: the next save in automatic mode deletes the stored
+//          passwords. The source still reads `stored` (a row exists, it has a
+//          version, "revert" applies) with `hostMode: 'auto'` and
+//          `deploymentManaged: true`.
+//   3. nothing is stored → the DEPLOYMENT DEFAULT, derived from `GREPTIME_*`
+//      (the `greptime` block of `config/configuration.ts`), when it names a
+//      host. Also automatic and deployment-managed: it is the same GreptimeDB
+//      rule 2 resolves to (source `environment`).
+//   4. otherwise none — telemetry is not available.
+//
+// The fingerprint carries the EFFECTIVE host and the version of the password
+// actually used (the credential's `updatedAt` for rule 1, a constant for the
+// environment), so moving between a custom and an automatic connection, or the
+// deployment host moving, rebuilds the pools.
 //
 // WHY THE ENVIRONMENT IS STILL A SOURCE AT ALL. The `GREPTIME_*` variables
 // cannot go away: the telemetry overlay provisions the GreptimeDB container's
-// users and the OTel collector's writer login from them. Ignoring them here
-// would make every operator type the same credentials a second time, and
-// would silently switch telemetry off on every existing deployment at
-// upgrade. So they remain the default; the admin page overrides them.
+// users and the OTel collector's writer login from them. They describe the
+// GreptimeDB the deployment runs, so they ARE its connection; the admin page
+// only overrides them by pointing at a different (custom) host.
 // A per-field merge was rejected: "host from the form, password from the
 // environment" is a connection nobody configured, and it is impossible to
 // explain on a status page.
@@ -75,6 +90,18 @@ import {
 // ⚠ NEVER LOG A CREDENTIAL. Nothing here logs a password or a connection
 // string; the snapshot does not hold one.
 // =============================================================================
+
+/**
+ * What an administrator is told when the GreptimeDB deployed with this
+ * application lacks a login. Administrator language: no file, variable or
+ * command names — fixing it is an application update, not a form field.
+ */
+export const DEPLOYMENT_READER_MISSING_MESSAGE =
+  'The GreptimeDB deployed with this application has no reader login configured. ' +
+  'Update the application to provision it.';
+export const DEPLOYMENT_ADMIN_MISSING_MESSAGE =
+  'The GreptimeDB deployed with this application has no admin login configured, so retention ' +
+  'cannot be applied. Update the application to provision it.';
 
 /** How often every instance re-reads the stored connection. */
 export const TELEMETRY_CONNECTION_REFRESH_MS = 5_000;
@@ -116,16 +143,40 @@ export interface TelemetryConnectionSnapshot {
   /** The EFFECTIVE host — what a pool connects to. Empty when there is none (source `none`, or an unusable row). */
   host: string;
   /**
-   * `auto` when the host is the deployment host by default (a stored
-   * `host: null`, or no connection at all), `custom` when it is a literal —
-   * a stored override, or `GREPTIME_HOST` for the environment source.
+   * `auto` when the host is the deployment host (a stored `host: null`, the
+   * environment source — `GREPTIME_HOST` is the deployment host — or no
+   * connection at all), `custom` when it is a literal an administrator stored.
    */
   hostMode: TelemetryHostMode;
+  /**
+   * The whole connection — port, database, logins and passwords — comes from
+   * the deployment (`GREPTIME_*`), not the admin page: source `environment`,
+   * or a stored automatic (null) host (issue #570). False for a custom host,
+   * an unusable row and `none`.
+   */
+  deploymentManaged: boolean;
   pgPort: number;
   database: string;
   reader: LoginSnapshot;
   /** Null when no admin login is configured. */
   admin: LoginSnapshot | null;
+}
+
+/**
+ * The GreptimeDB deployed with this application, as the deployment describes
+ * it — what an automatic connection resolves to. Non-secret: whether each
+ * login is complete, never its password.
+ */
+export interface TelemetryDeploymentConnection {
+  host: string;
+  pgPort: number;
+  database: string;
+  readerUser: string;
+  adminUser: string | null;
+  /** A reader user and its password are both provisioned. */
+  readerConfigured: boolean;
+  /** An admin user and its password are both provisioned. */
+  adminConfigured: boolean;
 }
 
 /** What a pool is built from. Holds a plaintext password: use it and drop it. */
@@ -222,6 +273,37 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
     return telemetryDeploymentHost(this.environment.host);
   }
 
+  /** The deployment's own GreptimeDB connection (non-secret), whatever is in force. */
+  describeDeployment(): TelemetryDeploymentConnection {
+    const env = this.environment;
+
+    return {
+      host: this.deploymentHost,
+      pgPort: env.pgPort,
+      database: env.database,
+      readerUser: env.readerUser,
+      adminUser: env.adminUser || null,
+      readerConfigured: Boolean(env.readerUser && env.readerPassword),
+      adminConfigured: Boolean(env.adminUser && env.adminPassword),
+    };
+  }
+
+  /**
+   * Why the connection in force cannot be used, in administrator language, or
+   * null. Only a deployment-managed connection has an answer here: its gaps
+   * are the deployment's, which nothing on the admin page can fill. `role`
+   * `admin` also reports a missing admin login (retention).
+   */
+  configurationProblem(role: TelemetryConnectionRole = 'reader'): string | null {
+    const { deploymentManaged, reader, admin } = this.snapshot;
+
+    if (!deploymentManaged) return null;
+    if (!(reader.user && reader.passwordSet)) return DEPLOYMENT_READER_MISSING_MESSAGE;
+    if (role === 'admin' && !(admin && admin.user && admin.passwordSet)) return DEPLOYMENT_ADMIN_MISSING_MESSAGE;
+
+    return null;
+  }
+
   /** The GreptimeDB database telemetry is written to. */
   get database(): string {
     return this.snapshot.database;
@@ -277,7 +359,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
 
     if (!fingerprint || !login) return null;
 
-    const password = await this.currentPassword(role, snapshot.source);
+    const password = await this.passwordOf(role, snapshot);
     if (!password) return null;
 
     return {
@@ -292,20 +374,37 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
   }
 
   /**
-   * The password the connection IN FORCE would use for this login — stored
-   * when the source is stored, the environment's when it is the environment.
-   * For the connection test's "blank means the current one".
+   * The password the connection IN FORCE would use for this login — the
+   * deployment's when it is deployment-managed (the environment source, or a
+   * stored automatic host), the credential store's for a custom host, none
+   * when there is no connection. For the connection test's "blank means the
+   * current one".
    *
    * ⚠ Plaintext. Same rules as `resolveCredentials`.
    */
-  async currentPassword(
+  async currentPassword(role: TelemetryConnectionRole): Promise<string | null> {
+    return this.passwordOf(role, this.snapshot);
+  }
+
+  /**
+   * The deployment's own password for this login (`GREPTIME_*`), or null when
+   * it provisions none. What an automatic connection uses — and the only
+   * password a connection test of an automatic host may use.
+   *
+   * ⚠ Plaintext. Same rules as `resolveCredentials`.
+   */
+  deploymentPassword(role: TelemetryConnectionRole): string | null {
+    const value = role === 'reader' ? this.environment.readerPassword : this.environment.adminPassword;
+
+    return value || null;
+  }
+
+  private async passwordOf(
     role: TelemetryConnectionRole,
-    source: TelemetryConnectionSource = this.snapshot.source,
+    snapshot: TelemetryConnectionSnapshot,
   ): Promise<string | null> {
-    if (source === 'environment') {
-      const value = role === 'reader' ? this.environment.readerPassword : this.environment.adminPassword;
-      return value || null;
-    }
+    if (snapshot.deploymentManaged) return this.deploymentPassword(role);
+    if (snapshot.source === 'none') return null;
 
     return this.credentials.getSecret(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, role);
   }
@@ -347,7 +446,11 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
 
       if (parsed.success) {
         stored = parsed.data;
-        snapshot = storedSnapshot(parsed.data, credentials, this.deploymentHost);
+        snapshot =
+          parsed.data.host === null
+            ? // Automatic: the deployment, wholly. Stored credentials are ignored (issue #570).
+              this.deploymentSnapshot('stored', this.deploymentHost)
+            : storedSnapshot(parsed.data, credentials);
         this.lastInvalidRowWarned = false;
       } else {
         // A row exists but does not validate (hand-edited). It is still "the
@@ -414,6 +517,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
         source: 'none',
         host: '',
         hostMode: 'auto',
+        deploymentManaged: false,
         pgPort: env.pgPort,
         database: env.database,
         reader: { user: '', passwordSet: false, version: null },
@@ -421,10 +525,22 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
       };
     }
 
+    // `GREPTIME_HOST` IS the deployment host, so this is an automatic host too.
+    return this.deploymentSnapshot('environment', env.host);
+  }
+
+  /**
+   * The deployment's GreptimeDB, every field from `GREPTIME_*`: what the
+   * environment source and a stored automatic host both resolve to.
+   */
+  private deploymentSnapshot(source: 'stored' | 'environment', host: string): TelemetryConnectionSnapshot {
+    const env = this.environment;
+
     return {
-      source: 'environment',
-      host: env.host,
-      hostMode: 'custom',
+      source,
+      host,
+      hostMode: 'auto',
+      deploymentManaged: true,
       pgPort: env.pgPort,
       database: env.database,
       reader: {
@@ -443,10 +559,10 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
   }
 }
 
+/** A stored CUSTOM connection: the row and the credential store, wholly. */
 function storedSnapshot(
-  value: TelemetryConnectionValue,
+  value: TelemetryCustomConnectionValue,
   credentials: Record<TelemetryConnectionRole, CredentialInfo | null>,
-  deploymentHost: string,
 ): TelemetryConnectionSnapshot {
   const login = (user: string, info: CredentialInfo | null): LoginSnapshot => ({
     user,
@@ -456,9 +572,9 @@ function storedSnapshot(
 
   return {
     source: 'stored',
-    // Null = automatic: resolved here, at every refresh, never stored as a literal.
-    host: value.host ?? deploymentHost,
-    hostMode: value.host === null ? 'auto' : 'custom',
+    host: value.host,
+    hostMode: 'custom',
+    deploymentManaged: false,
     pgPort: value.pgPort,
     database: value.database,
     reader: login(value.readerUser, credentials.reader),
@@ -471,6 +587,7 @@ function unusableStoredSnapshot(): TelemetryConnectionSnapshot {
     source: 'stored',
     host: '',
     hostMode: 'auto',
+    deploymentManaged: false,
     pgPort: DEFAULT_PG_PORT,
     database: DEFAULT_DATABASE,
     reader: { user: '', passwordSet: false, version: null },
@@ -483,6 +600,7 @@ function fingerprintOf(snapshot: TelemetryConnectionSnapshot, role: TelemetryCon
 
   return JSON.stringify([
     snapshot.source,
+    snapshot.hostMode,
     // The EFFECTIVE host, so an automatic host whose deployment host changed
     // yields a new fingerprint (and new pools).
     snapshot.host,

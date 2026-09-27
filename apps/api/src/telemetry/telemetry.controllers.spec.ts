@@ -203,9 +203,28 @@ describe('Telemetry controllers — access declarations', () => {
         expect(updateTelemetryConnectionSchema.safeParse({ ...MINIMAL, database: 'bad-name' }).success).toBe(false);
       });
 
-      it('readerUser is still required', () => {
-        expect(updateTelemetryConnectionSchema.safeParse({ adminUser: null }).success).toBe(false);
-        expect(testTelemetryConnectionSchema.safeParse({ adminUser: null }).success).toBe(false);
+      it('a custom host still requires readerUser and adminUser (null allowed)', () => {
+        for (const schema of [updateTelemetryConnectionSchema, testTelemetryConnectionSchema]) {
+          expect(schema.safeParse({ host: 'h', adminUser: null }).success).toBe(false);
+          expect(schema.safeParse({ host: 'h', readerUser: '  ', adminUser: null }).success).toBe(false);
+          expect(schema.safeParse({ host: 'h', readerUser: 'reader' }).success).toBe(false);
+          expect(schema.safeParse({ host: 'h', readerUser: 'reader', adminUser: null }).success).toBe(true);
+        }
+      });
+
+      it('an automatic host needs nothing else, and accepts (to ignore) what older clients send (issue #570)', () => {
+        for (const schema of [updateTelemetryConnectionSchema, testTelemetryConnectionSchema]) {
+          expect(schema.parse({})).toMatchObject({ host: null, readerUser: undefined, adminUser: undefined });
+          expect(schema.parse({ host: '' , readerUser: '', adminUser: '' })).toMatchObject({
+            host: null,
+            readerUser: undefined,
+            adminUser: null,
+          });
+          expect(
+            schema.safeParse({ host: null, readerUser: 'r', readerPassword: 'p', adminUser: 'a', adminPassword: 'q' })
+              .success,
+          ).toBe(true);
+        }
       });
     });
   });
