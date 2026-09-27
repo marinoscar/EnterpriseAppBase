@@ -29,7 +29,8 @@ import type {
   TelemetryConnectionInput,
   TelemetrySettingsUpdate,
 } from '../../../services/telemetry';
-import TelemetrySettingsPage from '../../../pages/Admin/TelemetrySettingsPage';
+import { TELEMETRY_LIMITS } from '../../../services/telemetry';
+import TelemetrySettingsPage, { validateInteger } from '../../../pages/Admin/TelemetrySettingsPage';
 
 const API_BASE = '*/api';
 
@@ -969,6 +970,18 @@ describe('TelemetrySettingsPage', () => {
       // One load each on mount, and one more each after the deploy.
       await waitFor(() => expect(statusGets).toBeGreaterThanOrEqual(2));
       await waitFor(() => expect(connectionGets).toBeGreaterThanOrEqual(2));
+    });
+  });
+
+  describe('assistant.maxSteps bound (#571: raised to 20)', () => {
+    it('rejects 21', () => {
+      expect(validateInteger('21', TELEMETRY_LIMITS.maxSteps)).toBe(
+        `Must be from ${TELEMETRY_LIMITS.maxSteps.min} to ${TELEMETRY_LIMITS.maxSteps.max}.`,
+      );
+    });
+
+    it('accepts 20', () => {
+      expect(validateInteger('20', TELEMETRY_LIMITS.maxSteps)).toBeNull();
     });
   });
 });

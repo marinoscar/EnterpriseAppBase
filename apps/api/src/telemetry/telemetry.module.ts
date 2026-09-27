@@ -39,11 +39,15 @@ import { TelemetryStatusService } from './telemetry-status.service';
 // (tables and columns) and `TelemetryExportService` (csv/ndjson/xlsx/parquet),
 // behind `TelemetryExplorerController` on `telemetry:query`.
 //
-// The assistant (#536): `TelemetryAssistantService` runs a text-to-SQL tool
-// loop through `AiService` (hence `AiModule`); its tools call
+// The assistant (#536, #571): `TelemetryAssistantService` runs a
+// troubleshooting agent's tool loop through `AiService` (hence `AiModule`);
+// every statement its tools run — the model's and the ones it builds itself
+// (`assistant/telemetry-assistant.sql.ts`) — goes through
 // `TelemetryQueryService.run` with `source: 'assistant'`, so it is held to
-// exactly the explorer's guard and bounds, and `TelemetrySchemaService` to
-// list and describe tables. Streamed by `TelemetryAssistantController`.
+// exactly the explorer's guard and bounds; `TelemetrySchemaService` lists and
+// describes tables, and `SystemSettingsService` (from `SettingsModule`) gives
+// the allowlisted feature flags `get_app_context` reports. Streamed by
+// `TelemetryAssistantController`.
 //
 // The connection (#558): `TelemetryConnectionService` resolves the GreptimeDB
 // connection at runtime — the one saved at /admin/settings/telemetry (a

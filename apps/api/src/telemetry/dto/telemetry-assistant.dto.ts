@@ -30,7 +30,14 @@ export class TelemetryAssistantRequestDto extends createZodDto(telemetryAssistan
 export type TelemetryAssistantRequest = z.infer<typeof telemetryAssistantRequestSchema>;
 export type TelemetryAssistantTurn = z.infer<typeof telemetryAssistantTurnSchema>;
 
-export const TELEMETRY_ASSISTANT_TOOLS = ['list_tables', 'describe_table', 'run_query'] as const;
+export const TELEMETRY_ASSISTANT_TOOLS = [
+  'list_tables',
+  'describe_table',
+  'run_query',
+  'get_app_context',
+  'health_overview',
+  'get_trace',
+] as const;
 export type TelemetryAssistantToolName = (typeof TELEMETRY_ASSISTANT_TOOLS)[number];
 
 /** `event: step` — one tool call the assistant made. */
@@ -38,20 +45,59 @@ export interface TelemetryAssistantStepEvent {
   /** 0-based, across the whole turn. */
   index: number;
   tool: TelemetryAssistantToolName;
-  input?: { table?: string; sql?: string };
-  /** `run_query` only: rows the query returned (up to the row cap). */
+  input?: { table?: string; sql?: string; window?: string; traceId?: string };
+  /** `run_query` / `get_trace` only: rows the call returned (up to the row cap). */
   rowCount?: number;
-  /** `run_query` only: more rows matched than the row cap allowed. */
+  /** `run_query` / `get_trace` only: more rows matched than the row cap allowed. */
   truncated?: boolean;
   durationMs: number;
   /** Why the call failed; the model was told the same and may retry. */
   error?: string;
+  /** The model's interim reasoning for the round this call belongs to; only on the FIRST call of a round. Bounded to 1000 chars. */
+  thought?: string;
+}
+
+export const TELEMETRY_ASSISTANT_REPORT_STATUSES = ['issue_found', 'no_issue_found', 'inconclusive', 'no_data'] as const;
+export type TelemetryAssistantReportStatus = (typeof TELEMETRY_ASSISTANT_REPORT_STATUSES)[number];
+
+export const TELEMETRY_ASSISTANT_SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
+export type TelemetryAssistantSeverity = (typeof TELEMETRY_ASSISTANT_SEVERITIES)[number];
+
+export const TELEMETRY_ASSISTANT_CONFIDENCES = ['high', 'medium', 'low'] as const;
+export type TelemetryAssistantConfidence = (typeof TELEMETRY_ASSISTANT_CONFIDENCES)[number];
+
+export interface TelemetryAssistantFinding {
+  title: string;
+  severity: TelemetryAssistantSeverity;
+  evidence: string;
+  /** Index into `report.queries` of the query that shows this finding. */
+  queryIndex?: number;
+}
+
+export interface TelemetryAssistantQuery {
+  title: string;
+  sql: string;
+}
+
+/** The investigation's structured result. */
+export interface TelemetryAssistantReport {
+  status: TelemetryAssistantReportStatus;
+  summary: string;
+  findings: TelemetryAssistantFinding[];
+  rootCause: string | null;
+  confidence: TelemetryAssistantConfidence;
+  recommendations: string[];
+  /** Supporting queries the user can re-run (at most 5); the first is the most useful. */
+  queries: TelemetryAssistantQuery[];
 }
 
 /** `event: answer` — the final answer. */
 export interface TelemetryAssistantAnswerEvent {
+  /** Back-compat: queries[0].sql, or null. */
   sql: string | null;
+  /** Back-compat: the report summary (or the raw text when the model did not return a report). */
   explanation: string;
+  report: TelemetryAssistantReport | null;
 }
 
 /** `event: error` — the turn failed after the stream opened. */

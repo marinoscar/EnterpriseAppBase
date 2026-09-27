@@ -351,12 +351,24 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
       ).toThrow();
     });
 
-    it('should reject an assistant.maxSteps over 12', () => {
+    it('should accept an assistant.maxSteps of 20', () => {
+      const result = updateSystemSettingsSchema.parse({
+        telemetry: {
+          ...TELEMETRY,
+          assistant: { ...TELEMETRY.assistant, maxSteps: 20 },
+        },
+        notifications: NOTIFICATIONS,
+      });
+
+      expect(result.telemetry?.assistant.maxSteps).toBe(20);
+    });
+
+    it('should reject an assistant.maxSteps over 20', () => {
       expect(() =>
         updateSystemSettingsSchema.parse({
           telemetry: {
             ...TELEMETRY,
-            assistant: { ...TELEMETRY.assistant, maxSteps: 13 },
+            assistant: { ...TELEMETRY.assistant, maxSteps: 21 },
           },
           notifications: NOTIFICATIONS,
         }),

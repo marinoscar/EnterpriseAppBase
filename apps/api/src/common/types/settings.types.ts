@@ -423,7 +423,7 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       // behavior turns it off deliberately.
       shareResults: true,
       maxResultRowsToModel: 100,
-      maxSteps: 6,
+      maxSteps: 15,
     },
   },
 };

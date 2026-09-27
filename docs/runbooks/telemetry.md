@@ -157,7 +157,7 @@ well-known credential.
      -d '{"enabled": true, "retentionDays": 30,
           "query": {"maxRows": 10000, "timeoutSeconds": 30},
           "assistant": {"enabled": false, "provider": null, "modelId": null,
-                        "shareResults": true, "maxResultRowsToModel": 100, "maxSteps": 6}}'
+                        "shareResults": true, "maxResultRowsToModel": 100, "maxSteps": 15}}'
    ```
 
 2. This takes effect on the instance that served the request immediately,
@@ -212,13 +212,24 @@ self-heals on the next run without any action from you.
 2. In the telemetry policy, set `assistant.enabled: true` and pick
    `assistant.provider`/`assistant.modelId` (both `null` clears them back to
    "not configured"). Optionally adjust `assistant.shareResults`,
-   `assistant.maxResultRowsToModel` (≤ 100) and `assistant.maxSteps` (≤ 12).
+   `assistant.maxResultRowsToModel` (≤ 100) and `assistant.maxSteps` (1–20;
+   default 15). The assistant is a troubleshooting agent — it orients
+   itself, takes a baseline, drills down and correlates by trace before
+   answering — so a low budget can end the investigation before it
+   concludes; recommend 15–20. An existing deployment keeps whatever value
+   it already has stored (older ones default to 6): raise it at
+   `/admin/settings/telemetry` if investigations are coming back
+   `inconclusive` for running out of steps.
 3. The assistant spends the asking user's own AI key, or the organisation
    key, per the deployment's key policy — nothing further to configure per
    user.
 4. Try it from the explorer's assistant drawer (`/admin/settings/telemetry
    /explorer`), or `POST /api/admin/telemetry/assistant/stream` directly.
-   `telemetry:query` and `ai:use` are both required.
+   `telemetry:query` and `ai:use` are both required. Example questions: "is
+   anything wrong right now?", "why are requests to /api/jobs slow?", "what
+   errored in the last hour and why?", or trace-specific follow-ups once it
+   has cited a trace id. A plain "write me a query for X" still works — the
+   report's first `queries` entry is it.
 
 ## 7. Verify
 
@@ -385,6 +396,7 @@ configured to do.
 | Tables appear empty even though the app is being used | The export gate is still closed: `telemetry.enabled` was just turned on, or `OTEL_ENABLED` is not set on the `api` service | Wait a few seconds for the gate to open (§4); confirm `OTEL_ENABLED=true` is present on `api` (the overlay sets it, but a custom compose override can drop it) |
 | A query or the assistant returns `TELEMETRY_QUERY_TIMEOUT` (504) | The statement outran `telemetry.query.timeoutSeconds` | Narrow the query (add a time filter, reduce the row cap) or raise the setting (≤ 120 s), then retry |
 | The nginx assistant route hangs or drops mid-stream | A proxy in front of nginx is buffering the response | Confirm the deployment's own reverse proxy (in front of nginx, on a VPS) does not buffer `/api/admin/telemetry/assistant/stream`; nginx itself already forwards it unbuffered |
+| The assistant reports no logs (or an empty `opentelemetry_logs`) even though the app is running | The logs pipeline specifically isn't reaching the store — `OTEL_ENABLED` unset/`false` on the `api` service, `telemetry.enabled` off, or the export gate not yet open | Check `OTEL_ENABLED=true` on `api` (§11 above) and `telemetry.enabled` (§4); confirm with `SELECT count(*) FROM opentelemetry_logs` in the explorer — if traces have rows but logs do not, the app's own log level or exporter, not telemetry, is the next thing to check |
 | `PUT`/`DELETE .../connection` answers 409 | Someone else saved the connection first (stale `If-Match`) | Re-read `GET /api/admin/telemetry/connection` for the current `version` and retry |
 
 ## 12. Summary checklist

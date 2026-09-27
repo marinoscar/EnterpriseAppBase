@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   streamTelemetryAssistant,
   type TelemetryAssistantAnswer,
+  type TelemetryAssistantReport,
   type TelemetryAssistantStep,
   type TelemetryAssistantTurn,
 } from '../services/telemetry';
@@ -40,8 +41,37 @@ export interface AssistantReplyMessage {
 
 export type AssistantMessage = AssistantUserMessage | AssistantReplyMessage;
 
-/** How an answered turn is replayed to the model as history. */
+/** Upper bound on one replayed answer, so a long report cannot crowd out the question. */
+export const ASSISTANT_HISTORY_ANSWER_MAX = 6000;
+
+function reportAsHistory(report: TelemetryAssistantReport): string {
+  const lines: string[] = [`Status: ${report.status} (confidence ${report.confidence})`, `Summary: ${report.summary}`];
+  if (report.findings.length) {
+    lines.push('Findings:');
+    for (const finding of report.findings) lines.push(`- [${finding.severity}] ${finding.title}`);
+  }
+  if (report.rootCause) lines.push(`Root cause: ${report.rootCause}`);
+  if (report.recommendations.length) {
+    lines.push('Recommendations:');
+    report.recommendations.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+  }
+  const firstSql = report.queries[0]?.sql;
+  if (firstSql) lines.push('', 'SQL:', firstSql);
+  return lines.join('\n');
+}
+
+/**
+ * How an answered turn is replayed to the model as history: a compact report
+ * (status, summary, finding titles, root cause, recommendations, first query)
+ * bounded to {@link ASSISTANT_HISTORY_ANSWER_MAX}; a legacy answer unchanged.
+ */
 export function answerAsHistory(answer: TelemetryAssistantAnswer): string {
+  if (answer.report) {
+    const text = reportAsHistory(answer.report);
+    return text.length > ASSISTANT_HISTORY_ANSWER_MAX
+      ? `${text.slice(0, ASSISTANT_HISTORY_ANSWER_MAX - 1)}…`
+      : text;
+  }
   return answer.sql ? `${answer.explanation}\n\nSQL:\n${answer.sql}` : answer.explanation;
 }
 

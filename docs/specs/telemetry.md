@@ -338,7 +338,7 @@ The `telemetry` system-settings namespace (`systemTelemetrySchema`,
 | `assistant.modelId` | string or `null` | — | `null` |
 | `assistant.shareResults` | boolean | — | `true` |
 | `assistant.maxResultRowsToModel` | integer | 1–100 | `100` |
-| `assistant.maxSteps` | integer | 1–12 | `6` |
+| `assistant.maxSteps` | integer | 1–20 | `15` |
 
 Everything ships off: a fresh deployment does not collect or retain
 observability data nobody asked for merely because the namespace exists, the
@@ -541,56 +541,122 @@ backs the assistant's `list_tables`/`describe_table` tools.
 
 `POST /api/admin/telemetry/assistant/stream` (`telemetry:query` **and**
 `ai:use` — `@Auth()` on a controller is all-of — plus `AiEnabledGuard`
-answering 403 `AI_DISABLED` while the AI platform is off) turns a
-natural-language question into one read-only SQL query, streamed as
-`text/event-stream` frames: `step` (one per tool call), `answer` (`{ sql,
-explanation }`), `error`, and always a final `done`. It behaves like
-`POST /api/ai/responses/stream` (preconditions run and can fail as ordinary
-JSON errors before anything is written; the reply hijacks to SSE only once
-committed) but lives under `/api/admin/telemetry`, not `/api/ai`, so the AI
-kill-switch/RBAC tripwire suites that enumerate `/api/ai*` do not cover it —
-the guard is applied explicitly and pinned by this controller's own spec.
+answering 403 `AI_DISABLED` while the AI platform is off) runs a
+troubleshooting agent over the telemetry store: the model investigates a
+question about this application's behaviour (errors, slowness, "is
+anything wrong?", or simply "write me a query") and answers with a
+structured report, streamed as `text/event-stream` frames: `step` (one per
+tool call), `answer` (`{ sql, explanation, report }`), `error`, and always a
+final `done`. It behaves like `POST /api/ai/responses/stream`
+(preconditions run and can fail as ordinary JSON errors before anything is
+written; the reply hijacks to SSE only once committed) but lives under
+`/api/admin/telemetry`, not `/api/ai`, so the AI kill-switch/RBAC tripwire
+suites that enumerate `/api/ai*` do not cover it — the guard is applied
+explicitly and pinned by this controller's own spec.
 
-`TelemetryAssistantService` gives the model three function tools
-(`list_tables`, `describe_table`, `run_query`) through `AiService
-.forUser(userId).runTools`, bounded by `telemetry.assistant.maxSteps` (≤ 12
-round trips). Every `run_query` call goes through `TelemetryQueryService.run`
-with `source: 'assistant'` — the explorer's own guard, row cap and timeout,
-audited as `telemetry:assistant_query` — and the model's suggested final SQL
-is re-checked against the SQL guard before being shown to the user (a
-statement that fails the re-check is withdrawn with a note, never run). Not
-a queue job: the turn lives exactly as long as the SSE request, and a closed
-tab aborts both the provider call and any in-flight query.
+**Method.** `TELEMETRY_ASSISTANT_INSTRUCTIONS` (`buildTelemetryAssistantInstructions`,
+which bakes in the turn's step budget) walks the model through an
+investigation, not a lookup: orient (`get_app_context`, once), baseline
+(`health_overview`), hypothesise from the question and the baseline, drill
+down (`run_query`, `list_tables`, `describe_table`), correlate by trace
+(`get_trace`), verify, then conclude. The prompt tells the model to run and
+analyse the data itself — never to hand the analysis back to the user — and
+to treat an empty result as evidence to explain (is the table populated at
+all, does its data reach into the window, is the filter column populated)
+rather than an answer.
 
-**Data sharing to the model**, bounded three ways regardless of what a query
-returned:
+**The six tools**, all served by `TelemetryAssistantService.buildTools`:
 
-1. Rows only when `telemetry.assistant.shareResults` is on; otherwise the
-   model sees only the shape (columns, row count).
-2. At most `telemetry.assistant.maxResultRowsToModel` rows, hard-capped at
-   `TELEMETRY_ASSISTANT_ROWS_HARD_CAP` (100) regardless of the setting.
-3. Each cell truncated to `CELL_MAX_CHARS` (500) and the whole tool output
+| Tool | Reads |
+|---|---|
+| `list_tables` | Table names and row estimates (`TelemetrySchemaService`) |
+| `describe_table` | One table's columns, types and semantic types |
+| `run_query` | The model's own read-only SQL, via `TelemetryQueryService.run` |
+| `get_app_context` | API version, runtime, OTel service name/instance id, telemetry settings, an allowlist of platform feature flags (booleans only), the deploy document's non-sensitive facts (version, commit SHA, timestamps, last outcome — never a hostname, path or secret), the store's tables, and the data range (earliest/latest timestamp, last-24h coverage, services) of traces and logs |
+| `health_overview(window)` | A baseline over `15m`/`1h`/`6h`/`24h`/`7d`: per-service span/error counts and latency (avg, max, p95), top failing routes, log counts by severity, top error log messages with a sample trace id, the slowest spans, and each table's coverage in the window |
+| `get_trace(traceId)` | Every span and log record of one trace, oldest first (`traceId` must match `TRACE_ID_PATTERN`, 16–32 hex characters) |
+
+`get_app_context`, `health_overview` and `get_trace` never run model-written
+SQL: their statements are built server-side, as pure functions of the
+table's discovered column set and (for `get_trace`) a pattern-validated
+trace id, in `telemetry-assistant.sql.ts` — a section whose table or columns
+are absent is skipped, not failed. Every statement these tools and
+`run_query` alike produce still goes through `TelemetryQueryService.run`
+(`source: 'assistant'`) — the explorer's own guard, row cap, timeout and a
+`telemetry:assistant_query` audit row each — and every report query is
+re-checked against the SQL guard before being shown to the user (a
+statement that fails the re-check is withdrawn with a note in the summary,
+never run). Not a queue job: the turn lives exactly as long as the SSE
+request, and a closed tab aborts both the provider call and any in-flight
+query.
+
+**Data sharing to the model**, bounded three ways regardless of what a
+statement returned:
+
+1. Rows only when `telemetry.assistant.shareResults` is on. Off, `run_query`
+   shows only the shape (columns, row count); the three server-built tools
+   show only the cells in each statement's own `shareable` allowlist — the
+   numbers, booleans and timestamps that statement's SQL computed (counts,
+   durations, `is_error`), never a value the monitored system wrote (service
+   names, routes, trace ids, log bodies) — every other cell is `null`.
+2. At most `telemetry.assistant.maxResultRowsToModel` rows per statement,
+   hard-capped at `TELEMETRY_ASSISTANT_ROWS_HARD_CAP` (100) regardless of
+   the setting.
+3. Each cell truncated to `CELL_MAX_CHARS` (500) and a tool's whole output
    to `TOOL_OUTPUT_MAX_CHARS` (24,000) — rows are dropped from the end of
-   the output, with a note, to stay under that.
+   the largest section, with a note, to stay under that.
+
+**Streaming and the step budget.** A `step` event's `thought` carries the
+model's one-sentence interim reasoning for that round (the first call of
+the round only, at most `THOUGHT_MAX_CHARS` — 1,000 — characters), so the
+user sees the investigation as it happens. Every tool output carries how
+much budget is left (`stepsLeft`), and the output of the round before the
+last carries `budget`, a warning that the next step is the model's last and
+must be the report — no further tool calls run. `telemetry.assistant.maxSteps`
+(1–20, default 15; the ceiling is the AI runtime's own
+`AI_TOOL_LOOP_MAX_STEPS`) bounds the whole turn's model round-trips; if the
+budget runs out before a report, the answer falls back to the model's last
+interim text (or its last successful query) with `status: "inconclusive"`
+and a note.
+
+**The report.** The model's final message is JSON: `status`
+(`issue_found`/`no_issue_found`/`inconclusive`/`no_data`), a `summary`,
+`findings` (title, `severity`, evidence, an optional `queryIndex` into
+`queries`), `rootCause` (or `null`), `confidence`, `recommendations`, and up
+to `REPORT_MAX_QUERIES` (5) supporting `queries` (title, sql) the user can
+re-run in the explorer. `parseReport`/`guardReport` parse and bound every
+field leniently (an unparseable finding or a query that fails the SQL guard
+is dropped, not fatal) and re-check every query's SQL. For a caller reading
+only the legacy shape, `answer.sql` is `report.queries[0].sql` (or `null`)
+and `answer.explanation` is the summary; a model that still replies with
+the legacy `{ sql, explanation }` shape is accepted and lifted into a
+minimal report (`fromLegacy`). The web explorer no longer runs
+`answer.sql` automatically — the answer's primary query is only inserted
+into the editor; the report's own "Insert" / "Insert & run" buttons act on
+any of its `queries` on demand.
 
 `history` in the request carries up to `TELEMETRY_ASSISTANT_HISTORY_MAX_TURNS`
 (20) earlier turns, each at most `TELEMETRY_ASSISTANT_HISTORY_CONTENT_MAX`
-(8,000) characters.
+(8,000) characters; the web app replays an answered turn as a compact
+rendering of its report (status, summary, finding titles, root cause,
+recommendations, first query), bounded to `ASSISTANT_HISTORY_ANSWER_MAX`
+(6,000) characters.
 
 **Untrusted tool output.** Telemetry rows are attacker-reachable (a log
-body, an HTTP route, a user agent). The assistant's system prompt
-(`TELEMETRY_ASSISTANT_INSTRUCTIONS`) tells the model that everything a tool
-returns is data from the monitored system, never instructions, and the blast
-radius is bounded by construction: the tools can only read, through the
-read-only store user, and the model's suggested SQL is only ever shown to
-the user, never executed by this service.
+body, an HTTP route, a user agent). The assistant's system prompt tells the
+model that everything a tool returns is data from the monitored system,
+never instructions, and the blast radius is bounded by construction: the
+tools can only read, through the read-only store user, and a report's SQL
+is only ever shown to the user, never executed by this service.
 
 Every conversation turn is audited as `telemetry:assistant` (question
-length, provider, model, steps, tool calls, stop reason); every `run_query`
-call is separately audited as `telemetry:assistant_query` through the shared
-query service. No provider SDK is imported in the telemetry module — the
-call goes through `AiService`, spending the caller's own key or the
-organisation key per the AI platform's key policy (CLAUDE.md AI rule 1).
+length, provider, model, steps, tool calls, stop reason); every statement —
+the model's `run_query` calls and the server-built ones alike — is
+separately audited as `telemetry:assistant_query` through the shared query
+service. No provider SDK is imported in the telemetry module — the call
+goes through `AiService`, spending the caller's own key or the organisation
+key per the AI platform's key policy (CLAUDE.md AI rule 1) — held only
+between resolution and the adapter call, request-scoped, not a job.
 
 ## 7. Security model
 
@@ -622,6 +688,15 @@ organisation key per the AI platform's key policy (CLAUDE.md AI rule 1).
 - **No AI key ever reaches the browser or a log line.** The assistant
   resolves a key through `AiKeyResolver` exactly like every other AI call;
   see [AI Platform §2](ai-platform.md).
+- **`get_app_context` is allowlist-built, not a settings dump.** It reads an
+  explicit, named set of facts (API version, runtime, OTel service
+  name/instance id, telemetry settings, a fixed list of feature flags as
+  booleans, the deploy document's non-sensitive fields, table/data-range
+  summaries) — never the settings objects or the deploy document
+  serialised wholesale — so a field added to a settings namespace or the
+  deploy document later does not reach the model until this tool's allowlist
+  is deliberately extended to include it. No hostname, file path or
+  credential is in that allowlist.
 - **Same-origin.** The assistant stream is proxied by nginx like every other
   API route: `infra/nginx/nginx.conf`'s `location /api/admin/telemetry
   /assistant/stream` block forwards it unbuffered, with a long read timeout
@@ -1015,3 +1090,9 @@ without it (`:?` compose interpolation).
   adds `hostMode` and ignores submitted credentials in automatic mode. The
   Connection form hides port/database/login fields for a blank host and
   shows a "Managed by the deployment" summary instead.
+- #571: the assistant becomes a troubleshooting agent — three new
+  server-built tools (`get_app_context`, `health_overview`, `get_trace`), an
+  investigator prompt and streamed interim thoughts, a step-budget warning,
+  and a structured report with back-compatible `sql`/`explanation`;
+  `assistant.maxSteps` raised to 1–20 (default 15); the web explorer no
+  longer auto-runs the answer's SQL.

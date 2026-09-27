@@ -96,7 +96,7 @@ export const TELEMETRY_LIMITS = {
   maxRows: { min: 1, max: 100000 },
   timeoutSeconds: { min: 1, max: 120 },
   maxResultRowsToModel: { min: 1, max: 100 },
-  maxSteps: { min: 1, max: 12 },
+  maxSteps: { min: 1, max: 20 },
 } as const;
 
 /**
@@ -579,21 +579,61 @@ export async function exportTelemetry(
 // Assistant (#536)
 // =============================================================================
 
-export type TelemetryAssistantTool = 'list_tables' | 'describe_table' | 'run_query';
+export type TelemetryAssistantTool =
+  | 'list_tables'
+  | 'describe_table'
+  | 'run_query'
+  | 'get_app_context'
+  | 'health_overview'
+  | 'get_trace';
 
 export interface TelemetryAssistantStep {
   index: number;
   tool: TelemetryAssistantTool | string;
-  input?: { table?: string; sql?: string };
+  input?: { table?: string; sql?: string; window?: string; traceId?: string };
   rowCount?: number;
   truncated?: boolean;
   durationMs: number;
   error?: string;
+  /** The model's interim reasoning, only on the first tool call of a round (#571). */
+  thought?: string;
+}
+
+export type TelemetryReportStatus = 'issue_found' | 'no_issue_found' | 'inconclusive' | 'no_data';
+export type TelemetryFindingSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+export type TelemetryReportConfidence = 'high' | 'medium' | 'low';
+
+export interface TelemetryReportFinding {
+  title: string;
+  severity: TelemetryFindingSeverity;
+  evidence: string;
+  /** Index into {@link TelemetryAssistantReport.queries}, when a query backs it. */
+  queryIndex?: number;
+}
+
+export interface TelemetryReportQuery {
+  title: string;
+  sql: string;
+}
+
+/** The troubleshooting agent's structured report (#571). */
+export interface TelemetryAssistantReport {
+  status: TelemetryReportStatus;
+  summary: string;
+  findings: TelemetryReportFinding[];
+  rootCause: string | null;
+  confidence: TelemetryReportConfidence;
+  recommendations: string[];
+  queries: TelemetryReportQuery[];
 }
 
 export interface TelemetryAssistantAnswer {
+  /** Back-compat: `report.queries[0].sql`. */
   sql: string | null;
+  /** Back-compat: `report.summary`, or the raw text when there is no report. */
   explanation: string;
+  /** `null` when the model gave no parseable report; absent on an older API. */
+  report?: TelemetryAssistantReport | null;
 }
 
 export interface TelemetryAssistantTurn {
@@ -613,6 +653,16 @@ export interface TelemetryAssistantHandlers {
   onAnswer?: (answer: TelemetryAssistantAnswer) => void;
   onError?: (error: { code: string; message: string }) => void;
   signal?: AbortSignal;
+}
+
+/** An older API sends no `report`; a newer one may send `null`. Both read as `null`. */
+function normalizeAssistantAnswer(payload: Record<string, unknown>): TelemetryAssistantAnswer {
+  const answer = payload as unknown as TelemetryAssistantAnswer;
+  const report = answer.report;
+  return {
+    ...answer,
+    report: report && typeof report === 'object' ? report : null,
+  };
 }
 
 export function telemetryAssistantStreamUrl(): string {
@@ -644,7 +694,7 @@ export async function streamTelemetryAssistant(
           handlers.onStep?.(payload as unknown as TelemetryAssistantStep);
           break;
         case 'answer':
-          handlers.onAnswer?.(payload as unknown as TelemetryAssistantAnswer);
+          handlers.onAnswer?.(normalizeAssistantAnswer(payload));
           break;
         case 'error':
           handlers.onError?.({
