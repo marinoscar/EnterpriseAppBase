@@ -143,10 +143,10 @@ describe('BroadcastComposer', () => {
     });
 
     it('warns beside In-app when browser notifications are off deployment-wide', () => {
-      // A WARNING, not a block: the kill switch mutes the OS toast, the durable
-      // in-app row is still written, and scheduling for after the switch is
-      // flipped back is legitimate — which is why the API treats this as a
-      // non-fatal warning rather than a 400.
+      // A WARNING, not a block: scheduling for after the switch is flipped
+      // back is legitimate — which is why the API treats this as a non-fatal
+      // warning rather than a 400. (For a non-critical broadcast the switch
+      // drops the in-app row too; for a critical one only the toast, #521.)
       setConfig({ browserEnabled: false, pushEnabled: true, vapidPublicKey: 'key' });
       renderComposer();
 

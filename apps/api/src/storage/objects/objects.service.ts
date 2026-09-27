@@ -8,7 +8,6 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Inject } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
@@ -18,7 +17,7 @@ import { AVATARS_KEY_PREFIX, UPLOADS_KEY_PREFIX } from '../storage-key-prefixes'
 import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';
 import { mimeTypeMatches, normaliseMimeType } from '../mime-type-match';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, StorageObject } from '@prisma/client';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
 import type { StorageProvider } from '../providers/storage-provider.interface';
 import { StorageConfigService } from '../config/storage-config.service';
@@ -43,10 +42,11 @@ import {
 import {
   DownloadUrlResponseDto,
 } from './dto/download-url-response.dto';
-import {
-  OBJECT_UPLOADED_EVENT,
-  ObjectUploadedEvent,
-} from '../processing/events/object-uploaded.event';
+import { isActiveDedupConflict, JobsService } from '../../jobs/jobs.service';
+import { ObjectProcessingService } from '../processing/object-processing.service';
+import { buildProcessedMetadata } from '../processing/processing-metadata';
+import { STORAGE_OBJECT_PROCESS_TYPE } from '../handlers/storage-object-process.handler';
+import { STORAGE_OBJECT_SUBJECT_TYPE } from '../storage-job-input';
 
 export interface MultipartFile {
   filename: string;
@@ -71,7 +71,10 @@ export class ObjectsService {
     // `StorageConfigService.activeProvider`.
     private readonly storageConfig: StorageConfigService,
     private readonly config: ConfigService,
-    private readonly eventEmitter: EventEmitter2,
+    // #520: post-upload processing is a queue job. These two decide, at
+    // upload time, whether one is needed and queue it — see `settleUpload`.
+    private readonly processing: ObjectProcessingService,
+    private readonly jobs: JobsService,
   ) {}
 
   /**
@@ -270,17 +273,36 @@ export class ObjectsService {
       parts,
     );
 
-    // Update status to processing
-    const updated = await this.prisma.storageObject.update({
-      where: { id: objectId },
-      data: { status: 'processing' },
-    });
+    // `processing`, then either `ready` (no processor applies) or a queued
+    // processing job — in ONE transaction, so the row never reads
+    // `processing` without a job that will settle it.
+    let updated: StorageObject;
 
-    // Emit event for post-processing
-    this.eventEmitter.emit(
-      OBJECT_UPLOADED_EVENT,
-      new ObjectUploadedEvent(updated),
-    );
+    try {
+      updated = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.storageObject.update({
+          where: { id: objectId },
+          data: { status: 'processing' },
+        });
+
+        return this.settleUpload(tx, row);
+      });
+    } catch (error) {
+      // `enqueueWithin` propagates the dedup conflict rather than collapsing
+      // onto the job in flight (an aborted transaction can run no re-read).
+      // A conflict means a processing job for this object is ALREADY pending
+      // or running — a repeated completion — and that job will settle the
+      // row, so the transaction rolling back is the right result: report the
+      // row as it stands. Anything else stays loud.
+      if (!isActiveDedupConflict(error)) throw error;
+
+      this.logger.log(
+        `Upload ${objectId} already has a processing job in flight; not queueing another`,
+      );
+      updated = await this.prisma.storageObject.findUniqueOrThrow({
+        where: { id: objectId },
+      });
+    }
 
     // Create audit event
     await this.createAuditEvent(userId, 'storage:upload:complete', objectId, {
@@ -372,27 +394,30 @@ export class ObjectsService {
       mimeType: mimetype,
     });
 
-    // We don't know the size until after upload for streams
-    // Use a default size of 0, should be updated in post-processing
-    const storageObject = await this.prisma.storageObject.create({
-      data: {
-        name: filename,
-        size: BigInt(0), // Will be updated by post-processing
-        mimeType: mimetype,
-        storageKey,
-        // See `initUpload` — the live provider, never a literal.
-        storageProvider: await this.storageConfig.activeProvider(),
-        bucket: result.bucket,
-        status: 'processing',
-        uploadedById: userId,
-      },
-    });
+    const storageProvider = await this.storageConfig.activeProvider();
 
-    // Emit event for post-processing
-    this.eventEmitter.emit(
-      OBJECT_UPLOADED_EVENT,
-      new ObjectUploadedEvent(storageObject),
-    );
+    // We don't know the size until after upload for streams
+    // Use a default size of 0, should be updated in post-processing.
+    // Created and settled (`ready`, or a queued processing job) in ONE
+    // transaction — see `completeUpload`. The object id is new, so no
+    // processing job can already hold its dedup key.
+    const storageObject = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.storageObject.create({
+        data: {
+          name: filename,
+          size: BigInt(0), // Will be updated by post-processing
+          mimeType: mimetype,
+          storageKey,
+          // See `initUpload` — the live provider, never a literal.
+          storageProvider,
+          bucket: result.bucket,
+          status: 'processing',
+          uploadedById: userId,
+        },
+      });
+
+      return this.settleUpload(tx, created);
+    });
 
     // Create audit event
     await this.createAuditEvent(userId, 'storage:upload:complete', storageObject.id, {
@@ -635,6 +660,47 @@ export class ObjectsService {
     if (object.uploadedById !== userId) {
       throw new ForbiddenException('You do not have access to this object');
     }
+
+    return object;
+  }
+
+  /**
+   * Decides, synchronously, what happens to an object whose bytes have just
+   * landed (issue #520). Runs inside the caller's transaction.
+   *
+   *   * No registered processor wants it: mark it `ready` right here, with the
+   *     same processed-metadata stamp a processing run writes. One bounded row
+   *     — readiness stays instant, and does not depend on a worker running
+   *     (`JOBS_WORKER_MODE=off`).
+   *   * Otherwise: queue a `storage.object.process` job for it and leave it
+   *     `processing`. Dedup is by subject, which is right: one object needs
+   *     one processing job in flight, never two.
+   *
+   * Never downloads and never runs a processor — that is the job's work.
+   */
+  private async settleUpload(
+    tx: Prisma.TransactionClient,
+    object: StorageObject,
+  ): Promise<StorageObject> {
+    if (!this.processing.appliesTo(object)) {
+      return tx.storageObject.update({
+        where: { id: object.id },
+        data: {
+          status: 'ready',
+          metadata: buildProcessedMetadata(object.metadata, {}),
+        },
+      });
+    }
+
+    const job = await this.jobs.enqueueWithin(tx, {
+      type: STORAGE_OBJECT_PROCESS_TYPE,
+      reason: 'upload',
+      subjectType: STORAGE_OBJECT_SUBJECT_TYPE,
+      subjectId: object.id,
+      payload: { objectId: object.id },
+    });
+
+    this.logger.log(`Queued processing job ${job.id} for object ${object.id}`);
 
     return object;
   }

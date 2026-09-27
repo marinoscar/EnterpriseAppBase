@@ -145,8 +145,14 @@ whether a VAPID key pair is active (§2.7).
 
 The `toast` flag is computed server-side, at publish time, per frame. A
 long-lived tab with a stale config cannot re-enable a toast the administrator
-muted. The same `policyChannels` result feeds `GET /api/notifications/events`,
-so the preferences matrix never offers a channel the dispatcher would refuse.
+muted. The same `policyChannels` result feeds `channels` on
+`GET /api/notifications/events`, so the preferences matrix never offers a
+channel the dispatcher would refuse. That response also carries
+`declaredChannels`, the registry's unfiltered list: the admin policy page
+reads it instead of `channels`, so an event an administrator has suppressed
+(and whose `channels` therefore drops `browser`) stays listed with its toggle
+still reachable, rather than vanishing from the page that is the only way to
+re-enable it.
 
 The policy reader (`notification-policy.service.ts`) never throws and fails
 open to the default: a database fault costs at most an unwanted toast, never a
@@ -492,7 +498,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 
 | Method and route | Purpose | Permission |
 |---|---|---|
-| `GET /api/notifications/events` | Registry events with policy-filtered channels, for the preferences matrix | authenticated |
+| `GET /api/notifications/events` | Registry events, each with `channels` (policy-filtered, for the preferences matrix) and `declaredChannels` (unfiltered, so the admin policy page keeps listing a suppressed event) | authenticated |
 | `GET /api/notifications/config` | `browserEnabled`, `pushEnabled`, `vapidPublicKey` | authenticated |
 | `GET /api/notifications/stream` | SSE stream of new inbox rows, each with `toast` | authenticated |
 | `GET /api/notifications` | Caller's inbox, paginated (`page`, `pageSize`, `unreadOnly`) | authenticated |
@@ -647,3 +653,6 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
 - Issue #365: client-side subscription, automatic prompt, banner, logout
   cleanup.
 - Issue #468: the lease reaper's give-up raises `jobs.job_failed`.
+- Issue #521: `GET /api/notifications/events` gains `declaredChannels`, so the
+  admin policy page keeps listing an event whose browser delivery it
+  suppressed.

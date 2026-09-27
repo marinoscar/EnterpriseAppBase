@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
+import { NOTIFICATION_EVENTS } from './notification-events';
 import { NotificationsController } from './notifications.controller';
 import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationStoreService } from './notification-store.service';
@@ -170,6 +171,67 @@ describe('NotificationsController', () => {
         'email',
         'browser',
       ]);
+    });
+
+    // ------------------------------------------------------------------------
+    // declaredChannels (#521) — what the admin policy page lists from
+    // ------------------------------------------------------------------------
+
+    it('serves declaredChannels as the registry declares them when no policy applies', async () => {
+      const events = await controller.listEvents();
+
+      for (const event of NOTIFICATION_EVENTS) {
+        const served = events.find((candidate) => candidate.key === event.key)!;
+        expect(served.declaredChannels).toEqual(event.channels);
+        expect(served.channels).toEqual(event.channels);
+      }
+    });
+
+    it('keeps browser in declaredChannels for an individually suppressed event while channels drops it', async () => {
+      // The admin-page bug: listing from the filtered `channels` made a
+      // suppressed event vanish, taking with it the only control that could
+      // un-suppress it.
+      mockPolicy.getPolicy.mockResolvedValue({
+        browserEnabled: true,
+        disabledEvents: ['nodes.node_offline'],
+      });
+
+      const events = await controller.listEvents();
+      const nodeOffline = events.find((event) => event.key === 'nodes.node_offline')!;
+
+      expect(nodeOffline.channels).toEqual(['email']);
+      expect(nodeOffline.declaredChannels).toEqual(['email', 'browser']);
+
+      // An event nobody suppressed is untouched on both fields.
+      const backupFailed = events.find((event) => event.key === 'db_backup.backup_failed')!;
+      expect(backupFailed.channels).toEqual(['email', 'browser']);
+      expect(backupFailed.declaredChannels).toEqual(['email', 'browser']);
+    });
+
+    it('keeps browser in declaredChannels for every event while the kill switch is off', async () => {
+      mockPolicy.getPolicy.mockResolvedValue({
+        browserEnabled: false,
+        disabledEvents: [],
+      });
+
+      const events = await controller.listEvents();
+
+      for (const event of NOTIFICATION_EVENTS) {
+        const served = events.find((candidate) => candidate.key === event.key)!;
+        expect(served.declaredChannels).toEqual(event.channels);
+      }
+      expect(
+        events.find((event) => event.key === 'nodes.node_offline')!.channels,
+      ).not.toContain('browser');
+    });
+
+    it('never hands out the registry’s own channel array', async () => {
+      const events = await controller.listEvents();
+
+      for (const event of NOTIFICATION_EVENTS) {
+        const served = events.find((candidate) => candidate.key === event.key)!;
+        expect(served.declaredChannels).not.toBe(event.channels);
+      }
     });
   });
 

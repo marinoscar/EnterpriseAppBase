@@ -111,8 +111,19 @@ export interface NotificationEventDef {
    * a statement about which transports are implemented yet. A cell is rendered
    * only for a channel listed here, so `allowlist.invitation` (email only, its
    * recipient has no session by definition) never offers a browser toggle.
+   *
+   * NARROWED BY THE ADMIN POLICY: a non-mandatory event does not list
+   * `browser` while an administrator has browser notifications off or has
+   * suppressed that event. This is what the user will actually receive.
    */
   channels: NotificationChannel[];
+  /**
+   * The channels the event DECLARES in the registry, before administrator
+   * policy (#521). Only the admin notification-policy page should read this:
+   * it must keep listing an event whose browser delivery is suppressed, so the
+   * suppression can be undone. Everyone else reads `channels`.
+   */
+  declaredChannels: NotificationChannel[];
   /** What an account that has expressed no preference receives. */
   defaultEnabled: boolean;
   /**
@@ -292,7 +303,8 @@ export type NotificationStreamEvent = Omit<AppNotification, 'readAt'> & {
    * frame was sent; the bell, the unread count and the notification centre are
    * unaffected. Only the OS bubble is withheld — which is what lets an
    * administrator mute toasts without muting a mandatory security alert's
-   * durable record.
+   * durable record. Only a mandatory event arrives with `false`: a
+   * non-mandatory event the policy suppresses is not recorded or streamed.
    *
    * #227 is what acts on it. Until then it is parsed and carried, which is the
    * harmless direction: a field ignored is cheaper than a field the client
@@ -314,10 +326,12 @@ export type NotificationStreamEvent = Omit<AppNotification, 'readAt'> & {
 export interface NotificationConfigResponse {
   /**
    * May this client raise browser notifications at all? THE PERMISSION-PROMPT
-   * GATE — see the DTO's own doc comment. `false` does not stop delivery; rows
-   * are still written and the centre still fills, it only means the OS bubble
-   * is off. Consumed by #227 as `useNotificationCapability`'s `adminDisabled`
-   * input (`!browserEnabled`).
+   * GATE — see the DTO's own doc comment. `false` stops browser delivery of
+   * NON-MANDATORY events outright: no row is written, so they never reach the
+   * notification centre. MANDATORY events are still written and still reach
+   * the centre; only their OS bubble is withheld. Email is unaffected.
+   * Consumed by #227 as `useNotificationCapability`'s `adminDisabled` input
+   * (`!browserEnabled`).
    */
   browserEnabled: boolean;
   /**

@@ -38,8 +38,13 @@ import type {
 // `browser-notification.channel.ts` says this at length in its header, and
 // `security.role_changed` is `mandatory: true` precisely so a privilege change
 // is never silent. So an admin who mutes browser notifications MUST NOT thereby
-// mute an audit-relevant inbox entry: enforcement applies to the toast (and,
-// from #230, to Web Push), never to the row.
+// mute an audit-relevant inbox entry: for a MANDATORY event, enforcement
+// applies to the toast only, never to the row.
+//
+// For a NON-MANDATORY event the policy is a real delivery switch: the
+// `browser` channel is dropped from its channel list, the dispatcher never
+// calls the browser channel, and NO ROW IS WRITTEN — the event does not reach
+// the inbox at all. Other channels (`email`, `push`) are not filtered here.
 //
 // That is why {@link policyChannels} EXEMPTS MANDATORY EVENTS from the channel
 // filter, exactly as `isChannelEnabled` already exempts them from the user's
@@ -76,13 +81,16 @@ import type {
 export interface NotificationPolicy {
   /**
    * The kill switch. `false` means no browser TOAST is offered anywhere in this
-   * deployment — it does NOT mean notification rows stop being written for
-   * events that must not be silent. See the header.
+   * deployment, and non-mandatory events stop being delivered over `browser`
+   * altogether (no row is written). Mandatory events keep their row; only
+   * their toast is withheld. See the header.
    */
   browserEnabled: boolean;
 
   /**
    * Event keys whose browser delivery an operator has suppressed individually.
+   * Same rule as the kill switch, per event: a non-mandatory event listed here
+   * gets no row; a mandatory one keeps its row and loses only the toast.
    *
    * A SUPPRESSION LIST, not an allowlist: absent means "allowed", which is what
    * lets an event added in a later build be delivered without an operator

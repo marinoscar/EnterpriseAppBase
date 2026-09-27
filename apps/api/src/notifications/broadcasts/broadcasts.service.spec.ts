@@ -232,6 +232,46 @@ describe('BroadcastsService', () => {
       expect(create).toHaveBeenCalled();
     });
 
+    it('says a non-critical broadcast will not reach the bell while the kill switch is off', async () => {
+      // `admin.broadcast` is not mandatory, so the policy drops its browser
+      // channel and no in-app row is written (#521). The warning must not
+      // claim otherwise.
+      const { service } = makeService({ browserEnabled: false });
+
+      const result = await service.create(composition, ADMIN_ID);
+
+      expect(result.warnings[0]).toContain('will not be delivered');
+      expect(result.warnings[0]).not.toContain('still delivered');
+      expect(result.warnings[0]).not.toMatch(/push/i);
+    });
+
+    it('mentions the push-written in-app entry when push is also selected', async () => {
+      const { service } = makeService({ browserEnabled: false });
+
+      const result = await service.create(
+        { ...composition, channels: ['browser', 'push'] },
+        ADMIN_ID
+      );
+
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('disabled deployment-wide');
+      expect(result.warnings[0]).toContain('will not be delivered');
+      expect(result.warnings[0]).toMatch(/push notifications enabled/i);
+    });
+
+    it('says a critical broadcast still reaches the bell while the kill switch is off', async () => {
+      // `admin.broadcast_critical` is mandatory: the row is kept and only the
+      // OS toast is withheld.
+      const { service } = makeService({ browserEnabled: false });
+
+      const result = await service.create({ ...composition, critical: true }, ADMIN_ID);
+
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('disabled deployment-wide');
+      expect(result.warnings[0]).toContain('still delivered');
+      expect(result.warnings[0]).not.toContain('will not be delivered');
+    });
+
     it('does not warn about the kill switch when browser was not selected', async () => {
       const { service, getNotificationsPolicy } = makeService({ browserEnabled: false });
 

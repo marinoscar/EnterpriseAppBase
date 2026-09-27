@@ -92,6 +92,9 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   'db.restore.old-db-drop': 'Restore cleanup',
   // The three oldest cleanup crons in this repository, converted together.
   'storage.cleanup.stale-uploads': 'Stale upload cleanup',
+  // Post-upload processing of one stored object (#520) — the processors that
+  // used to run inside an `@OnEvent` listener.
+  'storage.object.process': 'Object processing',
   'auth.token.cleanup': 'Token cleanup',
   'device-auth.code.cleanup': 'Device code cleanup',
   // The fleet's own lifecycle, in the order it happens: a silent node is marked
