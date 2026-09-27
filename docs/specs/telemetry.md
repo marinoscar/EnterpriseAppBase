@@ -719,6 +719,20 @@ blank password in the test body means "the password the connection **in
 force** would use for that login right now", so an operator can test a
 username/host change without retyping a password they are keeping.
 
+**Unresolvable host.** Before either probe runs, the test resolves the
+target host once, under `GREPTIME_DNS_TIMEOUT_MS` (15 s) — longer than
+Docker's ~5 s `EAI_AGAIN` window, which otherwise loses the race to the 5 s
+connect timeout above and is reported as a bare "timeout expired". When the
+host does not resolve, both probes fail with `GreptimeDB host "<host>" could
+not be resolved (getaddrinfo EAI_AGAIN <host>): …`, naming
+`telemetry.compose.yml`, without a client ever being created; the request
+can then take up to ~15 s to answer. `GreptimeClient` (the pooled connection
+behind status, the explorer and the assistant) makes the same check, but
+only *after* a connect attempt times out, never on the success path — so the
+same unresolvable-host case there is reported the same way instead of
+"Connection terminated due to connection timeout", at the cost of that one
+request taking up to ~20 s (`greptime-host.ts`).
+
 ### Rejected alternative: environment-only, with better error messages
 
 Before this feature, GreptimeDB was configurable only through `GREPTIME_*`,
