@@ -403,3 +403,52 @@ describe('answerAsHistory', () => {
     expect(text.endsWith('…')).toBe(false);
   });
 });
+
+describe('AssistantPanel initialQuestion (#579)', () => {
+  const panel = (props: { onAsk: (q: string) => void; initialQuestion?: string }) => (
+    <AssistantPanel
+      messages={[]}
+      isStreaming={false}
+      onStop={vi.fn()}
+      onInsert={vi.fn()}
+      onInsertAndRun={vi.fn()}
+      {...props}
+    />
+  );
+
+  it('prefills the question box and focuses it, without sending', () => {
+    const onAsk = vi.fn();
+    render(panel({ onAsk, initialQuestion: 'Investigate "Top errors".' }));
+
+    const input = screen.getByRole('textbox', { name: 'Ask the assistant' });
+    expect(input).toHaveValue('Investigate "Top errors".');
+    expect(input).toHaveFocus();
+    expect(onAsk).not.toHaveBeenCalled();
+  });
+
+  it('sends the (edited) prefill only when Ask is pressed', async () => {
+    const user = userEvent.setup();
+    const onAsk = vi.fn();
+    render(panel({ onAsk, initialQuestion: 'Why?' }));
+
+    await user.type(screen.getByRole('textbox', { name: 'Ask the assistant' }), ' Now.');
+    await user.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(onAsk).toHaveBeenCalledTimes(1);
+    expect(onAsk).toHaveBeenCalledWith('Why? Now.');
+  });
+
+  it('prefills again when remounted with a new key', () => {
+    const onAsk = vi.fn();
+    const { rerender } = render(<div key="a">{panel({ onAsk, initialQuestion: 'First' })}</div>);
+    expect(screen.getByRole('textbox', { name: 'Ask the assistant' })).toHaveValue('First');
+    rerender(<div key="b">{panel({ onAsk, initialQuestion: 'Second' })}</div>);
+    expect(screen.getByRole('textbox', { name: 'Ask the assistant' })).toHaveValue('Second');
+  });
+
+  it('without it, starts empty and unfocused as before', () => {
+    render(panel({ onAsk: vi.fn() }));
+    const input = screen.getByRole('textbox', { name: 'Ask the assistant' });
+    expect(input).toHaveValue('');
+    expect(input).not.toHaveFocus();
+  });
+});
