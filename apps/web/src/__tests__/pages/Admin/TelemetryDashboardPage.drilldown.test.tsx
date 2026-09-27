@@ -14,6 +14,7 @@ import { render, mockAdminUser } from '../../utils/test-utils';
 import {
   dashboardHandlers,
   mockDashboardApiSeries,
+  mockDashboardEvent,
   mockDashboardEventsPage1,
   mockDashboardSummary,
   mockDashboardTopErrors,
@@ -219,6 +220,52 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       await user.click(within(dialog).getByRole('button', { name: 'Close assistant' }));
       await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Assistant' })).not.toBeInTheDocument());
       await waitFor(() => expect(menuButton).toHaveFocus());
+    });
+  });
+
+  describe('View trace', () => {
+    const TRACE = '4bf92f3577b34da6a3ce929d0e0e4736';
+
+    beforeEach(() => {
+      server.use(
+        http.get('*/api/admin/telemetry/dashboard/events', () =>
+          HttpResponse.json({
+            data: {
+              ...mockDashboardEventsPage1,
+              items: [
+                mockDashboardEvent(0, { traceId: TRACE, body: 'Traced event' }),
+                mockDashboardEvent(1, { traceId: 'trace-1', body: 'Odd id event' }),
+                mockDashboardEvent(2, { traceId: null, body: 'Untraced event' }),
+              ],
+              nextCursor: null,
+            },
+          }),
+        ),
+      );
+    });
+
+    it('opens the trace in the explorer with the one browser-built statement', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      const table = await screen.findByRole('table', { name: 'Recent events' });
+      await user.click(within(table).getByRole('button', { name: 'Open event: Traced event' }));
+
+      const dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('button', { name: 'View trace' }));
+      expect(await screen.findByTestId('explorer-probe')).toBeInTheDocument();
+      expect(handedSql()).toBe(
+        `SELECT * FROM opentelemetry_traces WHERE trace_id = '${TRACE}' ORDER BY "timestamp" LIMIT 1000`,
+      );
+    });
+
+    it.each(['Odd id event', 'Untraced event'])('offers no link for %s', async (body) => {
+      const user = userEvent.setup();
+      renderPage();
+      const table = await screen.findByRole('table', { name: 'Recent events' });
+      await user.click(within(table).getByRole('button', { name: `Open event: ${body}` }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByTestId('event-body')).toHaveTextContent(body);
+      expect(within(dialog).queryByRole('button', { name: 'View trace' })).not.toBeInTheDocument();
     });
   });
 });

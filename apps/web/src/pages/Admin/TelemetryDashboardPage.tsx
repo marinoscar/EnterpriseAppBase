@@ -89,6 +89,7 @@ import { TopProblems, type TopProblemsKind } from '../../components/telemetry/da
 import { EventsFeed } from '../../components/telemetry/dashboard/EventsFeed';
 import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxis';
 import { explorerHandoff } from '../../components/telemetry/explorerHandoff';
+import { traceExplorerSql } from '../../components/telemetry/dashboard/traceLink';
 import { sqlList } from '../../services/telemetryDashboard';
 import type {
   DashboardBuckets,
@@ -453,6 +454,7 @@ export default function TelemetryDashboardPage() {
               q={state.q}
               onChange={update}
               layout={layout}
+              onViewTrace={(traceId) => openSql(traceExplorerSql(traceId))}
               actions={panelActions(
                 'panel-events',
                 events.data?.sql,
