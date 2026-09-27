@@ -233,6 +233,14 @@ export class ObjectsController {
     status: 201,
     description: 'Upload initialized successfully',
   })
+  @ApiResponse({
+    status: 413,
+    description: 'Declared size exceeds the deployment upload limit (MAX_FILE_SIZE)',
+  })
+  @ApiResponse({
+    status: 415,
+    description: 'MIME type is not in the deployment upload allowlist (ALLOWED_MIME_TYPES)',
+  })
   async initUpload(
     @Body(new ZodValidationPipe(initUploadSchema)) dto: InitUploadDto,
     @CurrentUser('id') userId: string,
@@ -331,6 +339,14 @@ export class ObjectsController {
   @ApiDataResponse(ObjectResponseDto, {
     status: 201,
     description: 'File uploaded successfully',
+  })
+  @ApiResponse({
+    status: 413,
+    description: 'File exceeds the simple upload limit (the smaller of 100MB and MAX_FILE_SIZE)',
+  })
+  @ApiResponse({
+    status: 415,
+    description: 'MIME type is not in the deployment upload allowlist (ALLOWED_MIME_TYPES)',
   })
   async simpleUpload(
     @Req() req: FastifyRequest,

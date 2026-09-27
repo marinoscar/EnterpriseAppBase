@@ -279,10 +279,19 @@ export default () => {
   // them names a storage account, none of them is a secret, and none of them
   // changes where bytes go.
   storage: {
+    // Enforced by `ObjectsService` on both upload routes (#519): a larger
+    // upload is refused with 413. `main.ts` also caps the simple multipart
+    // route at min(100MB, this).
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '10737418240', 10), // 10GB default
-    allowedMimeTypes: (
-      process.env.ALLOWED_MIME_TYPES || 'image/*,application/pdf,video/*'
-    ).split(','),
+    // Upload MIME allowlist (#519). EMPTY MEANS "ALLOW EVERY TYPE", and empty
+    // is the default: a restrictive default would refuse audio/* for AI
+    // transcription and text/csv, docx and friends as chat attachments.
+    // Comma-separated; exact types and `type/*` wildcards, matched
+    // case-insensitively (`storage/mime-type-match.ts`).
+    allowedMimeTypes: (process.env.ALLOWED_MIME_TYPES ?? '')
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => entry.length > 0),
     signedUrlExpiry: parseInt(process.env.SIGNED_URL_EXPIRY || '3600', 10), // 1 hour default
     partSize: parseInt(process.env.STORAGE_PART_SIZE || '10485760', 10), // 10MB default
   },

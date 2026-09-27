@@ -4,6 +4,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  PayloadTooLargeException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -14,6 +16,7 @@ import { extname } from 'node:path';
 
 import { AVATARS_KEY_PREFIX, UPLOADS_KEY_PREFIX } from '../storage-key-prefixes';
 import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';
+import { mimeTypeMatches, normaliseMimeType } from '../mime-type-match';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
@@ -51,6 +54,9 @@ export interface MultipartFile {
   file: Readable;
 }
 
+/** Default for `storage.maxFileSize` when the config carries no usable value (10 GiB). */
+const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024;
+
 @Injectable()
 export class ObjectsService {
   private readonly logger = new Logger(ObjectsService.name);
@@ -76,6 +82,9 @@ export class ObjectsService {
     userId: string,
   ): Promise<InitUploadResponseDto> {
     const { name, size, mimeType } = dto;
+
+    // Deployment upload limits (#519), before anything touches the provider.
+    this.assertUploadAllowed(mimeType, size);
 
     // Get configuration
     const partSize = this.config.get<number>('storage.partSize', 10485760); // 10MB default
@@ -338,6 +347,18 @@ export class ObjectsService {
   ): Promise<ObjectResponseDto> {
     const { filename, mimetype, file: stream } = file;
 
+    // Deployment upload limits (#519). The byte count of a streamed multipart
+    // body is unknown until it has been consumed; its size is bounded by the
+    // multipart `fileSize` limit `main.ts` registers (min(100MB, maxFileSize)).
+    try {
+      this.assertUploadAllowed(mimetype);
+    } catch (error) {
+      // Drain the unread file part so the request completes and the 415
+      // reaches the client instead of a stalled connection.
+      stream.resume();
+      throw error;
+    }
+
     // Generate storage key
     const timestamp = Date.now();
     const uuid = randomUUID();
@@ -558,6 +579,40 @@ export class ObjectsService {
     this.logger.log(`Updated metadata for object ${id}`);
 
     return this.mapToResponseDto(updated);
+  }
+
+  /**
+   * Enforces the deployment's upload limits (#519) for both upload routes.
+   *
+   * - `size` (when known) above `storage.maxFileSize` → 413.
+   * - `mimeType` not matching `storage.allowedMimeTypes` → 415. An empty list
+   *   allows every type; entries are exact types or `type/*` wildcards,
+   *   compared case-insensitively and ignoring parameters.
+   */
+  private assertUploadAllowed(mimeType: string, size?: number): void {
+    const configuredMax = this.config.get<number>('storage.maxFileSize');
+    const maxFileSize =
+      typeof configuredMax === 'number' && Number.isFinite(configuredMax) && configuredMax > 0
+        ? configuredMax
+        : DEFAULT_MAX_FILE_SIZE;
+
+    if (size !== undefined && size > maxFileSize) {
+      throw new PayloadTooLargeException(
+        `File size ${size} bytes exceeds the maximum upload size of ${maxFileSize} bytes`,
+      );
+    }
+
+    const configuredTypes = this.config.get<string[]>('storage.allowedMimeTypes');
+    const allowedMimeTypes = Array.isArray(configuredTypes) ? configuredTypes : [];
+
+    if (
+      allowedMimeTypes.length > 0 &&
+      !mimeTypeMatches(normaliseMimeType(mimeType), allowedMimeTypes)
+    ) {
+      throw new UnsupportedMediaTypeException(
+        `File type '${mimeType}' is not allowed. Allowed types: ${allowedMimeTypes.join(', ')}`,
+      );
+    }
   }
 
   /**

@@ -5,6 +5,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  PayloadTooLargeException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { Readable } from 'node:stream';
 
@@ -75,6 +77,15 @@ describe('ObjectsService', () => {
     jest.clearAllMocks();
   });
 
+  /**
+   * Answers `ConfigService.get` per key, falling back to the caller's default,
+   * so a part size does not also become the upload size limit (#519).
+   */
+  const mockConfigValues = (values: Record<string, unknown>) => {
+    mockConfig.get.mockImplementation(((key: string, fallback?: unknown) =>
+      key in values ? values[key] : fallback) as any);
+  };
+
   describe('initUpload', () => {
     it('should create object record and return presigned URLs', async () => {
       const dto = {
@@ -83,7 +94,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/pdf',
       };
 
-      mockConfig.get.mockReturnValue(10485760); // 10MB part size
+      mockConfigValues({ 'storage.partSize': 10485760 }); // 10MB part size
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-123',
         key: 'uploads/123/uuid.pdf',
@@ -127,7 +138,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/zip',
       };
 
-      mockConfig.get.mockReturnValue(10485760); // 10MB part size
+      mockConfigValues({ 'storage.partSize': 10485760 }); // 10MB part size
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-456',
         key: 'uploads/456/uuid.zip',
@@ -151,7 +162,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/pdf',
       };
 
-      mockConfig.get.mockReturnValue(10485760);
+      mockConfigValues({ 'storage.partSize': 10485760 });
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-789',
         key: 'test-key',
@@ -179,7 +190,8 @@ describe('ObjectsService', () => {
         mimeType: 'application/octet-stream',
       };
 
-      mockConfig.get.mockReturnValue(10485760); // 10MB part size
+      // 10MB part size; a 1TB upload limit so the part cap is what trips.
+      mockConfigValues({ 'storage.partSize': 10485760, 'storage.maxFileSize': 1024 ** 4 });
       // 500GB / 10MB = 50,000 parts > 10,000 limit
 
       await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
@@ -197,7 +209,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/pdf',
       };
 
-      mockConfig.get.mockReturnValue(10485760);
+      mockConfigValues({ 'storage.partSize': 10485760 });
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-123',
         key: 'test-key',
@@ -215,6 +227,81 @@ describe('ObjectsService', () => {
           mimeType: dto.mimeType,
         }),
       );
+    });
+
+    describe('upload limits (#519)', () => {
+      const givenSuccessfulUpload = () => {
+        mockStorageProvider.initMultipartUpload.mockResolvedValue({
+          uploadId: 'upload-limits',
+          key: 'test-key',
+        });
+        mockStorageProvider.getBucket.mockReturnValue('test-bucket');
+        mockPrisma.storageObject.create.mockResolvedValue({
+          ...mockStorageObject,
+        } as any);
+      };
+
+      it('throws 413 when the declared size exceeds storage.maxFileSize, naming the limit', async () => {
+        mockConfigValues({ 'storage.partSize': 10485760, 'storage.maxFileSize': 1000 });
+
+        const dto = { name: 'too-big.bin', size: 1001, mimeType: 'application/octet-stream' };
+
+        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+          PayloadTooLargeException,
+        );
+        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(/1000/);
+        expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
+      });
+
+      it('accepts a declared size exactly at storage.maxFileSize', async () => {
+        mockConfigValues({ 'storage.partSize': 10485760, 'storage.maxFileSize': 1000 });
+        givenSuccessfulUpload();
+
+        const dto = { name: 'exact.bin', size: 1000, mimeType: 'application/octet-stream' };
+
+        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
+      });
+
+      it('throws 415 when the MIME type is not in storage.allowedMimeTypes', async () => {
+        mockConfigValues({
+          'storage.partSize': 10485760,
+          'storage.allowedMimeTypes': ['application/pdf'],
+        });
+
+        const dto = { name: 'image.png', size: 1024, mimeType: 'image/png' };
+
+        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+          UnsupportedMediaTypeException,
+        );
+        expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
+      });
+
+      it('accepts a MIME type allowed by a type/* wildcard', async () => {
+        mockConfigValues({
+          'storage.partSize': 10485760,
+          'storage.allowedMimeTypes': ['image/*'],
+        });
+        givenSuccessfulUpload();
+
+        const dto = { name: 'photo.png', size: 1024, mimeType: 'image/png' };
+
+        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
+      });
+
+      it('accepts any MIME type when storage.allowedMimeTypes is empty', async () => {
+        mockConfigValues({
+          'storage.partSize': 10485760,
+          'storage.allowedMimeTypes': [],
+        });
+        givenSuccessfulUpload();
+
+        const dto = { name: 'whatever.xyz', size: 1024, mimeType: 'application/x-whatever' };
+
+        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
+      });
     });
   });
 
@@ -607,6 +694,28 @@ describe('ObjectsService', () => {
             uploadType: 'simple',
           }),
         }),
+      });
+    });
+
+    describe('upload limits (#519)', () => {
+      it('throws 415 for a disallowed MIME type and drains the unread stream', async () => {
+        mockConfigValues({ 'storage.allowedMimeTypes': ['application/pdf'] });
+
+        const stream = Readable.from(['test content']);
+        const resumeSpy = jest.spyOn(stream, 'resume');
+        const file = {
+          filename: 'notes.txt',
+          mimetype: 'text/plain',
+          file: stream,
+        };
+
+        await expect(service.simpleUpload(file, testUserId)).rejects.toThrow(
+          UnsupportedMediaTypeException,
+        );
+
+        expect(resumeSpy).toHaveBeenCalled();
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+        expect(mockPrisma.storageObject.create).not.toHaveBeenCalled();
       });
     });
   });
