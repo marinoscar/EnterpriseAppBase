@@ -9,6 +9,8 @@ import { confirmationMatches, planUninstall, runUninstall } from './uninstall.js
 import { OBJECT_IN_USE, dropDatabase, quoteIdentifier } from './database-drop.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, writeState, type DeployState } from './state.js';
 
+const FAKE_DB_PASSWORD = 'not-a-real-password';
+
 function deployment(env = 'POSTGRES_DB=appdb\nAPP_BIND_PORT=3535\n'): string {
   const root = mkdtempSync(join(tmpdir(), 'appctl-uninstall-'));
   mkdirSync(join(root, 'repo', '.git'), { recursive: true });
@@ -374,9 +376,15 @@ describe('--purge-storage runs inside the api image, before anything is destroye
 });
 
 describe('--drop-database actually drops the database (#522)', () => {
-  const DB_ENV =
-    'POSTGRES_DB=appdb\nPOSTGRES_HOST=db.example.test\nPOSTGRES_PORT=6543\n' +
-    'POSTGRES_USER=postgres\nPOSTGRES_PASSWORD=s3cret-pass-word\nAPP_BIND_PORT=3535\n';
+  const DB_ENV = [
+    'POSTGRES_DB=appdb',
+    'POSTGRES_HOST=db.example.test',
+    'POSTGRES_PORT=6543',
+    'POSTGRES_USER=postgres',
+    `POSTGRES_PASSWORD=${FAKE_DB_PASSWORD}`,
+    'APP_BIND_PORT=3535',
+    '',
+  ].join('\n');
 
   function deploymentWithVhost(env = DB_ENV): string {
     const root = deployment(env);
@@ -492,7 +500,7 @@ describe('--drop-database actually drops the database (#522)', () => {
 
     expect(result.database?.terminated).toBe(2);
     expect(journalAtVhost).toMatch(/Dropped database appdb.*terminated 2 session/);
-    expect(journalAtVhost).not.toContain('s3cret-pass-word');
+    expect(journalAtVhost).not.toContain(FAKE_DB_PASSWORD);
   });
 
   it('a failed drop THROWS, and keeps the checkout, the .env and the vhost for a re-run', async () => {
@@ -567,10 +575,10 @@ describe('--drop-database actually drops the database (#522)', () => {
     const drop = run.mock.calls.find((call) => isDrop(call[0] as string[]));
     expect(drop).toBeDefined();
     for (const call of run.mock.calls) {
-      expect((call[0] as string[]).join(' ')).not.toContain('s3cret-pass-word');
+      expect((call[0] as string[]).join(' ')).not.toContain(FAKE_DB_PASSWORD);
     }
     expect((drop?.[1] as { env?: Record<string, string> }).env?.PGPASSWORD).toBe(
-      's3cret-pass-word',
+      FAKE_DB_PASSWORD,
     );
   });
 });

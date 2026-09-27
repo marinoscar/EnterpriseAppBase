@@ -17,9 +17,16 @@ import { registerDeployCommand, type DeployContext } from './deploy.js';
 // now told the outcome, including how many sessions were terminated.
 // =============================================================================
 
-const DB_ENV =
-  'POSTGRES_DB=appdb\nPOSTGRES_HOST=db.example.test\nPOSTGRES_USER=postgres\n' +
-  'POSTGRES_PASSWORD=s3cret-pass-word\nAPP_BIND_PORT=3535\n';
+const FAKE_DB_PASSWORD = 'not-a-real-password';
+
+const DB_ENV = [
+  'POSTGRES_DB=appdb',
+  'POSTGRES_HOST=db.example.test',
+  'POSTGRES_USER=postgres',
+  `POSTGRES_PASSWORD=${FAKE_DB_PASSWORD}`,
+  'APP_BIND_PORT=3535',
+  '',
+].join('\n');
 
 const okResult = (stdout = '') => ({
   argv: [],
