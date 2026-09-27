@@ -37,6 +37,7 @@ import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nest
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/providers/storage-provider.interface';
+import { mimeTypeMatches, normaliseMimeType } from '../../storage/mime-type-match';
 import { AiError } from '../core/ai-error';
 import type { AiBinaryPayload } from '../core/types/media.types';
 
@@ -129,9 +130,9 @@ export class AiStorageInputResolver {
       });
     }
 
-    const mimeType = normaliseMime(row.mimeType);
+    const mimeType = normaliseMimeType(row.mimeType);
 
-    if (constraints.mimeTypes && !mimeAllowed(mimeType, constraints.mimeTypes)) {
+    if (constraints.mimeTypes && !mimeTypeMatches(mimeType, constraints.mimeTypes)) {
       throw new AiError(
         'AI_INVALID_REQUEST',
         `The ${label} storage object must be one of ${constraints.mimeTypes.join(', ')} (it is ${row.mimeType}).`,
@@ -268,17 +269,6 @@ export class AiStorageInputResolver {
 
     return count > 0;
   }
-}
-
-function normaliseMime(mimeType: string): string {
-  return mimeType.split(';')[0].trim().toLowerCase();
-}
-
-/** Whether normalised `mimeType` matches an entry of `allowed` (`type/*` matches every subtype). */
-function mimeAllowed(mimeType: string, allowed: readonly string[]): boolean {
-  return allowed.map(normaliseMime).some((entry) =>
-    entry.endsWith('/*') ? mimeType.startsWith(entry.slice(0, -1)) && mimeType.length > entry.length - 1 : entry === mimeType,
-  );
 }
 
 function tooLarge(label: string, objectId: string, maxBytes: number): AiError {
