@@ -120,7 +120,10 @@ export interface NotificationStreamEvent {
    * was still sent; the bell, the unread count and the notification centre are
    * unaffected. Only the OS bubble is withheld. That distinction is the whole
    * point of the flag: `security.role_changed` is `mandatory: true` and must
-   * reach the user's inbox no matter what an operator has muted.
+   * reach the user's inbox no matter what an operator has muted. In practice
+   * only a mandatory event is ever published with `toast: false`: a
+   * non-mandatory event the policy suppresses never reaches the browser
+   * channel, so no row is written and no frame is sent.
    *
    * #227 is what acts on it. Until then it is published and ignored, which is
    * the harmless direction.

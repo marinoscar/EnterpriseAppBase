@@ -118,10 +118,11 @@ const CHANNEL_LABELS: Record<string, string> = {
  * The API's channel is named for the mechanism; the administrator's question is
  * about the destination. In this application the `browser` channel is what
  * writes the durable `notifications` row the bell renders — the OS toast is a
- * secondary effect of the same channel, and can be off deployment-wide while
- * the row is still written. Calling it "Browser" in the composer would suggest
- * that turning the kill switch off removes this channel, which is exactly
- * wrong.
+ * secondary effect of the same channel. Turning browser notifications off
+ * deployment-wide mutes the toast for a critical (mandatory) broadcast while
+ * its row is still written; for a non-critical broadcast it drops the in-app
+ * delivery too (#521). The label names what the admin is choosing — a place in
+ * the app — not the OS mechanism.
  */
 export function channelLabel(channel: string): string {
   return CHANNEL_LABELS[channel] ?? channel;
