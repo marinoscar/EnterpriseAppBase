@@ -43,7 +43,10 @@ export const notificationEventSchema = z.object({
 
   /**
    * Channels this event CAN be delivered over — a capability of the event, not
-   * a statement about which transports are implemented yet.
+   * a statement about which transports are implemented yet — NARROWED BY THE
+   * ADMIN POLICY (#226): `policyChannels` drops `browser` from a non-mandatory
+   * event while browser notifications are off or that event is suppressed.
+   * See `declaredChannels` for the unfiltered list.
    *
    * A client renders a cell only for a channel listed here. Rendering the full
    * matrix regardless would offer, for instance, a browser toggle for
@@ -51,6 +54,23 @@ export const notificationEventSchema = z.object({
    * definition.
    */
   channels: z.array(z.enum(NOTIFICATION_CHANNELS)),
+
+  /**
+   * The channels the event DECLARES in the registry, before any administrator
+   * policy is applied (#521).
+   *
+   * `channels` above is capability ∩ admin policy, so an event whose browser
+   * delivery an administrator has suppressed does not list `browser` there.
+   * That is right for the per-user preferences matrix, and wrong for the
+   * ADMIN policy page: an event the page lists from `channels` vanishes the
+   * moment it is suppressed, and can then never be re-enabled. The admin page
+   * reads this field instead. Never filtered, always a fresh copy of the
+   * registry's list.
+   *
+   * A client deciding what a user will actually receive reads `channels`, not
+   * this.
+   */
+  declaredChannels: z.array(z.enum(NOTIFICATION_CHANNELS)),
 
   /** What an account that has expressed no preference receives. */
   defaultEnabled: z.boolean(),

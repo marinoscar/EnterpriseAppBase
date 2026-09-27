@@ -49,6 +49,7 @@ const WELCOME: NotificationEventDef = {
   label: 'Welcome',
   description: 'Sent once, the first time you sign in to this application.',
   channels: ['email'],
+  declaredChannels: ['email'],
   defaultEnabled: true,
   mandatory: false,
 };
@@ -58,6 +59,7 @@ const ROLE_CHANGED: NotificationEventDef = {
   label: 'Your roles changed',
   description: 'Sent when an administrator changes your roles.',
   channels: ['email', 'browser'],
+  declaredChannels: ['email', 'browser'],
   defaultEnabled: true,
   mandatory: true,
 };
@@ -67,6 +69,7 @@ const BUILD_FINISHED: NotificationEventDef = {
   label: 'Build finished',
   description: 'Sent when a build completes.',
   channels: ['browser'],
+  declaredChannels: ['browser'],
   defaultEnabled: true,
   mandatory: false,
 };
@@ -208,6 +211,43 @@ describe('NotificationSettingsPage', () => {
         notifications: {
           browserEnabled: true,
           disabledEvents: ['security.role_changed'],
+        },
+      }),
+    );
+  });
+
+  it('keeps listing a suppressed event whose effective channels no longer include browser, so it can be re-enabled (#521)', async () => {
+    // What the API really serves for a suppressed non-mandatory event:
+    // `channels` is narrowed by the admin policy and drops `browser`, while
+    // `declaredChannels` still carries the registry's declaration. Filtering
+    // on `channels` made this row vanish, leaving no way to lift the
+    // suppression.
+    const SUPPRESSED_BUILD: NotificationEventDef = {
+      ...BUILD_FINISHED,
+      channels: [],
+      declaredChannels: ['browser'],
+    };
+    setEvents([WELCOME, ROLE_CHANGED, SUPPRESSED_BUILD]);
+    const user = userEvent.setup();
+    const updateSettings = setSettings({
+      browserEnabled: true,
+      disabledEvents: ['build.finished'],
+    });
+
+    renderAsAdmin();
+
+    expect(eventBox('Build finished')).toBeInTheDocument();
+    expect(eventBox('Build finished')).not.toBeChecked();
+
+    await user.click(eventBox('Build finished'));
+    expect(eventBox('Build finished')).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenCalledWith({
+        notifications: {
+          browserEnabled: true,
+          disabledEvents: [],
         },
       }),
     );

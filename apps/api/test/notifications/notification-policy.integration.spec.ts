@@ -284,4 +284,58 @@ describe('Notification policy integration (#226)', () => {
       }
     });
   });
+
+  // ==========================================================================
+  // GET /api/notifications/events — `declaredChannels` ignores the policy (#521)
+  // ==========================================================================
+
+  describe('GET /api/notifications/events serves `declaredChannels` unfiltered', () => {
+    async function readEvents(token: string): Promise<
+      Array<{ key: string; channels: string[]; declaredChannels: string[] }>
+    > {
+      const response = await request(context.app.getHttpServer())
+        .get('/api/notifications/events')
+        .set(authHeader(token))
+        .expect(200);
+
+      return response.body.data;
+    }
+
+    it('keeps a suppressed event’s browser channel in `declaredChannels` while `channels` drops it', async () => {
+      // The admin policy page lists events from this field. Listing from the
+      // filtered `channels` made a suppressed event disappear, and with it the
+      // only control that could un-suppress it.
+      storePolicy({
+        browserEnabled: true,
+        disabledEvents: ['nodes.node_offline'],
+      });
+      const viewer = await createMockViewerUser(context);
+
+      const events = await readEvents(viewer.accessToken);
+      const nodeOffline = events.find((e) => e.key === 'nodes.node_offline');
+
+      expect(nodeOffline?.channels).toEqual(['email']);
+      expect(nodeOffline?.declaredChannels).toEqual(['email', 'browser']);
+    });
+
+    it('equals the registry’s declared channels for every event under every policy', async () => {
+      const policies = [
+        { browserEnabled: true, disabledEvents: [] },
+        { browserEnabled: false, disabledEvents: [] },
+        { browserEnabled: true, disabledEvents: ['nodes.node_offline', 'security.role_changed'] },
+      ];
+
+      for (const policy of policies) {
+        storePolicy(policy);
+        const viewer = await createMockViewerUser(context);
+
+        const events = await readEvents(viewer.accessToken);
+
+        for (const declared of NOTIFICATION_EVENTS) {
+          const served = events.find((e) => e.key === declared.key);
+          expect(served?.declaredChannels).toEqual(declared.channels);
+        }
+      }
+    });
+  });
 });

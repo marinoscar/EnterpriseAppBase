@@ -579,9 +579,18 @@ export class BroadcastsService {
    * back — and would make a broadcast's validity depend on a value that can
    * change while the request is in flight.
    *
-   * Note precisely what the switch does (#226): it mutes the OS TOAST. The
-   * durable `notifications` row is still written for events that must not be
-   * silent. So the warning says "no toast", not "no delivery".
+   * Note precisely what the switch does (#226, `notification-policy.ts`), which
+   * depends on the broadcast's importance:
+   *
+   *   * NON-CRITICAL (`admin.broadcast`, not mandatory): the `browser` channel
+   *     is dropped, so NO in-app row is written and the bell never shows it.
+   *     The one exception is `push`: `PushNotificationChannel` writes its own
+   *     row, so a recipient with an active push subscription still gets an
+   *     in-app entry when push is also selected.
+   *   * CRITICAL (`admin.broadcast_critical`, mandatory): the row is still
+   *     written and reaches the bell; only the OS toast is withheld.
+   *
+   * Email is unaffected either way. The warning states whichever applies.
    *
    * NEVER THROWS. A create that already committed its row must not fail
    * because a settings read did; a policy that cannot be read yields no
@@ -596,10 +605,26 @@ export class BroadcastsService {
       const policy = await this.systemSettings.getNotificationsPolicy();
 
       if (!policy.browserEnabled) {
+        if (dto.critical) {
+          return [
+            'Browser notifications are currently disabled deployment-wide, so recipients will ' +
+              'not see an OS notification for this broadcast. Because it is marked important, ' +
+              'the in-app notification is still delivered and appears in the bell. The setting ' +
+              'can be re-enabled before this broadcast is sent.',
+          ];
+        }
+
+        const pushNote = dto.channels.includes('push')
+          ? ' Recipients with push notifications enabled on a device still get an in-app ' +
+            'entry from the push delivery.'
+          : '';
+
         return [
-          'Browser notifications are currently disabled deployment-wide, so recipients will ' +
-            'not see an OS notification for this broadcast. The in-app notification is still ' +
-            'delivered, and the setting can be re-enabled before this broadcast is sent.',
+          'Browser notifications are currently disabled deployment-wide, so the in-app ' +
+            'notification for this broadcast will not be delivered: it will not appear in the ' +
+            'bell and no OS notification will be shown.' +
+            pushNote +
+            ' The setting can be re-enabled before this broadcast is sent.',
         ];
       }
     } catch (err) {
