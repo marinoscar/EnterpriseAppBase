@@ -37,7 +37,8 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
-import { Navigate, Link as RouterLink, useSearchParams } from 'react-router-dom';
+import { Navigate, Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
+import CodeOutlinedIcon from '@mui/icons-material/CodeOutlined';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import {
@@ -70,6 +71,8 @@ import {
 import { TopProblems } from '../../components/telemetry/dashboard/TopProblems';
 import { EventsFeed } from '../../components/telemetry/dashboard/EventsFeed';
 import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxis';
+import { explorerHandoff } from '../../components/telemetry/explorerHandoff';
+import { sqlList } from '../../services/telemetryDashboard';
 import type {
   DashboardBuckets,
   DashboardLogsBucket,
@@ -85,10 +88,23 @@ const PAGE_DESCRIPTION =
 const UNAVAILABLE_REASONS = new Set(['TELEMETRY_DISABLED', 'TELEMETRY_NOT_CONFIGURED', 'TELEMETRY_UNREACHABLE']);
 
 /**
- * The actions every panel header offers. Empty until #579 adds "Open in
- * Explorer" and "Ask assistant"; each action receives its panel's `sql`.
+ * The panel header's "Open in Explorer" (#579). The SQL is ONLY what the API
+ * reported it ran for the panel (`sql`), never rebuilt here. A panel whose
+ * `sql` is a list hands over its FIRST (primary) statement — for "Key
+ * indicators" that is the API's current-vs-previous totals query, the one the
+ * headline tiles come from; the others are single statements.
  */
-const PANEL_ACTIONS: PanelAction[] = [];
+function explorerAction(openSql: (sql: string) => void, sqlAvailable: boolean): PanelAction {
+  return {
+    key: 'open-in-explorer',
+    label: 'Open in Explorer',
+    icon: <CodeOutlinedIcon />,
+    onClick: (sql) => {
+      if (sql[0]) openSql(sql[0]);
+    },
+    disabled: !sqlAvailable,
+  };
+}
 
 function UnavailableAlert({ error, onRetry }: { error: TelemetryErrorInfo; onRetry: () => void }) {
   return (
@@ -141,6 +157,7 @@ export default function TelemetryDashboardPage() {
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'));
   const layout: DashboardLayout = isPhone ? 'phone' : isDesktop ? 'desktop' : 'tablet';
   const { hasPermission } = usePermissions();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parseDashboardState(searchParams), [searchParams]);
   const [tick, setTick] = useState(0);
@@ -174,6 +191,15 @@ export default function TelemetryDashboardPage() {
     [query, state.sev, state.q],
   );
   const events = useDashboardEvents(eventsQuery, tick);
+
+  const openSql = useCallback(
+    (sql: string) => {
+      const { to, state: handoff } = explorerHandoff(sql);
+      navigate(to, { state: handoff });
+    },
+    [navigate],
+  );
+  const hasSql = (sql: string | string[] | undefined) => sqlList(sql).length > 0;
 
   const spanMs = windowSpanMs(state);
   const zoomTo = (starts: string[], bucketSeconds: number) => (first: number, last: number) => {
@@ -220,7 +246,7 @@ export default function TelemetryDashboardPage() {
             <DashboardPanel
               id="panel-tiles"
               title="Key indicators"
-              actions={PANEL_ACTIONS}
+              actions={[explorerAction(openSql, hasSql(summary.data?.sql))]}
               sql={summary.data?.sql}
               isLoading={summary.isLoading}
               isRefreshing={summary.isRefreshing}
@@ -237,7 +263,7 @@ export default function TelemetryDashboardPage() {
                 <DashboardPanel
                   id="panel-api"
                   title="API requests"
-                  actions={PANEL_ACTIONS}
+                  actions={[explorerAction(openSql, hasSql(apiSeries.data?.sql))]}
                   sql={apiSeries.data?.sql}
                   isLoading={apiSeries.isLoading}
                   isRefreshing={apiSeries.isRefreshing}
@@ -274,7 +300,7 @@ export default function TelemetryDashboardPage() {
                       label="Log severity filter"
                     />
                   }
-                  actions={PANEL_ACTIONS}
+                  actions={[explorerAction(openSql, hasSql(logSeries.data?.sql))]}
                   sql={logSeries.data?.sql}
                   isLoading={logSeries.isLoading}
                   isRefreshing={logSeries.isRefreshing}
@@ -302,7 +328,14 @@ export default function TelemetryDashboardPage() {
               </Grid>
             </Grid>
 
-            <TopProblems routes={topRoutes} errors={topErrors} layout={layout} actions={PANEL_ACTIONS} />
+            <TopProblems
+              routes={topRoutes}
+              errors={topErrors}
+              layout={layout}
+              actions={(kind) => [
+                explorerAction(openSql, hasSql((kind === 'routes' ? topRoutes : topErrors).data?.sql)),
+              ]}
+            />
 
             <EventsFeed
               events={events}
@@ -310,7 +343,7 @@ export default function TelemetryDashboardPage() {
               q={state.q}
               onChange={update}
               layout={layout}
-              actions={PANEL_ACTIONS}
+              actions={[explorerAction(openSql, hasSql(events.data?.sql))]}
             />
           </Stack>
         )}

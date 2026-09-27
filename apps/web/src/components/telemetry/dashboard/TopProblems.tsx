@@ -157,22 +157,30 @@ function ErrorsCards({ items, now }: { items: DashboardTopError[]; now: number }
   );
 }
 
+export type TopProblemsKind = 'routes' | 'errors';
+
 export interface TopProblemsProps {
   routes: DashboardResource<DashboardTopRoutes>;
   errors: DashboardResource<DashboardTopErrors>;
   layout: DashboardLayout;
-  actions?: PanelAction[];
+  /**
+   * Header actions: one list for both panels, or one per panel (#579 — "Ask
+   * assistant" describes the panel it was invoked from). On phones the single
+   * panel offers the actions of the view the toggle shows.
+   */
+  actions?: PanelAction[] | ((kind: TopProblemsKind) => PanelAction[]);
   now?: number;
 }
 
 export function TopProblems({ routes, errors, layout, actions = [], now = Date.now() }: TopProblemsProps) {
-  const [kind, setKind] = useState<'routes' | 'errors'>('routes');
+  const [kind, setKind] = useState<TopProblemsKind>('routes');
+  const actionsOf = (which: TopProblemsKind) => (typeof actions === 'function' ? actions(which) : actions);
 
   const routesPanel = (
     <DashboardPanel
       id="panel-top-routes"
       title="Top failing routes"
-      actions={actions}
+      actions={actionsOf('routes')}
       sql={routes.data?.sql}
       isLoading={routes.isLoading}
       isRefreshing={routes.isRefreshing}
@@ -189,7 +197,7 @@ export function TopProblems({ routes, errors, layout, actions = [], now = Date.n
     <DashboardPanel
       id="panel-top-errors"
       title="Top errors"
-      actions={actions}
+      actions={actionsOf('errors')}
       sql={errors.data?.sql}
       isLoading={errors.isLoading}
       isRefreshing={errors.isRefreshing}
@@ -214,7 +222,7 @@ export function TopProblems({ routes, errors, layout, actions = [], now = Date.n
             size="small"
             aria-label="Top problems view"
             value={kind}
-            onChange={(_event, next: 'routes' | 'errors' | null) => next && setKind(next)}
+            onChange={(_event, next: TopProblemsKind | null) => next && setKind(next)}
           >
             <ToggleButton value="routes" sx={{ minHeight: 44, textTransform: 'none' }}>
               Routes
@@ -224,7 +232,7 @@ export function TopProblems({ routes, errors, layout, actions = [], now = Date.n
             </ToggleButton>
           </ToggleButtonGroup>
         }
-        actions={actions}
+        actions={actionsOf(kind)}
         sql={active.data?.sql}
         isLoading={active.isLoading}
         isRefreshing={active.isRefreshing}
