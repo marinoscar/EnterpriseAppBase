@@ -60,4 +60,17 @@ describe('VerdictBanner', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Retry' }));
     expect(retried).toBe(1);
   });
+
+  it('renders an optional action button (#579 "Explain this")', async () => {
+    let clicked = 0;
+    render(
+      <VerdictBanner
+        compact
+        verdict={{ level: 'critical', reasons: ['first'] }}
+        action={{ label: 'Explain this', onClick: () => (clicked += 1) }}
+      />,
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Explain this' }));
+    expect(clicked).toBe(1);
+  });
 });

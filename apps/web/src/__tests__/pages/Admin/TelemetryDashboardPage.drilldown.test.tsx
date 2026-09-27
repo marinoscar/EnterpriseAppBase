@@ -116,4 +116,109 @@ describe('TelemetryDashboardPage drill-down (#579)', () => {
       expect(handedSql()).toBe(mockDashboardTopErrors.sql);
     });
   });
+
+  describe('Ask assistant', () => {
+    function recordAssistantCalls(): string[] {
+      const seen: string[] = [];
+      server.events.on('request:start', ({ request }) => {
+        if (request.url.includes('/admin/telemetry/assistant')) seen.push(request.url);
+      });
+      return seen;
+    }
+
+    afterEach(() => {
+      server.events.removeAllListeners();
+    });
+
+    const question = () => screen.getByRole('textbox', { name: 'Ask the assistant' }) as HTMLTextAreaElement;
+
+    it('is not offered while AI is off', async () => {
+      renderPage({ aiEnabled: false });
+      const panel = await screen.findByTestId('panel-api');
+      expect(within(panel).getByRole('button', { name: 'Open in Explorer' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Ask assistant' })).not.toBeInTheDocument();
+      expect(await screen.findByTestId('verdict-banner')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Explain this' })).not.toBeInTheDocument();
+    });
+
+    it('on desktop opens the docked drawer with the panel question prefilled, not sent', async () => {
+      const calls = recordAssistantCalls();
+      const user = userEvent.setup();
+      renderPage({ aiEnabled: true });
+      const panel = await screen.findByTestId('panel-top-errors');
+      const ask = within(panel).getByRole('button', { name: 'Ask assistant' });
+      await waitFor(() => expect(ask).toBeEnabled());
+
+      await user.click(ask);
+      const drawer = await screen.findByLabelText('Telemetry assistant');
+      // Docked: a persistent drawer, not a modal dialog.
+      expect(drawer).not.toHaveAttribute('role', 'dialog');
+      expect(question().value.split('\n')).toEqual([
+        'Investigate "Top errors" for the last hour (all services).',
+        'Current state: "Database connection refused" (9).',
+        'What is most likely causing this, and what should I check next?',
+      ]);
+      expect(calls).toHaveLength(0);
+
+      // Asking about another panel re-seeds the question.
+      await user.click(within(screen.getByTestId('panel-top-routes')).getByRole('button', { name: 'Ask assistant' }));
+      await waitFor(() => expect(question().value).toContain('Investigate "Top failing routes"'));
+
+      await user.click(within(drawer).getByRole('button', { name: 'Close assistant' }));
+      await waitFor(() =>
+        expect(within(screen.getByTestId('panel-top-routes')).getByRole('button', { name: 'Ask assistant' })).toHaveFocus(),
+      );
+      expect(calls).toHaveLength(0);
+    });
+
+    it('"Explain this" on the verdict prefills the verdict and its reasons', async () => {
+      const user = userEvent.setup();
+      renderPage({ aiEnabled: true, search: '?service=my-app-api' });
+      const verdict = await screen.findByTestId('verdict-banner');
+      await user.click(within(verdict).getByRole('button', { name: 'Explain this' }));
+
+      await screen.findByLabelText('Telemetry assistant');
+      expect(question().value.split('\n').slice(0, 2)).toEqual([
+        'Investigate "Verdict" for the last hour (service my-app-api).',
+        'Current state: Degraded — 5xx rate 3.2% on GET /api/users/:id; p95 latency 1.4 s.',
+      ]);
+    });
+
+    it('on tablets opens an overlay drawer that returns focus when dismissed', async () => {
+      act(() => setViewportWidth(820));
+      const user = userEvent.setup();
+      renderPage({ aiEnabled: true });
+      const panel = await screen.findByTestId('panel-api');
+      const ask = within(panel).getByRole('button', { name: 'Ask assistant' });
+      await waitFor(() => expect(ask).toBeEnabled());
+
+      await user.click(ask);
+      const drawer = await screen.findByRole('dialog', { name: 'Telemetry assistant' });
+      expect((within(drawer).getByRole('textbox', { name: 'Ask the assistant' }) as HTMLTextAreaElement).value).toContain('Investigate "API requests"');
+
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Telemetry assistant' })).not.toBeInTheDocument());
+      await waitFor(() => expect(ask).toHaveFocus());
+    });
+
+    it('on phones opens a full-screen dialog from the ⋮ menu and returns focus to ⋮', async () => {
+      act(() => setViewportWidth(390));
+      const user = userEvent.setup();
+      renderPage({ aiEnabled: true });
+      const panel = await screen.findByTestId('panel-top');
+      await within(panel).findByRole('list', { name: 'Top routes' });
+
+      const menuButton = within(panel).getByRole('button', { name: 'Top problems actions' });
+      await user.click(menuButton);
+      await user.click(await screen.findByRole('menuitem', { name: 'Ask assistant' }));
+
+      const dialog = await screen.findByRole('dialog', { name: 'Assistant' });
+      expect(dialog.className).toMatch(/fullScreen/i);
+      expect((within(dialog).getByRole('textbox', { name: 'Ask the assistant' }) as HTMLTextAreaElement).value).toContain('Investigate "Top failing routes"');
+
+      await user.click(within(dialog).getByRole('button', { name: 'Close assistant' }));
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Assistant' })).not.toBeInTheDocument());
+      await waitFor(() => expect(menuButton).toHaveFocus());
+    });
+  });
 });
