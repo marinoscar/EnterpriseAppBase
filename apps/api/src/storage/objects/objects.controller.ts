@@ -28,6 +28,8 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { Auth } from '../../auth/decorators/auth.decorator';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import type { RequestUser } from '../../auth/interfaces/authenticated-user.interface';
+import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ObjectsService } from './objects.service';
 import {
   InitUploadBodyDto,
@@ -60,7 +62,6 @@ import {
 
 @ApiTags('Storage')
 @Controller('storage/objects')
-@Auth()
 export class ObjectsController {
   constructor(private readonly objectsService: ObjectsService) {}
 
@@ -68,6 +69,7 @@ export class ObjectsController {
    * List user's storage objects
    */
   @Get()
+  @Auth({ permissions: [PERMISSIONS.STORAGE_READ] })
   @ApiOperation({
     summary: 'List storage objects',
     description: 'Get paginated list of user\'s storage objects with filtering and sorting',
@@ -93,6 +95,7 @@ export class ObjectsController {
    * Get single object by ID
    */
   @Get(':id')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_READ] })
   @ApiOperation({
     summary: 'Get storage object',
     description: 'Get metadata for a specific storage object',
@@ -119,6 +122,7 @@ export class ObjectsController {
    * Get signed download URL
    */
   @Get(':id/download')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_READ] })
   @ApiOperation({
     summary: 'Get download URL',
     description: 'Generate a signed URL for downloading a storage object',
@@ -153,10 +157,15 @@ export class ObjectsController {
    * Delete storage object
    */
   @Delete(':id')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Delete storage object',
-    description: 'Delete a storage object from both storage and database',
+    description:
+      'Delete a storage object from both storage and database. The owner may always delete ' +
+      "their own object. A caller who also holds `storage:delete_any` may delete another user's " +
+      "object, except another user's profile image, which is refused with 403 (it is removed by " +
+      'its owner through `DELETE /api/user-settings/profile-image`).',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
   @ApiResponse({
@@ -169,19 +178,23 @@ export class ObjectsController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Access denied - you do not own this object',
+    description:
+      "Access denied - you do not own this object and lack `storage:delete_any`, or it is another user's profile image",
   })
   async deleteObject(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
   ): Promise<void> {
-    await this.objectsService.delete(id, userId);
+    await this.objectsService.delete(id, user.id, {
+      canDeleteAny: user.permissions.includes(PERMISSIONS.STORAGE_DELETE_ANY),
+    });
   }
 
   /**
    * Update object metadata
    */
   @Patch(':id/metadata')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
   @ApiOperation({
     summary: 'Update object metadata',
     description: 'Update metadata for a storage object (merges with existing metadata)',
@@ -210,6 +223,7 @@ export class ObjectsController {
    * Initialize resumable multipart upload
    */
   @Post('upload/init')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
   @ApiOperation({
     summary: 'Initialize resumable upload',
     description: 'Start a multipart upload for large files',
@@ -239,6 +253,7 @@ export class ObjectsController {
    * Get upload status and progress
    */
   @Get(':id/upload/status')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
   @ApiOperation({
     summary: 'Get upload status',
     description: 'Check progress of a resumable upload',
@@ -246,7 +261,7 @@ export class ObjectsController {
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
   @ApiDataResponse(UploadStatusResponseDto, { description: 'Upload status retrieved' })
   async getUploadStatus(
-    @Param('id') objectId: string,
+    @Param('id', ParseUUIDPipe) objectId: string,
     @CurrentUser('id') userId: string,
   ): Promise<{ data: UploadStatusResponseDto }> {
     const result = await this.objectsService.getUploadStatus(objectId, userId);
@@ -257,6 +272,7 @@ export class ObjectsController {
    * Complete multipart upload
    */
   @Post(':id/upload/complete')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
   @ApiOperation({
     summary: 'Complete resumable upload',
     description: 'Finalize a multipart upload after all parts are uploaded',
@@ -265,7 +281,7 @@ export class ObjectsController {
   @ApiBody({ type: CompleteUploadBodyDto })
   @ApiDataResponse(ObjectResponseDto, { description: 'Upload completed successfully' })
   async completeUpload(
-    @Param('id') objectId: string,
+    @Param('id', ParseUUIDPipe) objectId: string,
     @Body(new ZodValidationPipe(completeUploadSchema)) dto: CompleteUploadDto,
     @CurrentUser('id') userId: string,
   ): Promise<{ data: ObjectResponseDto }> {
@@ -281,6 +297,7 @@ export class ObjectsController {
    * Abort multipart upload
    */
   @Delete(':id/upload/abort')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
   @ApiOperation({
     summary: 'Abort resumable upload',
     description: 'Cancel an in-progress multipart upload',
@@ -291,7 +308,7 @@ export class ObjectsController {
     description: 'Upload aborted successfully',
   })
   async abortUpload(
-    @Param('id') objectId: string,
+    @Param('id', ParseUUIDPipe) objectId: string,
     @CurrentUser('id') userId: string,
   ): Promise<void> {
     await this.objectsService.abortUpload(objectId, userId);
@@ -301,6 +318,7 @@ export class ObjectsController {
    * Simple upload for smaller files (< 100MB)
    */
   @Post()
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
   @ApiOperation({
     summary: 'Simple file upload',
     description: 'Direct upload for files under 100MB',

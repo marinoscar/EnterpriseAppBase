@@ -8,8 +8,10 @@
 // body and never by a URL a provider would fetch, and every one needs the
 // same two questions answered first:
 //
-//   1. MAY THIS CALLER USE THIS OBJECT? The caller uploaded it
-//      (`uploaded_by_id`), or holds `storage:read_any`. The answers match
+//   1. MAY THIS CALLER USE THIS OBJECT? Only if the caller uploaded it
+//      (`uploaded_by_id`) — ownership only, exactly like `ObjectsService`'s
+//      read paths; no permission lets one user read another's object here
+//      (#516 removed an unseeded `storage:read_any` bypass). The answers match
 //      `ObjectsService` exactly: an unknown (or malformed) id is a 404
 //      "Storage object not found", and somebody else's object is a 403 —
 //      carrying `details.storageObjectId`, so the RBAC matrix (#435) can tell
@@ -40,14 +42,6 @@ import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/providers/
 import { mimeTypeMatches, normaliseMimeType } from '../../storage/mime-type-match';
 import { AiError } from '../core/ai-error';
 import type { AiBinaryPayload } from '../core/types/media.types';
-
-/**
- * Reads ANY user's object. Listed in CLAUDE.md's RBAC model (Admin only) but
- * not seeded today, so in a stock deployment only an object's uploader can
- * use it — the check still asks the database, so a deployment that grants it
- * gets the documented behaviour with no code change.
- */
-export const STORAGE_READ_ANY_PERMISSION = 'storage:read_any';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -95,7 +89,7 @@ export class AiStorageInputResolver {
    * `constraints`. Reads the row only — never storage.
    *
    * @throws NotFoundException for an unknown or malformed id;
-   *   ForbiddenException for another user's object without `storage:read_any`;
+   *   ForbiddenException for another user's object;
    *   AiError('AI_INVALID_REQUEST') for an object that is not ready, of a
    *   disallowed type, or too large.
    */
@@ -115,7 +109,7 @@ export class AiStorageInputResolver {
       throw new NotFoundException('Storage object not found');
     }
 
-    if (row.uploadedById !== userId && !(await this.canReadAny(userId))) {
+    if (row.uploadedById !== userId) {
       throw new ForbiddenException({
         message: 'You do not have access to this storage object',
         details: { storageObjectId: objectId },
@@ -254,20 +248,6 @@ export class AiStorageInputResolver {
         source.destroy();
       },
     };
-  }
-
-  /** Whether `userId` holds `storage:read_any` through any role. One indexed query. */
-  private async canReadAny(userId: string): Promise<boolean> {
-    const count = await this.prisma.user.count({
-      where: {
-        id: userId,
-        userRoles: {
-          some: { role: { rolePermissions: { some: { permission: { name: STORAGE_READ_ANY_PERMISSION } } } } },
-        },
-      },
-    });
-
-    return count > 0;
   }
 }
 

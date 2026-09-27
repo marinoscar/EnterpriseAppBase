@@ -529,7 +529,7 @@ export function DesktopGridRenderer<Row>({
           ids={selectedIdList}
           actions={bulkActions}
           onClear={clearSelection}
-          // Page-scoped, like the selection itself (§5.3): "3 of 47 selected"
+          // Page-scoped, like the selection itself: "3 of 47 selected"
           // means 3 of the 47 rows loaded on THIS page, not the server total.
           total={rowIds.length}
         />

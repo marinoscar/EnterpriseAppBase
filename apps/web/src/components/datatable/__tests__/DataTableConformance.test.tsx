@@ -5,8 +5,8 @@
  * (`conformance/runDataTableConformanceSuite.tsx`) against the built-in
  * fixture table. See that module's docblock for the full contract this
  * exercises, and for how a migrating page (#258 onward) can invoke the same
- * suite against its own columns. See docs/specs/datatable.md §17 for the
- * accessibility contract and keyboard model this suite enforces.
+ * suite against its own columns, including the accessibility contract and
+ * keyboard model this suite enforces.
  */
 
 import { describe } from 'vitest';

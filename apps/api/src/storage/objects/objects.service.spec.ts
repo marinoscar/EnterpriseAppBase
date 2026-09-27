@@ -17,6 +17,8 @@ import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/
 import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
 import { StorageConfigService } from '../config/storage-config.service';
 import { OBJECT_UPLOADED_EVENT } from '../processing/events/object-uploaded.event';
+import { AVATARS_KEY_PREFIX } from '../storage-key-prefixes';
+import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';
 
 describe('ObjectsService', () => {
   let service: ObjectsService;
@@ -888,6 +890,78 @@ describe('ObjectsService', () => {
         }),
       });
     });
+
+    // ------------------------------------------------------------------
+    // `canDeleteAny` (#516): a caller holding `storage:delete_any` may
+    // delete another user's object, except another user's profile image.
+    // ------------------------------------------------------------------
+
+    it('deletes the caller\'s own object when canDeleteAny is true, same as without the flag', async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue(mockStorageObject as any);
+      mockStorageProvider.delete.mockResolvedValue(undefined);
+      mockPrisma.storageObject.delete.mockResolvedValue({} as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.delete(mockStorageObject.id, testUserId, { canDeleteAny: true });
+
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(mockStorageObject.storageKey);
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorUserId: testUserId,
+          action: 'storage:object:delete',
+        }),
+      });
+      // Actor === owner: no ownerUserId on the audit meta.
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.not.objectContaining({ meta: expect.objectContaining({ ownerUserId: expect.anything() }) }),
+      });
+    });
+
+    it('lets a non-owner delete when canDeleteAny is true, and records the owner on the audit event', async () => {
+      const foreignObject = { ...mockStorageObject, uploadedById: otherUserId };
+      mockPrisma.storageObject.findUnique.mockResolvedValue(foreignObject as any);
+      mockStorageProvider.delete.mockResolvedValue(undefined);
+      mockPrisma.storageObject.delete.mockResolvedValue({} as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.delete(foreignObject.id, testUserId, { canDeleteAny: true });
+
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(foreignObject.storageKey);
+      expect(mockPrisma.storageObject.delete).toHaveBeenCalledWith({ where: { id: foreignObject.id } });
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorUserId: testUserId,
+          action: 'storage:object:delete',
+          meta: expect.objectContaining({ ownerUserId: otherUserId }),
+        }),
+      });
+    });
+
+    it('refuses a non-owner delete without canDeleteAny, exactly as before', async () => {
+      const foreignObject = { ...mockStorageObject, uploadedById: otherUserId };
+      mockPrisma.storageObject.findUnique.mockResolvedValue(foreignObject as any);
+
+      await expect(service.delete(foreignObject.id, testUserId)).rejects.toThrow(ForbiddenException);
+      expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+      expect(mockPrisma.storageObject.delete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['storage key under avatars/', { storageKey: `${AVATARS_KEY_PREFIX}${otherUserId}/obj.png`, metadata: null }],
+      ['metadata.purpose === avatar (non-avatars/ key)', { storageKey: 'uploads/123/obj.png', metadata: { purpose: AVATAR_PURPOSE } }],
+    ])(
+      'refuses to delete another user\'s profile image even with canDeleteAny, detected by %s',
+      async (_name, attrs) => {
+        const avatarObject = { ...mockStorageObject, uploadedById: otherUserId, ...attrs };
+        mockPrisma.storageObject.findUnique.mockResolvedValue(avatarObject as any);
+
+        await expect(
+          service.delete(avatarObject.id, testUserId, { canDeleteAny: true }),
+        ).rejects.toThrow(ForbiddenException);
+        expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+        expect(mockPrisma.storageObject.delete).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('updateMetadata', () => {

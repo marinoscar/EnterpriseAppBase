@@ -7,8 +7,6 @@
  * `desktop/`) and the mobile card-list renderer (issue #253), and will feed
  * filtering (#254), column visibility / saved views (#255), and
  * virtualization / export (#256) without any column definition changing.
- *
- * See docs/specs/datatable.md for the full contract documentation.
  */
 
 import type { ReactNode } from 'react';
@@ -192,7 +190,7 @@ export interface DataTableColumn<Row> {
    * `priority`, `align`, `truncate` and the sizing hints are ignored on a
    * `filterOnly` column — declare `priority: 'detail'` and move on.
    *
-   * Discovered by the #258 pilot migration; see docs/specs/datatable.md §18.1.
+   * Discovered by the #258 pilot migration.
    */
   filterOnly?: boolean;
 
@@ -505,9 +503,9 @@ export interface DataTableProps<Row> {
    *
    * Supplying it turns on per-user layout persistence: column visibility,
    * density, sort and page size are stored under
-   * `user_settings.dataTables[tableId]` and restored on the next mount
-   * (docs/specs/datatable.md §14 / §15). Omit it and every layout control still
-   * works — the choices simply live for the session only.
+   * `user_settings.dataTables[tableId]` and restored on the next mount. Omit
+   * it and every layout control still works — the choices simply live for
+   * the session only.
    *
    * Chosen by the page and never derived from a route or a label: the id is the
    * storage key, so it must survive a rename or a URL change.
@@ -563,7 +561,7 @@ export interface DataTableProps<Row> {
  * once by `DataTable`, above whichever renderer is active, because it is the
  * one control whose shape is decided by the layout rather than by the row
  * presentation — and because a renderer that owned filter state would lose it
- * on every layout switch (§7.4).
+ * on every layout switch.
  */
 export type DataTableRendererProps<Row> = Omit<
   DataTableProps<Row>,

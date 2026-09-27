@@ -2,8 +2,8 @@
  * DataTable — the CSV export control (issue #256, epic #238).
  *
  * Lives in the view bar next to the column picker and the density toggle, for
- * the same reason those do (§7.4): its SHAPE is decided by the layout, not by
- * how rows are presented.
+ * the same reason those do: its SHAPE is decided by the layout, not by how
+ * rows are presented.
  *
  * | layout    | surface                                                        |
  * | --------- | -------------------------------------------------------------- |
@@ -27,7 +27,7 @@
  * Neither scope ever re-queries with elevated access: the second one is the
  * first one's fetch, run more times.
  *
- * Touch rules (§8.5) apply as everywhere else: ≥44px, nothing hover-revealed,
+ * Touch rules apply as everywhere else: ≥44px, nothing hover-revealed,
  * and the menu/dialog are mounted only while open.
  */
 

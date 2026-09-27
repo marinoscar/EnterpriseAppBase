@@ -488,13 +488,19 @@ The secret access key is stored encrypted and never returned. See
 
 ### Object access
 
-- Every `/api/storage/objects` route requires authentication.
-- `ObjectsService` enforces ownership: list returns only the caller's objects,
-  and get, download, metadata update, delete and upload complete/abort all
-  return 403 unless `uploadedById` is the caller.
-- The seeded storage permissions are `storage:read`, `storage:write` and
-  `storage:delete_any`. The object controller does not currently gate its
-  routes on them; ownership is the enforced control.
+- Every `/api/storage/objects` route requires `storage:read` (list, get,
+  download) or `storage:write` (uploads, metadata update, delete,
+  upload complete/abort).
+- `ObjectsService` also enforces ownership on top of the permission: list
+  returns only the caller's objects, and get, download, metadata update and
+  upload complete/abort all return 403 unless `uploadedById` is the caller.
+- A caller who also holds `storage:delete_any` may delete another user's
+  object, with one exception: another user's profile image is refused with
+  403 and can only be removed by its owner, through
+  `DELETE /api/user-settings/profile-image`.
+- The AI platform's storage-input resolver (an image to edit, audio to
+  transcribe, a file a response reads) is ownership-only: no permission lets
+  one user use another's object there.
 
 ### Upload limits
 
@@ -624,9 +630,18 @@ its own `add_header` must repeat the security headers.
 
 ### CORS
 
-The API calls `app.enableCors({ origin: process.env.CORS_ORIGIN || true, credentials: true })`.
-With `CORS_ORIGIN` unset, any origin is reflected. The same-origin setup does
-not need CORS at all, so set `CORS_ORIGIN` to your own origin in production.
+`apps/api/src/common/cors/cors-options.ts` builds the CORS policy from
+`CORS_ORIGIN` at startup:
+
+- **Unset (default)**: `{ origin: false }` — no CORS headers at all, so
+  browsers enforce same-origin. The same-origin deployment doesn't need CORS.
+- **Set**: a comma-separated list of exact origins (`scheme://host[:port]`, no
+  path) is allowed with credentials — `{ origin: [...], credentials: true }`.
+  Each entry must match the browser's `Origin` header byte for byte.
+- **Invalid**: a `*` anywhere in the list, or an entry that isn't an exact
+  serialized origin, throws at bootstrap and the process exits before binding
+  the port.
+
 The refresh cookie's `SameSite=Lax` and `/api/auth` path, and the in-memory
 access token, limit what a cross-origin page could do, but do not rely on
 that alone.
@@ -884,7 +899,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 - [ ] Strong `JWT_SECRET`, `COOKIE_SECRET`, `POSTGRES_PASSWORD`
 - [ ] `SECRETS_ENCRYPTION_KEY` set before configuring storage, SMTP, push or AI
 - [ ] HTTPS in front of Nginx, `APP_URL` on `https://`
-- [ ] `CORS_ORIGIN` set to your origin
+- [ ] `CORS_ORIGIN` set only if another browser origin must call the API with credentials; leave unset for same-origin deployments
 - [ ] Production Google OAuth client with the production redirect URI
 - [ ] `INITIAL_ADMIN_EMAIL` correct; database seeded
 - [ ] A rate limiter at the edge, if the deployment is internet-facing
