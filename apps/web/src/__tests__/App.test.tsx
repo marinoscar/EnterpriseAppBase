@@ -59,6 +59,11 @@ vi.mock('../pages/Admin/TelemetryExplorerPage', () => ({
   default: () => <h1>Admin Telemetry Explorer</h1>,
 }));
 
+// Issue #578, epic #576.
+vi.mock('../pages/Admin/TelemetryDashboardPage', () => ({
+  default: () => <h1>Admin Telemetry Dashboard</h1>,
+}));
+
 /**
  * The four `/settings/*` routes from issue #96, epic #90. Same rationale as
  * the admin stand-ins above: the real pages already render correctly (their
@@ -636,6 +641,43 @@ describe('App', () => {
           ).toBeInTheDocument(),
         { timeout: 5000 },
       );
+    });
+
+    it('routes the dashboard once telemetry is on (#578)', async () => {
+      telemetryOn();
+      signInAs(TELEMETRY_ALL, ['admin']);
+      renderAt('/admin/settings/telemetry/dashboard');
+
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' }),
+          ).toBeInTheDocument(),
+        { timeout: 5000 },
+      );
+    });
+
+    it('redirects the dashboard to / while telemetry is off (#578)', async () => {
+      signInAs(TELEMETRY_ALL, ['admin']);
+      renderAt('/admin/settings/telemetry/dashboard');
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+      expect(
+        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('redirects the dashboard for a user without telemetry:query (#578)', async () => {
+      telemetryOn();
+      signInAs(['user_settings:read', 'telemetry:read']);
+      renderAt('/admin/settings/telemetry/dashboard');
+      await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), {
+        timeout: 5000,
+      });
+      expect(
+        screen.queryByRole('heading', { level: 1, name: 'Admin Telemetry Dashboard' }),
+      ).not.toBeInTheDocument();
     });
 
     it('redirects /admin/settings/telemetry for a user without telemetry:read', async () => {
