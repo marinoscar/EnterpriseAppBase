@@ -7,8 +7,11 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
+import { resolveTelemetryInstanceId } from '../common/otel/instance-id';
 import { telemetryGate } from '../common/otel/telemetry-gate';
 import type { SystemTelemetryValue } from '../common/schemas/settings.schema';
+import { APP_SLUG } from '@app/shared';
+
 import { enqueueHousekeepingJob } from '../jobs/housekeeping.enqueue';
 import { JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -47,6 +50,9 @@ import { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler
 //      `TELEMETRY_GATE_REFRESH_MS` after. The interval is what makes a
 //      multi-instance deployment converge: the instance that served the PUT
 //      flips its gate immediately, every other one within one interval.
+//      The same refresh pushes the resolved instance identifier
+//      (`telemetry.instanceId`, else `APP_SLUG` — #565) with
+//      `telemetryGate.setInstanceId()`, so a relabel converges the same way.
 //
 // WHY BOTH CONDITIONS FOR THE GATE: with no GreptimeDB there is nowhere for
 // the collector to write. Exporting anyway would only fill the collector's
@@ -134,8 +140,9 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Re-reads the policy and sets the export gate to
-   * `telemetry.enabled && GreptimeDB configured`. Never throws: on a failed
-   * read the gate keeps its last value (see the header).
+   * `telemetry.enabled && GreptimeDB configured`, and the gate's instance id
+   * to `telemetry.instanceId ?? APP_SLUG`. Never throws: on a failed read the
+   * gate keeps its last values (see the header).
    *
    * @returns the gate's state after the call.
    */
@@ -144,11 +151,18 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
       const policy = await this.getPolicy({ fresh: true });
       const next = policy.enabled && this.greptime.isConfigured();
       const previous = telemetryGate.isEnabled();
+      const nextInstanceId = resolveTelemetryInstanceId(policy.instanceId);
+      const previousInstanceId = telemetryGate.instanceId();
 
       telemetryGate.setEnabled(next);
+      telemetryGate.setInstanceId(nextInstanceId);
 
       if (next !== previous) {
         this.logger.log(`Telemetry export ${next ? 'enabled' : 'disabled'}`);
+      }
+
+      if (nextInstanceId !== previousInstanceId) {
+        this.logger.log(`Telemetry instance id is now "${nextInstanceId}"`);
       }
 
       if (this.refreshFailing) {
@@ -177,6 +191,8 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
       ...structuredClone(policy),
       available: this.greptime.isConfigured(),
       retentionApplicable: this.greptime.isAdminConfigured(),
+      instanceIdDefault: APP_SLUG,
+      instanceIdEffective: resolveTelemetryInstanceId(policy.instanceId),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
       updatedBy: row?.updatedByUser ?? null,
@@ -226,7 +242,13 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const current = await this.systemSettings.getTelemetryPolicy();
-    const next: SystemTelemetryValue = structuredClone(input);
+    // `instanceId` is the one optional field of the PUT body (see the DTO):
+    // absent keeps the stored value, so a client that predates it cannot
+    // reset it.
+    const next: SystemTelemetryValue = structuredClone({
+      ...input,
+      instanceId: input.instanceId !== undefined ? input.instanceId : current.instanceId,
+    });
 
     await this.systemSettings.patchSettings({ telemetry: next }, userId, expectedVersion);
 
@@ -285,6 +307,7 @@ export function diffTelemetryFieldNames(before: SystemTelemetryValue, after: Sys
   const flat = (value: SystemTelemetryValue): Record<string, unknown> => ({
     enabled: value.enabled,
     retentionDays: value.retentionDays,
+    instanceId: value.instanceId,
     'query.maxRows': value.query.maxRows,
     'query.timeoutSeconds': value.query.timeoutSeconds,
     'assistant.enabled': value.assistant.enabled,

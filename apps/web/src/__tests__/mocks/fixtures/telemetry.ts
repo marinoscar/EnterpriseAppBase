@@ -31,6 +31,8 @@ export const mockTelemetryPublicConfigEnabled: TelemetryPublicConfig = {
 export const mockTelemetryAdminConfig: TelemetryAdminConfig = {
   enabled: true,
   retentionDays: 30,
+  // Follows the default (#565): the app slug.
+  instanceId: null,
   query: { maxRows: 10000, timeoutSeconds: 30 },
   assistant: {
     enabled: true,
@@ -42,6 +44,8 @@ export const mockTelemetryAdminConfig: TelemetryAdminConfig = {
   },
   available: true,
   retentionApplicable: true,
+  instanceIdDefault: 'my-app',
+  instanceIdEffective: 'my-app',
   version: 7,
   updatedAt: '2026-09-01T10:00:00.000Z',
   updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },

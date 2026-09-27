@@ -330,6 +330,7 @@ The `telemetry` system-settings namespace (`systemTelemetrySchema`,
 |---|---|---|---|
 | `enabled` | boolean | — | `false` |
 | `retentionDays` | integer | 1–3650 | `30` |
+| `instanceId` | string or `null` | `^[a-z0-9][a-z0-9._-]{0,62}$` | `null` (→ `APP_SLUG`) |
 | `query.maxRows` | integer | 1–100000 | `10000` |
 | `query.timeoutSeconds` | integer | 1–120 | `30` |
 | `assistant.enabled` | boolean | — | `false` |
@@ -357,6 +358,44 @@ job so a changed retention reaches GreptimeDB immediately rather than at the
 next nightly run. `GET /api/telemetry/config` is the public feature flag
 (`@Auth()`, no permission — any signed-in user, like `GET /api/ai/config`):
 `available`, `enabled`, `assistantEnabled`, nothing else.
+
+### The instance identifier
+
+`instanceId` labels which deployment of the application produced a given
+span, log record or metric batch — distinct from `service.name`
+(`OTEL_SERVICE_NAME`, fixed per deployment at boot), which only says which
+*program* produced it. Two forks of this template, or two environments of one
+fork, can point at one shared telemetry store, and without an identity of
+their own their data is indistinguishable. An administrator sets it at
+`/admin/settings/telemetry`; `instanceId: null` (the default) resolves to
+`APP_SLUG` (`apps/api/src/common/otel/instance-id.ts`), the slug of the
+product name in `packages/shared/identity.json` — so a renamed fork reports
+under its own name with no setting to touch, and only needs the override for
+more than one deployment of the *same* fork sharing a store.
+
+The response also carries `instanceIdDefault` (what `null` resolves to) and
+`instanceIdEffective` (what is currently stamped), both read-only, so a form
+can show what the default means without hardcoding it. `instanceId` is
+optional on `PUT`: absent keeps the stored value, `null` resets to the
+default, a string overrides it — the one field in this namespace that is not
+part of the "full replace" contract (§ above), because it arrived after the
+settings form did and an older client must not reset an administrator's
+override merely by saving the page.
+
+**Why export-time stamping, not the SDK resource.** `instrumentation.ts`
+hands one `Resource` to `NodeSDK` before `sdk.start()`, and every span, log
+record and metric collected afterward holds a reference to that same object —
+it is immutable from then on, so a runtime-changeable identity cannot live
+there. The gated exporters (`GatedSpanExporter`, `GatedLogRecordExporter`,
+`GatedPushMetricExporter`, `apps/api/src/common/otel/telemetry-gate.ts`) are
+already the one place every batch passes through on its way out, so they
+re-label each batch with the current `instanceId` as they export it — a
+shallow copy with a replaced `resource` for metrics, the equivalent for spans
+and log records. `TelemetrySettingsService` pushes the resolved value with
+`telemetryGate.setInstanceId()` at the same moments it pushes `setEnabled()`:
+on boot, every refresh interval, and after a save — so a change reaches every
+instance in a fleet within the same window as the export gate itself (§2),
+with no restart, and applies starting with the next batch exported.
 
 ## 4. Retention
 
@@ -752,10 +791,34 @@ alone still needs an SSH session to reconfigure.
 bound to `127.0.0.1` only on a VPS deployment
 (`infra/compose/vps.telemetry.compose.yml`) — nothing about the telemetry
 store is ever published on a public interface. An analyst reaches it through
-an SSH tunnel and a read-only login (`GREPTIME_READER_USER`), from Power BI,
-Excel, DBeaver, Grafana or any other tool that speaks the PostgreSQL wire
-protocol. See the [telemetry runbook](../runbooks/telemetry.md) for the exact
-commands and per-tool notes.
+an SSH tunnel and a read-only login (`GREPTIME_READER_USER`), from any tool
+that speaks the PostgreSQL wire protocol — Grafana, Metabase, Superset, Power
+BI, Excel, DBeaver — or GreptimeDB's Prometheus-compatible HTTP API for a
+metrics-only consumer. See the [telemetry runbook](../runbooks/telemetry.md)
+for the exact commands and per-tool notes.
+
+**Filtering or grouping by deployment.** Once more than one deployment shares
+a store, every query should filter or group by `app.instance.id` (§ above),
+the same way it would filter by any other resource attribute. In GreptimeDB,
+resource attributes are flattened into their own columns named
+`resource_attributes.<key>` (§"Tables and column naming" above), so the
+identifier is `"resource_attributes.app.instance.id"` on the traces and logs
+tables — the dotted name needs double-quoting, exactly like any other
+flattened attribute column:
+
+```sql
+SELECT "resource_attributes.app.instance.id" AS instance,
+       count(*) AS spans
+FROM opentelemetry_traces
+WHERE "timestamp" > now() - INTERVAL '1 hour'
+GROUP BY instance;
+```
+
+A per-metric table follows the same flattening, but its exact column set is
+created on first export and not fixed by this spec — verify the column name
+in your deployment's schema browser (the explorer's schema tab, or
+`information_schema.columns`) before building a dashboard panel or BI report
+against it.
 
 ## History
 
@@ -778,3 +841,4 @@ commands and per-tool notes.
 - #558: the GreptimeDB connection becomes admin-configurable at runtime
   (`TelemetryConnectionService`, `/api/admin/telemetry/connection`), with
   `GREPTIME_*` kept as the deployment default.
+- #565: admin-configurable instance identifier, stamped as `app.instance.id`.

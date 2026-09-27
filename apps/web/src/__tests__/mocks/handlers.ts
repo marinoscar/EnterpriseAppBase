@@ -350,8 +350,17 @@ export const handlers = [
         { status: 409 },
       );
     }
+    // `instanceId` absent keeps the stored value; the effective one follows (#565).
+    const instanceId =
+      'instanceId' in body ? (body.instanceId as string | null) : mockTelemetryAdminConfig.instanceId;
     return HttpResponse.json({
-      data: { ...mockTelemetryAdminConfig, ...body, version: mockTelemetryAdminConfig.version + 1 },
+      data: {
+        ...mockTelemetryAdminConfig,
+        ...body,
+        instanceId,
+        instanceIdEffective: instanceId ?? mockTelemetryAdminConfig.instanceIdDefault,
+        version: mockTelemetryAdminConfig.version + 1,
+      },
     });
   }),
 

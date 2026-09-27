@@ -13,13 +13,23 @@ import { systemTelemetrySchema } from '../../common/schemas/settings.schema';
 // the response adds). Full replace: `assistant.provider` / `assistant.modelId`
 // sent as `null` clear a stored value.
 //
+// ONE EXCEPTION TO "FULL": `instanceId` (#565) is OPTIONAL in the PUT body.
+// Absent keeps the stored value, `null` returns to the `APP_SLUG` default, a
+// string overrides it. It arrived after the form did, and a client written
+// before it existed must not get a 400 — nor silently reset an identity an
+// administrator set — merely by saving the page. The response always carries
+// it, plus `instanceIdDefault` / `instanceIdEffective` so a form can show what
+// `null` currently means.
+//
 // No credential is part of any of these shapes and none may be added — the
 // namespace carries a compile-time proof of that (`settings.schema.ts`). The
 // GreptimeDB connection is its own resource (`/api/admin/telemetry/connection`,
 // #558), with its passwords in the encrypted credential store.
 // =============================================================================
 
-export const updateTelemetryConfigSchema = systemTelemetrySchema;
+export const updateTelemetryConfigSchema = systemTelemetrySchema.extend({
+  instanceId: systemTelemetrySchema.shape.instanceId.optional(),
+});
 
 export class UpdateTelemetryConfigDto extends createZodDto(updateTelemetryConfigSchema) {}
 export type UpdateTelemetryConfigInput = z.infer<typeof updateTelemetryConfigSchema>;
@@ -37,6 +47,17 @@ export const telemetryConfigResponseSchema = systemTelemetrySchema.extend({
    * but not applied.
    */
   retentionApplicable: z.boolean(),
+  /**
+   * What a `null` `instanceId` resolves to: the application slug (`APP_SLUG`,
+   * derived from the product name). Read-only.
+   */
+  instanceIdDefault: z.string(),
+  /**
+   * The identifier currently stamped as the `app.instance.id` resource
+   * attribute on exported telemetry: `instanceId` when set, else
+   * `instanceIdDefault`. Read-only.
+   */
+  instanceIdEffective: z.string(),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */
   version: z.number().int(),
   updatedAt: z.iso.datetime().nullable(),

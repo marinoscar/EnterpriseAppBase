@@ -38,6 +38,13 @@ export interface TelemetrySettings {
   enabled: boolean;
   /** 1..3650. */
   retentionDays: number;
+  /**
+   * `telemetry.instanceId` (#565): the label stamped as the OTel resource
+   * attribute `app.instance.id` on every trace, log and metric. `null` follows
+   * the default (the app slug, `instanceIdDefault`). When set, it matches
+   * `TELEMETRY_INSTANCE_ID_PATTERN`.
+   */
+  instanceId: string | null;
   query: {
     /** 1..100000. */
     maxRows: number;
@@ -61,6 +68,10 @@ export interface TelemetryAdminConfig extends TelemetrySettings {
   available: boolean;
   /** Whether the GreptimeDB admin credential is set, which retention needs. */
   retentionApplicable: boolean;
+  /** What a `null` `instanceId` resolves to: the app slug (`APP_SLUG`). Read-only. */
+  instanceIdDefault: string;
+  /** `instanceId ?? instanceIdDefault` — the value stamped on exported telemetry. Read-only. */
+  instanceIdEffective: string;
   /** Send back as `If-Match`. `0` when nothing is stored yet. */
   version: number;
   updatedAt: string | null;
@@ -87,6 +98,22 @@ export const TELEMETRY_LIMITS = {
   maxSteps: { min: 1, max: 12 },
 } as const;
 
+/**
+ * Mirrors the API's `TELEMETRY_INSTANCE_ID_PATTERN` (`settings.schema.ts`):
+ * 1-63 characters, lowercase letters, digits, `.`, `_` or `-`, starting with a
+ * letter or digit. A convenience for inline feedback — the API is the gate.
+ */
+export const TELEMETRY_INSTANCE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}$/;
+
+/**
+ * The `PUT /admin/telemetry/config` body: the stored namespace, except that
+ * `instanceId` may be omitted (absent keeps the stored value, `null` resets it
+ * to the default, a string overrides it).
+ */
+export type TelemetrySettingsUpdate = Omit<TelemetrySettings, 'instanceId'> & {
+  instanceId?: string | null;
+};
+
 export async function getTelemetryConfig(): Promise<TelemetryPublicConfig> {
   return api.get<TelemetryPublicConfig>('/telemetry/config');
 }
@@ -100,7 +127,7 @@ export async function getTelemetryAdminConfig(): Promise<TelemetryAdminConfig> {
  * stale version answers 409, the same convention as the AI admin config.
  */
 export async function updateTelemetryAdminConfig(
-  settings: TelemetrySettings,
+  settings: TelemetrySettingsUpdate,
   expectedVersion?: number,
 ): Promise<TelemetryAdminConfig> {
   return api.put<TelemetryAdminConfig>('/admin/telemetry/config', settings, {

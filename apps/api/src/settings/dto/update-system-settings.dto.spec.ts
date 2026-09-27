@@ -277,6 +277,7 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
     const TELEMETRY = {
       enabled: true,
       retentionDays: 30,
+      instanceId: null as string | null,
       query: { maxRows: 10000, timeoutSeconds: 30 },
       assistant: {
         enabled: false,
@@ -374,6 +375,27 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
       expect(result.telemetry?.assistant.provider).toBe('openai');
       expect(result.telemetry?.assistant.modelId).toBe('gpt-5');
     });
+
+    it('should accept an instanceId override (#565)', () => {
+      const result = updateSystemSettingsSchema.parse({
+        telemetry: { ...TELEMETRY, instanceId: 'prod-eu.1' },
+        notifications: NOTIFICATIONS,
+      });
+
+      expect(result.telemetry?.instanceId).toBe('prod-eu.1');
+    });
+
+    it.each(['Prod', '-prod', '', 'has space', 'a'.repeat(64)])(
+      'should reject the instanceId %p (#565)',
+      (instanceId) => {
+        expect(() =>
+          updateSystemSettingsSchema.parse({
+            telemetry: { ...TELEMETRY, instanceId },
+            notifications: NOTIFICATIONS,
+          }),
+        ).toThrow();
+      },
+    );
   });
 
   describe('complete settings object', () => {
@@ -714,6 +736,24 @@ describe('PatchSystemSettingsDto (PATCH)', () => {
       });
 
       expect(result.telemetry?.assistant).not.toHaveProperty('provider');
+    });
+
+    it('keeps telemetry.instanceId tri-state in a PATCH body (#565)', () => {
+      expect(
+        patchSystemSettingsSchema.parse({ telemetry: { instanceId: null } }).telemetry,
+      ).toEqual({ instanceId: null });
+      expect(
+        patchSystemSettingsSchema.parse({ telemetry: { instanceId: 'staging' } }).telemetry,
+      ).toEqual({ instanceId: 'staging' });
+      expect(
+        patchSystemSettingsSchema.parse({ telemetry: { enabled: true } }).telemetry,
+      ).not.toHaveProperty('instanceId');
+    });
+
+    it('should reject a malformed telemetry.instanceId in a PATCH body (#565)', () => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({ telemetry: { instanceId: 'Not_Valid!' } }),
+      ).toThrow();
     });
   });
 });
