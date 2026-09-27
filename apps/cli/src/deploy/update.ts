@@ -13,12 +13,19 @@ import {
   severityOf,
   type CheckContext,
 } from './checks/index.js';
-import { diffEnv, parseEnvExample, parseEnvFile } from './env-spec.js';
+import { diffEnv, parseEnvExample, parseEnvFile, type EnvVarSpec } from './env-spec.js';
 import { genuinelyNewKeys } from './env-absence.js';
+import { effectiveGroups } from './compose-files.js';
 import { adoptDeployment } from './adopt.js';
 import { describeEvidence } from './deployment-evidence.js';
 import { writeEnvFile } from './env-file.js';
-import { metadataFor, type EnvGroup } from './env-metadata.js';
+import {
+  generateValue,
+  metadataFor,
+  needsAutoGenerate,
+  type EnvGroup,
+  type EnvVarMetadata,
+} from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
 import { runCommand as defaultRunCommand } from './executor.js';
 import { ensureDatabase } from './database.js';
@@ -161,13 +168,17 @@ interface UpdateContext extends StepContext {
 }
 
 /**
- * The opt-in groups this run acts under: the flag, else what install recorded
- * -- NEVER read from the `.env`, for the reason `state.groups` gives. They
- * decide both which new keys count as drift and which compose files make up
- * the stack (compose-files.ts).
+ * The groups this run acts under: the flag, else what install recorded --
+ * NEVER read from the `.env`, for the reason `state.groups` gives -- plus the
+ * always-on ones (`effectiveGroups`, #567). They decide both which new keys
+ * count as drift and which compose files make up the stack (compose-files.ts).
+ *
+ * The always-on union is what upgrades a deployment recorded without
+ * `observability`: its GREPTIME_* / OTEL_* keys become drift and its compose
+ * file list gains the telemetry files, on this update.
  */
 function groupsOf(context: Pick<UpdateContext, 'options' | 'state'>): readonly EnvGroup[] {
-  return context.options.groups ?? (context.state.groups as EnvGroup[] | undefined) ?? [];
+  return effectiveGroups(context.options.groups ?? context.state.groups);
 }
 
 /** Collected ONCE per run and reused; see install.ts's `hostFactsOf`. */
@@ -445,7 +456,23 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           context.journal.line(`Keeping ${unknown.length} variable(s) not in the template`);
         }
 
-        if (missing.length === 0) return;
+        const groups = groupsOf(context);
+
+        // ⚠ A PLACEHOLDER IS NOT A VALUE for a key the CLI generates itself
+        // (#567). A deployment whose `.env` still carries `change-me-*` for a
+        // GreptimeDB password -- or an empty one -- gets a generated value
+        // here, without a question. A real value is never touched.
+        const placeholders = specs.filter((spec) => {
+          const metadata = metadataFor(spec.key);
+          return (
+            metadata.autoGenerate === true &&
+            current.has(spec.key) &&
+            (metadata.group === undefined || groups.includes(metadata.group)) &&
+            needsAutoGenerate(current.get(spec.key), spec.defaultValue)
+          );
+        });
+
+        if (missing.length === 0 && placeholders.length === 0) return;
 
         // "In the template and not in the file" is NOT the same question as
         // "what did this revision add?". A key is permanently absent for three
@@ -459,28 +486,63 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         // those keys are NOT commented out, so `spec.optional` misses them.
         // Enabled groups come from the flag, else from what install recorded -
         // NEVER from reading the `.env`, for the reason `state.groups` gives.
-        const added = genuinelyNewKeys(missing, { groups: groupsOf(context) });
+        //
+        // The always-on `observability` group (#567) is the upgrade path: a
+        // deployment recorded without it has none of its keys, and they count
+        // as genuinely new here -- GREPTIME_*_PASSWORD generated, the rest
+        // their template defaults.
+        const added = genuinelyNewKeys(missing, { groups });
 
-        if (added.length === 0) {
+        if (added.length === 0 && placeholders.length === 0) {
           context.journal.line(
             `Template has ${missing.length} variable(s) this deployment does not use; nothing new.`,
           );
           return;
         }
 
-        const needsAnswer = added.filter((spec) => {
+        const isAuto = (spec: EnvVarSpec): boolean => {
+          const metadata = metadataFor(spec.key);
+          return metadata.autoGenerate === true && metadata.generate !== undefined;
+        };
+
+        // Keys the CLI generates itself need no answer, no domain and no
+        // wizard (#567): an interactive update must not stop to ask about a
+        // password nobody has to know, and a deployment published without a
+        // domain must still be able to take them.
+        const generated = [...added.filter(isAuto), ...placeholders];
+        const rest = added.filter((spec) => !isAuto(spec));
+
+        const needsAnswer = rest.filter((spec) => {
           const metadata = metadataFor(spec.key);
           return metadata.essential === true || metadata.secret === true;
         });
 
-        context.journal.line(
-          `This revision adds ${added.length} variable(s); ${needsAnswer.length} need a value.`,
-        );
+        if (added.length > 0) {
+          context.journal.line(
+            `This revision adds ${added.length} variable(s); ${needsAnswer.length} need a value.`,
+          );
+        }
+
+        const merged = new Map(current);
+        for (const spec of generated) {
+          // A value from --answers is an operator's choice, kept like one.
+          const supplied = context.options.answers?.get(spec.key);
+          const kind = metadataFor(spec.key).generate as NonNullable<EnvVarMetadata['generate']>;
+          merged.set(
+            spec.key,
+            needsAutoGenerate(supplied, spec.defaultValue) ? generateValue(kind) : (supplied as string),
+          );
+        }
+        if (generated.length > 0) {
+          // Names only. The values are secrets and never reach the journal.
+          context.journal.line(
+            `Generated ${generated.length} value(s): ${generated.map((spec) => spec.key).join(', ')}`,
+          );
+        }
 
         if (needsAnswer.length === 0) {
           // Everything new has a usable default; add them and say so.
-          const merged = new Map(current);
-          for (const spec of added) {
+          for (const spec of rest) {
             merged.set(spec.key, spec.defaultValue);
           }
           // The WRITER still gets the full template spec list, so section
@@ -501,12 +563,19 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           // ONLY the new keys. Handing over the full list is the other half of
           // the same defect: even a genuine one-variable revision re-asked
           // everything.
-          specs: added,
+          specs: rest,
           domain,
+          groups,
+          // The generated values last, so an --answers placeholder cannot
+          // put back what was just replaced.
           existing:
             context.options.answers === undefined
-              ? current
-              : new Map([...current, ...context.options.answers]),
+              ? merged
+              : new Map([
+                  ...current,
+                  ...context.options.answers,
+                  ...generated.map((spec) => [spec.key, merged.get(spec.key) as string] as const),
+                ]),
           ...(context.options.nonInteractive === undefined
             ? {}
             : { nonInteractive: context.options.nonInteractive }),
@@ -1005,10 +1074,11 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     lastDeployedAt: now,
     lastCommand: 'update',
     appctlVersion: CLI_VERSION,
-    // An explicit --group set replaces the recorded one: the stack was just
-    // brought up with THOSE compose files, so `status`, the next `update` and
-    // `uninstall` must name the same ones. Absent flag keeps the record.
-    ...(options.groups === undefined ? {} : { groups: [...options.groups] }),
+    // The groups this run acted under: an explicit --group set replaces the
+    // recorded one, and the always-on groups are added either way (#567). The
+    // stack was just brought up with THOSE compose files, so `status`, the
+    // next `update` and `uninstall` must name the same ones.
+    groups: [...groupsOf(context)],
     // Only when `publish` ran: an update that did not touch the proxy has
     // learned nothing new about it, and keeps what was recorded.
     ...(context.proxyRuntime === undefined

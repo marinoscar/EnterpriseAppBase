@@ -276,10 +276,12 @@ describe('runInstall preconditions', () => {
 
 describe('compose invocation', () => {
   it('layers base, prod and vps in that order', () => {
-    // vps.compose.yml must come last: its `!override` on ports only replaces
-    // what the earlier files declared if it is applied after them.
+    // The VPS files must come last: their `!override` on ports only replaces
+    // what the earlier files declared if they are applied after them. The
+    // telemetry files are always present (#567).
     expect(composeArgv(['up', '-d']).join(' ')).toBe(
-      'docker compose -f base.compose.yml -f prod.compose.yml -f vps.compose.yml up -d',
+      'docker compose -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml' +
+        ' -f vps.compose.yml -f vps.telemetry.compose.yml up -d',
     );
   });
 

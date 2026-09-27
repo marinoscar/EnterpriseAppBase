@@ -1079,7 +1079,7 @@ export async function runStatusCommand(
       : { composeProject: composeProjectFor(state) }),
     ...(state === undefined ? {} : { state }),
     // The compose files this stack was started with depend on the groups
-    // install recorded (compose-files.ts); absent record means none.
+    // install recorded (compose-files.ts), plus the always-on ones (#567).
     ...(state?.groups === undefined ? {} : { groups: state.groups }),
     ...(ctx?.fetch === undefined ? {} : { fetch: ctx.fetch }),
     // #391: the sign-in wiring, from the deployment's own .env. Reported, and

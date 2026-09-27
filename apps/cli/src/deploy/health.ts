@@ -93,11 +93,11 @@ export interface HealthOptions {
    */
   oauth?: { clientId: string; callbackUrl: string } | undefined;
   /**
-   * The deployment's opt-in groups: they decide which compose files the stack
+   * The deployment's groups: they decide which compose files the stack
    * was started with (compose-files.ts), and this module must name the SAME
    * files, so `compose ps` and the migration probe's `compose run` describe
    * the stack that is actually running rather than a base-only model of it.
-   * Absent means none.
+   * The always-on telemetry files are included whatever is passed (#567).
    */
   groups?: readonly string[] | undefined;
 }

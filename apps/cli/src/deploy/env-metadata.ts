@@ -17,8 +17,23 @@ import { randomBytes } from 'node:crypto';
 // next fork's variables would be the ones without entries.
 // =============================================================================
 
-/** Groups an operator opts into. Their keys are skipped otherwise. */
+/**
+ * Feature groups. Their keys are skipped unless the group is enabled.
+ * `observability` is ALWAYS enabled on a VPS (#567): see `effectiveGroups` in
+ * compose-files.ts. The others are opt-in.
+ */
 export type EnvGroup = 'observability' | 'email' | 'microsoft-oauth';
+
+/**
+ * How a generated value is made.
+ *
+ * - `base64-32`: 32 random bytes, standard base64 (AES-256 keys, JWT secrets).
+ * - `hex-32`: 32 random bytes, lowercase hex. For values embedded in a syntax
+ *   that reserves base64's own characters: GreptimeDB's
+ *   `static_user_provider:cmd:user=password,user2=password2` splits on `,`,
+ *   `=` and `:`, and base64 carries `=` padding (and `+`, `/`).
+ */
+export type GenerateKind = 'base64-32' | 'hex-32';
 
 export interface DeriveContext {
   /** The public hostname the deployment is being published under. */
@@ -33,7 +48,17 @@ export interface EnvVarMetadata {
   /** Asked even when the template supplies a default. */
   essential?: boolean;
   /** Offer to generate a value rather than make someone invent one. */
-  generate?: 'base64-32';
+  generate?: GenerateKind;
+  /**
+   * Generate the value WITHOUT ASKING, interactive or not, whenever it is
+   * blank or still a template placeholder (`isPlaceholderValue`). A real value
+   * is never replaced. Requires `generate`.
+   *
+   * For credentials nobody needs to know, only the stack itself (#567): the
+   * GreptimeDB passwords are read back by the API from the same `.env`, so
+   * asking an operator to invent them is friction and a reused password.
+   */
+  autoGenerate?: boolean;
   /** Returns a message when the value is unusable, undefined when it is fine. */
   validate?: (value: string) => string | undefined;
   /** Computed from the domain and earlier answers; never prompted for. */
@@ -66,6 +91,32 @@ export interface EnvVarMetadata {
  * a minimal container. */
 export function generateBase64Key(): string {
   return randomBytes(32).toString('base64');
+}
+
+/** 32 bytes from the CSPRNG as 64 lowercase hex characters: `[0-9a-f]` only. */
+export function generateHexKey(): string {
+  return randomBytes(32).toString('hex');
+}
+
+export function generateValue(kind: GenerateKind): string {
+  return kind === 'hex-32' ? generateHexKey() : generateBase64Key();
+}
+
+/**
+ * True when a value is still a template placeholder rather than something
+ * anybody chose: the template's own default for the key, or the `change-me` /
+ * `your-` spellings `.env.example` uses for credentials.
+ */
+export function isPlaceholderValue(value: string, templateDefault?: string): boolean {
+  if (templateDefault !== undefined && templateDefault !== '' && value === templateDefault) {
+    return true;
+  }
+  return /^change-me|^your-/i.test(value);
+}
+
+/** Whether an `autoGenerate` key's current value must be replaced. */
+export function needsAutoGenerate(current: string | undefined, templateDefault?: string): boolean {
+  return current === undefined || current === '' || isPlaceholderValue(current, templateDefault);
 }
 
 function requireMinLength(minimum: number) {
@@ -223,6 +274,10 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // GreptimeDB telemetry store (telemetry.compose.yml). Three accounts with
   // three privileges: the collector writes, the explorer / AI assistant / BI
   // tools read, and only the retention (TTL) setting uses the admin account.
+  //
+  // The passwords are generated, never asked (#567), and as hex: they are
+  // embedded in GreptimeDB's `user=password,...` provider string, so `,`, `=`
+  // and `:` must never appear in them.
   GREPTIME_HOST: { group: 'observability' },
   GREPTIME_HTTP_PORT: { group: 'observability' },
   GREPTIME_PG_PORT: { group: 'observability' },
@@ -230,11 +285,26 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   GREPTIME_BIND_PG_PORT: { group: 'observability' },
   GREPTIME_DB: { group: 'observability' },
   GREPTIME_WRITER_USER: { group: 'observability' },
-  GREPTIME_WRITER_PASSWORD: { group: 'observability', secret: true },
+  GREPTIME_WRITER_PASSWORD: {
+    group: 'observability',
+    secret: true,
+    generate: 'hex-32',
+    autoGenerate: true,
+  },
   GREPTIME_READER_USER: { group: 'observability' },
-  GREPTIME_READER_PASSWORD: { group: 'observability', secret: true },
+  GREPTIME_READER_PASSWORD: {
+    group: 'observability',
+    secret: true,
+    generate: 'hex-32',
+    autoGenerate: true,
+  },
   GREPTIME_ADMIN_USER: { group: 'observability' },
-  GREPTIME_ADMIN_PASSWORD: { group: 'observability', secret: true },
+  GREPTIME_ADMIN_PASSWORD: {
+    group: 'observability',
+    secret: true,
+    generate: 'hex-32',
+    autoGenerate: true,
+  },
 
   // --- Email (SES) ---------------------------------------------------------
   // THERE IS NO `storage` GROUP ANY MORE (issue #377, epic #372). Which bucket,

@@ -156,14 +156,19 @@ export interface DeployState {
    */
   adoptedAt?: string | undefined;
   /**
-   * Opt-in feature groups this deployment enabled at install time.
+   * Feature groups this deployment runs with.
+   *
+   * `observability` is always on (#567) and is written into every record
+   * install and update produce; a record from before that lacks it and gets
+   * it on the next update (`effectiveGroups` in compose-files.ts). The other
+   * groups are opt-in.
    *
    * Recorded because it CANNOT be inferred later. Nothing in a `.env`
    * distinguishes `OTEL_ENABLED=true` from `OTEL_ENABLED=false` - both are
    * merely PRESENT - so an update that guessed would write a group's
-   * placeholder defaults into a live deployment. Absent means none, which is
-   * the correct reading for every state file written before this field
-   * existed.
+   * placeholder defaults into a live deployment. Absent means no opt-in
+   * group, which is the correct reading for every state file written before
+   * this field existed.
    *
    * Optional, and the state version is deliberately NOT bumped for it: a bump
    * makes this CLI refuse every state file already sitting on a live server.

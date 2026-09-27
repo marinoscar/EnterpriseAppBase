@@ -13,7 +13,7 @@ import {
   type CheckContext,
 } from './checks/index.js';
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
-import { composeFileArgs, composeFilesFor } from './compose-files.js';
+import { composeFileArgs, composeFilesFor, effectiveGroups } from './compose-files.js';
 import { writeEnvFile } from './env-file.js';
 import { isDeployment } from './deployment-evidence.js';
 import { runEnvWizard } from './env-wizard.js';
@@ -356,9 +356,9 @@ export function composeProjectFor(
 /**
  * The full `docker compose` argv for this deployment.
  *
- * `groups` are the deployment's opt-in groups -- this run's flag, else what
- * install recorded -- and decide which compose files take part; see
- * compose-files.ts. Absent means none: the base VPS stack.
+ * `groups` are the deployment's groups -- this run's flag, else what install
+ * recorded -- and decide which compose files take part; see compose-files.ts.
+ * The always-on telemetry files are included whatever is passed (#567).
  */
 export function composeArgv(
   extra: readonly string[],
@@ -1298,7 +1298,11 @@ export interface InstallResult {
   nextStep: string;
 }
 
-export async function runInstall(options: InstallOptions): Promise<InstallResult> {
+export async function runInstall(requested: InstallOptions): Promise<InstallResult> {
+  // Every step reads `options.groups`, so widening it once here is what puts
+  // the always-on groups (#567) into the wizard, the compose file list, the
+  // health gate and the recorded state alike.
+  const options: InstallOptions = { ...requested, groups: effectiveGroups(requested.groups) };
   // The duration a history entry records is the whole run, precondition
   // checks included -- what the operator actually waited.
   const startedAt = Date.now();
@@ -1468,12 +1472,11 @@ export async function runInstall(options: InstallOptions): Promise<InstallResult
     // Recorded so update, certs and uninstall act under the runtime this
     // install actually used, rather than re-detecting it.
     ...recordedRuntime(context),
-    // Recorded so a later `update` knows which opt-in groups this deployment
-    // uses. It cannot be re-derived from the `.env`: a group's keys look
-    // identical whether the feature is on or off.
-    ...(options.groups === undefined || options.groups.length === 0
-      ? {}
-      : { groups: [...options.groups] }),
+    // Recorded so a later `update` knows which groups this deployment uses.
+    // It cannot be re-derived from the `.env`: a group's keys look identical
+    // whether the feature is on or off. Always includes the always-on groups
+    // (`effectiveGroups`, #567), so the record says what actually runs.
+    groups: effectiveGroups(options.groups),
     completedSteps: result.completed,
     // Stated explicitly rather than left absent, so a later reader never has
     // to infer success from the shape of the record.

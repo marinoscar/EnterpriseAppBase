@@ -451,3 +451,102 @@ describe('runEnvWizard --non-interactive: the `skipped` outcome', () => {
     expect((error as Error).message).toContain('POSTGRES_HOST');
   });
 });
+
+// =============================================================================
+// GreptimeDB passwords are generated, never asked  (issue #567)
+// =============================================================================
+
+const GREPTIME_TEMPLATE = [
+  '# ------------------------------------------------------------',
+  '# Telemetry store',
+  '# ------------------------------------------------------------',
+  'GREPTIME_WRITER_USER=writer',
+  'GREPTIME_WRITER_PASSWORD=change-me-writer',
+  'GREPTIME_READER_USER=reader',
+  'GREPTIME_READER_PASSWORD=change-me-reader',
+  'GREPTIME_ADMIN_USER=admin',
+  'GREPTIME_ADMIN_PASSWORD=change-me-admin',
+].join('\n');
+
+const GREPTIME_SPECS = parseEnvExample(GREPTIME_TEMPLATE);
+const PASSWORD_KEYS = [
+  'GREPTIME_WRITER_PASSWORD',
+  'GREPTIME_READER_PASSWORD',
+  'GREPTIME_ADMIN_PASSWORD',
+] as const;
+
+describe('runEnvWizard: auto-generated GreptimeDB passwords (#567)', () => {
+  it('generates all three without prompting on an unattended run', async () => {
+    const { values, summary } = await runEnvWizard({
+      specs: GREPTIME_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+      groups: ['observability'],
+    });
+
+    const generated = PASSWORD_KEYS.map((key) => values.get(key) as string);
+    for (const value of generated) {
+      // Embedded in `user=password,user2=password2`: none of `,` `=` `:`.
+      expect(value).toMatch(/^[0-9a-f]{64}$/);
+      expect(value).not.toMatch(/[,=:]/);
+    }
+    // Three independent draws, never one value reused.
+    expect(new Set(generated).size).toBe(3);
+    // Never echoed: the summary masks them.
+    for (const key of PASSWORD_KEYS) {
+      expect(summary.find((row) => row.key === key)).toMatchObject({
+        display: '********',
+        source: 'generated',
+      });
+    }
+  });
+
+  it('generates them on an interactive run without asking anything but the review', async () => {
+    const { ctx, output, remaining } = terminal(['y']); // review only
+    const { values } = await runEnvWizard({
+      specs: GREPTIME_SPECS,
+      domain: 'app.example.test',
+      groups: ['observability'],
+      ctx,
+    });
+
+    expect(remaining()).toBe(0);
+    expect(output.text()).not.toContain('Generate one?');
+    expect(output.text()).not.toMatch(/GREPTIME_\w+_PASSWORD[^\n]*: $/m);
+    for (const key of PASSWORD_KEYS) {
+      const value = values.get(key) as string;
+      expect(value).toMatch(/^[0-9a-f]{64}$/);
+      // The secret itself never reaches the terminal.
+      expect(output.text()).not.toContain(value);
+    }
+  });
+
+  it('keeps an existing real password and replaces placeholders and blanks', async () => {
+    const { values, summary } = await runEnvWizard({
+      specs: GREPTIME_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+      groups: ['observability'],
+      existing: new Map([
+        ['GREPTIME_WRITER_PASSWORD', 'an-operator-chosen-writer-secret'],
+        ['GREPTIME_READER_PASSWORD', 'change-me-reader'],
+        ['GREPTIME_ADMIN_PASSWORD', ''],
+      ]),
+    });
+
+    expect(values.get('GREPTIME_WRITER_PASSWORD')).toBe('an-operator-chosen-writer-secret');
+    expect(summary.find((row) => row.key === 'GREPTIME_WRITER_PASSWORD')?.source).toBe('existing');
+    expect(values.get('GREPTIME_READER_PASSWORD')).toMatch(/^[0-9a-f]{64}$/);
+    expect(values.get('GREPTIME_ADMIN_PASSWORD')).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('still leaves them alone when the group is not enabled', async () => {
+    const { values } = await runEnvWizard({
+      specs: GREPTIME_SPECS,
+      domain: 'app.example.test',
+      nonInteractive: true,
+    });
+
+    for (const key of PASSWORD_KEYS) expect(values.has(key)).toBe(false);
+  });
+});

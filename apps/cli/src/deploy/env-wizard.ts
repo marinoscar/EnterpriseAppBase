@@ -6,8 +6,9 @@ import {
   type PromptContext,
 } from '../prompt.js';
 import {
-  generateBase64Key,
+  generateValue,
   metadataFor,
+  needsAutoGenerate,
   type EnvGroup,
   type EnvVarMetadata,
 } from './env-metadata.js';
@@ -155,6 +156,28 @@ export async function runEnvWizard(options: WizardOptions): Promise<WizardResult
 
     const current = values.get(spec.key);
 
+    // Generated WITHOUT ASKING, on every path, even with --all (#567): a value
+    // only the stack itself reads. Blank or a template placeholder is
+    // replaced; anything else is somebody's real value and is kept.
+    if (metadata.autoGenerate === true && metadata.generate !== undefined) {
+      if (needsAutoGenerate(current, spec.defaultValue)) {
+        const generated = generateValue(metadata.generate);
+        values.set(spec.key, generated);
+        summary.push({
+          key: spec.key,
+          display: displayValue(generated, metadata),
+          source: 'generated',
+        });
+      } else {
+        summary.push({
+          key: spec.key,
+          display: displayValue(current as string, metadata),
+          source: 'existing',
+        });
+      }
+      continue;
+    }
+
     if (!shouldAsk(metadata, current, all)) {
       if (current === undefined && !spec.optional) {
         values.set(spec.key, spec.defaultValue);
@@ -280,7 +303,7 @@ async function ask(
     if (generate) {
       // Generating must not require typing anything: a value nobody has to
       // invent is a value nobody reuses from another system.
-      return { value: generateBase64Key(), source: 'generated' };
+      return { value: generateValue(metadata.generate), source: 'generated' };
     }
   }
 
