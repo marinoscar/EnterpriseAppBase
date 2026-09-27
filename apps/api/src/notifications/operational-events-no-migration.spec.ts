@@ -65,6 +65,10 @@ const MIGRATIONS_AT_288 = [
   // #387: `user_credentials` — the per-user (owner-bound) sibling of the
   // `credentials` store. A schema change about secrets, not notifications.
   '20260927120000_add_user_credentials',
+  // #518: links a device-authorization session to the credential it issued
+  // (device_codes.pat_id/collected_at/credential_expires_at/revoked_at,
+  // refresh_tokens.device_code_id). About device auth, not notifications.
+  '20260927130000_add_device_session_credential_link',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
