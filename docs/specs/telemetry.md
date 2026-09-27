@@ -137,8 +137,11 @@ Tables are created on first write, with no schema migration step:
 
 - `SELECT version()` returns `PostgreSQL 16.3 GreptimeDB 1.2.1`; connecting
   to database `public` works with an ordinary `pg` client.
-- Subquery wrapping works for arbitrary user SQL, including a `WITH`/CTE
-  inside the subquery: `SELECT * FROM (<user sql>) AS q LIMIT n`.
+- Subquery wrapping is syntactically accepted for arbitrary user SQL,
+  including a `WITH`/CTE inside the subquery: `SELECT * FROM (<user sql>) AS
+  q LIMIT n`. On GreptimeDB v1.2.1 that wrapper, and a CTE wrapper,
+  deterministically dropped the inner `ORDER BY`, including for `UNION ALL
+  … ORDER BY`, so the row cap cannot be applied this way.
 - **Bind parameters fail.** `$1`-style placeholders error with `Placeholder
   '$1' was not provided a value`; parameterised queries cannot be used.
   Identifiers (e.g. a table name for `describe_table`) must instead be
@@ -199,8 +202,9 @@ using that role for every user-supplied query.
 
 ### Consequences for the design
 
-- The API's telemetry query path must build queries as `SELECT * FROM
-  (<user sql>) AS q LIMIT n` and never as a parameterised `pg` query;
+- The API's telemetry query path must cap rows with a `LIMIT` added at the
+  statement's own top level, never by wrapping it in a subquery (which drops
+  the inner `ORDER BY`), and never as a parameterised `pg` query;
   identifiers that need interpolation must be validated against
   `information_schema` first, then quoted, never bound.
 - The query endpoint must reject any input containing more than one SQL
@@ -420,11 +424,22 @@ comments outside quotes, then requires
 - **one of `SELECT`, `WITH`, `SHOW`, `DESCRIBE`/`DESC`, `EXPLAIN`** (not
   `EXPLAIN ANALYZE`, which runs the whole query).
 
-A `SELECT`/`WITH` is wrapped as `SELECT * FROM (<statement>) AS
-telemetry_q LIMIT <cap + 1>`, so GreptimeDB itself stops at the cap and the
-extra row (if returned) is how `truncated` is known. `SHOW`/`DESCRIBE`/
-`EXPLAIN` cannot be subqueried and run unwrapped; their output is already
-small.
+Each `SELECT`/`WITH` is capped at `maxRows + 1` rows by a `LIMIT` at the
+statement's top level (parenthesis depth 0, found by the guard's quote- and
+comment-aware scan), never by wrapping it as `SELECT * FROM (<statement>)
+LIMIT n`. On GreptimeDB v1.2.1 that wrapper, and a CTE wrapper,
+deterministically dropped the inner `ORDER BY`, including for `UNION ALL …
+ORDER BY`. `applyRowCap` picks one of four strategies. `appended`: with no
+top-level `LIMIT`, ` LIMIT <cap>` is added at the end (or just before a bare
+top-level `OFFSET`), so it applies after the statement's own `ORDER BY` and
+to a whole `UNION`. `clamped`: a top-level `LIMIT <integer>` at or above the
+cap has its number replaced by the cap, keeping any `OFFSET` in either
+order. `kept`: a smaller literal `LIMIT` is sent unchanged. `client-only`:
+`LIMIT ALL`, a non-literal `LIMIT`, `FETCH FIRST`, and SHOW/DESCRIBE/EXPLAIN
+are sent unchanged. In every case the service slices the result to
+`maxRows` and sets `truncated` when the server returned more, so for
+client-only statements the query timeout is the only bound on rows held in
+memory before the slice.
 
 **Limits**: the row cap is the caller's `maxRows` (request body, ≤
 `telemetry.query.maxRows`), clamped to that setting, which is also the
@@ -607,3 +622,4 @@ commands and per-tool notes.
 - #537: the Telemetry Explorer and settings pages in the admin web app.
 - #538: the GreptimeDB tier in the API test suite.
 - #539: this document's remaining sections.
+- #554: row cap moved to a top-level LIMIT so ORDER BY survives.
