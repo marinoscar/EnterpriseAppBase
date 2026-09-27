@@ -7,6 +7,7 @@ import {
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
@@ -14,6 +15,7 @@ import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from './common/crypto/encryption-key-startup-check';
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
+import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -22,6 +24,11 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'production' && process.env.TEST_AUTH_ENABLED === 'true') {
     throw new Error('TEST_AUTH_ENABLED must not be true in production');
   }
+
+  // CORS policy (#517). Parsed HERE, before the application or its database
+  // connection exists, so a wildcard or malformed CORS_ORIGIN fails the boot
+  // immediately with its own message. Applied further down, after the prefix.
+  const corsOptions = buildCorsOptions(process.env.CORS_ORIGIN);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -58,10 +65,21 @@ async function bootstrap() {
     secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET,
   });
 
-  // Register multipart plugin for file uploads
+  // Register multipart plugin for file uploads.
+  //
+  // The simple upload route (`POST /api/storage/objects`) is capped at 100MB,
+  // or at the deployment's `storage.maxFileSize` (MAX_FILE_SIZE) when that is
+  // smaller (#519), so a deployment limit below 100MB also binds this route.
+  // Larger files go through the resumable upload, which `ObjectsService`
+  // checks against the same `storage.maxFileSize`.
+  const simpleUploadCeiling = 100 * 1024 * 1024;
+  const maxFileSize = app.get(ConfigService).get<number>('storage.maxFileSize');
   await app.register(multipart, {
     limits: {
-      fileSize: 100 * 1024 * 1024, // 100MB for simple upload
+      fileSize:
+        typeof maxFileSize === 'number' && Number.isFinite(maxFileSize) && maxFileSize > 0
+          ? Math.min(simpleUploadCeiling, maxFileSize)
+          : simpleUploadCeiling,
       files: 1,
     },
   });
@@ -69,11 +87,16 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix('api');
 
-  // Enable CORS (same-origin by default, configurable)
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN || true,
-    credentials: true,
-  });
+  // CORS: same-origin only unless CORS_ORIGIN lists trusted origins (#517).
+  // nginx (and the Vite dev proxy) serve the web app and /api from one origin,
+  // and the CLI and worker nodes are not browsers, so the default emits no
+  // CORS headers at all. See src/common/cors/cors-options.ts.
+  app.enableCors(corsOptions);
+  logger.log(
+    isSameOriginOnly(corsOptions)
+      ? 'CORS: same-origin only (CORS_ORIGIN unset; no cross-origin access)'
+      : `CORS: allowlist of ${corsOptions.origin.length} origin(s) with credentials: ${corsOptions.origin.join(', ')}`,
+  );
 
   // OpenAPI: the document and the two routes that serve it. Everything that
   // shapes them lives in `src/openapi/` rather than here, so the same pure

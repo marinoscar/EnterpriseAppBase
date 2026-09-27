@@ -4,6 +4,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  PayloadTooLargeException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import { Prisma } from '@prisma/client';
@@ -17,6 +19,8 @@ import { StorageConfigService } from '../config/storage-config.service';
 import { ObjectProcessingService } from '../processing/object-processing.service';
 import { ACTIVE_DEDUP_INDEX_NAME, JobsService } from '../../jobs/jobs.service';
 import { STORAGE_OBJECT_PROCESS_TYPE } from '../handlers/storage-object-process.handler';
+import { AVATARS_KEY_PREFIX } from '../storage-key-prefixes';
+import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';
 
 describe('ObjectsService', () => {
   let service: ObjectsService;
@@ -81,6 +85,15 @@ describe('ObjectsService', () => {
     jest.clearAllMocks();
   });
 
+  /**
+   * Answers `ConfigService.get` per key, falling back to the caller's default,
+   * so a part size does not also become the upload size limit (#519).
+   */
+  const mockConfigValues = (values: Record<string, unknown>) => {
+    mockConfig.get.mockImplementation(((key: string, fallback?: unknown) =>
+      key in values ? values[key] : fallback) as any);
+  };
+
   describe('initUpload', () => {
     it('should create object record and return presigned URLs', async () => {
       const dto = {
@@ -89,7 +102,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/pdf',
       };
 
-      mockConfig.get.mockReturnValue(10485760); // 10MB part size
+      mockConfigValues({ 'storage.partSize': 10485760 }); // 10MB part size
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-123',
         key: 'uploads/123/uuid.pdf',
@@ -133,7 +146,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/zip',
       };
 
-      mockConfig.get.mockReturnValue(10485760); // 10MB part size
+      mockConfigValues({ 'storage.partSize': 10485760 }); // 10MB part size
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-456',
         key: 'uploads/456/uuid.zip',
@@ -157,7 +170,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/pdf',
       };
 
-      mockConfig.get.mockReturnValue(10485760);
+      mockConfigValues({ 'storage.partSize': 10485760 });
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-789',
         key: 'test-key',
@@ -185,7 +198,8 @@ describe('ObjectsService', () => {
         mimeType: 'application/octet-stream',
       };
 
-      mockConfig.get.mockReturnValue(10485760); // 10MB part size
+      // 10MB part size; a 1TB upload limit so the part cap is what trips.
+      mockConfigValues({ 'storage.partSize': 10485760, 'storage.maxFileSize': 1024 ** 4 });
       // 500GB / 10MB = 50,000 parts > 10,000 limit
 
       await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
@@ -203,7 +217,7 @@ describe('ObjectsService', () => {
         mimeType: 'application/pdf',
       };
 
-      mockConfig.get.mockReturnValue(10485760);
+      mockConfigValues({ 'storage.partSize': 10485760 });
       mockStorageProvider.initMultipartUpload.mockResolvedValue({
         uploadId: 'upload-123',
         key: 'test-key',
@@ -221,6 +235,81 @@ describe('ObjectsService', () => {
           mimeType: dto.mimeType,
         }),
       );
+    });
+
+    describe('upload limits (#519)', () => {
+      const givenSuccessfulUpload = () => {
+        mockStorageProvider.initMultipartUpload.mockResolvedValue({
+          uploadId: 'upload-limits',
+          key: 'test-key',
+        });
+        mockStorageProvider.getBucket.mockReturnValue('test-bucket');
+        mockPrisma.storageObject.create.mockResolvedValue({
+          ...mockStorageObject,
+        } as any);
+      };
+
+      it('throws 413 when the declared size exceeds storage.maxFileSize, naming the limit', async () => {
+        mockConfigValues({ 'storage.partSize': 10485760, 'storage.maxFileSize': 1000 });
+
+        const dto = { name: 'too-big.bin', size: 1001, mimeType: 'application/octet-stream' };
+
+        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+          PayloadTooLargeException,
+        );
+        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(/1000/);
+        expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
+      });
+
+      it('accepts a declared size exactly at storage.maxFileSize', async () => {
+        mockConfigValues({ 'storage.partSize': 10485760, 'storage.maxFileSize': 1000 });
+        givenSuccessfulUpload();
+
+        const dto = { name: 'exact.bin', size: 1000, mimeType: 'application/octet-stream' };
+
+        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
+      });
+
+      it('throws 415 when the MIME type is not in storage.allowedMimeTypes', async () => {
+        mockConfigValues({
+          'storage.partSize': 10485760,
+          'storage.allowedMimeTypes': ['application/pdf'],
+        });
+
+        const dto = { name: 'image.png', size: 1024, mimeType: 'image/png' };
+
+        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+          UnsupportedMediaTypeException,
+        );
+        expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
+      });
+
+      it('accepts a MIME type allowed by a type/* wildcard', async () => {
+        mockConfigValues({
+          'storage.partSize': 10485760,
+          'storage.allowedMimeTypes': ['image/*'],
+        });
+        givenSuccessfulUpload();
+
+        const dto = { name: 'photo.png', size: 1024, mimeType: 'image/png' };
+
+        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
+      });
+
+      it('accepts any MIME type when storage.allowedMimeTypes is empty', async () => {
+        mockConfigValues({
+          'storage.partSize': 10485760,
+          'storage.allowedMimeTypes': [],
+        });
+        givenSuccessfulUpload();
+
+        const dto = { name: 'whatever.xyz', size: 1024, mimeType: 'application/x-whatever' };
+
+        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
+      });
     });
   });
 
@@ -770,6 +859,28 @@ describe('ObjectsService', () => {
         }),
       });
     });
+
+    describe('upload limits (#519)', () => {
+      it('throws 415 for a disallowed MIME type and drains the unread stream', async () => {
+        mockConfigValues({ 'storage.allowedMimeTypes': ['application/pdf'] });
+
+        const stream = Readable.from(['test content']);
+        const resumeSpy = jest.spyOn(stream, 'resume');
+        const file = {
+          filename: 'notes.txt',
+          mimetype: 'text/plain',
+          file: stream,
+        };
+
+        await expect(service.simpleUpload(file, testUserId)).rejects.toThrow(
+          UnsupportedMediaTypeException,
+        );
+
+        expect(resumeSpy).toHaveBeenCalled();
+        expect(mockStorageProvider.upload).not.toHaveBeenCalled();
+        expect(mockPrisma.storageObject.create).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('list', () => {
@@ -942,6 +1053,78 @@ describe('ObjectsService', () => {
         }),
       });
     });
+
+    // ------------------------------------------------------------------
+    // `canDeleteAny` (#516): a caller holding `storage:delete_any` may
+    // delete another user's object, except another user's profile image.
+    // ------------------------------------------------------------------
+
+    it('deletes the caller\'s own object when canDeleteAny is true, same as without the flag', async () => {
+      mockPrisma.storageObject.findUnique.mockResolvedValue(mockStorageObject as any);
+      mockStorageProvider.delete.mockResolvedValue(undefined);
+      mockPrisma.storageObject.delete.mockResolvedValue({} as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.delete(mockStorageObject.id, testUserId, { canDeleteAny: true });
+
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(mockStorageObject.storageKey);
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorUserId: testUserId,
+          action: 'storage:object:delete',
+        }),
+      });
+      // Actor === owner: no ownerUserId on the audit meta.
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.not.objectContaining({ meta: expect.objectContaining({ ownerUserId: expect.anything() }) }),
+      });
+    });
+
+    it('lets a non-owner delete when canDeleteAny is true, and records the owner on the audit event', async () => {
+      const foreignObject = { ...mockStorageObject, uploadedById: otherUserId };
+      mockPrisma.storageObject.findUnique.mockResolvedValue(foreignObject as any);
+      mockStorageProvider.delete.mockResolvedValue(undefined);
+      mockPrisma.storageObject.delete.mockResolvedValue({} as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.delete(foreignObject.id, testUserId, { canDeleteAny: true });
+
+      expect(mockStorageProvider.delete).toHaveBeenCalledWith(foreignObject.storageKey);
+      expect(mockPrisma.storageObject.delete).toHaveBeenCalledWith({ where: { id: foreignObject.id } });
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          actorUserId: testUserId,
+          action: 'storage:object:delete',
+          meta: expect.objectContaining({ ownerUserId: otherUserId }),
+        }),
+      });
+    });
+
+    it('refuses a non-owner delete without canDeleteAny, exactly as before', async () => {
+      const foreignObject = { ...mockStorageObject, uploadedById: otherUserId };
+      mockPrisma.storageObject.findUnique.mockResolvedValue(foreignObject as any);
+
+      await expect(service.delete(foreignObject.id, testUserId)).rejects.toThrow(ForbiddenException);
+      expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+      expect(mockPrisma.storageObject.delete).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['storage key under avatars/', { storageKey: `${AVATARS_KEY_PREFIX}${otherUserId}/obj.png`, metadata: null }],
+      ['metadata.purpose === avatar (non-avatars/ key)', { storageKey: 'uploads/123/obj.png', metadata: { purpose: AVATAR_PURPOSE } }],
+    ])(
+      'refuses to delete another user\'s profile image even with canDeleteAny, detected by %s',
+      async (_name, attrs) => {
+        const avatarObject = { ...mockStorageObject, uploadedById: otherUserId, ...attrs };
+        mockPrisma.storageObject.findUnique.mockResolvedValue(avatarObject as any);
+
+        await expect(
+          service.delete(avatarObject.id, testUserId, { canDeleteAny: true }),
+        ).rejects.toThrow(ForbiddenException);
+        expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+        expect(mockPrisma.storageObject.delete).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('updateMetadata', () => {

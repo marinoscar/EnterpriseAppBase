@@ -7,12 +7,15 @@ import {
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {
-  createMockTestUser,
   createMockAdminUser,
+  createMockContributorUser,
+  createMockViewerUser,
   authHeader,
 } from '../helpers/auth-mock.helper';
 import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
 import { createMockStorageProvider } from '../mocks/storage-provider.mock';
+import { AVATARS_KEY_PREFIX } from '../../src/storage/storage-key-prefixes';
+import { AVATAR_PURPOSE } from '../../src/common/profile-image/profile-image';
 
 describe('Storage Integration', () => {
   let context: TestContext;
@@ -59,7 +62,7 @@ describe('Storage Integration', () => {
 
   describe('POST /api/storage/objects/upload/init', () => {
     it('should initialize upload for authenticated user', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       const dto = {
         name: 'test.pdf',
@@ -110,7 +113,7 @@ describe('Storage Integration', () => {
     });
 
     it('should validate request body', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       await request(context.app.getHttpServer())
         .post('/api/storage/objects/upload/init')
@@ -121,11 +124,21 @@ describe('Storage Integration', () => {
         })
         .expect(400);
     });
+
+    it('should refuse a viewer with 403 (lacks storage:write)', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(context.app.getHttpServer())
+        .post('/api/storage/objects/upload/init')
+        .set(authHeader(viewer.accessToken))
+        .send({ name: 'test.pdf', size: 1024000, mimeType: 'application/pdf' })
+        .expect(403);
+    });
   });
 
   describe('GET /api/storage/objects/:id/upload/status', () => {
     it('should return upload status', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       const chunks = [
         { partNumber: 1, size: BigInt(10485760), eTag: 'etag1' },
@@ -153,7 +166,7 @@ describe('Storage Integration', () => {
     });
 
     it('should return 404 for non-existent object', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
@@ -164,7 +177,7 @@ describe('Storage Integration', () => {
     });
 
     it('should return 403 for non-owner', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
       const otherUserId = 'other-user-456';
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue({
@@ -178,11 +191,29 @@ describe('Storage Integration', () => {
         .set(authHeader(user.accessToken))
         .expect(403);
     });
+
+    it('should return 400 for a malformed object id', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(context.app.getHttpServer())
+        .get('/api/storage/objects/not-a-uuid/upload/status')
+        .set(authHeader(user.accessToken))
+        .expect(400);
+    });
+
+    it('should refuse a viewer with 403 (lacks storage:write)', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(context.app.getHttpServer())
+        .get(`/api/storage/objects/${mockStorageObjectId}/upload/status`)
+        .set(authHeader(viewer.accessToken))
+        .expect(403);
+    });
   });
 
   describe('POST /api/storage/objects/:id/upload/complete', () => {
     it('should complete upload', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       const dto = {
         parts: [
@@ -241,7 +272,7 @@ describe('Storage Integration', () => {
     });
 
     it('should return 404 for non-existent object', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
@@ -254,8 +285,18 @@ describe('Storage Integration', () => {
         .expect(404);
     });
 
+    it('should return 400 for a malformed object id', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(context.app.getHttpServer())
+        .post('/api/storage/objects/not-a-uuid/upload/complete')
+        .set(authHeader(user.accessToken))
+        .send({ parts: [{ partNumber: 1, eTag: 'etag1' }] })
+        .expect(400);
+    });
+
     it('should validate parts array', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       await request(context.app.getHttpServer())
         .post(`/api/storage/objects/${mockStorageObjectId}/upload/complete`)
@@ -265,11 +306,21 @@ describe('Storage Integration', () => {
         })
         .expect(400);
     });
+
+    it('should refuse a viewer with 403 (lacks storage:write)', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(context.app.getHttpServer())
+        .post(`/api/storage/objects/${mockStorageObjectId}/upload/complete`)
+        .set(authHeader(viewer.accessToken))
+        .send({ parts: [{ partNumber: 1, eTag: 'etag1' }] })
+        .expect(403);
+    });
   });
 
   describe('DELETE /api/storage/objects/:id/upload/abort', () => {
     it('should abort upload', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
@@ -287,7 +338,7 @@ describe('Storage Integration', () => {
     });
 
     it('should return 404 for non-existent object', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
@@ -296,11 +347,29 @@ describe('Storage Integration', () => {
         .set(authHeader(user.accessToken))
         .expect(404);
     });
+
+    it('should return 400 for a malformed object id', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(context.app.getHttpServer())
+        .delete('/api/storage/objects/not-a-uuid/upload/abort')
+        .set(authHeader(user.accessToken))
+        .expect(400);
+    });
+
+    it('should refuse a viewer with 403 (lacks storage:write)', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(context.app.getHttpServer())
+        .delete(`/api/storage/objects/${mockStorageObjectId}/upload/abort`)
+        .set(authHeader(viewer.accessToken))
+        .expect(403);
+    });
   });
 
   describe('GET /api/storage/objects', () => {
     it('should list user\'s objects', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockViewerUser(context);
 
       const mockObjects = [
         { ...mockStorageObject, id: 'obj-1', uploadedById: user.id },
@@ -325,7 +394,7 @@ describe('Storage Integration', () => {
     });
 
     it('should support pagination', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockViewerUser(context);
 
       context.prismaMock.storageObject.findMany.mockResolvedValue([]);
       context.prismaMock.storageObject.count.mockResolvedValue(50);
@@ -344,7 +413,7 @@ describe('Storage Integration', () => {
     });
 
     it('should filter by status', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockViewerUser(context);
 
       context.prismaMock.storageObject.findMany.mockResolvedValue([
         { ...mockStorageObject, uploadedById: user.id, status: 'ready' },
@@ -362,7 +431,7 @@ describe('Storage Integration', () => {
 
   describe('GET /api/storage/objects/:id', () => {
     it('should return object metadata', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockViewerUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
@@ -382,7 +451,7 @@ describe('Storage Integration', () => {
     });
 
     it('should return 404 for non-existent object', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockViewerUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
@@ -395,7 +464,7 @@ describe('Storage Integration', () => {
 
   describe('GET /api/storage/objects/:id/download', () => {
     it('should return signed download URL', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockViewerUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
@@ -418,7 +487,7 @@ describe('Storage Integration', () => {
     });
 
     it('should return 400 for non-ready objects', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockViewerUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
@@ -435,7 +504,7 @@ describe('Storage Integration', () => {
 
   describe('DELETE /api/storage/objects/:id', () => {
     it('should delete object', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
@@ -452,7 +521,7 @@ describe('Storage Integration', () => {
     });
 
     it('should return 404 for non-existent object', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue(null);
 
@@ -461,11 +530,69 @@ describe('Storage Integration', () => {
         .set(authHeader(user.accessToken))
         .expect(404);
     });
+
+    it('should let an admin with storage:delete_any delete another user\'s object, and record the owner on the audit event', async () => {
+      const admin = await createMockAdminUser(context);
+      const ownerUserId = 'other-user-789';
+
+      context.prismaMock.storageObject.findUnique.mockResolvedValue({
+        ...mockStorageObject,
+        uploadedById: ownerUserId,
+      });
+      mockStorageProvider.delete.mockResolvedValue(undefined);
+      context.prismaMock.storageObject.delete.mockResolvedValue({});
+      let auditMeta: any;
+      context.prismaMock.auditEvent.create.mockImplementation(async ({ data }: any) => {
+        auditMeta = data.meta;
+        return {};
+      });
+
+      await request(context.app.getHttpServer())
+        .delete(`/api/storage/objects/${mockStorageObjectId}`)
+        .set(authHeader(admin.accessToken))
+        .expect(204);
+
+      expect(auditMeta).toMatchObject({ ownerUserId });
+    });
+
+    it.each([
+      ['storage key under avatars/', { storageKey: `${AVATARS_KEY_PREFIX}other-user-789/obj.png`, metadata: null }],
+      ['metadata.purpose === avatar', { storageKey: 'uploads/1/obj.png', metadata: { purpose: AVATAR_PURPOSE } }],
+    ])(
+      'should refuse an admin deleting another user\'s profile image (detected by %s)',
+      async (_name, attrs) => {
+        const admin = await createMockAdminUser(context);
+        const ownerUserId = 'other-user-789';
+
+        context.prismaMock.storageObject.findUnique.mockResolvedValue({
+          ...mockStorageObject,
+          uploadedById: ownerUserId,
+          ...attrs,
+        });
+
+        await request(context.app.getHttpServer())
+          .delete(`/api/storage/objects/${mockStorageObjectId}`)
+          .set(authHeader(admin.accessToken))
+          .expect(403);
+
+        expect(mockStorageProvider.delete).not.toHaveBeenCalled();
+        expect(context.prismaMock.storageObject.delete).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should refuse a viewer with 403 (lacks storage:write)', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(context.app.getHttpServer())
+        .delete(`/api/storage/objects/${mockStorageObjectId}`)
+        .set(authHeader(viewer.accessToken))
+        .expect(403);
+    });
   });
 
   describe('PATCH /api/storage/objects/:id/metadata', () => {
     it('should update metadata', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       const newMetadata = {
         custom: 'value',
@@ -497,7 +624,7 @@ describe('Storage Integration', () => {
     });
 
     it('should merge with existing metadata', async () => {
-      const user = await createMockTestUser(context);
+      const user = await createMockContributorUser(context);
 
       context.prismaMock.storageObject.findUnique.mockResolvedValue({
         ...mockStorageObject,
@@ -516,6 +643,16 @@ describe('Storage Integration', () => {
         .set(authHeader(user.accessToken))
         .send({ metadata: { key2: 'value2' } })
         .expect(200);
+    });
+
+    it('should refuse a viewer with 403 (lacks storage:write)', async () => {
+      const viewer = await createMockViewerUser(context);
+
+      await request(context.app.getHttpServer())
+        .patch(`/api/storage/objects/${mockStorageObjectId}/metadata`)
+        .set(authHeader(viewer.accessToken))
+        .send({ metadata: { key: 'value' } })
+        .expect(403);
     });
   });
 
@@ -547,7 +684,11 @@ describe('Storage Integration', () => {
 
   describe('Ownership validation', () => {
     it('should enforce ownership across all operations', async () => {
-      const user = await createMockTestUser(context);
+      // Contributor, not the default Viewer: this exercises the SERVICE's
+      // ownership check specifically. A Viewer would already be refused by
+      // `PermissionsGuard` on the write routes below (lacks `storage:write`),
+      // which would make this test pass for the wrong reason.
+      const user = await createMockContributorUser(context);
       const otherUserId = 'other-user-456';
 
       // Mock object owned by another user
@@ -579,6 +720,91 @@ describe('Storage Integration', () => {
         .set(authHeader(user.accessToken))
         .send({ metadata: { key: 'value' } })
         .expect(403);
+    });
+  });
+});
+
+/**
+ * Deployment upload limits (#519), through the real HTTP pipeline.
+ *
+ * `storage.maxFileSize` / `storage.allowedMimeTypes` come from `ConfigService`,
+ * which `ConfigModule.forRoot({ load: [configuration] })` populates ONCE, by
+ * calling `configuration()` against `process.env` when the module is built.
+ * So — unlike a runtime-configurable setting — these limits cannot be swapped
+ * per-test on a shared app: the env vars have to be set before `createTestApp`
+ * builds this suite's own app, which is why this lives in its own top-level
+ * `describe` with its own context rather than reusing the one above.
+ */
+describe('Storage Integration — upload limits (#519)', () => {
+  let context: TestContext;
+  let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
+
+  const originalMaxFileSize = process.env.MAX_FILE_SIZE;
+  const originalAllowedMimeTypes = process.env.ALLOWED_MIME_TYPES;
+
+  beforeAll(async () => {
+    process.env.MAX_FILE_SIZE = '1000';
+    process.env.ALLOWED_MIME_TYPES = 'application/pdf';
+
+    mockStorageProvider = createMockStorageProvider();
+    context = await createTestApp({ useMockDatabase: true });
+
+    const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
+    if (storageProviderToken) {
+      Object.assign(storageProviderToken, mockStorageProvider);
+    }
+  });
+
+  afterAll(async () => {
+    await closeTestApp(context);
+
+    if (originalMaxFileSize === undefined) delete process.env.MAX_FILE_SIZE;
+    else process.env.MAX_FILE_SIZE = originalMaxFileSize;
+
+    if (originalAllowedMimeTypes === undefined) delete process.env.ALLOWED_MIME_TYPES;
+    else process.env.ALLOWED_MIME_TYPES = originalAllowedMimeTypes;
+  });
+
+  beforeEach(() => {
+    resetPrismaMock();
+    setupBaseMocks();
+    jest.clearAllMocks();
+  });
+
+  describe('POST /api/storage/objects/upload/init', () => {
+    it('returns 413 when the declared size exceeds MAX_FILE_SIZE', async () => {
+      const user = await createMockContributorUser(context);
+
+      const response = await request(context.app.getHttpServer())
+        .post('/api/storage/objects/upload/init')
+        .set(authHeader(user.accessToken))
+        .send({
+          name: 'too-big.pdf',
+          size: 1001, // MAX_FILE_SIZE=1000
+          mimeType: 'application/pdf',
+        })
+        .expect(413);
+
+      expect(response.body.message ?? JSON.stringify(response.body)).toEqual(
+        expect.stringContaining('1000'),
+      );
+      expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
+    });
+
+    it('returns 415 when the MIME type is outside ALLOWED_MIME_TYPES', async () => {
+      const user = await createMockContributorUser(context);
+
+      await request(context.app.getHttpServer())
+        .post('/api/storage/objects/upload/init')
+        .set(authHeader(user.accessToken))
+        .send({
+          name: 'photo.png',
+          size: 500,
+          mimeType: 'image/png', // ALLOWED_MIME_TYPES=application/pdf only
+        })
+        .expect(415);
+
+      expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
     });
   });
 });

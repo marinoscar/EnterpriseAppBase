@@ -265,17 +265,6 @@ describe('AiService — storage-object inputs (#441)', () => {
       expect(h.fake.calls).toEqual([]);
     });
 
-    it('lets a holder of storage:read_any use anybody’s object', async () => {
-      const { h, client, pdf } = setup();
-      const foreign = pdf(HARNESS_OTHER_USER);
-
-      h.storage.setReadAny(HARNESS_USER, true);
-
-      await expect(
-        client.respond({ model: HARNESS_MODEL, input: ask({ type: 'file', storageObjectId: foreign.id }) }),
-      ).resolves.toBeDefined();
-    });
-
     it('refuses an object that is not ready', async () => {
       const { client, pdf } = setup();
 

@@ -413,9 +413,9 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `rbac:manage` | ✓ | | | Assign roles |
 | `allowlist:read` | ✓ | | | View the allowlist |
 | `allowlist:write` | ✓ | | | Add or remove allowlist entries |
-| `storage:read` | ✓ | ✓ | ✓ | Object storage access (see note) |
-| `storage:write` | ✓ | ✓ | | Object storage uploads (see note) |
-| `storage:delete_any` | ✓ | | | Delete any user's objects (see note) |
+| `storage:read` | ✓ | ✓ | ✓ | List, get and download storage objects |
+| `storage:write` | ✓ | ✓ | | Upload objects, update metadata, delete own objects |
+| `storage:delete_any` | ✓ | | | Delete another user's object (except their profile image) |
 | `jobs:read` | ✓ | | | Inspect the job queue and insights |
 | `jobs:write` | ✓ | | | Retry, reset, delete jobs; reset insight history |
 | `nodes:read` | ✓ | | | View worker nodes and node credentials |
@@ -433,7 +433,7 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models; refresh the catalog |
 | `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
 
-**Note on `storage:*`.** These three permissions are seeded, but the `/api/storage/objects` controller currently enforces authentication plus object ownership rather than naming them in `@Auth()`. If your fork needs role-based storage access, add the permission to the controller.
+**Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
 Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
 

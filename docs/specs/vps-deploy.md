@@ -22,9 +22,6 @@ the admin About page reads.
     from GHCR.
   - Not a database host: PostgreSQL is always external.
   - No automatic rollback of a failed `update`.
-- **Not implemented.** `deploy uninstall --drop-database` validates the typed
-  confirmation but does not yet drop the database. `dropDatabase()` in
-  `database-drop.ts` exists and is unit-tested, but nothing calls it.
 - **Problem it solves.** A team that forks the template gets a repeatable,
   resumable, idempotent path from "a VPS with Docker" to "served over HTTPS at
   a real domain", with several applications able to share one server.
@@ -328,7 +325,15 @@ typed back:
   `npm run storage:purge` inside the built `api` image before teardown, because
   only the running application can decrypt the runtime-configured storage
   credential. A purge that does not happen stops the uninstall.
-- `--drop-database --confirm-database <name>`: confirmation only; see §1.
+- `--drop-database --confirm-database <name>`: after `down -v`, drops the
+  database via `psql` in a throwaway `postgres:16-alpine` container
+  (`--network host`, password by name, `PGSSLMODE=require` when
+  `POSTGRES_SSL=true`, `PGCONNECT_TIMEOUT=5`), terminating only that
+  database's own backends if it is busy. A failed drop stops the uninstall
+  and keeps the checkout, `.env`, vhost and state so the same command can be
+  re-run; the role must own the database, or be superuser. A database inside
+  the compose stack itself (the `devdb` overlay, `POSTGRES_HOST=db`) cannot
+  be dropped this way, since `down -v` removes its volume first.
 
 ### CLI and TUI seam
 
@@ -489,3 +494,4 @@ The operator procedure, prerequisites and troubleshooting are in
 - Epic #388 (#389–#393): `ProxyRuntime` container/host split (#389); renewal
   ownership, the database-creation prompt, the OAuth probe and new doctor
   checks (#390–#392); deploy state v2 carried by the About page (#392).
+- #522: `--drop-database` drops the database after the stack stops.

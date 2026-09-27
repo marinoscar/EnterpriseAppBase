@@ -77,7 +77,6 @@ API script reference (`apps/api/package.json`):
 | `test:watch`, `test:cov`, `test:ci` | The same set, watching / with coverage / with coverage and JUnit |
 | `test:db` | Only `*.db.spec.ts`, `--runInBand` |
 | `test:all` | Everything, including `*.db.spec.ts` |
-| `test:e2e` | Matches no files. There is no API-side e2e tier; ignore it |
 
 ## API unit tests
 

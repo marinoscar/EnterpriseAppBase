@@ -47,6 +47,11 @@ const DEFAULT_IMAGE = 'postgres:16-alpine';
  * `PGPASSWORD` is passed BY NAME, never in an argv: an argv is visible in
  * `ps` to every user on the host, and this one carries the database
  * superuser's password. The same discipline `checks/database.ts` already uses.
+ *
+ * `PGCONNECT_TIMEOUT` and, when `POSTGRES_SSL=true`, `PGSSLMODE=require` go the
+ * same way: named in the argv, valued in the environment. Without the SSL mode
+ * a managed PostgreSQL that requires TLS refuses the drop outright; without
+ * the timeout an unreachable host holds the uninstall for the full minute.
  */
 async function psql(
   options: DatabaseDropOptions,
@@ -65,6 +70,8 @@ async function psql(
     );
   }
 
+  const ssl = env.get('POSTGRES_SSL') === 'true';
+
   const result = await run(
     [
       'docker',
@@ -72,9 +79,12 @@ async function psql(
       '--rm',
       '--network',
       'host',
+      // Each by NAME. The values follow in the env map below, never here.
       '--env',
-      // By NAME. The value follows in the env map below, never here.
       'PGPASSWORD',
+      '--env',
+      'PGCONNECT_TIMEOUT',
+      ...(ssl ? ['--env', 'PGSSLMODE'] : []),
       options.image ?? DEFAULT_IMAGE,
       'psql',
       '--host',
@@ -96,7 +106,12 @@ async function psql(
       cwd: process.cwd(),
       timeoutMs: 60_000,
       allowExitCodes: [0, 1, 2, 3],
-      env: { ...process.env, PGPASSWORD: password },
+      env: {
+        ...process.env,
+        PGPASSWORD: password,
+        PGCONNECT_TIMEOUT: '5',
+        ...(ssl ? { PGSSLMODE: 'require' } : {}),
+      },
     },
   );
 
