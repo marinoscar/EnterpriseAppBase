@@ -4,6 +4,7 @@ import { PERMISSIONS } from '../common/constants/roles.constants';
 import { TelemetryAdminController } from './telemetry-admin.controller';
 import { TelemetryConfigController } from './telemetry-config.controller';
 import { TelemetryExplorerController } from './telemetry-explorer.controller';
+import { TelemetryDashboardController } from './dashboard/telemetry-dashboard.controller';
 import { TelemetryConnectionController } from './connection/telemetry-connection.controller';
 import {
   testTelemetryConnectionSchema,
@@ -118,6 +119,23 @@ describe('Telemetry controllers — access declarations', () => {
         'X-Telemetry-Truncated': 'false',
       });
       expect(reply.send).toHaveBeenCalledWith(Buffer.from('a\r\n'));
+    });
+  });
+
+  describe('TelemetryDashboardController (issue #577)', () => {
+    const proto = TelemetryDashboardController.prototype;
+
+    it.each(['summary', 'timeseries', 'top', 'events', 'filters'] as const)('gates %s on telemetry:query', (method) => {
+      expect(permissionsOf(proto[method])).toEqual([PERMISSIONS.TELEMETRY_QUERY]);
+    });
+
+    it('passes the user and the parsed query to the service', async () => {
+      const dashboard = { top: jest.fn().mockResolvedValue({}) };
+      const controller = new TelemetryDashboardController(dashboard as never);
+
+      await controller.top({ kind: 'routes', range: '6h' } as never, 'user-1');
+
+      expect(dashboard.top).toHaveBeenCalledWith('user-1', { kind: 'routes', range: '6h' });
     });
   });
 
