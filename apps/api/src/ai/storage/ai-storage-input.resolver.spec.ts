@@ -5,7 +5,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import { AiError } from '../core/ai-error';
 import { createInMemoryAiStorage } from '../testing/in-memory-ai-storage';
-import { AiStorageInputResolver, STORAGE_READ_ANY_PERMISSION } from './ai-storage-input.resolver';
+import { AiStorageInputResolver } from './ai-storage-input.resolver';
 
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -53,23 +53,13 @@ describe('AiStorageInputResolver', () => {
 
       expect(err).toBeInstanceOf(ForbiddenException);
       expect((err as ForbiddenException).getResponse()).toMatchObject({ details: { storageObjectId: row.id } });
-      expect(storage.prisma.user.count).toHaveBeenCalledWith({
-        where: {
-          id: OWNER,
-          userRoles: {
-            some: { role: { rolePermissions: { some: { permission: { name: STORAGE_READ_ANY_PERMISSION } } } } },
-          },
-        },
-      });
     });
 
-    it('lets a holder of storage:read_any use anybody’s object', async () => {
+    it('refuses a non-owner regardless of role or permission — #516 removed the unseeded `storage:read_any` bypass, so no grant lets a caller reach another user\'s object here any more', async () => {
       const { storage, resolver } = setup();
       const row = storage.addObject({ uploadedById: OTHER });
 
-      storage.setReadAny(OWNER, true);
-
-      await expect(resolver.resolve(OWNER, row.id)).resolves.toMatchObject({ id: row.id });
+      await expect(resolver.resolve(OWNER, row.id)).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it.each([

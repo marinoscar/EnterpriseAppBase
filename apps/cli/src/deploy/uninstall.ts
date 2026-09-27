@@ -31,6 +31,7 @@ import { join } from 'node:path';
 import { CLI_NAME } from '../branding.js';
 import { UsageError } from '../errors.js';
 import { CLI_VERSION } from '../package-info.js';
+import { dropDatabase, type DatabaseDropResult } from './database-drop.js';
 import { describeEvidence, resolveEnvPath } from './deployment-evidence.js';
 import { readEnvFile } from './env-file.js';
 import { runCommand as defaultRunCommand } from './executor.js';
@@ -92,6 +93,11 @@ export interface UninstallResult {
   /** Bookkeeping that failed after the deployment was already gone. */
   warnings: string[];
   journalPath: string;
+  /**
+   * Present only when --drop-database was confirmed and the drop succeeded.
+   * A failed drop never reaches a result: it throws.
+   */
+  database?: { name: string; terminated: number; detail: string } | undefined;
 }
 
 /**
@@ -144,7 +150,15 @@ export function planUninstall(options: UninstallOptions): UninstallPlan {
     },
   ];
 
-  if (options.dropDatabase !== true) {
+  if (options.dropDatabase === true) {
+    // Listed where the operator reads what will GO, with the server it lives
+    // on: a DROP DATABASE nobody was shown is not one anybody consented to.
+    const host = env.get('POSTGRES_HOST') ?? '(unknown host)';
+    const port = env.get('POSTGRES_PORT') ?? '5432';
+    removes.push(
+      `database ${env.get('POSTGRES_DB') ?? '(unknown)'} on ${host}:${port} (DROP DATABASE)`,
+    );
+  } else {
     keeps.push({
       what: `the database${env.get('POSTGRES_DB') === undefined ? '' : ` ${env.get('POSTGRES_DB') as string}`}`,
       because: 'not requested; pass --drop-database and type its name to confirm',
@@ -308,6 +322,44 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
     warnings.push(`Could not stop the stack cleanly: ${(error as Error).message}`);
   }
 
+  // ⚠ ORDER IS LOAD-BEARING, TWICE OVER. The drop runs AFTER `down -v`, so the
+  // application's own connection pool is gone and a plain DROP usually
+  // succeeds without terminating anybody. And it runs BEFORE the vhost and the
+  // files go, because the credentials it connects with live in `.env`: a drop
+  // that fails after `.env` is deleted can never be retried.
+  let database: UninstallResult['database'];
+  if (options.dropDatabase === true) {
+    // Confirmed above against this same name, so it is defined here.
+    const name = plan.databaseName as string;
+    const env = envPath === undefined ? new Map<string, string>() : readEnvFile(envPath);
+    journal.line(`Dropping database ${name}`);
+
+    let drop: DatabaseDropResult;
+    try {
+      drop = await dropDatabase({ env, database: name, runCommand });
+    } catch (error) {
+      drop = { dropped: false, terminated: 0, detail: (error as Error).message };
+    }
+
+    if (!drop.dropped) {
+      const detail = journal.redact(drop.detail);
+      journal.finish('failure', `database was not dropped: ${detail}`);
+      // ⚠ REFUSES LOUDLY, and keeps what a retry needs. Reporting success here
+      // would leave the operator believing the data is gone when it is not --
+      // the exact failure this flag exists to prevent.
+      throw new UsageError(
+        `The database ${name} was NOT dropped: ${detail}\n` +
+          `The stack is stopped, but the checkout and ${envPath ?? join(options.deployRoot, '.env')} were kept ` +
+          'so the credentials are still there. Re-run the same command once this is resolved.',
+      );
+    }
+
+    journal.line(
+      `Dropped database ${name}: ${drop.detail} (terminated ${String(drop.terminated)} session(s))`,
+    );
+    database = { name, terminated: drop.terminated, detail: drop.detail };
+  }
+
   if (plan.domain !== undefined && options.proxyRoot !== undefined) {
     const target: ProxyTarget = {
       domain: plan.domain,
@@ -358,5 +410,11 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
   }
 
   journal.finish('success');
-  return { plan, removed: true, warnings, journalPath: journal.path };
+  return {
+    plan,
+    removed: true,
+    warnings,
+    journalPath: journal.path,
+    ...(database === undefined ? {} : { database }),
+  };
 }

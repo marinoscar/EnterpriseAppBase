@@ -238,8 +238,8 @@ credential (§1):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MAX_FILE_SIZE` | 10 GB | Largest upload accepted |
-| `ALLOWED_MIME_TYPES` | `image/*,application/pdf,video/*` | Upload type allowlist |
+| `MAX_FILE_SIZE` | 10 GB | Largest upload accepted; enforced on resumable-upload init (`413`) and caps the simple upload's multipart limit (the smaller of 100 MB and this) |
+| `ALLOWED_MIME_TYPES` | empty (allow every type) | Upload type allowlist; exact types or `type/*` wildcards, else `415` |
 | `SIGNED_URL_EXPIRY` | 3600 s | Presigned URL lifetime |
 | `STORAGE_PART_SIZE` | 10 MB | Multipart part size |
 
@@ -361,3 +361,6 @@ Against a real provider, follow the
 - #377 removed `STORAGE_PROVIDER`, `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`
   and the bridge, and moved the SES region fallback to `SES_REGION`.
 - #378 added the operator runbook and wired `guidance.runbook` to it.
+- #519 enforced `MAX_FILE_SIZE` on resumable-upload init and the simple
+  upload's multipart limit, and changed the `ALLOWED_MIME_TYPES` default to
+  empty (allow every type).

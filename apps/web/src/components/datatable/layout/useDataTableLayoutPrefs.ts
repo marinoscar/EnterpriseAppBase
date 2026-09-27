@@ -3,8 +3,7 @@
  *
  * Reads and writes ONE entry of `user_settings.dataTables`, through the
  * existing `GET` / `PATCH /api/user-settings` endpoints. There is no new
- * endpoint, no new client layer and no new permission — see
- * docs/specs/datatable.md §14.
+ * endpoint, no new client layer and no new permission.
  *
  * ## Write discipline: debounced, fire-and-forget, in-session authoritative
  *
@@ -26,7 +25,7 @@
  * ## Entry-replace PATCH semantics
  *
  * `PATCH /api/user-settings` merges `dataTables` per table id but replaces each
- * ENTRY wholesale (§14.5) — a patch of `{ jobs: { pageSize: 100 } }` drops that
+ * ENTRY wholesale — a patch of `{ jobs: { pageSize: 100 } }` drops that
  * entry's stored density and column list. So every write here sends the FULL
  * in-session entry rather than a delta. That is cheap precisely because the
  * hook already holds the complete resolved layout in state; it is also the only

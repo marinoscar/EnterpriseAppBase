@@ -125,7 +125,7 @@ export function useMeasuredCardHeight(enabled: boolean): {
  * Mark every image inside a subtree lazy, unless the author already said
  * otherwise.
  *
- * A column's `render` is used verbatim (§3) and belongs to the calling page, so
+ * A column's `render` is used verbatim and belongs to the calling page, so
  * the card cannot rewrite it — but it can annotate what that render produced.
  * An explicit `loading` attribute is never overwritten: a page that deliberately
  * wrote `loading="eager"` on an above-the-fold thumbnail keeps it.

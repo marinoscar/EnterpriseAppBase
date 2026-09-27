@@ -527,8 +527,10 @@ function printChecklist(old, next, opts) {
     'The app name is rendered into pixel baselines that run at maxDiffPixels: 4, so',
     'CI WILL BE RED until this is done. That is expected, not a regression.',
     '',
-    '  docker run --rm -it -v "$PWD":/w -w /w mcr.microsoft.com/playwright:v1.62.1-noble \\',
-    '    npx playwright test --config=tests/visual/playwright.config.ts --update-snapshots',
+    '  REPO=$(git rev-parse --show-toplevel)',
+    '  docker run --rm --user "$(id -u):$(id -g)" -v "$REPO:$REPO" -w "$REPO" \\',
+    '    mcr.microsoft.com/playwright:v1.62.1-noble \\',
+    '    tests/visual/node_modules/.bin/playwright test --config=tests/visual/playwright.config.ts --update-snapshots',
   ]);
   if (next.repoSlug !== old.repoSlug) {
     lines.push([

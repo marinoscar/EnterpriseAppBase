@@ -4,6 +4,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  PayloadTooLargeException,
+  UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -12,7 +14,9 @@ import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 
-import { UPLOADS_KEY_PREFIX } from '../storage-key-prefixes';
+import { AVATARS_KEY_PREFIX, UPLOADS_KEY_PREFIX } from '../storage-key-prefixes';
+import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';
+import { mimeTypeMatches, normaliseMimeType } from '../mime-type-match';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
@@ -50,6 +54,9 @@ export interface MultipartFile {
   file: Readable;
 }
 
+/** Default for `storage.maxFileSize` when the config carries no usable value (10 GiB). */
+const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024;
+
 @Injectable()
 export class ObjectsService {
   private readonly logger = new Logger(ObjectsService.name);
@@ -75,6 +82,9 @@ export class ObjectsService {
     userId: string,
   ): Promise<InitUploadResponseDto> {
     const { name, size, mimeType } = dto;
+
+    // Deployment upload limits (#519), before anything touches the provider.
+    this.assertUploadAllowed(mimeType, size);
 
     // Get configuration
     const partSize = this.config.get<number>('storage.partSize', 10485760); // 10MB default
@@ -337,6 +347,18 @@ export class ObjectsService {
   ): Promise<ObjectResponseDto> {
     const { filename, mimetype, file: stream } = file;
 
+    // Deployment upload limits (#519). The byte count of a streamed multipart
+    // body is unknown until it has been consumed; its size is bounded by the
+    // multipart `fileSize` limit `main.ts` registers (min(100MB, maxFileSize)).
+    try {
+      this.assertUploadAllowed(mimetype);
+    } catch (error) {
+      // Drain the unread file part so the request completes and the 415
+      // reaches the client instead of a stalled connection.
+      stream.resume();
+      throw error;
+    }
+
     // Generate storage key
     const timestamp = Date.now();
     const uuid = randomUUID();
@@ -479,10 +501,28 @@ export class ObjectsService {
   }
 
   /**
-   * Delete object from storage and database
+   * Delete object from storage and database.
+   *
+   * By default only the owner may delete (the same ownership check every other
+   * method applies). A caller holding `storage:delete_any` passes
+   * `canDeleteAny: true`, which lifts the ownership check for every object
+   * EXCEPT another user's profile image: an avatar row is referenced by that
+   * user's `profile.imageObjectId`, and deleting it here would leave the
+   * setting pointing at nothing. Avatars are removed through
+   * `DELETE /api/user-settings/profile-image` by their owner, which clears the
+   * reference in the same operation.
+   *
+   * When the actor is not the owner, the audit event records the owner's id
+   * (`ownerUserId`) so the trail says whose object was removed.
    */
-  async delete(id: string, userId: string): Promise<void> {
-    const object = await this.getObjectWithAuthCheck(id, userId);
+  async delete(
+    id: string,
+    userId: string,
+    options: { canDeleteAny?: boolean } = {},
+  ): Promise<void> {
+    const object = options.canDeleteAny
+      ? await this.getObjectForDeleteAny(id, userId)
+      : await this.getObjectWithAuthCheck(id, userId);
 
     this.logger.log(`Deleting object ${id} from storage and database`);
 
@@ -499,6 +539,9 @@ export class ObjectsService {
       name: object.name,
       size: object.size.toString(),
       mimeType: object.mimeType,
+      ...(object.uploadedById !== userId
+        ? { ownerUserId: object.uploadedById }
+        : {}),
     });
 
     this.logger.log(`Object deleted: ${id}`);
@@ -539,6 +582,40 @@ export class ObjectsService {
   }
 
   /**
+   * Enforces the deployment's upload limits (#519) for both upload routes.
+   *
+   * - `size` (when known) above `storage.maxFileSize` → 413.
+   * - `mimeType` not matching `storage.allowedMimeTypes` → 415. An empty list
+   *   allows every type; entries are exact types or `type/*` wildcards,
+   *   compared case-insensitively and ignoring parameters.
+   */
+  private assertUploadAllowed(mimeType: string, size?: number): void {
+    const configuredMax = this.config.get<number>('storage.maxFileSize');
+    const maxFileSize =
+      typeof configuredMax === 'number' && Number.isFinite(configuredMax) && configuredMax > 0
+        ? configuredMax
+        : DEFAULT_MAX_FILE_SIZE;
+
+    if (size !== undefined && size > maxFileSize) {
+      throw new PayloadTooLargeException(
+        `File size ${size} bytes exceeds the maximum upload size of ${maxFileSize} bytes`,
+      );
+    }
+
+    const configuredTypes = this.config.get<string[]>('storage.allowedMimeTypes');
+    const allowedMimeTypes = Array.isArray(configuredTypes) ? configuredTypes : [];
+
+    if (
+      allowedMimeTypes.length > 0 &&
+      !mimeTypeMatches(normaliseMimeType(mimeType), allowedMimeTypes)
+    ) {
+      throw new UnsupportedMediaTypeException(
+        `File type '${mimeType}' is not allowed. Allowed types: ${allowedMimeTypes.join(', ')}`,
+      );
+    }
+  }
+
+  /**
    * Helper method to get object with ownership check
    * @private
    */
@@ -560,6 +637,49 @@ export class ObjectsService {
     }
 
     return object;
+  }
+
+  /**
+   * Load an object for a `storage:delete_any` delete: no ownership check,
+   * except that another user's profile image is refused. An object counts as
+   * an avatar when EITHER marker is present (key under `avatars/` or
+   * `metadata.purpose === 'avatar'`), so a row carrying only one of them is
+   * still protected.
+   * @private
+   */
+  private async getObjectForDeleteAny(id: string, userId: string) {
+    const object = await this.prisma.storageObject.findUnique({
+      where: { id },
+    });
+
+    if (!object) {
+      throw new NotFoundException('Object not found');
+    }
+
+    if (object.uploadedById !== userId && this.isAvatarObject(object)) {
+      throw new ForbiddenException(
+        "This object is another user's profile image and cannot be deleted " +
+          'through the storage API; it is removed by its owner via ' +
+          'DELETE /api/user-settings/profile-image',
+      );
+    }
+
+    return object;
+  }
+
+  private isAvatarObject(object: {
+    storageKey: string;
+    metadata: Prisma.JsonValue | null;
+  }): boolean {
+    const metadata = object.metadata;
+    const purpose =
+      metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>).purpose
+        : undefined;
+    return (
+      object.storageKey.startsWith(AVATARS_KEY_PREFIX) ||
+      purpose === AVATAR_PURPOSE
+    );
   }
 
   /**
