@@ -41,9 +41,11 @@ import { Navigate, Link as RouterLink, useSearchParams } from 'react-router-dom'
 import { usePermissions } from '../../hooks/usePermissions';
 import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import {
+  useDashboardEvents,
   useDashboardFilters,
   useDashboardSummary,
   useDashboardTimeseries,
+  useDashboardTop,
 } from '../../hooks/useTelemetryDashboard';
 import { telemetryErrorTitle, type TelemetryErrorInfo } from '../../hooks/useTelemetryExplorer';
 import {
@@ -65,6 +67,8 @@ import {
   DashboardFilterBar,
   type DashboardLayout,
 } from '../../components/telemetry/dashboard/DashboardFilterBar';
+import { TopProblems } from '../../components/telemetry/dashboard/TopProblems';
+import { EventsFeed } from '../../components/telemetry/dashboard/EventsFeed';
 import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxis';
 import type {
   DashboardBuckets,
@@ -163,6 +167,13 @@ export default function TelemetryDashboardPage() {
   const filters = useDashboardFilters(windowQuery, tick);
   const apiSeries = useDashboardTimeseries('api', seriesQuery, tick);
   const logSeries = useDashboardTimeseries('logs', seriesQuery, tick);
+  const topRoutes = useDashboardTop('routes', query, tick);
+  const topErrors = useDashboardTop('errors', query, tick);
+  const eventsQuery = useMemo(
+    () => ({ ...query, severity: state.sev, ...(state.q ? { q: state.q } : {}) }),
+    [query, state.sev, state.q],
+  );
+  const events = useDashboardEvents(eventsQuery, tick);
 
   const spanMs = windowSpanMs(state);
   const zoomTo = (starts: string[], bucketSeconds: number) => (first: number, last: number) => {
@@ -289,6 +300,17 @@ export default function TelemetryDashboardPage() {
                 </DashboardPanel>
               </Grid>
             </Grid>
+
+            <TopProblems routes={topRoutes} errors={topErrors} layout={layout} actions={PANEL_ACTIONS} />
+
+            <EventsFeed
+              events={events}
+              sev={state.sev}
+              q={state.q}
+              onChange={update}
+              layout={layout}
+              actions={PANEL_ACTIONS}
+            />
           </Stack>
         )}
       </Box>
