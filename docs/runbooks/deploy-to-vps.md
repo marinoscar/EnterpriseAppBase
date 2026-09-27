@@ -582,16 +582,28 @@ confirmation of that resource's **own real name** — never a generic word like
   needs the application's own image and configuration to do its job; if it
   fails, `uninstall` stops and removes nothing rather than leaving you
   uncertain whether your bucket was emptied.
-- `--drop-database --confirm-database <database-name>` is meant to drop the
-  application's PostgreSQL database (two explicit `DROP DATABASE` attempts
-  against the `postgres` maintenance database, terminating only *this*
-  database's own backends if the first attempt reports `object_in_use` — see
-  `database-drop.ts`'s header for why `DROP DATABASE WITH (FORCE)` was
-  rejected). **Only the confirmation check runs**: a confirmation that does
-  not match the recorded database name refuses, but a *matching* one removes
-  the deployment without dropping the database. `dropDatabase()` exists and
-  is unit-tested, but the uninstall pipeline does not call it. Drop the
-  database yourself with `psql` and verify.
+- `--drop-database --confirm-database <database-name>` drops the
+  application's PostgreSQL database once the stack has stopped: confirmation
+  first, then the optional storage purge, then `compose down -v`, then the
+  drop, then vhost and file removal. The drop itself runs `psql` in a
+  throwaway `postgres:16-alpine` container on `--network host`, with the
+  password passed by name through the environment (never argv),
+  `PGSSLMODE=require` added when `POSTGRES_SSL=true`, and `PGCONNECT_TIMEOUT=5` so an
+  unreachable host fails fast rather than hanging the uninstall. It tries a
+  plain `DROP DATABASE` first; only if that reports `object_in_use` does it
+  terminate *that database's own* backends and try again (never every backend
+  on the server) — see `database-drop.ts`'s header for why `DROP DATABASE
+  WITH (FORCE)` was rejected. On success it prints `Dropped database <name>
+  (terminated N session(s)).`, always naming the count so a killed session is
+  never silent. The role connecting must own the database, or be superuser.
+  If the drop fails, `uninstall` stops with an error saying the database was
+  **not** dropped: the stack stays stopped, but the checkout, `.env`, vhost
+  and state file are all kept (they hold the credentials a retry needs), so
+  re-running the same command picks up where it left off. A database that
+  lives *inside* the compose stack itself (the `devdb` overlay,
+  `POSTGRES_HOST=db`) cannot be dropped this way — `down -v` removes its
+  volume before the drop ever runs, so the drop fails loudly; re-run without
+  `--drop-database` in that case.
 
 ## 12. The compose project name
 

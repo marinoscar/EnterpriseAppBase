@@ -744,9 +744,12 @@ appctl deploy uninstall --purge-storage --confirm-bucket <bucket-name>
 `deploy-info` directory, the `.env` and the deployment record. It always
 keeps the shared Docker network, the shared proxy, the TLS certificate and
 the renewal cron entry. Each destructive extra needs its own flag plus that
-resource's real name typed back. `--drop-database` checks its confirmation
-but does not drop the database; drop it yourself. What each step does, and
-why, is in
+resource's real name typed back. `--drop-database --confirm-database <name>`
+drops the database after the stack stops: confirmation, then the optional
+storage purge, then `compose down -v`, then `DROP DATABASE`, then the vhost
+and file removal. A failed drop stops the uninstall with an error and keeps
+the checkout, `.env`, vhost and state so the same command can be re-run. What
+each step does, and why, is in
 [`docs/runbooks/deploy-to-vps.md`, "Removing a deployment"](../../docs/runbooks/deploy-to-vps.md#11-removing-a-deployment).
 
 Exit codes: `0` removed, or a `--dry-run` report; `2` nothing to uninstall at
@@ -766,7 +769,9 @@ Options:
   --proxy-mode <mode>        How the shared proxy runs: container or host
                              (default: as recorded, else detected)
   --dry-run                  Report what would be removed and change nothing
-  --drop-database            Also drop the database (needs --confirm-database)
+  --drop-database            Also DROP the PostgreSQL database named by
+                             POSTGRES_DB, after the stack stops (needs
+                             --confirm-database)
   --confirm-database <name>  The database's own name, typed back
   --purge-storage            Also delete every object in storage (needs
                              --confirm-bucket)
