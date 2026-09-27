@@ -136,7 +136,7 @@ Every credential the system accepts or holds, and where it is valid.
 | Refresh token | 32 random bytes, hex, in `refresh_token` cookie | SHA-256 hash in `refresh_tokens` | `JWT_REFRESH_TTL_DAYS` (14) | `/api/auth/*` only (cookie path) | Logout, logout-all, rotation, reuse detection |
 | Personal access token | `pat_` + 64 hex | SHA-256 hash in `personal_access_tokens`, shown once | Chosen at creation | Every `@Auth()` route, with the owner's full authority | `DELETE /api/pat/{id}`; deactivating the user |
 | Node credential | `nod_` + 64 hex | SHA-256 hash in `node_credentials`, shown once | No mandatory expiry | `/api/nodes` and `/api/nodes/*` only | `DELETE /api/node-credentials/{id}` or the admin fleet view |
-| Device-flow token | Session JWT + refresh token, or a `pat_` | As above | `DEVICE_TOKEN_EXPIRY_DAYS` (7) or `DEVICE_PAT_EXPIRY_DAYS` (90) | As above | As above |
+| Device-flow token | Session JWT + refresh token, or a `pat_` | As above | `DEVICE_TOKEN_EXPIRY_DAYS` (7) or `DEVICE_PAT_EXPIRY_DAYS` (90) | As above | `DELETE /api/auth/device/sessions/{id}`, immediately, for either kind |
 | Per-job node secret | Short-lived PostgreSQL login role | Only its handle, in `job_node_secrets` | The job's lease + 60 s | The database, from one node, for one job | Job settles, sweep cron, or `VALID UNTIL` |
 | Runtime-configured secret | Provider key, SMTP password, VAPID key, etc. | AES-256-GCM ciphertext | Until replaced | Server-side only, never returned | Replace or delete in the admin UI |
 
@@ -194,12 +194,18 @@ client's `clientInfo.tokenType`:
 - **PAT** (`tokenType: "pat"`): a `pat_` token living `DEVICE_PAT_EXPIRY_DAYS`
   days, with no refresh token.
 
-Revoking a device session (`DELETE /api/auth/device/sessions/{id}`) only
-marks the device code `denied`. It does not revoke a token already issued.
-The real revocation paths are: revoke the PAT (`DELETE /api/pat/{id}`);
-`POST /api/auth/logout-all` for the refresh token; and, for the access JWT,
-which lives until its expiry, deactivate the user. See
-[DEVICE-AUTH.md](DEVICE-AUTH.md).
+The credential a device session issues is linked to the `DeviceCode` row that
+minted it: a session-kind access token carries a `did` claim naming that row,
+which `AuthService.validateJwtPayload` re-checks on every request, and the
+paired refresh token carries the same link, enforced again on every rotation.
+`DELETE /api/auth/device/sessions/{id}` revokes the session **and** whatever
+it issued in one step — the linked PAT (if any), every refresh token minted
+from it, and, via the `did` check, the access token itself, immediately
+rather than at its eventual expiry. Revoking the same PAT independently from
+`DELETE /api/pat/{id}` or the Access Tokens page is not an error either way.
+`POST /api/auth/logout-all` and deactivating the user remain the tools for
+revoking every credential a user holds, not just one device. See
+[DEVICE-AUTH.md](DEVICE-AUTH.md#device-session-management).
 
 ### Per-job brokered secrets
 

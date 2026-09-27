@@ -391,6 +391,12 @@ export class AuthService {
 
   /**
    * Generate both access and refresh tokens
+   *
+   * `deviceCodeId` is set only by the device-authorization flow's session path
+   * (issue #518): it stamps the access token with a `did` claim and links the
+   * refresh token row to the `device_codes` row, so revoking that device
+   * session reaches both credentials. See `validateJwtPayload` and
+   * `refreshAccessToken` for where the link is enforced.
    */
   async generateFullTokens(
     user: {
@@ -398,10 +404,20 @@ export class AuthService {
       email: string;
       userRoles: Array<{ role: { name: string } }>;
     },
-    options?: { accessTtlMinutes?: number; refreshTtlDays?: number },
+    options?: {
+      accessTtlMinutes?: number;
+      refreshTtlDays?: number;
+      deviceCodeId?: string;
+    },
   ): Promise<FullTokenResponse> {
-    const accessToken = this.generateAccessToken(user, options?.accessTtlMinutes);
-    const refreshToken = await this.createRefreshToken(user.id, options?.refreshTtlDays);
+    const accessToken = this.generateAccessToken(user, {
+      ttlMinutes: options?.accessTtlMinutes,
+      deviceCodeId: options?.deviceCodeId,
+    });
+    const refreshToken = await this.createRefreshToken(user.id, {
+      ttlDays: options?.refreshTtlDays,
+      deviceCodeId: options?.deviceCodeId,
+    });
 
     return {
       accessToken: accessToken.token,
@@ -419,7 +435,12 @@ export class AuthService {
       email: string;
       userRoles: Array<{ role: { name: string } }>;
     },
-    ttlMinutesOverride?: number,
+    options: {
+      ttlMinutes?: number;
+      /** Exact lifetime in seconds; wins over `ttlMinutes` (used to cap a device chain). */
+      ttlSeconds?: number;
+      deviceCodeId?: string;
+    } = {},
   ) {
     const roles = user.userRoles.map((ur) => ur.role.name);
 
@@ -427,10 +448,22 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       roles,
+      // Only a device-issued token carries `did`; an interactive login's
+      // payload stays exactly `{ sub, email, roles }`.
+      ...(options.deviceCodeId ? { did: options.deviceCodeId } : {}),
     };
 
+    if (options.ttlSeconds !== undefined) {
+      return {
+        token: this.jwtService.sign(payload, {
+          expiresIn: `${options.ttlSeconds}s`,
+        }),
+        expiresIn: options.ttlSeconds,
+      };
+    }
+
     const accessTtlMinutes =
-      ttlMinutesOverride ??
+      options.ttlMinutes ??
       this.configService.get<number>('jwt.accessTtlMinutes', 15);
 
     return {
@@ -441,13 +474,28 @@ export class AuthService {
 
   /**
    * Create a new refresh token
+   *
+   * `expiresAtCap` bounds the row's expiry from above: a refresh token rotated
+   * out of a device-authorization session never outlives that session's
+   * `credentialExpiresAt` (issue #518), however long the default TTL is.
    */
-  private async createRefreshToken(userId: string, ttlDaysOverride?: number): Promise<string> {
+  private async createRefreshToken(
+    userId: string,
+    options: {
+      ttlDays?: number;
+      deviceCodeId?: string;
+      expiresAtCap?: Date;
+    } = {},
+  ): Promise<string> {
     const refreshTtlDays =
-      ttlDaysOverride ??
+      options.ttlDays ??
       this.configService.get<number>('jwt.refreshTtlDays', 14);
-    const expiresAt = new Date();
+    let expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + refreshTtlDays);
+
+    if (options.expiresAtCap && options.expiresAtCap < expiresAt) {
+      expiresAt = new Date(options.expiresAtCap.getTime());
+    }
 
     // Generate random token
     const token = randomBytes(32).toString('hex');
@@ -459,6 +507,7 @@ export class AuthService {
         userId,
         tokenHash,
         expiresAt,
+        ...(options.deviceCodeId ? { deviceCodeId: options.deviceCodeId } : {}),
       },
     });
 
@@ -469,6 +518,13 @@ export class AuthService {
 
   /**
    * Refresh access token using refresh token
+   *
+   * A refresh token minted by the device-authorization flow carries
+   * `deviceCodeId` (issue #518). Its chain stays a DEVICE chain across every
+   * rotation: the new row keeps the link, the new access token keeps the `did`
+   * claim, and neither may outlive the device session's `credentialExpiresAt`,
+   * so rotating cannot launder a device credential into an ordinary 14-day
+   * login. A chain whose device session was revoked refuses to rotate.
    */
   async refreshAccessToken(refreshToken: string): Promise<FullTokenResponse> {
     const tokenHash = this.hashToken(refreshToken);
@@ -484,6 +540,14 @@ export class AuthService {
             },
           },
         },
+        deviceCode: {
+          select: {
+            id: true,
+            userId: true,
+            revokedAt: true,
+            credentialExpiresAt: true,
+          },
+        },
       },
     });
 
@@ -491,8 +555,23 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
+    const deviceCode = storedToken.deviceCodeId
+      ? storedToken.deviceCode
+      : null;
+
     // Check if revoked
     if (storedToken.revokedAt) {
+      // A device whose session the user revoked still holds its last refresh
+      // token and will present it; that is the expected aftermath of
+      // `DELETE /api/auth/device/sessions/{id}`, not evidence of theft. Treat
+      // it as reuse and we would sign the user out of every browser too.
+      if (storedToken.deviceCodeId && (!deviceCode || deviceCode.revokedAt)) {
+        this.logger.warn(
+          `Refresh attempted on revoked device session ${storedToken.deviceCodeId} for user: ${storedToken.userId}`,
+        );
+        throw new UnauthorizedException('Refresh token has been revoked');
+      }
+
       // Potential token reuse attack - revoke all tokens for user
       await this.revokeAllUserTokens(storedToken.userId);
       this.logger.warn(
@@ -511,6 +590,23 @@ export class AuthService {
       throw new UnauthorizedException('User account is deactivated');
     }
 
+    // Device chain: the device session must still be live. A revoked (or
+    // expired, or foreign) session kills the presented token too, so the next
+    // attempt lands in the revoked branch above instead of here again.
+    if (
+      storedToken.deviceCodeId &&
+      !this.isDeviceSessionLive(deviceCode, storedToken.userId)
+    ) {
+      await this.prisma.refreshToken.update({
+        where: { id: storedToken.id },
+        data: { revokedAt: new Date() },
+      });
+      this.logger.warn(
+        `Refresh refused: device session ${storedToken.deviceCodeId} is revoked or expired (user: ${storedToken.userId})`,
+      );
+      throw new UnauthorizedException('Refresh token has been revoked');
+    }
+
     // Rotate token - revoke old one, create new one
     await this.prisma.refreshToken.update({
       where: { id: storedToken.id },
@@ -518,6 +614,44 @@ export class AuthService {
     });
 
     // Generate new tokens
+    if (storedToken.deviceCodeId && deviceCode?.credentialExpiresAt) {
+      const credentialExpiresAt = deviceCode.credentialExpiresAt;
+      const configuredDays = Number(
+        this.configService.get<number>('deviceAuth.tokenExpiryDays', 7),
+      );
+      const deviceAccessTtlSeconds =
+        (Number.isFinite(configuredDays) && configuredDays > 0
+          ? configuredDays
+          : 7) *
+        24 *
+        60 *
+        60;
+      const remainingSeconds = Math.floor(
+        (credentialExpiresAt.getTime() - Date.now()) / 1000,
+      );
+
+      const newRefreshToken = await this.createRefreshToken(
+        storedToken.userId,
+        {
+          deviceCodeId: storedToken.deviceCodeId,
+          expiresAtCap: credentialExpiresAt,
+        },
+      );
+      const accessToken = this.generateAccessToken(storedToken.user, {
+        ttlSeconds: Math.max(
+          1,
+          Math.min(deviceAccessTtlSeconds, remainingSeconds),
+        ),
+        deviceCodeId: storedToken.deviceCodeId,
+      });
+
+      return {
+        accessToken: accessToken.token,
+        expiresIn: accessToken.expiresIn,
+        refreshToken: newRefreshToken,
+      };
+    }
+
     const newRefreshToken = await this.createRefreshToken(storedToken.userId);
     const accessToken = this.generateAccessToken(storedToken.user);
 
@@ -586,8 +720,35 @@ export class AuthService {
 
   /**
    * Validates JWT payload and returns user with roles and permissions
+   *
+   * A token carrying `did` was issued to a device through the device
+   * authorization flow (issue #518). It is honoured only while that device
+   * session exists, belongs to the token's subject, is not revoked and has not
+   * passed its `credentialExpiresAt` — which is what makes
+   * `DELETE /api/auth/device/sessions/{id}` revoke a 7-day access token
+   * immediately. A token without `did` is validated exactly as before.
    */
   async validateJwtPayload(payload: JwtPayload): Promise<AuthenticatedUser | null> {
+    if (payload.did !== undefined) {
+      if (typeof payload.did !== 'string' || payload.did.length === 0) {
+        return null;
+      }
+
+      const deviceCode = await this.prisma.deviceCode.findUnique({
+        where: { id: payload.did },
+        select: {
+          id: true,
+          userId: true,
+          revokedAt: true,
+          credentialExpiresAt: true,
+        },
+      });
+
+      if (!this.isDeviceSessionLive(deviceCode, payload.sub)) {
+        return null;
+      }
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
@@ -612,6 +773,30 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  /**
+   * Whether a device-authorization session may still back a credential: it
+   * exists, belongs to `userId`, is not revoked, and its collected credential
+   * has not expired. A row with no `credentialExpiresAt` never issued a
+   * session credential through the linked path, so it backs nothing (fail
+   * closed).
+   */
+  private isDeviceSessionLive(
+    deviceCode: {
+      userId: string | null;
+      revokedAt: Date | null;
+      credentialExpiresAt: Date | null;
+    } | null,
+    userId: string,
+  ): boolean {
+    return (
+      !!deviceCode &&
+      deviceCode.userId === userId &&
+      deviceCode.revokedAt === null &&
+      deviceCode.credentialExpiresAt !== null &&
+      deviceCode.credentialExpiresAt > new Date()
+    );
   }
 
   /**

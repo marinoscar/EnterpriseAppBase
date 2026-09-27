@@ -202,18 +202,26 @@ model AuditEvent {
 // =============================================================================
 
 model RefreshToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  tokenHash String    @unique @map("token_hash")
-  expiresAt DateTime  @map("expires_at") @db.Timestamptz
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz
+  // The device-authorization session that minted this refresh token, if any
+  // (issue #518). Lets revoking a `DeviceCode` session reach the refresh
+  // token it handed out. Nullable: most refresh tokens come from the
+  // interactive login flow, not the device flow. `SetNull` because a device
+  // code can be purged independently of the token lifecycle it kicked off.
+  deviceCodeId String?   @map("device_code_id") @db.Uuid
 
   // Relations
-  user User @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+  user       User        @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+  deviceCode DeviceCode? @relation(fields: [deviceCodeId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([deviceCodeId])
   @@map("refresh_tokens")
 }
 
@@ -241,7 +249,11 @@ model PersonalAccessToken {
   revokedAt     DateTime?       @map("revoked_at") @db.Timestamptz
 
   // Relations
-  user User @relation("UserPersonalAccessTokens", fields: [userId], references: [id], onDelete: Cascade)
+  user        User         @relation("UserPersonalAccessTokens", fields: [userId], references: [id], onDelete: Cascade)
+  // The device-authorization sessions that issued this PAT (issue #518).
+  // Almost always at most one, but not constrained `@unique` here — see
+  // `DeviceCode.patId`.
+  deviceCodes DeviceCode[]
 
   @@index([userId])
   @@index([expiresAt])
@@ -287,17 +299,55 @@ model DeviceCode {
   status     DeviceCodeStatus @default(pending)
   clientInfo Json?            @map("client_info")
   scopes     String[]
+  // The code's own expiry (RFC 8628 `expires_in`) — when the user/device
+  // codes stop being redeemable if never approved. Distinct from
+  // `credentialExpiresAt`, which is the lifetime of what got issued once
+  // approval happened (issue #518).
   expiresAt  DateTime         @map("expires_at") @db.Timestamptz
   createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
+  // The PAT minted for this device once the polling client collected it
+  // (issue #518). Nullable until collection; `SetNull` so deleting the PAT
+  // (or the PAT row aging out) never cascades into deleting the device-code
+  // history. This is what lets "revoke this device session" reach the
+  // credential the device is actually holding.
+  patId String? @map("pat_id") @db.Uuid
+
+  // When the polling client (`POST /api/auth/device/token`) collected the
+  // credential above. Null until collection. Distinguishes "approved,
+  // waiting to be picked up" from "picked up and in active use" for the
+  // sessions list.
+  collectedAt DateTime? @map("collected_at") @db.Timestamptz
+
+  // The collected credential's own expiry, copied from the PAT at
+  // collection time so the sessions list can filter "still valid" without a
+  // join. Null until collection.
+  credentialExpiresAt DateTime? @map("credential_expires_at") @db.Timestamptz
+
+  // Set when this device session (and the credential it issued, if any) is
+  // revoked — from the code itself if revoked before collection, from the
+  // session-revocation endpoint after. Null means still active.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
   // Relations
-  user User? @relation("UserDeviceCodes", fields: [userId], references: [id], onDelete: Cascade)
+  user User?                @relation("UserDeviceCodes", fields: [userId], references: [id], onDelete: Cascade)
+  pat  PersonalAccessToken? @relation(fields: [patId], references: [id], onDelete: SetNull)
+
+  // Back-relation: refresh tokens minted through this device-authorization
+  // session (issue #518). See `RefreshToken.deviceCodeId`.
+  refreshTokens RefreshToken[]
 
   @@index([deviceCode])
   @@index([userCode])
   @@index([status, expiresAt])
   @@index([userId])
+  // Serves the sessions list (`GET /api/auth/device/sessions`, issue #518):
+  // "this user's device sessions that are not revoked" —
+  // approved-but-uncollected and collected-unexpired both live under
+  // `revokedAt IS NULL`; the remaining collected/expiry filtering happens
+  // in the query predicate, not a second index.
+  @@index([userId, revokedAt])
   @@map("device_codes")
 }
 

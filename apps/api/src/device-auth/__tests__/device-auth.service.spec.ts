@@ -245,7 +245,7 @@ describe('DeviceAuthService', () => {
         userId: 'user-1',
         user: mockUser,
       } as any);
-      mockPrisma.deviceCode.update.mockResolvedValue({} as any);
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
 
       const result = await service.pollForToken(deviceCode);
 
@@ -256,19 +256,71 @@ describe('DeviceAuthService', () => {
         expiresIn: 900,
       });
 
+      // #518: the credential is tied to this device code, so revoking the
+      // session can reach it.
       expect(mockAuthService.generateFullTokens).toHaveBeenCalledWith(
         mockUser,
         expect.objectContaining({
           accessTtlMinutes: expect.any(Number),
           refreshTtlDays: expect.any(Number),
+          deviceCodeId: 'device-code-1',
         }),
       );
 
-      // Should mark as expired to prevent reuse
-      expect(mockPrisma.deviceCode.update).toHaveBeenCalledWith({
-        where: { id: 'device-code-1' },
-        data: { status: DeviceCodeStatus.expired },
+      // Claimed atomically (approved -> expired) and recorded as collected.
+      expect(mockPrisma.deviceCode.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'device-code-1',
+          status: DeviceCodeStatus.approved,
+          revokedAt: null,
+        },
+        data: {
+          status: DeviceCodeStatus.expired,
+          collectedAt: expect.any(Date),
+          credentialExpiresAt: expect.any(Date),
+        },
       });
+    });
+
+    it('records credentialExpiresAt as collection time + DEVICE_TOKEN_EXPIRY_DAYS (#518)', async () => {
+      const deviceCode = getUniqueDeviceCode();
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        id: 'device-code-1',
+        status: DeviceCodeStatus.approved,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        userId: 'user-1',
+        user: mockUser,
+      } as any);
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
+
+      await service.pollForToken(deviceCode);
+
+      const { data } = mockPrisma.deviceCode.updateMany.mock.calls[0][0] as any;
+      // Default DEVICE_TOKEN_EXPIRY_DAYS is 7.
+      expect(data.credentialExpiresAt.getTime() - data.collectedAt.getTime()).toBe(
+        7 * 24 * 60 * 60 * 1000,
+      );
+    });
+
+    it('claims before minting and refuses a code another poll already claimed (#518)', async () => {
+      const deviceCode = getUniqueDeviceCode();
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        id: 'device-code-1',
+        status: DeviceCodeStatus.approved,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        userId: 'user-1',
+        user: mockUser,
+      } as any);
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 0 } as any);
+
+      try {
+        await service.pollForToken(deviceCode);
+        fail('Expected invalid_grant');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(UnauthorizedException);
+        expect(error.response.error).toBe('invalid_grant');
+      }
+      expect(mockAuthService.generateFullTokens).not.toHaveBeenCalled();
     });
 
     it('should throw invalid_grant when device code not found', async () => {
@@ -376,7 +428,7 @@ describe('DeviceAuthService', () => {
       mockPrisma.deviceCode.findUnique.mockResolvedValue(
         mockApprovedRecord('device-code-1', undefined),
       );
-      mockPrisma.deviceCode.update.mockResolvedValue({} as any);
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
 
       const result = await service.pollForToken(deviceCode);
 
@@ -394,7 +446,7 @@ describe('DeviceAuthService', () => {
       mockPrisma.deviceCode.findUnique.mockResolvedValue(
         mockApprovedRecord('device-code-1', { tokenType: 'session' }),
       );
-      mockPrisma.deviceCode.update.mockResolvedValue({} as any);
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
 
       const result = await service.pollForToken(deviceCode);
 
@@ -412,7 +464,7 @@ describe('DeviceAuthService', () => {
       mockPrisma.deviceCode.findUnique.mockResolvedValue(
         mockApprovedRecord('device-code-1', undefined),
       );
-      mockPrisma.deviceCode.update.mockResolvedValue({} as any);
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
 
       const result = await service.pollForToken(deviceCode);
 
@@ -549,9 +601,13 @@ describe('DeviceAuthService', () => {
 
       await service.pollForToken(deviceCode);
 
-      expect(mockPrisma.deviceCode.updateMany).toHaveBeenCalledWith({
-        where: { id: 'device-code-1', status: DeviceCodeStatus.approved },
-        data: { status: DeviceCodeStatus.expired },
+      expect(mockPrisma.deviceCode.updateMany).toHaveBeenNthCalledWith(1, {
+        where: {
+          id: 'device-code-1',
+          status: DeviceCodeStatus.approved,
+          revokedAt: null,
+        },
+        data: { status: DeviceCodeStatus.expired, collectedAt: expect.any(Date) },
       });
 
       const claimOrder =
@@ -599,6 +655,80 @@ describe('DeviceAuthService', () => {
     });
   });
 
+  describe('pollForToken — PAT linked to its device session (#518)', () => {
+    it('records patId and the PAT expiry on the device code after minting', async () => {
+      const deviceCode = uniquePatDeviceCode();
+      const isoExpiry = new Date(
+        Date.now() + 90 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(
+        mockApprovedRecord('device-code-1', { tokenType: 'pat' }),
+      );
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
+      mockPatService.createToken.mockResolvedValue(
+        mockPatCreateResult({ id: 'pat-xyz', expiresAt: isoExpiry }),
+      );
+
+      await service.pollForToken(deviceCode);
+
+      expect(mockPrisma.deviceCode.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'device-code-1', revokedAt: null },
+        data: { patId: 'pat-xyz', credentialExpiresAt: new Date(isoExpiry) },
+      });
+      const mintOrder = mockPatService.createToken.mock.invocationCallOrder[0];
+      const linkOrder =
+        mockPrisma.deviceCode.updateMany.mock.invocationCallOrder[1];
+      expect(mintOrder).toBeLessThan(linkOrder);
+      expect(mockPrisma.personalAccessToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('revokes the fresh PAT and returns access_denied when the session was revoked mid-collection', async () => {
+      const deviceCode = uniquePatDeviceCode();
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(
+        mockApprovedRecord('device-code-1', { tokenType: 'pat' }),
+      );
+      mockPrisma.deviceCode.updateMany
+        .mockResolvedValueOnce({ count: 1 } as any) // claim
+        .mockResolvedValueOnce({ count: 0 } as any); // link: revoked meanwhile
+      mockPatService.createToken.mockResolvedValue(
+        mockPatCreateResult({ id: 'pat-xyz' }),
+      );
+
+      try {
+        await service.pollForToken(deviceCode);
+        fail('Expected access_denied');
+      } catch (error: any) {
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect(error.response.error).toBe('access_denied');
+      }
+      expect(mockPrisma.personalAccessToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 'pat-xyz', userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('revokes the fresh PAT when linking it throws', async () => {
+      const deviceCode = uniquePatDeviceCode();
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(
+        mockApprovedRecord('device-code-1', { tokenType: 'pat' }),
+      );
+      mockPrisma.deviceCode.updateMany
+        .mockResolvedValueOnce({ count: 1 } as any)
+        .mockRejectedValueOnce(new Error('link boom'));
+      mockPatService.createToken.mockResolvedValue(
+        mockPatCreateResult({ id: 'pat-xyz' }),
+      );
+
+      await expect(service.pollForToken(deviceCode)).rejects.toThrow(
+        'link boom',
+      );
+      expect(mockPrisma.personalAccessToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 'pat-xyz', userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+  });
+
   describe('pollForToken — hostile deviceName sanitisation (#141)', () => {
     // Named by codepoint via \u escapes rather than typed as literal glyphs,
     // so the characters under test are unambiguous in source and in diffs.
@@ -624,7 +754,7 @@ describe('DeviceAuthService', () => {
           deviceName: deviceNameValue,
         }),
       );
-      mockPrisma.deviceCode.updateMany.mockResolvedValueOnce({
+      mockPrisma.deviceCode.updateMany.mockResolvedValue({
         count: 1,
       } as any);
       mockPatService.createToken.mockResolvedValueOnce(mockPatCreateResult());
@@ -967,7 +1097,19 @@ describe('DeviceAuthService', () => {
   });
 
   describe('getUserDeviceSessions', () => {
-    it('should return paginated device sessions', async () => {
+    const expectedWhere = {
+      userId: 'user-1',
+      revokedAt: null,
+      OR: [
+        { status: DeviceCodeStatus.approved, collectedAt: null },
+        {
+          collectedAt: { not: null },
+          credentialExpiresAt: { gt: expect.any(Date) },
+        },
+      ],
+    };
+
+    it('should return paginated device sessions, uncollected and collected', async () => {
       const mockSessions = [
         {
           id: 'session-1',
@@ -976,19 +1118,36 @@ describe('DeviceAuthService', () => {
           clientInfo: { deviceName: 'Smart TV' },
           createdAt: new Date('2024-01-01'),
           expiresAt: new Date('2024-01-02'),
+          collectedAt: null,
+          credentialExpiresAt: null,
+          patId: null,
         },
         {
           id: 'session-2',
           userCode: 'EFGH-5678',
-          status: DeviceCodeStatus.approved,
+          status: DeviceCodeStatus.expired,
           clientInfo: { deviceName: 'Mobile App' },
           createdAt: new Date('2024-01-03'),
           expiresAt: new Date('2024-01-04'),
+          collectedAt: new Date('2024-01-03T00:05:00Z'),
+          credentialExpiresAt: new Date('2024-01-10T00:05:00Z'),
+          patId: null,
+        },
+        {
+          id: 'session-3',
+          userCode: 'JKLM-9012',
+          status: DeviceCodeStatus.expired,
+          clientInfo: { deviceName: 'CLI', tokenType: 'pat' },
+          createdAt: new Date('2024-01-05'),
+          expiresAt: new Date('2024-01-06'),
+          collectedAt: new Date('2024-01-05T00:05:00Z'),
+          credentialExpiresAt: new Date('2024-04-04T00:05:00Z'),
+          patId: 'pat-1',
         },
       ];
 
       mockPrisma.deviceCode.findMany.mockResolvedValue(mockSessions as any);
-      mockPrisma.deviceCode.count.mockResolvedValue(2);
+      mockPrisma.deviceCode.count.mockResolvedValue(3);
 
       const result = await service.getUserDeviceSessions('user-1', 1, 10);
 
@@ -1001,26 +1160,40 @@ describe('DeviceAuthService', () => {
             clientInfo: { deviceName: 'Smart TV' },
             createdAt: expect.any(String),
             expiresAt: expect.any(String),
+            collectedAt: null,
+            credentialExpiresAt: null,
+            credentialType: null,
           },
           {
             id: 'session-2',
             userCode: 'EFGH-5678',
-            status: DeviceCodeStatus.approved,
+            status: DeviceCodeStatus.expired,
             clientInfo: { deviceName: 'Mobile App' },
             createdAt: expect.any(String),
             expiresAt: expect.any(String),
+            collectedAt: '2024-01-03T00:05:00.000Z',
+            credentialExpiresAt: '2024-01-10T00:05:00.000Z',
+            credentialType: 'session',
+          },
+          {
+            id: 'session-3',
+            userCode: 'JKLM-9012',
+            status: DeviceCodeStatus.expired,
+            clientInfo: { deviceName: 'CLI', tokenType: 'pat' },
+            createdAt: expect.any(String),
+            expiresAt: expect.any(String),
+            collectedAt: '2024-01-05T00:05:00.000Z',
+            credentialExpiresAt: '2024-04-04T00:05:00.000Z',
+            credentialType: 'pat',
           },
         ],
-        total: 2,
+        total: 3,
         page: 1,
         limit: 10,
       });
 
       expect(mockPrisma.deviceCode.findMany).toHaveBeenCalledWith({
-        where: {
-          userId: 'user-1',
-          status: DeviceCodeStatus.approved,
-        },
+        where: expectedWhere,
         orderBy: {
           createdAt: 'desc',
         },
@@ -1043,31 +1216,43 @@ describe('DeviceAuthService', () => {
       );
     });
 
-    it('should filter by approved status only', async () => {
+    it('lists non-revoked approved requests and collected, unexpired sessions (#518)', async () => {
       mockPrisma.deviceCode.findMany.mockResolvedValue([]);
       mockPrisma.deviceCode.count.mockResolvedValue(0);
 
       await service.getUserDeviceSessions('user-1');
 
       expect(mockPrisma.deviceCode.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: {
-            userId: 'user-1',
-            status: DeviceCodeStatus.approved,
-          },
-        }),
+        expect.objectContaining({ where: expectedWhere }),
       );
+      // The total counts exactly the rows the page lists.
+      expect(mockPrisma.deviceCode.count).toHaveBeenCalledWith({
+        where: expectedWhere,
+      });
     });
   });
 
   describe('revokeDeviceSession', () => {
-    it('should revoke device session successfully', async () => {
+    beforeEach(() => {
+      mockPrisma.$transaction.mockImplementation(async (fn: any) =>
+        fn(mockPrisma),
+      );
+      mockPrisma.deviceCode.update.mockResolvedValue({} as any);
+      mockPrisma.personalAccessToken.updateMany.mockResolvedValue({
+        count: 1,
+      } as any);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 } as any);
+    });
+
+    it('denies and revokes an approved, uncollected request', async () => {
       mockPrisma.deviceCode.findUnique.mockResolvedValue({
         id: 'session-1',
         userId: 'user-1',
         status: DeviceCodeStatus.approved,
+        collectedAt: null,
+        patId: null,
+        revokedAt: null,
       } as any);
-      mockPrisma.deviceCode.update.mockResolvedValue({} as any);
 
       const result = await service.revokeDeviceSession('user-1', 'session-1');
 
@@ -1076,9 +1261,86 @@ describe('DeviceAuthService', () => {
         message: 'Device session revoked successfully',
       });
 
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       expect(mockPrisma.deviceCode.update).toHaveBeenCalledWith({
         where: { id: 'session-1' },
-        data: { status: DeviceCodeStatus.denied },
+        data: { revokedAt: expect.any(Date), status: DeviceCodeStatus.denied },
+      });
+      expect(mockPrisma.personalAccessToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('revokes the PAT a collected PAT session issued', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        id: 'session-1',
+        userId: 'user-1',
+        status: DeviceCodeStatus.expired,
+        collectedAt: new Date(),
+        patId: 'pat-1',
+        revokedAt: null,
+      } as any);
+
+      await service.revokeDeviceSession('user-1', 'session-1');
+
+      // Collected: status is left alone, only revokedAt is set.
+      expect(mockPrisma.deviceCode.update).toHaveBeenCalledWith({
+        where: { id: 'session-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+      // Conditional and owner-scoped, so an already-revoked PAT is a no-op
+      // rather than a 404.
+      expect(mockPrisma.personalAccessToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 'pat-1', userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { deviceCodeId: 'session-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('revokes the refresh tokens a collected session credential issued', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        id: 'session-1',
+        userId: 'user-1',
+        status: DeviceCodeStatus.expired,
+        collectedAt: new Date(),
+        patId: null,
+        revokedAt: null,
+      } as any);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 2 } as any);
+
+      await service.revokeDeviceSession('user-1', 'session-1');
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { deviceCodeId: 'session-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.personalAccessToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('is idempotent: keeps the original revokedAt on a repeat call', async () => {
+      const firstRevokedAt = new Date('2026-01-01T00:00:00Z');
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        id: 'session-1',
+        userId: 'user-1',
+        status: DeviceCodeStatus.expired,
+        collectedAt: new Date(),
+        patId: 'pat-1',
+        revokedAt: firstRevokedAt,
+      } as any);
+      mockPrisma.personalAccessToken.updateMany.mockResolvedValue({
+        count: 0,
+      } as any);
+
+      await expect(
+        service.revokeDeviceSession('user-1', 'session-1'),
+      ).resolves.toEqual({
+        success: true,
+        message: 'Device session revoked successfully',
+      });
+      expect(mockPrisma.deviceCode.update).toHaveBeenCalledWith({
+        where: { id: 'session-1' },
+        data: { revokedAt: firstRevokedAt },
       });
     });
 
@@ -1097,7 +1359,10 @@ describe('DeviceAuthService', () => {
       mockPrisma.deviceCode.findUnique.mockResolvedValue({
         id: 'session-1',
         userId: 'other-user',
-        status: DeviceCodeStatus.approved,
+        status: DeviceCodeStatus.expired,
+        collectedAt: new Date(),
+        patId: 'pat-1',
+        revokedAt: null,
       } as any);
 
       await expect(
@@ -1107,8 +1372,11 @@ describe('DeviceAuthService', () => {
         service.revokeDeviceSession('user-1', 'session-1'),
       ).rejects.toThrow('Session not found');
 
-      // Should not attempt to update
+      // Should not attempt any write
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
       expect(mockPrisma.deviceCode.update).not.toHaveBeenCalled();
+      expect(mockPrisma.personalAccessToken.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -1122,16 +1390,43 @@ describe('DeviceAuthService', () => {
       expect(mockPrisma.deviceCode.deleteMany).toHaveBeenCalledWith({
         where: {
           OR: [
-            { expiresAt: { lt: expect.any(Date) } },
+            { collectedAt: null, expiresAt: { lt: expect.any(Date) } },
             {
+              collectedAt: null,
               status: DeviceCodeStatus.expired,
-              updatedAt: {
-                lt: expect.any(Date),
-              },
+              updatedAt: { lt: expect.any(Date) },
+            },
+            {
+              collectedAt: { not: null },
+              credentialExpiresAt: { lt: expect.any(Date) },
+            },
+            {
+              collectedAt: { not: null },
+              credentialExpiresAt: null,
+              updatedAt: { lt: expect.any(Date) },
             },
           ],
         },
       });
+    });
+
+    it('never deletes a collected session by the code expiry alone (#518)', async () => {
+      mockPrisma.deviceCode.deleteMany.mockResolvedValue({ count: 0 } as any);
+
+      await service.cleanupExpiredCodes();
+
+      const { where } = mockPrisma.deviceCode.deleteMany.mock.calls[0][0] as any;
+      // Every branch that looks at the code's own expiry (or its age) is
+      // restricted to uncollected rows, or to collected rows with no credential
+      // to anchor; a collected row with a live credential matches none.
+      for (const branch of where.OR) {
+        if ('expiresAt' in branch) {
+          expect(branch.collectedAt).toBeNull();
+        }
+        if ('collectedAt' in branch && branch.collectedAt !== null) {
+          expect('credentialExpiresAt' in branch).toBe(true);
+        }
+      }
     });
 
     it('should return 0 when no codes to cleanup', async () => {

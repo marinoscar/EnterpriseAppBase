@@ -18,8 +18,9 @@ export class DeviceSessionDto {
 
   @ApiProperty({
     description:
-      'Device authorization status. This endpoint lists approved-but-unredeemed requests ' +
-      'only, so in practice this is always `approved`.',
+      'Device authorization status. `approved` means approved but not yet collected by the ' +
+      'device; `expired` means the device collected its credential (see `collectedAt`). ' +
+      'Denied and pending requests are never listed.',
     enum: ['pending', 'approved', 'denied', 'expired'],
     example: 'approved',
   })
@@ -47,6 +48,42 @@ export class DeviceSessionDto {
     example: '2026-01-22T10:45:00Z',
   })
   expiresAt!: string;
+
+  @ApiProperty({
+    description:
+      'When the device collected its credential on `POST /auth/device/token`. `null` while ' +
+      'the request is approved but not yet collected.',
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    example: '2026-01-22T10:32:00Z',
+  })
+  collectedAt!: string | null;
+
+  @ApiProperty({
+    description:
+      'When the collected credential expires (`DEVICE_TOKEN_EXPIRY_DAYS` for a session ' +
+      'credential, `DEVICE_PAT_EXPIRY_DAYS` for a personal access token). The session leaves ' +
+      'this list once this passes. `null` until collection.',
+    type: String,
+    format: 'date-time',
+    nullable: true,
+    example: '2026-01-29T10:32:00Z',
+  })
+  credentialExpiresAt!: string | null;
+
+  @ApiProperty({
+    description:
+      'Kind of credential the device collected: `session` (access + refresh token) or `pat` ' +
+      '(personal access token). `null` until collection. Revoking the session revokes that ' +
+      'credential either way.',
+    // `null` listed explicitly: under OpenAPI 3.1 `nullable` widens `type` but
+    // not `enum`, so without it a `null` value would fail the schema.
+    enum: ['pat', 'session', null],
+    nullable: true,
+    example: 'session',
+  })
+  credentialType!: 'pat' | 'session' | null;
 }
 
 /**
@@ -54,13 +91,13 @@ export class DeviceSessionDto {
  */
 export class DeviceSessionsResponseDto {
   @ApiProperty({
-    description: 'Device authorizations on this page, newest first',
+    description: 'Device sessions on this page, newest first',
     type: [DeviceSessionDto],
   })
   sessions!: DeviceSessionDto[];
 
   @ApiProperty({
-    description: 'Total number of matching device authorizations across all pages',
+    description: 'Total number of listed device sessions across all pages',
     example: 10,
   })
   total!: number;

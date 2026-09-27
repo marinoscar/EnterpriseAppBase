@@ -579,6 +579,165 @@ describe('AuthService', () => {
     });
   });
 
+  describe('validateJwtPayload — device-issued tokens (did claim, #518)', () => {
+    const liveUser = {
+      id: 'user-1',
+      email: 'test@example.com',
+      isActive: true,
+      userRoles: [],
+    };
+    const devicePayload = {
+      sub: 'user-1',
+      email: 'test@example.com',
+      roles: [],
+      did: 'device-code-1',
+    };
+    const liveDeviceCode = {
+      id: 'device-code-1',
+      userId: 'user-1',
+      revokedAt: null,
+      credentialExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findUnique.mockResolvedValue(liveUser as any);
+    });
+
+    it('does not look up a device code for a token without did', async () => {
+      const result = await service.validateJwtPayload({
+        sub: 'user-1',
+        email: 'test@example.com',
+        roles: [],
+      });
+
+      expect(result).toEqual(liveUser);
+      expect(mockPrisma.deviceCode.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('accepts a token whose device session is live', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(liveDeviceCode as any);
+
+      const result = await service.validateJwtPayload(devicePayload);
+
+      expect(result).toEqual(liveUser);
+      expect(mockPrisma.deviceCode.findUnique).toHaveBeenCalledWith({
+        where: { id: 'device-code-1' },
+        select: {
+          id: true,
+          userId: true,
+          revokedAt: true,
+          credentialExpiresAt: true,
+        },
+      });
+    });
+
+    it('rejects a token whose device session was revoked', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        revokedAt: new Date(),
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects a token whose device credential has expired', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        credentialExpiresAt: new Date(Date.now() - 1000),
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects a token whose device session has no recorded credential expiry', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        credentialExpiresAt: null,
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it("rejects a token pointing at another user's device session", async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        userId: 'other-user',
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects a token whose device session no longer exists', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(null);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects an empty did without a lookup', async () => {
+      await expect(
+        service.validateJwtPayload({ ...devicePayload, did: '' }),
+      ).resolves.toBeNull();
+      expect(mockPrisma.deviceCode.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('still rejects an inactive user on a live device session', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(liveDeviceCode as any);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...liveUser,
+        isActive: false,
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+  });
+
+  describe('generateFullTokens — device session link (#518)', () => {
+    const user = {
+      id: 'user-1',
+      email: 'test@example.com',
+      userRoles: [{ role: { name: 'viewer' } }],
+    };
+
+    it('stamps did and links the refresh token when deviceCodeId is given', async () => {
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      const result = await service.generateFullTokens(user, {
+        accessTtlMinutes: 7 * 24 * 60,
+        refreshTtlDays: 7,
+        deviceCodeId: 'device-code-1',
+      });
+
+      expect(result.expiresIn).toBe(7 * 24 * 60 * 60);
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        { sub: 'user-1', email: 'test@example.com', roles: ['viewer'], did: 'device-code-1' },
+        { expiresIn: `${7 * 24 * 60}m` },
+      );
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+          deviceCodeId: 'device-code-1',
+        },
+      });
+    });
+
+    it('leaves an interactive login payload and refresh row without device fields', async () => {
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.generateFullTokens(user);
+
+      const [payload] = mockJwtService.sign.mock.calls[0];
+      expect(payload).toEqual({
+        sub: 'user-1',
+        email: 'test@example.com',
+        roles: ['viewer'],
+      });
+      const { data } = mockPrisma.refreshToken.create.mock.calls[0][0] as any;
+      expect(data).not.toHaveProperty('deviceCodeId');
+    });
+  });
+
   describe('getEnabledProviders', () => {
     it('should return google provider when configured', async () => {
       mockConfigService.get.mockImplementation((key: string) => {
@@ -934,6 +1093,197 @@ describe('AuthService', () => {
         },
         include: expect.any(Object),
       });
+    });
+  });
+
+  describe('refreshAccessToken — device chain (#518)', () => {
+    const mockUser = {
+      id: 'user-1',
+      email: 'test@example.com',
+      isActive: true,
+      userRoles: [{ role: { name: 'viewer' } }],
+    };
+
+    function deviceToken(
+      deviceCode: Partial<{
+        userId: string;
+        revokedAt: Date | null;
+        credentialExpiresAt: Date | null;
+      }> | null = {},
+      overrides: Record<string, unknown> = {},
+    ) {
+      return {
+        id: 'token-1',
+        userId: 'user-1',
+        tokenHash: 'hashed-token',
+        expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+        revokedAt: null,
+        createdAt: new Date(),
+        deviceCodeId: 'device-code-1',
+        user: mockUser,
+        deviceCode:
+          deviceCode === null
+            ? null
+            : {
+                id: 'device-code-1',
+                userId: 'user-1',
+                revokedAt: null,
+                credentialExpiresAt: new Date(
+                  Date.now() + 3 * 24 * 60 * 60 * 1000,
+                ),
+                ...deviceCode,
+              },
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      mockPrisma.refreshToken.update.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 } as any);
+    });
+
+    it('carries deviceCodeId onto the new row and did into the new access token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(deviceToken() as any);
+
+      await service.refreshAccessToken('device-refresh');
+
+      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'token-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+          deviceCodeId: 'device-code-1',
+        },
+      });
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'user-1', did: 'device-code-1' }),
+        expect.objectContaining({ expiresIn: expect.any(String) }),
+      );
+    });
+
+    it('never extends the chain past credentialExpiresAt', async () => {
+      const credentialExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2h left
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ credentialExpiresAt }) as any,
+      );
+
+      const result = await service.refreshAccessToken('device-refresh');
+
+      // Refresh row: capped at the device credential's expiry, not +14 days.
+      const { data } = mockPrisma.refreshToken.create.mock.calls[0][0] as any;
+      expect(data.expiresAt.getTime()).toBe(credentialExpiresAt.getTime());
+
+      // Access token: the device TTL (7 days) capped at the ~2h remaining.
+      expect(result.expiresIn).toBeGreaterThan(2 * 60 * 60 - 60);
+      expect(result.expiresIn).toBeLessThanOrEqual(2 * 60 * 60);
+      const [, signOptions] = mockJwtService.sign.mock.calls[0] as any;
+      expect(signOptions.expiresIn).toBe(`${result.expiresIn}s`);
+    });
+
+    it('uses the device access TTL when the credential outlives it', async () => {
+      mockConfigService.get.mockImplementation((key: string, def?: any) => {
+        const config: Record<string, any> = {
+          'jwt.accessTtlMinutes': 15,
+          'jwt.refreshTtlDays': 14,
+          'deviceAuth.tokenExpiryDays': 1,
+        };
+        return config[key] ?? def;
+      });
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({
+          credentialExpiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        }) as any,
+      );
+
+      const result = await service.refreshAccessToken('device-refresh');
+
+      expect(result.expiresIn).toBe(24 * 60 * 60);
+    });
+
+    it('refuses to rotate when the device session was revoked, and revokes the presented token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ revokedAt: new Date() }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        'Refresh token has been revoked',
+      );
+
+      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'token-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+      expect(mockJwtService.sign).not.toHaveBeenCalled();
+    });
+
+    it('refuses to rotate when the device credential has expired', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ credentialExpiresAt: new Date(Date.now() - 1000) }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses to rotate when the linked session belongs to another user", async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ userId: 'other-user' }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('does not sign the user out everywhere when a revoked device session presents its revoked token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ revokedAt: new Date() }, { revokedAt: new Date() }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        'Refresh token has been revoked',
+      );
+
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('still treats reuse on a LIVE device session as theft (revokes all user tokens)', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({}, { revokedAt: new Date() }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        'Refresh token has been revoked',
+      );
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('keeps an ordinary chain free of device fields', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken(null, { deviceCodeId: null }) as any,
+      );
+
+      await service.refreshAccessToken('plain-refresh');
+
+      const { data } = mockPrisma.refreshToken.create.mock.calls[0][0] as any;
+      expect(data).not.toHaveProperty('deviceCodeId');
+      const [payload, options] = mockJwtService.sign.mock.calls[0] as any;
+      expect(payload).not.toHaveProperty('did');
+      expect(options).toEqual({ expiresIn: '15m' });
     });
   });
 

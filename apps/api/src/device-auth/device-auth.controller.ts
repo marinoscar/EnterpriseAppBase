@@ -230,7 +230,7 @@ export class DeviceAuthController {
 
   /**
    * GET /auth/device/sessions
-   * List user's approved device sessions
+   * List user's live device sessions (approved or collected, not revoked)
    */
   @Get('sessions')
   @UseGuards(JwtAuthGuard)
@@ -238,10 +238,10 @@ export class DeviceAuthController {
   @ApiOperation({
     summary: 'List device sessions',
     description:
-      "Returns a paginated list of the current user's device authorizations that are still " +
-      'in the `approved` state — that is, approved but not yet redeemed. A request leaves ' +
-      'this list once the device collects its credential on `POST /auth/device/token`, so ' +
-      'this is not a list of live credentials.',
+      "Returns a paginated list of the current user's live device sessions: requests that " +
+      'are approved but not yet collected by the device, and sessions whose device has ' +
+      'collected its credential (`collectedAt`) and whose credential has not expired ' +
+      '(`credentialExpiresAt`). Revoked sessions are not listed.',
   })
   @ApiQuery({
     name: 'page',
@@ -281,7 +281,7 @@ export class DeviceAuthController {
 
   /**
    * DELETE /auth/device/sessions/:id
-   * Revoke a device session
+   * Revoke a device session and the credential it issued
    */
   @Delete('sessions/:id')
   @UseGuards(JwtAuthGuard)
@@ -290,11 +290,11 @@ export class DeviceAuthController {
   @ApiOperation({
     summary: 'Revoke device session',
     description:
-      'Revokes one of the current user\'s device authorizations, so the device can no longer ' +
-      'redeem it on the token endpoint. It does NOT invalidate a credential the device has ' +
-      'already collected: revoke a personal access token with `DELETE /api/pat/{id}`; for a ' +
-      'session credential `POST /auth/logout-all` revokes the refresh tokens, while the ' +
-      'issued access token stays valid until it expires.',
+      'Revokes one of the current user\'s device sessions together with the credential it ' +
+      'issued. An uncollected request is denied, so the device can no longer redeem it. A ' +
+      'collected personal access token is revoked. A collected session credential stops ' +
+      'working immediately: its access token is rejected on the next request and its ' +
+      'refresh tokens are revoked. Revoking an already-revoked session succeeds.',
   })
   @ApiResponse({
     status: 200,

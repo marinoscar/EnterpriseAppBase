@@ -217,7 +217,7 @@ The device picks the credential with `clientInfo.tokenType` in step 1:
 | What it is | Signed JWT access token plus refresh token | Opaque personal access token (`pat_…`) |
 | Default lifetime | `DEVICE_TOKEN_EXPIRY_DAYS` (7 days), for both tokens | `DEVICE_PAT_EXPIRY_DAYS` (90 days) |
 | Refresh token | Yes | No |
-| Revocable before expiry | Refresh token only; the access JWT is valid until it expires | Yes: `DELETE /api/pat/{id}` or the Access Tokens page |
+| Revocable before expiry | Yes: `DELETE /api/auth/device/sessions/{id}` revokes the refresh-token chain and kills the access token on its very next request | Yes: `DELETE /api/pat/{id}`, the Access Tokens page, or `DELETE /api/auth/device/sessions/{id}` |
 | Typical client | Short-lived or interactive devices | CLIs and other headless clients (`appctl`) |
 
 The `pat` poll response:
@@ -275,8 +275,8 @@ The contract (schemas, examples, status codes) is in the generated reference at
 | `POST /api/auth/device/token` | Poll with `deviceCode`; returns the credential or an RFC 8628 error | Public |
 | `GET /api/auth/device/activate?code=` | Activation page data: `verificationUri`, and for a code its `clientInfo` and `expiresAt` | Session JWT or PAT |
 | `POST /api/auth/device/authorize` | Approve or deny: `{ userCode, approve }` | Session JWT or PAT |
-| `GET /api/auth/device/sessions?page=&limit=` | Your approved codes not yet collected: `{ sessions, total, page, limit }` (default `limit` 10) | Session JWT or PAT |
-| `DELETE /api/auth/device/sessions/{id}` | Mark one of your codes denied | Session JWT or PAT |
+| `GET /api/auth/device/sessions?page=&limit=` | Your live device sessions — codes approved but not yet collected, plus collected sessions whose credential has not expired: `{ sessions, total, page, limit }` (default `limit` 10), each with `collectedAt`, `credentialExpiresAt`, `credentialType` | Session JWT or PAT |
+| `DELETE /api/auth/device/sessions/{id}` | Revoke one of your sessions: denies it if not yet collected, and revokes its PAT and refresh-token chain if it was | Session JWT or PAT |
 
 Error statuses on the lookup and approval routes: `404` for an unknown user
 code, `400` for an expired code or one that was already approved or denied.
@@ -475,25 +475,49 @@ A device code moves through these states:
 |--------|---------|
 | `pending` | Created, waiting for the user |
 | `approved` | The user approved; the device has not collected its credential yet |
-| `denied` | The user denied it, or revoked it before collection |
+| `denied` | The user denied it, or it was revoked before collection |
 | `expired` | Used (credential collected) or timed out |
 
-`GET /api/auth/device/sessions` lists your codes in the `approved` state, and
-`DELETE /api/auth/device/sessions/{id}` marks one `denied`. That stops a device
-that has **not yet** collected its credential. It does not revoke a credential
-already issued, because once a device collects it the code moves to `expired`.
+`GET /api/auth/device/sessions` lists two kinds of row: codes that are
+`approved` and not yet collected, and collected sessions whose credential has
+not passed `credentialExpiresAt`. Each row carries `collectedAt`,
+`credentialExpiresAt` and `credentialType` (`'pat'`, `'session'`, or `null`
+before collection), so a client can tell "waiting to be picked up" from
+"picked up and still valid" without a second call. A revoked session is never
+listed.
 
-To cut off a device that already has a credential:
+`DELETE /api/auth/device/sessions/{id}` revokes the session **and** whatever
+credential it issued, in one step:
 
-- **PAT**: revoke it on **Settings → Access Tokens** (it is named
-  `Device: <deviceName>`), or call `DELETE /api/pat/{id}` with the `tokenId`
-  from the poll response.
-- **Session**: `POST /api/auth/logout-all` revokes every refresh token you
-  hold. The access token stays valid until it expires (7 days by default), so
-  prefer the `pat` kind for any device that might be lost. An administrator
-  can also deactivate the account.
+- an uncollected request is also marked `denied`, so the device's next poll
+  gets `access_denied`;
+- a collected PAT is revoked;
+- every refresh token minted from this session is revoked, and the session's
+  access token stops authenticating on its very next request — a
+  device-issued access token carries a `did` claim identifying its session,
+  which the API re-checks on every request and which fails closed the moment
+  the session is revoked or its credential has expired.
 
-Expired codes are deleted by the daily `device-auth.code.cleanup` job.
+Calling it more than once, or on a device already dealt with from the other
+side, is harmless: revoking a PAT on **Settings → Access Tokens** first and
+then revoking the session here is a no-op on the second step, and vice versa.
+One asymmetry to know about: revoking the PAT directly from the Access Tokens
+page does **not** remove the session from this list — the credential itself
+stops working immediately, but the session row keeps appearing here until its
+`credentialExpiresAt` passes (or you also call
+`DELETE /api/auth/device/sessions/{id}` on it, which then does nothing
+further).
+
+There is no longer a gap to bridge for a session-kind credential: revoking
+the device session here is enough on its own, for both credential kinds.
+`POST /api/auth/logout-all` and deactivating the account remain available as
+broader tools (every session, or every credential the user holds), not as a
+substitute for revoking one device.
+
+Expired and revoked device codes are cleaned up by the daily
+`device-auth.code.cleanup` job; a collected row is kept until its credential's
+`credentialExpiresAt` passes, revoked or not, since that row is what the
+`did` claim is checked against on every request.
 
 ---
 
