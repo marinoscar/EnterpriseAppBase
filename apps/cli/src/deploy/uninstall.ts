@@ -74,6 +74,14 @@ export interface UninstallPlan {
   domain?: string | undefined;
   composeProject: string;
   /**
+   * The opt-in groups the deployment record names. They decide which compose
+   * files the stack runs with (compose-files.ts), and `down -v` removes only
+   * the services and volumes of the files it is given: without them a
+   * telemetry stack's containers and its `greptimedb-data` volume outlive the
+   * uninstall.
+   */
+  groups?: string[] | undefined;
+  /**
    * The proxy runtime the deployment record names, if any. Read here because
    * the record itself is deleted before the run ends.
    */
@@ -176,6 +184,7 @@ export function planUninstall(options: UninstallOptions): UninstallPlan {
     deployRoot,
     ...(state?.domain === undefined ? {} : { domain: state.domain }),
     composeProject: composeProjectFor(state),
+    ...(state?.groups === undefined ? {} : { groups: [...state.groups] }),
     ...(state?.proxyMode === undefined ? {} : { proxyMode: state.proxyMode }),
     ...(state?.proxyContainer === undefined ? {} : { proxyContainer: state.proxyContainer }),
     ...(env.get('POSTGRES_DB') === undefined ? {} : { databaseName: env.get('POSTGRES_DB') }),
@@ -213,6 +222,7 @@ export function confirmationMatches(
 async function purgeStorage(args: {
   deployRoot: string;
   composeProject: string;
+  groups: readonly string[] | undefined;
   confirmBucket: string | undefined;
   runCommand: typeof defaultRunCommand;
   journal: { line: (message: string) => void; redact: (text: string) => string };
@@ -239,6 +249,7 @@ async function purgeStorage(args: {
       args.confirmBucket,
     ],
     args.composeProject,
+    args.groups,
   );
 
   try {
@@ -290,6 +301,7 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
     const purge = await purgeStorage({
       deployRoot: options.deployRoot,
       composeProject: plan.composeProject,
+      groups: plan.groups,
       confirmBucket: options.confirmBucket,
       runCommand,
       journal,
@@ -311,7 +323,7 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
 
   const project = plan.composeProject;
   try {
-    await runCommand(composeArgv(['down', '-v'], project), {
+    await runCommand(composeArgv(['down', '-v'], project, plan.groups), {
       cwd: composeCwd(options.deployRoot),
       timeoutMs: 10 * 60_000,
       redact: journal.redact,

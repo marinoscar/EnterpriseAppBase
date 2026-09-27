@@ -160,6 +160,16 @@ interface UpdateContext extends StepContext {
   hostFacts?: HostFacts | undefined;
 }
 
+/**
+ * The opt-in groups this run acts under: the flag, else what install recorded
+ * -- NEVER read from the `.env`, for the reason `state.groups` gives. They
+ * decide both which new keys count as drift and which compose files make up
+ * the stack (compose-files.ts).
+ */
+function groupsOf(context: Pick<UpdateContext, 'options' | 'state'>): readonly EnvGroup[] {
+  return context.options.groups ?? (context.state.groups as EnvGroup[] | undefined) ?? [];
+}
+
 /** Collected ONCE per run and reused; see install.ts's `hostFactsOf`. */
 async function hostFactsOf(context: UpdateContext): Promise<HostFacts> {
   context.hostFacts ??= await collectHostFacts({ runCommand: context.runCommand });
@@ -235,9 +245,10 @@ async function compose(
   mkdirSync(join(context.options.deployRoot, 'deploy-info'), { recursive: true });
   // A network deleted since install (a `docker network prune`) fails `up`
   // with a message about compose, not about the network. See install.ts.
-  await ensureStackNetworks(context, extra);
+  await ensureStackNetworks(context, extra, groupsOf(context));
 
-  const result = await context.runCommand(composeArgv(extra, composeProjectFor(context.state)), {
+  const argv = composeArgv(extra, composeProjectFor(context.state), groupsOf(context));
+  const result = await context.runCommand(argv, {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
     redact: context.journal.redact,
@@ -448,10 +459,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         // those keys are NOT commented out, so `spec.optional` misses them.
         // Enabled groups come from the flag, else from what install recorded -
         // NEVER from reading the `.env`, for the reason `state.groups` gives.
-        const groups = (context.options.groups ??
-          (context.state.groups as EnvGroup[] | undefined) ??
-          []) as readonly EnvGroup[];
-        const added = genuinelyNewKeys(missing, { groups });
+        const added = genuinelyNewKeys(missing, { groups: groupsOf(context) });
 
         if (added.length === 0) {
           context.journal.line(
@@ -807,6 +815,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             : { domain: context.state.domain }),
           ...(context.options.fetch === undefined ? {} : { fetch: context.options.fetch }),
           ...oauthSmokeTarget(context.options.skipOAuthCheck, context.env),
+          groups: groupsOf(context),
         });
 
         if (!isHealthy(report)) {
@@ -996,6 +1005,10 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     lastDeployedAt: now,
     lastCommand: 'update',
     appctlVersion: CLI_VERSION,
+    // An explicit --group set replaces the recorded one: the stack was just
+    // brought up with THOSE compose files, so `status`, the next `update` and
+    // `uninstall` must name the same ones. Absent flag keeps the record.
+    ...(options.groups === undefined ? {} : { groups: [...options.groups] }),
     // Only when `publish` ran: an update that did not touch the proxy has
     // learned nothing new about it, and keeps what was recorded.
     ...(context.proxyRuntime === undefined

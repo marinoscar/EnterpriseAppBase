@@ -12,6 +12,8 @@ import {
   waitForHealthy,
   type HealthReport,
 } from './health.js';
+import { composeFilesFor } from './compose-files.js';
+import { composeArgv } from './install.js';
 
 type Canned = { exitCode: number; stdout?: string; stderr?: string };
 
@@ -387,6 +389,70 @@ describe('the compose project the health gate inspects', () => {
     // database, which is worse than the wrong answer it also gives.
     expect(seen[0]).toContain('-p');
     expect(seen[0]?.[seen[0].indexOf('-p') + 1]).toBe('myapp');
+  });
+});
+
+describe('the compose files the health gate names (#531)', () => {
+  function filesOf(argv: readonly string[] | undefined): string[] {
+    return (argv ?? []).filter((_, index) => argv?.[index - 1] === '-f');
+  }
+
+  it('names the same files as install and update, from one shared list', async () => {
+    const seen: string[][] = [];
+    const runCommand = fakeRunCommand((argv) => {
+      seen.push([...argv]);
+      return { exitCode: 0, stdout: '[]' };
+    });
+
+    await containerStates({ runCommand, deployRoot: '/opt/infra/apps/myapp', bindPort: 3535 });
+    await containerStates({
+      runCommand,
+      deployRoot: '/opt/infra/apps/myapp',
+      bindPort: 3535,
+      groups: ['observability'],
+    });
+
+    expect(filesOf(seen[0])).toEqual(composeFilesFor());
+    expect(filesOf(seen[1])).toEqual(composeFilesFor(['observability']));
+    expect(filesOf(seen[0])).toEqual(filesOf(composeArgv(['ps'])));
+    expect(filesOf(seen[1])).toEqual(filesOf(composeArgv(['ps'], undefined, ['observability'])));
+  });
+
+  it('includes the telemetry stack in the migration probe when observability is on', async () => {
+    const seen: string[][] = [];
+    const runCommand = fakeRunCommand((argv) => {
+      seen.push([...argv]);
+      return { exitCode: 0, stdout: 'Database schema is up to date!' };
+    });
+
+    await migrationState({
+      runCommand,
+      deployRoot: '/opt/infra/apps/myapp',
+      bindPort: 3535,
+      groups: ['observability'],
+    });
+
+    expect(filesOf(seen[0])).toContain('telemetry.compose.yml');
+    expect(filesOf(seen[0])).toContain('vps.telemetry.compose.yml');
+  });
+
+  it('leaves the telemetry stack out when the deployment never enabled it', async () => {
+    const seen: string[][] = [];
+    const runCommand = fakeRunCommand((argv) => {
+      seen.push([...argv]);
+      return { exitCode: 0, stdout: 'Database schema is up to date!' };
+    });
+
+    await migrationState({
+      runCommand,
+      deployRoot: '/opt/infra/apps/myapp',
+      bindPort: 3535,
+      groups: ['email'],
+    });
+
+    // Its `${GREPTIME_*_PASSWORD:?}` interpolation would fail compose outright
+    // on a `.env` the wizard never asked those keys for.
+    expect(filesOf(seen[0])).not.toContain('telemetry.compose.yml');
   });
 });
 
