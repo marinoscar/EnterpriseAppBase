@@ -50,7 +50,7 @@ function makeClient(overrides: Partial<FakeClient> = {}): FakeClient {
 }
 
 function build(currentPassword: (role: 'reader' | 'admin') => Promise<string | null> = async () => 'current-pw') {
-  const connection = { currentPassword: jest.fn(currentPassword) };
+  const connection = { currentPassword: jest.fn(currentPassword), deploymentHost: 'deploy-host' };
   const service = new TestableService(connection as never);
   return { service, connection };
 }
@@ -84,6 +84,33 @@ describe('TelemetryConnectionTestService', () => {
 
       expect(result.reader.success).toBe(true);
       expect('success' in result.admin && result.admin.success).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Automatic host (issue #562)
+  // ==========================================================================
+
+  describe('host', () => {
+    it('an automatic (null) host probes the deployment host, and reports it as `host`', async () => {
+      const { service } = build();
+
+      const result = await service.test({ ...CANDIDATE, host: null }, 'admin-1');
+
+      expect(result.host).toBe('deploy-host');
+      expect(service.created).toHaveLength(2);
+      for (const config of service.created) {
+        expect(config).toMatchObject({ host: 'deploy-host', port: 4003, database: 'public' });
+      }
+    });
+
+    it('a custom host probes exactly that host, and reports it as `host`', async () => {
+      const { service } = build();
+
+      const result = await service.test(CANDIDATE, 'admin-1');
+
+      expect(result.host).toBe('candidate-host');
+      expect(service.created[0]).toMatchObject({ host: 'candidate-host' });
     });
   });
 

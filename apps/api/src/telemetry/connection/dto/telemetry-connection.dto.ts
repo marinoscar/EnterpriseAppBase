@@ -2,8 +2,10 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import {
+  TELEMETRY_DEFAULT_DATABASE,
+  TELEMETRY_DEFAULT_PG_PORT,
   telemetryDatabaseSchema,
-  telemetryHostSchema,
+  telemetryOptionalHostSchema,
   telemetryPgPortSchema,
   telemetryUserSchema,
 } from '../telemetry-connection.schema';
@@ -33,12 +35,17 @@ const adminUserSchema = z
   .transform((value) => (value ? value : null));
 
 export const updateTelemetryConnectionSchema = z.object({
-  /** Hostname or IP address of GreptimeDB's Postgres-wire endpoint. No scheme, port or path. */
-  host: telemetryHostSchema,
-  /** GreptimeDB's Postgres-wire port (4003 by default). */
-  pgPort: telemetryPgPortSchema,
-  /** The database telemetry is written to. A plain identifier (`public` by default). */
-  database: telemetryDatabaseSchema,
+  /**
+   * Hostname or IP address of GreptimeDB's Postgres-wire endpoint (no scheme,
+   * port or path) — a CUSTOM override. Omit it, or send null or blank, for
+   * AUTOMATIC: the deployment host (`GREPTIME_HOST`, else the compose service
+   * `greptimedb`), stored as null and resolved at use, never as a literal.
+   */
+  host: telemetryOptionalHostSchema,
+  /** GreptimeDB's Postgres-wire port. Omitted: 4003. */
+  pgPort: telemetryPgPortSchema.default(TELEMETRY_DEFAULT_PG_PORT),
+  /** The database telemetry is written to. A plain identifier. Omitted: `public`. */
+  database: telemetryDatabaseSchema.default(TELEMETRY_DEFAULT_DATABASE),
   /** The `readonly` GreptimeDB user the explorer, assistant and status page use. */
   readerUser: telemetryUserSchema,
   /**
@@ -60,6 +67,7 @@ export type UpdateTelemetryConnectionInput = z.output<typeof updateTelemetryConn
 
 /**
  * `POST …/connection/test` — a CANDIDATE connection, not necessarily saved.
+ * A blank/absent host probes the deployment host (reported back as `host`).
  * A blank password means "the password the connection in force uses for that
  * login" (the stored one, or the environment's while the deployment default
  * is in force).
@@ -91,8 +99,20 @@ export const telemetryConnectionResponseSchema = z.object({
    * `environment` (the `GREPTIME_*` deployment default) or `none`.
    */
   source: z.enum(TELEMETRY_CONNECTION_SOURCES),
-  /** Empty when `source` is `none`. */
-  host: z.string(),
+  /**
+   * The host as CONFIGURED: null when it is automatic (a stored connection
+   * with no host, or `source` `none`); a literal for a custom override or,
+   * for `source` `environment`, `GREPTIME_HOST`.
+   */
+  host: z.string().nullable(),
+  /**
+   * The host actually used (or, for `source` `none`, the one an automatic
+   * host would use: the deployment host). Empty only for a stored connection
+   * that does not validate.
+   */
+  effectiveHost: z.string(),
+  /** `auto` — `host` is null and `effectiveHost` is the deployment host; `custom` — a literal. */
+  hostMode: z.enum(['auto', 'custom']),
   pgPort: z.number().int(),
   database: z.string(),
   /** Empty when `source` is `none`. */
@@ -131,6 +151,8 @@ export const telemetryConnectionSkippedSchema = z.object({
 });
 
 export const telemetryConnectionTestResultSchema = z.object({
+  /** The host actually probed — the deployment host when the request left `host` blank. */
+  host: z.string(),
   /** `SELECT version()` as the reader. */
   reader: telemetryConnectionProbeSchema,
   /** `SHOW CREATE DATABASE <database>` as the admin, or skipped. */

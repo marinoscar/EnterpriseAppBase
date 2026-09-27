@@ -246,7 +246,9 @@ export class TelemetryConnectionAdminService {
 
 /**
  * The NAMES of the connection fields that differ — every field when nothing
- * was stored before. Never the values.
+ * was stored before. Never the values. A `host` moving between automatic
+ * (null) and a literal is a change, even when the literal equals the
+ * deployment host: the connection no longer follows the deployment.
  */
 export function diffConnectionFieldNames(
   before: TelemetryConnectionValue | null,
@@ -260,7 +262,7 @@ export function diffConnectionFieldNames(
 /** The admin view of a state. Non-secret by construction: it never sees a password. */
 export function toResponse(
   state: TelemetryConnectionState,
-  connection: Pick<TelemetryConnectionService, 'isConfigured' | 'isAdminConfigured'>,
+  connection: Pick<TelemetryConnectionService, 'isConfigured' | 'isAdminConfigured' | 'deploymentHost'>,
 ): TelemetryConnectionResponse {
   const { snapshot } = state;
 
@@ -290,7 +292,10 @@ export function toResponse(
 
   return {
     source: snapshot.source,
-    host: snapshot.host,
+    // Null when automatic: the form shows "Automatic: <effectiveHost>".
+    host: snapshot.hostMode === 'auto' ? null : snapshot.host,
+    effectiveHost: snapshot.source === 'none' ? connection.deploymentHost : snapshot.host,
+    hostMode: snapshot.hostMode,
     pgPort: snapshot.pgPort,
     database: snapshot.database,
     readerUser: snapshot.reader.user,

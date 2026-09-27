@@ -35,6 +35,11 @@ import { TelemetryConnectionService } from './telemetry-connection.service';
 // ALWAYS ANSWERS. A refused login or an unreachable host is a successful
 // diagnosis reported in `success`/`error`, never an HTTP error.
 //
+// A BLANK HOST means the deployment host (`GREPTIME_HOST`, else the compose
+// service `greptimedb`) — exactly what an automatic host resolves to once
+// saved (issue #562). The host actually probed is returned as `host`, so the
+// form can say what "automatic" meant.
+//
 // A BLANK PASSWORD means "the password the connection in force uses for that
 // login" — the stored one, or the environment's while the deployment default
 // is in force — so an administrator can test a changed host without retyping
@@ -55,6 +60,13 @@ export interface TelemetryProbeClient {
   on(event: 'error', listener: (error: Error) => void): unknown;
 }
 
+/** Where a probe connects — the candidate, with an automatic host already resolved. */
+interface ProbeTarget {
+  host: string;
+  pgPort: number;
+  database: string;
+}
+
 /** How long `end()` may take before a probe stops waiting for it. */
 const PROBE_END_GRACE_MS = 1_000;
 
@@ -65,10 +77,15 @@ export class TelemetryConnectionTestService {
   constructor(private readonly connection: TelemetryConnectionService) {}
 
   async test(input: TestTelemetryConnectionInput, userId: string): Promise<TelemetryConnectionTestResult> {
+    const target: ProbeTarget = {
+      host: input.host ?? this.connection.deploymentHost,
+      pgPort: input.pgPort,
+      database: input.database,
+    };
     const readerPassword = await this.passwordFor('reader', input.readerPassword);
 
     const reader = readerPassword
-      ? await this.probe('reader', input, input.readerUser, readerPassword, 'SELECT version()')
+      ? await this.probe('reader', target, input.readerUser, readerPassword, 'SELECT version()')
       : missingPassword('reader');
 
     let admin: TelemetryConnectionTestResult['admin'];
@@ -81,7 +98,7 @@ export class TelemetryConnectionTestService {
       admin = adminPassword
         ? await this.probe(
             'admin',
-            input,
+            target,
             input.adminUser,
             adminPassword,
             `SHOW CREATE DATABASE ${quoteIdent(input.database)}`,
@@ -90,11 +107,11 @@ export class TelemetryConnectionTestService {
     }
 
     this.logger.log(
-      `Telemetry connection test by user ${userId}: reader=${reader.success ? 'ok' : 'failed'} ` +
+      `Telemetry connection test by user ${userId} (host=${target.host}): reader=${reader.success ? 'ok' : 'failed'} ` +
         `admin=${'skipped' in admin ? 'skipped' : admin.success ? 'ok' : 'failed'}`,
     );
 
-    return { reader, admin };
+    return { host: target.host, reader, admin };
   }
 
   /** Builds a client. A seam for tests; production code never overrides it. */
@@ -112,7 +129,7 @@ export class TelemetryConnectionTestService {
 
   private async probe(
     role: TelemetryConnectionRole,
-    target: TestTelemetryConnectionInput,
+    target: ProbeTarget,
     user: string,
     password: string,
     sql: string,

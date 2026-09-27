@@ -4,7 +4,13 @@ import {
   TelemetryConnectionService,
   type GreptimeEnvironmentConfig,
 } from './telemetry-connection.service';
-import { TELEMETRY_CONNECTION_SETTINGS_KEY, TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE } from './telemetry-connection.schema';
+import {
+  TELEMETRY_CONNECTION_SETTINGS_KEY,
+  TELEMETRY_DEFAULT_HOST,
+  TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE,
+  telemetryConnectionValueSchema,
+  telemetryDeploymentHost,
+} from './telemetry-connection.schema';
 
 // =============================================================================
 // TelemetryConnectionService — tests (issue #558, epic #528)
@@ -317,6 +323,98 @@ describe('TelemetryConnectionService', () => {
 
       expect(service.fingerprint('reader')).toBeNull();
       expect(service.fingerprint('admin')).toBeNull();
+    });
+  });
+
+  // ==========================================================================
+  // Automatic host (issue #562)
+  // ==========================================================================
+
+  describe('automatic host', () => {
+    const AUTO_VALUE = { ...STORED_VALUE, host: null };
+
+    function storedAuto(env: Partial<GreptimeEnvironmentConfig>) {
+      const built = build(env);
+      built.prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: AUTO_VALUE });
+      built.credentials.describe.mockImplementation(async (_purpose: string, role: string) =>
+        role === 'reader' ? READER_INFO : ADMIN_INFO,
+      );
+      return built;
+    }
+
+    it('the compose service name is the last-resort deployment host', () => {
+      expect(TELEMETRY_DEFAULT_HOST).toBe('greptimedb');
+      expect(telemetryDeploymentHost('')).toBe('greptimedb');
+      expect(telemetryDeploymentHost('   ')).toBe('greptimedb');
+      expect(telemetryDeploymentHost(undefined)).toBe('greptimedb');
+      expect(telemetryDeploymentHost(' env-host ')).toBe('env-host');
+    });
+
+    it('a stored null host resolves to GREPTIME_HOST at refresh, and is still the stored connection', async () => {
+      const { service } = storedAuto(ENV);
+
+      const state = await service.refresh();
+
+      expect(state.snapshot.source).toBe('stored');
+      expect(state.snapshot.host).toBe('env-host');
+      expect(state.snapshot.hostMode).toBe('auto');
+      // The stored value keeps null — the literal is never written back.
+      expect(state.stored?.host).toBeNull();
+      // Everything else still comes from the row, not the environment.
+      expect(state.snapshot.reader.user).toBe('stored-reader');
+      expect(service.isConfigured()).toBe(true);
+    });
+
+    it('a stored null host resolves to the compose service name when GREPTIME_HOST is unset or blank', async () => {
+      for (const host of ['', '   ']) {
+        const { service } = storedAuto({ ...NO_ENV, host });
+
+        const state = await service.refresh();
+
+        expect(state.snapshot.host).toBe(TELEMETRY_DEFAULT_HOST);
+        expect(service.deploymentHost).toBe(TELEMETRY_DEFAULT_HOST);
+        expect(service.isConfigured()).toBe(true);
+      }
+    });
+
+    it('resolveCredentials connects an automatic host to the deployment host', async () => {
+      const { service, credentials } = storedAuto(ENV);
+      credentials.getSecret.mockResolvedValue('stored-reader-pw');
+      await service.refresh();
+
+      await expect(service.resolveCredentials('reader')).resolves.toMatchObject({ host: 'env-host' });
+    });
+
+    it('the fingerprint carries the effective host, so a different deployment host means new pools', async () => {
+      const first = storedAuto(ENV);
+      const second = storedAuto({ ...ENV, host: 'moved-host' });
+      await first.service.refresh();
+      await second.service.refresh();
+
+      expect(first.service.fingerprint('reader')).toContain('env-host');
+      expect(second.service.fingerprint('reader')).toContain('moved-host');
+      expect(second.service.fingerprint('reader')).not.toBe(first.service.fingerprint('reader'));
+    });
+
+    it('a stored string host (every row saved before #562) is a custom override', async () => {
+      const { service, prisma } = build(ENV);
+      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+
+      const state = await service.refresh();
+
+      expect(state.snapshot.hostMode).toBe('custom');
+      expect(state.snapshot.host).toBe('stored-host');
+      expect(state.stored?.host).toBe('stored-host');
+    });
+
+    it('the environment source is a custom host; none is automatic', async () => {
+      expect((await build(ENV).service.refresh()).snapshot.hostMode).toBe('custom');
+      expect((await build(NO_ENV).service.refresh()).snapshot.hostMode).toBe('auto');
+    });
+
+    it('the stored-value schema accepts a null host and still refuses a malformed one', () => {
+      expect(telemetryConnectionValueSchema.safeParse(AUTO_VALUE).success).toBe(true);
+      expect(telemetryConnectionValueSchema.safeParse({ ...STORED_VALUE, host: 'http://x:4003' }).success).toBe(false);
     });
   });
 

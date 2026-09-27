@@ -5,6 +5,10 @@ import { TelemetryAdminController } from './telemetry-admin.controller';
 import { TelemetryConfigController } from './telemetry-config.controller';
 import { TelemetryExplorerController } from './telemetry-explorer.controller';
 import { TelemetryConnectionController } from './connection/telemetry-connection.controller';
+import {
+  testTelemetryConnectionSchema,
+  updateTelemetryConnectionSchema,
+} from './connection/dto/telemetry-connection.dto';
 
 // `@ApiExtension` stores its value under `swagger/apiExtension`.
 const API_EXTENSION = 'swagger/apiExtension';
@@ -157,6 +161,52 @@ describe('Telemetry controllers — access declarations', () => {
       await controller.testConnection(body, 'user-1');
 
       expect(tester.test).toHaveBeenCalledWith(body, 'user-1');
+    });
+
+    describe('request bodies (issue #562)', () => {
+      const MINIMAL = { readerUser: 'reader', adminUser: null };
+
+      it.each([
+        ['absent', {}],
+        ['null', { host: null }],
+        ['empty', { host: '' }],
+        ['whitespace', { host: '   ' }],
+      ])('a %s host is automatic (null) on PUT and on test', (_label, host) => {
+        for (const schema of [updateTelemetryConnectionSchema, testTelemetryConnectionSchema]) {
+          const parsed = schema.parse({ ...MINIMAL, ...host });
+
+          expect(parsed.host).toBeNull();
+        }
+      });
+
+      it('a non-blank host is a custom override, trimmed and validated as before', () => {
+        expect(updateTelemetryConnectionSchema.parse({ ...MINIMAL, host: ' greptime.internal ' }).host).toBe(
+          'greptime.internal',
+        );
+        expect(updateTelemetryConnectionSchema.parse({ ...MINIMAL, host: '10.0.0.5' }).host).toBe('10.0.0.5');
+
+        for (const host of ['http://greptimedb', 'greptimedb:4003', 'a/b', 'x'.repeat(254)]) {
+          expect(updateTelemetryConnectionSchema.safeParse({ ...MINIMAL, host }).success).toBe(false);
+        }
+      });
+
+      it('pgPort and database default to 4003 / public when omitted, and are still validated when sent', () => {
+        const parsed = updateTelemetryConnectionSchema.parse(MINIMAL);
+
+        expect(parsed.pgPort).toBe(4003);
+        expect(parsed.database).toBe('public');
+        expect(updateTelemetryConnectionSchema.parse({ ...MINIMAL, pgPort: 5000, database: 'tele' })).toMatchObject({
+          pgPort: 5000,
+          database: 'tele',
+        });
+        expect(updateTelemetryConnectionSchema.safeParse({ ...MINIMAL, pgPort: 0 }).success).toBe(false);
+        expect(updateTelemetryConnectionSchema.safeParse({ ...MINIMAL, database: 'bad-name' }).success).toBe(false);
+      });
+
+      it('readerUser is still required', () => {
+        expect(updateTelemetryConnectionSchema.safeParse({ adminUser: null }).success).toBe(false);
+        expect(testTelemetryConnectionSchema.safeParse({ adminUser: null }).success).toBe(false);
+      });
     });
   });
 });

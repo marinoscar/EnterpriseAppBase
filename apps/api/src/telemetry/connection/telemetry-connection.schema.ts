@@ -10,7 +10,7 @@ import { z } from 'zod';
 // WHAT IS STORED, AND WHERE
 // -----------------------------------------------------------------------------
 //
-//   system_settings row 'telemetry_connection'   host, pgPort, database,
+//   system_settings row 'telemetry_connection'   host (null = automatic), pgPort, database,
 //                                                readerUser, adminUser
 //   credentials (telemetry_greptime, reader)     the reader's password
 //   credentials (telemetry_greptime, admin)      the admin's password
@@ -40,6 +40,27 @@ import { z } from 'zod';
 
 /** The `system_settings.key` the stored connection lives under. */
 export const TELEMETRY_CONNECTION_SETTINGS_KEY = 'telemetry_connection';
+
+/**
+ * The host GreptimeDB answers on in every supported deployment: the Docker
+ * Compose service name `greptimedb`, on the API's network, in both
+ * `infra/compose/telemetry.compose.yml` and `vps.telemetry.compose.yml` (and
+ * `.env.example` ships `GREPTIME_HOST=greptimedb`). It is the last resort of
+ * the DEPLOYMENT HOST (`GREPTIME_HOST` when set and non-blank, else this), which
+ * a stored connection with an AUTOMATIC host (`host: null`, issue #562)
+ * resolves to at refresh time, so it follows the deployment instead of freezing
+ * a literal an operator never chose.
+ */
+export const TELEMETRY_DEFAULT_HOST = 'greptimedb';
+
+/** GreptimeDB's Postgres-wire default port, and its default database. */
+export const TELEMETRY_DEFAULT_PG_PORT = 4003;
+export const TELEMETRY_DEFAULT_DATABASE = 'public';
+
+/** The deployment host: `GREPTIME_HOST` when set and non-blank, else `TELEMETRY_DEFAULT_HOST`. */
+export function telemetryDeploymentHost(environmentHost: string | null | undefined): string {
+  return environmentHost?.trim() || TELEMETRY_DEFAULT_HOST;
+}
 
 /** Credential-store purpose (and cipher sub-key domain) of the two passwords. */
 export const TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE = 'telemetry_greptime';
@@ -80,6 +101,17 @@ export const telemetryHostSchema = z
     message: 'host must be a hostname or an IP address — no scheme, port or path',
   });
 
+/**
+ * A host as SUBMITTED on the admin form: absent, null or blank means AUTOMATIC
+ * (output `null` — the deployment host, resolved at use); anything else is a
+ * custom override validated by `telemetryHostSchema`.
+ */
+export const telemetryOptionalHostSchema = z
+  .string()
+  .nullish()
+  .transform((value) => (value?.trim() ? value.trim() : null))
+  .pipe(telemetryHostSchema.nullable());
+
 export const telemetryPgPortSchema = z.number().int().min(1).max(65535);
 
 export const telemetryDatabaseSchema = z
@@ -95,7 +127,12 @@ export const telemetryUserSchema = z.string().trim().min(1).max(128);
 
 /** The stored row's `value`. Non-secret by construction. */
 export const telemetryConnectionValueSchema = z.object({
-  host: telemetryHostSchema,
+  /**
+   * Null: AUTOMATIC — the deployment host (`telemetryDeploymentHost`),
+   * resolved at every refresh and never stored as a literal (issue #562). A
+   * string is a custom override; every row saved before #562 has one.
+   */
+  host: telemetryHostSchema.nullable(),
   pgPort: telemetryPgPortSchema,
   database: telemetryDatabaseSchema,
   readerUser: telemetryUserSchema,
