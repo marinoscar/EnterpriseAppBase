@@ -1,12 +1,12 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** In progress
+> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
-This spec covers replacing the current Uptrace/ClickHouse/Redis observability
-stack with a two-container overlay: an OTel Collector in front of a GreptimeDB
-standalone instance. Admins query telemetry with SQL, export the results, and
-ask an AI assistant about them. The application's own PostgreSQL database
-takes no telemetry load: traces, logs and metrics live in GreptimeDB alone.
+This is a two-container overlay — an OTel Collector in front of a GreptimeDB
+standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
+Admins query telemetry with SQL, export the results, and ask an AI assistant
+about them. The application's own PostgreSQL database takes no telemetry
+load: traces, logs and metrics live in GreptimeDB alone.
 
 ## Decision record
 
@@ -233,21 +233,377 @@ using that role for every user-supplied query.
   no-buffering discipline the backup engine already follows for larger
   transfers.
 
-## Sections to come
+## 1. Architecture
 
-The following sections are not written yet:
+```
+API (OTel Node SDK)
+  │ OTLP/HTTP, gated by telemetryGate (see §2)
+  ▼
+otel-collector                                          (infra/otel/otel-collector-config.yaml)
+  │ memory_limiter → attributes/redact → batch
+  │   redact drops: http.request.header.authorization, http.request.header.cookie,
+  │                 http.response.header.set-cookie, url.query
+  │ basicauth/greptime (GREPTIME_WRITER_USER/PASSWORD)
+  ├─ traces  → otlphttp/greptime_traces  (adds x-greptime-pipeline-name: greptime_trace_v1)
+  └─ logs, metrics → otlphttp/greptime
+  ▼
+GreptimeDB standalone v1.2.1                             (infra/compose/telemetry.compose.yml)
+  HTTP :4000 (ingest, /health, /dashboard) · Postgres wire :4003
+  ▲
+  │ Postgres wire protocol, GreptimeClient (apps/api/src/telemetry/greptime/greptime.client.ts)
+  │   reader pool  (GREPTIME_READER_*) — explorer, assistant, status
+  │   admin pool   (GREPTIME_ADMIN_*)  — retention ALTER DATABASE, SHOW CREATE DATABASE
+  ▼
+API (TelemetryModule) ──► Admin browser (explorer, assistant, settings)
+```
 
-- Architecture (containers, data flow, module layout)
-- Security model (credentials, network exposure, AI data sharing boundary)
-- Retention (operator-facing policy and configuration)
-- AI data sharing (what the assistant may see and query)
-- BI access (read-only access for external tools)
+`TelemetryModule` (`apps/api/src/telemetry/telemetry.module.ts`) wires:
+
+- `GreptimeClient` — the only connection to the store (§2).
+- `TelemetrySettingsService` — the `telemetry` settings namespace, its 5 s
+  cache, and the export gate (§2).
+- `TelemetryStatusService` — `GET /api/admin/telemetry/status`.
+- `TelemetryRetentionHandler` + `TelemetryRetentionTask` — the retention job
+  and its daily cron (§4).
+- `TelemetryQueryService`, `TelemetrySchemaService`, `TelemetryExportService`
+  — the explorer (§5).
+- `TelemetryAssistantService` — the AI assistant (§6), built on `AiModule`.
+
+Four controllers, all tagged `Telemetry` in the OpenAPI document:
+`TelemetryConfigController` (public feature flag), `TelemetryAdminController`
+(policy + status), `TelemetryExplorerController` (query/schema/export) and
+`TelemetryAssistantController` (the SSE route).
+
+GreptimeDB creates tables on first write, with no migration step: typically
+`opentelemetry_traces` (spans), `opentelemetry_logs` (log records), and one
+table per exported metric. Span, resource and log attributes are flattened
+into their own columns whose names contain dots (`"span_attributes.http
+.route"`, `"resource_attributes.service.name"`), created dynamically as new
+attribute keys arrive — see the spike findings above for the full column
+inventory and quoting rule.
+
+## 2. The two switches
+
+Two independent controls decide whether telemetry data ever leaves this
+process, documented in full in `apps/api/src/common/otel/telemetry-gate.ts`:
+
+1. **`OTEL_ENABLED`** (environment, infra). Read once by
+   `apps/api/src/instrumentation.ts` before Nest exists: whether the
+   OpenTelemetry SDK is installed in this process at all. It cannot change
+   without a restart — auto-instrumentation only patches modules required
+   after `sdk.start()`. `telemetry.compose.yml` sets it to `true` on the
+   `api` service.
+2. **`telemetry.enabled`** (system setting, admin UI). Whether what the
+   installed SDK produces is actually exported. An administrator flips it at
+   runtime with no restart.
+
+The SDK keeps running either way — spans are still created, log records
+still correlated, metrics still aggregated — and the gated exporters
+(`GatedSpanExporter`, `GatedLogRecordExporter`, `GatedPushMetricExporter`)
+simply drop each batch while the gate is closed, acknowledged as success so
+nothing retries or logs an export error for it. The gate is read at export
+time, not at creation time, so a batch queued while closed and flushed after
+the gate opens is still sent.
+
+**The gate starts closed.** Nothing leaves the process until settings have
+been read and an administrator's choice is known.
+
+`TelemetrySettingsService.refreshGate()` sets the gate to
+`telemetry.enabled && GreptimeClient.isConfigured()` — both conditions,
+because with no GreptimeDB there is nowhere for the collector to write. It
+runs once on boot and every `TELEMETRY_GATE_REFRESH_MS` (5 s) after, so the
+instance that served a `PUT` flips its own gate immediately and every other
+instance in a fleet converges within one interval. A failed settings read
+leaves the gate at its last value rather than flipping it either way.
+
+## 3. Settings
+
+The `telemetry` system-settings namespace (`systemTelemetrySchema`,
+`apps/api/src/common/schemas/settings.schema.ts`), read and written through
+`TelemetrySettingsService`:
+
+| Field | Type | Range | Default |
+|---|---|---|---|
+| `enabled` | boolean | — | `false` |
+| `retentionDays` | integer | 1–3650 | `30` |
+| `query.maxRows` | integer | 1–100000 | `10000` |
+| `query.timeoutSeconds` | integer | 1–120 | `30` |
+| `assistant.enabled` | boolean | — | `false` |
+| `assistant.provider` | string or `null` | — | `null` |
+| `assistant.modelId` | string or `null` | — | `null` |
+| `assistant.shareResults` | boolean | — | `true` |
+| `assistant.maxResultRowsToModel` | integer | 1–100 | `100` |
+| `assistant.maxSteps` | integer | 1–12 | `6` |
+
+Everything ships off: a fresh deployment does not collect or retain
+observability data nobody asked for merely because the namespace exists, the
+same posture `databaseBackup.enabled` and `ai.enabled` take. `assistant` is a
+second, narrower switch nested inside the namespace: `assistant.enabled`
+answers "may an AI model be pointed at telemetry data", on top of `enabled`
+answering "is telemetry collected at all". A compile-time check
+(`TELEMETRY_SETTINGS_CARRIES_NO_SECRET`) fails the build if a field named
+like a credential (`apiKey`, `password`, `token`, …) is ever added to this
+namespace — the assistant's AI key is resolved through `AiKeyResolver`, per
+call, and never stored here.
+
+`GET`/`PUT /api/admin/telemetry/config` (`telemetry:read`/`telemetry:write`)
+read and replace the namespace with the usual `If-Match` optimistic
+concurrency. A successful `PUT` also enqueues a `telemetry.retention.apply`
+job so a changed retention reaches GreptimeDB immediately rather than at the
+next nightly run. `GET /api/telemetry/config` is the public feature flag
+(`@Auth()`, no permission — any signed-in user, like `GET /api/ai/config`):
+`available`, `enabled`, `assistantEnabled`, nothing else.
+
+## 4. Retention
+
+`telemetry.retention.apply` (`TelemetryRetentionHandler`,
+`apps/api/src/telemetry/handlers/telemetry-retention.handler.ts`) runs one
+statement:
+
+```sql
+ALTER DATABASE <GREPTIME_DB> SET 'ttl'='<retentionDays>d'
+```
+
+as the GreptimeDB admin user. One database-level TTL covers every telemetry
+table, including per-metric and per-attribute tables GreptimeDB creates
+later — tables inherit the database's TTL. GreptimeDB enforces it itself
+during compaction; the job only states the policy, it deletes nothing
+directly.
+
+**The database name is deliberately unquoted.** GreptimeDB v1.2.1 resolves a
+double-quoted name in `ALTER DATABASE` literally (`"public"` fails with
+"Failed to find schema"), so the statement builder instead restricts the
+name to a plain identifier (`^[A-Za-z_][A-Za-z0-9_]*$`) and refuses anything
+else, checked again at the job even though `GREPTIME_DB` is already
+validated at startup.
+
+**Idempotent**: setting the TTL to the value it already has is a no-op on
+the server, so a retry, a duplicate enqueue, or the daily re-assertion are
+all harmless. The job is enqueued by every successful
+`PUT /api/admin/telemetry/config` and by `TelemetryRetentionTask`
+(`@Cron(EVERY_DAY_AT_4AM)`, enqueue-only per the queue-job rule) — daily
+re-assertion matters because a fresh GreptimeDB volume starts with no TTL,
+and the save-time enqueue may have raced a store that was briefly down.
+
+Retention is **not gated on `telemetry.enabled`**: a deployment that
+switched collection off still wants what it already collected to age out. A
+deployment without GreptimeDB, or without `GREPTIME_ADMIN_USER`/
+`GREPTIME_ADMIN_PASSWORD` configured, completes the job as a no-op with a
+log line — a supported configuration, not a failure. The job is
+**server-only, permanently**: no `nodeResultSchema`/`persistNodeResult`,
+because the statement needs the GreptimeDB admin credential (CLAUDE.md queue
+rule 3).
+
+## 5. Explorer
+
+Three routes, all `telemetry:query`, all on `TelemetryExplorerController`:
+
+| Route | Purpose |
+|---|---|
+| `POST /api/admin/telemetry/query` | Run one read-only statement; returns columns, rows, `truncated` |
+| `GET /api/admin/telemetry/schema` | Every table with its columns, row estimates and semantic types |
+| `POST /api/admin/telemetry/export` | Run the same statement and return it as a file attachment |
+
+`TelemetryQueryService.run` (`apps/api/src/telemetry/query/telemetry-query
+.service.ts`) is the **one entry point** for caller-supplied SQL: the
+explorer, the export and the assistant's `run_query` tool all come through
+it, so all three get the same guard, bounds and audit trail.
+
+**The SQL guard** (`apps/api/src/telemetry/query/sql-guard.ts`) is defence
+in depth on top of GreptimeDB's own read-only user, which already refuses
+`INSERT`/`DROP`/`ALTER`/`SET`. It is a small lexer, not a parser: it strips
+comments outside quotes, then requires
+
+- **exactly one statement** — GreptimeDB's simple query protocol executes
+  every statement in a semicolon-separated string, so a caller-supplied
+  second statement is refused here, before it is ever sent; and
+- **one of `SELECT`, `WITH`, `SHOW`, `DESCRIBE`/`DESC`, `EXPLAIN`** (not
+  `EXPLAIN ANALYZE`, which runs the whole query).
+
+A `SELECT`/`WITH` is wrapped as `SELECT * FROM (<statement>) AS
+telemetry_q LIMIT <cap + 1>`, so GreptimeDB itself stops at the cap and the
+extra row (if returned) is how `truncated` is known. `SHOW`/`DESCRIBE`/
+`EXPLAIN` cannot be subqueried and run unwrapped; their output is already
+small.
+
+**Limits**: the row cap is the caller's `maxRows` (request body, ≤
+`telemetry.query.maxRows`), clamped to that setting, which is also the
+ceiling and the default; the statement text itself is capped at
+`TELEMETRY_SQL_MAX_LENGTH` (20,000 characters). **Timeout**:
+`telemetry.query.timeoutSeconds` (1–120 s) is enforced **client-side** in
+`GreptimeClient` — GreptimeDB's read-only user cannot `SET
+statement_timeout`, and the startup parameter is silently ignored — by
+racing the query against a timer and, on timeout, destroying the pooled
+connection (`release(true)`) rather than returning a socket with a query
+still in flight to the next caller.
+
+**Truncation and JSON-safe types**: `int8`/`numeric` columns arrive from
+GreptimeDB as strings (a `UInt64` reports as `numeric`) and stay strings end
+to end, so no value loses precision going through JSON. Timestamp columns
+are also kept as the server's own text, which **carries microseconds**, not
+GreptimeDB's native nanosecond precision — to get nanoseconds, `CAST(ts AS
+STRING) AS ts_ns` in the query itself. `toJsonSafe`
+(`telemetry-query.service.ts`) additionally turns a `Buffer`/`Uint8Array`
+into base64, a `bigint` into a decimal string, a non-finite number into its
+name, and recurses through arrays and plain objects.
+
+**Export formats** (`TelemetryExportService`,
+`apps/api/src/telemetry/export/telemetry-export.service.ts`), run through
+the same guard, bounds and audit as the query endpoint with the row cap at
+the full `telemetry.query.maxRows`:
+
+| Format | Notes |
+|---|---|
+| `csv` | RFC 4180, CRLF, UTF-8 with a BOM. **CSV injection guard**: a text cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'` — telemetry rows are attacker-reachable (routes, user agents, log bodies), and this is the classic way to turn one into a spreadsheet formula. Numeric columns are left alone. |
+| `ndjson` | One JSON object per row; a repeated column name gets `_2`, `_3`, … so no value is silently dropped. |
+| `xlsx` | One sheet (`results`), bold header; numbers as numbers where exact, else text (`exceljs` never treats a string cell as a formula, so no injection concern there). |
+| `parquet` | `hyparquet-writer` (pure JS, ESM-only, loaded dynamically). Numeric columns become `DOUBLE` when every value is exact as a double, else `STRING`; timestamps stay `STRING` (the server's own text); everything else is `STRING`. |
+
+Both the query and the export run **in memory, bounded** by the row cap —
+synchronous work over at most 100,000 rows — and complete inside the request,
+which is why neither is a queue job (CLAUDE.md's "every long-running
+activity is a queue job" exempts work that cannot outlive the request that
+started it).
+
+**Error reasons** (`details.reason` on every failure, `apps/api/src
+/telemetry/query/telemetry-query.errors.ts`):
+
+| Reason | Status | Meaning |
+|---|---|---|
+| `TELEMETRY_NOT_CONFIGURED` | 503 | No telemetry store in this deployment (the overlay is not deployed) |
+| `TELEMETRY_UNREACHABLE` | 503 | Configured, but the store did not answer |
+| `TELEMETRY_DISABLED` | 409 | `telemetry.enabled` is off |
+| `TELEMETRY_QUERY_REJECTED` | 400 | The SQL guard refused the statement |
+| `TELEMETRY_QUERY_FAILED` | 400 | GreptimeDB refused or failed the statement (syntax, unknown column, …) |
+| `TELEMETRY_QUERY_TIMEOUT` | 504 | The statement outran `telemetry.query.timeoutSeconds` |
+| `TELEMETRY_ASSISTANT_DISABLED` | 409 | `telemetry.assistant.enabled` is off |
+| `TELEMETRY_ASSISTANT_NOT_CONFIGURED` | 409 | No `assistant.provider`/`assistant.modelId` chosen |
+
+`TelemetrySchemaService` caches its two `information_schema` reads for
+`TELEMETRY_SCHEMA_CACHE_MS` (30 s), shared by concurrent callers, and also
+backs the assistant's `list_tables`/`describe_table` tools.
+
+## 6. AI assistant
+
+`POST /api/admin/telemetry/assistant/stream` (`telemetry:query` **and**
+`ai:use` — `@Auth()` on a controller is all-of — plus `AiEnabledGuard`
+answering 403 `AI_DISABLED` while the AI platform is off) turns a
+natural-language question into one read-only SQL query, streamed as
+`text/event-stream` frames: `step` (one per tool call), `answer` (`{ sql,
+explanation }`), `error`, and always a final `done`. It behaves like
+`POST /api/ai/responses/stream` (preconditions run and can fail as ordinary
+JSON errors before anything is written; the reply hijacks to SSE only once
+committed) but lives under `/api/admin/telemetry`, not `/api/ai`, so the AI
+kill-switch/RBAC tripwire suites that enumerate `/api/ai*` do not cover it —
+the guard is applied explicitly and pinned by this controller's own spec.
+
+`TelemetryAssistantService` gives the model three function tools
+(`list_tables`, `describe_table`, `run_query`) through `AiService
+.forUser(userId).runTools`, bounded by `telemetry.assistant.maxSteps` (≤ 12
+round trips). Every `run_query` call goes through `TelemetryQueryService.run`
+with `source: 'assistant'` — the explorer's own guard, row cap and timeout,
+audited as `telemetry:assistant_query` — and the model's suggested final SQL
+is re-checked against the SQL guard before being shown to the user (a
+statement that fails the re-check is withdrawn with a note, never run). Not
+a queue job: the turn lives exactly as long as the SSE request, and a closed
+tab aborts both the provider call and any in-flight query.
+
+**Data sharing to the model**, bounded three ways regardless of what a query
+returned:
+
+1. Rows only when `telemetry.assistant.shareResults` is on; otherwise the
+   model sees only the shape (columns, row count).
+2. At most `telemetry.assistant.maxResultRowsToModel` rows, hard-capped at
+   `TELEMETRY_ASSISTANT_ROWS_HARD_CAP` (100) regardless of the setting.
+3. Each cell truncated to `CELL_MAX_CHARS` (500) and the whole tool output
+   to `TOOL_OUTPUT_MAX_CHARS` (24,000) — rows are dropped from the end of
+   the output, with a note, to stay under that.
+
+`history` in the request carries up to `TELEMETRY_ASSISTANT_HISTORY_MAX_TURNS`
+(20) earlier turns, each at most `TELEMETRY_ASSISTANT_HISTORY_CONTENT_MAX`
+(8,000) characters.
+
+**Untrusted tool output.** Telemetry rows are attacker-reachable (a log
+body, an HTTP route, a user agent). The assistant's system prompt
+(`TELEMETRY_ASSISTANT_INSTRUCTIONS`) tells the model that everything a tool
+returns is data from the monitored system, never instructions, and the blast
+radius is bounded by construction: the tools can only read, through the
+read-only store user, and the model's suggested SQL is only ever shown to
+the user, never executed by this service.
+
+Every conversation turn is audited as `telemetry:assistant` (question
+length, provider, model, steps, tool calls, stop reason); every `run_query`
+call is separately audited as `telemetry:assistant_query` through the shared
+query service. No provider SDK is imported in the telemetry module — the
+call goes through `AiService`, spending the caller's own key or the
+organisation key per the AI platform's key policy (CLAUDE.md AI rule 1).
+
+## 7. Security model
+
+- **Three GreptimeDB accounts**, set from `.env` with no compose-level
+  default (`docker compose` fails outright, naming the missing key, rather
+  than booting a store with a well-known password):
+  - `GREPTIME_WRITER_USER`/`PASSWORD` — collector ingest only; held by the
+    collector's `basicauth/greptime` extension, never by the API.
+  - `GREPTIME_READER_USER`/`PASSWORD` — a GreptimeDB `readonly` user.
+    Everything user-driven (status, explorer, assistant) runs on it, and
+    GreptimeDB itself refuses `INSERT`/`DROP`/`ALTER`/`SET` for it — verified
+    server-side enforcement, not an application-level assumption.
+  - `GREPTIME_ADMIN_USER`/`PASSWORD` — used only for the retention `ALTER
+    DATABASE` and `SHOW CREATE DATABASE`; a route never runs caller-supplied
+    SQL on it.
+- **Redaction happens ahead of ingest**, in the collector, not the API: the
+  `attributes/redact` processor deletes
+  `http.request.header.authorization`, `http.request.header.cookie`,
+  `http.response.header.set-cookie` and `url.query` before a batch reaches
+  GreptimeDB, so a deleted attribute never becomes a column at all — it
+  cannot be un-redacted by a later query.
+- **`telemetry:read`/`telemetry:write`/`telemetry:query` are Admin-only**,
+  seeded that way in `ROLE_PERMISSIONS` (`apps/api/prisma/seed-data.ts`):
+  `read`/`write` gate the deployment-wide policy (whether telemetry is
+  collected, its retention, its bounds), the same "narrow, operational
+  surface" posture as `storage_config:*`/`ai_config:*`; `query` is the
+  separate act of actually running SQL, exporting results or invoking the
+  assistant against telemetry data — comparable to `db_backup:restore`.
+- **No AI key ever reaches the browser or a log line.** The assistant
+  resolves a key through `AiKeyResolver` exactly like every other AI call;
+  see [AI Platform §2](ai-platform.md).
+- **Same-origin.** The assistant stream is proxied by nginx like every other
+  API route: `infra/nginx/nginx.conf`'s `location /api/admin/telemetry
+  /assistant/stream` block forwards it unbuffered, with a long read timeout
+  and 15 s heartbeats, matching the AI response stream's needs.
+- **Never a credential in the settings namespace.** See §3's compile-time
+  proof.
+- Every admin write and every query/export/assistant call is an audit
+  event: `telemetry:config_update`, `telemetry:query`, `telemetry:export`,
+  `telemetry:assistant_query`, `telemetry:assistant` — including refused
+  and failed queries, so a rejected `DROP` is on record.
+
+## 8. BI access
+
+`GREPTIME_BIND_PG_PORT` (default `14003`) is GreptimeDB's Postgres wire port,
+bound to `127.0.0.1` only on a VPS deployment
+(`infra/compose/vps.telemetry.compose.yml`) — nothing about the telemetry
+store is ever published on a public interface. An analyst reaches it through
+an SSH tunnel and a read-only login (`GREPTIME_READER_USER`), from Power BI,
+Excel, DBeaver, Grafana or any other tool that speaks the PostgreSQL wire
+protocol. See the [telemetry runbook](../runbooks/telemetry.md) for the exact
+commands and per-tool notes.
 
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
 - #529: spike and decision record (this document's first version).
 - #530: GreptimeDB telemetry overlay replaces Uptrace.
+- #531: VPS deploy carries the telemetry overlay behind the `observability`
+  group, with GreptimeDB's Postgres wire port bound to loopback only.
 - #532: logs over OTLP behind a runtime telemetry gate.
 - #533: telemetry settings namespace and permissions.
-- #539: remaining sections of this spec.
+- #534: the telemetry module — settings service, status endpoint, and the
+  `telemetry.retention.apply` job.
+- #535: the Telemetry Explorer — query, schema and export endpoints, the SQL
+  guard.
+- #536: the telemetry AI assistant over SSE.
+- #537: the Telemetry Explorer and settings pages in the admin web app.
+- #538: the GreptimeDB tier in the API test suite.
+- #539: this document's remaining sections.

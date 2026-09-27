@@ -27,15 +27,16 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
       base.compose.yml        # nginx, api, web; no database
       dev.compose.yml         # hot reload, volumes, exposed ports
       devdb.compose.yml       # opt-in development PostgreSQL
-      otel.compose.yml        # collector, Uptrace, ClickHouse
+      telemetry.compose.yml   # OTel collector, GreptimeDB
       prod.compose.yml        # resource limits, restart policies
       vps.compose.yml         # behind a shared host proxy
+      vps.telemetry.compose.yml # VPS hardening for the telemetry stack
       test.compose.yml        # disposable real-database test Postgres
       worker.compose.yml      # worker node containers, scalable
       worker.build.compose.yml # build worker image from source
       .env.example            # environment variable reference
     nginx/                    # nginx.conf, CSP headers
-    otel/                     # collector and Uptrace config
+    otel/                     # collector and GreptimeDB config
   scripts/                    # rename.mjs, new-project.mjs (plus dev.ps1, worktree.ps1)
   tests/
     e2e/                      # Playwright end-to-end tests
@@ -71,6 +72,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: worker nodes | [docs/specs/worker-nodes.md](docs/specs/worker-nodes.md) |
 | Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
+| Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
 | `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
@@ -228,8 +230,8 @@ docker network create devnet                # once per host
 
 # Start development (from infra/compose); devdb.compose.yml adds a local Postgres (.env: POSTGRES_HOST=db)
 cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
-# Add observability (Uptrace)
-cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
+# Add telemetry (OTel Collector + GreptimeDB)
+cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f telemetry.compose.yml up
 
 # Migrate and seed, from infra/compose, with the same -f files you started with
 # (the API does not migrate on startup)
@@ -257,7 +259,8 @@ Service URLs (development):
 
 - Application: http://localhost:3535 (via Nginx)
 - API reference (Scalar): http://localhost:3535/api/docs
-- Uptrace: http://localhost:14318 (with `otel.compose.yml`)
+- GreptimeDB dashboard: http://localhost:14000/dashboard (with `telemetry.compose.yml`)
+- GreptimeDB PostgreSQL wire protocol: postgres://localhost:14003 (with `telemetry.compose.yml`)
 
 ## Testing requirements
 

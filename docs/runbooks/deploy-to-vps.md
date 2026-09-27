@@ -204,12 +204,21 @@ it.
    for that first-time setup, done once `install` has finished and you have
    logged in per section 3 below.
 
-5. **If it fails partway through**, fix whatever it reported and run the
+5. **To also deploy telemetry (OTel Collector + GreptimeDB)**, add
+   `--group observability` to `install` (or run `appctl deploy update --group
+   observability` later, against an existing deployment). The environment
+   wizard then also prompts for the `GREPTIME_*` keys, and
+   `GREPTIME_BIND_PG_PORT` (default `14003`) is where GreptimeDB's
+   PostgreSQL wire protocol is published, on `127.0.0.1` only. See the
+   [telemetry runbook](telemetry.md) for enabling it, setting retention and
+   connecting a BI tool afterward.
+
+6. **If it fails partway through**, fix whatever it reported and run the
    *same command again* — `install` is idempotent, and each step is safe to
    re-run. Add `--resume` to skip straight to the step that failed rather
    than re-checking everything before it.
 
-6. **Once it succeeds**, do not treat a clean `install` as "the site is
+7. **Once it succeeds**, do not treat a clean `install` as "the site is
    live and correct" until you've done section 3 — the seed does not create
    anyone who can log in.
 
