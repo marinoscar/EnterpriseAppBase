@@ -13,6 +13,13 @@
 # This file exists for one reason above all others: NOTHING IN THE STACK MAY
 # BE PUBLISHED ON A PUBLIC INTERFACE. Everything reaches the application
 # through the host proxy, which terminates TLS and holds the certificate.
+#
+# A deployment with the `observability` group also layers telemetry.compose.yml
+# (before this file) and vps.telemetry.compose.yml (after it), which applies the
+# same rule to the collector and GreptimeDB. Their hardening lives there, not
+# here: a service block in this file would be a service with no image on every
+# deployment without telemetry. `appctl deploy` builds the list
+# (apps/cli/src/deploy/compose-files.ts).
 # =============================================================================
 
 services:

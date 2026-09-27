@@ -226,6 +226,8 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   GREPTIME_HOST: { group: 'observability' },
   GREPTIME_HTTP_PORT: { group: 'observability' },
   GREPTIME_PG_PORT: { group: 'observability' },
+  // Loopback host port vps.telemetry.compose.yml publishes the PG protocol on.
+  GREPTIME_BIND_PG_PORT: { group: 'observability' },
   GREPTIME_DB: { group: 'observability' },
   GREPTIME_WRITER_USER: { group: 'observability' },
   GREPTIME_WRITER_PASSWORD: { group: 'observability', secret: true },
