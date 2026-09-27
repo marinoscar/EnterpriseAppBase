@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { TelemetryColumnType, TelemetryQueryRunResult } from '../dto/telemetry-query.dto';
 import { GreptimeClient } from '../greptime/greptime.client';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
-import { analyzeStatement, wrapWithLimit } from './sql-guard';
+import { analyzeStatement, applyRowCap } from './sql-guard';
 import { requireQueryablePolicy, toTelemetryHttpError } from './telemetry-availability';
 import { TelemetryHttpError } from './telemetry-query.errors';
 
@@ -22,8 +22,12 @@ import { TelemetryHttpError } from './telemetry-query.errors';
 //   1. preconditions — store configured (503), `telemetry.enabled` (409);
 //   2. `analyzeStatement` — exactly one read-only statement (400);
 //   3. the row cap — the caller's `maxRows`, clamped to
-//      `telemetry.query.maxRows`; a SELECT is wrapped so the SERVER stops at
-//      `cap + 1` rows, and the extra row is how `truncated` is known;
+//      `telemetry.query.maxRows`; `applyRowCap` gives a SELECT a top-level
+//      `LIMIT maxRows + 1` (appended, or the caller's own LIMIT clamped) so
+//      the SERVER stops there and the extra row is how `truncated` is known.
+//      Never a `SELECT * FROM (<sql>) LIMIT n` wrapper: GreptimeDB drops the
+//      inner ORDER BY through one (#554). What the text cannot bound
+//      (`LIMIT ALL`, SHOW, …) is sliced here after the fact;
 //   4. `GreptimeClient.queryReader` — the READ-ONLY user (the real control),
 //      with `telemetry.query.timeoutSeconds` enforced client-side (504);
 //   5. the result made JSON-safe (see `toJsonSafe`);
@@ -138,9 +142,20 @@ export class TelemetryQueryService {
 
     try {
       const statement = analyzeStatement(sql);
-      const text = wrapWithLimit(statement, maxRows + 1);
+      const capped = applyRowCap(statement, maxRows + 1);
 
-      const result = await this.greptime.queryReader(text, {
+      // 'client-only': the server may return more than maxRows + 1 rows. The
+      // slice below still caps the RESPONSE; the rows are held in memory in
+      // the meantime, bounded only by the policy timeout. Streaming rows off
+      // the socket and hanging up past the cap was considered and not done:
+      // it would replace `GreptimeClient.run`'s one-shot query (and its
+      // multi-statement check) for statements that are rare — `LIMIT ALL`,
+      // `LIMIT <expression>`, `FETCH FIRST`, SHOW/DESCRIBE/EXPLAIN.
+      if (capped.strategy === 'client-only' && statement.kind === 'select') {
+        this.logger.debug('Telemetry query has no server-side row cap; capping client-side');
+      }
+
+      const result = await this.greptime.queryReader(capped.sql, {
         timeoutMs: policy.query.timeoutSeconds * 1000,
         signal: opts.signal,
       });

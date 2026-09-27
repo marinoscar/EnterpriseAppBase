@@ -38,6 +38,11 @@ const ADMIN_URL = process.env.GREPTIME_TEST_ADMIN_URL;
 const OUT_DIR = process.env.GREPTIME_TEST_OUT_DIR;
 
 const TABLE = 'explorer_fixture_535';
+const ORDER_TABLE = 'row_cap_order_554';
+
+/** 20 hosts `h00`…`h19`, `h<i>` at 10:00:<i>; inserted shuffled. */
+const ORDER_HOSTS = Array.from({ length: 20 }, (_, i) => `h${String(i).padStart(2, '0')}`);
+const NEWEST_FIRST = [...ORDER_HOSTS].reverse();
 
 const POLICY: SystemTelemetryValue = {
   enabled: true,
@@ -103,6 +108,17 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
           "('2026-09-27 10:00:02', 'c', 2.5, 7, 4, NULL, NULL)",
         t,
       );
+
+      await greptime.queryAdmin(
+        `CREATE TABLE IF NOT EXISTS ${ORDER_TABLE} (ts TIMESTAMP(3) TIME INDEX, host STRING PRIMARY KEY, v BIGINT)`,
+        t,
+      );
+      const shuffled = ORDER_HOSTS.map((host, i) => ({ host, i, key: (i * 7) % 20 })).sort((a, b) => a.key - b.key);
+      await greptime.queryAdmin(
+        `INSERT INTO ${ORDER_TABLE} VALUES ` +
+          shuffled.map(({ host, i }) => `('2026-09-27 10:00:${String(i).padStart(2, '0')}', '${host}', ${i})`).join(', '),
+        t,
+      );
     }
   });
 
@@ -110,7 +126,7 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
     await greptime?.onModuleDestroy();
   });
 
-  it('runs a wrapped SELECT, keeping int8/UInt64 and timestamps as text', async () => {
+  it('runs a row-capped SELECT, keeping int8/UInt64 and timestamps as text', async () => {
     const result = await queries.run(
       'u1',
       `SELECT ts, host, v, n, u, ok, "span_attributes.http.route" FROM ${TABLE} ORDER BY ts; -- trailing`,
@@ -149,7 +165,7 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
     });
   });
 
-  it('wraps a WITH and a join with repeated column names', async () => {
+  it('caps a WITH and a join with repeated column names', async () => {
     const result = await queries.run(
       'u1',
       `WITH x AS (SELECT host FROM ${TABLE}) SELECT a.host, b.host FROM x a JOIN x b ON a.host = b.host`,
@@ -159,11 +175,92 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
     expect(result.rowCount).toBe(3);
   });
 
-  it('runs SHOW, DESCRIBE and EXPLAIN unwrapped', async () => {
+  it('runs SHOW, DESCRIBE and EXPLAIN unchanged', async () => {
     await expect(queries.run('u1', 'SHOW TABLES')).resolves.toMatchObject({ truncated: false });
     await expect(queries.run('u1', `DESCRIBE ${TABLE}`)).resolves.toMatchObject({ rowCount: 7 });
     await expect(queries.run('u1', `EXPLAIN SELECT * FROM ${TABLE}`)).resolves.toMatchObject({
       columns: [expect.objectContaining({ name: 'plan_type' }), expect.objectContaining({ name: 'plan' })],
+    });
+  });
+
+  // Issue #554: a `SELECT * FROM (<sql>) LIMIT n` wrapper lost the inner
+  // ORDER BY on GreptimeDB. The cap is now a top-level LIMIT.
+  describe('the row cap preserves ORDER BY (#554)', () => {
+    const hosts = (rows: unknown[][]) => rows.map((row) => row[0]);
+    const skipWithoutAdmin = ADMIN_URL ? it : it.skip;
+
+    skipWithoutAdmin('appended: ORDER BY ts DESC comes back newest first', async () => {
+      const result = await queries.run('u1', `SELECT host, ts FROM ${ORDER_TABLE} ORDER BY ts DESC`);
+
+      expect(hosts(result.rows)).toEqual(NEWEST_FIRST);
+      expect(result).toMatchObject({ rowCount: 20, truncated: false });
+    });
+
+    skipWithoutAdmin('appended and truncated: the first maxRows of the ORDER, flagged', async () => {
+      const result = await queries.run('u1', `SELECT host FROM ${ORDER_TABLE} ORDER BY ts DESC`, { maxRows: 4 });
+
+      expect(hosts(result.rows)).toEqual(NEWEST_FIRST.slice(0, 4));
+      expect(result).toMatchObject({ rowCount: 4, truncated: true });
+    });
+
+    skipWithoutAdmin('appended after UNION ALL … ORDER BY: the whole union, in order', async () => {
+      const sql =
+        `SELECT host, ts FROM ${ORDER_TABLE} WHERE host < 'h10' UNION ALL ` +
+        `SELECT host, ts FROM ${ORDER_TABLE} WHERE host >= 'h10' ORDER BY ts DESC`;
+
+      const all = await queries.run('u1', sql);
+      expect(hosts(all.rows)).toEqual(NEWEST_FIRST);
+      expect(all.truncated).toBe(false);
+
+      const capped = await queries.run('u1', sql, { maxRows: 5 });
+      expect(hosts(capped.rows)).toEqual(NEWEST_FIRST.slice(0, 5));
+      expect(capped.truncated).toBe(true);
+    });
+
+    skipWithoutAdmin('clamped: a caller LIMIT above the cap is lowered, order and OFFSET kept', async () => {
+      const limitOffset = await queries.run('u1', `SELECT host FROM ${ORDER_TABLE} ORDER BY ts DESC LIMIT 1000 OFFSET 2`, {
+        maxRows: 3,
+      });
+      expect(hosts(limitOffset.rows)).toEqual(NEWEST_FIRST.slice(2, 5));
+      expect(limitOffset.truncated).toBe(true);
+
+      const offsetLimit = await queries.run('u1', `SELECT host FROM ${ORDER_TABLE} ORDER BY ts DESC OFFSET 2 LIMIT 1000`, {
+        maxRows: 3,
+      });
+      expect(hosts(offsetLimit.rows)).toEqual(NEWEST_FIRST.slice(2, 5));
+      expect(offsetLimit.truncated).toBe(true);
+    });
+
+    skipWithoutAdmin('appended before a bare OFFSET', async () => {
+      const result = await queries.run('u1', `SELECT host FROM ${ORDER_TABLE} ORDER BY ts DESC OFFSET 3`, { maxRows: 2 });
+
+      expect(hosts(result.rows)).toEqual(NEWEST_FIRST.slice(3, 5));
+      expect(result.truncated).toBe(true);
+    });
+
+    skipWithoutAdmin('kept: a caller LIMIT below the cap is sent as written, not truncated', async () => {
+      const result = await queries.run('u1', `SELECT host FROM ${ORDER_TABLE} ORDER BY ts DESC LIMIT 3`, { maxRows: 10 });
+
+      expect(hosts(result.rows)).toEqual(NEWEST_FIRST.slice(0, 3));
+      expect(result).toMatchObject({ rowCount: 3, truncated: false });
+    });
+
+    skipWithoutAdmin('a subquery LIMIT is left alone; the outer ORDER BY holds', async () => {
+      const result = await queries.run(
+        'u1',
+        `SELECT host FROM (SELECT host, ts FROM ${ORDER_TABLE} ORDER BY ts LIMIT 6) s ORDER BY ts DESC`,
+      );
+
+      expect(hosts(result.rows)).toEqual(ORDER_HOSTS.slice(0, 6).reverse());
+    });
+
+    skipWithoutAdmin('client-only: LIMIT ALL is still capped in the response', async () => {
+      const result = await queries.run('u1', `SELECT host FROM ${ORDER_TABLE} ORDER BY ts DESC LIMIT ALL`, {
+        maxRows: 4,
+      });
+
+      expect(hosts(result.rows)).toEqual(NEWEST_FIRST.slice(0, 4));
+      expect(result).toMatchObject({ rowCount: 4, truncated: true });
     });
   });
 

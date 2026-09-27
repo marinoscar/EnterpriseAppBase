@@ -85,7 +85,7 @@ describe('TelemetryQueryService', () => {
   });
 
   describe('a successful query', () => {
-    it('wraps with maxRows + 1, uses the policy timeout, and maps columns', async () => {
+    it('appends a top-level LIMIT maxRows + 1, uses the policy timeout, and maps columns', async () => {
       const { service, greptime } = setup();
       greptime.queryReader.mockResolvedValue({
         fields: [
@@ -99,7 +99,7 @@ describe('TelemetryQueryService', () => {
       const result = await service.run('u1', 'SELECT ts, n, x FROM t;');
 
       expect(greptime.queryReader).toHaveBeenCalledWith(
-        'SELECT * FROM (SELECT ts, n, x FROM t\n) AS telemetry_q LIMIT 4',
+        'SELECT ts, n, x FROM t LIMIT 4',
         { timeoutMs: 12_000 },
       );
       expect(result).toMatchObject({
@@ -143,6 +143,51 @@ describe('TelemetryQueryService', () => {
       await service.run('u1', 'SELECT 1', { maxRows: 0 });
 
       expect(greptime.queryReader.mock.calls.map((call) => /LIMIT (\d+)$/.exec(call[0])?.[1])).toEqual(['4', '2', '2']);
+    });
+
+    it('never wraps: the LIMIT goes after the statement\'s own ORDER BY (#554)', async () => {
+      const { service, greptime } = setup();
+
+      await service.run('u1', 'SELECT ts FROM t ORDER BY ts DESC');
+
+      expect(greptime.queryReader).toHaveBeenCalledWith('SELECT ts FROM t ORDER BY ts DESC LIMIT 4', {
+        timeoutMs: 12_000,
+      });
+    });
+
+    it('clamps a caller LIMIT above the cap and still detects truncation', async () => {
+      const { service, greptime } = setup();
+      greptime.queryReader.mockResolvedValue({ fields: [{ name: 'n', dataTypeID: 23 }], rows: [[1], [2], [3], [4]] });
+
+      const result = await service.run('u1', 'SELECT n FROM t ORDER BY n LIMIT 500 OFFSET 2');
+
+      expect(greptime.queryReader).toHaveBeenCalledWith('SELECT n FROM t ORDER BY n LIMIT 4 OFFSET 2', {
+        timeoutMs: 12_000,
+      });
+      expect(result).toMatchObject({ rows: [[1], [2], [3]], rowCount: 3, truncated: true });
+    });
+
+    it('keeps a caller LIMIT below the cap unchanged, and is not truncated', async () => {
+      const { service, greptime } = setup();
+      greptime.queryReader.mockResolvedValue({ fields: [{ name: 'n', dataTypeID: 23 }], rows: [[1], [2]] });
+
+      const result = await service.run('u1', 'SELECT n FROM t ORDER BY n LIMIT 2;');
+
+      expect(greptime.queryReader).toHaveBeenCalledWith('SELECT n FROM t ORDER BY n LIMIT 2', { timeoutMs: 12_000 });
+      expect(result).toMatchObject({ rowCount: 2, truncated: false });
+    });
+
+    it('caps client-side when the text cannot be bounded (LIMIT ALL)', async () => {
+      const { service, greptime } = setup();
+      greptime.queryReader.mockResolvedValue({
+        fields: [{ name: 'n', dataTypeID: 23 }],
+        rows: [[1], [2], [3], [4], [5], [6]],
+      });
+
+      const result = await service.run('u1', 'SELECT n FROM t LIMIT ALL');
+
+      expect(greptime.queryReader).toHaveBeenCalledWith('SELECT n FROM t LIMIT ALL', { timeoutMs: 12_000 });
+      expect(result).toMatchObject({ rows: [[1], [2], [3]], rowCount: 3, truncated: true });
     });
 
     it('sends SHOW unwrapped and still trims to maxRows', async () => {
