@@ -154,6 +154,31 @@ export const PERMISSIONS = [
     name: 'ai:use',
     description: 'Call AI models using a saved key',
   },
+
+  // Telemetry (epic #528, story #533). THREE permissions, mirroring the shape
+  // of `ai_config:*`/`ai:use` and `db_backup:*`: `telemetry:read` and
+  // `telemetry:write` gate the DEPLOYMENT-WIDE policy (whether telemetry is
+  // collected, how long it is retained, the query and assistant bounds) and
+  // are seeded Admin-only, same "narrow, operational surface" posture as
+  // `storage_config:*`/`push:*`/`broadcasts:*`/`nodes:*`/`ai_config:*` above.
+  // `telemetry:query` is the separate, comparably sensitive act of actually
+  // running SQL, exporting results or invoking the AI assistant against
+  // telemetry data — closer to `db_backup:restore` than to a settings edit —
+  // and is seeded Admin-only as well, since nobody but an administrator has a
+  // vetted need to run ad-hoc queries against this deployment's observability
+  // data yet.
+  {
+    name: 'telemetry:read',
+    description: 'View telemetry settings and status',
+  },
+  {
+    name: 'telemetry:write',
+    description: 'Change telemetry settings',
+  },
+  {
+    name: 'telemetry:query',
+    description: 'Run SQL, export and use the AI assistant against telemetry',
+  },
 ] as const;
 
 // Role to permissions mapping
@@ -212,6 +237,13 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'ai_config:read',
     'ai_config:write',
     'ai:use',
+    // Epic #528, story #533 — ADMIN ONLY, same reasoning as the operational
+    // surfaces above: telemetry settings and ad-hoc queries against
+    // observability data start as narrow as `db_backup:*`/`ai_config:*` and
+    // can be widened later without a migration, since these are rows.
+    'telemetry:read',
+    'telemetry:write',
+    'telemetry:query',
   ],
   contributor: [
     'user_settings:read',
@@ -402,5 +434,26 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       mcpAllowedHosts: [],
     },
     limits: {},
+  },
+  // Epic #528, story #533. OFF, and INERT, matching every namespace above it
+  // that ships ahead of its own consumers: a fresh deployment does not start
+  // collecting or retaining observability data nobody asked for merely
+  // because this namespace exists. Must stay byte-identical to the API's
+  // `DEFAULT_SYSTEM_SETTINGS`, which `test/prisma/seed-data.spec.ts` pins.
+  telemetry: {
+    enabled: false,
+    retentionDays: 30,
+    query: {
+      maxRows: 10000,
+      timeoutSeconds: 30,
+    },
+    assistant: {
+      enabled: false,
+      provider: null as string | null,
+      modelId: null as string | null,
+      shareResults: true,
+      maxResultRowsToModel: 100,
+      maxSteps: 6,
+    },
   },
 };

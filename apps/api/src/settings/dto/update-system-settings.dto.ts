@@ -257,6 +257,39 @@ const aiSettingsSchema = z.object({
   limits: aiLimitsSettingsSchema,
 });
 
+// =============================================================================
+// Telemetry policy on the wire (epic #528, story #533)
+// =============================================================================
+//
+// Restated here rather than imported, for the reason at the top of this file.
+// Optional in the PUT body like every other namespace that ships ahead of its
+// own client, and for the identical reason.
+//
+// NO CREDENTIAL FIELD, ON EITHER SCHEMA, EVER. The AI assistant's provider key
+// is resolved the same way every other AI call resolves one — through
+// `AiKeyResolver` — never through this document. See
+// `common/schemas/settings.schema.ts`, which carries the argument and a
+// compile-time proof of the absence.
+//
+// Bounds mirror `systemTelemetrySchema` exactly.
+
+const telemetrySettingsSchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int().min(1).max(3650),
+  query: z.object({
+    maxRows: z.number().int().min(1).max(100000),
+    timeoutSeconds: z.number().int().min(1).max(120),
+  }),
+  assistant: z.object({
+    enabled: z.boolean(),
+    provider: z.string().nullable(),
+    modelId: z.string().nullable(),
+    shareResults: z.boolean(),
+    maxResultRowsToModel: z.number().int().min(1).max(100),
+    maxSteps: z.number().int().min(1).max(12),
+  }),
+});
+
 // Full replacement (PUT)
 export const updateSystemSettingsSchema = z.object({
   // REQUIRED. A PUT that omits it is a 400 and
@@ -277,6 +310,9 @@ export const updateSystemSettingsSchema = z.object({
   // #423, epic #419 — optional for the same reason, carried forward the same
   // way.
   ai: aiSettingsSchema.optional(),
+  // Epic #528, story #533 — optional for the same reason, carried forward the
+  // same way.
+  telemetry: telemetrySettingsSchema.optional(),
 });
 
 export class UpdateSystemSettingsDto extends createZodDto(
@@ -462,6 +498,33 @@ export const patchSystemSettingsSchema = z.object({
         .optional(),
       // #450. Replaces wholesale when present — see `systemAiPatchSchema`.
       limits: aiLimitsSettingsSchema.optional(),
+    })
+    .optional(),
+  // Epic #528, story #533. Optional at the namespace level and field by field
+  // inside, one level into `query` and `assistant`, matching `ai` above —
+  // `{ "telemetry": { "enabled": true } }` must be a legal body. Absent
+  // leaves `assistant.provider`/`assistant.modelId` alone; explicit `null`
+  // clears either back to "not configured" — see `systemTelemetryPatchSchema`.
+  telemetry: z
+    .object({
+      enabled: z.boolean().optional(),
+      retentionDays: z.number().int().min(1).max(3650).optional(),
+      query: z
+        .object({
+          maxRows: z.number().int().min(1).max(100000).optional(),
+          timeoutSeconds: z.number().int().min(1).max(120).optional(),
+        })
+        .optional(),
+      assistant: z
+        .object({
+          enabled: z.boolean().optional(),
+          provider: z.string().nullable().optional(),
+          modelId: z.string().nullable().optional(),
+          shareResults: z.boolean().optional(),
+          maxResultRowsToModel: z.number().int().min(1).max(100).optional(),
+          maxSteps: z.number().int().min(1).max(12).optional(),
+        })
+        .optional(),
     })
     .optional(),
 });

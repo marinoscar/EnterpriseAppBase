@@ -199,6 +199,25 @@ export const mockPermissions = {
     name: 'ai:use',
     description: 'Use AI features',
   },
+  // Telemetry (epic #528, story #533), mirrored from `prisma/seed-data.ts`:
+  // all three are Admin-only, matching `db_backup:*`/`ai_config:*` above — a
+  // fixture that were more generous than the seed would make an integration
+  // test asserting a viewer is refused pass for the wrong reason.
+  telemetryRead: {
+    id: randomUUID(),
+    name: 'telemetry:read',
+    description: 'View telemetry settings and status',
+  },
+  telemetryWrite: {
+    id: randomUUID(),
+    name: 'telemetry:write',
+    description: 'Change telemetry settings',
+  },
+  telemetryQuery: {
+    id: randomUUID(),
+    name: 'telemetry:query',
+    description: 'Run SQL, export and use the AI assistant against telemetry',
+  },
 };
 
 export const mockRoles = {
@@ -520,6 +539,9 @@ export const rolePermissionsMap = {
     mockPermissions.storageRead,
     mockPermissions.storageWrite,
     mockPermissions.storageDeleteAny,
+    mockPermissions.telemetryRead,
+    mockPermissions.telemetryWrite,
+    mockPermissions.telemetryQuery,
   ],
   contributor: [
     mockPermissions.userSettingsRead,

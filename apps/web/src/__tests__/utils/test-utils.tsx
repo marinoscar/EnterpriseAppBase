@@ -108,6 +108,13 @@ export const mockAdminUser: MockUser = {
     'ai_config:read',
     'ai_config:write',
     'ai:use',
+    // Present because the seeded `admin` role grants them (epic #528, story
+    // #533 — `prisma/seed-data.ts`). Without these, every test rendering the
+    // real Console surface would silently be testing a hub with no
+    // `Telemetry` card — a user that cannot exist.
+    'telemetry:read',
+    'telemetry:write',
+    'telemetry:query',
   ],
   isActive: true,
   createdAt: new Date().toISOString(),

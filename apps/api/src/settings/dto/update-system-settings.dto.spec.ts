@@ -273,6 +273,109 @@ describe('UpdateSystemSettingsDto (PUT)', () => {
     });
   });
 
+  describe('telemetry field (epic #528, story #533)', () => {
+    const TELEMETRY = {
+      enabled: true,
+      retentionDays: 30,
+      query: { maxRows: 10000, timeoutSeconds: 30 },
+      assistant: {
+        enabled: false,
+        provider: null as string | null,
+        modelId: null as string | null,
+        shareResults: true,
+        maxResultRowsToModel: 100,
+        maxSteps: 6,
+      },
+    };
+
+    it('should accept a valid telemetry settings object', () => {
+      const result = updateSystemSettingsSchema.parse({
+        telemetry: TELEMETRY,
+        notifications: NOTIFICATIONS,
+      });
+
+      expect(result.telemetry).toEqual(TELEMETRY);
+    });
+
+    it('should make the telemetry field optional on a PUT body', () => {
+      // Ships ahead of every consumer, like `jobs`/`ai` above: a PUT that
+      // omits it must not 400 — `replaceSettings` carries the stored value
+      // forward instead.
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          notifications: NOTIFICATIONS,
+        }),
+      ).not.toThrow();
+    });
+
+    it('should reject a retentionDays of 0', () => {
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          telemetry: { ...TELEMETRY, retentionDays: 0 },
+          notifications: NOTIFICATIONS,
+        }),
+      ).toThrow();
+    });
+
+    it('should reject a retentionDays over 3650', () => {
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          telemetry: { ...TELEMETRY, retentionDays: 3651 },
+          notifications: NOTIFICATIONS,
+        }),
+      ).toThrow();
+    });
+
+    it('should reject a query.maxRows over 100000', () => {
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          telemetry: {
+            ...TELEMETRY,
+            query: { ...TELEMETRY.query, maxRows: 100001 },
+          },
+          notifications: NOTIFICATIONS,
+        }),
+      ).toThrow();
+    });
+
+    it('should reject an assistant.maxResultRowsToModel over 100', () => {
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          telemetry: {
+            ...TELEMETRY,
+            assistant: { ...TELEMETRY.assistant, maxResultRowsToModel: 101 },
+          },
+          notifications: NOTIFICATIONS,
+        }),
+      ).toThrow();
+    });
+
+    it('should reject an assistant.maxSteps over 12', () => {
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          telemetry: {
+            ...TELEMETRY,
+            assistant: { ...TELEMETRY.assistant, maxSteps: 13 },
+          },
+          notifications: NOTIFICATIONS,
+        }),
+      ).toThrow();
+    });
+
+    it('should accept a nullable assistant.provider/modelId', () => {
+      const result = updateSystemSettingsSchema.parse({
+        telemetry: {
+          ...TELEMETRY,
+          assistant: { ...TELEMETRY.assistant, provider: 'openai', modelId: 'gpt-5' },
+        },
+        notifications: NOTIFICATIONS,
+      });
+
+      expect(result.telemetry?.assistant.provider).toBe('openai');
+      expect(result.telemetry?.assistant.modelId).toBe('gpt-5');
+    });
+  });
+
   describe('complete settings object', () => {
     it('should accept valid complete settings', () => {
       const result = updateSystemSettingsSchema.parse({
@@ -541,6 +644,76 @@ describe('PatchSystemSettingsDto (PATCH)', () => {
       });
 
       expect(result.storage?.forcePathStyle).toBeNull();
+    });
+
+    // =========================================================================
+    // telemetry (epic #528, story #533)
+    // =========================================================================
+
+    it('should make the telemetry field optional on a PATCH body', () => {
+      const result = patchSystemSettingsSchema.parse({});
+
+      expect(result.telemetry).toBeUndefined();
+    });
+
+    it('should accept telemetry with only enabled', () => {
+      const result = patchSystemSettingsSchema.parse({
+        telemetry: { enabled: true },
+      });
+
+      expect(result.telemetry).toEqual({ enabled: true });
+    });
+
+    it('should reject a telemetry.retentionDays of 0', () => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({
+          telemetry: { retentionDays: 0 },
+        }),
+      ).toThrow();
+    });
+
+    it('should reject a telemetry.retentionDays over 3650', () => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({
+          telemetry: { retentionDays: 3651 },
+        }),
+      ).toThrow();
+    });
+
+    it('should reject a telemetry.query.maxRows over 100000', () => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({
+          telemetry: { query: { maxRows: 100001 } },
+        }),
+      ).toThrow();
+    });
+
+    it('should reject a telemetry.assistant.maxResultRowsToModel over 100', () => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({
+          telemetry: { assistant: { maxResultRowsToModel: 101 } },
+        }),
+      ).toThrow();
+    });
+
+    it('keeps an explicit telemetry.assistant.provider null in a PATCH body', () => {
+      // Nullable, not optional (`systemTelemetryPatchSchema`): `null` clears
+      // the stored provider back to "not configured", absent leaves it alone
+      // — the same tri-state contract `storage.forcePathStyle` needs above.
+      const result = patchSystemSettingsSchema.parse({
+        telemetry: { assistant: { provider: null } },
+      });
+
+      expect(result.telemetry?.assistant).toHaveProperty('provider');
+      expect(result.telemetry?.assistant?.provider).toBeNull();
+    });
+
+    it('distinguishes an absent telemetry.assistant.provider from an explicit null', () => {
+      const result = patchSystemSettingsSchema.parse({
+        telemetry: { assistant: { enabled: true } },
+      });
+
+      expect(result.telemetry?.assistant).not.toHaveProperty('provider');
     });
   });
 });
