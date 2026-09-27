@@ -1179,4 +1179,75 @@ describe('the compose files follow the recorded groups, through the real pipelin
     expect(env.get('GREPTIME_READER_PASSWORD')).toMatch(/^[0-9a-f]{64}$/);
     expect(env.get('GREPTIME_ADMIN_PASSWORD')).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  // ---------------------------------------------------------------------------
+  // STACK_AGENT_TOKEN: vps.compose.yml refuses to start without it (#567)
+  // ---------------------------------------------------------------------------
+
+  function envOf(vps: ReturnType<typeof createFakeVps>): Map<string, string> {
+    return parseEnvFile(readFileSync(resolveEnvPath(vps.deployRoot) as string, 'utf8'));
+  }
+
+  async function updateUnattended(vps: ReturnType<typeof createFakeVps>): Promise<void> {
+    await runUpdate({
+      deployRoot: vps.deployRoot,
+      runCommand: vps.runCommand,
+      nonInteractive: true,
+      skipProxy: true,
+      skipSeed: true,
+      noVersionBump: true,
+      force: true,
+      // No STACK_AGENT_TOKEN answer: an unattended run must not need one.
+      answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)]]),
+    });
+  }
+
+  it('install generates STACK_AGENT_TOKEN without an answer or a prompt (#567)', async () => {
+    const vps = vpsWithTemplate();
+    await install(vps);
+
+    const token = envOf(vps).get('STACK_AGENT_TOKEN');
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    // A secret: the journal redacts it like any other.
+    expect(JSON.stringify(vps.invocations)).not.toContain(token);
+  });
+
+  it('update generates STACK_AGENT_TOKEN for a deployment that predates it (#567)', async () => {
+    const vps = await legacyDeployment();
+    const envPath = resolveEnvPath(vps.deployRoot) as string;
+    writeFileSync(
+      envPath,
+      readFileSync(envPath, 'utf8')
+        .split('\n')
+        .filter((line) => !line.startsWith('STACK_AGENT_TOKEN='))
+        .join('\n'),
+    );
+    expect(envOf(vps).has('STACK_AGENT_TOKEN')).toBe(false);
+
+    await updateUnattended(vps);
+
+    expect(envOf(vps).get('STACK_AGENT_TOKEN')).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('update replaces an empty STACK_AGENT_TOKEN and keeps a real one (#567)', async () => {
+    const blank = await legacyDeployment(new Map([['STACK_AGENT_TOKEN', '']]));
+    const blankPath = resolveEnvPath(blank.deployRoot) as string;
+    writeFileSync(
+      blankPath,
+      readFileSync(blankPath, 'utf8').replace(/^STACK_AGENT_TOKEN=[0-9a-f]{64}\n/m, ''),
+    );
+    expect(envOf(blank).get('STACK_AGENT_TOKEN')).toBe('');
+    await updateUnattended(blank);
+    expect(envOf(blank).get('STACK_AGENT_TOKEN')).toMatch(/^[0-9a-f]{64}$/);
+
+    const chosen = 'an-operator-chosen-stack-agent-token-0123456789';
+    const kept = await legacyDeployment(new Map([['STACK_AGENT_TOKEN', chosen]]));
+    const keptPath = resolveEnvPath(kept.deployRoot) as string;
+    writeFileSync(
+      keptPath,
+      readFileSync(keptPath, 'utf8').replace(/^STACK_AGENT_TOKEN=[0-9a-f]{64}\n/m, ''),
+    );
+    await updateUnattended(kept);
+    expect(envOf(kept).get('STACK_AGENT_TOKEN')).toBe(chosen);
+  });
 });

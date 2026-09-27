@@ -263,6 +263,11 @@ export function unattendedAnswers(
     // terminal to confirm on. So an unattended install fails on it every time
     // unless it is answered here. That is the wizard's behaviour, not this
     // helper's, and the E2E's answers file has to carry it too.
+    // A key the wizard generates itself, without asking (`autoGenerate`,
+    // #567), is never blank and never needs an answer. Answering it here would
+    // hide exactly the behaviour the tests exist to prove.
+    if (metadata.autoGenerate === true && metadata.generate !== undefined) continue;
+
     const takesDefault = metadata.essential !== true && !spec.optional;
     const wouldBeBlank = metadata.essential === true || (takesDefault && spec.defaultValue === '');
     if (!wouldBeBlank) continue;

@@ -357,6 +357,7 @@ describe('env metadata', () => {
       'GREPTIME_ADMIN_PASSWORD',
       'GREPTIME_WRITER_PASSWORD',
       'GREPTIME_READER_PASSWORD',
+      'STACK_AGENT_TOKEN',
     ]) {
       expect(metadataFor(key).secret).toBe(true);
     }

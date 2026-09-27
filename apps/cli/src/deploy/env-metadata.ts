@@ -306,6 +306,20 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
     autoGenerate: true,
   },
 
+  // --- Stack agent (#567) --------------------------------------------------
+  // The API's credential for the stack-agent sidecar (vps.compose.yml), which
+  // holds the Docker socket so the admin UI can redeploy the telemetry
+  // containers. Only the stack reads it, so it is generated without a
+  // question on install AND on update (the drift step's autoGenerate path),
+  // and vps.compose.yml refuses to start without it. No group: the agent is
+  // part of every VPS deployment. Hex, like the GreptimeDB passwords, so it
+  // survives any quoting a hand-edited .env might put it through.
+  STACK_AGENT_TOKEN: {
+    secret: true,
+    generate: 'hex-32',
+    autoGenerate: true,
+  },
+
   // --- Email (SES) ---------------------------------------------------------
   // THERE IS NO `storage` GROUP ANY MORE (issue #377, epic #372). Which bucket,
   // which region, which endpoint, which provider and which key are application
