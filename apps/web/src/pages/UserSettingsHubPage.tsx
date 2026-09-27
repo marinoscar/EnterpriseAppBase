@@ -32,11 +32,14 @@
 import { SettingsHub } from '../components/settings/SettingsHub';
 import { USER_SETTINGS_SECTIONS, USER_HUB_TITLE } from '../config/userSettingsSections';
 import { useAiConfig } from '../hooks/useAiConfig';
+import { isTelemetryOn, useTelemetryConfig } from '../hooks/useTelemetryConfig';
 
 export default function UserSettingsHubPage() {
   // The deployment feature map (#425), exactly as the admin hub reads it:
   // `AI Keys` is declared with `feature: 'ai'`.
   const { config: aiConfig } = useAiConfig();
+  // `Telemetry Explorer` (#537) is declared with `feature: 'telemetry'`.
+  const { config: telemetryConfig } = useTelemetryConfig();
   return (
     <SettingsHub
       sections={USER_SETTINGS_SECTIONS}
@@ -50,7 +53,7 @@ export default function UserSettingsHubPage() {
       // the admin hub's system-configuration copy: these are the user's
       // preferences, not the deployment's.
       subtitle="Manage your account preferences"
-      features={{ ai: aiConfig.enabled }}
+      features={{ ai: aiConfig.enabled, telemetry: isTelemetryOn(telemetryConfig) }}
     />
   );
 }

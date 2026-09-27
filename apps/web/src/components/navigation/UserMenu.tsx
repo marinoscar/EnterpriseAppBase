@@ -44,14 +44,14 @@ import { Logout as LogoutIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
-import { useAiFeatures } from '../../hooks/useAiConfig';
+import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
 
 export function UserMenu() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { user, logout } = useAuth();
   const { hasPermission } = usePermissions();
-  const features = useAiFeatures();
+  const features = useSettingsFeatures();
   const navigate = useNavigate();
 
   const open = Boolean(anchorEl);

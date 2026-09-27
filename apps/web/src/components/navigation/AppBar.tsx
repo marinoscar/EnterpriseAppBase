@@ -24,7 +24,7 @@ import {
   settingsPageTitle,
 } from '../../config/adminSections';
 import type { SettingsFeatures, SettingsSectionDef } from '../../config/adminSections';
-import { useAiFeatures } from '../../hooks/useAiConfig';
+import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import {
   USER_SETTINGS_SECTIONS,
   USER_HUB_PATH,
@@ -162,7 +162,7 @@ export function AppBar() {
   // a pure string lookup over a few dozen registry entries, and hoisting it out
   // of the branch keeps the two treatments a single render decision rather than
   // two code paths that can drift.
-  const features = useAiFeatures();
+  const features = useSettingsFeatures();
   const drillDown = isCompactWindow ? resolveDrillDown(pathname, features) : null;
 
   return (
