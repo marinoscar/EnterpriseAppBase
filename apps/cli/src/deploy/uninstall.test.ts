@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,7 +7,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { UsageError } from '../errors.js';
 import { confirmationMatches, planUninstall, runUninstall } from './uninstall.js';
 import { OBJECT_IN_USE, dropDatabase, quoteIdentifier } from './database-drop.js';
-import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
+import { DEPLOY_STATE_VERSION, deployStatePath, writeState, type DeployState } from './state.js';
+
+const FAKE_DB_PASSWORD = 'not-a-real-password';
 
 function deployment(env = 'POSTGRES_DB=appdb\nAPP_BIND_PORT=3535\n'): string {
   const root = mkdtempSync(join(tmpdir(), 'appctl-uninstall-'));
@@ -370,5 +372,266 @@ describe('--purge-storage runs inside the api image, before anything is destroye
     ).rejects.toThrow(/no such service/);
 
     expect(existsSync(join(root, 'repo'))).toBe(true);
+  });
+});
+
+describe('--drop-database actually drops the database (#522)', () => {
+  const DB_ENV = [
+    'POSTGRES_DB=appdb',
+    'POSTGRES_HOST=db.example.test',
+    'POSTGRES_PORT=6543',
+    'POSTGRES_USER=postgres',
+    `POSTGRES_PASSWORD=${FAKE_DB_PASSWORD}`,
+    'APP_BIND_PORT=3535',
+    '',
+  ].join('\n');
+
+  function deploymentWithVhost(env = DB_ENV): string {
+    const root = deployment(env);
+    const state: DeployState = {
+      version: DEPLOY_STATE_VERSION,
+      repoUrl: 'https://example.test/o/r',
+      ref: 'main',
+      commitSha: 'a'.repeat(40),
+      domain: 'app.example.test',
+      bindPort: 3535,
+      deployRoot: root,
+      installedAt: '2026-01-01T00:00:00.000Z',
+      lastDeployedAt: '2026-01-01T00:00:00.000Z',
+      lastCommand: 'install',
+      appctlVersion: '1.0.0',
+      proxyMode: 'host',
+    };
+    writeState(state);
+    const vhostDir = join(root, 'proxy', 'nginx', 'conf.d');
+    mkdirSync(vhostDir, { recursive: true });
+    writeFileSync(join(vhostDir, 'app.example.test.conf'), '# Managed by appctl deploy\n');
+    return root;
+  }
+
+  const vhostPath = (root: string) =>
+    join(root, 'proxy', 'nginx', 'conf.d', 'app.example.test.conf');
+  const isDrop = (argv: readonly string[]) =>
+    argv.includes('psql') && argv.some((arg) => arg.includes('DROP DATABASE'));
+
+  it('the plan lists the database, with its server, under REMOVES when the flag is set', () => {
+    const plan = planUninstall({ deployRoot: deployment(DB_ENV), dropDatabase: true });
+
+    expect(plan.removes).toContain('database appdb on db.example.test:6543 (DROP DATABASE)');
+    expect(plan.keeps.some((keep) => keep.what.includes('appdb'))).toBe(false);
+  });
+
+  it('the plan lists the database under KEEPS, and not under removes, without the flag', () => {
+    const plan = planUninstall({ deployRoot: deployment(DB_ENV) });
+
+    expect(plan.keeps.some((keep) => keep.what.includes('appdb'))).toBe(true);
+    expect(plan.removes.join('\n')).not.toContain('DROP DATABASE');
+  });
+
+  it('drops AFTER `compose down` and BEFORE the vhost and the files are removed', async () => {
+    const root = deploymentWithVhost();
+    const order: string[] = [];
+    const run = vi.fn().mockImplementation(async (argv: readonly string[]) => {
+      if (argv.includes('down')) order.push('down');
+      if (isDrop(argv)) {
+        order.push('drop');
+        // The files a retry needs must still be on disk at this moment.
+        expect(existsSync(join(root, '.env'))).toBe(true);
+        expect(existsSync(join(root, 'repo'))).toBe(true);
+        expect(existsSync(vhostPath(root))).toBe(true);
+      }
+      if (argv.join(' ') === 'nginx -t') order.push('vhost');
+      return okResult();
+    });
+
+    const result = await runUninstall({
+      deployRoot: root,
+      proxyRoot: join(root, 'proxy'),
+      dropDatabase: true,
+      confirmDatabase: 'appdb',
+      runCommand: run as never,
+    });
+
+    expect(order).toEqual(['down', 'drop', 'vhost']);
+    expect(result.removed).toBe(true);
+    expect(result.database).toEqual({
+      name: 'appdb',
+      terminated: 0,
+      detail: 'dropped; no sessions were connected',
+    });
+    expect(existsSync(join(root, 'repo'))).toBe(false);
+    expect(existsSync(join(root, '.env'))).toBe(false);
+  });
+
+  it('reports the terminated-session count and journals it', async () => {
+    const root = deploymentWithVhost();
+    mkdirSync(join(root, 'logs'), { recursive: true });
+    let drops = 0;
+    let journalAtVhost = '';
+    const run = vi.fn().mockImplementation(async (argv: readonly string[]) => {
+      if (isDrop(argv)) {
+        drops += 1;
+        if (drops === 1) {
+          return {
+            ...okResult(),
+            exitCode: 1,
+            stderr: `ERROR: ${OBJECT_IN_USE}: database "appdb" is being accessed by other users`,
+          };
+        }
+      }
+      if (argv.some((arg) => arg.includes('pg_terminate_backend'))) return okResult('2\n');
+      // The journal lives under logs/, which the uninstall itself removes, so
+      // it is read while it still exists: after the drop, before the files go.
+      if (argv.join(' ') === 'nginx -t') {
+        journalAtVhost = readdirSync(join(root, 'logs'))
+          .map((file) => readFileSync(join(root, 'logs', file), 'utf8'))
+          .join('\n');
+      }
+      return okResult();
+    });
+
+    const result = await runUninstall({
+      deployRoot: root,
+      proxyRoot: join(root, 'proxy'),
+      dropDatabase: true,
+      confirmDatabase: 'appdb',
+      runCommand: run as never,
+    });
+
+    expect(result.database?.terminated).toBe(2);
+    expect(journalAtVhost).toMatch(/Dropped database appdb.*terminated 2 session/);
+    expect(journalAtVhost).not.toContain(FAKE_DB_PASSWORD);
+  });
+
+  it('a failed drop THROWS, and keeps the checkout, the .env and the vhost for a re-run', async () => {
+    const root = deploymentWithVhost();
+    const run = vi.fn().mockImplementation(async (argv: readonly string[]) => {
+      if (isDrop(argv)) return { ...okResult(), exitCode: 2, stderr: 'psql: error: connection refused' };
+      return okResult();
+    });
+
+    const failure = runUninstall({
+      deployRoot: root,
+      proxyRoot: join(root, 'proxy'),
+      dropDatabase: true,
+      confirmDatabase: 'appdb',
+      runCommand: run as never,
+    });
+
+    await expect(failure).rejects.toBeInstanceOf(UsageError);
+    await expect(failure).rejects.toThrow(/NOT dropped: psql: error: connection refused/);
+    await expect(failure).rejects.toThrow(/re-run/i);
+
+    expect(existsSync(join(root, 'repo'))).toBe(true);
+    expect(existsSync(join(root, '.env'))).toBe(true);
+    expect(existsSync(deployStatePath(root))).toBe(true);
+    expect(existsSync(vhostPath(root))).toBe(true);
+    const argvs = run.mock.calls.map((call) => (call[0] as string[]).join(' '));
+    expect(argvs).not.toContain('nginx -t');
+    expect(argvs.some((argv) => argv.includes('nginx -s reload'))).toBe(false);
+
+    // And the same command is accepted again: the stack is down, but the
+    // checkout and .env that planUninstall looks for are still there.
+    expect(() => planUninstall({ deployRoot: root, dropDatabase: true })).not.toThrow();
+    const retry = await runUninstall({
+      deployRoot: root,
+      proxyRoot: join(root, 'proxy'),
+      dropDatabase: true,
+      confirmDatabase: 'appdb',
+      runCommand: vi.fn().mockResolvedValue(okResult()) as never,
+    });
+    expect(retry.removed).toBe(true);
+    expect(retry.database?.name).toBe('appdb');
+    expect(existsSync(join(root, '.env'))).toBe(false);
+  });
+
+  it('a drop that cannot even start (no credentials) is also a loud failure, not a success', async () => {
+    const root = deployment('POSTGRES_DB=appdb\n');
+
+    await expect(
+      runUninstall({
+        deployRoot: root,
+        dropDatabase: true,
+        confirmDatabase: 'appdb',
+        runCommand: vi.fn().mockResolvedValue(okResult()) as never,
+      }),
+    ).rejects.toThrow(/NOT dropped/);
+
+    expect(existsSync(join(root, 'repo'))).toBe(true);
+    expect(existsSync(join(root, '.env'))).toBe(true);
+  });
+
+  it('never puts the password in an argv during the uninstall', async () => {
+    const root = deployment(DB_ENV);
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await runUninstall({
+      deployRoot: root,
+      dropDatabase: true,
+      confirmDatabase: 'appdb',
+      runCommand: run as never,
+    });
+
+    const drop = run.mock.calls.find((call) => isDrop(call[0] as string[]));
+    expect(drop).toBeDefined();
+    for (const call of run.mock.calls) {
+      expect((call[0] as string[]).join(' ')).not.toContain(FAKE_DB_PASSWORD);
+    }
+    expect((drop?.[1] as { env?: Record<string, string> }).env?.PGPASSWORD).toBe(
+      FAKE_DB_PASSWORD,
+    );
+  });
+});
+
+describe('dropDatabase connection settings', () => {
+  const base: [string, string][] = [
+    ['POSTGRES_HOST', 'localhost'],
+    ['POSTGRES_USER', 'postgres'],
+    ['POSTGRES_PASSWORD', 'secret'],
+  ];
+
+  it('POSTGRES_SSL=true sets PGSSLMODE=require in the environment, named but not valued in argv', async () => {
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await dropDatabase({
+      env: new Map([...base, ['POSTGRES_SSL', 'true']]),
+      database: 'appdb',
+      runCommand: run as never,
+    });
+
+    const argv = run.mock.calls[0]?.[0] as string[];
+    const options = run.mock.calls[0]?.[1] as { env?: Record<string, string> };
+    expect(options.env?.PGSSLMODE).toBe('require');
+    expect(argv).toContain('PGSSLMODE');
+    expect(argv.join(' ')).not.toContain('require');
+  });
+
+  it('without POSTGRES_SSL, PGSSLMODE is neither named nor set', async () => {
+    const run = vi.fn().mockResolvedValue(okResult());
+    const saved = process.env.PGSSLMODE;
+    delete process.env.PGSSLMODE;
+
+    try {
+      await dropDatabase({ env: new Map(base), database: 'appdb', runCommand: run as never });
+    } finally {
+      if (saved !== undefined) process.env.PGSSLMODE = saved;
+    }
+
+    const argv = run.mock.calls[0]?.[0] as string[];
+    const options = run.mock.calls[0]?.[1] as { env?: Record<string, string> };
+    expect(argv).not.toContain('PGSSLMODE');
+    expect(options.env?.PGSSLMODE).toBeUndefined();
+  });
+
+  it('bounds the connection attempt with PGCONNECT_TIMEOUT=5, via the environment', async () => {
+    const run = vi.fn().mockResolvedValue(okResult());
+
+    await dropDatabase({ env: new Map(base), database: 'appdb', runCommand: run as never });
+
+    const argv = run.mock.calls[0]?.[0] as string[];
+    const options = run.mock.calls[0]?.[1] as { env?: Record<string, string> };
+    expect(options.env?.PGCONNECT_TIMEOUT).toBe('5');
+    expect(argv).toContain('PGCONNECT_TIMEOUT');
+    expect(argv.join(' ')).not.toContain('PGCONNECT_TIMEOUT=');
   });
 });

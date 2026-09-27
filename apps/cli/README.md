@@ -744,9 +744,12 @@ appctl deploy uninstall --purge-storage --confirm-bucket <bucket-name>
 `deploy-info` directory, the `.env` and the deployment record. It always
 keeps the shared Docker network, the shared proxy, the TLS certificate and
 the renewal cron entry. Each destructive extra needs its own flag plus that
-resource's real name typed back. `--drop-database` checks its confirmation
-but does not drop the database; drop it yourself. What each step does, and
-why, is in
+resource's real name typed back. `--drop-database --confirm-database <name>`
+drops the database after the stack stops: confirmation, then the optional
+storage purge, then `compose down -v`, then `DROP DATABASE`, then the vhost
+and file removal. A failed drop stops the uninstall with an error and keeps
+the checkout, `.env`, vhost and state so the same command can be re-run. What
+each step does, and why, is in
 [`docs/runbooks/deploy-to-vps.md`, "Removing a deployment"](../../docs/runbooks/deploy-to-vps.md#11-removing-a-deployment).
 
 Exit codes: `0` removed, or a `--dry-run` report; `2` nothing to uninstall at
@@ -766,7 +769,9 @@ Options:
   --proxy-mode <mode>        How the shared proxy runs: container or host
                              (default: as recorded, else detected)
   --dry-run                  Report what would be removed and change nothing
-  --drop-database            Also drop the database (needs --confirm-database)
+  --drop-database            Also DROP the PostgreSQL database named by
+                             POSTGRES_DB, after the stack stops (needs
+                             --confirm-database)
   --confirm-database <name>  The database's own name, typed back
   --purge-storage            Also delete every object in storage (needs
                              --confirm-bucket)
@@ -1083,11 +1088,11 @@ Run `npm run docs:worker-env --workspace=cli` to regenerate it after changing
 | `APPCTL_POLL_INTERVAL_MS` | Idle poll interval in milliseconds. |
 | `APPCTL_HEADLESS` | `true` to run without a TTY and drain on SIGTERM WITHOUT deregistering. |
 | `APPCTL_STATE_DIR` | Overrides the state directory. The one variable a container almost always sets. |
-| `APPCTL_HEAP_LIMIT_MB` | Old-space limit in MB for the re-exec (#277). `0` disables re-tuning entirely. |
-| `APPCTL_HEAP_TUNED` | The re-exec LATCH (#277). Set by the parent shim on the child it spawns. Not an operator knob — it exists so the re-exec cannot loop. It is still declared here rather than read as a literal, because the rule this map enforces has no exceptions: a variable the code reads is a variable a rename must reach. |
-| `APPCTL_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve (#277). |
-| `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9 (#277). |
-| `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths (#277). |
+| `APPCTL_HEAP_LIMIT_MB` | Old-space limit in MB for the re-exec. `0` disables re-tuning entirely. |
+| `APPCTL_HEAP_TUNED` | The re-exec LATCH. Set by the parent shim on the child it spawns. Not an operator knob — it exists so the re-exec cannot loop. It is still declared here rather than read as a literal, because the rule this map enforces has no exceptions: a variable the code reads is a variable a rename must reach. |
+| `APPCTL_MEMORY_WATCHDOG` | `false` to disable the memory watchdog and its pre-OOM valve. |
+| `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. |
+| `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths. |
 <!-- GENERATED:WORKER_ENV_TABLE:END -->
 
 With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the

@@ -475,7 +475,10 @@ export function registerDeployCommand(
     .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
     .option('--proxy-mode <mode>', PROXY_MODE_HELP)
     .option('--dry-run', 'Report what would be removed and change nothing')
-    .option('--drop-database', 'Also drop the database (needs --confirm-database)')
+    .option(
+      '--drop-database',
+      'Also DROP the PostgreSQL database named by POSTGRES_DB, after the stack stops (needs --confirm-database)',
+    )
     .option('--confirm-database <name>', "The database's own name, typed back")
     .option('--purge-storage', 'Also delete every object in storage (needs --confirm-bucket)')
     .option('--confirm-bucket <name>', "The bucket's own name, typed back")
@@ -498,6 +501,10 @@ export function registerDeployCommand(
         'The two destructive extras each need their own flag AND that resource\'s',
         'own real name typed back -- not the word DELETE. A word typed for one',
         'must never authorise the other.',
+        '',
+        '--drop-database runs DROP DATABASE after the stack stops and before the',
+        'files go. If it fails, the checkout and the environment file are kept',
+        '(they hold the credentials) so the same command can be re-run.',
         '',
         'Run --dry-run first. It reports exactly what would go and what would stay.',
       ].join('\n'),
@@ -569,6 +576,14 @@ export async function runUninstallCommand(
   });
 
   for (const warning of result.warnings) stderr.write(`warning: ${warning}\n`);
+  if (result.database !== undefined) {
+    // The count is always printed, even when zero: an operator not told a
+    // session was killed cannot know to go and ask whose it was.
+    stderr.write(
+      `Dropped database ${result.database.name} ` +
+        `(terminated ${String(result.database.terminated)} session(s)).\n`,
+    );
+  }
   stderr.write(`Removed ${app.deployRoot}. Log: ${result.journalPath}\n`);
 }
 

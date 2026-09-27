@@ -13,7 +13,7 @@
  *     whose cell is a `<Chip>` exports what is behind the chip.
  *  3. **Export writes what is on screen.** The user's column visibility (#255)
  *     and `exportable: false` both bound the file; the active filters bound it
- *     by bounding `rows`, because the table never filters rows itself (§10.1).
+ *     by bounding `rows`, because the table never filters rows itself.
  *  4. **The all-rows export is the PAGE's query, replayed.** It never invents a
  *     request, is bounded at 10 000 rows, and is cancellable.
  *  5. **Selection stays row-set-derived, not DOM-derived.** That is what makes
@@ -690,7 +690,7 @@ describe('DataTable — current-page export', () => {
   });
 
   it('exports the rows the server returned for the ACTIVE filters', async () => {
-    // The table never filters `rows` (§10.1), so "respects the filters" means
+    // The table never filters `rows`, so "respects the filters" means
     // exactly this: the file is the filtered page the page handed us, and
     // nothing else.
     const filters: DataTableFilterModel = [
@@ -878,7 +878,7 @@ describe('DataTable — grid virtualization, rendered', () => {
     });
     const scroller = screen.getByTestId('datatable-scroll-container');
     expect(scroller).toHaveAttribute('data-virtualized', 'false');
-    // Auto-height: the table grows with its rows and the PAGE scrolls (§5).
+    // Auto-height: the table grows with its rows and the PAGE scrolls.
     expect(getComputedStyle(scroller).height).not.toMatch(/px$/);
   });
 

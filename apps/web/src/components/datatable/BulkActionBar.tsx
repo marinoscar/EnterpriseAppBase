@@ -22,7 +22,7 @@ export interface BulkActionBarProps {
   actions?: DataTableBulkAction[];
   onClear: () => void;
   /**
-   * Rows available to select on THIS page — selection is page-scoped (§5.3),
+   * Rows available to select on THIS page — selection is page-scoped,
    * so this is `rowIds.length`, never `pagination.total`. Drives the "N of M
    * selected" phrasing; omit for a bare "N selected" (e.g. a caller that uses
    * this bar outside a DataTable renderer without a known denominator).
