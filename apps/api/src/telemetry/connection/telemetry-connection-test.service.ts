@@ -8,7 +8,7 @@ import type {
   TestTelemetryConnectionInput,
 } from './dto/telemetry-connection.dto';
 import { GREPTIME_CONNECT_TIMEOUT_MS, GREPTIME_PING_TIMEOUT_MS, quoteIdent } from '../greptime/greptime.client';
-import { checkHostResolves, hostNotFoundMessage, isDnsError } from '../greptime/greptime-host';
+import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptions } from '../greptime/greptime-host';
 import type { TelemetryConnectionRole } from './telemetry-connection.schema';
 import { TelemetryConnectionService } from './telemetry-connection.service';
 
@@ -40,8 +40,10 @@ import { TelemetryConnectionService } from './telemetry-connection.service';
 // resolved ONCE, before any probe, under `GREPTIME_DNS_TIMEOUT_MS` (longer
 // than Docker's ~5 s EAI_AGAIN window, which otherwise loses the race to the
 // connect timeout and surfaces as a bare "timed out"). When it does not
-// resolve, both probes report that — naming telemetry.compose.yml — without a
-// client ever being created. A DNS error that still reaches a probe is
+// resolve, both probes report that without a client ever being created; the
+// message differs for an automatic host (GreptimeDB is not running with this
+// deployment yet: it starts with the next application update) and a custom
+// one (check or clear the host). A DNS error that still reaches a probe is
 // reported the same way.
 //
 // A BLANK HOST means the deployment host (`GREPTIME_HOST`, else the compose
@@ -72,6 +74,8 @@ export interface TelemetryProbeClient {
 /** Where a probe connects — the candidate, with an automatic host already resolved. */
 interface ProbeTarget {
   host: string;
+  /** The form left the host blank: `host` is the deployment host. */
+  automatic: boolean;
   pgPort: number;
   database: string;
 }
@@ -88,11 +92,12 @@ export class TelemetryConnectionTestService {
   async test(input: TestTelemetryConnectionInput, userId: string): Promise<TelemetryConnectionTestResult> {
     const target: ProbeTarget = {
       host: input.host ?? this.connection.deploymentHost,
+      automatic: input.host === null || input.host === undefined,
       pgPort: input.pgPort,
       database: input.database,
     };
     const resolveStarted = Date.now();
-    const hostNotFound = await this.resolveHost(target.host);
+    const hostNotFound = await this.resolveHost(target.host, { automatic: target.automatic });
     const hostFailure = (message: string): TelemetryConnectionProbe => ({
       success: false,
       latencyMs: Date.now() - resolveStarted,
@@ -144,8 +149,8 @@ export class TelemetryConnectionTestService {
    * `null` when `host` resolves (or the check is inconclusive), else why it
    * does not. A seam for tests; production code never overrides it.
    */
-  protected resolveHost(host: string): Promise<string | null> {
-    return checkHostResolves(host);
+  protected resolveHost(host: string, options: HostCheckOptions): Promise<string | null> {
+    return checkHostResolves(host, undefined, undefined, options);
   }
 
   // ---------------------------------------------------------------------------
@@ -197,7 +202,7 @@ export class TelemetryConnectionTestService {
       };
     } catch (error) {
       const message = isDnsError(error)
-        ? hostNotFoundMessage(target.host, error)
+        ? hostNotFoundMessage(target.host, error, { automatic: target.automatic })
         : error instanceof Error
           ? error.message
           : String(error);

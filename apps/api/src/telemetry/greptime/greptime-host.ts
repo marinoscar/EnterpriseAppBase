@@ -7,8 +7,8 @@ import { isIP } from 'node:net';
 // =============================================================================
 //
 // When the GreptimeDB host does not exist on the network at all (the usual
-// case: `greptimedb` is a service of `telemetry.compose.yml` and that overlay
-// was never started), Docker's embedded DNS takes ~5 s to give up and answer
+// case: the automatic host `greptimedb` names a container that is not running
+// on this deployment yet), Docker's embedded DNS takes ~5 s to give up and answer
 // `getaddrinfo EAI_AGAIN greptimedb`. That is just past
 // `GREPTIME_CONNECT_TIMEOUT_MS`, so the connect attempt loses the race and the
 // administrator is told "timeout expired" / "Connection terminated due to
@@ -61,13 +61,37 @@ export function isDnsError(error: unknown): boolean {
   return typeof code === 'string' && DNS_ERROR_CODES.has(code);
 }
 
-/** The administrator-facing explanation of a DNS failure for `host`. */
-export function hostNotFoundMessage(host: string, error: unknown): string {
+/** Whether the host being checked is the automatic (deployment) host or one the administrator typed. */
+export interface HostCheckOptions {
+  /**
+   * `true` when the host is the deployment host an automatic (blank) host
+   * resolves to; `false` (the default) for a literal the administrator set.
+   */
+  automatic?: boolean;
+}
+
+/**
+ * The administrator-facing explanation of a DNS failure for `host`.
+ *
+ * ⚠ Shown in `/admin/settings/telemetry`. It must never tell an administrator
+ * to start compose files, edit files or run the CLI: GreptimeDB ships with
+ * every deployment, so an automatic host that does not resolve is fixed by the
+ * next application update, and a custom one by correcting (or clearing) it.
+ */
+export function hostNotFoundMessage(host: string, error: unknown, options: HostCheckOptions = {}): string {
   const detail = error instanceof Error ? error.message : String(error);
+
+  if (options.automatic) {
+    return (
+      `GreptimeDB is not running alongside this application: the built-in host "${host}" does not exist on its network (${detail}). ` +
+      'GreptimeDB is deployed with the application and starts with the next application update. ' +
+      'Nothing needs to be configured here.'
+    );
+  }
 
   return (
     `GreptimeDB host "${host}" could not be resolved (${detail}): no host by that name exists on this network. ` +
-    'If GreptimeDB runs in the telemetry compose overlay, has telemetry.compose.yml been started?'
+    'Check the host name, or clear it to use the GreptimeDB deployed with this application.'
   );
 }
 
@@ -79,6 +103,7 @@ export async function checkHostResolves(
   host: string,
   lookup: HostLookup = defaultLookup,
   timeoutMs = GREPTIME_DNS_TIMEOUT_MS,
+  options: HostCheckOptions = {},
 ): Promise<string | null> {
   if (!host || isIP(host) !== 0) return null;
 
@@ -95,7 +120,7 @@ export async function checkHostResolves(
     pending = Promise.resolve(lookup(host));
   } catch (error) {
     // A lookup that throws synchronously is still a verdict.
-    return isDnsError(error) ? hostNotFoundMessage(host, error) : null;
+    return isDnsError(error) ? hostNotFoundMessage(host, error, options) : null;
   }
 
   // Settle to a value either way, so a late rejection (after the timeout won)
@@ -110,7 +135,7 @@ export async function checkHostResolves(
 
     if (result === TIMED_OUT || result.ok) return null;
 
-    return isDnsError(result.error) ? hostNotFoundMessage(host, result.error) : null;
+    return isDnsError(result.error) ? hostNotFoundMessage(host, result.error, options) : null;
   } finally {
     if (timer) clearTimeout(timer);
   }

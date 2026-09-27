@@ -1,5 +1,6 @@
 import { TelemetryConnectionTestService, type TelemetryProbeClient } from './telemetry-connection-test.service';
 import type { TestTelemetryConnectionInput } from './dto/telemetry-connection.dto';
+import type { HostCheckOptions } from '../greptime/greptime-host';
 
 // =============================================================================
 // TelemetryConnectionTestService — tests (issue #558, epic #528)
@@ -25,6 +26,7 @@ const CANDIDATE: TestTelemetryConnectionInput = {
 class TestableService extends TelemetryConnectionTestService {
   readonly created: unknown[] = [];
   readonly hostsAsked: string[] = [];
+  readonly hostModesAsked: Array<boolean | undefined> = [];
   nextClient: () => TelemetryProbeClient = () => makeClient();
   /** `null` (host resolves) unless a test wires it otherwise. */
   hostResolution: (host: string) => Promise<string | null> = async () => null;
@@ -34,8 +36,9 @@ class TestableService extends TelemetryConnectionTestService {
     return this.nextClient();
   }
 
-  protected override resolveHost(host: string): Promise<string | null> {
+  protected override resolveHost(host: string, options: HostCheckOptions): Promise<string | null> {
     this.hostsAsked.push(host);
+    this.hostModesAsked.push(options.automatic);
     return this.hostResolution(host);
   }
 }
@@ -129,14 +132,14 @@ describe('TelemetryConnectionTestService', () => {
   describe('a host that does not resolve', () => {
     it('reports the host-not-found message for both reader and admin, and creates no client', async () => {
       const { service } = build();
-      service.hostResolution = async () => 'host not found: try telemetry.compose.yml';
+      service.hostResolution = async () => 'host not found';
 
       const result = await service.test(CANDIDATE, 'admin-1');
 
       expect(result.reader.success).toBe(false);
-      expect(result.reader.error).toBe('host not found: try telemetry.compose.yml');
+      expect(result.reader.error).toBe('host not found');
       expect('success' in result.admin && result.admin.success).toBe(false);
-      expect('error' in result.admin && result.admin.error).toBe('host not found: try telemetry.compose.yml');
+      expect('error' in result.admin && result.admin.error).toBe('host not found');
       expect(service.created).toHaveLength(0);
     });
 
@@ -166,14 +169,16 @@ describe('TelemetryConnectionTestService', () => {
       await service.test(CANDIDATE, 'admin-1');
 
       expect(service.hostsAsked).toEqual(['candidate-host']);
+      expect(service.hostModesAsked).toEqual([false]);
     });
 
-    it('resolves the deployment host once when the candidate host is automatic (null)', async () => {
+    it('resolves the deployment host once, as automatic, when the candidate host is automatic (null)', async () => {
       const { service } = build();
 
       await service.test({ ...CANDIDATE, host: null }, 'admin-1');
 
       expect(service.hostsAsked).toEqual(['deploy-host']);
+      expect(service.hostModesAsked).toEqual([true]);
     });
   });
 
@@ -182,7 +187,7 @@ describe('TelemetryConnectionTestService', () => {
   // ==========================================================================
 
   describe('a DNS error from the connect attempt', () => {
-    it('is reported as host-not-found, naming the host, the driver message and telemetry.compose.yml', async () => {
+    it('is reported as host-not-found for a custom host: names it, keeps the driver message, says to check or clear it', async () => {
       const { service } = build();
       service.nextClient = () =>
         makeClient({
@@ -197,8 +202,27 @@ describe('TelemetryConnectionTestService', () => {
 
       expect(result.reader.success).toBe(false);
       expect(result.reader.error).toContain('candidate-host');
-      expect(result.reader.error).toContain('getaddrinfo EAI_AGAIN candidate-host');
-      expect(result.reader.error).toContain('telemetry.compose.yml');
+      expect(result.reader.error).toContain('(getaddrinfo EAI_AGAIN candidate-host)');
+      expect(result.reader.error).toContain('Check the host name, or clear it');
+      expect(result.reader.error).not.toMatch(/compose|appctl/i);
+    });
+
+    it('is reported as the automatic-host message when the candidate host is automatic (null)', async () => {
+      const { service } = build();
+      service.nextClient = () =>
+        makeClient({
+          connect: jest
+            .fn()
+            .mockRejectedValue(Object.assign(new Error('getaddrinfo EAI_AGAIN deploy-host'), { code: 'EAI_AGAIN' })),
+        });
+
+      const result = await service.test({ ...CANDIDATE, host: null, adminUser: null }, 'admin-1');
+
+      expect(result.reader.success).toBe(false);
+      expect(result.reader.error).toContain('"deploy-host"');
+      expect(result.reader.error).toContain('(getaddrinfo EAI_AGAIN deploy-host)');
+      expect(result.reader.error).toContain('starts with the next application update');
+      expect(result.reader.error).not.toMatch(/compose|appctl/i);
     });
 
     it('still masks a password that happens to appear in the DNS error text', async () => {
