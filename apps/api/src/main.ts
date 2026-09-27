@@ -14,6 +14,7 @@ import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from './common/crypto/encryption-key-startup-check';
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
+import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -22,6 +23,11 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'production' && process.env.TEST_AUTH_ENABLED === 'true') {
     throw new Error('TEST_AUTH_ENABLED must not be true in production');
   }
+
+  // CORS policy (#517). Parsed HERE, before the application or its database
+  // connection exists, so a wildcard or malformed CORS_ORIGIN fails the boot
+  // immediately with its own message. Applied further down, after the prefix.
+  const corsOptions = buildCorsOptions(process.env.CORS_ORIGIN);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
@@ -69,11 +75,16 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix('api');
 
-  // Enable CORS (same-origin by default, configurable)
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN || true,
-    credentials: true,
-  });
+  // CORS: same-origin only unless CORS_ORIGIN lists trusted origins (#517).
+  // nginx (and the Vite dev proxy) serve the web app and /api from one origin,
+  // and the CLI and worker nodes are not browsers, so the default emits no
+  // CORS headers at all. See src/common/cors/cors-options.ts.
+  app.enableCors(corsOptions);
+  logger.log(
+    isSameOriginOnly(corsOptions)
+      ? 'CORS: same-origin only (CORS_ORIGIN unset; no cross-origin access)'
+      : `CORS: allowlist of ${corsOptions.origin.length} origin(s) with credentials: ${corsOptions.origin.join(', ')}`,
+  );
 
   // OpenAPI: the document and the two routes that serve it. Everything that
   // shapes them lives in `src/openapi/` rather than here, so the same pure
