@@ -85,10 +85,15 @@ The `link` check produces a fixable 400 at compose time. The security
 boundary is still `sanitizeLink` in the browser channel, which silently drops a
 bad link at render time.
 
-Create returns `{ broadcast, warnings }`. The only warning today: `browser` was
-selected while the deployment-wide browser kill switch is off. That is a
-warning, not a 400, because scheduling for after the switch is flipped back is
-legitimate.
+Create returns `{ broadcast, warnings }`. The only warning today fires when
+`browser` was selected while the deployment-wide browser kill switch is off,
+and it says one of two things depending on the broadcast's importance: for
+`admin.broadcast` (non-critical), the in-app row is not written at all and the
+bell never shows it — unless `push` is also selected and the recipient has an
+active subscription, which writes its own in-app row; for
+`admin.broadcast_critical` (mandatory), the row is still written and reaches
+the bell, only the OS toast is withheld. That is a warning, not a 400, because
+scheduling for after the switch is flipped back is legitimate.
 
 **Rendering.** The body splits into paragraphs on blank lines; a single
 newline inside a paragraph is joined with a space (mail clients reflow). Empty
@@ -548,3 +553,7 @@ Manual:
 - Later issues: #456 email rate limits; #459 `failed`, resume and the cursor
   CAS; #468 reaper give-up emits `job.settled`; #469 idempotent start; #480
   `canDelete` guard.
+- #521: corrected this doc's account of the create-time browser-kill-switch
+  warning — a non-critical broadcast gets no in-app row while browser
+  notifications are disabled, unless `push` is also selected and the
+  recipient has a subscription; a critical one always gets its row.
