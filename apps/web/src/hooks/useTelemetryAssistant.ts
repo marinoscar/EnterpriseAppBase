@@ -8,7 +8,9 @@
  *
  * The last {@link ASSISTANT_HISTORY_TURNS} turns (a question and its answer
  * each) are sent back as `history`, so a follow-up ("now only for the api
- * service") has context. `stop()` aborts the stream.
+ * service") has context. `stop()` aborts the stream; `clear()` aborts it and
+ * forgets the conversation (the panel's "New chat", issue #574), so the next
+ * question is sent with no `history`.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {

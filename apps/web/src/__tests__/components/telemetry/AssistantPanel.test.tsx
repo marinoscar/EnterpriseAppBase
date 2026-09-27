@@ -279,6 +279,84 @@ describe('AssistantPanel reply rendering', () => {
   });
 });
 
+describe('AssistantPanel New chat (#574)', () => {
+  const conversation = [
+    { id: 'u1', role: 'user' as const, text: 'q' },
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      status: 'done' as const,
+      steps: [],
+      answer: { sql: 'SELECT 1', explanation: 'Legacy answer.' },
+      error: null,
+    },
+  ];
+
+  it('is hidden while there is no conversation', () => {
+    render(
+      <AssistantPanel
+        messages={[]}
+        isStreaming={false}
+        onAsk={vi.fn()}
+        onStop={vi.fn()}
+        onInsert={vi.fn()}
+        onInsertAndRun={vi.fn()}
+        onNewChat={vi.fn()}
+        modelCaption="openai · gpt-5-mini"
+      />,
+    );
+
+    expect(screen.queryByTestId('assistant-new-chat')).not.toBeInTheDocument();
+    expect(screen.getByTestId('assistant-model')).toHaveTextContent('openai · gpt-5-mini');
+  });
+
+  it('is shown once there are messages, and clicking it calls onNewChat and empties the input', async () => {
+    const user = userEvent.setup();
+    const onNewChat = vi.fn();
+    render(
+      <AssistantPanel
+        messages={conversation}
+        isStreaming={false}
+        onAsk={vi.fn()}
+        onStop={vi.fn()}
+        onInsert={vi.fn()}
+        onInsertAndRun={vi.fn()}
+        onNewChat={onNewChat}
+      />,
+    );
+
+    const input = screen.getByRole('textbox', { name: 'Ask the assistant' });
+    await user.type(input, 'half-typed');
+    const button = screen.getByRole('button', { name: 'Start a new chat' });
+    expect(button).toHaveAttribute('data-testid', 'assistant-new-chat');
+    expect(button).toHaveTextContent('New chat');
+
+    await user.click(button);
+
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+    expect(input).toHaveValue('');
+  });
+
+  it('is available while a turn is streaming', async () => {
+    const user = userEvent.setup();
+    const onNewChat = vi.fn();
+    render(
+      <AssistantPanel
+        messages={conversation}
+        isStreaming
+        onAsk={vi.fn()}
+        onStop={vi.fn()}
+        onInsert={vi.fn()}
+        onInsertAndRun={vi.fn()}
+        onNewChat={onNewChat}
+      />,
+    );
+
+    await user.click(screen.getByTestId('assistant-new-chat'));
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('answerAsHistory', () => {
   it('turns a report into a compact status/summary/findings/root-cause/recommendations/sql text', () => {
     const answer: TelemetryAssistantAnswer = { sql: REPORT.queries[0].sql, explanation: REPORT.summary, report: REPORT };

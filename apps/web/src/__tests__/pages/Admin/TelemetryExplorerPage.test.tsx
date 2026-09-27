@@ -397,6 +397,45 @@ describe('TelemetryExplorerPage', () => {
     ]);
   });
 
+  it('New chat returns to the empty state and the next question carries no history (#574)', async () => {
+    const answerSql = 'SELECT 1';
+    const streamBodies: { question: string; history?: unknown[] }[] = [];
+    server.use(
+      http.post(`${API_BASE}/admin/telemetry/assistant/stream`, async ({ request }) => {
+        streamBodies.push((await request.json()) as { question: string });
+        const frames = [
+          ['answer', { sql: answerSql, explanation: 'One row.' }],
+          ['done', {}],
+        ]
+          .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          .join('');
+        return new HttpResponse(frames, { headers: { 'Content-Type': 'text/event-stream' } });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await editor();
+
+    await user.click(screen.getByRole('button', { name: 'Assistant' }));
+    expect(screen.queryByTestId('assistant-new-chat')).not.toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Ask the assistant' }), 'First question');
+    await user.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(await screen.findByTestId('assistant-explanation')).toHaveTextContent('One row.');
+
+    await user.click(screen.getByRole('button', { name: 'Start a new chat' }));
+
+    expect(screen.queryByTestId('assistant-reply')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-question')).not.toBeInTheDocument();
+    expect(screen.getByText('Why is the API slow?')).toBeInTheDocument();
+    expect(screen.queryByTestId('assistant-new-chat')).not.toBeInTheDocument();
+
+    await user.type(screen.getByRole('textbox', { name: 'Ask the assistant' }), 'Second question');
+    await user.click(screen.getByRole('button', { name: 'Ask' }));
+    await waitFor(() => expect(streamBodies).toHaveLength(2));
+    expect(streamBodies[1]).toEqual({ question: 'Second question' });
+    expect(streamBodies[1].history).toBeUndefined();
+  });
+
   it('shows an assistant refusal that arrives before the stream', async () => {
     server.use(
       http.post(`${API_BASE}/admin/telemetry/assistant/stream`, () =>

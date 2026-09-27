@@ -244,6 +244,7 @@ export default function TelemetryExplorerPage() {
       isStreaming={assistant.isStreaming}
       onAsk={(question) => void assistant.ask(question)}
       onStop={assistant.stop}
+      onNewChat={assistant.clear}
       onInsert={replaceSql}
       onInsertAndRun={(text) => {
         setSql(text);

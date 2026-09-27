@@ -9,12 +9,17 @@
  * older API `{ sql, explanation }`. The look follows `AiChatThread` — user
  * bubbles on the right, outlined assistant cards, a `role="log"` region, plain
  * text only (nothing the model says is interpreted as HTML).
+ *
+ * "New chat" (issue #574) sits in the top row beside the model caption, so the
+ * desktop drawer and the phone dialog share it; it calls `onNewChat` (the
+ * hook's `clear()`, which aborts any in-flight turn) and empties the input.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { Alert, Box, Button, Chip, Paper, Stack, TextField, Typography } from '@mui/material';
 import StopIcon from '@mui/icons-material/Stop';
 import SendIcon from '@mui/icons-material/Send';
+import AddCommentOutlinedIcon from '@mui/icons-material/AddCommentOutlined';
 import {
   ASSISTANT_QUESTION_MAX,
   type AssistantMessage,
@@ -120,6 +125,8 @@ export interface AssistantPanelProps {
   onInsertAndRun: (sql: string) => void;
   /** e.g. `openai · gpt-5-mini`, when the viewer may read the settings. */
   modelCaption?: string | null;
+  /** Starts over: aborts any in-flight turn and forgets the conversation (#574). */
+  onNewChat?: () => void;
 }
 
 export function AssistantPanel({
@@ -130,6 +137,7 @@ export function AssistantPanel({
   onInsert,
   onInsertAndRun,
   modelCaption,
+  onNewChat,
 }: AssistantPanelProps) {
   const [question, setQuestion] = useState('');
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +157,12 @@ export function AssistantPanel({
     setQuestion('');
   };
 
+  const showNewChat = Boolean(onNewChat) && messages.length > 0;
+  const newChat = () => {
+    setQuestion('');
+    onNewChat?.();
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -158,10 +172,31 @@ export function AssistantPanel({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {modelCaption && (
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }} data-testid="assistant-model">
-          {modelCaption}
-        </Typography>
+      {(modelCaption || showNewChat) && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, minWidth: 0 }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            noWrap
+            title={modelCaption ?? undefined}
+            sx={{ flex: 1, minWidth: 0 }}
+            data-testid={modelCaption ? 'assistant-model' : undefined}
+          >
+            {modelCaption}
+          </Typography>
+          {showNewChat && (
+            <Button
+              size="small"
+              onClick={newChat}
+              startIcon={<AddCommentOutlinedIcon />}
+              aria-label="Start a new chat"
+              data-testid="assistant-new-chat"
+              sx={{ flexShrink: 0 }}
+            >
+              New chat
+            </Button>
+          )}
+        </Box>
       )}
       <Box
         role="log"
