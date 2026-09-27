@@ -10,8 +10,8 @@
  * ```
  *
  * `autoHeight` **disables row virtualization**, and `autoHeight` is exactly what
- * this renderer uses whenever the caller omits `height` (the documented default,
- * §5: the table grows with its rows and the PAGE scrolls). So the default table
+ * this renderer uses whenever the caller omits `height` (the documented default:
+ * the table grows with its rows and the PAGE scrolls). So the default table
  * was rendering every loaded row, virtualizer or not.
  *
  * The fix is not "always take a fixed height" — auto-height is the right
@@ -25,7 +25,7 @@
  *
  * Every target table is server-paginated, and the MIT DataGrid throws above a
  * 100-row page, so the realistic worst case is 100 rows plus a few synthetic
- * tablet detail rows (§9.1). This is **robustness for large page sizes**, not
+ * tablet detail rows. This is **robustness for large page sizes**, not
  * the performance strategy — the performance strategy is server-side
  * pagination, and it already shipped in #252.
  *

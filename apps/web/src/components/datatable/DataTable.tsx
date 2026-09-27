@@ -128,8 +128,7 @@ export interface ViewBarVisibilityInput {
  *  - **`loading`** — a page that clears `rows` while refetching would otherwise
  *    flash the bar out and back on every poll. Both #258's job queue and #259's
  *    worker nodes render unconditionally through a 5s auto-refresh precisely to
- *    avoid remount churn (docs/specs/datatable.md §18.4); this must not
- *    reintroduce it one row higher.
+ *    avoid remount churn; this must not reintroduce it one row higher.
  *  - **an active filter or quick search** — zero rows is then a RESULT, not an
  *    empty table. The controls must stay put while the user narrows a query,
  *    and the bar disappearing the moment a filter matches nothing is the worst
