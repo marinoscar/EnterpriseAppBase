@@ -214,12 +214,15 @@ describe('Telemetry controllers — access declarations', () => {
 
       it('an automatic host needs nothing else, and accepts (to ignore) what older clients send (issue #570)', () => {
         for (const schema of [updateTelemetryConnectionSchema, testTelemetryConnectionSchema]) {
-          expect(schema.parse({})).toMatchObject({ host: null, readerUser: undefined, adminUser: undefined });
-          expect(schema.parse({ host: '' , readerUser: '', adminUser: '' })).toMatchObject({
-            host: null,
-            readerUser: undefined,
-            adminUser: null,
-          });
+          const empty = schema.parse({});
+          expect(empty.host).toBeNull();
+          expect(empty.readerUser).toBeUndefined();
+          expect(empty.adminUser).toBeUndefined();
+
+          const blank = schema.parse({ host: '', readerUser: '', adminUser: '' });
+          expect(blank.host).toBeNull();
+          expect(blank.readerUser).toBeUndefined();
+          expect(blank.adminUser).toBeNull();
           expect(
             schema.safeParse({ host: null, readerUser: 'r', readerPassword: 'p', adminUser: 'a', adminPassword: 'q' })
               .success,
