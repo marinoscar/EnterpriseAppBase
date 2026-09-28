@@ -1,6 +1,6 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/stack-agent/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
+> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/api/src/telemetry/dashboard/`, `apps/stack-agent/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
@@ -258,7 +258,7 @@ GreptimeDB standalone v1.2.1                             (infra/compose/telemetr
   │   reader pool  (GREPTIME_READER_*) — explorer, assistant, status
   │   admin pool   (GREPTIME_ADMIN_*)  — retention ALTER DATABASE, SHOW CREATE DATABASE
   ▼
-API (TelemetryModule) ──► Admin browser (explorer, assistant, settings)
+API (TelemetryModule) ──► Admin browser (explorer, assistant, dashboard, settings)
 ```
 
 `TelemetryModule` (`apps/api/src/telemetry/telemetry.module.ts`) wires:
@@ -272,11 +272,13 @@ API (TelemetryModule) ──► Admin browser (explorer, assistant, settings)
 - `TelemetryQueryService`, `TelemetrySchemaService`, `TelemetryExportService`
   — the explorer (§5).
 - `TelemetryAssistantService` — the AI assistant (§6), built on `AiModule`.
+- `TelemetryDashboardService` — the fixed health dashboard (§11).
 
-Four controllers, all tagged `Telemetry` in the OpenAPI document:
+Five controllers, all tagged `Telemetry` in the OpenAPI document:
 `TelemetryConfigController` (public feature flag), `TelemetryAdminController`
-(policy + status), `TelemetryExplorerController` (query/schema/export) and
-`TelemetryAssistantController` (the SSE route).
+(policy + status), `TelemetryExplorerController` (query/schema/export),
+`TelemetryAssistantController` (the SSE route) and
+`TelemetryDashboardController` (§11).
 
 GreptimeDB creates tables on first write, with no migration step: typically
 `opentelemetry_traces` (spans), `opentelemetry_logs` (log records), and one
@@ -532,6 +534,8 @@ started it).
 | `TELEMETRY_QUERY_TIMEOUT` | 504 | The statement outran `telemetry.query.timeoutSeconds` |
 | `TELEMETRY_ASSISTANT_DISABLED` | 409 | `telemetry.assistant.enabled` is off |
 | `TELEMETRY_ASSISTANT_NOT_CONFIGURED` | 409 | No `assistant.provider`/`assistant.modelId` chosen |
+| `TELEMETRY_DASHBOARD_BAD_FILTER` | 400 | `service`/`instance` is not among the values `/filters` reports for the window ([§11](#11-dashboard)) |
+| `TELEMETRY_DASHBOARD_BAD_CURSOR` | 400 | The events `cursor` is malformed ([§11](#11-dashboard)) |
 
 `TelemetrySchemaService` caches its two `information_schema` reads for
 `TELEMETRY_SCHEMA_CACHE_MS` (30 s), shared by concurrent callers, and also
@@ -1056,6 +1060,416 @@ generated whether or not `--group observability` was ever passed. Only
 overwritten. `vps.compose.yml` refuses to start `stack-agent` or `api`
 without it (`:?` compose interpolation).
 
+## 11. Dashboard
+
+`/admin/settings/telemetry/dashboard` answers "is anything wrong, right now?"
+without anyone writing SQL: a health verdict, headline tiles, API and log
+timelines, the routes and error messages responsible, and a feed of recent
+error/warning logs — all read-only, over the same GreptimeDB store as the
+explorer.
+
+### 11.1 Purpose and triage model
+
+The dashboard is deliberately narrow: it answers "is anything wrong, and
+roughly where" for THIS application's own traces, logs and Node runtime
+metrics, not a general-purpose observability tool. It is not a replacement
+for the [Explorer](#5-explorer) (arbitrary SQL) or the
+[AI assistant](#6-ai-assistant) (an investigation) — it is the page an
+administrator opens first, to decide whether either of those is worth
+opening at all.
+
+The triage flow it is built for: read the verdict banner (§11.7) → if not
+`healthy`, read its reasons (which rule fired, the worst offender) → look at
+the tile or panel the reason names → optionally zoom into the window that
+looks bad. Each panel fetches independently (§11.9), so a failing or slow
+panel never blocks the rest of the page from telling its part of the story.
+
+The **triage model** is a set of actions on every panel and the verdict
+banner, so the dashboard is an entry point into the deeper tools rather than
+a dead end:
+
+- **"Open in Explorer"** on every panel (Key indicators, API requests, log
+  severity, Top failing routes, Top errors, Recent events): hands the
+  Explorer the `sql` that panel's own API response reported (§11.4), first
+  statement only when it is a list — for Key indicators that is the
+  current-vs-previous totals query the tiles come from. The Explorer loads
+  it into the editor and does **not** run it (§11.9's cross-link below);
+  disabled until the panel has data (and so has `sql`).
+- **"Ask assistant"** on every panel, and **"Explain this"** on the verdict
+  banner: opens the shared `AssistantPanel` with a question built by
+  `buildAssistantQuestion` (`components/telemetry/dashboard/assistantPrompt.ts`)
+  describing what that panel currently shows, prefilled into the input and
+  **never sent** — the reader edits it and presses Ask. Offered only where
+  `useTelemetryAssistantAvailable` (below) says the assistant may be shown.
+- **"View trace"**, in the event detail dialog only (not the row itself,
+  since the row is already a button and a nested control would be
+  unreachable for assistive technology): shown only when the event's
+  `traceId` matches `/^[0-9a-f]{32}$/` (`traceLink.ts`'s `isTraceId`, a
+  genuine W3C trace id), and opens the one browser-built statement in this
+  whole feature — every other handoff carries `sql` the API already ran and
+  reported; this one does not exist as a dashboard endpoint, so it is
+  written client-side (see the safety argument below).
+- **Report queries** the assistant surfaces ("Insert" / "Insert and run" in
+  its own UI) open in the Explorer loaded, not run, when reached from the
+  dashboard's assistant — the same "never auto-run a handed statement" rule
+  as every other handoff here.
+- **Cross-links**: the Dashboard header links to the Explorer and the
+  Explorer header links back to the Dashboard; the Telemetry settings page
+  offers "Open dashboard" whenever telemetry is on (a store is deployed and
+  collection is on) and the viewer holds `telemetry:query` — the dashboard
+  route's own gates, re-checked rather than assumed (`TelemetryCrossLink`).
+
+**Assistant availability** is one condition, `useTelemetryAssistantAvailable`
+(`hooks/useTelemetryAssistantAvailable.ts`), shared by the Dashboard and the
+Explorer so the two can never disagree: the Telemetry assistant switch is on
+(`GET /api/telemetry/config` → `assistantEnabled`), AI is on for the
+deployment (`GET /api/ai/config` → `enabled`), and the viewer holds `ai:use`.
+This only hides the control — the API enforces every one of those on
+`POST /admin/telemetry/assistant/stream` regardless.
+
+**The handed-over SQL, and why "load, don't run" everywhere**: every
+statement — from a panel's "Open in Explorer", the assistant's report
+queries, and "View trace" — reaches the Explorer via `location.state.sql`
+(the router navigation `explorerHandoff()` builds) or, for a plain link,
+`?sql=<URL-encoded>` (`state` wins when both are present). The Explorer reads
+it **once** on mount, puts it in the editor, shows a dismissible "Query
+loaded from the Telemetry Dashboard. Review it and press Run." notice, and
+clears the handoff from both `location.state` and the URL with a `replace`
+navigation so a reload does not repeat it. Anything blank, not a string, or
+longer than `TELEMETRY_SQL_MAX_LENGTH` (20,000 characters — the same DTO
+bound the API enforces, `apps/api/src/telemetry/dto/telemetry-query.dto.ts`)
+is ignored and the Explorer opens as usual. The statement never runs until
+the reader presses Run: a dashboard panel and an assistant report are both
+untrusted enough (server-composed from data, or model-composed) that this
+feature does not add a second way to execute SQL without a human looking at
+it first — the Explorer's own SQL guard is still the thing that decides
+whether a run is allowed.
+
+`buildAssistantQuestion`'s bounds keep the prefill a caption, not an essay:
+at most 2,000 characters overall, any one message (a log body, an error
+line, a verdict reason) clipped to 200, at most five list entries per
+panel, and at most one sample trace id.
+
+### 11.2 Data sources, and why no CPU/memory/disk
+
+The dashboard reads exactly three kinds of data already in the store:
+
+- **Server spans** (`opentelemetry_traces`, `span_kind = 'SPAN_KIND_SERVER'`)
+  — requests, status classes, latency, routes.
+- **Log records** (`opentelemetry_logs`) — severity bands, error messages,
+  the events feed.
+- **Node runtime metrics** (`v8js_memory_heap_used_bytes`,
+  `nodejs_eventloop_delay_p99_seconds`) — the optional runtime tiles, present
+  only when the runtime-metrics instrumentation is on.
+
+**There is no CPU, memory or disk tile for the host or container**, because
+this template collects none of that today: the OTel Node SDK instruments the
+process (traces, logs, the two runtime metrics above), not the machine it
+runs on. Adding host-level metrics is a real follow-up, not a design
+rejection: the natural next step is the collector's `hostmetricsreceiver`
+(CPU, memory, disk, network, filesystem), scraping through a **read-only**
+bind mount of the host's `/proc`, `/sys` and root filesystem (commonly
+`/hostfs`) into the collector container — no new agent, no privileged
+container, and no change to what the API or the dashboard authenticate as.
+**Docker container stats were considered and rejected as a source**: reading
+them means talking to the Docker socket, which this template deliberately
+confines to `stack-agent` alone (see [§10](#10-deploying-the-stack-stack-agent)
+and [SECURITY-ARCHITECTURE.md](../SECURITY-ARCHITECTURE.md)) — handing the
+collector, or the API, a second path to that socket is exactly the blast-radius
+increase the sidecar exists to avoid.
+
+### 11.3 Column findings (verified live, GreptimeDB v1.2.1)
+
+Verified against a running store on 2026-09-27; see the header comment of
+`apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.ts` for the full
+account. These override the issue text where they differ:
+
+| Table | Finding |
+|---|---|
+| `opentelemetry_traces` | `"span_attributes.http.route"` is **empty on server spans** (the Fastify HTTP instrumentation never sets it; only NestJS-internal spans carry it, and those are missing for a request rejected before the handler) — so routes are grouped by a **normalized `"span_attributes.url.path"`** instead (always present; the collector has already redacted the query string). Numeric, UUID and 24+ hex path segments become `:id`. |
+| `opentelemetry_traces` | Status is `"span_attributes.http.response.status_code"` (bigint). `"span_attributes.http.status_code"` does **not** exist; `span_status_code` is `STATUS_CODE_UNSET` for 4xx, so status classes come from the numeric column, never from `span_status_code`. |
+| `opentelemetry_traces` | Service is `service_name`; instance is `"resource_attributes.app.instance.id"` — a genuine flattened column, present only once an instance id has actually been written (§11.6 covers what happens when it has not). |
+| `opentelemetry_logs` | Severity comes from **`severity_number`** (OTel standard), not `severity_text` (lower-case pino labels): error `>= 17` (17 error, 21 fatal), warn `13..16`, info `9..12`, other `< 9` or `NULL`. |
+| `opentelemetry_logs` | Service and instance are **not** flattened columns here: they are keys of the JSON column `resource_attributes`, read with `json_get_string(resource_attributes, '["service.name"]')` / `'["app.instance.id"]'` — a bare `'service.name'` path returns `NULL` because `.` is a path separator in that function. |
+| `opentelemetry_logs` | `trace_id`/`span_id` may be `''` for a log emitted outside a request. |
+| Runtime metric tables | Prometheus-style columns (`greptime_timestamp`, `greptime_value`, `service_name`, …) with **no instance column** — the instance filter does not apply to the runtime tiles. `v8js_memory_heap_used_bytes` has one row per heap space per export, so it is summed per export before being averaged per bucket. Both are exported every 60 s, so a bucket finer than a minute is half empty. |
+
+### 11.4 Routes
+
+Five routes, all under `TelemetryDashboardController`, all gated by
+`telemetry:query` — the same permission as the Explorer, because the
+dashboard reads telemetry DATA, not policy (`telemetry:read`/`write` gate the
+deployment-wide policy instead; see [§7](#7-security-model)):
+
+| Route | Purpose |
+|---|---|
+| `GET /api/admin/telemetry/dashboard/summary` | The verdict and headline tiles (requests/min, 5xx rate, p95, error/warning logs, latest data), plus optional runtime tiles |
+| `GET /api/admin/telemetry/dashboard/timeseries` | `panel=api` (status classes + p95 per bucket) or `panel=logs` (severity bands per bucket) |
+| `GET /api/admin/telemetry/dashboard/top` | `kind=routes` (top 5xx offenders) or `kind=errors` (top error messages) |
+| `GET /api/admin/telemetry/dashboard/events` | Log events, newest first, keyset-paginated |
+| `GET /api/admin/telemetry/dashboard/filters` | Distinct `service`/`instance` values seen in the window |
+
+Every response carries `range`, `generatedAt`, `truncated` and `sql` (the
+exact statement(s) run, primary first) — the same seam each panel's
+"Open in Explorer" action uses (§11.1), and useful on its own for anyone
+who wants to paste the statement into a BI tool. A shared window query
+(`range` or `from`/`to`, `service`, `instance`, `buckets`) is validated by
+`refineWindow` (`apps/api/src/telemetry/dto/telemetry-dashboard.dto.ts`):
+either `range` or `from`+`to`, never both; `from < to`; `to` at most one
+minute ahead (clock skew); span at most 30 days.
+
+### 11.5 SQL safety
+
+Unlike the Explorer, **nothing here is caller-supplied SQL**: every
+statement is a template function in `telemetry-dashboard.sql.ts`, filled
+only with
+
+- fixed identifiers (table/column names), quoted with doubled `"`;
+- `Date`s the request validation already produced, rendered as ISO literals;
+- `service`/`instance` values the service has already checked against the
+  distinct values seen in the range (`/filters`, cached 60 s);
+- the event search text, reduced by `likeContainsPattern` (control
+  characters stripped, capped at 200 characters, `\`/`%`/`_` escaped, `'`
+  doubled) and used only inside `ILIKE '%…%' ESCAPE '\'`;
+- a pagination cursor whose timestamp and span id are checked against strict
+  regular expressions before they are ever concatenated.
+
+**No bind parameters**: GreptimeDB's Postgres wire refuses `$1` (a spike
+finding). Every statement carries a literal top-level `LIMIT`, never a
+subquery wrapper for the row cap — the same "wrapping drops the inner
+`ORDER BY`" finding the Explorer's row cap already works around (§5).
+
+**Streaming (SSE) routes are excluded from latency, not from counts.** Every
+SSE route of this API ends in `/stream` (`GET
+/api/notifications/stream`, `POST /api/ai/responses/stream`, `POST
+/api/admin/telemetry/assistant/stream`); its server span lasts as long as the
+subscription (observed: `GET /api/notifications/stream` at a p95 of several
+seconds), which would push the window's overall p95 past the verdict
+threshold on connection lifetime, not responsiveness. The exclusion is a
+`CASE` inside the percentile's `ORDER BY`, applied only to: the p95 tile
+(current, previous, sparkline), the API time-series p95 line, and the
+verdict's "slowest route" offender. Streams still count in requests, status
+classes and error rates, and the top-routes table keeps its own per-route
+p95 for a stream (that number is honest there: it is the stream's own row).
+
+### 11.6 Bounds, caching, and why this is not a queue job
+
+Every route runs the same five-step flow
+(`apps/api/src/telemetry/dashboard/telemetry-dashboard.service.ts`):
+preconditions (`requireQueryablePolicy`: 503 not configured, 409 disabled —
+checked **before** the cache, so a disabled store never serves a cached
+answer) → resolve the window and bucket size → the 15-second **result
+cache**, keyed by route and normalized parameters (a relative `range` keys by
+its name, not its resolved instants), with concurrent identical requests
+sharing one in-flight promise → on a miss, which tables/columns exist
+(`TelemetrySchemaService`, cached 30 s, so a fresh store degrades to empty
+panels instead of failing) and the distinct-values check for
+`service`/`instance` (cached 60 s) → an audit row per store read
+(`telemetry:dashboard`, action `TELEMETRY_DASHBOARD_AUDIT_ACTION`), including
+failures; **a cache hit is not audited**, since nothing was read from the
+store. The instance filter never applies to a runtime tile when
+`tracesHaveInstance` is false for traces, or never for the metric tables
+(§11.3).
+
+**Not a queue job**, per CLAUDE.md's "every long-running activity is a queue
+job": every statement is bounded by the policy's client-side timeout and a
+literal `LIMIT`, and none outlives the HTTP request that started it — no
+`@Cron`, no `@OnEvent`, no detached promise. The two caches expire lazily on
+read, capped at 500 entries each (oldest evicted first).
+
+### 11.7 Verdict rules
+
+`computeVerdict` (`apps/api/src/telemetry/dashboard/telemetry-dashboard
+.verdict.ts`) is one pure function over numbers the summary has already
+computed — four rules, each with a **volume guard** so a quiet deployment
+does not flap red on one failed request. The level reported is the worst
+rule that fired; `reasons` carries one line per fired rule with its value,
+the threshold it crossed, and the worst offender (route or message, cut to
+80 characters):
+
+| Rule | Degraded | Critical | Volume guard |
+|---|---|---|---|
+| 5xx rate | > 2 % | > 5 % | ≥ 20 requests in the window |
+| p95 latency (streams excluded, §11.5) | > 1000 ms | > 3000 ms | ≥ 20 requests in the window |
+| Error logs vs. the previous window | ≥ 3× | ≥ 10× | ≥ 10 error logs now (a previous count of 0 counts as 1, so the very first burst still ranks as a ratio) |
+| No data | — | — | `now − latest trace/log > 5 min` **overrides every other rule**: the other rules would be judging silence |
+
+### 11.8 Error reasons
+
+`TELEMETRY_DASHBOARD_BAD_FILTER` (400, `service`/`instance` not among the
+window's distinct values) and `TELEMETRY_DASHBOARD_BAD_CURSOR` (400, a
+malformed events `cursor`) are dashboard-specific; every store-level reason
+(`TELEMETRY_NOT_CONFIGURED`, `TELEMETRY_UNREACHABLE`, `TELEMETRY_DISABLED`,
+`TELEMETRY_QUERY_FAILED`, `TELEMETRY_QUERY_TIMEOUT`) is shared with the
+Explorer. Full table: [§5](#5-explorer).
+
+### 11.9 Web page
+
+`TelemetryDashboardPage.tsx` (`/admin/settings/telemetry/dashboard`) is
+appended to `ADMIN_SECTIONS` (Observability), gated the same way as the
+Explorer card: `telemetry:query` plus the `telemetry` feature (a store is
+deployed and collection is on) — see the [Settings UI pattern](../../CLAUDE.md#mandatory-settings-ui-pattern).
+The route itself re-checks the permission with `RequirePermission`, and the
+page checks it again as defence, not the gate.
+
+- **URL contract** (`dashboardState.ts`): everything a reader might want to
+  share or return to lives in the query string — `range` (default `1h`) or a
+  zoomed `from`/`to` (wins over `range`, which stays in the URL alongside it
+  so "Reset zoom" returns to the preset), `service`/`instance`, `sev`
+  (log severities, default `error,warn`), `q` (events search), `refresh`
+  (`30` or `off`, default on). Anything invalid falls back to its default
+  rather than erroring, so a mangled link still opens a working dashboard;
+  defaults are left out of the URL entirely.
+- **Per-panel independence**: each panel (`useTelemetryDashboard.ts`) fetches
+  on its own, aborts an in-flight request when a newer one starts (a filter
+  change, a refresh tick, a Retry), keeps its last good result on screen
+  while refreshing (`isRefreshing`) rather than blanking it, and reports its
+  own failure with a Retry that refetches only that panel — a slow or
+  failing endpoint never blocks the rest of the page. A **store-level**
+  failure on the summary (`TELEMETRY_DISABLED`, `TELEMETRY_NOT_CONFIGURED`,
+  `TELEMETRY_UNREACHABLE`) instead replaces the whole page with one alert
+  linking to Telemetry settings, since nothing on the page could work anyway.
+- **Auto-refresh**: every 30 s (`?refresh=off` to stop), through
+  `useVisiblePolling` — paused while the tab is hidden, and refreshed at once
+  on return, so a backgrounded tab is never quietly stale nor burning
+  requests nobody sees. The events feed additionally skips a refresh tick
+  once the reader has paged past the first page, so rows they scrolled to do
+  not collapse under them every 30 seconds.
+- **Zoom**: dragging (or, on touch, tapping) across the API or log timeline
+  sets `from`/`to` to that span (`ZoomBrush.tsx`, `bucketWindow`); a "Reset
+  zoom" chip in the filter bar drops back to the preset range.
+
+### 11.10 Responsive layout
+
+Layout is decided inside this page alone (phone `< sm`, tablet `sm`–`lg`,
+desktop `≥ lg`) — none of the shell's five coupled breakpoint gates
+(CLAUDE.md, [settings-ui.md](settings-ui.md#breakpoint-gates)) is touched:
+
+| Element | Phone (`< sm`) | Tablet (`sm`–`lg`) | Desktop (`≥ lg`) |
+|---|---|---|---|
+| Filter bar | Sticky compact bar (range chip + Filters); a full-screen dialog holds every control, applied as a draft on "Apply" | Range as a `Select`; service/instance/refresh behind a "Filters" popover | Everything inline; range as a `ToggleButtonGroup` |
+| Tiles/timelines | Half the buckets (30 vs. 60) — 60 bars in ~340 px are slivers | Full bucket count | Full bucket count |
+| Timeline zoom | Tap a bucket to select it | Drag or tap | Drag to select a span |
+| Top problems (routes/errors) | One panel, a Routes/Errors toggle, a card list | Two panels, stacked | Two panels, side by side |
+| Events feed | A card list (severity chip + relative time, two-line message) | A table without the service column | A full table (time, severity, service, message) |
+| Panel actions (§11.1) | Folded into one `⋮` menu | Icon buttons | Icon buttons |
+| Assistant (§11.1) | Full-screen `Dialog` | Overlay `Drawer` with a backdrop (Escape or a backdrop click closes it) | Persistent, docked 400px-wide `Drawer` below the AppBar; the page pads its content by that width so nothing sits underneath it |
+
+Each panel's header keeps its actions row consistent across panels and
+layouts: "Ask assistant" first (only where offered), then "Open in
+Explorer", as icon buttons from `sm` up and folded into the `⋮` menu on
+phones. Below `sm`, `DashboardPanel` renders `[title …… ⋮]` on one row and
+moves `headerExtra` (severity chips, the Top problems Routes/Errors toggle)
+to its own full-width row underneath, in that DOM order so focus order
+matches the screen; from `sm` up the header, chips and actions all sit on
+one row (tablet's 820 px already fits them).
+
+Closing the assistant returns focus to whatever control opened it — the
+panel's own header button on tablet/desktop, or, on a phone, the `⋮` button
+that opened the menu the "Ask assistant" item came from (the menu item
+itself is gone by the time the assistant closes).
+
+Any event row opens the full record (body, exact timestamp, service, trace
+id, span id) in a dialog — full-screen on phones; MUI's `Dialog` traps focus
+and restores it to the row on close.
+
+**Known gap**: dragging to zoom a timeline has no keyboard equivalent today;
+a keyboard user reaches the same window through the range and filter
+controls instead, just not by selecting a span on the chart itself.
+
+### 11.11 Tests
+
+- `apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.spec.ts` — every
+  SQL template, literal-escaping and the SSE exclusion.
+- `apps/api/src/telemetry/dashboard/telemetry-dashboard.verdict.spec.ts` —
+  the four rules and their volume guards.
+- `apps/api/src/telemetry/dashboard/telemetry-dashboard.service.spec.ts` —
+  window resolution, caching (including the shared in-flight promise),
+  filter validation, the audit row.
+- `apps/api/src/telemetry/dashboard/telemetry-dashboard.greptime.spec.ts` —
+  the real-database tier, over an actual GreptimeDB.
+- `apps/api/test/telemetry/telemetry-dashboard.integration.spec.ts` — routes,
+  RBAC (`telemetry:query`), error shapes.
+- `apps/web/src/__tests__/pages/Admin/TelemetryDashboardPage.test.tsx` — the
+  page, its panels and the responsive layout, over
+  `apps/web/src/__tests__/mocks/fixtures/telemetryDashboard.ts`.
+- `apps/web/src/__tests__/pages/Admin/TelemetryDashboardPage.drilldown.test.tsx`
+  — the triage model: "Open in Explorer" and "Ask assistant" per panel,
+  "Explain this" on the verdict banner, "View trace" gated on a real trace
+  id, the assistant frame per layout, and focus returning to the invoking
+  control.
+- `apps/web/src/__tests__/components/telemetry/dashboard/assistantPrompt.test.ts`
+  — `buildAssistantQuestion` per panel kind and its length/count bounds.
+- `apps/web/src/__tests__/components/telemetry/dashboard/traceLink.test.ts` —
+  `isTraceId` and `traceExplorerSql`, including the injection argument above.
+- `apps/web/src/__tests__/components/telemetry/explorerHandoff.test.ts` — the
+  `state`-vs-`?sql=` precedence, the `TELEMETRY_SQL_MAX_LENGTH` bound, and
+  that a handoff is read once and cleared.
+- `apps/web/src/__tests__/hooks/useTelemetryAssistantAvailable.test.tsx` — the
+  shared availability condition (assistant switch, AI switch, `ai:use`).
+- `tests/visual/specs/telemetry-dashboard.spec.ts` — 15 pixel baselines: the
+  `critical` and `no_data` verdicts at 390×844 (phone), 820×1180 (tablet) and
+  1440×900 (desktop), each in light and dark, plus the phone Filters dialog,
+  the phone full-screen assistant dialog and the tablet overlay assistant
+  drawer (the prefilled question is part of the picture). Every `/api` call
+  is answered with fixtures through `page.route()`
+  (`tests/visual/support/telemetryDashboard.ts`), with `Date.now()` pinned
+  (`page.clock.setFixedTime`) and the time zone/locale pinned so relative
+  times, bars and axis ticks never move; `?refresh=off` stops auto-refresh
+  mid-shot. Generated and verified in the pinned
+  `mcr.microsoft.com/playwright:v1.62.1-noble` container, per
+  [TESTING.md](../TESTING.md).
+- `tests/e2e/specs/telemetry-dashboard.spec.ts` — against a running stack,
+  **not run in CI**: opening the dashboard from the Console, zooming a
+  timeline by drag or tap, filtering by service, "Open in Explorer" loading
+  SQL without a query run, "Ask assistant" opening prefilled, the
+  Dashboard↔Explorer↔settings cross-links, and no horizontal scroll at
+  phone/tablet/desktop widths. Each test skips with a stated reason —
+  telemetry not deployed and switched on in this stack, a fresh store with
+  no data yet for a step that needs it, or the assistant unavailable — rather
+  than failing when the stack cannot support it.
+
+### 11.12 Design decisions
+
+- **A fixed dashboard, not a saved-query builder.** The Explorer already
+  covers "run whatever SQL you want"; a dashboard whose statements are
+  server-authored templates cannot be misused as an injection surface and
+  needs no query-editor UI. The cost is inflexibility, accepted deliberately:
+  anyone who needs a different cut of the data has the Explorer, and a
+  one-click path into it from every panel (§11.1).
+- **A handed-over statement or question is never auto-run or auto-sent.**
+  "Open in Explorer", "View trace" and a report query all load their SQL
+  into the Explorer's editor and stop there; "Ask assistant" and "Explain
+  this" prefill the assistant's input and stop there. Every one of these
+  statements is composed by something other than the reader — a dashboard
+  panel's own aggregation, or an AI-drafted report — and none of them has
+  been reviewed yet; requiring a press of Run or Ask keeps a human in the
+  loop before anything executes or reaches a model, and keeps the Explorer's
+  own SQL guard the single place that decides whether a run is allowed.
+- **A verdict with volume guards, not a raw error-rate threshold.** An
+  unguarded "> 5% error rate" flags red on a single failed request in a
+  quiet deployment. Requiring a minimum sample size before a rule may fire
+  was chosen over, for example, a longer lookback window, because it keeps
+  the verdict responsive to a real burst without smoothing it away.
+- **Fixed thresholds, not per-deployment configuration.** A configurable
+  verdict threshold is a second settings surface for a feature meant to give
+  a same-day answer with no setup; the thresholds (§11.7) are chosen to be
+  reasonable defaults for a typical web API, not tuned per deployment. A
+  fork that disagrees changes `DASHBOARD_VERDICT_THRESHOLDS` directly.
+  Rejected: a settings namespace, deferred until real usage shows the
+  defaults are wrong for common cases.
+- **Errors grouped by their literal first 200 characters**, not a
+  normalized message template (stack trace stripped, ids redacted). Message
+  templating is real work (a fork's error messages are not this template's
+  to normalize) and the literal grouping is honest about what it does: two
+  errors differing only in an embedded id show up as two rows, which is a
+  known limitation an administrator can see immediately rather than a
+  silent miscount.
+- **No host CPU/memory/disk today** (§11.2): rejected implementing it now in
+  favour of shipping the request/log/runtime picture first; the
+  `hostmetricsreceiver` path is a scoped follow-up, not blocked on anything
+  in this change.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -1096,3 +1510,19 @@ without it (`:?` compose interpolation).
   and a structured report with back-compatible `sql`/`explanation`;
   `assistant.maxSteps` raised to 1–20 (default 15); the web explorer no
   longer auto-runs the answer's SQL.
+- #576: epic, the Telemetry Dashboard (§11) — a triage page over the
+  existing GreptimeDB store, plus a drill-down path into the Explorer and
+  the assistant.
+- #577: the dashboard API — `TelemetryDashboardController`'s five routes,
+  the SQL templates and safety model (§11.5), the verdict rules (§11.7),
+  bounds and caching (§11.6).
+- #578: the dashboard page itself — registry card, panels, URL-held state
+  and the phone/tablet/desktop layout (§11.9, §11.10).
+- #579: the triage model ships — "Ask assistant" and "Open in Explorer" on
+  every panel, "Explain this" on the verdict banner, "View trace" on a log
+  event, prefilled report queries from the assistant, and the Dashboard ↔
+  Explorer ↔ settings cross-links (§11.1); the shared
+  `useTelemetryAssistantAvailable` condition and `AssistantContainer` frame,
+  reused from the Explorer.
+- #580: this document's §11 written and verified against the shipped code,
+  including the drill-down actions above.

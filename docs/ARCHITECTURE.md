@@ -435,7 +435,7 @@ This is the single home for the matrix. Source: `ROLE_PERMISSIONS` in `apps/api/
 | `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
 | `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
-| `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`) |
+| `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
@@ -540,6 +540,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/ai/usage` | AI Usage | AI | `ai_config:read` | `ai` |
 | `/admin/settings/telemetry` | Telemetry | Observability | `telemetry:read` | none (the page that turns telemetry on) |
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
+| `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
@@ -641,6 +642,7 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 - Each log line carries the request ID and trace ID assigned by the request-ID middleware, so a log line leads to its trace.
 - Never log secrets. The AI platform, credential stores and auth guards keep key material out of logs, spans and error bodies by design.
 - Administrators query GreptimeDB with SQL, export results, and ask an AI assistant about them, from the Telemetry Explorer (`/admin/settings/telemetry/explorer`, `telemetry:query`) — see [specs/telemetry.md](specs/telemetry.md).
+- A fixed Telemetry Dashboard (`/admin/settings/telemetry/dashboard`, `telemetry:query`) gives a health verdict, tiles and timelines with no SQL required — see [specs/telemetry.md §11](specs/telemetry.md#11-dashboard).
 - GreptimeDB dashboard: http://localhost:14000/dashboard when `telemetry.compose.yml` is running.
 
 Health endpoints (public, reachable during maintenance):
