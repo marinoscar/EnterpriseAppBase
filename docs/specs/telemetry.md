@@ -1084,15 +1084,71 @@ the tile or panel the reason names → optionally zoom into the window that
 looks bad. Each panel fetches independently (§11.9), so a failing or slow
 panel never blocks the rest of the page from telling its part of the story.
 
-A short **triage model**, planned but not yet built: each
-panel's header will offer to open its own statement in the Explorer without
-running it, and to ask the AI assistant a pre-filled, editable question about
-it, so the dashboard becomes the entry point into both deeper tools instead
-of a dead end. The Dashboard, Explorer and Telemetry settings pages are
-meant to cross-link so a reader can move between "what's wrong", "let me
-query that myself" and "let me change the policy" without hunting for the
-other page. This document does not commit to file names or props for that
-work; it will be verified against the code once that work merges.
+The **triage model** is a set of actions on every panel and the verdict
+banner, so the dashboard is an entry point into the deeper tools rather than
+a dead end:
+
+- **"Open in Explorer"** on every panel (Key indicators, API requests, log
+  severity, Top failing routes, Top errors, Recent events): hands the
+  Explorer the `sql` that panel's own API response reported (§11.4), first
+  statement only when it is a list — for Key indicators that is the
+  current-vs-previous totals query the tiles come from. The Explorer loads
+  it into the editor and does **not** run it (§11.9's cross-link below);
+  disabled until the panel has data (and so has `sql`).
+- **"Ask assistant"** on every panel, and **"Explain this"** on the verdict
+  banner: opens the shared `AssistantPanel` with a question built by
+  `buildAssistantQuestion` (`components/telemetry/dashboard/assistantPrompt.ts`)
+  describing what that panel currently shows, prefilled into the input and
+  **never sent** — the reader edits it and presses Ask. Offered only where
+  `useTelemetryAssistantAvailable` (below) says the assistant may be shown.
+- **"View trace"**, in the event detail dialog only (not the row itself,
+  since the row is already a button and a nested control would be
+  unreachable for assistive technology): shown only when the event's
+  `traceId` matches `/^[0-9a-f]{32}$/` (`traceLink.ts`'s `isTraceId`, a
+  genuine W3C trace id), and opens the one browser-built statement in this
+  whole feature — every other handoff carries `sql` the API already ran and
+  reported; this one does not exist as a dashboard endpoint, so it is
+  written client-side (see the safety argument below).
+- **Report queries** the assistant surfaces ("Insert" / "Insert and run" in
+  its own UI) open in the Explorer loaded, not run, when reached from the
+  dashboard's assistant — the same "never auto-run a handed statement" rule
+  as every other handoff here.
+- **Cross-links**: the Dashboard header links to the Explorer and the
+  Explorer header links back to the Dashboard; the Telemetry settings page
+  offers "Open dashboard" whenever telemetry is on (a store is deployed and
+  collection is on) and the viewer holds `telemetry:query` — the dashboard
+  route's own gates, re-checked rather than assumed (`TelemetryCrossLink`).
+
+**Assistant availability** is one condition, `useTelemetryAssistantAvailable`
+(`hooks/useTelemetryAssistantAvailable.ts`), shared by the Dashboard and the
+Explorer so the two can never disagree: the Telemetry assistant switch is on
+(`GET /api/telemetry/config` → `assistantEnabled`), AI is on for the
+deployment (`GET /api/ai/config` → `enabled`), and the viewer holds `ai:use`.
+This only hides the control — the API enforces every one of those on
+`POST /admin/telemetry/assistant/stream` regardless.
+
+**The handed-over SQL, and why "load, don't run" everywhere**: every
+statement — from a panel's "Open in Explorer", the assistant's report
+queries, and "View trace" — reaches the Explorer via `location.state.sql`
+(the router navigation `explorerHandoff()` builds) or, for a plain link,
+`?sql=<URL-encoded>` (`state` wins when both are present). The Explorer reads
+it **once** on mount, puts it in the editor, shows a dismissible "Query
+loaded from the Telemetry Dashboard. Review it and press Run." notice, and
+clears the handoff from both `location.state` and the URL with a `replace`
+navigation so a reload does not repeat it. Anything blank, not a string, or
+longer than `TELEMETRY_SQL_MAX_LENGTH` (20,000 characters — the same DTO
+bound the API enforces, `apps/api/src/telemetry/dto/telemetry-query.dto.ts`)
+is ignored and the Explorer opens as usual. The statement never runs until
+the reader presses Run: a dashboard panel and an assistant report are both
+untrusted enough (server-composed from data, or model-composed) that this
+feature does not add a second way to execute SQL without a human looking at
+it first — the Explorer's own SQL guard is still the thing that decides
+whether a run is allowed.
+
+`buildAssistantQuestion`'s bounds keep the prefill a caption, not an essay:
+at most 2,000 characters overall, any one message (a log body, an error
+line, a verdict reason) clipped to 200, at most five list entries per
+panel, and at most one sample trace id.
 
 ### 11.2 Data sources, and why no CPU/memory/disk
 
@@ -1154,8 +1210,8 @@ deployment-wide policy instead; see [§7](#7-security-model)):
 | `GET /api/admin/telemetry/dashboard/filters` | Distinct `service`/`instance` values seen in the window |
 
 Every response carries `range`, `generatedAt`, `truncated` and `sql` (the
-exact statement(s) run, primary first) — the same seam the planned
-"Open in Explorer" action (§11.1) will use, and useful on its own for anyone
+exact statement(s) run, primary first) — the same seam each panel's
+"Open in Explorer" action uses (§11.1), and useful on its own for anyone
 who wants to paste the statement into a BI tool. A shared window query
 (`range` or `from`/`to`, `service`, `instance`, `buckets`) is validated by
 `refineWindow` (`apps/api/src/telemetry/dto/telemetry-dashboard.dto.ts`):
@@ -1296,7 +1352,22 @@ desktop `≥ lg`) — none of the shell's five coupled breakpoint gates
 | Timeline zoom | Tap a bucket to select it | Drag or tap | Drag to select a span |
 | Top problems (routes/errors) | One panel, a Routes/Errors toggle, a card list | Two panels, stacked | Two panels, side by side |
 | Events feed | A card list (severity chip + relative time, two-line message) | A table without the service column | A full table (time, severity, service, message) |
-| Panel actions (§11.1's seam) | Folded into one `⋮` menu | Icon buttons | Icon buttons |
+| Panel actions (§11.1) | Folded into one `⋮` menu | Icon buttons | Icon buttons |
+| Assistant (§11.1) | Full-screen `Dialog` | Overlay `Drawer` with a backdrop (Escape or a backdrop click closes it) | Persistent, docked 400px-wide `Drawer` below the AppBar; the page pads its content by that width so nothing sits underneath it |
+
+Each panel's header keeps its actions row consistent across panels and
+layouts: "Ask assistant" first (only where offered), then "Open in
+Explorer", as icon buttons from `sm` up and folded into the `⋮` menu on
+phones. Below `sm`, `DashboardPanel` renders `[title …… ⋮]` on one row and
+moves `headerExtra` (severity chips, the Top problems Routes/Errors toggle)
+to its own full-width row underneath, in that DOM order so focus order
+matches the screen; from `sm` up the header, chips and actions all sit on
+one row (tablet's 820 px already fits them).
+
+Closing the assistant returns focus to whatever control opened it — the
+panel's own header button on tablet/desktop, or, on a phone, the `⋮` button
+that opened the menu the "Ask assistant" item came from (the menu item
+itself is gone by the time the assistant closes).
 
 Any event row opens the full record (body, exact timestamp, service, trace
 id, span id) in a dialog — full-screen on phones; MUI's `Dialog` traps focus
@@ -1322,6 +1393,41 @@ controls instead, just not by selecting a span on the chart itself.
 - `apps/web/src/__tests__/pages/Admin/TelemetryDashboardPage.test.tsx` — the
   page, its panels and the responsive layout, over
   `apps/web/src/__tests__/mocks/fixtures/telemetryDashboard.ts`.
+- `apps/web/src/__tests__/pages/Admin/TelemetryDashboardPage.drilldown.test.tsx`
+  — the triage model: "Open in Explorer" and "Ask assistant" per panel,
+  "Explain this" on the verdict banner, "View trace" gated on a real trace
+  id, the assistant frame per layout, and focus returning to the invoking
+  control.
+- `apps/web/src/__tests__/components/telemetry/dashboard/assistantPrompt.test.ts`
+  — `buildAssistantQuestion` per panel kind and its length/count bounds.
+- `apps/web/src/__tests__/components/telemetry/dashboard/traceLink.test.ts` —
+  `isTraceId` and `traceExplorerSql`, including the injection argument above.
+- `apps/web/src/__tests__/components/telemetry/explorerHandoff.test.ts` — the
+  `state`-vs-`?sql=` precedence, the `TELEMETRY_SQL_MAX_LENGTH` bound, and
+  that a handoff is read once and cleared.
+- `apps/web/src/__tests__/hooks/useTelemetryAssistantAvailable.test.tsx` — the
+  shared availability condition (assistant switch, AI switch, `ai:use`).
+- `tests/visual/specs/telemetry-dashboard.spec.ts` — 15 pixel baselines: the
+  `critical` and `no_data` verdicts at 390×844 (phone), 820×1180 (tablet) and
+  1440×900 (desktop), each in light and dark, plus the phone Filters dialog,
+  the phone full-screen assistant dialog and the tablet overlay assistant
+  drawer (the prefilled question is part of the picture). Every `/api` call
+  is answered with fixtures through `page.route()`
+  (`tests/visual/support/telemetryDashboard.ts`), with `Date.now()` pinned
+  (`page.clock.setFixedTime`) and the time zone/locale pinned so relative
+  times, bars and axis ticks never move; `?refresh=off` stops auto-refresh
+  mid-shot. Generated and verified in the pinned
+  `mcr.microsoft.com/playwright:v1.62.1-noble` container, per
+  [TESTING.md](../TESTING.md).
+- `tests/e2e/specs/telemetry-dashboard.spec.ts` — against a running stack,
+  **not run in CI**: opening the dashboard from the Console, zooming a
+  timeline by drag or tap, filtering by service, "Open in Explorer" loading
+  SQL without a query run, "Ask assistant" opening prefilled, the
+  Dashboard↔Explorer↔settings cross-links, and no horizontal scroll at
+  phone/tablet/desktop widths. Each test skips with a stated reason —
+  telemetry not deployed and switched on in this stack, a fresh store with
+  no data yet for a step that needs it, or the assistant unavailable — rather
+  than failing when the stack cannot support it.
 
 ### 11.12 Design decisions
 
@@ -1329,8 +1435,17 @@ controls instead, just not by selecting a span on the chart itself.
   covers "run whatever SQL you want"; a dashboard whose statements are
   server-authored templates cannot be misused as an injection surface and
   needs no query-editor UI. The cost is inflexibility, accepted deliberately:
-  anyone who needs a different cut of the data has the Explorer, and soon a
-  one-click path into it from a panel (§11.1).
+  anyone who needs a different cut of the data has the Explorer, and a
+  one-click path into it from every panel (§11.1).
+- **A handed-over statement or question is never auto-run or auto-sent.**
+  "Open in Explorer", "View trace" and a report query all load their SQL
+  into the Explorer's editor and stop there; "Ask assistant" and "Explain
+  this" prefill the assistant's input and stop there. Every one of these
+  statements is composed by something other than the reader — a dashboard
+  panel's own aggregation, or an AI-drafted report — and none of them has
+  been reviewed yet; requiring a press of Run or Ask keeps a human in the
+  loop before anything executes or reaches a model, and keeps the Explorer's
+  own SQL guard the single place that decides whether a run is allowed.
 - **A verdict with volume guards, not a raw error-rate threshold.** An
   unguarded "> 5% error rate" flags red on a single failed request in a
   quiet deployment. Requiring a minimum sample size before a rule may fire
@@ -1395,3 +1510,19 @@ controls instead, just not by selecting a span on the chart itself.
   and a structured report with back-compatible `sql`/`explanation`;
   `assistant.maxSteps` raised to 1–20 (default 15); the web explorer no
   longer auto-runs the answer's SQL.
+- #576: epic, the Telemetry Dashboard (§11) — a triage page over the
+  existing GreptimeDB store, plus a drill-down path into the Explorer and
+  the assistant.
+- #577: the dashboard API — `TelemetryDashboardController`'s five routes,
+  the SQL templates and safety model (§11.5), the verdict rules (§11.7),
+  bounds and caching (§11.6).
+- #578: the dashboard page itself — registry card, panels, URL-held state
+  and the phone/tablet/desktop layout (§11.9, §11.10).
+- #579: the triage model ships — "Ask assistant" and "Open in Explorer" on
+  every panel, "Explain this" on the verdict banner, "View trace" on a log
+  event, prefilled report queries from the assistant, and the Dashboard ↔
+  Explorer ↔ settings cross-links (§11.1); the shared
+  `useTelemetryAssistantAvailable` condition and `AssistantContainer` frame,
+  reused from the Explorer.
+- #580: this document's §11 written and verified against the shipped code,
+  including the drill-down actions above.

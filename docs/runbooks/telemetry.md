@@ -283,8 +283,21 @@ filters, log severities, search text, auto-refresh — lives in the URL, so
 copying the address bar's link reproduces exactly what you are looking at
 for anyone else with `telemetry:query`. Drag across an API or log timeline
 (tap on a phone) to zoom into that span; a "Reset zoom" chip in the filter
-bar returns to the preset range. "Open in Explorer" and "Ask assistant"
-actions on each panel are planned, not shipped yet.
+bar returns to the preset range.
+
+Every panel's header offers **"Open in Explorer"**, which loads that panel's
+own query into the Explorer's editor without running it — press Run there
+once you have reviewed it. Where the assistant is configured and switched on
+(§6) and you hold `ai:use`, every panel also offers **"Ask assistant"** (the
+verdict banner calls it **"Explain this"**), which opens the assistant with
+a question about that panel prefilled — edit it and press Ask; it is never
+sent on its own. On a phone, both actions are folded into the panel's `⋮`
+menu. Opening a log event and following **"View trace"** (shown only when
+the event carries a real trace id) does the same: it loads that trace's
+spans into the Explorer, unrun. The Dashboard's header links to the
+Explorer, the Explorer's back to the Dashboard, and `/admin/settings/telemetry`
+offers "Open dashboard" whenever telemetry is on and you hold
+`telemetry:query`.
 
 **Known limits:**
 
