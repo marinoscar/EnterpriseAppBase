@@ -26,20 +26,19 @@ const DESKTOP = { width: 1440, height: 900 };
 /** Open the dashboard, or skip the test when telemetry is not on in this stack. */
 async function openDashboard(page: Page, search = ''): Promise<void> {
   await page.goto(`${DASHBOARD}${search}`);
-  // Either the page renders or the feature gate redirects home. (Not
-  // `networkidle`: the shell may hold a server-sent-events connection open.)
-  await page.waitForFunction(
-    (path) =>
-      location.pathname !== path ||
-      Array.from(document.querySelectorAll('h1')).some((h) => h.textContent === 'Telemetry Dashboard'),
-    DASHBOARD,
-    { timeout: 15_000 },
-  );
+  // The app may hold a transient redirect at start (auth refresh) before
+  // settling on the dashboard, so wait for the heading itself rather than
+  // just "left the dashboard path" — that momentary state resolves too. Only
+  // when the heading never shows up AND we're not on the dashboard path do we
+  // treat this as the feature gate redirecting home. (Not `networkidle`: the
+  // shell may hold a server-sent-events connection open.)
+  const heading = page.getByRole('heading', { level: 1, name: 'Telemetry Dashboard' });
+  await heading.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
   test.skip(
     !page.url().includes(DASHBOARD),
     'Telemetry is not deployed and switched on in this stack (the dashboard route redirected).',
   );
-  await expect(page.getByRole('heading', { level: 1, name: 'Telemetry Dashboard' })).toBeVisible();
+  await expect(heading).toBeVisible();
   await expect(page.getByTestId('verdict-banner')).toBeVisible({ timeout: 15_000 });
 }
 
@@ -65,7 +64,14 @@ test.describe('Telemetry Dashboard on a phone', () => {
 
   test('opens from the Console and shows the verdict', async ({ adminPage: page }) => {
     await page.goto('/admin/settings');
-    const card = page.getByRole('link', { name: /Telemetry Dashboard/ }).first();
+    // At this (compact, `down('sm')`) width, SettingsHub renders cards as a
+    // `List` of `ListItemButton`s (role "button"), not the `Card`/
+    // `CardActionArea` grid it uses from `sm` up — so the accessible role
+    // here is "button", not "link".
+    const card = page.getByRole('button', { name: /Telemetry Dashboard/ }).first();
+    // The hub renders after permissions/features load, so give the card a
+    // real chance to appear before deciding it's genuinely absent.
+    await card.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
     test.skip(!(await card.isVisible().catch(() => false)), 'The Telemetry Dashboard card is hidden: telemetry is off.');
     await card.click();
     await expect(page).toHaveURL(new RegExp(`${DASHBOARD}`));
@@ -74,7 +80,12 @@ test.describe('Telemetry Dashboard on a phone', () => {
 
   test('tapping a timeline bar zooms into it', async ({ adminPage: page }) => {
     await openDashboard(page);
-    const brush = page.getByTestId('panel-api').getByTestId('zoom-brush');
+    const panel = page.getByTestId('panel-api');
+    // Let the panel finish its own fetch before judging whether it drew any
+    // bars — checking `count()` right after the heading appears can catch it
+    // mid-load and mistake "not fetched yet" for "no data".
+    await panel.getByTestId('panel-api-skeleton').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => {});
+    const brush = panel.getByTestId('zoom-brush');
     test.skip((await brush.count()) === 0, 'No API requests in the last hour to draw bars for.');
 
     await brush.tap();
