@@ -600,9 +600,15 @@ rail caption or a card grid with the wrong column count.
   on port 5183, disables animations, allows at most **4 differing pixels**
   (`maxDiffPixels`, an absolute count) with a pixelmatch `threshold` of 0.05,
   and never retries.
-- 11 baselines across 7 spec files, in `tests/visual/specs/*-snapshots/`.
-  Seven are full-page shots that include the AppBar wordmark, so renaming the
+- 26 baselines across 8 spec files, in `tests/visual/specs/*-snapshots/`.
+  Most are full-page shots that include the AppBar wordmark, so renaming the
   product changes them.
+- The Telemetry Dashboard spec (`telemetry-dashboard.spec.ts`, #579) is the
+  one whose page data is screenshotted. It answers the page's `/api` calls
+  with fixtures through Playwright's `page.route()`
+  (`tests/visual/support/telemetryDashboard.ts`), pins `Date.now()` with
+  `page.clock.setFixedTime`, and pins the time zone and locale. Every other
+  spec relies on its `/api` fetches failing.
 
 ### The pinned browser
 

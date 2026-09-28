@@ -93,9 +93,17 @@ export function PanelError({ error, onRetry }: { error: TelemetryErrorInfo; onRe
   );
 }
 
-function PanelActions({ actions, sql, title }: { actions: PanelAction[]; sql: string[]; title: string }) {
-  const theme = useTheme();
-  const isPhone = useMediaQuery(theme.breakpoints.down('sm'));
+function PanelActions({
+  actions,
+  sql,
+  title,
+  isPhone,
+}: {
+  actions: PanelAction[];
+  sql: string[];
+  title: string;
+  isPhone: boolean;
+}) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const menuId = useId();
 
@@ -164,6 +172,8 @@ export function DashboardPanel({
   skeletonHeight = 160,
   children,
 }: DashboardPanelProps) {
+  const theme = useTheme();
+  const isPhone = useMediaQuery(theme.breakpoints.down('sm'));
   const headingId = `${id}-title`;
   let body: ReactNode;
   if (error) body = <PanelError error={error} onRetry={onRetry} />;
@@ -190,18 +200,34 @@ export function DashboardPanel({
           sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2 }}
         />
       )}
+      {/*
+        Phones: [title ...... ⋮] on one row, then the panel's own filters
+        (headerExtra) full-width underneath. Rendered in that DOM order so
+        focus order matches what is on screen. From `sm` up the filters sit
+        inline between the title and the action buttons.
+      */}
       <Stack
         direction="row"
         spacing={1}
         useFlexGap
-        sx={{ alignItems: 'center', flexWrap: 'wrap', mb: 1.5, minHeight: 40 }}
+        sx={{ alignItems: 'center', flexWrap: isPhone ? 'nowrap' : 'wrap', mb: 1.5, minHeight: 40 }}
       >
-        <Typography id={headingId} variant="h6" component="h2" sx={{ fontSize: '1rem', mr: 'auto' }}>
+        <Typography
+          id={headingId}
+          variant="h6"
+          component="h2"
+          sx={{ fontSize: '1rem', mr: 'auto', minWidth: 0, overflowWrap: 'anywhere' }}
+        >
           {title}
         </Typography>
-        {headerExtra}
-        <PanelActions actions={actions} sql={sqlList(sql)} title={title} />
+        {!isPhone && headerExtra}
+        <PanelActions actions={actions} sql={sqlList(sql)} title={title} isPhone={isPhone} />
       </Stack>
+      {isPhone && headerExtra && (
+        <Box data-testid={`${id}-header-extra`} sx={{ mb: 1.5, minWidth: 0 }}>
+          {headerExtra}
+        </Box>
+      )}
       {body}
     </Paper>
   );

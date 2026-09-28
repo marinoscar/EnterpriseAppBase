@@ -71,6 +71,7 @@ import { AuthContext } from '../src/contexts/AuthContext';
 import { ThemeContextProvider, useThemeContext } from '../src/contexts/ThemeContext';
 import { ProtectedRoute } from '../src/components/common/ProtectedRoute';
 import { RequirePermission } from '../src/components/common/RequirePermission';
+import { RequireTelemetryEnabled } from '../src/components/common/RequireTelemetryEnabled';
 import { Layout } from '../src/components/common/Layout';
 import { ErrorBoundary } from '../src/components/common/ErrorBoundary';
 import { LoadingSpinner } from '../src/components/common/LoadingSpinner';
@@ -83,6 +84,11 @@ const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'))
 const UserTokensPage = lazy(() => import('../src/pages/UserTokensPage'));
 const SettingsHubPage = lazy(() => import('../src/pages/Admin/SettingsHubPage'));
 const AdminUsersPage = lazy(() => import('../src/pages/Admin/UsersPage'));
+// Issue #579, epic #576. The one harness page whose DATA is screenshotted:
+// its spec (`tests/visual/specs/telemetry-dashboard.spec.ts`) answers every
+// `/api` call this page makes with fixtures through Playwright's
+// `page.route()` — the "fetch fails" contract above does not apply to it.
+const TelemetryDashboardPage = lazy(() => import('../src/pages/Admin/TelemetryDashboardPage'));
 
 /** Byte-identical to `contexts/ThemeContext.tsx`'s private constant. */
 const THEME_STORAGE_KEY = 'theme_mode';
@@ -232,6 +238,16 @@ function HarnessRoutes() {
                 fallback={<Navigate to="/" replace />}
               >
                 <SettingsHubPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/admin/settings/telemetry/dashboard"
+            element={
+              <RequirePermission permission="telemetry:query" fallback={<Navigate to="/" replace />}>
+                <RequireTelemetryEnabled>
+                  <TelemetryDashboardPage />
+                </RequireTelemetryEnabled>
               </RequirePermission>
             }
           />

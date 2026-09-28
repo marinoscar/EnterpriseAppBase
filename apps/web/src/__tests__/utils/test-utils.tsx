@@ -25,6 +25,8 @@ import type { AuthProvider as AuthProviderType } from '../../types';
 
 interface WrapperOptions {
   route?: string;
+  /** `location.state` of the initial entry (`route`), e.g. a navigation handoff. */
+  routeState?: unknown;
   theme?: 'light' | 'dark';
   authenticated?: boolean;
   user?: MockUser | null;
@@ -179,6 +181,7 @@ function MockAuthProvider({
 function createWrapper(options: WrapperOptions = {}) {
   const {
     route = '/',
+    routeState,
     authenticated = true,
     user = mockUser,
     isLoading = false,
@@ -212,6 +215,12 @@ function createWrapper(options: WrapperOptions = {}) {
           refresh: vi.fn().mockResolvedValue(undefined),
         };
 
+  const initialEntry = (() => {
+    if (routeState === undefined) return route;
+    const url = new URL(route, 'http://test.local');
+    return { pathname: url.pathname, search: url.search, hash: url.hash, state: routeState };
+  })();
+
   return function Wrapper({ children }: { children: ReactNode }) {
     const withTelemetry = telemetryValue ? (
       <TelemetryConfigContext.Provider value={telemetryValue}>{children}</TelemetryConfigContext.Provider>
@@ -219,7 +228,7 @@ function createWrapper(options: WrapperOptions = {}) {
       children
     );
     return (
-      <MemoryRouter initialEntries={[route]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <ThemeContextProvider>
           <CssBaseline />
           <MockAuthProvider

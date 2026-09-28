@@ -13,10 +13,12 @@ import { http, HttpResponse } from 'msw';
 import { server } from '../../mocks/server';
 import { setViewportWidth } from '../../setup';
 import { act } from '@testing-library/react';
+import { useLocation } from 'react-router-dom';
 import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
 import { mockTelemetryQueryResult } from '../../mocks/fixtures/telemetry';
 import { STARTER_QUERIES, traceQuery } from '../../../components/telemetry/starterQueries';
 import { QUERY_HISTORY_KEY } from '../../../components/telemetry/queryHistory';
+import { TELEMETRY_SQL_MAX_LENGTH } from '../../../services/telemetry';
 import TelemetryExplorerPage from '../../../pages/Admin/TelemetryExplorerPage';
 
 vi.mock('../../../components/telemetry/SqlEditor', async () => {
@@ -480,5 +482,128 @@ describe('TelemetryExplorerPage', () => {
     await user.click(screen.getByRole('button', { name: 'Assistant' }));
     const dialog = await screen.findByRole('dialog', { name: 'Assistant' });
     expect(within(dialog).getByRole('textbox', { name: 'Ask the assistant' })).toBeInTheDocument();
+  });
+
+  describe('SQL handed over by the Telemetry Dashboard (#579)', () => {
+    const HANDED = 'SELECT count(*) FROM opentelemetry_logs /* handed */';
+
+    function LocationProbe() {
+      const location = useLocation();
+      return (
+        <output data-testid="location" data-state={JSON.stringify(location.state ?? null)}>
+          {location.search}
+        </output>
+      );
+    }
+
+    function renderHandoff(route: string, routeState?: unknown) {
+      return render(
+        <>
+          <TelemetryExplorerPage />
+          <LocationProbe />
+        </>,
+        {
+          wrapperOptions: {
+            user: mockAdminUser,
+            aiEnabled: true,
+            telemetryEnabled: true,
+            route,
+            routeState,
+          },
+        },
+      );
+    }
+
+    function recordQueries(): string[] {
+      const seen: string[] = [];
+      server.events.on('request:start', ({ request }) => {
+        if (request.method === 'POST' && request.url.includes('/admin/telemetry/query')) seen.push(request.url);
+      });
+      return seen;
+    }
+
+    afterEach(() => {
+      server.events.removeAllListeners();
+    });
+
+    it('puts location.state.sql in the editor, shows the notice and does not run it', async () => {
+      const queries = recordQueries();
+      renderHandoff('/admin/settings/telemetry/explorer', { sql: HANDED });
+
+      expect((await editor()).value).toBe(HANDED);
+      expect(screen.getByTestId('handoff-notice')).toHaveTextContent(
+        'Query loaded from the Telemetry Dashboard. Review it and press Run.',
+      );
+      // The state is dropped from the history entry, so a reload does not repeat it.
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveAttribute('data-state', 'null'));
+      expect(queries).toHaveLength(0);
+      expect(screen.queryByTestId('query-status')).not.toBeInTheDocument();
+    });
+
+    it('reads ?sql= as a fallback and removes it from the URL (replace)', async () => {
+      const queries = recordQueries();
+      renderHandoff(`/admin/settings/telemetry/explorer?sql=${encodeURIComponent(HANDED)}&keep=1`);
+
+      expect((await editor()).value).toBe(HANDED);
+      expect(screen.getByTestId('handoff-notice')).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('?keep=1'));
+      expect(screen.getByTestId('location').textContent).not.toContain('sql=');
+      expect(queries).toHaveLength(0);
+    });
+
+    it('prefers state over ?sql=', async () => {
+      renderHandoff(`/admin/settings/telemetry/explorer?sql=${encodeURIComponent('SELECT 2')}`, { sql: HANDED });
+      expect((await editor()).value).toBe(HANDED);
+    });
+
+    it(`ignores a statement longer than ${TELEMETRY_SQL_MAX_LENGTH} characters`, async () => {
+      const oversized = `SELECT '${'x'.repeat(TELEMETRY_SQL_MAX_LENGTH)}'`;
+      renderHandoff(`/admin/settings/telemetry/explorer?sql=${encodeURIComponent(oversized)}`);
+
+      expect((await editor()).value).toBe(STARTER_QUERIES[0].sql);
+      expect(screen.queryByTestId('handoff-notice')).not.toBeInTheDocument();
+      // Still cleaned out of the URL.
+      await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(''));
+    });
+
+    it('lets the notice be dismissed, and runs only on Run', async () => {
+      const bodies = captureQueries();
+      const user = userEvent.setup();
+      renderHandoff('/admin/settings/telemetry/explorer', { sql: HANDED });
+      await editor();
+
+      await user.click(within(screen.getByTestId('handoff-notice')).getByRole('button', { name: 'Close' }));
+      expect(screen.queryByTestId('handoff-notice')).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Run' }));
+      await waitFor(() => expect(bodies).toHaveLength(1));
+      expect(bodies[0].sql).toBe(HANDED);
+    });
+
+    it('opens as usual with no handoff', async () => {
+      renderHandoff('/admin/settings/telemetry/explorer');
+      expect((await editor()).value).toBe(STARTER_QUERIES[0].sql);
+      expect(screen.queryByTestId('handoff-notice')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Dashboard cross-link (#579)', () => {
+    it('links to the Telemetry Dashboard from the header', async () => {
+      renderPage();
+      await editor();
+      expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
+        'href',
+        '/admin/settings/telemetry/dashboard',
+      );
+    });
+
+    it('is a labelled 44px icon link on phones', async () => {
+      act(() => setViewportWidth(390));
+      renderPage();
+      await editor();
+      const link = screen.getByRole('link', { name: 'Open Telemetry Dashboard' });
+      expect(link).toHaveAttribute('href', '/admin/settings/telemetry/dashboard');
+      expect(link).toHaveStyle({ width: '44px', height: '44px' });
+    });
   });
 });

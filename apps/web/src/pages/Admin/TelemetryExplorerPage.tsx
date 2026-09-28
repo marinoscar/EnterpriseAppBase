@@ -17,7 +17,7 @@
  * the schema in a drawer and the assistant full-screen. `sm` (600px) is the
  * only breakpoint, per the settings UI spec.
  */
-import { Suspense, lazy, useCallback, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import {
   Alert,
@@ -26,10 +26,6 @@ import {
   Button,
   CircularProgress,
   Container,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  Divider,
   Drawer,
   IconButton,
   ListItemText,
@@ -52,10 +48,10 @@ import HistoryIcon from '@mui/icons-material/History';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import CloseIcon from '@mui/icons-material/Close';
-import { Navigate } from 'react-router-dom';
+import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
-import { useAiConfig } from '../../hooks/useAiConfig';
-import { useTelemetryConfig } from '../../hooks/useTelemetryConfig';
+import { useTelemetryAssistantAvailable } from '../../hooks/useTelemetryAssistantAvailable';
 import {
   telemetryErrorTitle,
   toTelemetryError,
@@ -75,8 +71,15 @@ import type { SqlEditorHandle } from '../../components/telemetry/SqlEditor';
 import { SchemaPanel } from '../../components/telemetry/SchemaPanel';
 import { ResultsGrid } from '../../components/telemetry/ResultsGrid';
 import { AssistantPanel } from '../../components/telemetry/AssistantPanel';
+import { ASSISTANT_WIDTH, AssistantContainer } from '../../components/telemetry/AssistantContainer';
 import { STARTER_QUERIES, traceQuery } from '../../components/telemetry/starterQueries';
 import { pushQueryHistory, readQueryHistory } from '../../components/telemetry/queryHistory';
+import {
+  EXPLORER_SQL_PARAM,
+  TELEMETRY_DASHBOARD_PATH,
+  readExplorerHandoff,
+} from '../../components/telemetry/explorerHandoff';
+import { TelemetryCrossLink } from '../../components/telemetry/TelemetryCrossLink';
 
 // The editor is its own chunk: CodeMirror is by far the heaviest thing here.
 const SqlEditor = lazy(() => import('../../components/telemetry/SqlEditor'));
@@ -86,7 +89,6 @@ const PAGE_TITLE = 'Telemetry Explorer';
 const PAGE_DESCRIPTION =
   'Query traces, logs and metrics with SQL, export the results, and ask the AI assistant for help.';
 
-const ASSISTANT_WIDTH = 400;
 const SCHEMA_WIDTH = 260;
 
 /**
@@ -140,13 +142,19 @@ export default function TelemetryExplorerPage() {
   const theme = useTheme();
   const isCompact = useMediaQuery(theme.breakpoints.down('sm'));
   const { hasPermission } = usePermissions();
-  const { config: telemetryConfig } = useTelemetryConfig();
-  const { config: aiConfig } = useAiConfig();
 
   const schema = useTelemetrySchema();
   const query = useTelemetryQuery();
 
-  const [sql, setSql] = useState<string>(STARTER_QUERIES[0].sql);
+  // A statement handed over by the Telemetry Dashboard (#579) — `state.sql`,
+  // or `?sql=` from a plain link. Read ONCE: it seeds the editor and is never
+  // run; the reader reviews it and presses Run.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [handoff] = useState(() => readExplorerHandoff(location.state, new URLSearchParams(location.search)));
+  const [handoffNotice, setHandoffNotice] = useState(handoff !== null);
+
+  const [sql, setSql] = useState<string>(() => handoff ?? STARTER_QUERIES[0].sql);
   const [history, setHistory] = useState<string[]>(() => readQueryHistory());
   const [schemaOpen, setSchemaOpen] = useState(true);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
@@ -160,11 +168,23 @@ export default function TelemetryExplorerPage() {
 
   const editorRef = useRef<SqlEditorHandle | null>(null);
 
-  const assistantAvailable =
-    telemetryConfig.assistantEnabled && aiConfig.enabled && hasPermission('ai:use');
+  const assistantAvailable = useTelemetryAssistantAvailable();
   const modelCaption = useTelemetryAssistantModel(
     assistantAvailable && hasPermission('telemetry:read'),
   );
+
+  // Drop the handoff from the URL and the history entry (replace), so a
+  // reload or a shared link does not carry it again. Once, on mount.
+  const initialLocation = useRef(location);
+  useEffect(() => {
+    const { pathname, search, hash, state } = initialLocation.current;
+    const params = new URLSearchParams(search);
+    const hasState = typeof state === 'object' && state !== null && 'sql' in state;
+    if (!params.has(EXPLORER_SQL_PARAM) && !hasState) return;
+    params.delete(EXPLORER_SQL_PARAM);
+    const rest = params.toString();
+    navigate({ pathname, search: rest ? `?${rest}` : '', hash }, { replace: true, state: null });
+  }, [navigate]);
 
   const { run } = query;
   const runSql = useCallback(
@@ -267,9 +287,18 @@ export default function TelemetryExplorerPage() {
           minWidth: 0,
         }}
       >
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+          <Typography variant="h4" component="h1" sx={{ flex: 1, minWidth: 0 }}>
+            {PAGE_TITLE}
+          </Typography>
+          <TelemetryCrossLink
+            to={TELEMETRY_DASHBOARD_PATH}
+            label="Dashboard"
+            compactLabel="Open Telemetry Dashboard"
+            icon={<MonitorHeartOutlinedIcon />}
+            compact={isCompact}
+          />
+        </Stack>
         <Typography color="text.secondary" sx={{ mb: 3 }}>
           {PAGE_DESCRIPTION}
         </Typography>
@@ -385,6 +414,17 @@ export default function TelemetryExplorerPage() {
           ))}
         </Menu>
 
+        {handoffNotice && (
+          <Alert
+            severity="info"
+            data-testid="handoff-notice"
+            sx={{ mb: 2 }}
+            onClose={() => setHandoffNotice(false)}
+          >
+            Query loaded from the Telemetry Dashboard. Review it and press Run.
+          </Alert>
+        )}
+
         {exportError && (
           <ErrorAlert error={exportError} testId="export-error" onClose={() => setExportError(null)} />
         )}
@@ -476,46 +516,14 @@ export default function TelemetryExplorerPage() {
       </Drawer>
 
       {/* Assistant: a docked drawer on the right from `sm` up, full-screen on phones. */}
-      {assistantAvailable && !isCompact && (
-        <Drawer
-          anchor="right"
-          variant="persistent"
+      {assistantAvailable && (
+        <AssistantContainer
           open={assistantOpen}
-          slotProps={{
-            paper: {
-              sx: {
-                width: ASSISTANT_WIDTH,
-                top: 64,
-                height: 'calc(100% - 64px)',
-                p: 2,
-                boxSizing: 'border-box',
-              },
-              'aria-label': 'Telemetry assistant',
-            } as object,
-          }}
+          onClose={() => setAssistantOpen(false)}
+          variant={isCompact ? 'fullscreen' : 'docked'}
         >
-          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Typography variant="h6" component="h2">
-              Assistant
-            </Typography>
-            <IconButton aria-label="Close assistant" onClick={() => setAssistantOpen(false)}>
-              <CloseIcon />
-            </IconButton>
-          </Stack>
-          <Divider sx={{ mb: 1 }} />
           {assistantPanel}
-        </Drawer>
-      )}
-      {assistantAvailable && isCompact && (
-        <Dialog fullScreen open={assistantOpen} onClose={() => setAssistantOpen(false)} aria-labelledby="telemetry-assistant-title">
-          <DialogTitle id="telemetry-assistant-title" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            Assistant
-            <IconButton aria-label="Close assistant" onClick={() => setAssistantOpen(false)}>
-              <CloseIcon />
-            </IconButton>
-          </DialogTitle>
-          <DialogContent sx={{ display: 'flex', flexDirection: 'column' }}>{assistantPanel}</DialogContent>
-        </Dialog>
+        </AssistantContainer>
       )}
     </Container>
   );

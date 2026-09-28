@@ -8,9 +8,12 @@
  *
  * On phones it collapses to one line (level + first reason) and expands on
  * tap (`aria-expanded`).
+ *
+ * `action` (#579) adds one button to the banner — the dashboard's "Explain
+ * this", which opens the assistant with the verdict prefilled.
  */
 import { useId, useState } from 'react';
-import { Alert, Box, ButtonBase, Skeleton, Typography, type AlertColor } from '@mui/material';
+import { Alert, Box, Button, ButtonBase, Skeleton, Typography, type AlertColor } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
@@ -42,9 +45,18 @@ export interface VerdictBannerProps {
   onRetry?: () => void;
   /** Phone layout: one line, tap to expand. */
   compact?: boolean;
+  /** One button on the banner (#579: "Explain this"). */
+  action?: { label: string; onClick: () => void };
 }
 
-export function VerdictBanner({ verdict, isLoading = false, error = null, onRetry, compact = false }: VerdictBannerProps) {
+export function VerdictBanner({
+  verdict,
+  isLoading = false,
+  error = null,
+  onRetry,
+  compact = false,
+  action,
+}: VerdictBannerProps) {
   const [expanded, setExpanded] = useState(false);
   const reasonsId = useId();
 
@@ -77,6 +89,18 @@ export function VerdictBanner({ verdict, isLoading = false, error = null, onRetr
       data-level={verdict.level}
       severity={meta.severity ?? 'info'}
       icon={<meta.Icon aria-hidden />}
+      action={
+        action ? (
+          <Button
+            color="inherit"
+            size="small"
+            onClick={action.onClick}
+            sx={{ minHeight: 44, whiteSpace: 'nowrap', alignSelf: 'center' }}
+          >
+            {action.label}
+          </Button>
+        ) : undefined
+      }
       sx={{
         minWidth: 0,
         '& .MuiAlert-message': { minWidth: 0, flex: 1 },

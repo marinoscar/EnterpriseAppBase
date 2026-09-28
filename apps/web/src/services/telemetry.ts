@@ -419,6 +419,14 @@ export interface TelemetrySchemaColumn extends TelemetryColumn {
   semanticType?: TelemetrySemanticType | null;
 }
 
+/**
+ * The longest statement `POST /admin/telemetry/query` accepts —
+ * `TELEMETRY_SQL_MAX_LENGTH` in `apps/api/src/telemetry/dto/telemetry-query.dto.ts`.
+ * The API enforces it; the browser uses it only to ignore an oversized SQL
+ * handoff into the explorer (#579).
+ */
+export const TELEMETRY_SQL_MAX_LENGTH = 20_000;
+
 /** `POST /admin/telemetry/query`. Rows are POSITIONAL: names can repeat. */
 export interface TelemetryQueryResult {
   columns: TelemetryColumn[];

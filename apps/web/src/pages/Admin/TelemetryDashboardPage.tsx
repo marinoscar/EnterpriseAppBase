@@ -24,7 +24,7 @@
  * (`lg`), decided HERE only — none of the shell's five coupled breakpoint
  * gates is touched.
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AlertTitle,
@@ -37,7 +37,10 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
-import { Navigate, Link as RouterLink, useSearchParams } from 'react-router-dom';
+import { Navigate, Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
+import CodeOutlinedIcon from '@mui/icons-material/CodeOutlined';
+import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
+import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import {
@@ -47,7 +50,23 @@ import {
   useDashboardTimeseries,
   useDashboardTop,
 } from '../../hooks/useTelemetryDashboard';
-import { telemetryErrorTitle, type TelemetryErrorInfo } from '../../hooks/useTelemetryExplorer';
+import {
+  telemetryErrorTitle,
+  useTelemetryAssistantModel,
+  type TelemetryErrorInfo,
+} from '../../hooks/useTelemetryExplorer';
+import { useTelemetryAssistant } from '../../hooks/useTelemetryAssistant';
+import { useTelemetryAssistantAvailable } from '../../hooks/useTelemetryAssistantAvailable';
+import { AssistantPanel } from '../../components/telemetry/AssistantPanel';
+import {
+  ASSISTANT_WIDTH,
+  AssistantContainer,
+  type AssistantContainerVariant,
+} from '../../components/telemetry/AssistantContainer';
+import {
+  buildAssistantQuestion,
+  type AssistantPanelContext,
+} from '../../components/telemetry/dashboard/assistantPrompt';
 import {
   DASHBOARD_REFRESH_MS,
   bucketWindow,
@@ -67,9 +86,13 @@ import {
   DashboardFilterBar,
   type DashboardLayout,
 } from '../../components/telemetry/dashboard/DashboardFilterBar';
-import { TopProblems } from '../../components/telemetry/dashboard/TopProblems';
+import { TopProblems, type TopProblemsKind } from '../../components/telemetry/dashboard/TopProblems';
 import { EventsFeed } from '../../components/telemetry/dashboard/EventsFeed';
 import { timelineHeight } from '../../components/telemetry/dashboard/timelineAxis';
+import { TELEMETRY_EXPLORER_PATH, explorerHandoff } from '../../components/telemetry/explorerHandoff';
+import { TelemetryCrossLink } from '../../components/telemetry/TelemetryCrossLink';
+import { traceExplorerSql } from '../../components/telemetry/dashboard/traceLink';
+import { sqlList } from '../../services/telemetryDashboard';
 import type {
   DashboardBuckets,
   DashboardLogsBucket,
@@ -85,10 +108,40 @@ const PAGE_DESCRIPTION =
 const UNAVAILABLE_REASONS = new Set(['TELEMETRY_DISABLED', 'TELEMETRY_NOT_CONFIGURED', 'TELEMETRY_UNREACHABLE']);
 
 /**
- * The actions every panel header offers. Empty until #579 adds "Open in
- * Explorer" and "Ask assistant"; each action receives its panel's `sql`.
+ * The panel header's "Open in Explorer" (#579). The SQL is ONLY what the API
+ * reported it ran for the panel (`sql`), never rebuilt here. A panel whose
+ * `sql` is a list hands over its FIRST (primary) statement — for "Key
+ * indicators" that is the API's current-vs-previous totals query, the one the
+ * headline tiles come from; the others are single statements.
  */
-const PANEL_ACTIONS: PanelAction[] = [];
+function explorerAction(openSql: (sql: string) => void, sqlAvailable: boolean): PanelAction {
+  return {
+    key: 'open-in-explorer',
+    label: 'Open in Explorer',
+    icon: <CodeOutlinedIcon />,
+    onClick: (sql) => {
+      if (sql[0]) openSql(sql[0]);
+    },
+    disabled: !sqlAvailable,
+  };
+}
+
+/**
+ * The panel header's "Ask assistant" (#579): opens the assistant with a
+ * question describing what the panel shows (`assistantPrompt.ts`) PREFILLED —
+ * never sent; the reader edits it and presses Ask. Offered only where the
+ * assistant is available (`useTelemetryAssistantAvailable`, the Explorer's
+ * condition), and disabled until the panel has data to describe.
+ */
+function askAction(onAsk: (() => void) | null): PanelAction {
+  return {
+    key: 'ask-assistant',
+    label: 'Ask assistant',
+    icon: <AutoAwesomeOutlinedIcon />,
+    onClick: () => onAsk?.(),
+    disabled: onAsk === null,
+  };
+}
 
 function UnavailableAlert({ error, onRetry }: { error: TelemetryErrorInfo; onRetry: () => void }) {
   return (
@@ -141,6 +194,7 @@ export default function TelemetryDashboardPage() {
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'));
   const layout: DashboardLayout = isPhone ? 'phone' : isDesktop ? 'desktop' : 'tablet';
   const { hasPermission } = usePermissions();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parseDashboardState(searchParams), [searchParams]);
   const [tick, setTick] = useState(0);
@@ -175,6 +229,58 @@ export default function TelemetryDashboardPage() {
   );
   const events = useDashboardEvents(eventsQuery, tick);
 
+  const openSql = useCallback(
+    (sql: string) => {
+      const { to, state: handoff } = explorerHandoff(sql);
+      navigate(to, { state: handoff });
+    },
+    [navigate],
+  );
+  const hasSql = (sql: string | string[] | undefined) => sqlList(sql).length > 0;
+
+  // ---- assistant (#579) ------------------------------------------------------
+  const assistantAvailable = useTelemetryAssistantAvailable();
+  const modelCaption = useTelemetryAssistantModel(assistantAvailable && hasPermission('telemetry:read'));
+  const assistant = useTelemetryAssistant();
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  // The prefill, keyed so every "Ask assistant" re-seeds the panel's input.
+  const [draft, setDraft] = useState<{ text: string; key: number } | null>(null);
+  // What opened the assistant, to hand focus back on close. A phone ⋮ menu
+  // item is gone by then, so the panel's ⋮ button stands in for it.
+  const invoker = useRef<{ element: HTMLElement | null; panelId: string } | null>(null);
+
+  const askAbout = (panelId: string, panel: AssistantPanelContext | null) =>
+    panel && assistantAvailable
+      ? () => {
+          invoker.current = {
+            element: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+            panelId,
+          };
+          setDraft((prev) => ({ text: buildAssistantQuestion(panel, state), key: (prev?.key ?? 0) + 1 }));
+          setAssistantOpen(true);
+        }
+      : null;
+
+  const returnFocus = useCallback((): HTMLElement | null => {
+    const origin = invoker.current;
+    if (!origin) return null;
+    if (origin.element?.isConnected) return origin.element;
+    return document.querySelector<HTMLElement>(`[data-testid="${origin.panelId}"] button[aria-haspopup="menu"]`);
+  }, []);
+
+  /** A panel's header actions: "Ask assistant" (when available), then "Open in Explorer". */
+  const panelActions = (panelId: string, sql: string | string[] | undefined, panel: AssistantPanelContext | null) => [
+    ...(assistantAvailable ? [askAction(askAbout(panelId, panel))] : []),
+    explorerAction(openSql, hasSql(sql)),
+  ];
+
+  const topPanel = (kind: TopProblemsKind): AssistantPanelContext | null => {
+    if (kind === 'routes') {
+      return topRoutes.data ? { kind: 'routes', title: 'Top failing routes', items: topRoutes.data.items } : null;
+    }
+    return topErrors.data ? { kind: 'errors', title: 'Top errors', items: topErrors.data.items } : null;
+  };
+
   const spanMs = windowSpanMs(state);
   const zoomTo = (starts: string[], bucketSeconds: number) => (first: number, last: number) => {
     const window = bucketWindow(starts, bucketSeconds, first, last);
@@ -185,13 +291,38 @@ export default function TelemetryDashboardPage() {
   if (!hasPermission('telemetry:query')) return <Navigate to="/" replace />;
 
   const unavailable = summary.error && UNAVAILABLE_REASONS.has(summary.error.reason ?? '') ? summary.error : null;
+  const assistantVariant: AssistantContainerVariant = isPhone ? 'fullscreen' : isDesktop ? 'docked' : 'overlay';
+  const docked = assistantAvailable && assistantOpen && assistantVariant === 'docked';
+  const explainVerdict = summary.data
+    ? askAbout('verdict-banner', { kind: 'verdict', title: 'Verdict', verdict: summary.data.verdict })
+    : null;
 
   return (
     <Container maxWidth={false} sx={{ maxWidth: 1600, px: { xs: 0, sm: 2 } }}>
-      <Box sx={{ py: { xs: 1, sm: 3 }, minWidth: 0 }}>
-        <Typography variant="h4" component="h1" gutterBottom sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' } }}>
-          {PAGE_TITLE}
-        </Typography>
+      <Box
+        sx={{
+          py: { xs: 1, sm: 3 },
+          minWidth: 0,
+          // Leave room for the docked assistant so it never covers a panel.
+          pr: docked ? `${ASSISTANT_WIDTH}px` : 0,
+        }}
+      >
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: { xs: 0.5, sm: 1 } }}>
+          <Typography
+            variant="h4"
+            component="h1"
+            sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, flex: 1, minWidth: 0 }}
+          >
+            {PAGE_TITLE}
+          </Typography>
+          <TelemetryCrossLink
+            to={TELEMETRY_EXPLORER_PATH}
+            label="Explorer"
+            compactLabel="Open Telemetry Explorer"
+            icon={<TerminalOutlinedIcon />}
+            compact={isPhone}
+          />
+        </Stack>
         <Typography color="text.secondary" sx={{ mb: 2, display: { xs: 'none', sm: 'block' } }}>
           {PAGE_DESCRIPTION}
         </Typography>
@@ -215,12 +346,19 @@ export default function TelemetryDashboardPage() {
               error={summary.error}
               onRetry={summary.reload}
               compact={isPhone}
+              action={explainVerdict ? { label: 'Explain this', onClick: explainVerdict } : undefined}
             />
 
             <DashboardPanel
               id="panel-tiles"
               title="Key indicators"
-              actions={PANEL_ACTIONS}
+              actions={panelActions(
+                'panel-tiles',
+                summary.data?.sql,
+                summary.data
+                  ? { kind: 'tiles', title: 'Key indicators', tiles: summary.data.tiles, runtime: summary.data.runtime }
+                  : null,
+              )}
               sql={summary.data?.sql}
               isLoading={summary.isLoading}
               isRefreshing={summary.isRefreshing}
@@ -237,7 +375,11 @@ export default function TelemetryDashboardPage() {
                 <DashboardPanel
                   id="panel-api"
                   title="API requests"
-                  actions={PANEL_ACTIONS}
+                  actions={panelActions(
+                    'panel-api',
+                    apiSeries.data?.sql,
+                    apiSeries.data ? { kind: 'api', title: 'API requests', buckets: apiSeries.data.buckets } : null,
+                  )}
                   sql={apiSeries.data?.sql}
                   isLoading={apiSeries.isLoading}
                   isRefreshing={apiSeries.isRefreshing}
@@ -274,7 +416,13 @@ export default function TelemetryDashboardPage() {
                       label="Log severity filter"
                     />
                   }
-                  actions={PANEL_ACTIONS}
+                  actions={panelActions(
+                    'panel-logs',
+                    logSeries.data?.sql,
+                    logSeries.data
+                      ? { kind: 'logs', title: 'Log severity', buckets: logSeries.data.buckets, severities: state.sev }
+                      : null,
+                  )}
                   sql={logSeries.data?.sql}
                   isLoading={logSeries.isLoading}
                   isRefreshing={logSeries.isRefreshing}
@@ -302,7 +450,18 @@ export default function TelemetryDashboardPage() {
               </Grid>
             </Grid>
 
-            <TopProblems routes={topRoutes} errors={topErrors} layout={layout} actions={PANEL_ACTIONS} />
+            <TopProblems
+              routes={topRoutes}
+              errors={topErrors}
+              layout={layout}
+              actions={(kind) =>
+                panelActions(
+                  layout === 'phone' ? 'panel-top' : kind === 'routes' ? 'panel-top-routes' : 'panel-top-errors',
+                  (kind === 'routes' ? topRoutes : topErrors).data?.sql,
+                  topPanel(kind),
+                )
+              }
+            />
 
             <EventsFeed
               events={events}
@@ -310,11 +469,44 @@ export default function TelemetryDashboardPage() {
               q={state.q}
               onChange={update}
               layout={layout}
-              actions={PANEL_ACTIONS}
+              onViewTrace={(traceId) => openSql(traceExplorerSql(traceId))}
+              actions={panelActions(
+                'panel-events',
+                events.data?.sql,
+                events.data
+                  ? { kind: 'events', title: 'Recent events', items: events.items, severities: state.sev, q: state.q }
+                  : null,
+              )}
             />
           </Stack>
         )}
       </Box>
+
+      {/* Assistant (#579): docked on desktop, an overlay drawer on tablets, full-screen on phones. */}
+      {assistantAvailable && (
+        <AssistantContainer
+          open={assistantOpen}
+          onClose={() => setAssistantOpen(false)}
+          variant={assistantVariant}
+          returnFocus={returnFocus}
+        >
+          <AssistantPanel
+            key={draft?.key ?? 0}
+            initialQuestion={draft?.text}
+            messages={assistant.messages}
+            isStreaming={assistant.isStreaming}
+            onAsk={(question) => void assistant.ask(question)}
+            onStop={assistant.stop}
+            onNewChat={assistant.clear}
+            // The dashboard has no editor: a report's query opens in the
+            // Explorer — loaded, never run (the Explorer's handoff rule), so
+            // "Insert and run" lands there too and waits for Run.
+            onInsert={openSql}
+            onInsertAndRun={openSql}
+            modelCaption={modelCaption}
+          />
+        </AssistantContainer>
+      )}
     </Container>
   );
 }

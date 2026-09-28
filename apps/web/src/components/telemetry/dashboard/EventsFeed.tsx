@@ -10,6 +10,13 @@
  * time, two-line message). Any row opens the full record in a dialog —
  * full-screen on phones — with the body, exact timestamp, service, trace id
  * and span id. MUI's Dialog traps focus and restores it to the row on close.
+ *
+ * "View trace" (#579): an event whose trace id is a real OpenTelemetry id (32
+ * lower-case hex digits, `traceLink.ts`) offers it in that detail, and opens
+ * the trace's spans in the Telemetry Explorer (loaded, not run). It lives in
+ * the detail rather than on the row because a row is itself a button, and a
+ * control nested in a control is unreachable for assistive technology. Any
+ * other id gets no link.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import {
@@ -35,6 +42,7 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CloseIcon from '@mui/icons-material/Close';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import type { DashboardEventsResource } from '../../../hooks/useTelemetryDashboard';
 import {
   DASHBOARD_SEARCH_MAX_LENGTH,
@@ -45,6 +53,7 @@ import { DashboardPanel, PanelError, type PanelAction } from './DashboardPanel';
 import type { DashboardLayout } from './DashboardFilterBar';
 import { SeverityChip, SeverityChips, SeverityLabel } from './severity';
 import { formatRelative, formatTimestamp } from './format';
+import { isTraceId } from './traceLink';
 
 export const SEARCH_DEBOUNCE_MS = 400;
 
@@ -116,10 +125,12 @@ function EventDialog({
   event,
   fullScreen,
   onClose,
+  onViewTrace,
 }: {
   event: DashboardEvent | null;
   fullScreen: boolean;
   onClose: () => void;
+  onViewTrace?: (traceId: string) => void;
 }) {
   const titleId = useId();
   return (
@@ -149,6 +160,16 @@ function EventDialog({
               <DetailRow label="Trace id" value={event.traceId} mono />
               <DetailRow label="Span id" value={event.spanId} mono />
             </Box>
+            {onViewTrace && isTraceId(event.traceId) && (
+              <Button
+                variant="outlined"
+                startIcon={<AccountTreeOutlinedIcon />}
+                onClick={() => onViewTrace(event.traceId as string)}
+                sx={{ minHeight: 44 }}
+              >
+                View trace
+              </Button>
+            )}
           </DialogContent>
         </>
       )}
@@ -171,10 +192,21 @@ export interface EventsFeedProps {
   onChange: (patch: { sev?: DashboardSeverity[]; q?: string }) => void;
   layout: DashboardLayout;
   actions?: PanelAction[];
+  /** Opens a trace (a validated 32-hex id) in the explorer (#579). Omitted: no link. */
+  onViewTrace?: (traceId: string) => void;
   now?: number;
 }
 
-export function EventsFeed({ events, sev, q, onChange, layout, actions = [], now = Date.now() }: EventsFeedProps) {
+export function EventsFeed({
+  events,
+  sev,
+  q,
+  onChange,
+  layout,
+  actions = [],
+  onViewTrace,
+  now = Date.now(),
+}: EventsFeedProps) {
   const [selected, setSelected] = useState<DashboardEvent | null>(null);
   const isPhone = layout === 'phone';
   const showService = layout === 'desktop';
@@ -310,7 +342,12 @@ export function EventsFeed({ events, sev, q, onChange, layout, actions = [], now
           )}
         </>
       )}
-      <EventDialog event={selected} fullScreen={isPhone} onClose={() => setSelected(null)} />
+      <EventDialog
+        event={selected}
+        fullScreen={isPhone}
+        onClose={() => setSelected(null)}
+        onViewTrace={onViewTrace}
+      />
     </DashboardPanel>
   );
 }

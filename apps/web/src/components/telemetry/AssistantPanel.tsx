@@ -127,6 +127,12 @@ export interface AssistantPanelProps {
   modelCaption?: string | null;
   /** Starts over: aborts any in-flight turn and forgets the conversation (#574). */
   onNewChat?: () => void;
+  /**
+   * Prefills the question box — NOT sent; the reader edits it and presses Ask
+   * (#579, the dashboard's "Ask assistant"). Read when the panel mounts: a
+   * caller that prefills again gives the panel a new `key`.
+   */
+  initialQuestion?: string;
 }
 
 export function AssistantPanel({
@@ -138,8 +144,9 @@ export function AssistantPanel({
   onInsertAndRun,
   modelCaption,
   onNewChat,
+  initialQuestion,
 }: AssistantPanelProps) {
-  const [question, setQuestion] = useState('');
+  const [question, setQuestion] = useState(() => (initialQuestion ?? '').slice(0, ASSISTANT_QUESTION_MAX));
   const endRef = useRef<HTMLDivElement | null>(null);
   const last = messages[messages.length - 1];
 
@@ -250,6 +257,7 @@ export function AssistantPanel({
           fullWidth
           multiline
           maxRows={6}
+          autoFocus={Boolean(initialQuestion)}
           size="small"
           placeholder="Describe a problem or ask a question…"
           value={question}
