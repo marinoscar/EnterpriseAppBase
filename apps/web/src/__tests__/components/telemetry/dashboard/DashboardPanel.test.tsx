@@ -38,6 +38,43 @@ describe('DashboardPanel', () => {
     expect(onClick).toHaveBeenCalledWith(['SELECT 1']);
   });
 
+  it('keeps the actions menu on the title row and moves header filters below it on phones', () => {
+    act(() => setViewportWidth(390));
+    render(
+      <DashboardPanel
+        id="p"
+        title="Panel"
+        headerExtra={<button type="button">Error</button>}
+        actions={[{ key: 'a', label: 'Ask assistant', icon: <AddIcon />, onClick: vi.fn() }]}
+      />,
+    );
+    const heading = screen.getByRole('heading', { name: 'Panel' });
+    const menu = screen.getByRole('button', { name: 'Panel actions' });
+    const chip = screen.getByRole('button', { name: 'Error' });
+    // Title and ⋮ share one row; the filters get their own row after it.
+    expect(menu.parentElement).toBe(heading.parentElement);
+    expect(screen.getByTestId('p-header-extra')).toContainElement(chip);
+    expect(heading.parentElement).not.toContainElement(chip);
+    expect(heading.compareDocumentPosition(menu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(menu.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps header filters inline between the title and the actions from sm up', () => {
+    render(
+      <DashboardPanel
+        id="p"
+        title="Panel"
+        headerExtra={<button type="button">Error</button>}
+        actions={[{ key: 'a', label: 'Ask assistant', icon: <AddIcon />, onClick: vi.fn() }]}
+      />,
+    );
+    const heading = screen.getByRole('heading', { name: 'Panel' });
+    const chip = screen.getByRole('button', { name: 'Error' });
+    expect(heading.parentElement).toContainElement(chip);
+    expect(screen.queryByTestId('p-header-extra')).not.toBeInTheDocument();
+    expect(chip.compareDocumentPosition(screen.getByRole('button', { name: 'Ask assistant' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('renders no actions slot when there are none', () => {
     render(<DashboardPanel id="p" title="Panel">body</DashboardPanel>);
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
