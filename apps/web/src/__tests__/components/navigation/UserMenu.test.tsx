@@ -458,6 +458,31 @@ describe('UserMenu', () => {
       expect(screen.queryByRole('menuitem', { name: 'Console' })).not.toBeInTheDocument();
     });
 
+    it('hides AI Playground from a Contributor-like ai:use holder (#593)', async () => {
+      const user = userEvent.setup();
+      setPermissions(['user_settings:read', 'ai:use'], false);
+
+      render(<UserMenu />, { wrapperOptions: { aiEnabled: true } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+      });
+      expect(screen.queryByRole('menuitem', { name: 'AI Playground' })).not.toBeInTheDocument();
+    });
+
+    it('shows AI Playground to an admin holding ai:use and ai_config:read (#593)', async () => {
+      const user = userEvent.setup();
+      setPermissions(['user_settings:read', 'ai:use', 'ai_config:read'], true);
+
+      render(<UserMenu />, { wrapperOptions: { user: mockAdminUser, aiEnabled: true } });
+      await user.click(screen.getByRole('button'));
+
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: 'AI Playground' })).toBeInTheDocument();
+      });
+    });
+
     it('omits Home — the AppBar brand already routes there', async () => {
       // A menu row duplicating on-screen chrome is the bloat this epic removes.
       const user = userEvent.setup();

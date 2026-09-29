@@ -129,9 +129,9 @@ export interface Destination {
    * site and "or" at another. A separate field names the semantics.
    *
    * The two fields AND together when both are set — `permission` must be held
-   * AND at least one of `anyPermission`. No destination sets both today; the
-   * rule is stated so the day one does, `isDestinationVisible` is the only
-   * place that has to know.
+   * AND at least one of `anyPermission`. `ai` is the destination that sets
+   * both (#593): `ai:use` AND `ai_config:read`. `isDestinationVisible` is the
+   * only place that has to know.
    */
   anyPermission?: readonly string[];
   /**
@@ -246,6 +246,15 @@ export const DESTINATIONS: readonly Destination[] = [
     // while AI is switched off, where every call it would make answers
     // `403 AI_DISABLED`.
     //
+    // ADMIN-ONLY (#593). The Playground is an OPERATOR tool — for checking
+    // that a provider, model and key actually work — not an end-user feature,
+    // so it additionally requires `ai_config:read`: the exact string the admin
+    // `/api/admin/ai/*` controllers enforce, granted only to `Admin` in the
+    // seed. The consumer `/api/ai/*` endpoints deliberately stay on `ai:use`
+    // alone, because in-app AI features (the telemetry assistant, a fork's
+    // own features) call them on behalf of ordinary users. Both strings are
+    // required: `permission` and `anyPermission` AND together.
+    //
     // DECLARED AFTER `console`, deliberately. Declaration order is navigation
     // order on the bottom bar and the user menu, and appending leaves the three
     // existing tabs exactly where users learnt them. The rail lifts `console`
@@ -257,6 +266,7 @@ export const DESTINATIONS: readonly Destination[] = [
     Icon: AutoAwesomeIcon,
     path: '/ai',
     permission: 'ai:use',
+    anyPermission: ['ai_config:read'],
     feature: 'ai',
   },
 ];
