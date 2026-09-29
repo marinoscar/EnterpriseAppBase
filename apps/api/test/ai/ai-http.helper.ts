@@ -121,6 +121,7 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
       harness.enqueued.length = 0;
       harness.storage.reset();
       harness.setOrgKey(null);
+      harness.clearAiConfigWriters();
       harness.removeUserKeys(HARNESS_OTHER_USER);
       harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults }, limits: {} });
     },
