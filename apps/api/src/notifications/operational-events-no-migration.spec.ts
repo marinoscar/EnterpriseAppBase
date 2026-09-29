@@ -69,6 +69,9 @@ const MIGRATIONS_AT_288 = [
   // (device_codes.pat_id/collected_at/credential_expires_at/revoked_at,
   // refresh_tokens.device_code_id). About device auth, not notifications.
   '20260927130000_add_device_session_credential_link',
+  // #604: `worker_nodes.last_vitals`/`last_vitals_at` — a node's heartbeat
+  // health snapshot. About the worker fleet, not notifications.
+  '20260928100000_add_worker_node_vitals',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
