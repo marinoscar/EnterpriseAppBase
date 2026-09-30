@@ -62,6 +62,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: browser notifications and Web Push | [docs/specs/browser-notifications.md](docs/specs/browser-notifications.md) |
 | Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
+| Spec: admin Doctor (check contract, read-only rule, check inventory) | [docs/specs/doctor.md](docs/specs/doctor.md) |
 | Spec: background job queue | [docs/specs/job-queue.md](docs/specs/job-queue.md) |
 | Spec: maintenance mode | [docs/specs/maintenance-mode.md](docs/specs/maintenance-mode.md) |
 | Spec: admin broadcasts | [docs/specs/notification-broadcasts.md](docs/specs/notification-broadcasts.md) |
@@ -74,10 +75,12 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
+| Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
 | `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
+| Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
 
 ## MANDATORY: Issue-Driven Development
