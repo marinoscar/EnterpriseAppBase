@@ -491,12 +491,25 @@ not implied by `--renew` alone. An expiry that cannot be read is reported as
 exactly that, `expiry unreadable`, never silently treated as "not due" —
 assuming a certificate is healthy is how one quietly expires.
 
-Exit codes mirror `status`: `0` for a report or a successful renewal, `1` when
-the certificate is due or expired and `--renew` was not passed, **or when a
-renewal ran but the proxy's reload afterward failed** (so a cron wrapper
-notices either failure), `2` when nothing is installed at `--root`.
-`--domain` defaults to the domain recorded for the deployment; `--email`
-defaults to `INITIAL_ADMIN_EMAIL` read from that deployment's own `.env`.
+Every call — with or without `--renew` — also probes `<domain>:443` live and
+compares the fingerprint of the certificate the proxy is actually serving
+against the one on disk, the exact problem section 10.2 below describes: a
+renewal that never reached the proxy leaves the old certificate served,
+indefinitely, on a server whose files all look correct. Neither the expiry
+report above (it only ever reads the file) nor the ordinary health checks
+(they never go through TLS at all) can catch this, which is why the probe
+runs unconditionally rather than only under `--renew`. A mismatch prints the
+exact remedy command for this deployment's configured proxy runtime — the
+same command section 10.2 gives.
+
+Exit codes mirror `status`: `0` for a report, or a successful renewal, with
+the served certificate matching disk; `1` when the certificate is due or
+expired and `--renew` was not passed, when a renewal ran but the proxy's
+reload afterward failed, **or when the proxy is serving a certificate that
+does not match the one on disk** (so a cron wrapper notices any of the
+three); `2` when nothing is installed at `--root`. `--domain` defaults to the
+domain recorded for the deployment; `--email` defaults to
+`INITIAL_ADMIN_EMAIL` read from that deployment's own `.env`.
 
 ### 10.1 Renewal is scheduled automatically, but only when nothing else owns it
 
@@ -550,6 +563,11 @@ docker exec <proxy-container> nginx -t && docker exec <proxy-container> nginx -s
 warning on a deployment where renewal is scheduled by something *other* than
 `appctl`, it usually means that other mechanism renews but does not reload —
 worth fixing at the source, not just running the command above once.
+
+If a domain shows a certificate or SSL warning in a browser after a deploy,
+`appctl deploy certs --domain <domain>` is the command that tells you whether
+this is the cause, and names the exact remedy — see section 10 above, which
+now probes the served certificate on every call, not only under `--renew`.
 
 ## 11. Removing a deployment
 
