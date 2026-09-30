@@ -25,7 +25,7 @@ const BASE_TEMPLATE = [
   'NODE_ENV=production',
   'POSTGRES_HOST=db',
   'POSTGRES_USER=postgres',
-  'POSTGRES_PASSWORD=postgres',
+  'POSTGRES_PASSWORD=change-me-template',
   'POSTGRES_DB=appdb',
 ].join('\n');
 
@@ -33,7 +33,7 @@ const BASE_ENV = [
   'NODE_ENV=production',
   'POSTGRES_HOST=db.example.test',
   'POSTGRES_USER=appuser',
-  'POSTGRES_PASSWORD=a-real-database-password',
+  'POSTGRES_PASSWORD=change-me-operator-value',
   'POSTGRES_DB=appdb',
 ].join('\n');
 
@@ -98,7 +98,7 @@ describe('update environment-drift: allowBlank keys need no answer (#598)', () =
     expect(written.get('POSTGRES_MONITOR_PASSWORD')).toBe('');
     // The operator's own values are untouched.
     expect(written.get('POSTGRES_HOST')).toBe('db.example.test');
-    expect(written.get('POSTGRES_PASSWORD')).toBe('a-real-database-password');
+    expect(written.get('POSTGRES_PASSWORD')).toBe('change-me-operator-value');
   });
 
   it('also works with a domain recorded, still without asking', async () => {
