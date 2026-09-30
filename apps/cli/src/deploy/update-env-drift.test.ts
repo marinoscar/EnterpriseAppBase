@@ -24,7 +24,6 @@ import { buildUpdateSteps } from './update.js';
 const BASE_TEMPLATE = [
   'NODE_ENV=production',
   'POSTGRES_HOST=db',
-  'POSTGRES_USER=postgres',
   'POSTGRES_PASSWORD=change-me-template',
   'POSTGRES_DB=appdb',
 ].join('\n');
@@ -32,7 +31,6 @@ const BASE_TEMPLATE = [
 const BASE_ENV = [
   'NODE_ENV=production',
   'POSTGRES_HOST=db.example.test',
-  'POSTGRES_USER=appuser',
   'POSTGRES_PASSWORD=change-me-operator-value',
   'POSTGRES_DB=appdb',
 ].join('\n');
