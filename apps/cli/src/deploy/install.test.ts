@@ -17,12 +17,21 @@ import {
 } from './install.js';
 import { openJournal } from './journal.js';
 import { proxyRuntimeFor, type ResolvedProxyRuntime } from './proxy.js';
+import * as proxyModule from './proxy.js';
 import * as renewalModule from './renewal.js';
 import { DEPLOY_STATE_VERSION, writeState, type DeployState } from './state.js';
 
 vi.mock('./renewal.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./renewal.js')>();
   return { ...actual, ensureRenewal: vi.fn() };
+});
+
+// Real behaviour preserved (a fresh vhost is still written, validated and
+// reloaded) -- only wrapped so the `forceReload` option `publish` passes it
+// (issue #640) is inspectable, the same pattern as `renewal.js` above.
+vi.mock('./proxy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./proxy.js')>();
+  return { ...actual, installVhost: vi.fn(actual.installVhost) };
 });
 
 function installedRoot(): string {
@@ -479,6 +488,49 @@ describe('the publish step resolves and records the proxy runtime', () => {
     await publishStep().run(context as never);
 
     expect(context.proxyRuntime).toMatchObject({ container: 'already-resolved' });
+  });
+
+  // ===========================================================================
+  // issue #640: a (re)issued certificate never changes the vhost TEXT -- same
+  // domain, same port, same paths -- so `installVhost`'s "already current" fast
+  // path would never reload nginx, leaving the new certificate on disk but
+  // unserved. `publish` is what closes that gap, by passing `forceReload:
+  // cert.issued` through to `installVhost` on every run.
+  // ===========================================================================
+  it('passes forceReload: true to installVhost when a certificate was (re)issued', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    // A fresh proxy root: no certificate on disk, so issueCertificate must
+    // issue one and report `issued: true`.
+    const context = contextFor(root, {});
+    vi.mocked(proxyModule.installVhost).mockClear();
+
+    await publishStep().run(context as never);
+
+    expect(proxyModule.installVhost).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(proxyModule.installVhost).mock.calls[0]?.[1]).toMatchObject({
+      forceReload: true,
+    });
+  });
+
+  it('passes forceReload: false to installVhost when the certificate already existed', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'appctl-publish-step-'));
+    const domain = 'app.example.test';
+    const proxyRoot = join(root, 'proxy');
+    // A certificate already on disk, and not staging-issued (no
+    // letsencrypt/renewal/<domain>.conf naming the staging ACME directory), so
+    // issueCertificate must skip issuance and report `issued: false`.
+    mkdirSync(join(proxyRoot, 'letsencrypt', 'live', domain), { recursive: true });
+    writeFileSync(join(proxyRoot, 'letsencrypt', 'live', domain, 'fullchain.pem'), 'fake-cert\n');
+
+    const context = contextFor(root, {});
+    vi.mocked(proxyModule.installVhost).mockClear();
+
+    await publishStep().run(context as never);
+
+    expect(proxyModule.installVhost).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(proxyModule.installVhost).mock.calls[0]?.[1]).toMatchObject({
+      forceReload: false,
+    });
   });
 });
 
