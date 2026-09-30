@@ -50,6 +50,8 @@ describe('Prisma.JobScalarFieldEnum', () => {
       'claimToken',
       'leaseExpiresAt',
       'executor',
+      // #607: the enqueuing span's W3C traceparent.
+      'traceContext',
     ].sort();
 
     const actual = Object.keys(Prisma.JobScalarFieldEnum).sort();
