@@ -20,6 +20,10 @@ import {
 } from '@nestjs/swagger';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
+import {
+  buildAuthErrorRedirectUrl,
+  resolveAuthErrorCode,
+} from './auth-error-codes';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
@@ -142,9 +146,11 @@ export class AuthController {
 
       if (!profile) {
         this.logger.error('No profile found in Google OAuth callback');
-        const appUrl = this.configService.get<string>('appUrl');
         return res.redirect(
-          `${appUrl}/auth/callback?error=authentication_failed`,
+          buildAuthErrorRedirectUrl(
+            this.configService.get<string>('appUrl'),
+            'authentication_failed',
+          ),
         );
       }
 
@@ -177,13 +183,14 @@ export class AuthController {
         this.logger.error('Error in Google OAuth callback', error);
       }
 
-      const appUrl = this.configService.get<string>('appUrl');
-      // Sanitize error message for URL - remove newlines and encode
-      const errorMessage = error instanceof Error
-        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 200))
-        : 'authentication_failed';
+      // Closed set of codes only (#652): the exception's message never
+      // reaches the redirect, so the callback page cannot be made to show
+      // attacker-chosen text.
       return res.redirect(
-        `${appUrl}/auth/callback?error=${errorMessage}`,
+        buildAuthErrorRedirectUrl(
+          this.configService.get<string>('appUrl'),
+          resolveAuthErrorCode(error),
+        ),
       );
     }
   }
