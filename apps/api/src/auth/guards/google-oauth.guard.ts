@@ -1,5 +1,6 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { AuthLoginDeniedException } from '../auth-error-codes';
 
 /**
  * Google OAuth guard for Fastify
@@ -32,8 +33,29 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
     _info: unknown,
     context: ExecutionContext,
   ): TUser {
-    if (err || !user) {
-      throw err || new Error('Authentication failed');
+    if (err) {
+      throw err;
+    }
+
+    if (!user) {
+      // `passport-oauth2` reports `?error=access_denied` (the person cancelled
+      // or denied consent at Google) through `fail()`, not `error()`, so it
+      // arrives here as `!user` with no `err`. Name it, so the callback can
+      // redirect with `error=access_denied` instead of a generic failure (#652).
+      // The query is Google-supplied, so only its code is read, never its
+      // `error_description`.
+      const query = context.switchToHttp().getRequest()?.query as
+        | Record<string, unknown>
+        | undefined;
+
+      if (query?.error === 'access_denied') {
+        throw new AuthLoginDeniedException(
+          'access_denied',
+          'Google sign-in was cancelled or denied',
+        );
+      }
+
+      throw new Error('Authentication failed');
     }
 
     // Copy user from raw request to Fastify request so controllers can access it

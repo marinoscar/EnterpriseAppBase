@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   UseGuards,
+  UseFilters,
   Req,
   Res,
   HttpCode,
@@ -25,6 +26,7 @@ import {
   resolveAuthErrorCode,
 } from './auth-error-codes';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
+import { GoogleOAuthExceptionFilter } from './filters/google-oauth-exception.filter';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -128,13 +130,18 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleOAuthGuard)
+  // Callback route only: guard failures run before the method body, so its
+  // try/catch never sees them (#652).
+  @UseFilters(GoogleOAuthExceptionFilter)
   @ApiOperation({
     summary: 'Google OAuth callback',
-    description: 'Handles the OAuth callback from Google and redirects to frontend with token',
+    description:
+      'Handles the OAuth callback from Google and redirects to the frontend /auth/callback page: with the access token on success, or with error=<code> on any failure.',
   })
   @ApiResponse({
     status: 302,
-    description: 'Redirects to frontend with token in query params',
+    description:
+      'Redirects to frontend with the token in query params, or with error set to one of not_allowlisted, account_disabled, access_denied, authentication_failed, server_misconfigured',
   })
   async googleAuthCallback(
     @Req() req: FastifyRequest & { user?: GoogleProfile },

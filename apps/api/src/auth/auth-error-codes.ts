@@ -35,14 +35,16 @@ export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];
 /** The code used for every failure that has no more specific one. */
 export const DEFAULT_AUTH_ERROR_CODE: AuthErrorCode = 'authentication_failed';
 
-/** Reasons a login can be refused by policy, a subset of `AuthErrorCode`. */
+/** Reasons a login can be refused, a subset of `AuthErrorCode`. */
 export type AuthLoginDeniedReason = Extract<
   AuthErrorCode,
-  'not_allowlisted' | 'account_disabled'
+  'not_allowlisted' | 'account_disabled' | 'access_denied'
 >;
 
 /**
- * A sign-in refused by policy (allowlist, disabled account).
+ * A sign-in that ended in a refusal rather than a fault: refused by policy
+ * (allowlist, disabled account) or declined by the person at Google's consent
+ * screen (`GoogleOAuthGuard` raises that one).
  *
  * Still a 403 `ForbiddenException`, so every caller that treats it as one (and
  * the OpenAPI document) is unchanged; `reason` is what the OAuth callback turns
@@ -72,9 +74,12 @@ export function buildAuthErrorRedirectUrl(
 }
 
 /**
- * True for Passport's `AuthorizationError` with code `access_denied`: Google
- * redirected back with `?error=access_denied` because the person cancelled or
- * denied consent.
+ * True for Passport's `AuthorizationError` with code `access_denied`.
+ *
+ * `passport-oauth2` does not currently raise that for a consent denial (it
+ * calls `fail()` for `?error=access_denied`, which `GoogleOAuthGuard` turns into
+ * an `AuthLoginDeniedException('access_denied')`), but a strategy that does
+ * raise it must still land on the same code.
  *
  * Matched structurally (name and code) rather than with `instanceof`, because
  * the class belongs to `passport-oauth2`, a transitive dependency this module
