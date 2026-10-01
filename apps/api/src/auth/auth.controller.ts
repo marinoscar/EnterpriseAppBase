@@ -18,6 +18,7 @@ import {
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
@@ -113,7 +114,15 @@ export class AuthController {
   @UseGuards(GoogleOAuthGuard)
   @ApiOperation({
     summary: 'Initiate Google OAuth',
-    description: 'Redirects to Google OAuth consent screen',
+    description:
+      'Redirects to Google OAuth consent screen. Pass select_account=1 to make Google show its account chooser instead of re-using the signed-in account.',
+  })
+  @ApiQuery({
+    name: 'select_account',
+    required: false,
+    description:
+      'Set to 1 to forward prompt=select_account to Google so the person can pick a different account. Any other value is ignored.',
+    schema: { type: 'string', enum: ['1'] },
   })
   @ApiResponse({
     status: 302,

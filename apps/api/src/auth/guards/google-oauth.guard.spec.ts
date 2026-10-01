@@ -11,6 +11,29 @@ function contextWithQuery(query: unknown): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
+describe('GoogleOAuthGuard.getAuthenticateOptions', () => {
+  const guard = new GoogleOAuthGuard();
+
+  it('asks Google to show the account chooser for ?select_account=1', () => {
+    expect(
+      guard.getAuthenticateOptions(contextWithQuery({ select_account: '1' })),
+    ).toEqual({ prompt: 'select_account' });
+  });
+
+  it.each([
+    ['no query', undefined],
+    ['empty query', {}],
+    ['select_account=0', { select_account: '0' }],
+    ['select_account=true', { select_account: 'true' }],
+    ['select_account repeated', { select_account: ['1', '1'] }],
+    ['an unrelated param', { prompt: 'none' }],
+  ])('leaves the default behaviour for %s', (_label, query) => {
+    expect(
+      guard.getAuthenticateOptions(contextWithQuery(query)),
+    ).toBeUndefined();
+  });
+});
+
 describe('GoogleOAuthGuard.handleRequest', () => {
   const guard = new GoogleOAuthGuard();
 

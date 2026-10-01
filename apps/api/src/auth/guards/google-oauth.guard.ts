@@ -21,6 +21,27 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
     return request.raw || request;
   }
 
+  /**
+   * Per-request options for `passport.authenticate` (#652).
+   *
+   * `GET /auth/google?select_account=1` forwards `prompt=select_account`, so
+   * Google shows its account chooser instead of silently re-using the signed-in
+   * account. That is the way out for someone who was refused with one account and
+   * wants to try another. Anything else leaves the behaviour unchanged.
+   *
+   * The query is read from the FASTIFY request: `getRequest` above returns the
+   * raw `IncomingMessage`, which has no parsed `query`.
+   */
+  getAuthenticateOptions(context: ExecutionContext) {
+    const query = context.switchToHttp().getRequest()?.query as
+      | Record<string, unknown>
+      | undefined;
+
+    return query?.select_account === '1'
+      ? { prompt: 'select_account' }
+      : undefined;
+  }
+
   getResponse(context: ExecutionContext) {
     const response = context.switchToHttp().getResponse();
     // Return the raw Node.js ServerResponse for Passport compatibility
