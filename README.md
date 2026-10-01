@@ -220,7 +220,7 @@ Coding agents follow [CLAUDE.md](CLAUDE.md).
 **"Database seed data missing: Role ..." at first login** (the API log says `Default role "viewer" not found in database`).
 The seed has not run. Run step 6 above.
 
-**"Your email is not authorized to access this application."**
+**"You don't have access yet" screen after signing in.**
 The address is not on the allowlist. The first admin must match
 `INITIAL_ADMIN_EMAIL` exactly (restart the API after changing `.env`, then
 re-run the seed). Anyone else needs an admin to add them at

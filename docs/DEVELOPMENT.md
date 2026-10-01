@@ -207,7 +207,8 @@ async googleAuthCallback(
 ```
 
 The web app reads `?token=` on `/auth/callback`. On failure the API redirects
-to `/auth/callback?error=…`.
+to `/auth/callback?error=<code>`, a closed set of codes
+([SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract)).
 
 ### Cookies with Fastify
 
@@ -326,18 +327,17 @@ it.
 
 ### 5. Error Messages in Redirect URLs
 
-**Symptom:** a redirect fails, or the web app shows a garbled error.
+**Symptom:** a redirect fails, or the web app shows attacker-chosen or garbled
+text.
 
-**Cause:** an error message with newlines or reserved characters was put in a
-URL.
+**Cause:** an error message was put in a URL. Reserved characters break the
+redirect, and a page that renders the value lets anyone craft a link that shows
+text of their choosing.
 
-**Solution:** sanitize and encode it, as the OAuth callback does:
-```typescript
-const errorMessage = error instanceof Error
-  ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 200))
-  : 'authentication_failed';
-return res.redirect(`${appUrl}/auth/callback?error=${errorMessage}`);
-```
+**Solution:** redirect with a code from the closed set, never a message. Use
+`buildAuthErrorRedirectUrl` and `resolveAuthErrorCode` from
+`apps/api/src/auth/auth-error-codes.ts`, as the OAuth callback does. See
+[SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract).
 
 ### 6. Calling `npx prisma` Directly
 
