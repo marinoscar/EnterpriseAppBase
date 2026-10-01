@@ -173,6 +173,7 @@ const TILE_DIRECTIONS: Record<string, ChangeDirection> = {
   p95Ms: 'up-is-bad',
   errorLogs: 'up-is-bad',
   warnLogs: 'up-is-bad',
+  unknownRoutes: 'up-is-bad',
   heapUsedBytes: 'up-is-bad',
   eventLoopDelayP99Ms: 'up-is-bad',
   // `/metrics` tiles (#601): utilization, ages, failures and stalls up is bad;
