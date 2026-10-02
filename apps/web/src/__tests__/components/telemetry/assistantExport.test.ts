@@ -26,7 +26,9 @@ const EXPORTED_AT = new Date('2026-10-02T12:34:56.789Z');
 
 describe('replyToMarkdown', () => {
   it('renders a report: status, summary, findings, root cause, numbered recommendations, queries', () => {
-    const md = replyToMarkdown(reply({ answer: { sql: 'SELECT 1', explanation: REPORT.summary, report: REPORT } }));
+    const md = replyToMarkdown(
+      reply({ answer: { sql: 'SELECT 1', explanation: REPORT.summary, report: REPORT } }),
+    );
 
     expect(md).toContain('Status: issue_found (confidence: medium)');
     expect(md).toContain('42 requests failed.');
@@ -49,7 +51,9 @@ describe('replyToMarkdown', () => {
   });
 
   it('renders the error code and message', () => {
-    const md = replyToMarkdown(reply({ status: 'error', error: { code: 'ai_unavailable', message: 'Down.' } }));
+    const md = replyToMarkdown(
+      reply({ status: 'error', error: { code: 'ai_unavailable', message: 'Down.' } }),
+    );
     expect(md).toBe('Error (ai_unavailable): Down.');
   });
 
@@ -90,7 +94,10 @@ describe('conversationToMarkdown', () => {
   ];
 
   it('has a header with the export time and the model caption', () => {
-    const md = conversationToMarkdown(messages, { exportedAt: EXPORTED_AT, modelCaption: 'openai · gpt-5-mini' });
+    const md = conversationToMarkdown(messages, {
+      exportedAt: EXPORTED_AT,
+      modelCaption: 'openai · gpt-5-mini',
+    });
     expect(md.startsWith('# Telemetry assistant conversation\n')).toBe(true);
     expect(md).toContain('Exported at: 2026-10-02T12:34:56.789Z');
     expect(md).toContain('Model: openai · gpt-5-mini');

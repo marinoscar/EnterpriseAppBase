@@ -99,7 +99,7 @@ function stepMarkdown(step: TelemetryAssistantStep, position: number): string[] 
 /** The whole conversation, written for another AI agent to read. */
 export function conversationToMarkdown(
   messages: AssistantMessage[],
-  { exportedAt, modelCaption }: ConversationExportOptions
+  { exportedAt, modelCaption }: ConversationExportOptions,
 ): string {
   const out: string[] = [
     '# Telemetry assistant conversation',

@@ -66,7 +66,7 @@ function useCopy(): [CopyState, (text: string) => Promise<void>] {
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
-    []
+    [],
   );
   const copy = useCallback(async (text: string) => {
     let next: CopyState;
@@ -180,9 +180,9 @@ function EmptyState({ disabled, onAsk }: { disabled: boolean; onAsk: (question: 
   return (
     <Box>
       <Typography variant="body2" color="text.secondary">
-        Describe a problem or ask a question. The assistant investigates on its own — it checks the app&apos;s
-        configuration, overall health, errors and traces by running read-only queries — and reports what it
-        found, the likely cause and what to do next.
+        Describe a problem or ask a question. The assistant investigates on its own — it checks the
+        app&apos;s configuration, overall health, errors and traces by running read-only queries —
+        and reports what it found, the likely cause and what to do next.
       </Typography>
       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', mt: 1.5 }}>
         {ASSISTANT_EXAMPLE_PROMPTS.map((prompt) => (
@@ -193,11 +193,7 @@ function EmptyState({ disabled, onAsk }: { disabled: boolean; onAsk: (question: 
             clickable
             disabled={disabled}
             onClick={() => onAsk(prompt)}
-            sx={{
-              maxWidth: '100%',
-              height: 'auto',
-              '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 },
-            }}
+            sx={{ maxWidth: '100%', height: 'auto', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.5 } }}
           />
         ))}
       </Stack>
@@ -403,8 +399,13 @@ export function AssistantPanel({
               {message.text}
             </Paper>
           ) : (
-            <Reply key={message.id} message={message} onInsert={onInsert} onInsertAndRun={onInsertAndRun} />
-          )
+            <Reply
+              key={message.id}
+              message={message}
+              onInsert={onInsert}
+              onInsertAndRun={onInsertAndRun}
+            />
+          ),
         )}
         <div ref={endRef} />
       </Box>
@@ -419,9 +420,7 @@ export function AssistantPanel({
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={onKeyDown}
-          slotProps={{
-            htmlInput: { 'aria-label': 'Ask the assistant', maxLength: ASSISTANT_QUESTION_MAX },
-          }}
+          slotProps={{ htmlInput: { 'aria-label': 'Ask the assistant', maxLength: ASSISTANT_QUESTION_MAX } }}
         />
         {isStreaming ? (
           <Button variant="outlined" color="inherit" onClick={onStop} startIcon={<StopIcon />}>

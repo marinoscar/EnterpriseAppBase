@@ -437,7 +437,9 @@ describe('AssistantPanel copy and download (#654)', () => {
     expect(text).toContain('Model: openai · gpt-5-mini');
     expect(text).toContain('## Question\n\nWhy slow?');
     expect(text).toContain('## Answer');
-    await waitFor(() => expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copied'));
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copied'),
+    );
   });
 
   it('shows "Copy failed" when the clipboard rejects', async () => {
@@ -447,7 +449,9 @@ describe('AssistantPanel copy and download (#654)', () => {
 
     await user.click(screen.getByTestId('assistant-copy-conversation'));
 
-    await waitFor(() => expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copy failed'));
+    await waitFor(() =>
+      expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copy failed'),
+    );
     expect(screen.getAllByRole('status').some((el) => el.textContent === 'Copy failed')).toBe(true);
   });
 
@@ -459,7 +463,9 @@ describe('AssistantPanel copy and download (#654)', () => {
       render(panel());
 
       await user.click(screen.getByTestId('assistant-copy-conversation'));
-      await waitFor(() => expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copied'));
+      await waitFor(() =>
+        expect(screen.getByTestId('assistant-copy-conversation')).toHaveTextContent('Copied'),
+      );
       act(() => {
         vi.advanceTimersByTime(2100);
       });
