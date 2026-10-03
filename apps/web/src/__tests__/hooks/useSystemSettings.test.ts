@@ -7,14 +7,10 @@ import type { SystemSettings } from '../../types';
 
 // Mock system settings - match the default from handlers.ts
 const mockSystemSettings: SystemSettings = {
-  ui: {
-    allowUserThemeOverride: true,
+  notifications: {
+    browserEnabled: true,
+    disabledEvents: [],
   },
-  security: {
-    jwtAccessTtlMinutes: 15,
-    refreshTtlDays: 14,
-  },
-  features: {},
   updatedAt: new Date().toISOString(),
   updatedBy: null,
   version: 1,
@@ -52,9 +48,7 @@ describe('useSystemSettings', () => {
 
       expect(result.current?.settings).not.toBeNull();
       expect(result.current.settings).toMatchObject({
-        ui: { allowUserThemeOverride: true },
-        security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
-        features: {},
+        notifications: { browserEnabled: true, disabledEvents: [] },
         updatedBy: null,
         version: 1,
       });
@@ -68,9 +62,7 @@ describe('useSystemSettings', () => {
         expect(result.current?.settings).not.toBeNull();
       });
 
-      expect(result.current.settings).toHaveProperty('ui');
-      expect(result.current.settings).toHaveProperty('security');
-      expect(result.current.settings).toHaveProperty('features');
+      expect(result.current.settings).toHaveProperty('notifications');
       expect(result.current.settings).toHaveProperty('version');
       expect(result.current.settings).toHaveProperty('updatedAt');
       expect(result.current.settings).toHaveProperty('updatedBy');
@@ -146,14 +138,14 @@ describe('useSystemSettings', () => {
       });
 
       const updates = {
-        ui: { allowUserThemeOverride: false },
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       await act(async () => {
         await result.current.updateSettings(updates);
       });
 
-      expect(result.current.settings?.ui.allowUserThemeOverride).toBe(false);
+      expect(result.current.settings?.notifications.browserEnabled).toBe(false);
       expect(result.current.settings?.version).toBe(2);
       expect(result.current.error).toBeNull();
     });
@@ -186,7 +178,7 @@ describe('useSystemSettings', () => {
 
       let updatePromise: Promise<void>;
       act(() => {
-        updatePromise = result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        updatePromise = result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // Should be saving
@@ -227,7 +219,7 @@ describe('useSystemSettings', () => {
       );
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       expect(requestHeaders?.get('if-match')).toBe('1');
@@ -254,7 +246,7 @@ describe('useSystemSettings', () => {
 
       // This should not throw or make a request - it should just return early
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // Should still be null
@@ -280,7 +272,7 @@ describe('useSystemSettings', () => {
       // Should throw when update fails
       await expect(
         act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         })
       ).rejects.toThrow();
 
@@ -298,18 +290,15 @@ describe('useSystemSettings', () => {
       });
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
-        features: { newFeature: true },
+        notifications: { browserEnabled: false, disabledEvents: ['build.finished'] },
       };
 
       await act(async () => {
         await result.current.replaceSettings(newSettings);
       });
 
-      expect(result.current.settings?.ui.allowUserThemeOverride).toBe(false);
-      expect(result.current.settings?.security.jwtAccessTtlMinutes).toBe(30);
-      expect(result.current.settings?.features).toEqual({ newFeature: true });
+      expect(result.current.settings?.notifications.browserEnabled).toBe(false);
+      expect(result.current.settings?.notifications.disabledEvents).toEqual(['build.finished']);
       expect(result.current.error).toBeNull();
     });
 
@@ -341,9 +330,7 @@ describe('useSystemSettings', () => {
       );
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
-        features: {},
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       let updatePromise: Promise<void>;
@@ -380,9 +367,7 @@ describe('useSystemSettings', () => {
       );
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
-        features: {},
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       // Should throw when replace fails
@@ -525,7 +510,7 @@ describe('useSystemSettings', () => {
 
       await expect(
         act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         })
       ).rejects.toThrow('Settings were updated elsewhere. Please review and try again.');
 
@@ -566,7 +551,7 @@ describe('useSystemSettings', () => {
 
       try {
         await act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         });
       } catch {
         // Expected to throw
@@ -586,7 +571,7 @@ describe('useSystemSettings', () => {
       });
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // isLoading should only be true during initial fetch and refresh
@@ -602,7 +587,7 @@ describe('useSystemSettings', () => {
       });
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       expect(result.current.isSaving).toBe(false);
@@ -626,7 +611,7 @@ describe('useSystemSettings', () => {
 
       try {
         await act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         });
       } catch {
         // Expected to throw
@@ -656,7 +641,7 @@ describe('useSystemSettings', () => {
       // Should throw when permission is denied
       await expect(
         act(async () => {
-          await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+          await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
         })
       ).rejects.toThrow();
 
@@ -681,22 +666,20 @@ describe('useSystemSettings', () => {
       );
 
       const newSettings = {
-        ui: { allowUserThemeOverride: false },
-        security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 },
-        features: {},
+        notifications: { browserEnabled: false, disabledEvents: [] },
       };
 
       // Should throw when permission is denied
-      await expect(
-        act(async () => {
-          await result.current.replaceSettings(newSettings);
-        })
-      ).rejects.toThrow();
-
-      // Wait for state updates from the finally block to propagate
+      let thrownError: Error | null = null;
       await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 0));
+        try {
+          await result.current.replaceSettings(newSettings);
+        } catch (err) {
+          thrownError = err as Error;
+        }
       });
+
+      expect(thrownError).not.toBeNull();
 
       // isSaving should be false after error
       expect(result.current?.isSaving).toBe(false);
@@ -711,13 +694,12 @@ describe('useSystemSettings', () => {
         expect(result.current?.settings).not.toBeNull();
       });
 
-      const updates = [
-        result.current.updateSettings({ ui: { allowUserThemeOverride: false } }),
-        result.current.updateSettings({ security: { jwtAccessTtlMinutes: 30, refreshTtlDays: 7 } }),
-      ];
-
+      // Both updates should complete without errors
       await act(async () => {
-        await Promise.all(updates);
+        await Promise.all([
+          result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } }),
+          result.current.updateSettings({ notifications: { browserEnabled: true, disabledEvents: ['build.finished'] } }),
+        ]);
       });
 
       // Both should complete without errors
@@ -729,39 +711,40 @@ describe('useSystemSettings', () => {
     it('should clear error after successful update', async () => {
       const { result } = renderHook(() => useSystemSettings());
 
+      // Wait for successful initial load
       await waitFor(() => {
         expect(result.current?.settings).not.toBeNull();
       });
 
-      // Set an error by failing a fetch
-      server.resetHandlers();
+      // First, create an error by making a fetch fail
       server.use(
         http.get('*/api/system-settings', () => {
           return HttpResponse.json(
-            { message: 'Fetch error' },
+            { message: 'Server error' },
             { status: 500 }
           );
         })
       );
 
+      // Refresh to trigger the error
       await act(async () => {
         await result.current.refresh();
       });
 
-      // Should have an error
+      // Should have an error now
       await waitFor(() => {
         expect(result.current?.error).not.toBeNull();
       });
 
-      // Now reset and do a successful update
+      // Now restore handlers and do a successful update to clear the error
       server.resetHandlers();
 
       await act(async () => {
-        await result.current.updateSettings({ ui: { allowUserThemeOverride: false } });
+        await result.current.updateSettings({ notifications: { browserEnabled: false, disabledEvents: [] } });
       });
 
       // Error should be cleared by the successful update
-      expect(result.current?.error).toBeNull();
+      expect(result.current.error).toBeNull();
     });
   });
 });

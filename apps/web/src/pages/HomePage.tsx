@@ -13,18 +13,18 @@ export default function HomePage() {
         <Typography variant="h4" component="h1" gutterBottom>
           Welcome back{user?.displayName ? `, ${user.displayName}` : ''}
         </Typography>
-        <Typography color="text.secondary" paragraph>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
           Your dashboard overview
         </Typography>
 
         <Grid container spacing={3}>
           {/* User Profile Card */}
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <UserProfileCard />
           </Grid>
 
           {/* Quick Actions */}
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             <QuickActions />
           </Grid>
         </Grid>

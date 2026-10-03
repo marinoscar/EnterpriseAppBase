@@ -1,6 +1,8 @@
 # Development Guide
 
-This document provides essential information for developers working on this project, including setup instructions, common patterns, and important lessons learned from implementation.
+This guide covers the day-to-day development loop: running the app, the
+Fastify, Passport and Prisma gotchas that trip up newcomers, debugging, and
+the usual workflow for schema and endpoint changes.
 
 ## Table of Contents
 
@@ -11,90 +13,69 @@ This document provides essential information for developers working on this proj
 5. [Common Pitfalls and Solutions](#common-pitfalls-and-solutions)
 6. [Testing Guidelines](#testing-guidelines)
 7. [Debugging Tips](#debugging-tips)
+8. [Development Workflow](#development-workflow)
 
 ---
 
 ## Technology Stack
 
 ### Backend
-- **Framework**: NestJS with **Fastify adapter** (NOT Express)
-- **ORM**: Prisma with PostgreSQL
-- **Authentication**: Passport.js (Google OAuth)
-- **Validation**: Zod schemas with nestjs-zod
-- **Documentation**: Swagger/OpenAPI
+- **Framework**: NestJS with the **Fastify adapter** (not Express)
+- **ORM**: Prisma with PostgreSQL 16
+- **Authentication**: Passport (Google OAuth) plus JWT, personal access tokens
+  and node credentials
+- **Validation**: Zod schemas through `nestjs-zod` (a global `ZodValidationPipe`)
+- **Documentation**: OpenAPI 3.1, served as a Scalar reference at `/api/docs`
 
 ### Key Difference: Fastify vs Express
 
-This application uses **Fastify** as the HTTP adapter, not Express. This has important implications for how you write controllers and work with request/response objects.
-
-**Why Fastify?**
-- Faster performance (2-3x faster than Express)
-- Better TypeScript support
-- Lower overhead
-- Built-in schema validation support
+This application uses **Fastify** as the HTTP adapter. Anything you copy from
+an Express-based NestJS tutorial that touches the raw request or response
+needs adapting. Fastify was chosen for its lower overhead and better
+TypeScript types; NestJS hides the difference as long as you let it handle
+responses.
 
 ---
 
 ## Development Setup
 
-### Prerequisites
-- Node.js 18+
-- Docker Desktop
-- PostgreSQL (via Docker)
-- Google OAuth credentials (from Google Cloud Console)
+First-time setup (Google OAuth credentials, `npm run setup` to create
+`infra/compose/.env`, the `devnet` network, the dev database overlay,
+migrations, seeds and first login) is in the README:
+[Start a new app from this template](../README.md#start-a-new-app-from-this-template).
+Follow it once, then come back here.
 
-### Initial Setup
+### Dev-only extras
 
-1. **Clone and install dependencies**
-   ```bash
-   git clone <repository-url>
-   cd EnterpriseAppBase
-   npm install
-   ```
+- **Hot reload in Docker.** `dev.compose.yml` runs the API in watch mode and
+  the web app under Vite with HMR. This is the default loop.
+- **Running outside Docker.** `npm run api:dev` (Nest watch mode, port 3000)
+  and `npm run web:dev` (Vite, port 5173, proxying `/api` to
+  `http://localhost:3000`) work from the repo root. Two things differ from the
+  Docker loop:
+  - The API reads configuration from the process environment (and from
+    `apps/api/.env` if you create one), not from `infra/compose/.env`. Export
+    the `POSTGRES_*`, `JWT_SECRET` and Google variables first. Only the
+    `prisma:*` scripts load `infra/compose/.env` for you.
+  - There is no Nginx, so the app is on `http://localhost:5173`. Point
+    `APP_URL` and `GOOGLE_CALLBACK_URL` at that origin (and register the
+    callback with Google), or sign in through the development-only test login
+    at `/testing/login`.
+- **Scratch test database.** `infra/compose/test.compose.yml` starts a
+  disposable PostgreSQL 16 (`db-test`) on host port 5433 for real-database
+  test runs:
 
-2. **Set up environment variables**
-   ```bash
-   cd infra/compose
-   cp .env.example .env
-   # Edit .env with your Google OAuth credentials and other settings
-   ```
+  ```bash
+  cd infra/compose && docker compose -f test.compose.yml up -d
+  ```
 
-3. **Start development environment**
-   ```bash
-   cd infra/compose
-   docker compose -f base.compose.yml -f dev.compose.yml up
-   ```
+- **Building images directly.** Both images build from the repository root,
+  because the only `package-lock.json` is there:
 
-4. **IMPORTANT: Run database seeds**
-
-   Before your first login, you MUST seed the database with roles and permissions:
-
-   ```bash
-   # In a new terminal, exec into the API container
-   docker compose exec api sh
-
-   # Run the seed script
-   cd /app/apps/api
-   npx tsx prisma/seed.ts
-
-   # Exit the container
-   exit
-   ```
-
-   **Why this is critical:**
-   - Seeds create the RBAC roles (admin, contributor, viewer)
-   - Seeds create permissions (users:read, users:write, etc.)
-   - Without seeds, user creation will fail with "Default role not found"
-   - Seeds are idempotent - safe to run multiple times
-
-5. **Access the application**
-   - Frontend: http://localhost:3535
-   - API: http://localhost:3535/api
-   - Swagger: http://localhost:3535/api/docs
-
-### First Login
-
-The first user to login with the email matching `INITIAL_ADMIN_EMAIL` (from .env) will automatically be granted the **admin** role. All subsequent users get the **viewer** role by default.
+  ```bash
+  docker build -f apps/api/Dockerfile .
+  docker build -f apps/web/Dockerfile .
+  ```
 
 ---
 
@@ -104,7 +85,7 @@ The first user to login with the email matching `INITIAL_ADMIN_EMAIL` (from .env
 
 #### 1. Response Methods
 
-**❌ WRONG (Express-style):**
+**Wrong (Express-style):**
 ```typescript
 @Get('example')
 example(@Res() res: Response) {
@@ -112,7 +93,7 @@ example(@Res() res: Response) {
 }
 ```
 
-**✅ CORRECT (Fastify-style):**
+**Right (Fastify-style):**
 ```typescript
 @Get('example')
 example(@Res() res: FastifyReply) {
@@ -120,55 +101,48 @@ example(@Res() res: FastifyReply) {
 }
 ```
 
-**Key Differences:**
-- Use `code()` instead of `status()`
-- Use `send()` instead of `json()`
-- Import types from `fastify` not `express`
+- Use `code()` (Fastify also accepts `status()` as an alias) and `send()`.
+  There is no `json()`.
+- Import types from `fastify`, not `express`.
+- `redirect()` takes the URL first: `res.redirect(url, 302)`.
 
-**Best Practice:**
-Most of the time, avoid using `@Res()` decorator directly. Let NestJS handle responses:
+**Best practice:** avoid `@Res()` unless you must. A handler that returns a
+value gets the global `{ data, meta }` envelope and the exception filter for
+free. With `@Res()` you own the response, so neither applies (use
+`@Res({ passthrough: true })` if you only need to set a cookie or header).
 
 ```typescript
 @Get('example')
 example() {
-  // NestJS automatically serializes to JSON
-  return { data: 'Hello' };
+  return { message: 'Hello' }; // sent as { data: { message: 'Hello' }, meta: { ... } }
 }
 ```
 
 #### 2. Request Objects
 
-**Type Imports:**
 ```typescript
 import { FastifyRequest, FastifyReply } from 'fastify';
 
-// NOT from express:
-// import { Request, Response } from 'express';
-```
-
-**Request Properties:**
-```typescript
 @Get('example')
 example(@Req() req: FastifyRequest) {
-  // Fastify uses req.body, req.params, req.query like Express
-  // But some properties differ
-  const ip = req.ip;           // Client IP
+  const ip = req.ip;             // client IP
   const protocol = req.protocol; // http/https
   const hostname = req.hostname; // Host header
+  const raw = req.raw;           // the underlying Node.js IncomingMessage
 }
 ```
 
+`req.body`, `req.params`, `req.query` and `req.headers` work as in Express.
+
 ### Passport OAuth with Fastify
 
-Passport strategies (like Google OAuth) are designed for Express and expect Express-style request/response objects. To work with Fastify, you need special handling.
-
-#### The Problem
-
-Passport OAuth guards expect to work with Node.js `IncomingMessage` and `ServerResponse` objects, but Fastify wraps these in its own request/response objects.
+Passport strategies are written for Express and expect Node's raw
+`IncomingMessage` and `ServerResponse`. Fastify wraps both, so the OAuth guard
+must unwrap them.
 
 #### The Solution
 
-Override `getRequest()` and `getResponse()` in your OAuth guard to return the raw Node.js objects:
+`apps/api/src/auth/guards/google-oauth.guard.ts`:
 
 ```typescript
 import { ExecutionContext, Injectable } from '@nestjs/common';
@@ -198,8 +172,8 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
       throw err || new Error('Authentication failed');
     }
 
-    // IMPORTANT: Copy user from raw request to Fastify request
-    // so controllers can access req.user normally
+    // Copy the user from the raw request to the Fastify request
+    // so controllers can read req.user normally
     const fastifyRequest = context.switchToHttp().getRequest();
     fastifyRequest.user = user;
 
@@ -208,14 +182,13 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
 }
 ```
 
-**What this does:**
-1. `getRequest()` returns `request.raw` - the underlying Node.js request object
-2. `getResponse()` returns `response.raw` - the underlying Node.js response object
-3. Passport performs OAuth using these raw objects
-4. `handleRequest()` copies the authenticated user back to the Fastify request
-5. Your controllers can now access `req.user` as normal
+1. `getRequest()` and `getResponse()` hand Passport the raw Node objects.
+2. Passport runs the OAuth exchange on them.
+3. `handleRequest()` copies the authenticated user back onto the Fastify
+   request, so controllers can read `req.user`.
 
-**Example in Controller:**
+**In the controller** (simplified from `auth.controller.ts`):
+
 ```typescript
 @Get('google/callback')
 @Public()
@@ -224,38 +197,42 @@ async googleAuthCallback(
   @Req() req: FastifyRequest & { user?: GoogleProfile },
   @Res() res: FastifyReply,
 ) {
-  // Guard has set req.user for us
-  const profile = req.user;
+  const tokens = await this.authService.handleGoogleLogin(req.user!);
+  res.setCookie('refresh_token', tokens.refreshToken!, COOKIE_OPTIONS);
 
-  // Use Fastify methods for response
-  return res.redirect(302, redirectUrl.toString());
+  const redirectUrl = new URL('/auth/callback', appUrl);
+  redirectUrl.searchParams.set('token', tokens.accessToken);
+  return res.redirect(redirectUrl.toString(), 302);
 }
 ```
 
+The web app reads `?token=` on `/auth/callback`. On failure the API redirects
+to `/auth/callback?error=<code>`, a closed set of codes
+([SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract)).
+
 ### Cookies with Fastify
 
-Fastify uses `@fastify/cookie` plugin for cookie handling.
+Cookies come from the `@fastify/cookie` plugin, registered in `main.ts`.
 
-**Set Cookie:**
 ```typescript
+// Set
 res.setCookie('name', 'value', {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax',
   path: '/api/auth',
-  maxAge: 14 * 24 * 60 * 60 * 1000, // milliseconds
 });
-```
 
-**Read Cookie:**
-```typescript
+// Read
 const value = req.cookies['name'];
-```
 
-**Clear Cookie:**
-```typescript
+// Clear (the path must match the one it was set with)
 res.clearCookie('name', { path: '/api/auth' });
 ```
+
+The refresh cookie is scoped to `/api/auth`, so a browser only sends it to the
+auth routes. A `fetch` to `POST /api/auth/refresh` still needs
+`credentials: 'include'`.
 
 ---
 
@@ -263,298 +240,193 @@ res.clearCookie('name', { path: '/api/auth' });
 
 ### Prisma Transactions
 
-When creating related records (e.g., user with roles), always use transactions to maintain data consistency.
+When you create related records (for example a user with a role), do it in one
+transaction so a failure cannot leave half the rows behind.
 
-#### Why Transactions Matter
-
-Without transactions, you can encounter foreign key violations:
-
-**❌ WRONG (No Transaction):**
+**Wrong (no transaction):**
 ```typescript
-// This can fail if user creation succeeds but role assignment fails
-const user = await prisma.user.create({
-  data: { email, displayName }
-});
+// If the second write fails, the user exists without a role
+const user = await prisma.user.create({ data: { email, displayName } });
 
 await prisma.userRole.create({
-  data: {
-    userId: user.id,
-    roleId: defaultRole.id, // FK violation if role doesn't exist
-  }
+  data: { userId: user.id, roleId: defaultRole.id },
 });
 ```
 
-**✅ CORRECT (With Transaction):**
+**Right (transaction with nested creates):**
 ```typescript
 const user = await prisma.$transaction(async (tx) => {
-  const newUser = await tx.user.create({
+  return tx.user.create({
     data: {
       email,
       displayName,
-      userRoles: {
-        create: {
-          roleId: defaultRole.id,
-        },
-      },
-      userSettings: {
-        create: {
-          value: DEFAULT_USER_SETTINGS,
-        },
-      },
+      userRoles: { create: { roleId: defaultRole.id } },
+      userSettings: { create: { value: DEFAULT_USER_SETTINGS } },
     },
-    include: {
-      userRoles: {
-        include: { role: true },
-      },
-    },
+    include: { userRoles: { include: { role: true } } },
   });
-
-  return newUser;
 });
 ```
 
-**Benefits:**
-- All-or-nothing: Either all records are created or none
-- No orphaned records
-- No foreign key violations
-- Consistent database state
-
-### Nested Creates
-
-Prisma supports nested creates which are automatically wrapped in transactions:
-
-```typescript
-const user = await prisma.user.create({
-  data: {
-    email: 'user@example.com',
-    // Create related records in the same operation
-    identities: {
-      create: {
-        provider: 'google',
-        providerSubject: 'google-id-123',
-        providerEmail: 'user@example.com',
-      },
-    },
-    userRoles: {
-      create: {
-        roleId: roleId,
-      },
-    },
-    userSettings: {
-      create: {
-        value: { theme: 'light' },
-      },
-    },
-  },
-  include: {
-    identities: true,
-    userRoles: { include: { role: true } },
-    userSettings: true,
-  },
-});
-```
+A single `create` with nested `create` blocks (as above) is already atomic;
+the explicit `$transaction` matters when you need several top-level writes.
 
 ### Seeding the Database
 
-The seed script (`apps/api/prisma/seed.ts`) is idempotent and safe to run multiple times.
+The seed script (`apps/api/prisma/seed.ts`) is idempotent. Always run it
+through the `prisma:seed` script, never `ts-node`/`tsx` on the file: the
+script builds `DATABASE_URL` from the `POSTGRES_*` variables
+(`apps/api/scripts/prisma-env.js`), and the seed has no other way to get it.
 
-**Running Seeds:**
-
-**In Docker:**
 ```bash
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
+# In Docker (the container's working directory is apps/api)
+docker compose exec api npm run prisma:seed
+
+# From the repository root
+npm run prisma:seed --workspace=api
 ```
 
-**Locally:**
-```bash
-cd apps/api
-npx tsx prisma/seed.ts
-```
-
-**What Gets Seeded:**
-- RBAC roles (admin, contributor, viewer)
-- RBAC permissions (users:read, users:write, system_settings:read, etc.)
-- Role-permission assignments
-- Default system settings
-
-**When to Run Seeds:**
-- Before first login
-- After database reset
-- After pulling schema changes that add new roles/permissions
-- In CI/CD before running tests
+It creates the three roles, every permission, the role-permission grants and
+the default system settings. Run it before the first login, after resetting
+the database, and after pulling a change that adds permissions.
 
 ---
 
 ## Common Pitfalls and Solutions
 
-### 1. "Default role not found" Error
+### 1. "Database seed data missing" on First Login
 
-**Symptom:** First OAuth login fails with database error.
+**Symptom:** the first Google sign-in fails. The API log says
+`CRITICAL: Default role "viewer" not found in database`.
 
-**Cause:** Database hasn't been seeded with RBAC roles.
+**Cause:** migrations ran but seeds did not.
 
-**Solution:**
-```bash
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
-exit
-```
+**Solution:** `docker compose exec api npm run prisma:seed`
 
 ### 2. Passport OAuth Not Working with Fastify
 
-**Symptom:** OAuth redirect fails, or user object is undefined in callback.
+**Symptom:** the OAuth redirect fails, or `req.user` is undefined in the
+callback.
 
-**Cause:** Passport expects Express-style request/response objects.
+**Cause:** Passport received Fastify objects instead of raw Node objects.
 
-**Solution:** Use the guard pattern shown above with `getRequest()`, `getResponse()`, and `handleRequest()` overrides to return raw Node.js objects and copy user back to Fastify request.
+**Solution:** use the guard pattern above.
 
-### 3. Response Method Not Working
+### 3. `res.json is not a function`
 
-**Symptom:** `res.status(200).json()` throws an error.
+**Cause:** Express-style response code under the Fastify adapter.
 
-**Cause:** Using Express-style methods with Fastify adapter.
+**Solution:** `res.code(200).send(...)`, or return a value and let NestJS send
+it.
 
-**Solution:** Use Fastify methods: `res.code(200).send()` or let NestJS handle the response.
+### 4. Foreign Key Violation or Orphaned Rows on User Creation
 
-### 4. Foreign Key Violation on User Creation
+**Cause:** related rows created in separate, non-transactional writes.
 
-**Symptom:** User creation fails with FK constraint error.
-
-**Cause:** Not using transaction when creating user with roles.
-
-**Solution:** Wrap in `prisma.$transaction()` or use nested creates.
+**Solution:** wrap them in `prisma.$transaction()` or use nested creates.
 
 ### 5. Error Messages in Redirect URLs
 
-**Symptom:** Redirect fails or displays malformed error message.
+**Symptom:** a redirect fails, or the web app shows attacker-chosen or garbled
+text.
 
-**Cause:** Error messages contain newlines or special characters not safe for URLs.
+**Cause:** an error message was put in a URL. Reserved characters break the
+redirect, and a page that renders the value lets anyone craft a link that shows
+text of their choosing.
 
-**Solution:** Sanitize error messages before adding to URL:
-```typescript
-const errorMessage = error instanceof Error
-  ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 100))
-  : 'authentication_failed';
-return res.redirect(`${appUrl}/auth/callback?error=${errorMessage}`);
-```
+**Solution:** redirect with a code from the closed set, never a message. Use
+`buildAuthErrorRedirectUrl` and `resolveAuthErrorCode` from
+`apps/api/src/auth/auth-error-codes.ts`, as the OAuth callback does. See
+[SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract).
+
+### 6. Calling `npx prisma` Directly
+
+**Symptom:** `DATABASE_URL is not set` or a connection to the wrong database.
+
+**Solution:** use the `npm run prisma:*` scripts in `apps/api`
+(`prisma:generate`, `prisma:migrate`, `prisma:migrate:dev`, `prisma:seed`,
+`prisma:studio`). See `apps/api/scripts/README.md`.
 
 ---
 
 ## Testing Guidelines
 
-### Running Tests
+All testing guidance (the suites, how to run them, mocking, fixtures,
+end-to-end and visual tests) is in [TESTING.md](TESTING.md). In short:
 
-**Backend Tests:**
-```bash
-cd apps/api
-npm test                # Run all tests
-npm run test:watch      # Watch mode
-npm run test:cov        # With coverage
-npm run test:e2e        # E2E tests only
-```
-
-**Frontend Tests:**
-```bash
-cd apps/web
-npm test                # Run all tests
-npm run test:watch      # Watch mode
-npm run test:coverage   # With coverage
-```
-
-### Test Database
-
-Backend tests use a separate test database. Configure in `apps/api/.env.test`:
-
-```bash
-DATABASE_URL="postgresql://user:password@localhost:5432/app_test"
-JWT_SECRET="test-secret-key-min-32-characters"
-NODE_ENV="test"
-```
-
-**Important:** The test database is truncated between test runs. Never point tests at your development database.
-
-### Mocking OAuth in Tests
-
-OAuth strategies are mocked in tests to avoid external dependencies:
-
-```typescript
-import { MockGoogleStrategy } from '../../test/mocks/google-oauth.mock';
-
-// Set custom profile for test
-MockGoogleStrategy.setMockProfile({
-  email: 'test@example.com',
-  displayName: 'Test User',
-});
-
-// Perform OAuth test
-const response = await request(app.getHttpServer())
-  .get('/api/auth/google/callback')
-  .expect(302);
-```
+- `npm test --workspace=api` runs unit and integration suites. Integration
+  suites (`*.integration.spec.ts`) boot the real Nest app with Prisma mocked,
+  so they need no database. Google OAuth is mocked
+  (`apps/api/test/mocks/google-oauth.mock.ts`).
+- `*.db.spec.ts` suites run against a real, migrated PostgreSQL via
+  `npm run test:db --workspace=api` (for example the `db-test` container from
+  `test.compose.yml`, pointed at with the `POSTGRES_*` variables). They skip
+  themselves if no database is reachable. Suites that need isolation create
+  a scratch database with `apps/api/test/helpers/scratch-database.helper.ts`.
+- Web tests: `npm run test:run --workspace=web`.
 
 ---
 
 ## Debugging Tips
 
-### Debugging OAuth Flow
+### Debugging the OAuth Flow
 
-1. **Check Environment Variables:**
-   ```bash
-   echo $GOOGLE_CLIENT_ID
-   echo $GOOGLE_CLIENT_SECRET
-   echo $GOOGLE_CALLBACK_URL
-   ```
-
-2. **Verify Callback URL:**
-   - Must match exactly in Google Cloud Console
-   - Include protocol: `http://` or `https://`
-   - Include port if not 80/443: `http://localhost:3535/api/auth/google/callback`
-
-3. **Check Container Logs:**
+1. **Check the configuration** in `infra/compose/.env`: `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `APP_URL`.
+2. **Check the callback URL.** It must match the Google Cloud Console entry
+   exactly, including scheme and port:
+   `http://localhost:3535/api/auth/google/callback`.
+3. **Check the allowlist.** Only `INITIAL_ADMIN_EMAIL` and allowlisted emails
+   can sign in.
+4. **Watch the API logs:**
    ```bash
    docker compose logs api -f
    ```
-
-4. **Test OAuth Provider Endpoint:**
+5. **Check the provider list:**
    ```bash
    curl http://localhost:3535/api/auth/providers
    ```
 
 ### Debugging Database Issues
 
-1. **Check Prisma Connection:**
+1. **Check the connection.** The readiness probe includes a database check:
    ```bash
-   cd apps/api
-   npx prisma db push --preview-feature
+   curl http://localhost:3535/api/health/ready
    ```
 
-2. **Inspect Database:**
+2. **Inspect the database.** With the `devdb.compose.yml` overlay, from
+   `infra/compose`:
    ```bash
-   docker compose exec db psql -U postgres -d appdb
-   \dt              # List tables
+   docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml \
+     exec db psql -U postgres -d appdb
+   ```
+   ```sql
+   \dt
    SELECT * FROM roles;
    SELECT * FROM permissions;
    ```
+   Against your own PostgreSQL, use `psql` with the `POSTGRES_*` values from
+   `.env`. For a GUI, run `npm run prisma:studio` in `apps/api`.
 
-3. **View Prisma Logs:**
-   Set `LOG_LEVEL=debug` in `.env` to see SQL queries.
+3. **See SQL queries.** With `NODE_ENV=development` (which `dev.compose.yml`
+   sets), `PrismaService` logs every query and its duration at debug level.
+
+### Debugging the API Process
+
+- `npm run start:debug --workspace=api` starts Nest in watch mode with the
+  Node inspector enabled.
+- Every request gets an `X-Request-ID` from Nginx; search the logs for it to
+  follow one request.
+- `LOG_LEVEL` (default `info`) sets the Pino log level.
 
 ### Common Log Messages
 
-**"Database connected"**
-✅ Prisma successfully connected to PostgreSQL
-
-**"User logged out: user@example.com"**
-✅ Logout successful
-
-**"Refresh token reuse detected for user: xxx"**
-⚠️ Security alert: Possible token theft
-
-**"Default role not found - run database seeds"**
-❌ Database not seeded - run `npx tsx prisma/seed.ts`
+| Message | Meaning |
+|---------|---------|
+| `Database connected` | Prisma connected at startup |
+| `User logged out: user@example.com` | A logout succeeded |
+| `Refresh token reuse detected for user: …` | A rotated refresh token was replayed; possible token theft |
+| `CRITICAL: Default role "viewer" not found in database` | Seeds have not run |
 
 ---
 
@@ -562,120 +434,66 @@ const response = await request(app.getHttpServer())
 
 ### Making Database Changes
 
-1. **Update Prisma Schema:**
+1. Edit `apps/api/prisma/schema.prisma`.
+2. Create and apply a migration (from `apps/api`, or inside the container):
    ```bash
-   cd apps/api
-   # Edit prisma/schema.prisma
-   ```
-
-2. **Create Migration:**
-   ```bash
-   # Using npm script (recommended - handles environment variables)
    npm run prisma:migrate:dev -- --name descriptive_name
-
-   # Or in Docker container
    docker compose exec api npm run prisma:migrate:dev -- --name descriptive_name
    ```
-
-3. **Generate Prisma Client:**
+3. Regenerate the Prisma client:
    ```bash
-   # Using npm script (recommended)
    npm run prisma:generate
-
-   # Or in Docker container
-   docker compose exec api npm run prisma:generate
    ```
+4. If the change needs seed data, edit `prisma/seed.ts` (and
+   `prisma/seed-data.ts` for roles and permissions), then run
+   `npm run prisma:seed`.
 
-4. **Update Seeds (if needed):**
-   ```bash
-   # Edit prisma/seed.ts
-   npx tsx prisma/seed.ts
-   ```
-
-**Note:** The project uses individual database environment variables (`POSTGRES_HOST`, `POSTGRES_PORT`, etc.) instead of a single `DATABASE_URL`. The npm scripts (`prisma:*`) automatically construct the connection URL from these variables. See `apps/api/scripts/README.md` for details.
+The project configures the database with individual `POSTGRES_*` variables,
+never a single `DATABASE_URL`. The `prisma:*` scripts build the URL for you.
 
 ### Adding New API Endpoints
 
-1. Create DTO with Zod schema
-2. Add controller method with guards
-3. Implement service method with business logic
-4. Add Swagger decorators for documentation
-5. Write tests (unit + integration)
-6. Update API.md documentation
+1. Define request and response DTOs with Zod (`createZodDto`).
+2. Add the controller method with `@Auth({ permissions: [...] })` (or
+   `@Public()`).
+3. Put the business logic in a service.
+4. Add OpenAPI decorators (`@ApiOperation`, `@ApiResponse`); see
+   [API.md § How the document is built](API.md#how-the-document-is-built).
+5. Write unit and integration tests.
+6. Check the result at `/api/docs`, then `npm run openapi:dump` and
+   `npm run openapi:lint`.
+
+Anything that outlives the request must be a queue job; see
+[the job queue spec](specs/job-queue.md) and
+[`apps/api/src/jobs/handlers/README.md`](../apps/api/src/jobs/handlers/README.md).
 
 ### Adding New Guards
 
-1. Create guard in `apps/api/src/auth/guards/`
-2. Implement `canActivate()` method
-3. Register in module if not global
-4. Add tests for guard logic
-5. Document usage in SECURITY.md
+1. Create the guard in `apps/api/src/auth/guards/`.
+2. Implement `canActivate()`.
+3. Register it in its module, or apply it with `@UseGuards()`.
+4. Add tests for the guard logic.
+5. Document the behaviour in
+   [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md).
 
 ---
 
 ## Performance Considerations
 
-### Fastify Performance Tips
-
-1. **Avoid `@Res()` decorator when possible** - Let NestJS handle serialization
-2. **Use schema validation** - Fastify's built-in validation is faster than runtime checks
-3. **Enable compression** - Use `@fastify/compress` for large responses
-4. **Connection pooling** - Prisma handles this automatically
-
-### Database Query Optimization
-
-1. **Use `select` to limit fields:**
-   ```typescript
-   const user = await prisma.user.findUnique({
-     where: { id },
-     select: { id: true, email: true, displayName: true },
-   });
-   ```
-
-2. **Use `include` judiciously:**
-   ```typescript
-   // Only include what you need
-   include: {
-     userRoles: {
-       include: { role: true }, // Avoid deep nesting
-     },
-   }
-   ```
-
-3. **Index frequently queried fields** - Already done in schema for email, provider combinations
+- Avoid `@Res()` when you can; it bypasses the interceptors.
+- Use Prisma `select` to fetch only the fields you need, and keep `include`
+  shallow.
+- Add `@@index` in `schema.prisma` for new filter patterns.
 
 ---
 
 ## Resources
 
 - [NestJS Documentation](https://docs.nestjs.com/)
-- [Fastify Documentation](https://www.fastify.io/)
+- [Fastify Documentation](https://fastify.dev/)
 - [Prisma Documentation](https://www.prisma.io/docs/)
-- [Passport.js Documentation](http://www.passportjs.org/)
-- [Project SECURITY-ARCHITECTURE.md](./SECURITY-ARCHITECTURE.md)
-- [Project TESTING.md](./TESTING.md)
-
----
-
-## Getting Help
-
-If you encounter issues:
-
-1. Check this guide for common pitfalls
-2. Review container logs: `docker compose logs api -f`
-3. Verify database seeds have run
-4. Check environment variables are set correctly
-5. Consult the specification docs in `docs/specs/`
-6. Ask the team in Slack/Teams
-
-## Summary
-
-Key takeaways for developers:
-
-- ✅ **Use Fastify methods**: `code()` and `send()`, not `status()` and `json()`
-- ✅ **Seed before first login**: `npx tsx prisma/seed.ts` in the API container
-- ✅ **Use transactions**: Wrap related creates in `prisma.$transaction()`
-- ✅ **Return raw objects for OAuth**: Override guard methods for Passport compatibility
-- ✅ **Sanitize redirect URLs**: Encode and remove newlines from error messages
-
-Following these patterns will help you avoid the most common issues and maintain consistency with the existing codebase.
+- [Passport.js Documentation](https://www.passportjs.org/)
+- [Architecture](ARCHITECTURE.md)
+- [Security Architecture](SECURITY-ARCHITECTURE.md)
+- [Testing](TESTING.md)
+- [API conventions](API.md)

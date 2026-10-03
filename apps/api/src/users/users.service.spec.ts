@@ -1,4 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotificationsService } from '../notifications/notifications.service';
+import { ConfigService } from '@nestjs/config';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +12,7 @@ import { ROLES } from '../common/constants/roles.constants';
 describe('UsersService', () => {
   let service: UsersService;
   let mockPrisma: MockPrismaService;
+  let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
 
   const mockAdminUser = {
     id: 'admin-user-id',
@@ -82,6 +85,25 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
+        // #128 wired real notification triggers into this service. The
+        // dispatcher is mocked here because these tests are about the
+        // service's own behaviour, not about delivery — and because `notify`
+        // is contracted never to throw, a stub that resolves is a faithful
+        // stand-in. The containment property itself (a send failure does not
+        // roll back the triggering action) is asserted with a REAL dispatcher
+        // and a failing provider in
+        // notifications/notification-failure-containment.spec.ts.
+        {
+          provide: NotificationsService,
+          useValue: (mockNotifications = {
+            notify: jest.fn().mockResolvedValue(undefined),
+            notifyAddress: jest.fn().mockResolvedValue(undefined),
+          }),
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(undefined) },
+        },
       ],
     }).compile();
 
@@ -145,6 +167,11 @@ describe('UsersService', () => {
             userRoles: {
               include: { role: true },
             },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
+            },
           },
         });
       });
@@ -181,6 +208,11 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
             },
           },
         });
@@ -273,6 +305,11 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.listUsers.
+            userSettings: {
+              select: { value: true },
             },
           },
         });
@@ -545,6 +582,11 @@ describe('UsersService', () => {
                 createdAt: true,
               },
             },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.getUserById.
+            userSettings: {
+              select: { value: true },
+            },
           },
         });
       });
@@ -561,6 +603,118 @@ describe('UsersService', () => {
         await expect(
           service.getUserById('non-existent-id')
         ).rejects.toThrow('User with ID non-existent-id not found');
+      });
+    });
+  });
+
+  describe('profileImageUrl resolution (#367)', () => {
+    const avatarObjectId = '11111111-1111-4111-8111-111111111111';
+
+    function userWithProfile(profile: unknown) {
+      return {
+        ...mockAdminUser,
+        userSettings: profile === undefined ? null : { value: { profile } },
+      };
+    }
+
+    describe('getUserById', () => {
+      it('resolves to null when imageSource is "none"', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({ imageSource: 'none', imageObjectId: null }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBeNull();
+      });
+
+      it('resolves to the same-origin avatar URL when imageSource is "upload"', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({
+            imageSource: 'upload',
+            imageObjectId: avatarObjectId,
+          }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBe(
+          `/api/users/${mockAdminUser.id}/avatar/${avatarObjectId}`,
+        );
+      });
+
+      it('defaults to the provider picture when there is no settings row', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile(undefined) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBe(mockAdminUser.providerProfileImageUrl);
+      });
+
+      it('always includes providerProfileImageUrl as-is alongside the resolved picture', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({ imageSource: 'none', imageObjectId: null }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.providerProfileImageUrl).toBe(
+          mockAdminUser.providerProfileImageUrl,
+        );
+      });
+    });
+
+    describe('listUsers', () => {
+      it('resolves each item\'s profileImageUrl from its own settings row', async () => {
+        mockPrisma.user.findMany.mockResolvedValue([
+          userWithProfile({ imageSource: 'none', imageObjectId: null }),
+          {
+            ...mockOtherUser,
+            userSettings: {
+              value: {
+                profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+              },
+            },
+          },
+        ] as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.items[0].profileImageUrl).toBeNull();
+        expect(result.items[1].profileImageUrl).toBe(
+          `/api/users/${mockOtherUser.id}/avatar/${avatarObjectId}`,
+        );
+      });
+    });
+
+    describe('updateUser', () => {
+      it('resolves the patched user\'s profileImageUrl from its settings row', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(mockAdminUser as any);
+        mockPrisma.user.update.mockResolvedValue(
+          userWithProfile({
+            imageSource: 'upload',
+            imageObjectId: avatarObjectId,
+          }) as any,
+        );
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUser(
+          mockAdminUser.id,
+          { displayName: 'New Name' },
+          mockAdminUser.id,
+        );
+
+        expect(result.profileImageUrl).toBe(
+          `/api/users/${mockAdminUser.id}/avatar/${avatarObjectId}`,
+        );
       });
     });
   });
@@ -729,6 +883,87 @@ describe('UsersService', () => {
         );
 
         expect(result.roles).toEqual(['contributor']);
+      });
+    });
+
+    // ===========================================================================
+    // `security.role_changed` notification (#128, epic #109)
+    // ===========================================================================
+    //
+    // `NotificationsService` is mocked here (see the provider comment above),
+    // so this is a CALL SITE test: does `updateUserRoles` call `notify` with the
+    // right event key, the right user, and — the property specific to this
+    // event — a payload that carries the roles BEFORE the change as well as
+    // after? The mandatory-overrides-preferences and both-channels properties
+    // are dispatcher behaviour and are proven with a real dispatcher wired to
+    // the real `UsersService` trigger in
+    // notifications/security-role-changed-wiring.spec.ts, alongside the
+    // failure-containment suite this file already references.
+    // ===========================================================================
+    describe('security.role_changed notification', () => {
+      it('fires on a real role update and carries the before state as well as the after', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['contributor'],
+        };
+
+        const updatedUser = {
+          ...mockOtherUser,
+          userRoles: [
+            {
+              userId: mockOtherUser.id,
+              roleId: 'contributor-role-id',
+              role: mockRoles.contributor,
+            },
+          ],
+          identities: [],
+        };
+
+        // `mockOtherUser` (the validation-lookup return) starts as `viewer` —
+        // that is the BEFORE state the transaction is about to destroy.
+        mockPrisma.user.findUnique
+          .mockResolvedValueOnce(mockOtherUser as any)
+          .mockResolvedValueOnce(updatedUser as any);
+        mockPrisma.role.findMany.mockResolvedValue([mockRoles.contributor] as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => {
+          return callback(mockPrisma);
+        });
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        await service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id);
+
+        expect(mockNotifications.notify).toHaveBeenCalledTimes(1);
+        expect(mockNotifications.notify).toHaveBeenCalledWith(
+          'security.role_changed',
+          mockOtherUser.id,
+          expect.objectContaining({
+            recipientEmail: mockOtherUser.email,
+            previousRoles: ['viewer'],
+            currentRoles: ['contributor'],
+          }),
+        );
+      });
+
+      it('does NOT fire when the role update is rejected before the transaction runs', async () => {
+        // Self-removal of the admin's own admin role — rejected up front, no
+        // database write, no notification.
+        const dto: UpdateUserRolesDto = { roleNames: ['viewer'] };
+
+        await expect(
+          service.updateUserRoles(mockAdminUser.id, dto, mockAdminUser.id),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+
+      it('does NOT fire when the target user does not exist', async () => {
+        const dto: UpdateUserRolesDto = { roleNames: ['viewer'] };
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.updateUserRoles('non-existent-id', dto, mockAdminUser.id),
+        ).rejects.toThrow(NotFoundException);
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
       });
     });
 

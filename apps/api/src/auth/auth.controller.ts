@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   UseGuards,
+  UseFilters,
   Req,
   Res,
   HttpCode,
@@ -11,15 +12,22 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { DatabaseSeedException } from '../common/exceptions/database-seed.exception';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { AuthService } from './auth.service';
+import {
+  buildAuthErrorRedirectUrl,
+  resolveAuthErrorCode,
+} from './auth-error-codes';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
+import { GoogleOAuthExceptionFilter } from './filters/google-oauth-exception.filter';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -30,6 +38,7 @@ import {
   AuthProviderDto,
 } from './dto/auth-provider.dto';
 import { CurrentUserDto } from './dto/auth-user.dto';
+import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
 
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 const COOKIE_OPTIONS = {
@@ -40,8 +49,30 @@ const COOKIE_OPTIONS = {
   maxAge: 14 * 24 * 60 * 60, // 14 days in seconds (cookie spec uses seconds)
 };
 
+/**
+ * REACHABLE DURING A MAINTENANCE WINDOW, as a whole controller (#257).
+ *
+ * The exemption is class-level rather than route-by-route because every route
+ * on it is one of four things a window must not break:
+ *
+ *   * `providers`, `google`, `google/callback` — SIGNING IN. A window in which
+ *     nobody can sign in is a window nobody can end: `allowAdmins` is worth
+ *     nothing to an administrator who cannot obtain a token, and the only way
+ *     back would be the environment break-glass and a restart.
+ *   * `refresh` — STAYING signed in. An access token is minutes long; a window
+ *     that outlives one would evict the very admin who opened it.
+ *   * `me` — the identity lookup the maintenance page itself needs, to decide
+ *     whether the person looking at it is an admin who can carry on.
+ *   * `logout` / `logout-all` — signing OUT must never be the thing that is
+ *     unavailable. A user who wants their session ended during an incident is
+ *     entitled to have it ended.
+ *
+ * Note this is REACHABILITY only: `@Auth()` and `@Public()` still decide who
+ * may call what, exactly as they do outside a window.
+ */
 @ApiTags('Authentication')
 @Controller('auth')
+@AllowDuringMaintenance()
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
@@ -83,7 +114,15 @@ export class AuthController {
   @UseGuards(GoogleOAuthGuard)
   @ApiOperation({
     summary: 'Initiate Google OAuth',
-    description: 'Redirects to Google OAuth consent screen',
+    description:
+      'Redirects to Google OAuth consent screen. Pass select_account=1 to make Google show its account chooser instead of re-using the signed-in account.',
+  })
+  @ApiQuery({
+    name: 'select_account',
+    required: false,
+    description:
+      'Set to 1 to forward prompt=select_account to Google so the person can pick a different account. Any other value is ignored.',
+    schema: { type: 'string', enum: ['1'] },
   })
   @ApiResponse({
     status: 302,
@@ -100,13 +139,18 @@ export class AuthController {
   @Public()
   @Get('google/callback')
   @UseGuards(GoogleOAuthGuard)
+  // Callback route only: guard failures run before the method body, so its
+  // try/catch never sees them (#652).
+  @UseFilters(GoogleOAuthExceptionFilter)
   @ApiOperation({
     summary: 'Google OAuth callback',
-    description: 'Handles the OAuth callback from Google and redirects to frontend with token',
+    description:
+      'Handles the OAuth callback from Google and redirects to the frontend /auth/callback page: with the access token on success, or with error=<code> on any failure.',
   })
   @ApiResponse({
     status: 302,
-    description: 'Redirects to frontend with token in query params',
+    description:
+      'Redirects to frontend with the token in query params, or with error set to one of not_allowlisted, account_disabled, access_denied, authentication_failed, server_misconfigured',
   })
   async googleAuthCallback(
     @Req() req: FastifyRequest & { user?: GoogleProfile },
@@ -118,9 +162,11 @@ export class AuthController {
 
       if (!profile) {
         this.logger.error('No profile found in Google OAuth callback');
-        const appUrl = this.configService.get<string>('appUrl');
         return res.redirect(
-          `${appUrl}/auth/callback?error=authentication_failed`,
+          buildAuthErrorRedirectUrl(
+            this.configService.get<string>('appUrl'),
+            'authentication_failed',
+          ),
         );
       }
 
@@ -140,14 +186,27 @@ export class AuthController {
       this.logger.log(`Redirecting to: ${redirectUrl.toString()}`);
       return res.status(302).redirect(redirectUrl.toString());
     } catch (error) {
-      this.logger.error('Error in Google OAuth callback', error);
-      const appUrl = this.configService.get<string>('appUrl');
-      // Sanitize error message for URL - remove newlines and encode
-      const errorMessage = error instanceof Error
-        ? encodeURIComponent(error.message.replace(/[\r\n]/g, ' ').substring(0, 100))
-        : 'authentication_failed';
+      // Log with full context for debugging
+      if (error instanceof DatabaseSeedException) {
+        this.logger.error(
+          'Database seed error during OAuth callback - seeds have not been run',
+          {
+            error: error.message,
+            stack: error.stack,
+          },
+        );
+      } else {
+        this.logger.error('Error in Google OAuth callback', error);
+      }
+
+      // Closed set of codes only (#652): the exception's message never
+      // reaches the redirect, so the callback page cannot be made to show
+      // attacker-chosen text.
       return res.redirect(
-        `${appUrl}/auth/callback?error=${errorMessage}`,
+        buildAuthErrorRedirectUrl(
+          this.configService.get<string>('appUrl'),
+          resolveAuthErrorCode(error),
+        ),
       );
     }
   }
@@ -158,7 +217,7 @@ export class AuthController {
    */
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Get current user',
     description: 'Returns information about the currently authenticated user',
@@ -229,7 +288,7 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Logout',
     description: 'Logout endpoint and revoke refresh token',
@@ -264,7 +323,7 @@ export class AuthController {
   @Post('logout-all')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiBearerAuth()
+  @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary: 'Logout from all devices',
     description: 'Revoke all refresh tokens for the current user',

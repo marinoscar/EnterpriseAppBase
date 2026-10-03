@@ -65,9 +65,7 @@ export function UserProfileCard() {
           <Stack
             direction="row"
             spacing={1}
-            flexWrap="wrap"
-            justifyContent="center"
-            sx={{ mt: 1, mb: 2 }}
+            sx={{ mt: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center' }}
           >
             {user.roles.map((role) => (
               <Chip

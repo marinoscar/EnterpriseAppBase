@@ -1,5 +1,26 @@
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
 import { HttpExceptionFilter } from './http-exception.filter';
+import { withVerbatimErrorBody } from '../exceptions/verbatim-error-body.exception';
+import { DatabaseSeedException } from '../exceptions/database-seed.exception';
+
+/**
+ * The closed `code` enum published by `common/dto/error.dto.ts`. Kept as a
+ * literal copy here (rather than importing the DTO) so this spec pins the
+ * WIRE CONTRACT independently of whatever the DTO file happens to say —
+ * if someone edits the enum without meaning to change the contract, this
+ * list has to be edited too, which is the point.
+ */
+const PUBLISHED_ERROR_CODES = [
+  'BAD_REQUEST',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'CONFLICT',
+  'UNPROCESSABLE_ENTITY',
+  'TOO_MANY_REQUESTS',
+  'INTERNAL_ERROR',
+  'ERROR',
+];
 
 describe('HttpExceptionFilter', () => {
   let filter: HttpExceptionFilter;
@@ -351,6 +372,90 @@ describe('HttpExceptionFilter', () => {
           message: 'Custom error',
         }),
       );
+    });
+  });
+
+  describe('Verbatim error body opt-out (#153)', () => {
+    it('sends a branded exception body exactly as thrown, with no envelope keys', () => {
+      const exception = withVerbatimErrorBody(
+        new HttpException(
+          { error: 'authorization_pending', error_description: 'still waiting' },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+
+      filter.catch(exception, mockHost);
+
+      expect(mockResponse.code).toHaveBeenCalledWith(400);
+      expect(mockResponse.send).toHaveBeenCalledWith({
+        error: 'authorization_pending',
+        error_description: 'still waiting',
+      });
+
+      const response = mockResponse.send.mock.calls[0][0];
+      expect(response).not.toHaveProperty('statusCode');
+      expect(response).not.toHaveProperty('code');
+      expect(response).not.toHaveProperty('timestamp');
+      expect(response).not.toHaveProperty('path');
+    });
+
+    it('falls through to the normal envelope when the branded payload is a string, not an object', () => {
+      // The object guard in the filter matters: a string payload has
+      // nothing to send verbatim, so a branded exception constructed with a
+      // string must NOT put a bare JSON string on the wire — it should fall
+      // back to the ordinary enveloped response.
+      const exception = withVerbatimErrorBody(
+        new HttpException('a plain string payload', HttpStatus.BAD_REQUEST),
+      );
+
+      filter.catch(exception, mockHost);
+
+      expect(mockResponse.code).toHaveBeenCalledWith(400);
+      const response = mockResponse.send.mock.calls[0][0];
+
+      expect(response).toMatchObject({
+        statusCode: 400,
+        code: 'BAD_REQUEST',
+        message: 'a plain string payload',
+      });
+      expect(response).toHaveProperty('timestamp');
+      expect(response).toHaveProperty('path');
+      // Definitely not a bare string sent as the body.
+      expect(typeof response).toBe('object');
+    });
+  });
+
+  describe('DatabaseSeedException (#153)', () => {
+    it('overwrites the constructor-supplied code with the status-derived code, and keeps it a published value', () => {
+      const exception = new DatabaseSeedException(
+        'Role "default"',
+        'npm run prisma:seed',
+      );
+
+      filter.catch(exception, mockHost);
+
+      expect(mockResponse.code).toHaveBeenCalledWith(500);
+
+      const response = mockResponse.send.mock.calls[0][0];
+
+      // DatabaseSeedException's constructor passes `code:
+      // 'DATABASE_SEED_REQUIRED'` in its payload, but the filter always
+      // derives `code` from the HTTP status and ignores it — so the value
+      // on the wire is the status-derived one, not the one the exception
+      // asked for.
+      expect(response.code).not.toBe('DATABASE_SEED_REQUIRED');
+      expect(response.code).toBe('INTERNAL_ERROR');
+
+      // And whatever the filter produces must stay inside the closed enum
+      // `common/dto/error.dto.ts` publishes as the API's error contract.
+      expect(PUBLISHED_ERROR_CODES).toContain(response.code);
+
+      // The identifying data DatabaseSeedException wanted to surface is
+      // still reachable, just under `details` rather than `code`.
+      expect(response.details).toMatchObject({
+        missingData: 'Role "default"',
+        seedCommand: 'npm run prisma:seed',
+      });
     });
   });
 });

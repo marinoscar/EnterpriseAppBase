@@ -2,7 +2,9 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
   ATTR_SERVICE_NAME,
@@ -10,6 +12,17 @@ import {
   SEMRESATTRS_DEPLOYMENT_ENVIRONMENT,
 } from '@opentelemetry/semantic-conventions';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+// Trivial and side-effect-free by design — see the note in that file on why it
+// is safe to import here, ahead of `sdk.start()`.
+import { resolveServiceName } from './common/otel/service-name';
+// Same constraint: side-effect-free. Every exporter below is wrapped in a gate
+// that starts CLOSED, so OTEL_ENABLED installs the SDK but nothing is exported
+// until the `telemetry.enabled` system setting opens it (issue #532).
+import {
+  GatedLogRecordExporter,
+  GatedPushMetricExporter,
+  GatedSpanExporter,
+} from './common/otel/telemetry-gate';
 
 // Enable OTEL diagnostics in development
 if (process.env.NODE_ENV === 'development' && process.env.OTEL_DEBUG === 'true') {
@@ -25,7 +38,7 @@ export function initializeOtel(): NodeSDK | null {
   }
 
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
-  const serviceName = process.env.OTEL_SERVICE_NAME || 'enterprise-app-api';
+  const serviceName = resolveServiceName();
 
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: serviceName,
@@ -35,15 +48,30 @@ export function initializeOtel(): NodeSDK | null {
 
   const sdk = new NodeSDK({
     resource,
-    traceExporter: new OTLPTraceExporter({
-      url: `${endpoint}/v1/traces`,
-    }),
-    metricReader: new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({
-        url: `${endpoint}/v1/metrics`,
+    traceExporter: new GatedSpanExporter(
+      new OTLPTraceExporter({
+        url: `${endpoint}/v1/traces`,
       }),
+    ),
+    metricReader: new PeriodicExportingMetricReader({
+      exporter: new GatedPushMetricExporter(
+        new OTLPMetricExporter({
+          url: `${endpoint}/v1/metrics`,
+        }),
+      ),
       exportIntervalMillis: 60000, // Export every 60 seconds
     }),
+    // Registers the global LoggerProvider. The pino instrumentation below
+    // forwards every pino record to it ("log sending"); stdout is unchanged.
+    logRecordProcessors: [
+      new BatchLogRecordProcessor({
+        exporter: new GatedLogRecordExporter(
+          new OTLPLogExporter({
+            url: `${endpoint}/v1/logs`,
+          }),
+        ),
+      }),
+    ],
     instrumentations: [
       getNodeAutoInstrumentations({
         // Customize instrumentations
@@ -56,13 +84,24 @@ export function initializeOtel(): NodeSDK | null {
         '@opentelemetry/instrumentation-fs': {
           enabled: false, // Disable noisy FS instrumentation
         },
+        // Log sending is the instrumentation's default (disableLogSending:
+        // false); spelled out so the OTLP log pipeline above does not silently
+        // depend on an upstream default. It adds an OTel destination next to
+        // the logger's own stream via pino.multistream, so stdout output (and
+        // pino-pretty in development) is untouched. Requires `pino` to be
+        // required after `sdk.start()`, which main.ts's import order ensures.
+        '@opentelemetry/instrumentation-pino': {
+          disableLogSending: false,
+        },
       }),
     ],
   });
 
   sdk.start();
 
-  console.log(`OpenTelemetry initialized - exporting to ${endpoint}`);
+  console.log(
+    `OpenTelemetry initialized - exporting to ${endpoint} once the telemetry.enabled setting opens the gate`,
+  );
 
   // Graceful shutdown
   process.on('SIGTERM', () => {

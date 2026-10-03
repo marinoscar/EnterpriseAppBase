@@ -49,6 +49,21 @@ describe('JwtStrategy', () => {
       await expect(strategy.validate(payload)).rejects.toThrow(UnauthorizedException);
     });
 
+    it('passes a device-issued payload (did) through and rejects a revoked device session (#518)', async () => {
+      // AuthService returns null for a revoked/expired/foreign device session.
+      mockAuthService.validateJwtPayload.mockResolvedValue(null);
+
+      const payload = {
+        sub: 'user-1',
+        email: 'test@example.com',
+        roles: ['viewer'],
+        did: 'device-code-1',
+      };
+
+      await expect(strategy.validate(payload)).rejects.toThrow(UnauthorizedException);
+      expect(mockAuthService.validateJwtPayload).toHaveBeenCalledWith(payload);
+    });
+
     it('should throw when auth service throws', async () => {
       mockAuthService.validateJwtPayload.mockRejectedValue(
         new UnauthorizedException('Invalid user'),

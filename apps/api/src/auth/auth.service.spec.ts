@@ -1,13 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotificationsService } from '../notifications/notifications.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { AuthLoginDeniedException } from './auth-error-codes';
 import { AuthService } from './auth.service';
 import { GoogleProfile } from './strategies/google.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
+import { AppMetricsService } from '../common/otel/app-metrics.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -16,6 +19,8 @@ describe('AuthService', () => {
   let mockConfigService: jest.Mocked<ConfigService>;
   let mockAdminBootstrap: jest.Mocked<AdminBootstrapService>;
   let mockAllowlistService: jest.Mocked<AllowlistService>;
+  let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
+  let mockMetrics: { authLogin: jest.Mock; authRefresh: jest.Mock };
 
   const mockGoogleProfile: GoogleProfile = {
     id: 'google-123',
@@ -60,6 +65,26 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AdminBootstrapService, useValue: mockAdminBootstrap },
         { provide: AllowlistService, useValue: mockAllowlistService },
+        // #600: application metrics, stubbed so the outcome labels can be asserted.
+        {
+          provide: AppMetricsService,
+          useValue: (mockMetrics = { authLogin: jest.fn(), authRefresh: jest.fn() }),
+        },
+        // #128 wired real notification triggers into this service. The
+        // dispatcher is mocked here because these tests are about the
+        // service's own behaviour, not about delivery — and because `notify`
+        // is contracted never to throw, a stub that resolves is a faithful
+        // stand-in. The containment property itself (a send failure does not
+        // roll back the triggering action) is asserted with a REAL dispatcher
+        // and a failing provider in
+        // notifications/notification-failure-containment.spec.ts.
+        {
+          provide: NotificationsService,
+          useValue: (mockNotifications = {
+            notify: jest.fn().mockResolvedValue(undefined),
+            notifyAddress: jest.fn().mockResolvedValue(undefined),
+          }),
+        },
       ],
     }).compile();
 
@@ -101,6 +126,7 @@ describe('AuthService', () => {
           email: mockGoogleProfile.email,
           roles: ['viewer'],
         }),
+        expect.objectContaining({ expiresIn: expect.any(String) }),
       );
     });
 
@@ -166,6 +192,14 @@ describe('AuthService', () => {
       await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
         ForbiddenException,
       );
+
+      const error = await service
+        .handleGoogleLogin(mockGoogleProfile)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(AuthLoginDeniedException);
+      expect((error as AuthLoginDeniedException).reason).toBe('account_disabled');
+      expect((error as Error).message).toBe('User account is disabled');
     });
 
     it('should grant admin role when shouldGrantAdminRole returns true', async () => {
@@ -255,6 +289,19 @@ describe('AuthService', () => {
       await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
         'Your email is not authorized to access this application',
       );
+    });
+
+    it('carries the not_allowlisted reason when the email is not in the allowlist', async () => {
+      mockAllowlistService.isEmailAllowed.mockResolvedValue(false);
+
+      const error = await service
+        .handleGoogleLogin(mockGoogleProfile)
+        .catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(AuthLoginDeniedException);
+      expect(error).toBeInstanceOf(ForbiddenException);
+      expect((error as AuthLoginDeniedException).getStatus()).toBe(403);
+      expect((error as AuthLoginDeniedException).reason).toBe('not_allowlisted');
     });
 
     it('should create user identity linking on first login', async () => {
@@ -384,6 +431,122 @@ describe('AuthService', () => {
         mockUser.id,
       );
     });
+
+    // =========================================================================
+    // `user.welcome` notification (#128, epic #109)
+    // =========================================================================
+    //
+    // The dispatcher itself is mocked here (see the provider comment above),
+    // so these tests are about ONE thing: whether `AuthService` calls
+    // `notify('user.welcome', ...)` on the right branch and nowhere else. The
+    // fire-once guarantee is structural — `userWasCreated` is set on exactly
+    // the branch that inserts a new user row — so each scenario below drives a
+    // different branch of `handleGoogleLogin` and asserts on the mock.
+    // =========================================================================
+    describe('user.welcome notification', () => {
+      it('fires exactly once when a new user is created', async () => {
+        const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+        const mockUser = {
+          id: 'new-user-welcome',
+          email: mockGoogleProfile.email,
+          isActive: true,
+          userRoles: [{ role: mockRole }],
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+        mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+        mockPrisma.user.create.mockResolvedValue(mockUser as any);
+        mockPrisma.user.update.mockResolvedValue(mockUser as any);
+        mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+        await service.handleGoogleLogin(mockGoogleProfile);
+
+        expect(mockNotifications.notify).toHaveBeenCalledTimes(1);
+        expect(mockNotifications.notify).toHaveBeenCalledWith(
+          'user.welcome',
+          mockUser.id,
+          expect.objectContaining({ recipientEmail: mockUser.email }),
+        );
+      });
+
+      it('does NOT fire on a subsequent login, where the identity resolves to an existing user', async () => {
+        const existingIdentity = {
+          user: {
+            id: 'existing-user',
+            email: mockGoogleProfile.email,
+            isActive: true,
+            userRoles: [{ role: { name: 'admin', rolePermissions: [] } }],
+          },
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(existingIdentity as any);
+        mockPrisma.user.update.mockResolvedValue(existingIdentity.user as any);
+        mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+        await service.handleGoogleLogin(mockGoogleProfile);
+
+        expect(mockPrisma.user.create).not.toHaveBeenCalled();
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+
+      it('does NOT fire when an existing account links a second provider (identity-linking branch)', async () => {
+        const existingUser = {
+          id: 'existing-user',
+          email: mockGoogleProfile.email,
+          isActive: true,
+          userRoles: [{ role: { name: 'contributor', rolePermissions: [] } }],
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+        mockPrisma.user.findUnique.mockResolvedValue(existingUser as any);
+        mockPrisma.userIdentity.create.mockResolvedValue({} as any);
+        mockPrisma.user.update.mockResolvedValue(existingUser as any);
+        mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+        await service.handleGoogleLogin(mockGoogleProfile);
+
+        // The identity WAS created (the linking itself happened)...
+        expect(mockPrisma.userIdentity.create).toHaveBeenCalled();
+        // ...but no new user row was inserted, so `userWasCreated` stays false
+        // and the welcome notification must not fire for an account that
+        // already exists and was welcomed when it was made.
+        expect(mockPrisma.user.create).not.toHaveBeenCalled();
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+
+      it('does NOT fire when the login is refused after creation (the isActive check)', async () => {
+        // A user just inserted by THIS call, but reported inactive — the race
+        // the ordering comment in auth.service.ts describes: welcoming
+        // somebody to an application they were just refused entry to is a
+        // worse message than none. `createNewUser` never produces an inactive
+        // row today (it hardcodes `isActive: true`), so this scenario is
+        // exercised by constructing it directly: it proves the GATE (the
+        // notification is raised only after the isActive check, not inside
+        // the creation branch) rather than a naturally-reachable data state.
+        const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+        const inactiveNewUser = {
+          id: 'refused-new-user',
+          email: mockGoogleProfile.email,
+          isActive: false,
+          userRoles: [{ role: mockRole }],
+        };
+
+        mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+        mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+        mockPrisma.user.create.mockResolvedValue(inactiveNewUser as any);
+        mockPrisma.user.update.mockResolvedValue(inactiveNewUser as any);
+
+        await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(
+          ForbiddenException,
+        );
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('validateJwtPayload', () => {
@@ -445,6 +608,165 @@ describe('AuthService', () => {
     });
   });
 
+  describe('validateJwtPayload — device-issued tokens (did claim, #518)', () => {
+    const liveUser = {
+      id: 'user-1',
+      email: 'test@example.com',
+      isActive: true,
+      userRoles: [],
+    };
+    const devicePayload = {
+      sub: 'user-1',
+      email: 'test@example.com',
+      roles: [],
+      did: 'device-code-1',
+    };
+    const liveDeviceCode = {
+      id: 'device-code-1',
+      userId: 'user-1',
+      revokedAt: null,
+      credentialExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findUnique.mockResolvedValue(liveUser as any);
+    });
+
+    it('does not look up a device code for a token without did', async () => {
+      const result = await service.validateJwtPayload({
+        sub: 'user-1',
+        email: 'test@example.com',
+        roles: [],
+      });
+
+      expect(result).toEqual(liveUser);
+      expect(mockPrisma.deviceCode.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('accepts a token whose device session is live', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(liveDeviceCode as any);
+
+      const result = await service.validateJwtPayload(devicePayload);
+
+      expect(result).toEqual(liveUser);
+      expect(mockPrisma.deviceCode.findUnique).toHaveBeenCalledWith({
+        where: { id: 'device-code-1' },
+        select: {
+          id: true,
+          userId: true,
+          revokedAt: true,
+          credentialExpiresAt: true,
+        },
+      });
+    });
+
+    it('rejects a token whose device session was revoked', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        revokedAt: new Date(),
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects a token whose device credential has expired', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        credentialExpiresAt: new Date(Date.now() - 1000),
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects a token whose device session has no recorded credential expiry', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        credentialExpiresAt: null,
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it("rejects a token pointing at another user's device session", async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue({
+        ...liveDeviceCode,
+        userId: 'other-user',
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects a token whose device session no longer exists', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(null);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+
+    it('rejects an empty did without a lookup', async () => {
+      await expect(
+        service.validateJwtPayload({ ...devicePayload, did: '' }),
+      ).resolves.toBeNull();
+      expect(mockPrisma.deviceCode.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('still rejects an inactive user on a live device session', async () => {
+      mockPrisma.deviceCode.findUnique.mockResolvedValue(liveDeviceCode as any);
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...liveUser,
+        isActive: false,
+      } as any);
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+    });
+  });
+
+  describe('generateFullTokens — device session link (#518)', () => {
+    const user = {
+      id: 'user-1',
+      email: 'test@example.com',
+      userRoles: [{ role: { name: 'viewer' } }],
+    };
+
+    it('stamps did and links the refresh token when deviceCodeId is given', async () => {
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      const result = await service.generateFullTokens(user, {
+        accessTtlMinutes: 7 * 24 * 60,
+        refreshTtlDays: 7,
+        deviceCodeId: 'device-code-1',
+      });
+
+      expect(result.expiresIn).toBe(7 * 24 * 60 * 60);
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        { sub: 'user-1', email: 'test@example.com', roles: ['viewer'], did: 'device-code-1' },
+        { expiresIn: `${7 * 24 * 60}m` },
+      );
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+          deviceCodeId: 'device-code-1',
+        },
+      });
+    });
+
+    it('leaves an interactive login payload and refresh row without device fields', async () => {
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.generateFullTokens(user);
+
+      const [payload] = mockJwtService.sign.mock.calls[0];
+      expect(payload).toEqual({
+        sub: 'user-1',
+        email: 'test@example.com',
+        roles: ['viewer'],
+      });
+      const { data } = mockPrisma.refreshToken.create.mock.calls[0][0] as any;
+      expect(data).not.toHaveProperty('deviceCodeId');
+    });
+  });
+
   describe('getEnabledProviders', () => {
     it('should return google provider when configured', async () => {
       mockConfigService.get.mockImplementation((key: string) => {
@@ -502,12 +824,16 @@ describe('AuthService', () => {
     });
 
     it('should prefer user display name over provider', async () => {
+      // `users.profile_image_url` is deliberately not consulted (#367) —
+      // `profileImageUrl` is resolved from `user_settings.profile` instead
+      // (see the dedicated "profileImageUrl resolution (#367)" describe
+      // block below), so this test only exercises the display-name
+      // preference and leaves settings absent.
       const mockUser = {
         id: 'user-1',
         email: 'test@example.com',
         displayName: 'Custom Name',
         providerDisplayName: 'Provider Name',
-        profileImageUrl: 'https://custom.com/photo.jpg',
         providerProfileImageUrl: 'https://provider.com/photo.jpg',
         isActive: true,
         createdAt: new Date(),
@@ -519,7 +845,6 @@ describe('AuthService', () => {
       const result = await service.getCurrentUser('user-1');
 
       expect(result.displayName).toBe('Custom Name');
-      expect(result.profileImageUrl).toBe('https://custom.com/photo.jpg');
     });
 
     it('should throw UnauthorizedException for non-existent user', async () => {
@@ -528,6 +853,128 @@ describe('AuthService', () => {
       await expect(service.getCurrentUser('non-existent')).rejects.toThrow(
         UnauthorizedException,
       );
+    });
+  });
+
+  describe('profileImageUrl resolution (#367)', () => {
+    const avatarObjectId = '11111111-1111-4111-8111-111111111111';
+
+    function mockUserWithProfile(profile: unknown) {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: null,
+        providerDisplayName: 'Provider Name',
+        providerProfileImageUrl: 'https://provider.example.com/pic.jpg',
+        isActive: true,
+        createdAt: new Date(),
+        userRoles: [],
+        userSettings: profile === undefined ? null : { value: { profile } },
+      } as any);
+    }
+
+    it('resolves to null when imageSource is "none"', async () => {
+      mockUserWithProfile({ imageSource: 'none', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBeNull();
+    });
+
+    it('resolves to the provider picture when imageSource is "provider"', async () => {
+      mockUserWithProfile({ imageSource: 'provider', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    it('resolves to the same-origin avatar URL when imageSource is "upload"', async () => {
+      mockUserWithProfile({
+        imageSource: 'upload',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        `/api/users/user-1/avatar/${avatarObjectId}`,
+      );
+    });
+
+    it('defaults to "provider" when the user has no settings row at all', async () => {
+      mockUserWithProfile(undefined);
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.profileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    it('always includes the raw providerProfileImageUrl alongside the resolved one', async () => {
+      mockUserWithProfile({ imageSource: 'none', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.providerProfileImageUrl).toBe(
+        'https://provider.example.com/pic.jpg',
+      );
+    });
+
+    // hasUploadedProfileImage (issue #367 follow-up): true whenever an
+    // uploaded picture is stored, regardless of which source is currently
+    // selected — that's the whole point of exposing a boolean instead of a
+    // URL that only resolved while "upload" was selected.
+    it('hasUploadedProfileImage is true when imageObjectId is set and imageSource is "provider"', async () => {
+      mockUserWithProfile({
+        imageSource: 'provider',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is true when imageSource is "upload" with an imageObjectId', async () => {
+      mockUserWithProfile({
+        imageSource: 'upload',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is true when imageSource is "none" but a leftover imageObjectId is still stored', async () => {
+      mockUserWithProfile({
+        imageSource: 'none',
+        imageObjectId: avatarObjectId,
+      });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(true);
+    });
+
+    it('hasUploadedProfileImage is false when imageObjectId is null', async () => {
+      mockUserWithProfile({ imageSource: 'provider', imageObjectId: null });
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(false);
+    });
+
+    it('hasUploadedProfileImage is false when the user has no settings row at all', async () => {
+      mockUserWithProfile(undefined);
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result.hasUploadedProfileImage).toBe(false);
     });
   });
 
@@ -564,6 +1011,7 @@ describe('AuthService', () => {
           sub: 'user-1',
           email: mockUser.email,
         }),
+        expect.objectContaining({ expiresIn: expect.any(String) }),
       );
     });
 
@@ -677,6 +1125,197 @@ describe('AuthService', () => {
     });
   });
 
+  describe('refreshAccessToken — device chain (#518)', () => {
+    const mockUser = {
+      id: 'user-1',
+      email: 'test@example.com',
+      isActive: true,
+      userRoles: [{ role: { name: 'viewer' } }],
+    };
+
+    function deviceToken(
+      deviceCode: Partial<{
+        userId: string;
+        revokedAt: Date | null;
+        credentialExpiresAt: Date | null;
+      }> | null = {},
+      overrides: Record<string, unknown> = {},
+    ) {
+      return {
+        id: 'token-1',
+        userId: 'user-1',
+        tokenHash: 'hashed-token',
+        expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+        revokedAt: null,
+        createdAt: new Date(),
+        deviceCodeId: 'device-code-1',
+        user: mockUser,
+        deviceCode:
+          deviceCode === null
+            ? null
+            : {
+                id: 'device-code-1',
+                userId: 'user-1',
+                revokedAt: null,
+                credentialExpiresAt: new Date(
+                  Date.now() + 3 * 24 * 60 * 60 * 1000,
+                ),
+                ...deviceCode,
+              },
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      mockPrisma.refreshToken.update.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 } as any);
+    });
+
+    it('carries deviceCodeId onto the new row and did into the new access token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(deviceToken() as any);
+
+      await service.refreshAccessToken('device-refresh');
+
+      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'token-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          tokenHash: expect.any(String),
+          expiresAt: expect.any(Date),
+          deviceCodeId: 'device-code-1',
+        },
+      });
+      expect(mockJwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: 'user-1', did: 'device-code-1' }),
+        expect.objectContaining({ expiresIn: expect.any(String) }),
+      );
+    });
+
+    it('never extends the chain past credentialExpiresAt', async () => {
+      const credentialExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2h left
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ credentialExpiresAt }) as any,
+      );
+
+      const result = await service.refreshAccessToken('device-refresh');
+
+      // Refresh row: capped at the device credential's expiry, not +14 days.
+      const { data } = mockPrisma.refreshToken.create.mock.calls[0][0] as any;
+      expect(data.expiresAt.getTime()).toBe(credentialExpiresAt.getTime());
+
+      // Access token: the device TTL (7 days) capped at the ~2h remaining.
+      expect(result.expiresIn).toBeGreaterThan(2 * 60 * 60 - 60);
+      expect(result.expiresIn).toBeLessThanOrEqual(2 * 60 * 60);
+      const [, signOptions] = mockJwtService.sign.mock.calls[0] as any;
+      expect(signOptions.expiresIn).toBe(`${result.expiresIn}s`);
+    });
+
+    it('uses the device access TTL when the credential outlives it', async () => {
+      mockConfigService.get.mockImplementation((key: string, def?: any) => {
+        const config: Record<string, any> = {
+          'jwt.accessTtlMinutes': 15,
+          'jwt.refreshTtlDays': 14,
+          'deviceAuth.tokenExpiryDays': 1,
+        };
+        return config[key] ?? def;
+      });
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({
+          credentialExpiresAt: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        }) as any,
+      );
+
+      const result = await service.refreshAccessToken('device-refresh');
+
+      expect(result.expiresIn).toBe(24 * 60 * 60);
+    });
+
+    it('refuses to rotate when the device session was revoked, and revokes the presented token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ revokedAt: new Date() }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        'Refresh token has been revoked',
+      );
+
+      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'token-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+      expect(mockJwtService.sign).not.toHaveBeenCalled();
+    });
+
+    it('refuses to rotate when the device credential has expired', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ credentialExpiresAt: new Date(Date.now() - 1000) }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses to rotate when the linked session belongs to another user", async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ userId: 'other-user' }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('does not sign the user out everywhere when a revoked device session presents its revoked token', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({ revokedAt: new Date() }, { revokedAt: new Date() }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        'Refresh token has been revoked',
+      );
+
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('still treats reuse on a LIVE device session as theft (revokes all user tokens)', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken({}, { revokedAt: new Date() }) as any,
+      );
+
+      await expect(service.refreshAccessToken('device-refresh')).rejects.toThrow(
+        'Refresh token has been revoked',
+      );
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('keeps an ordinary chain free of device fields', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(
+        deviceToken(null, { deviceCodeId: null }) as any,
+      );
+
+      await service.refreshAccessToken('plain-refresh');
+
+      const { data } = mockPrisma.refreshToken.create.mock.calls[0][0] as any;
+      expect(data).not.toHaveProperty('deviceCodeId');
+      const [payload, options] = mockJwtService.sign.mock.calls[0] as any;
+      expect(payload).not.toHaveProperty('did');
+      expect(options).toEqual({ expiresIn: '15m' });
+    });
+  });
+
   describe('logout', () => {
     it('should revoke specific refresh token when provided', async () => {
       mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 1 } as any);
@@ -746,6 +1385,101 @@ describe('AuthService', () => {
       const result = await service.cleanupExpiredTokens();
 
       expect(result).toBe(0);
+    });
+  });
+
+  // #600: every sign-in and refresh outcome is counted with its label.
+  describe('application metrics', () => {
+    it('counts a successful Google login', async () => {
+      const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+      const mockUser = {
+        id: 'user-1',
+        email: mockGoogleProfile.email,
+        isActive: true,
+        userRoles: [{ role: mockRole }],
+      };
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      expect(mockMetrics.authLogin).toHaveBeenCalledTimes(1);
+      expect(mockMetrics.authLogin).toHaveBeenCalledWith('success');
+    });
+
+    it('counts an allowlist rejection, never with the address', async () => {
+      mockAllowlistService.isEmailAllowed.mockResolvedValue(false);
+
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(ForbiddenException);
+
+      expect(mockMetrics.authLogin).toHaveBeenCalledWith('allowlist_rejected');
+      expect(JSON.stringify(mockMetrics.authLogin.mock.calls)).not.toContain(mockGoogleProfile.email);
+    });
+
+    it('counts a disabled account', async () => {
+      const disabled = {
+        id: 'u',
+        email: mockGoogleProfile.email,
+        isActive: false,
+        userRoles: [{ role: { name: 'viewer', rolePermissions: [] } }],
+      };
+      mockPrisma.userIdentity.findUnique.mockResolvedValue({ user: disabled } as any);
+      mockPrisma.user.update.mockResolvedValue(disabled as any);
+
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow(ForbiddenException);
+
+      expect(mockMetrics.authLogin).toHaveBeenCalledWith('disabled');
+      expect(mockMetrics.authLogin).not.toHaveBeenCalledWith('success');
+    });
+
+    it('labels each refresh outcome', async () => {
+      const user = { id: 'user-1', email: 'x@example.com', isActive: true, userRoles: [] };
+      const token = {
+        id: 't',
+        userId: 'user-1',
+        tokenHash: 'h',
+        expiresAt: new Date(Date.now() + 60_000),
+        revokedAt: null,
+        createdAt: new Date(),
+        user,
+      };
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce(null);
+      await expect(service.refreshAccessToken('a')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce({
+        ...token,
+        expiresAt: new Date(Date.now() - 1),
+      } as any);
+      await expect(service.refreshAccessToken('b')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce({ ...token, revokedAt: new Date() } as any);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 0 } as any);
+      await expect(service.refreshAccessToken('c')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce({
+        ...token,
+        user: { ...user, isActive: false },
+      } as any);
+      await expect(service.refreshAccessToken('d')).rejects.toThrow(UnauthorizedException);
+
+      mockPrisma.refreshToken.findUnique.mockResolvedValueOnce(token as any);
+      mockPrisma.refreshToken.update.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+      await service.refreshAccessToken('e');
+
+      expect(mockMetrics.authRefresh.mock.calls.map((call) => call[0])).toEqual([
+        'invalid',
+        'expired',
+        'reuse_detected',
+        'user_inactive',
+        'success',
+      ]);
     });
   });
 });

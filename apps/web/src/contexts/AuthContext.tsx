@@ -9,14 +9,24 @@ import {
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../services/api';
+import { removePushSubscription } from '../services/pushSubscription';
 import { User, AuthProvider as AuthProviderType } from '../types';
+
+export interface LoginOptions {
+  /**
+   * Ask the provider to show its account chooser instead of silently reusing
+   * the signed-in account (Google: `prompt=select_account`). Used by the
+   * "sign in with a different account" action on the sign-in error screen.
+   */
+  selectAccount?: boolean;
+}
 
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   providers: AuthProviderType[];
-  login: (provider: string) => void;
+  login: (provider: string, options?: LoginOptions) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -89,17 +99,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  const login = useCallback((provider: string) => {
-    // Store return URL for redirect after login
-    const from = location.state?.from?.pathname || '/';
-    sessionStorage.setItem('auth_return_url', from);
+  const login = useCallback((provider: string, options?: LoginOptions) => {
+    // Store return URL for redirect after login (including query params)
+    const fromLocation = location.state?.from;
+    if (fromLocation) {
+      sessionStorage.setItem(
+        'auth_return_url',
+        `${fromLocation.pathname}${fromLocation.search || ''}`,
+      );
+    } else if (
+      location.pathname !== '/auth/callback' ||
+      sessionStorage.getItem('auth_return_url') === null
+    ) {
+      sessionStorage.setItem('auth_return_url', '/');
+    }
+    // else: retrying from the sign-in error screen (`/auth/callback`), which
+    // carries no `from` state. Keep the return URL stored by the original
+    // attempt instead of resetting it to '/'.
 
     // Redirect to OAuth provider
-    window.location.href = `/api/auth/${provider}`;
-  }, [location.state]);
+    const query = options?.selectAccount ? '?select_account=1' : '';
+    window.location.href = `/api/auth/${provider}${query}`;
+  }, [location.state, location.pathname]);
 
   const logout = useCallback(async () => {
     try {
+      // #365: drop this device's push subscription while the access token is
+      // still valid, so the signed-out account stops receiving pushes here.
+      // Best-effort, bounded to a few seconds, and never throws.
+      await removePushSubscription();
       await api.post('/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);

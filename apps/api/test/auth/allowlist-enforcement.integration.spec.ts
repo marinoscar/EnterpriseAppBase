@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotificationsService } from '../../src/notifications/notifications.service';
 import { AuthService } from '../../src/auth/auth.service';
 import { AllowlistService } from '../../src/allowlist/allowlist.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -47,6 +48,21 @@ describe('Auth Service - Allowlist Enforcement', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: { sign: jest.fn(() => 'mock-jwt-token'), signAsync: jest.fn(() => 'mock-jwt-token') } },
         { provide: ConfigService, useValue: mockConfigService },
+        // #128 wired real notification triggers into this service. The
+        // dispatcher is mocked here because these tests are about the
+        // service's own behaviour, not about delivery — and because `notify`
+        // is contracted never to throw, a stub that resolves is a faithful
+        // stand-in. The containment property itself (a send failure does not
+        // roll back the triggering action) is asserted with a REAL dispatcher
+        // and a failing provider in
+        // notifications/notification-failure-containment.spec.ts.
+        {
+          provide: NotificationsService,
+          useValue: {
+            notify: jest.fn().mockResolvedValue(undefined),
+            notifyAddress: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 

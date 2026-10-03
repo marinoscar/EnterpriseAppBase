@@ -232,7 +232,7 @@ describe('Error Handling (Integration)', () => {
       const response = await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(viewer.accessToken))
-        .send({ ui: { allowUserThemeOverride: false } })
+        .send({ notifications: { browserEnabled: false } })
         .expect(403);
 
       expect(response.body).toHaveProperty('statusCode', 403);
@@ -451,7 +451,7 @@ describe('Error Handling (Integration)', () => {
       const response2 = await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(viewer.accessToken))
-        .send({ ui: { theme: 'dark' } })
+        .send({ notifications: { browserEnabled: false } })
         .expect(403);
 
       // Both should have same structure

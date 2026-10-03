@@ -12,6 +12,15 @@ export interface JwtPayload {
   sub: string; // User ID
   email: string;
   roles: string[];
+  /**
+   * Device-authorization session id (`device_codes.id`), present only on an
+   * access token issued through the device flow's session path or a refresh
+   * of one (issue #518). Its presence makes every request re-check that the
+   * device session is still live — see `AuthService.validateJwtPayload` — so
+   * `DELETE /api/auth/device/sessions/{id}` takes effect immediately rather
+   * than when the long-lived device access token expires.
+   */
+  did?: string;
 }
 
 /**

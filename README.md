@@ -1,384 +1,243 @@
-# Enterprise Application Foundation
+<!-- The title and the sentence below the badge are the product's identity.
+     `node scripts/rename.mjs --name "..."` rewrites both, together with the
+     identity strings no runtime read can reach. See docs/RENAMING.md.
+
+     If the title below still reads like a placeholder, this fork has not been
+     renamed yet. -->
+
+# My App
+
+[![CI](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/marinoscar/EnterpriseAppBase/actions/workflows/ci.yml)
 
 A production-grade full-stack application foundation built with React, NestJS, and PostgreSQL. Features OAuth authentication, role-based access control, and comprehensive observability.
 
-## Features
+This repository is a **template**. You fork it, rename it, and build your own
+product on top. It is not meant to be deployed as-is.
 
-- **Authentication**: Google OAuth 2.0 with JWT access tokens and refresh token rotation
-- **Device Authorization**: RFC 8628 Device Authorization Flow for CLI tools, mobile apps, and IoT devices
-- **Authorization**: Role-Based Access Control (RBAC) with three roles (Admin, Contributor, Viewer)
-- **Access Control**: Email allowlist restricts application access to pre-authorized users
-- **User Management**: Admin interface for managing users, role assignments, and allowlist
-- **Settings Framework**: System-wide and per-user settings with type-safe schemas
-- **Observability**: OpenTelemetry instrumentation with traces, metrics, and structured logging
-- **API Documentation**: Swagger/OpenAPI documentation at `/api/docs`
-- **Same-Origin Architecture**: Frontend and API served from same host via Nginx reverse proxy
+## What you get
 
-## Technology Stack
+A React + MUI web app, a NestJS (Fastify) API, PostgreSQL through Prisma, and
+Nginx serving both from one origin: the UI at `/`, the API at `/api`, and the
+interactive API reference (Scalar) at `/api/docs`. On top of that stack:
 
-### Backend
-- **Framework**: NestJS with Fastify adapter
-- **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: Passport.js (Google OAuth)
-- **Observability**: OpenTelemetry + Uptrace
-- **Testing**: Jest + Supertest
+| Subsystem | What it gives you | Where to read more | Admin UI route |
+|---|---|---|---|
+| Sign-in and allowlist | Google OAuth, 15-minute JWT access tokens, rotating refresh cookie, email allowlist | [Security architecture](docs/SECURITY-ARCHITECTURE.md) | `/admin/settings/users` (Users, Allowlist tabs) |
+| RBAC | Admin, Contributor and Viewer roles over 28 permissions, enforced server-side | [Security architecture](docs/SECURITY-ARCHITECTURE.md), matrix in [Architecture](docs/ARCHITECTURE.md) | `/admin/settings/users` |
+| **`appctl` CLI** | One command-line client: `login`, a generic `api <method> <path>`, `deploy` to a VPS, and `node` to run a worker | [CLI README](apps/cli/README.md), [deploy spec](docs/specs/vps-deploy.md) | none |
+| Device authorization | RFC 8628 login for the CLI and other devices; can mint a PAT | [Device auth guide](docs/DEVICE-AUTH.md) | `/activate` |
+| Personal access tokens | Long-lived `pat_` bearer tokens for scripts and CI | [PAT guide](docs/personal-access-tokens.md) | `/settings/tokens` |
+| Settings framework | Registry-driven hubs at `/settings` and `/admin/settings`; JSONB system and user settings | [Settings UI spec](docs/specs/settings-ui.md) | `/admin/settings`; user `/settings` |
+| Object storage | S3, Cloudflare R2 or S3-compatible, configured at runtime; resumable uploads, profile images | [Spec](docs/specs/storage-providers.md), [runbook](docs/runbooks/storage-configuration.md) | `/admin/settings/storage` |
+| Background job queue | Postgres-backed queue with leases, retries, dedup and throughput insights | [Spec](docs/specs/job-queue.md), [handler recipe](apps/api/src/jobs/handlers/README.md) | `/admin/settings/jobs`, `/admin/settings/jobs/insights` |
+| Worker nodes | Remote machines that claim node-eligible jobs, with `nod_` credentials and per-job secrets | [Spec](docs/specs/worker-nodes.md), [guide](docs/runbooks/run-worker-nodes.md), [secrets runbook](docs/runbooks/node-job-secrets.md) | `/admin/settings/workers` |
+| **AI platform** | Admin-governed, bring-your-own-key AI over OpenAI, Anthropic, Gemini, Azure OpenAI and OpenAI-compatible servers: responses, streaming, structured output, tools, embeddings, images, audio, realtime, background runs, usage reports, and an admin-only AI Playground at `/ai` | [Spec](docs/specs/ai-platform.md), [module README](apps/api/src/ai/README.md), [runbook](docs/runbooks/ai-configuration.md) | `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai` |
+| Notifications | Event registry, email (SMTP), in-app and browser Web Push channels, per-user preferences | [Spec](docs/specs/browser-notifications.md), [VAPID runbook](docs/runbooks/vapid-keys.md) | `/admin/settings/notifications`, `/admin/settings/email`, `/admin/settings/push`; user `/settings/notifications` |
+| Admin broadcasts | Message every active user, now or scheduled, fanned out through the job queue | [Spec](docs/specs/notification-broadcasts.md) | `/admin/settings/broadcasts` |
+| Database backup and restore | `pg_dump` streamed to object storage on a schedule or on demand; restore and rollback | [Backup spec](docs/specs/database-backup.md), [restore spec](docs/specs/database-restore.md), [restore runbook](docs/runbooks/database-restore.md) | `/admin/settings/db-backup` |
+| Maintenance mode | A 503 window with an operator message, plus a `MAINTENANCE_MODE` break-glass | [Spec](docs/specs/maintenance-mode.md), [runbook](docs/runbooks/maintenance-mode.md) | `/admin/settings/maintenance` |
+| About / deployment info | Version, commit and deploy history of the running server | [Runbook](docs/runbooks/deployment-info.md) | `/admin/settings/about` |
+| Doctor | Read-only configuration and health checks for every capability, each with a remedy and the page that fixes it | [Spec](docs/specs/doctor.md), [runbook](docs/runbooks/doctor.md) | `/admin/settings/doctor` |
+| Encrypted credentials | Secrets (SMTP, VAPID, storage, AI keys) encrypted at rest under `SECRETS_ENCRYPTION_KEY`, plus per-user credentials | [Spec](docs/specs/user-credentials.md), [key rotation](docs/runbooks/rotate-secrets-encryption-key.md) | none |
+| Observability | OpenTelemetry traces, metrics and logs, Pino JSON logs, optional GreptimeDB-backed telemetry stack with a health dashboard, a SQL explorer and an AI assistant | [Spec](docs/specs/telemetry.md), [runbook](docs/runbooks/telemetry.md) | `/admin/settings/telemetry` |
+| Template tooling | `scripts/rename.mjs`, `scripts/new-project.mjs`, the `/rename-app` and `/new-project` agent skills | [Renaming guide](docs/RENAMING.md) | none |
+| Testing | Jest + Supertest (API), real-Postgres suites, Vitest + RTL (web and CLI), Playwright e2e with visual baselines | [Testing guide](docs/TESTING.md) | none |
 
-### Frontend
-- **Framework**: React 18 with TypeScript
-- **UI Library**: Material-UI (MUI)
-- **State Management**: React Context API
-- **Testing**: Vitest + React Testing Library
-- **Build Tool**: Vite
+## Start a new app from this template
 
-### Infrastructure
-- **Containerization**: Docker + Docker Compose
-- **Reverse Proxy**: Nginx
-- **Database**: PostgreSQL 16
+1. **Fork and clone** your copy:
+
+   ```bash
+   git clone <your-fork-url>
+   cd EnterpriseAppBase
+   ```
+
+2. **Rename it.** One command rewrites the product name, repository slug and
+   brand colour everywhere they cannot be derived at runtime. In Claude Code,
+   the `/rename-app` skill does the same with its checkpoints.
+
+   ```bash
+   node scripts/rename.mjs --name "Your Product" --repo you/your-repo --theme '#7c3aed'
+   ```
+
+3. **Install and generate a local environment.** `npm run setup` builds the CLI
+   and runs `appctl init`, which writes `infra/compose/.env`. It generates
+   `JWT_SECRET`, `COOKIE_SECRET` and `SECRETS_ENCRYPTION_KEY` for you and asks
+   for the rest.
+
+   ```bash
+   npm install
+   npm run setup
+   ```
+
+   You must supply three things nothing can generate:
+   - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Create OAuth 2.0
+     credentials in the [Google Cloud Console](https://console.cloud.google.com)
+     with the redirect URI `http://localhost:3535/api/auth/google/callback`.
+     The API does not start without them.
+   - `INITIAL_ADMIN_EMAIL`. The first login with this address becomes Admin.
+     Without it nobody can log in.
+   - A PostgreSQL 16 to talk to (next step).
+
+4. **Create the shared Docker network**, once per machine:
+
+   ```bash
+   docker network create devnet
+   ```
+
+5. **Start the stack** from `infra/compose`. `base.compose.yml` has no
+   database; the `devdb.compose.yml` overlay adds one for development.
+
+   ```bash
+   cd infra/compose
+   docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up -d
+   ```
+
+   With the devdb overlay, `.env` must say `POSTGRES_HOST=db` (the default
+   `appctl init` offers). Running your own Postgres 16 instead? Leave the
+   overlay out and point the `POSTGRES_*` variables at it.
+
+6. **Migrate and seed.** The API does not migrate on startup. Pass the same
+   `-f` files you started with:
+
+   ```bash
+   docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:migrate
+   docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:seed
+   ```
+
+   Always use the `npm run prisma:*` scripts. They build `DATABASE_URL` from
+   the `POSTGRES_*` variables; bare `npx prisma` does not.
+
+7. **Log in.** Open http://localhost:3535 and sign in with Google as
+   `INITIAL_ADMIN_EMAIL`. Everyone else needs an allowlist entry first
+   (`/admin/settings/users`, Allowlist tab) and starts as Viewer.
+
+8. **Reset what a fork inherits** (changelog, versions, licence):
+
+   ```bash
+   node scripts/new-project.mjs --reset-release
+   node scripts/new-project.mjs --audit
+   ```
+
+   Add `--license mit --holder "Your Name"` to write a licence. The script
+   refuses to run while `origin` still points at the template's repository,
+   so rename and re-point the remote first.
+
+The full walkthrough, including what the rename leaves alone and the manual
+steps after it, is [docs/RENAMING.md](docs/RENAMING.md#starting-a-whole-new-project).
+In Claude Code, the `/new-project` skill drives the same sequence.
 
 ## Prerequisites
 
-- Node.js 18+
-- Docker Desktop
-- Google OAuth credentials (from [Google Cloud Console](https://console.cloud.google.com))
+- Node.js 24 (see `.nvmrc`; enforced by `engines`)
+- Docker with Docker Compose
+- PostgreSQL 16, either your own or the `devdb.compose.yml` overlay
+- A Google Cloud project for OAuth 2.0 credentials
 
-## Quick Start
+## Day-to-day
 
-### 1. Clone and Configure
-
-```bash
-git clone <repository-url>
-cd EnterpriseAppBase
-
-# Set up environment variables
-cd infra/compose
-cp .env.example .env
-```
-
-### 2. Configure Google OAuth
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project (or select existing)
-3. Enable Google+ API
-4. Create OAuth 2.0 credentials
-5. Add authorized redirect URI: `http://localhost:3535/api/auth/google/callback`
-6. Copy Client ID and Client Secret to `.env`:
+All `docker compose` commands run from `infra/compose`.
 
 ```bash
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-client-secret
+# Development with hot reload (API watch mode, Vite HMR)
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up
+
+# Add the telemetry stack; GreptimeDB dashboard at http://localhost:14000/dashboard
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml -f telemetry.compose.yml up
 ```
 
-### 3. Start Application
+Tests, from the repository root:
 
 ```bash
-# From infra/compose directory
-docker compose -f base.compose.yml -f dev.compose.yml up
+npm test --workspace=api            # API unit + mocked integration (Jest)
+npm run test:db --workspace=api     # API suites against a real PostgreSQL
+npm run test:run --workspace=web    # Web (Vitest + RTL), single run
+npm run test:run --workspace=cli    # CLI (Vitest), single run
+npm run typecheck --workspace=api   # also: --workspace=web, --workspace=cli
+
+cd tests/e2e && npm install && npx playwright install && npm test   # Playwright e2e
 ```
 
-### 4. Seed Database (CRITICAL - Must run before first login)
+Database schema changes, from `apps/api`:
 
 ```bash
-# In a new terminal
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
-exit
+npm run prisma:migrate:dev -- --name add_widgets   # create and apply a migration
+npm run prisma:generate                            # regenerate the Prisma client
 ```
 
-**Why seeding is required:**
-- Creates RBAC roles (admin, contributor, viewer)
-- Creates permissions (users:read, users:write, etc.)
-- Without seeds, first login will fail with "Default role not found"
+API reference: http://localhost:3535/api/docs. Export it with
+`npm run openapi:dump` and lint it with `npm run openapi:lint`. Fastify,
+Passport and Prisma gotchas are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-### 5. Access Application
-
-- **Frontend**: http://localhost:3535
-- **API**: http://localhost:3535/api
-- **Swagger Docs**: http://localhost:3535/api/docs
-
-### 6. First Login
-
-The first user to login with email matching `INITIAL_ADMIN_EMAIL` (from `.env`) will automatically be granted the **admin** role. All subsequent users get **viewer** role by default.
-
-**Important:** Only email addresses in the **allowlist** can login. The `INITIAL_ADMIN_EMAIL` is automatically added to the allowlist during seeding. After your first login as admin, use the Admin interface (`/admin/users`, Allowlist tab) to add additional email addresses before other users can login.
-
-## Development
-
-### Running with Observability Stack
-
-To enable full observability (Uptrace UI for traces, metrics, logs):
-
-```bash
-cd infra/compose
-docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
-```
-
-Access Uptrace UI at: http://localhost:14318
-
-### Running Tests
-
-**Backend Tests:**
-```bash
-cd apps/api
-npm test              # Run all tests
-npm run test:watch    # Watch mode
-npm run test:cov      # With coverage
-npm run test:e2e      # E2E tests only
-```
-
-**Frontend Tests:**
-```bash
-cd apps/web
-npm test              # Run all tests
-npm run test:watch    # Watch mode
-npm run test:coverage # With coverage
-```
-
-### Database Migrations
-
-```bash
-cd apps/api
-
-# Create a new migration
-npx prisma migrate dev --name migration_name
-
-# Apply migrations
-npx prisma migrate deploy
-
-# Generate Prisma Client
-npx prisma generate
-```
-
-### Hot Reload
-
-Development mode (`dev.compose.yml`) includes hot reload for both frontend and backend:
-- Backend: Changes to `apps/api/src/**` trigger restart
-- Frontend: Vite HMR updates immediately
-
-## Project Structure
+## Repository layout
 
 ```
 EnterpriseAppBase/
 ├── apps/
-│   ├── api/                    # Backend API (NestJS + Fastify)
-│   │   ├── src/
-│   │   │   ├── auth/          # Authentication & authorization
-│   │   │   ├── users/         # User management
-│   │   │   ├── settings/      # Settings endpoints
-│   │   │   └── prisma/        # Database service
-│   │   ├── prisma/
-│   │   │   ├── schema.prisma  # Database schema
-│   │   │   ├── seed.ts        # Database seeds
-│   │   │   └── migrations/    # Migration history
-│   │   └── test/              # Integration tests
-│   └── web/                    # Frontend (React + MUI)
-│       ├── src/
-│       │   ├── components/    # Reusable components
-│       │   ├── contexts/      # React contexts (Auth, Theme)
-│       │   ├── pages/         # Page components
-│       │   └── services/      # API client
-│       └── src/__tests__/     # Component tests
-├── docs/                       # Documentation
-│   ├── DEVELOPMENT.md         # Development guide (start here!)
-│   ├── SECURITY-ARCHITECTURE.md  # Security design
-│   ├── TESTING.md             # Testing guide
-│   └── specs/                 # Feature specifications
+│   ├── api/                  # NestJS + Fastify API
+│   │   ├── src/              # One folder per module (auth, jobs, ai, storage, ...)
+│   │   ├── prisma/           # schema.prisma, migrations, seed
+│   │   └── test/             # Jest integration and real-Postgres suites
+│   ├── web/                  # React + MUI frontend (Vite)
+│   └── cli/                  # appctl: login, api, deploy, node
+├── packages/
+│   └── shared/               # Product identity (name, repo, colours) shared by all apps
+├── docs/
+│   ├── specs/                # Design and rationale, one file per feature
+│   └── runbooks/             # Operator procedures, including VPS deploy and worker nodes
 ├── infra/
-│   ├── compose/               # Docker Compose configs
-│   │   ├── base.compose.yml   # Core services
-│   │   ├── dev.compose.yml    # Development overrides
-│   │   ├── prod.compose.yml   # Production overrides
-│   │   └── otel.compose.yml   # Observability stack
-│   ├── nginx/                 # Nginx config
-│   └── otel/                  # OpenTelemetry config
-└── CLAUDE.md                  # AI assistant guidance
+│   ├── compose/              # base, dev, devdb, telemetry, prod, vps, vps.telemetry, test, worker, worker.build (*.compose.yml)
+│   ├── nginx/                # Same-origin routing and CSP
+│   └── otel/                 # OpenTelemetry Collector and GreptimeDB config
+├── scripts/                  # rename.mjs, new-project.mjs, dev.ps1, worktree.ps1
+├── tests/e2e/                # Playwright end-to-end and visual tests
+├── .claude/                  # Agent definitions (agents/) and skills (skills/)
+└── CLAUDE.md                 # Rules for AI coding agents
 ```
 
 ## Documentation
 
-- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Development setup, common patterns, and troubleshooting
-- **[SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md)** - Security design and implementation
-- **[TESTING.md](docs/TESTING.md)** - Testing strategy and best practices
-- **[DEVICE-AUTH.md](docs/DEVICE-AUTH.md)** - Device Authorization Flow guide and integration examples
-- **[API.md](docs/API.md)** - Complete API reference
-- **[System Specification](docs/System_Specification_Document.md)** - Complete project specification
-- **[Feature Specs](docs/specs/)** - Individual feature specifications
+Read in this order:
 
-## API Documentation
+1. This README.
+2. [docs/README.md](docs/README.md), the index of every document.
+3. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), the subsystem map.
+4. The spec in [docs/specs/](docs/specs/) for the feature you are touching.
+5. Its runbook in [docs/runbooks/](docs/runbooks/), if it has one.
 
-Interactive API documentation is available at `/api/docs` when running the application.
+The CLI has its own reference: [apps/cli/README.md](apps/cli/README.md).
+Coding agents follow [CLAUDE.md](CLAUDE.md).
 
-### Key Endpoints
+## Deploying
 
-**Authentication:**
-- `GET /api/auth/providers` - List OAuth providers
-- `GET /api/auth/google` - Initiate Google OAuth
-- `GET /api/auth/me` - Get current user
-- `POST /api/auth/refresh` - Refresh access token
-- `POST /api/auth/logout` - Logout
-
-**Device Authorization (RFC 8628):**
-- `POST /api/auth/device/code` - Generate device code for CLI/IoT devices
-- `POST /api/auth/device/token` - Poll for device authorization
-- `GET /api/auth/device/sessions` - List authorized devices
-- `DELETE /api/auth/device/sessions/:id` - Revoke device access
-
-**Users (Admin only):**
-- `GET /api/users` - List users
-- `GET /api/users/:id` - Get user by ID
-- `PATCH /api/users/:id` - Update user
-
-**Allowlist (Admin only):**
-- `GET /api/allowlist` - List allowlisted emails
-- `POST /api/allowlist` - Add email to allowlist
-- `DELETE /api/allowlist/:id` - Remove email from allowlist
-
-**Settings:**
-- `GET /api/user-settings` - Get user settings
-- `PUT /api/user-settings` - Update user settings
-- `GET /api/system-settings` - Get system settings (Admin)
-- `PUT /api/system-settings` - Update system settings (Admin)
-
-**Health:**
-- `GET /api/health/live` - Liveness probe
-- `GET /api/health/ready` - Readiness probe
-
-## Environment Variables
-
-Key configuration (see `infra/compose/.env.example` for full list):
-
-```bash
-# Application
-NODE_ENV=development
-PORT=3000
-APP_URL=http://localhost:3535
-
-# Database
-DATABASE_URL=postgresql://postgres:postgres@db:5432/appdb
-
-# JWT
-JWT_SECRET=your-secret-min-32-chars
-JWT_ACCESS_TTL_MINUTES=15
-JWT_REFRESH_TTL_DAYS=14
-
-# Google OAuth
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:3535/api/auth/google/callback
-
-# Admin Bootstrap
-INITIAL_ADMIN_EMAIL=admin@example.com
-
-# Observability
-OTEL_ENABLED=true
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
-```
-
-## Important Notes for Developers
-
-### NestJS with Fastify (Not Express)
-
-This application uses **Fastify** as the HTTP adapter, not Express. Key differences:
-
-**Response methods:**
-- ✅ Fastify: `res.code(200).send(data)`
-- ❌ Express: `res.status(200).json(data)`
-
-**Best practice:** Let NestJS handle responses automatically (don't use `@Res()` decorator).
-
-See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed guidance.
-
-### Database Seeding is Required
-
-Before your first login, you MUST seed the database:
-
-```bash
-docker compose exec api sh
-cd /app/apps/api
-npx tsx prisma/seed.ts
-```
-
-This creates roles, permissions, and default settings. Without seeding, OAuth login will fail.
-
-### OAuth with Fastify
-
-Passport OAuth strategies expect Express-style objects. The `GoogleOAuthGuard` handles compatibility by returning raw Node.js request/response objects to Passport. See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md#9-implementation-notes-fastify--passport-oauth) for details.
+- **VPS:** run `appctl deploy install` on the server. See
+  [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md).
+- **Worker nodes:** run jobs on other machines with `appctl node`. See
+  [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md).
 
 ## Troubleshooting
 
-### "Default role not found" error
-**Solution:** Run database seeds (see step 4 in Quick Start)
+**"Database seed data missing: Role ..." at first login** (the API log says `Default role "viewer" not found in database`).
+The seed has not run. Run step 6 above.
 
-### "Email not authorized" error during login
-**Solution:** The email must be in the allowlist. If you're the first admin:
-1. Ensure your email matches `INITIAL_ADMIN_EMAIL` in `.env` exactly
-2. Restart containers to apply environment variable changes
-3. Re-run database seeds if needed
+**"You don't have access yet" screen after signing in.**
+The address is not on the allowlist. The first admin must match
+`INITIAL_ADMIN_EMAIL` exactly (restart the API after changing `.env`, then
+re-run the seed). Anyone else needs an admin to add them at
+`/admin/settings/users` (Allowlist tab).
 
-If you're not the first admin, ask an existing admin to add your email to the allowlist at `/admin/users` (Allowlist tab).
+**OAuth redirect fails.**
+`GOOGLE_CALLBACK_URL` in `.env` must match the redirect URI registered in the
+Google Cloud Console exactly. Check the API logs (`docker compose ... logs -f api`,
+with the same `-f` files you started with).
 
-### OAuth redirect fails
-**Solution:**
-1. Verify `GOOGLE_CALLBACK_URL` matches Google Cloud Console exactly
-2. Check container logs: `docker compose logs api -f`
+**The API cannot reach the database.**
+With the devdb overlay, `.env` needs `POSTGRES_HOST=db`. Without it, the
+`POSTGRES_*` values must point at a PostgreSQL the API container can reach.
+Check that the containers are up (`docker compose ... ps`), then restart the API.
 
-### Database connection error
-**Solution:**
-1. Ensure containers are running: `docker compose ps`
-2. Check `DATABASE_URL` in `.env`
-3. Restart: `docker compose restart db`
-
-### Port already in use
-**Solution:** Change `PORT` in `.env` or stop conflicting service
-
-For more troubleshooting, see [DEVELOPMENT.md](docs/DEVELOPMENT.md#debugging-tips).
-
-## Production Deployment
-
-For production deployment:
-
-1. Use `prod.compose.yml` overrides
-2. Set `NODE_ENV=production`
-3. Use strong secrets (generate with `openssl rand -base64 32`)
-4. Enable HTTPS with valid certificates
-5. Set `secure: true` on cookies
-6. Configure proper OAuth callback URLs
-7. Set up database backups
-8. Configure monitoring and alerting
-
-See [SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) for production security checklist.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Write tests for new features
-4. Ensure all tests pass
-5. Update documentation
-6. Submit pull request
-
-## Architecture Decisions
-
-- **Fastify over Express**: 2-3x better performance, better TypeScript support
-- **Prisma**: Type-safe ORM with excellent migration tooling
-- **Same-origin hosting**: Simplifies security, no CORS complexity
-- **JWT + Refresh tokens**: Short-lived access tokens with secure refresh rotation
-- **RBAC**: Flexible permission system for future feature expansion
-- **OpenTelemetry**: Vendor-neutral observability
-- **Docker Compose**: Reproducible local development environment
+More debugging tips: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
 [Your License Here]
-
-## Support
-
-For issues, questions, or contributions:
-- Review [DEVELOPMENT.md](docs/DEVELOPMENT.md) for common issues
-- Check [documentation](docs/) for detailed guides
-- Submit issues via GitHub Issues
-- Contact the team
-
----
-
-**Happy coding!** 🚀

@@ -39,7 +39,7 @@ export function ActivationSuccess({ success, message }: ActivationSuccessProps) 
         )}
       </Box>
 
-      <Typography variant="h5" fontWeight="bold" gutterBottom>
+      <Typography variant="h5" sx={{ fontWeight: 'bold' }} gutterBottom>
         {success ? 'Device Authorized!' : 'Device Access Denied'}
       </Typography>
 
@@ -53,7 +53,7 @@ export function ActivationSuccess({ success, message }: ActivationSuccessProps) 
         </Typography>
       )}
 
-      <Stack direction="row" spacing={2} justifyContent="center">
+      <Stack direction="row" spacing={2} sx={{ justifyContent: 'center' }}>
         <Button variant="outlined" onClick={() => navigate('/')}>
           Go to Home
         </Button>

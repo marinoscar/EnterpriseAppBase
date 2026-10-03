@@ -59,6 +59,165 @@ export const mockPermissions = {
     name: 'allowlist:write',
     description: 'Modify allowlist',
   },
+  // The background queue's admin surface (#264, epic #254). Seeded to Admin
+  // only in `prisma/seed-data.ts`, and mirrored that way below.
+  jobsRead: {
+    id: randomUUID(),
+    name: 'jobs:read',
+    description: 'View queued, running and completed jobs',
+  },
+  jobsWrite: {
+    id: randomUUID(),
+    name: 'jobs:write',
+    description: 'Enqueue, retry and cancel jobs',
+  },
+  // The worker fleet (#267, epic #254). Split from `jobs:*` deliberately —
+  // see `common/constants/roles.constants.ts` — and, like the queue's pair,
+  // seeded to Admin ONLY in `prisma/seed-data.ts`. Mirrored that way below so
+  // an integration test that expects a viewer to be refused a node surface is
+  // testing the real grant and not a fixture that happened to be generous.
+  nodesRead: {
+    id: randomUUID(),
+    name: 'nodes:read',
+    description: 'View worker nodes and their health',
+  },
+  nodesWrite: {
+    id: randomUUID(),
+    name: 'nodes:write',
+    description: 'Register, drain and remove worker nodes',
+  },
+  // Admin notification broadcasts (#320/#324, epic #319). Seeded to Admin ONLY
+  // in `prisma/seed-data.ts` and mirrored that way below: a broadcast reaches
+  // every active user in the deployment, so an integration test that expects a
+  // viewer to be refused these routes must be testing the real grant rather
+  // than a fixture that happened to be generous.
+  broadcastsRead: {
+    id: randomUUID(),
+    name: 'broadcasts:read',
+    description: 'View notification broadcasts and their delivery history',
+  },
+  broadcastsWrite: {
+    id: randomUUID(),
+    name: 'broadcasts:write',
+    description: 'Compose, schedule, cancel and send notification broadcasts',
+  },
+  // Database backup (#283, epic #254). Seeded to Admin ONLY in
+  // `prisma/seed-data.ts`, and mirrored that way below — a fixture that were
+  // more generous than the seed would make an integration test asserting that a
+  // viewer is refused pass for the wrong reason.
+  //
+  // `db_backup:restore` gates the two routes that replace the production
+  // database (#286) and nothing else; it is seeded to Admin like the other two.
+  // A spec that needs the OPPOSITE — an Admin who may schedule backups but must
+  // NOT be able to restore — narrows this fixture per request rather than
+  // weakening it here, because the fixture's job is to mirror the seed.
+  dbBackupRead: {
+    id: randomUUID(),
+    name: 'db_backup:read',
+    description: 'View backup schedule, history and status',
+  },
+  dbBackupWrite: {
+    id: randomUUID(),
+    name: 'db_backup:write',
+    description: 'Configure the backup schedule and run a backup',
+  },
+  dbBackupRestore: {
+    id: randomUUID(),
+    name: 'db_backup:restore',
+    description: 'Restore the database from a backup',
+  },
+  // Runtime-configurable Web Push (VAPID) admin UI (#355). Seeded to Admin
+  // ONLY in `prisma/seed-data.ts`, and mirrored that way below — split from
+  // `system_settings:*` deliberately (see `common/constants/roles.constants.ts`),
+  // so a fixture that granted it more broadly than the seed would make an
+  // integration test asserting a viewer is refused pass for the wrong reason.
+  pushRead: {
+    id: randomUUID(),
+    name: 'push:read',
+    description: 'View the Web Push (VAPID) configuration',
+  },
+  pushWrite: {
+    id: randomUUID(),
+    name: 'push:write',
+    description: 'Generate, rotate, enable/disable and remove the Web Push key pair',
+  },
+  // Object-storage CONFIGURATION (#375, epic #372). Seeded to Admin ONLY in
+  // `prisma/seed-data.ts`, and mirrored that way below.
+  //
+  // ⚠ NOT the same thing as `storage:read`/`storage:write`, which gate object
+  // ACCESS and which Viewer and Contributor genuinely hold. This pair decides
+  // WHICH object store the deployment uses and under whose key, and a fixture
+  // that handed it to a viewer would make an integration test asserting a
+  // viewer is refused pass for the wrong reason.
+  storageConfigRead: {
+    id: randomUUID(),
+    name: 'storage_config:read',
+    description: 'View the object-storage configuration',
+  },
+  storageConfigWrite: {
+    id: randomUUID(),
+    name: 'storage_config:write',
+    description: 'Change, test and provision the object-storage configuration',
+  },
+  // Object-storage object ACCESS (#516). Mirrored from `prisma/seed-data.ts`
+  // exactly: Admin holds all three; Contributor holds read + write; Viewer
+  // holds read only. `storage:delete_any` is Admin-only — a fixture that gave
+  // it to a viewer or contributor would make an integration test asserting
+  // either is refused pass for the wrong reason.
+  storageRead: {
+    id: randomUUID(),
+    name: 'storage:read',
+    description: 'Read object metadata, get download URLs',
+  },
+  storageWrite: {
+    id: randomUUID(),
+    name: 'storage:write',
+    description: 'Upload, update metadata',
+  },
+  storageDeleteAny: {
+    id: randomUUID(),
+    name: 'storage:delete_any',
+    description: 'Admin: delete any object',
+  },
+  // AI platform (#423, #428, epic #419; #499), mirrored from
+  // `prisma/seed-data.ts`: `ai_config:*` is Admin-only; `ai:use` is held by
+  // Admin and Contributor but deliberately NOT Viewer (#499) — see
+  // `rolePermissionsMap.viewer` below and `prisma/seed-data.ts`'s comment on
+  // the same grant for the full reasoning.
+  aiConfigRead: {
+    id: randomUUID(),
+    name: 'ai_config:read',
+    description: 'View the AI platform configuration',
+  },
+  aiConfigWrite: {
+    id: randomUUID(),
+    name: 'ai_config:write',
+    description: 'Change the AI platform configuration, keys and model catalog',
+  },
+  aiUse: {
+    id: randomUUID(),
+    name: 'ai:use',
+    description: 'Use AI features',
+  },
+  // Telemetry (epic #528, story #533), mirrored from `prisma/seed-data.ts`:
+  // all three are Admin-only, matching `db_backup:*`/`ai_config:*` above — a
+  // fixture that were more generous than the seed would make an integration
+  // test asserting a viewer is refused pass for the wrong reason.
+  telemetryRead: {
+    id: randomUUID(),
+    name: 'telemetry:read',
+    description: 'View telemetry settings and status',
+  },
+  telemetryWrite: {
+    id: randomUUID(),
+    name: 'telemetry:write',
+    description: 'Change telemetry settings',
+  },
+  telemetryQuery: {
+    id: randomUUID(),
+    name: 'telemetry:query',
+    description: 'Run SQL, export and use the AI assistant against telemetry',
+  },
 };
 
 export const mockRoles = {
@@ -200,8 +359,8 @@ export function createMockUserSettings(
       theme: 'system',
       profile: {
         displayName: null,
-        useProviderImage: true,
-        customImageUrl: null,
+        imageSource: 'provider',
+        imageObjectId: null,
       },
       updatedAt: new Date().toISOString(),
       version: 1,
@@ -239,9 +398,17 @@ export function createMockSystemSettings(
     id = randomUUID(),
     key = 'default',
     value = {
-      ui: { allowUserThemeOverride: true },
-      security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
-      features: {},
+      notifications: { browserEnabled: true, disabledEvents: [] },
+      jobs: {
+        history: { retentionDays: 30, purgeEnabled: true },
+        stuckThresholdMinutes: 30,
+      },
+      nodes: {
+        staleHeartbeatSeconds: 90,
+        offlineStaleMultiplier: 4,
+        offlineRetentionDays: 30,
+        jobSecretBrokerEnabled: false,
+      },
     },
     version = 1,
     updatedByUserId = null,
@@ -351,14 +518,53 @@ export const rolePermissionsMap = {
     mockPermissions.rbacManage,
     mockPermissions.allowlistRead,
     mockPermissions.allowlistWrite,
+    mockPermissions.jobsRead,
+    mockPermissions.jobsWrite,
+    mockPermissions.nodesRead,
+    mockPermissions.nodesWrite,
+    mockPermissions.broadcastsRead,
+    mockPermissions.broadcastsWrite,
+    mockPermissions.dbBackupRead,
+    mockPermissions.dbBackupWrite,
+    mockPermissions.dbBackupRestore,
+    mockPermissions.pushRead,
+    mockPermissions.pushWrite,
+    mockPermissions.storageConfigRead,
+    mockPermissions.storageConfigWrite,
+    mockPermissions.aiConfigRead,
+    mockPermissions.aiConfigWrite,
+    mockPermissions.aiUse,
+    // #516 — Admin holds all three object-ACCESS permissions, including
+    // `storage:delete_any` (see the comment on `mockPermissions` above).
+    mockPermissions.storageRead,
+    mockPermissions.storageWrite,
+    mockPermissions.storageDeleteAny,
+    mockPermissions.telemetryRead,
+    mockPermissions.telemetryWrite,
+    mockPermissions.telemetryQuery,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.aiUse,
+    // #516 — read + write, mirroring `prisma/seed-data.ts`; never `delete_any`.
+    mockPermissions.storageRead,
+    mockPermissions.storageWrite,
   ],
+  // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
+  // the DEFAULT role every new user lands in, so a fixture that granted it
+  // AI use more generously than the real seed would make an integration test
+  // asserting a viewer is refused an AI route pass for the wrong reason. A
+  // test that needs an "everyday, allowed" AI caller uses `roleName:
+  // 'contributor'` instead.
+  //
+  // #516 — read only, mirroring `prisma/seed-data.ts`; never `storage:write`
+  // or `storage:delete_any`. A test that needs a caller who may write storage
+  // objects uses `roleName: 'contributor'` instead.
   viewer: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.storageRead,
   ],
 };
 

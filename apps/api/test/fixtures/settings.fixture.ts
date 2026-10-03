@@ -2,7 +2,8 @@ export const userSettingsFixtures = {
   default: {
     theme: 'system',
     profile: {
-      useProviderImage: true,
+      imageSource: 'provider',
+      imageObjectId: null,
     },
     updatedAt: new Date().toISOString(),
     version: 1,
@@ -11,7 +12,8 @@ export const userSettingsFixtures = {
   darkTheme: {
     theme: 'dark',
     profile: {
-      useProviderImage: true,
+      imageSource: 'provider',
+      imageObjectId: null,
     },
     updatedAt: new Date().toISOString(),
     version: 1,
@@ -21,8 +23,8 @@ export const userSettingsFixtures = {
     theme: 'light',
     profile: {
       displayName: 'Custom Name',
-      useProviderImage: false,
-      customImageUrl: 'https://example.com/custom.jpg',
+      imageSource: 'none',
+      imageObjectId: null,
     },
     updatedAt: new Date().toISOString(),
     version: 1,
@@ -31,29 +33,19 @@ export const userSettingsFixtures = {
 
 export const systemSettingsFixtures = {
   default: {
-    ui: {
-      allowUserThemeOverride: true,
+    notifications: {
+      browserEnabled: true,
+      disabledEvents: [],
     },
-    security: {
-      jwtAccessTtlMinutes: 15,
-      refreshTtlDays: 14,
-    },
-    features: {},
     updatedAt: new Date().toISOString(),
     updatedBy: null,
     version: 1,
   },
 
   restrictive: {
-    ui: {
-      allowUserThemeOverride: false,
-    },
-    security: {
-      jwtAccessTtlMinutes: 5,
-      refreshTtlDays: 7,
-    },
-    features: {
-      newFeature: false,
+    notifications: {
+      browserEnabled: false,
+      disabledEvents: ['security.role_changed'],
     },
     updatedAt: new Date().toISOString(),
     updatedBy: null,

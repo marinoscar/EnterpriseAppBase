@@ -144,18 +144,37 @@ describe('DatabaseHealthIndicator', () => {
     });
 
     it('should measure response time accurately', async () => {
-      // Simulate a slow query
-      mockPrismaService.$queryRaw.mockImplementation(
-        (() =>
-          new Promise((resolve) => {
-            setTimeout(() => resolve([{ '?column?': 1 }]), 50);
-          })) as any,
-      );
+      // Use fake timers so the elapsed time is driven by a virtual clock
+      // instead of the host's wall-clock precision. Real timers made this
+      // assertion flaky: `setTimeout(fn, 50)` does not guarantee >= 50ms of
+      // *measured* elapsed time (Date.now() deltas can land at 49.x ms,
+      // which `parseInt` floors to 49), so the query below simulates a slow
+      // query deterministically.
+      jest.useFakeTimers();
 
-      const result = await indicator.isHealthy('database');
+      try {
+        mockPrismaService.$queryRaw.mockImplementation(
+          (() =>
+            new Promise((resolve) => {
+              setTimeout(() => resolve([{ '?column?': 1 }]), 50);
+            })) as any,
+        );
 
-      const ms = parseInt(result.database.responseTime.replace('ms', ''));
-      expect(ms).toBeGreaterThanOrEqual(50);
+        const resultPromise = indicator.isHealthy('database');
+
+        // Advance the virtual clock past the simulated query latency and
+        // let the resulting microtasks (including the fake setTimeout
+        // callback) flush before reading the result.
+        await jest.advanceTimersByTimeAsync(50);
+
+        const result = await resultPromise;
+
+        expect(result.database.responseTime).toMatch(/^\d+ms$/);
+        const ms = parseInt(result.database.responseTime.replace('ms', ''));
+        expect(ms).toBeGreaterThanOrEqual(50);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });
