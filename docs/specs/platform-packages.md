@@ -21,12 +21,13 @@ This spec records the vision, the decisions the owner has confirmed, and the app
 11. [Build, release and distribution](#build-release-and-distribution)
 12. [Adoption strategy per app](#adoption-strategy-per-app)
 13. [Roadmap](#roadmap)
-14. [Definition of done for a slice](#definition-of-done-for-a-slice)
-15. [Risks and mitigations](#risks-and-mitigations)
-16. [Decision log](#decision-log)
-17. [Open questions](#open-questions)
-18. [Appendix A: measurement method and caveats](#appendix-a-measurement-method-and-caveats)
-19. [Appendix B: glossary](#appendix-b-glossary)
+14. [Program tracking and rollback](#program-tracking-and-rollback)
+15. [Definition of done for a slice](#definition-of-done-for-a-slice)
+16. [Risks and mitigations](#risks-and-mitigations)
+17. [Decision log](#decision-log)
+18. [Open questions](#open-questions)
+19. [Appendix A: measurement method and caveats](#appendix-a-measurement-method-and-caveats)
+20. [Appendix B: glossary](#appendix-b-glossary)
 
 ## Executive summary
 
@@ -40,7 +41,7 @@ This spec records the vision, the decisions the owner has confirmed, and the app
 
 > Change it once in a package, release, and every app upgrades.
 
-- EnterpriseAppBase becomes the **platform repository**: it publishes versioned packages, plus a reference app and a starter for new products.
+- EnterpriseAppBase becomes the **platform repository**: it publishes versioned packages, plus a starter for new products. The existing `apps/api`, `apps/web` and `apps/cli` are the reference app.
 - Each app keeps its **domain code** and its **appearance**; the packages own structure and behaviour.
 - An upgrade is a deliberate version bump, CI and a deploy per app, automated through Renovate pull requests. It is never an automatic push into production.
 
@@ -56,10 +57,10 @@ This spec records the vision, the decisions the owner has confirmed, and the app
 | D9 | SaaS hosting on AWS, with RDS likely; which app is the first SaaS is undecided | DECIDED |
 | D10 | Scale incrementally: bigger server first, change as users grow | DECIDED |
 | D11 | Every package is designed and documented for extension by apps that do not exist yet | DECIDED |
+| D12 | Adoption order: EnterpriseAppBase first, then EvoPath (easiest; learn there), then kvox, then MemoriaHub. kvox starts after the EvoPath retrospective and MemoriaHub after the kvox retrospective. | DECIDED |
 | P1 | About six layer packages released in lockstep; slices are subpath modules | PROPOSED |
 | P2 | The Extension Contract ladder: options, registries, tokens, events, composition, eject | PROPOSED |
 | P5 | Package migrations are installed into each app's own history, with a baseline procedure for existing databases | PROPOSED |
-| P10 | Adoption order: undecided (owner decides later); per-app strategy follows measured drift | PROPOSED |
 
 The full list is in [Decision log](#decision-log).
 
@@ -74,7 +75,7 @@ The full list is in [Decision log](#decision-log).
 | Spike | Prisma composition, migration install, RLS, RDS Proxy | De-risk identity |
 | 4 | Identity with organizations | Own the user tables and tenancy |
 | 5 | Remaining slices in dependency order | Settings, jobs, storage, email, notifications, AI, db-backup, then CLI, infra, docs |
-| Track | App adoption: retrofit, hybrid or re-platform per app | Order decided by the owner; runs once slices are extracted |
+| Track | App adoption: EvoPath (retrofit), then kvox (hybrid), then MemoriaHub (re-platform) | Each app starts after the previous app's retrospective |
 
 Details: [Roadmap](#roadmap).
 
@@ -121,7 +122,7 @@ Method: per-file byte comparison of each app's `apps/*/src` against the base. Mo
 | API files identical to base (of 917) | 78% (721) | 29% (271) | 5% (47) |
 | Web files identical (of 508) | 69% | 32% | 11% |
 | CLI files identical (of 221) | 41% | 23% | 0% (no deploy or init commands) |
-| Migrations shared with base | 19, plus 1 same change under a different id | 14 | 2 |
+| Migrations shared with base | 20, plus 1 same change under a different id | 14 | 2 |
 | Base Prisma models present (of 31) | 31 | 26 | 23 |
 | Total Prisma models | 77 | 61 | 73 |
 | Base platform modules missing | none | telemetry, doctor, user-credentials, AI platform | telemetry, jobs, AI platform, credentials, user-credentials, about; most of db-backup, notifications, nodes, email |
@@ -137,6 +138,8 @@ What the numbers say:
   - The Android companion (`android-app` API module in EvoPath and MemoriaHub: 0 of 23 files identical; Android shell: 4 of 109 identical).
   - User-data reset and onboarding (EvoPath and kvox: 0 identical files each).
 - **Migration ids drift too.** The same `add_worker_node_vitals` migration is `20260928100000` in the base and `20260930100000` in EvoPath. The SQL is the same; the id is not.
+- **Comments change checksums.** `add_job_trace_context` is shared with EvoPath but differs by one comment line, and Prisma's checksum covers comments. The lock-file format records comment-only differences ([Baseline adoption for existing databases](#baseline-adoption-for-existing-databases)).
+- **EvoPath alters a platform table.** It changes `push_subscriptions.platform`. The lock file records this as a **declared deviation** ([Rules](#rules)).
 
 ### Root cause: closed extension points
 
@@ -145,9 +148,9 @@ Forks edit platform files to extend them, because the extension points are close
 | Closed list | Where | What a fork does to it |
 |---|---|---|
 | `METRIC_GROUPS`, a closed `as const` tuple of six groups | `apps/api/src/telemetry/metrics/metric-catalog.ts` | Cannot add a group without editing the tuple |
-| Metric-name map | `apps/api/src/common/otel/app-metrics.service.ts` | EvoPath adds dozens of `app.coach.*` and `app.health.*` names inline |
+| Metric-name map | `apps/api/src/common/otel/app-metrics.service.ts` | EvoPath adds about 25 `app.health.*` and `app.coach.*` names inline |
 | Roles and permissions constants | `apps/api/src/common/constants/roles.constants.ts` | EvoPath adds domain permissions |
-| Seed data (462 lines: `ROLES`, `PERMISSIONS`, `ROLE_PERMISSIONS`, `DEFAULT_SYSTEM_SETTINGS`) | `apps/api/prisma/seed-data.ts` | Every app edits the same arrays |
+| Seed data (462 lines: `ROLES`, `PERMISSIONS` with 31 base permissions, `ROLE_PERMISSIONS`, `DEFAULT_SYSTEM_SETTINGS`) | `apps/api/prisma/seed-data.ts` | Every app edits the same arrays |
 | Settings schemas | `apps/api/src/common/schemas/` | Namespaces added in place |
 | Notification channels and templates | `apps/api/src/notifications/` | Added in place |
 | Storage key prefixes | `apps/api/src/storage/` | Added in place |
@@ -208,8 +211,8 @@ Forks edit platform files to extend them, because the extension points are close
 ```text
 EnterpriseAppBase/
   packages/     contract, api, web, db, cli, infra   (published)
-  apps/
-    reference/  composes the packages; e2e and visual tests run here
+  apps/         api, web, cli, stack-agent: the existing apps ARE the reference app;
+                they consume the packages and e2e and visual tests run against them
   starter/      template used by new-project; consumes published versions
   docs/         platform docs, Extension Contract, ADRs
 ```
@@ -219,7 +222,7 @@ flowchart TB
   subgraph platform["EnterpriseAppBase (platform repository)"]
     direction TB
     pk["packages/<br/>contract, api, web, db, cli, infra"]
-    ref["apps/reference<br/>composes the packages<br/>e2e and visual tests"]
+    ref["apps/api, apps/web, apps/cli<br/>the reference app<br/>e2e and visual tests"]
     st["starter/<br/>new-project template"]
     dc["docs/<br/>Extension Contract, ADRs"]
     pk --> ref
@@ -238,7 +241,7 @@ flowchart TB
 | Directory | Role |
 |---|---|
 | `packages/*` | The published platform. Today only `packages/shared` exists. |
-| `apps/reference` | A real app that composes every package. It is where e2e and visual tests run, so the platform is always exercised as an app would use it. |
+| `apps/api`, `apps/web`, `apps/cli` | The **reference app**. These existing apps stay in place (there is no move to an `apps/reference` directory); they are rebuilt on top of the packages as slices are extracted. The e2e and visual tests run against them, so the platform is always exercised as an app would use it. |
 | `starter/` | What `new-project` copies. It depends on published versions, never on workspace paths. |
 | `docs/` | Platform docs, the Extension Contract, and architecture decision records. |
 
@@ -285,7 +288,7 @@ A full vertical slice, measured in this repository:
 
 Having no Prisma tables makes telemetry the ideal first full-vertical slice: it exercises api, web, cli, infra and docs without touching the migration problem ([Data, migrations and seeds](#data-migrations-and-seeds)).
 
-**Infra layering already exists.** Compose is split into several `-f` files, and the OTel collector accepts several `--config` files that merge. App differences therefore become overlay files, not forks. EvoPath's collector differences become one overlay.
+**Infra layering already exists.** Compose is split into several `-f` files, and the OTel collector accepts several `--config` files that merge. App differences therefore become overlay files, not forks. EvoPath needs no collector overlay: its telemetry and collector configuration is functionally identical to the base (comments and the CLI name differ). Its real telemetry differences are about 25 extra `app.health.*` and `app.coach.*` metric names and three chart files with its own tokens. Its real infra differences are nginx locations and a geolocation header.
 
 ### Dependency graph
 
@@ -394,7 +397,7 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 |---|---|
 | A package never creates a theme | The app owns the MUI theme |
 | Peer dependencies | React, MUI, Emotion and `@mui/x-charts` are `peerDependencies`; two MUI copies break theme context |
-| Token contract with defaults | `withTelemetryTokens(theme)` adds defaults such as `palette.status.{ok,warn,crit}` and `palette.chart[]` |
+| Token contract with defaults | `withTelemetryTokens(theme)` adds defaults such as `palette.status.{ok,warn,crit}` and `palette.chart.series` (matching EvoPath's existing `PaletteChart { series }`) |
 | Styling hooks | Components accept `sx`, `className` and `slots` |
 | Pages are route-level components plus registry entries | Rendered inside the app's shell; they never import the app's Layout, navigation or auth context |
 | Split exports | Headless hooks and services under `/headless`; components under `/ui` |
@@ -403,7 +406,7 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 
 **Existing token work.** EvoPath already has `theme/tokens.ts`, `chartPalette.ts` and `augment.ts`. They become its overrides of the package defaults.
 
-**Telemetry UI today** uses about 258 theme-token references against about 70 hard-coded colours. Those 70 are converted to tokens in wave 0 ([Roadmap](#roadmap)).
+**Telemetry UI today** uses about 258 theme-token references and about 33 direct palette-role reads. Those 33 reads are routed through the token contract in wave 0 ([Roadmap](#roadmap)).
 
 **Auth UX.** The package provides a headless `AuthProvider`, `useAuth`, `RequireAuth(permission)` and a callback route. The login page is composed from slots (logo, copy, providers) with `registerAuthProvider()` for additional sign-in methods.
 
@@ -539,7 +542,7 @@ Stability levels:
 | `README.md` with a fixed outline | See below |
 | Generated API reference | From TSDoc (for example TypeDoc) for the exported surface |
 | TSDoc on every exported symbol | Purpose, parameters, defaults, stability level, a short example |
-| Reference-app examples | A working use of every extension point in `apps/reference` |
+| Reference-app examples | A working use of every extension point in the reference app (`apps/api`, `apps/web`, `apps/cli`) |
 | `CHANGELOG.md` (Changesets) | Any change to the extension surface is called out; a breaking change ships with a migration guide |
 
 ### README outline
@@ -591,7 +594,7 @@ Documentation drift becomes a failing build.
 |---|---|
 | Schema | One file, `apps/api/prisma/schema.prisma`. Base: 2,557 lines, 31 models. EvoPath: 3,905 lines, 77 models. |
 | Config | `prisma.config.ts` with `@prisma/adapter-pg` |
-| Migrations | One linear history per app (22 directories in the base) |
+| Migrations | One linear history per app (21 directories in the base, plus `migration_lock.toml`) |
 | Seeds | `prisma/seed.ts` and `prisma/seed-data.ts` |
 | Startup | The API does not migrate on startup |
 
@@ -628,10 +631,12 @@ flowchart LR
 - **Forward-only.** No down migrations.
 - **Immutable once released.** A mistake is fixed by a new migration.
 - **Expand/contract** for breaking changes: add, migrate readers and writers, then remove in a later release.
-- **Raw-SQL partial unique indexes** are intentional drift (see CLAUDE.md, "Invariants that are easy to break"). In packages they live in migration SQL, guarded by a tripwire test that lists the allowed indexes.
+- **Raw-SQL partial indexes** are intentional drift (see CLAUDE.md, "Invariants that are easy to break"). The base has four: `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx`, `jobs_attempts_gt1_idx` and `jobs_succeeded_duration_idx`. In packages they live in migration SQL, guarded by a tripwire test that lists the allowed indexes. Apps may contribute their own allow-list entries for raw-SQL indexes of their own tables.
+- **Never rewrite a released `migration.sql`.** Prisma's checksum covers SQL comments, so even a comment-only edit breaks every database that already applied it.
+- **Declared deviations.** An app that alters a package-owned table (EvoPath's `push_subscriptions.platform`) records it in the lock file as a declared deviation, so the drift test accepts it knowingly.
 - **Seeds:** `seedPlatform(registry)` runs first, then the app's own seed. Both are idempotent.
 - **Install order** follows each slice's `requires`.
-- **CI drift test:** compose the schema from fragments, diff it against the migrations, and allow only the listed raw-SQL indexes.
+- **CI drift test:** compose the schema from fragments, diff it against the migrations, and allow only the listed raw-SQL indexes (platform and app-contributed) and the declared deviations.
 - **Big-table changes** use concurrent index builds.
 - **The Prisma client** is generated per app from the composed schema. Packages compile against types and never bundle a client.
 
@@ -639,32 +644,36 @@ flowchart LR
 
 An app that already has data must adopt the package history without re-running it.
 
-1. Map the app's existing migrations to platform ids in the lock file.
+1. Map the app's existing migrations to platform ids in the lock file. The lock format records **comment-only differences** (for example EvoPath's `add_job_trace_context`) so they do not read as divergence.
 2. Diff the **live** schema against the platform schema at that version.
 3. Only if the diff is empty, mark the mapped migrations as applied (`prisma migrate resolve --applied`). Otherwise fix the differences first.
 4. Rehearse the whole procedure on a restored backup before touching production.
 
+The baseline tool needs a **partial mode**: an app that lacks some platform migrations (kvox and MemoriaHub) baselines the ones it has and installs the rest as new. It also accepts **app-contributed raw-SQL allow-list entries**.
+
 | App | Baseline outlook |
 |---|---|
-| EvoPath | Maps cleanly: shares 19 migrations plus 1 under a renamed id |
+| EvoPath | Maps cleanly: shares 20 migration ids (one differs only by a comment line) plus 1 under a renamed id, and one declared deviation (`push_subscriptions.platform`) |
 | kvox | Partial: shares 14 migrations; AI tables need a data migration |
 | MemoriaHub | Fresh baseline plus data migration: shares only 2 migrations |
 
 ### Known hard problem: relations to package-owned models
 
-Prisma requires relation fields on both sides. A `Workout` model with a relation to `User` needs a `workouts Workout[]` field on `User`, and the package owns `User`. Prisma also cannot extend one model across files.
+Prisma requires relation fields on both sides. A `Workout` model with a relation to `User` needs a `workouts Workout[]` field on `User`, and the package owns `User`. The same applies to any package-owned model an app points at: `User`, `Job`, `StorageObject` and `Group`. Prisma also cannot extend one model across files.
 
 | Option | Description | Trade-off |
 |---|---|---|
-| 1 (leaning) | **Generate the composed `User` model** from fragments contributed by slices and apps | Keeps `include` and typed relations; needs a small generator |
+| 1 (leaning) | **Generate the composed models** (`User`, `Job`, `StorageObject`, `Group`) from fragments contributed by slices and apps; composition generates the back-relations on every package-owned model, not only `User` | Keeps `include` and typed relations; needs a small generator |
 | 2 | Domain tables carry a plain `userId` with the foreign key added in raw SQL | Loses `include`; creates schema drift |
 
 Resolve with a **one-week spike** that also validates:
 
 - Prisma 7 multi-file schema support.
+- Back-relation generation on every package-owned model, not only `User`.
 - Migration ordering across fragments.
 - The install and baseline procedure ([Baseline adoption for existing databases](#baseline-adoption-for-existing-databases)).
 - Row-level security with Prisma ([Enforcement](#enforcement)).
+- Backup and restore on RLS-protected tables ([Enforcement](#enforcement)).
 
 ## Tenancy and access model
 
@@ -749,6 +758,7 @@ erDiagram
 
 - RLS settings must be **transaction-local** (`set_config(..., true)` or `SET LOCAL`) so they survive connection poolers.
 - Cross-org system work (backups, purge, doctor) uses a **separate bypass connection**, as the restore flow already does for its cluster admin connection.
+- `pg_dump` and `pg_restore` fail on RLS-protected tables unless the connecting role can bypass RLS (`BYPASSRLS`). Database backup, database restore and the worker-node dump role must each handle this when RLS lands ([database backup spec](database-backup.md), [database restore spec](database-restore.md)).
 
 ### Per-slice impact
 
@@ -899,14 +909,14 @@ ECS, not EKS. In the spike, verify whether RDS Proxy pins connections when `set_
 | Governance | `CODEOWNERS`; `SECURITY.md` with a disclosure contact; seam requests reviewed through `CODEOWNERS`, with the decision recorded ([Seam requests as governance](#seam-requests-as-governance)) |
 | Containers | Public images on GHCR: api, web, worker, stack-agent |
 | Consumers | Renovate in each consumer repository |
-| Pre-release channel | A `next` channel that the pilot app (chosen by the owner) and the reference app try before `latest` |
+| Pre-release channel | A `next` channel that the reference app and the app currently adopting (EvoPath first) try before `latest` |
 | Currency policy | No app more than one minor version behind; security patches are fast-tracked |
 
 ```mermaid
 flowchart LR
   ch["Changeset PR merged"] --> ci["Protected GitHub Actions"]
   ci --> next["publish next"]
-  next --> evo["Pilot app and reference app CI on next"]
+  next --> evo["Reference app and adopting-app CI on next"]
   evo -->|"green"| rel["publish latest + images"]
   rel --> ren["Renovate PRs in each app"]
   ren --> merge["Person merges, CI, deploy (adopting apps)"]
@@ -934,33 +944,27 @@ So they move with the packages and run in every app through one entry point, `ru
 
 **PROPOSED.**
 
-| App | Strategy | Why |
-|---|---|---|
-| EvoPath | Retrofit slice by slice | 78% identical; packages replace copies almost directly; its larger test suite is the regression net |
-| kvox | Hybrid: replace the slices it has (auth, users, storage, jobs, notifications, settings); adopt telemetry, doctor and the AI platform as new (AI needs a data migration) | 29% identical |
-| MemoriaHub | Re-platform: move its 558 domain files onto the starter, map `EnrichmentJob` and `Workflow` onto the platform queue, fresh database baseline plus data migration | 5% identical; 2 shared migrations |
+| Order | App | Strategy | Why |
+|---|---|---|---|
+| 1 | EvoPath | Retrofit slice by slice | 78% identical to the base; packages replace copies almost directly; the easiest app, so the place to learn; its larger test suite is the regression net |
+| 2 | kvox | Hybrid: replace the slices it has (auth, users, storage, jobs, notifications, settings); adopt telemetry, doctor and the AI platform as new (AI needs a data migration) | 29% identical; starts after the EvoPath retrospective |
+| 3 | MemoriaHub | Re-platform: move its 558 domain files onto the starter, map `EnrichmentJob` and `Workflow` onto the platform queue, fresh database baseline plus data migration | 5% identical; 2 shared migrations; starts after the kvox retrospective |
+
+**DECIDED (owner):** the adoption order is **EnterpriseAppBase first** (it is extracted into packages and proves the pipeline), **then EvoPath, then kvox, then MemoriaHub**. The order follows measured drift (78%, 29%, 5% identical API files): the closest app teaches the most for the least risk, and what is learned there carries into the next.
 
 ```mermaid
 flowchart LR
-  p["Platform slice extracted"] --> e["EvoPath<br/>retrofit slice by slice"]
-  p --> k["kvox<br/>hybrid: replace and adopt"]
-  p --> m["MemoriaHub<br/>re-platform"]
+  b["EnterpriseAppBase<br/>extracts the packages"] --> e["EvoPath<br/>retrofit slice by slice"]
+  e --> r1["Retrospective"]
+  r1 --> k["kvox<br/>hybrid: replace and adopt"]
+  k --> r2["Retrospective"]
+  r2 --> m["MemoriaHub<br/>re-platform"]
 ```
 
-The diagram shows strategies, not an order. **The adoption order is undecided; the owner decides it later.** The strategies follow from the measured drift ([Measured drift](#measured-drift)), not from a ranking of the apps.
-
-### Choosing the first adopter
-
-Neutral criteria for when the owner decides. None of them recommends a specific app.
-
-| Criterion | Question |
-|---|---|
-| Closeness to the base | How much of its platform code is already identical to the packages? |
-| Test coverage | Does it have enough tests to act as a regression net for each slice swap? |
-| Release pressure | Does it have a launch or deadline that a migration could delay? |
-| Risk tolerance | Can it absorb a pre-release version, a database baseline and a rollback? |
-| Feedback value | Will adopting it exercise the seams other apps need? |
-
+- **kvox starts after the EvoPath retrospective.** The retrospective feeds seam fixes, documentation fixes and baseline-tool fixes back into the platform first.
+- **MemoriaHub starts after the kvox retrospective**, for the same reason.
+- **Which app is the first SaaS is still undecided** ([Open questions](#open-questions)). It is independent of the adoption order.
+- The strategy per app (retrofit, hybrid, re-platform) remains **PROPOSED**; the order is **DECIDED**.
 
 ### Harvest from the apps, not only the base
 
@@ -977,7 +981,7 @@ Neutral criteria for when the owner decides. None of them recommends a specific 
 
 - **Platform-first.** Once a slice is extracted, changes go into the package, not into app copies.
 - **Port both ways until adoption.** A fix made in a fork before its slice is extracted is ported to the base.
-- **Adopt each slice in the first adopting app (to be chosen) right after extracting it.** No big-bang retrofit.
+- **Adopt each slice in EvoPath right after extracting it.** No big-bang retrofit.
 
 ## Roadmap
 
@@ -994,7 +998,7 @@ flowchart TD
   w2 --> spike["Prisma spike<br/>(parallel)"]
   spike --> w4
   w4 --> w5["Wave 5<br/>remaining slices"]
-  w5 --> track["App adoption track<br/>(order decided by the owner)"]
+  w5 --> track["App adoption track<br/>EvoPath, then kvox, then MemoriaHub"]
 ```
 
 ### Wave 0: no-regret moves
@@ -1002,9 +1006,9 @@ flowchart TD
 Useful even if packaging stops.
 
 - MIT `LICENSE` and `SECURITY.md`.
-- Strip the issue-number comment noise.
+- Strip the issue-number comment noise from source files. **Never rewrite released `migration.sql` files**: SQL comments are part of Prisma's checksum, so migration files are excluded from any comment clean-up.
 - Convert central lists to registries: permissions, settings namespaces, notification templates and channels, storage prefixes, metric groups and names, user-owned data.
-- Theme colour tokens in the packaged UI (the roughly 70 hard-coded colours in the telemetry UI).
+- Theme colour tokens in the packaged UI (route the roughly 33 direct palette-role reads in the telemetry UI through `palette.status` and `palette.chart.series`).
 - A scoped data-access helper plus its tripwire test.
 - Design the org-aware principal and scope contract.
 - Retention policies for notifications, deliveries, audit events and AI runs.
@@ -1026,11 +1030,11 @@ Principal and scope (org-aware), registries, scoped access. Code only, no tables
 
 ### Wave 3: telemetry
 
-The full vertical: contract, api, web, infra and cli. An app-specific metric group (for example EvoPath's coach metrics) is the first real extension. The collector differences become an overlay file.
+The full vertical: contract, api, web, infra and cli. An app-specific metric group (for example EvoPath's coach metrics) is the first real extension. Overlay files are the mechanism for app infra differences; EvoPath's own collector config needs none.
 
 ### In parallel: the Prisma spike
 
-One week. Multi-file schema, the composed `User` back-relations, migration install and baseline, RLS with Prisma, and RDS Proxy pinning ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)).
+One week. Multi-file schema, the generated back-relations on package-owned models, migration install and baseline, RLS with Prisma, and RDS Proxy pinning ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)).
 
 ### Go/no-go gate (after wave 3)
 
@@ -1038,7 +1042,7 @@ Measure what one platform change costs to roll out to all apps. If it is not cle
 
 ### Wave 4: identity with orgs
 
-Auth, users, orgs, groups (later), roles, tokens, audit, tenancy mode and RLS. Database baseline in each adopting app, in the order the owner chooses.
+Auth, users, orgs, groups (later), roles, tokens, audit, tenancy mode and RLS. Database baseline in each adopting app, in adoption order: EvoPath, then kvox.
 
 ### Wave 5: remaining slices
 
@@ -1046,7 +1050,7 @@ In dependency order: settings, jobs and nodes, storage, email, notifications, AI
 
 ### App adoption track
 
-A separate track from the platform waves. Each app adopts slices with its own strategy (retrofit, hybrid or re-platform) once the owner has decided the order ([Adoption strategy per app](#adoption-strategy-per-app)). MemoriaHub's re-platform is the largest single piece of app work.
+A separate track from the platform waves, in the **decided** order: EvoPath (retrofit), then kvox (hybrid), then MemoriaHub (re-platform). kvox starts after the EvoPath retrospective and MemoriaHub after the kvox retrospective ([Adoption strategy per app](#adoption-strategy-per-app)). MemoriaHub's re-platform is the largest single piece of app work.
 
 ### Deployment track
 
@@ -1057,6 +1061,42 @@ Parallel, and only when needed:
 - An Azure Blob storage provider.
 - A Helm chart when the first customer-cloud client appears.
 - An air-gap doctor check.
+
+## Program tracking and rollback
+
+The work is tracked as a GitHub program. Issue numbers appear only as links.
+
+- **Program epic:** [PP-0, the umbrella, execution playbook and rollback](https://github.com/marinoscar/EnterpriseAppBase/issues/659).
+- **Execution playbook:** the parallel stages, how work is claimed and which files are hot (many agents edit them) live in the program epic, not in this spec.
+
+### Epics
+
+| Epic | Scope | Issue |
+|---|---|---|
+| PP-1 | Wave 0: no-regret foundations (no packaging yet) | [issue 660](https://github.com/marinoscar/EnterpriseAppBase/issues/660) |
+| PP-2 | Wave 1: package scaffolding, release pipeline, pipeline proof (Doctor) | [issue 661](https://github.com/marinoscar/EnterpriseAppBase/issues/661) |
+| PP-3 | Wave 2: core contracts | [issue 662](https://github.com/marinoscar/EnterpriseAppBase/issues/662) |
+| PP-4 | Wave 3: telemetry vertical slice | [issue 663](https://github.com/marinoscar/EnterpriseAppBase/issues/663) |
+| PP-5 | Database packaging: spike and tooling | [issue 664](https://github.com/marinoscar/EnterpriseAppBase/issues/664) |
+| PP-6 | Wave 4: identity and organizations | [issue 665](https://github.com/marinoscar/EnterpriseAppBase/issues/665) |
+| PP-7 | Groups and grants (sharing primitives) | [issue 666](https://github.com/marinoscar/EnterpriseAppBase/issues/666) |
+| PP-8 | Wave 5: remaining slices (settings, jobs, storage, email, notifications, AI, db-backup, credentials, CLI, infra, starter, conformance) | [issue 667](https://github.com/marinoscar/EnterpriseAppBase/issues/667) |
+| PP-9 | Harvest app-born features (user-data reset, export, onboarding, Android companion) | [issue 668](https://github.com/marinoscar/EnterpriseAppBase/issues/668) |
+| PP-10 | Retrofit EvoPath | [issue 669](https://github.com/marinoscar/EnterpriseAppBase/issues/669) |
+| PP-11 | Retrofit kvox | [issue 670](https://github.com/marinoscar/EnterpriseAppBase/issues/670) |
+| PP-12 | Re-platform MemoriaHub | [issue 671](https://github.com/marinoscar/EnterpriseAppBase/issues/671) |
+| PP-13 | Deployment track: support bundle and air-gap readiness (early items) | [issue 672](https://github.com/marinoscar/EnterpriseAppBase/issues/672) |
+
+### Rollback
+
+| Scope | Rollback point |
+|---|---|
+| EnterpriseAppBase | Git tag `pre-platform-packages`, which marks `main` at commit `dfe69f4`. **The owner must push this tag**; agent sessions cannot push tags. |
+| Each app | A per-app rollback tag, created by the first story of that app's retrofit, before any change |
+
+### Migration rule
+
+**At most one open migration pull request per repository at a time.** Migration ids are timestamps in one linear history, so two open migration branches collide at merge. This applies to the platform repository and to each app.
 
 ## Definition of done for a slice
 
@@ -1077,7 +1117,7 @@ A slice is extracted when all of the following hold:
 
 | Risk | Mitigation |
 |---|---|
-| Seams are designed wrong | Adopt each slice in the first adopting app immediately; harvest from all apps; add a seam only for a real consumer |
+| Seams are designed wrong | Adopt each slice in EvoPath immediately; harvest from all apps; add a seam only for a real consumer |
 | Version bookkeeping overhead | Six lockstep packages, automated by Changesets and Renovate |
 | Prisma composition limits | Spike before the identity wave ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)) |
 | Existing-database baselines go wrong | Lock file, schema-diff gate, rehearsal on a restored backup |
@@ -1108,6 +1148,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | D9 | SaaS hosting on AWS, RDS likely; which app is the first SaaS is undecided |
 | D10 | Scale incrementally (bigger server first) |
 | D11 | Every package is designed and documented for extension by apps that do not exist yet |
+| D12 | Adoption order: EnterpriseAppBase first, then EvoPath, then kvox, then MemoriaHub; kvox starts after the EvoPath retrospective and MemoriaHub after the kvox retrospective |
 
 ### PROPOSED (recommended, not yet confirmed)
 
@@ -1122,7 +1163,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | P7 | RLS on `org_id`, plus app policy inside an org |
 | P8 | Scaling seams as adapters; a modular monolith |
 | P9 | Public npm with provenance; a Changesets fixed group |
-| P10 | Adoption order: undecided (owner decides later); per-app strategy follows measured drift |
+| P10 | Superseded by D12 (the adoption order is decided). The per-app strategy (retrofit, hybrid, re-platform) stays proposed and follows measured drift. |
 | P11 | Roadmap waves, with a go/no-go gate after wave 3 |
 | P12 | Package documentation standard enforced in CI; seam requests as the route to new extension points |
 
@@ -1130,7 +1171,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 
 | Question | Why it matters |
 |---|---|
-| Which app adopts first and which launches first as SaaS, and when | Decides the adoption order and whether wave 0 must finish before a SaaS launch |
+| Which app is the first SaaS, and when | Decides whether wave 0 must finish before a SaaS launch |
 | Prisma spike outcomes: composed `User`, multi-file schema, RLS, RDS Proxy pinning | Gates the identity wave and the RLS design |
 | Exact MemoriaHub circle-to-group mapping | Settled when MemoriaHub is re-platformed |
 | Package scope and names (`@marinoscar/platform-*`) | Hard to change after the first publish |
@@ -1142,7 +1183,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 - **Noise.** Comment noise (issue numbers renumbered per repository) and renames (`appctl` to `evopathcli`) inflate the "modified" counts. Real EvoPath code divergence is about 4.2k changed lines, mostly additive.
 - **Correction.** An earlier directory-level diff overstated the number of identical files. The per-file figures in [Measured drift](#measured-drift) replace it.
 - **Scaling numbers.** The user counts in [Scaling posture](#scaling-posture) are rules of thumb, not load tests.
-- **Facts verified in this repository** while writing: `METRIC_GROUPS` (six groups), the per-process warning in `notification-stream.service.ts`, `DEFAULT_POLL_MS` (5 s) in `job.worker.ts`, `worker_connections 1024`, the 31 base models, the 462-line `seed-data.ts`, the compose and collector line counts, and the 9-file Doctor framework.
+- **Facts verified in this repository** while writing: `METRIC_GROUPS` (six groups), the per-process warning in `notification-stream.service.ts`, `DEFAULT_POLL_MS` (5 s) in `job.worker.ts`, `worker_connections 1024`, the 31 base models, the 31 base permissions, the 21 migration directories, the four raw-SQL partial indexes, the 462-line `seed-data.ts`, the compose and collector line counts, and the 9-file Doctor framework.
 
 ## Appendix B: glossary
 
@@ -1150,6 +1191,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 |---|---|
 | Slice | A reusable feature that spans layers (UI, API, persistence, infrastructure), such as telemetry or the job queue |
 | Platform | EnterpriseAppBase as a published set of packages, a reference app and a starter |
+| Reference app | The existing `apps/api`, `apps/web` and `apps/cli` of EnterpriseAppBase, rebuilt on the packages; e2e and visual tests run against it |
 | Consumer app | A product built on the platform: EvoPath, kvox, MemoriaHub |
 | Extension Contract | The rules every package follows so apps extend without editing platform code ([The Extension Contract](#the-extension-contract)) |
 | Registry | An additive, typed, string-keyed list that replaces a closed list in platform code |
@@ -1171,3 +1213,4 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 
 - 2026-10-04: proposed after an architecture discussion covering drift measurement across the four code bases, package granularity, the Extension Contract, migrations, tenancy, deployment modes and scaling. No implementation has started.
 - 2026-10-04 (rev 2): extensibility and documentation standard made explicit; adoption order and first SaaS left to the owner.
+- 2026-10-04 (rev 3): adoption order decided (EnterpriseAppBase, EvoPath, kvox, MemoriaHub); the existing apps are the reference app; program tracking and rollback added; corrections to the migration, telemetry and RLS facts.
