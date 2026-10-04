@@ -12,19 +12,21 @@ This spec records the vision, the decisions the owner has confirmed, and the app
 2. [Context](#context)
 3. [Vision and principles](#vision-and-principles)
 4. [Target architecture](#target-architecture)
-5. [Data, migrations and seeds](#data-migrations-and-seeds)
-6. [Tenancy and access model](#tenancy-and-access-model)
-7. [Deployment modes](#deployment-modes)
-8. [Scaling posture](#scaling-posture)
-9. [Build, release and distribution](#build-release-and-distribution)
-10. [Adoption strategy per app](#adoption-strategy-per-app)
-11. [Roadmap](#roadmap)
-12. [Definition of done for a slice](#definition-of-done-for-a-slice)
-13. [Risks and mitigations](#risks-and-mitigations)
-14. [Decision log](#decision-log)
-15. [Open questions](#open-questions)
-16. [Appendix A: measurement method and caveats](#appendix-a-measurement-method-and-caveats)
-17. [Appendix B: glossary](#appendix-b-glossary)
+5. [Extending a package (consumer guide)](#extending-a-package-consumer-guide)
+6. [Package documentation standard](#package-documentation-standard)
+7. [Data, migrations and seeds](#data-migrations-and-seeds)
+8. [Tenancy and access model](#tenancy-and-access-model)
+9. [Deployment modes](#deployment-modes)
+10. [Scaling posture](#scaling-posture)
+11. [Build, release and distribution](#build-release-and-distribution)
+12. [Adoption strategy per app](#adoption-strategy-per-app)
+13. [Roadmap](#roadmap)
+14. [Definition of done for a slice](#definition-of-done-for-a-slice)
+15. [Risks and mitigations](#risks-and-mitigations)
+16. [Decision log](#decision-log)
+17. [Open questions](#open-questions)
+18. [Appendix A: measurement method and caveats](#appendix-a-measurement-method-and-caveats)
+19. [Appendix B: glossary](#appendix-b-glossary)
 
 ## Executive summary
 
@@ -51,12 +53,13 @@ This spec records the vision, the decisions the owner has confirmed, and the app
 | D5 | Salesforce-like organizations are the tenancy foundation | DECIDED |
 | D6 | MemoriaHub circles are sharing groups, not tenants | DECIDED |
 | D7 | SaaS, bring-your-own-cloud and on-prem from one codebase; SaaS first | DECIDED |
-| D9 | EvoPath is the first SaaS, on AWS with RDS likely | DECIDED |
+| D9 | SaaS hosting on AWS, with RDS likely; which app is the first SaaS is undecided | DECIDED |
 | D10 | Scale incrementally: bigger server first, change as users grow | DECIDED |
+| D11 | Every package is designed and documented for extension by apps that do not exist yet | DECIDED |
 | P1 | About six layer packages released in lockstep; slices are subpath modules | PROPOSED |
 | P2 | The Extension Contract ladder: options, registries, tokens, events, composition, eject | PROPOSED |
 | P5 | Package migrations are installed into each app's own history, with a baseline procedure for existing databases | PROPOSED |
-| P10 | Adoption order: EvoPath, then kvox, then MemoriaHub | PROPOSED |
+| P10 | Adoption order: undecided (owner decides later); per-app strategy follows measured drift | PROPOSED |
 
 The full list is in [Decision log](#decision-log).
 
@@ -71,7 +74,7 @@ The full list is in [Decision log](#decision-log).
 | Spike | Prisma composition, migration install, RLS, RDS Proxy | De-risk identity |
 | 4 | Identity with organizations | Own the user tables and tenancy |
 | 5 | Remaining slices in dependency order | Settings, jobs, storage, email, notifications, AI, db-backup, then CLI, infra, docs |
-| 6 | MemoriaHub re-platform | Last, largest |
+| Track | App adoption: retrofit, hybrid or re-platform per app | Order decided by the owner; runs once slices are extracted |
 
 Details: [Roadmap](#roadmap).
 
@@ -168,6 +171,8 @@ Forks edit platform files to extend them, because the extension points are close
 | Clear boundaries | A package exposes a documented surface; everything else is private |
 | API-first | Business logic stays in the API; the web package renders it |
 | Extension over modification | An app never edits platform code; it extends through a seam |
+| Built to be extended | Every package is designed for apps that do not exist yet ([Extending a package (consumer guide)](#extending-a-package-consumer-guide)) |
+| Documented as a product | Documentation ships, is versioned and is tested with the package ([Package documentation standard](#package-documentation-standard)) |
 | Registries instead of closed lists | Additive, typed, string-keyed |
 | Security and isolation by design | Multi-user and multi-org isolation is enforced by the platform, not by convention |
 | Observability by design | Every slice emits logs, metrics and traces through the shared telemetry core |
@@ -180,6 +185,7 @@ Forks edit platform files to extend them, because the extension points are close
 **Goals**
 
 - One copy of every platform feature, in one repository.
+- A new app can extend any package using only its documentation, without reading platform internals or editing platform code.
 - A new product starts from the starter and consumes published versions.
 - Existing apps migrate slice by slice, without a big-bang rewrite.
 - Org-based tenancy that scales from a single-company on-prem install to a multi-customer SaaS.
@@ -400,6 +406,180 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 **Telemetry UI today** uses about 258 theme-token references against about 70 hard-coded colours. Those 70 are converted to tokens in wave 0 ([Roadmap](#roadmap)).
 
 **Auth UX.** The package provides a headless `AuthProvider`, `useAuth`, `RequireAuth(permission)` and a callback route. The login page is composed from slots (logo, copy, providers) with `registerAuthProvider()` for additional sign-in methods.
+
+## Extending a package (consumer guide)
+
+**DECIDED principle; PROPOSED mechanics.** This section is written for the developer of a future app, one that does not exist yet and whose author has never read the platform's internals. It explains how to get what the app needs without editing platform code. It builds on [The Extension Contract](#the-extension-contract) and does not repeat it: the ladder, the decision rule and the guardrails live there.
+
+Signatures below are illustrative until the packages exist. Once they do, each package's extension-point catalog ([Package documentation standard](#package-documentation-standard)) is authoritative.
+
+### The decision flow
+
+```mermaid
+flowchart TD
+  need["The app needs something<br/>the platform does not do"] --> cat["Look it up in the package's<br/>extension-point catalog"]
+  cat --> found{"A seam fits?"}
+  found -->|"yes"| rung["Use the earliest rung that works<br/>1 options, 2 registries, 3 tokens,<br/>4 events, 5 composition"]
+  found -->|"no"| req["File a seam request"]
+  req --> wait{"Can the app wait?"}
+  wait -->|"yes"| merged["Platform adds the seam,<br/>release, app upgrades"]
+  wait -->|"no"| eject["Eject temporarily<br/>(rung 6) with a ticket linked<br/>to the seam request"]
+  eject --> merged
+  merged --> rung
+```
+
+1. **Need.** State it in domain terms ("coaches need their own metrics on the dashboard").
+2. **Check the catalog.** Every package README lists every registry, injection token, event, slot, theme token and overlay point, each with its signature, when to use it and a minimal example.
+3. **Pick the earliest rung** of the ladder that works: options, then registries, then injection tokens, then events and hooks, then composition. An earlier rung is cheaper to keep working across upgrades.
+4. **If no seam exists, request one.** Do not edit platform code in the app. A seam request is a new issue template in the platform repository with three fields:
+   - the app's need;
+   - why the existing rungs fail;
+   - the proposed seam (name, signature, rung).
+5. **Eject only temporarily.** Vendoring or patching one piece is rung 6. It carries a ticket that links the seam request, and it ends when the seam ships.
+
+The decision rule still applies: if the difference is the app's own need, extend in the app; if the platform is limited, fix it upstream so every app benefits.
+
+### Worked examples by layer
+
+Each example uses only the documented surface. Names are illustrative.
+
+#### API
+
+All of these are additive calls made from the app's own module. None of them touches a platform file.
+
+```ts
+// Rung 2: registries (additive, typed, string ids)
+registerPermissions([{ id: 'workouts:read', description: 'Read own workouts' }]);
+registerSettingsNamespace('coach', coachSettingsSchema);          // a zod schema
+registerNotificationTemplate('coach.weekly-review', weeklyReviewTemplate);
+registerJobHandler(new WeeklyReviewHandler());                    // job type id is permanent
+registerDoctorCheck(new CoachProviderCheck());
+
+// Rung 1: options override defaults
+TelemetryModule.forRoot({ dashboard: { verdictThresholds: coachThresholds } });
+
+// Rung 3: override one provider through its injection token
+{ provide: VERDICT_POLICY, useClass: CoachVerdictPolicy }
+```
+
+Existing precedent in the base: Doctor checks and job handlers already register themselves this way ([doctor spec](doctor.md), [job queue spec](job-queue.md)).
+
+#### Data
+
+| Need | Supported pattern |
+|---|---|
+| A domain table that belongs to a user or org | The app's table holds `userId` (and `orgId` once tenancy ships) pointing at the platform table. The reference goes from app to platform, never the reverse. |
+| Extra fields on a platform entity | A **side table** keyed by the platform id (for example `UserFitnessProfile.userId` unique), or the entity's JSONB `metadata` column where the package documents one |
+| Changing a platform table | **Never.** No added columns, no altered constraints. Request a seam. |
+| Privacy and ownership | Register the new model in the user-owned-data registry with a purge and export policy; the tripwire test fails otherwise |
+| Migrations | The app's own migrations live in the app's `prisma/migrations`, after the installed package migrations ([Data, migrations and seeds](#data-migrations-and-seeds)) |
+
+How the Prisma relation to a package-owned `User` is expressed is the open question the spike settles ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)). The rule above holds either way.
+
+#### Web
+
+```tsx
+// Rung 2: a registry entry renders inside the app's own shell
+registerAdminSection({ id: 'coach', title: 'Coach', permission: 'coach:write', route: '/admin/settings/coach', element: <CoachSettings /> });
+
+// Token contract: the app owns the theme and applies platform defaults to it
+const theme = withTelemetryTokens(createTheme(appThemeOptions));
+
+// Slots: restyle or replace one part of a packaged component
+<LoginPage slots={{ Logo: AppLogo, Footer: AppLegalLinks }} />
+
+// Headless: keep the package's behaviour, supply your own markup
+const { user, can } = useAuth();   // from '@marinoscar/platform-web/headless'
+```
+
+#### Infra
+
+App differences are overlay files, not forks.
+
+```bash
+docker compose -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml -f app.overlay.compose.yml up
+otelcol --config=platform-collector.yaml --config=app-collector.yaml   # the files merge
+```
+
+The overlay adds the app's own services, environment and collector pipelines. Platform fragments are never edited.
+
+#### CLI
+
+```ts
+// Rung 2: add a command to the platform CLI from the app's own entry point
+registerCliCommand((program) => program.command('coach-seed').action(seedCoachData));
+```
+
+### What an extension may and may not rely on
+
+| May rely on (stable across minor versions) | May not rely on |
+|---|---|
+| Anything listed in a package's extension-point catalog with stability `stable` | Deep imports (`.../internal/...`); the `exports` map and lint forbid them |
+| Exported types, zod schemas, injection tokens, events | Non-exported classes, file layout, private method names |
+| Documented models, columns and migration ids marked public | Table shapes, columns and indexes the package does not document as public |
+| Registry behaviour: ordering, duplicate-id handling, error cases | Incidental behaviour (log wording, timing, internal call order) |
+| The documented theme tokens and slot names | Component internals and generated class names |
+
+Stability levels:
+
+| Level | Promise |
+|---|---|
+| `stable` | Strict semver. A breaking change needs a major release and a migration guide. |
+| `experimental` | May change in a minor release. Flagged in the catalog and in TSDoc. |
+| `internal` | Not exported. No promise. |
+
+## Package documentation standard
+
+**DECIDED principle; PROPOSED details.** Every package, and every slice inside a layer package, is documented well enough that a developer of a future app can extend it from the documentation alone. Documentation is part of the product: it ships, is versioned and is tested with the package.
+
+### What ships with every package
+
+| Artifact | Content |
+|---|---|
+| `README.md` with a fixed outline | See below |
+| Generated API reference | From TSDoc (for example TypeDoc) for the exported surface |
+| TSDoc on every exported symbol | Purpose, parameters, defaults, stability level, a short example |
+| Reference-app examples | A working use of every extension point in `apps/reference` |
+| `CHANGELOG.md` (Changesets) | Any change to the extension surface is called out; a breaking change ships with a migration guide |
+
+### README outline
+
+Each package, and each slice README under it, uses the same headings in the same order.
+
+1. **Purpose and scope**: what it does and does not do.
+2. **Install and peer dependencies**.
+3. **Quick start**: the smallest working setup.
+4. **Configuration**: a `forRoot()` options table with type, default and meaning.
+5. **Extension-point catalog**: every registry, injection token, event, slot, theme token and overlay point. Each entry has its signature, when to use it, a minimal example and its stability level, and links to a working example in the reference app.
+6. **Data**: models owned, migrations, seeds, and what apps may reference.
+7. **Permissions and settings** it declares.
+8. **UI**: pages, registry entries, slots and theme tokens.
+9. **Infra**: compose fragments and environment variables.
+10. **Observability**: the logs, metrics and spans it emits.
+11. **Security notes**.
+12. **Conformance suite**: what it enforces and how an app runs it.
+13. **Upgrade notes**: a migration guide per major version.
+14. **Troubleshooting**.
+15. **Links** to the platform spec for the slice.
+
+### Enforced in CI
+
+Documentation drift becomes a failing build.
+
+| Check | Fails when |
+|---|---|
+| TSDoc coverage | An exported symbol has no TSDoc |
+| Catalog completeness | An exported registry, token, event, option or slot is missing from the README catalog |
+| Example build | An example in the reference app does not compile or its test fails |
+| Catalog links | A catalog entry has no link to a real, compiled example |
+| Changeset check | A change to the extension surface has no CHANGELOG entry, or a breaking change has no migration guide |
+| Link check | A README link is broken (the repository's existing docs link test is the model) |
+
+### Seam requests as governance
+
+- A seam request is reviewed through `CODEOWNERS`.
+- The decision (accepted, rejected with the alternative rung, deferred) is recorded on the request and, when it changes the contract, as a decision record.
+- An accepted seam ships with its catalog entry, TSDoc, reference-app example and changeset in the same pull request.
 
 ## Data, migrations and seeds
 
@@ -675,11 +855,11 @@ Ranked from the code. Each is a known limit, not a defect.
 
 An **event bus**, a **cache and rate-limit store** and a **backup strategy** ship as adapters with Postgres defaults. One codebase then runs small on-prem and large SaaS. The platform stays a modular monolith; there are no microservices.
 
-### First SaaS: EvoPath on AWS
+### First SaaS on AWS (app to be decided)
 
-**DECIDED:** EvoPath is the first SaaS. **DECIDED:** AWS with RDS, "probably".
+**DECIDED:** SaaS hosting on AWS, with RDS "probably". **UNDECIDED:** which app launches first as a SaaS; the owner decides later.
 
-**PROPOSED path:**
+**PROPOSED path** (generic to whichever app launches):
 
 | Stage | Topology |
 |---|---|
@@ -689,7 +869,7 @@ An **event bus**, a **cache and rate-limit store** and a **backup strategy** shi
 
 ECS, not EKS. In the spike, verify whether RDS Proxy pins connections when `set_config(..., true)` is used; the fallback is PgBouncer on ECS.
 
-**EvoPath-specific risks**
+**App-specific considerations if EvoPath is hosted as SaaS**
 
 | Risk | Mitigation |
 |---|---|
@@ -698,7 +878,7 @@ ECS, not EKS. In the spike, verify whether RDS Proxy pins connections when `set_
 | Health-data privacy | Owner-based RLS on health tables; the existing export and reset flows cover GDPR and CCPA-style requests; a privacy review; confirm HIPAA applicability with counsel |
 | Android Health Connect sync bursts | Per-device rate limits; idempotency through the existing unique indexes |
 
-**Packaging must not block the SaaS launch.** Do the platform-level scaling fixes once in EnterpriseAppBase (wave 0), then port them to EvoPath once.
+**Packaging must not block the SaaS launch.** Do the platform-level scaling fixes once in EnterpriseAppBase (wave 0), then port them once to whichever app launches as SaaS.
 
 ## Build, release and distribution
 
@@ -716,20 +896,20 @@ ECS, not EKS. In the spike, verify whether RDS Proxy pins connections when `set_
 | Publishing | Only from a protected GitHub Actions workflow, with npm trusted publishing and provenance. It needs a public source repository; EnterpriseAppBase is public. |
 | Account hygiene | Scope-level two-factor authentication |
 | Versioning | Changesets with a "fixed" group: all platform packages share one version. Strict semver. |
-| Governance | `CODEOWNERS`; `SECURITY.md` with a disclosure contact |
+| Governance | `CODEOWNERS`; `SECURITY.md` with a disclosure contact; seam requests reviewed through `CODEOWNERS`, with the decision recorded ([Seam requests as governance](#seam-requests-as-governance)) |
 | Containers | Public images on GHCR: api, web, worker, stack-agent |
 | Consumers | Renovate in each consumer repository |
-| Pre-release channel | A `next` channel that EvoPath tries first |
+| Pre-release channel | A `next` channel that the pilot app (chosen by the owner) and the reference app try before `latest` |
 | Currency policy | No app more than one minor version behind; security patches are fast-tracked |
 
 ```mermaid
 flowchart LR
   ch["Changeset PR merged"] --> ci["Protected GitHub Actions"]
   ci --> next["publish next"]
-  next --> evo["EvoPath CI on next"]
+  next --> evo["Pilot app and reference app CI on next"]
   evo -->|"green"| rel["publish latest + images"]
   rel --> ren["Renovate PRs in each app"]
-  ren --> merge["Person merges, CI, deploy"]
+  ren --> merge["Person merges, CI, deploy (adopting apps)"]
 ```
 
 ### Technical constraints
@@ -756,16 +936,31 @@ So they move with the packages and run in every app through one entry point, `ru
 
 | App | Strategy | Why |
 |---|---|---|
-| EvoPath | Retrofit slice by slice; first adopter (and first SaaS) | 78% identical; packages replace copies almost directly; its larger test suite is the regression net |
+| EvoPath | Retrofit slice by slice | 78% identical; packages replace copies almost directly; its larger test suite is the regression net |
 | kvox | Hybrid: replace the slices it has (auth, users, storage, jobs, notifications, settings); adopt telemetry, doctor and the AI platform as new (AI needs a data migration) | 29% identical |
-| MemoriaHub | Re-platform, last: move its 558 domain files onto the starter, map `EnrichmentJob` and `Workflow` onto the platform queue, fresh database baseline plus data migration | 5% identical; 2 shared migrations |
+| MemoriaHub | Re-platform: move its 558 domain files onto the starter, map `EnrichmentJob` and `Workflow` onto the platform queue, fresh database baseline plus data migration | 5% identical; 2 shared migrations |
 
 ```mermaid
 flowchart LR
-  p["Platform slice extracted"] --> e["EvoPath adopts it<br/>immediately"]
-  e --> k["kvox adopts"]
-  k --> m["MemoriaHub adopts<br/>after re-platform"]
+  p["Platform slice extracted"] --> e["EvoPath<br/>retrofit slice by slice"]
+  p --> k["kvox<br/>hybrid: replace and adopt"]
+  p --> m["MemoriaHub<br/>re-platform"]
 ```
+
+The diagram shows strategies, not an order. **The adoption order is undecided; the owner decides it later.** The strategies follow from the measured drift ([Measured drift](#measured-drift)), not from a ranking of the apps.
+
+### Choosing the first adopter
+
+Neutral criteria for when the owner decides. None of them recommends a specific app.
+
+| Criterion | Question |
+|---|---|
+| Closeness to the base | How much of its platform code is already identical to the packages? |
+| Test coverage | Does it have enough tests to act as a regression net for each slice swap? |
+| Release pressure | Does it have a launch or deadline that a migration could delay? |
+| Risk tolerance | Can it absorb a pre-release version, a database baseline and a rollback? |
+| Feedback value | Will adopting it exercise the seams other apps need? |
+
 
 ### Harvest from the apps, not only the base
 
@@ -782,7 +977,7 @@ flowchart LR
 
 - **Platform-first.** Once a slice is extracted, changes go into the package, not into app copies.
 - **Port both ways until adoption.** A fix made in a fork before its slice is extracted is ported to the base.
-- **Adopt each slice in EvoPath right after extracting it.** No big-bang retrofit.
+- **Adopt each slice in the first adopting app (to be chosen) right after extracting it.** No big-bang retrofit.
 
 ## Roadmap
 
@@ -799,7 +994,7 @@ flowchart TD
   w2 --> spike["Prisma spike<br/>(parallel)"]
   spike --> w4
   w4 --> w5["Wave 5<br/>remaining slices"]
-  w5 --> w6["Wave 6<br/>MemoriaHub re-platform"]
+  w5 --> track["App adoption track<br/>(order decided by the owner)"]
 ```
 
 ### Wave 0: no-regret moves
@@ -831,7 +1026,7 @@ Principal and scope (org-aware), registries, scoped access. Code only, no tables
 
 ### Wave 3: telemetry
 
-The full vertical: contract, api, web, infra and cli. EvoPath's coach metric group is the first real extension. The collector differences become an overlay file.
+The full vertical: contract, api, web, infra and cli. An app-specific metric group (for example EvoPath's coach metrics) is the first real extension. The collector differences become an overlay file.
 
 ### In parallel: the Prisma spike
 
@@ -843,15 +1038,15 @@ Measure what one platform change costs to roll out to all apps. If it is not cle
 
 ### Wave 4: identity with orgs
 
-Auth, users, orgs, groups (later), roles, tokens, audit, tenancy mode and RLS. Database baseline in each app: EvoPath first, then kvox.
+Auth, users, orgs, groups (later), roles, tokens, audit, tenancy mode and RLS. Database baseline in each adopting app, in the order the owner chooses.
 
 ### Wave 5: remaining slices
 
 In dependency order: settings, jobs and nodes, storage, email, notifications, AI, db-backup. Then `platform-cli`, `platform-infra` and shared docs.
 
-### Wave 6: MemoriaHub re-platform
+### App adoption track
 
-Last, and the largest ([Adoption strategy per app](#adoption-strategy-per-app)).
+A separate track from the platform waves. Each app adopts slices with its own strategy (retrofit, hybrid or re-platform) once the owner has decided the order ([Adoption strategy per app](#adoption-strategy-per-app)). MemoriaHub's re-platform is the largest single piece of app work.
 
 ### Deployment track
 
@@ -868,11 +1063,13 @@ Parallel, and only when needed:
 A slice is extracted when all of the following hold:
 
 - [ ] The extension surface is documented: options, registries, tokens, events.
+- [ ] Documentation is complete per the [Package documentation standard](#package-documentation-standard): README outline, TSDoc on every export, generated API reference, catalog complete.
+- [ ] Every extension point is demonstrated in the reference app with compiled, tested code.
 - [ ] The `exports` map is enforced by lint; there are no deep imports.
 - [ ] Migrations and seeds follow the package rules ([Rules](#rules)) and the drift test passes.
 - [ ] The conformance suite and the docs travel with the package.
-- [ ] The reference app and EvoPath pass CI on the `next` pre-release.
-- [ ] The local copy is deleted from EvoPath.
+- [ ] The reference app and every adopting app pass CI on the `next` pre-release.
+- [ ] The local copy is deleted from each adopting app.
 - [ ] Observability (logs, metrics, traces) and security (authorization, audit, least privilege) are preserved.
 - [ ] A Changesets entry produces the CHANGELOG line.
 
@@ -880,13 +1077,14 @@ A slice is extracted when all of the following hold:
 
 | Risk | Mitigation |
 |---|---|
-| Seams are designed wrong | Adopt per slice in EvoPath immediately; harvest from all apps; add a seam only for a real consumer |
+| Seams are designed wrong | Adopt each slice in the first adopting app immediately; harvest from all apps; add a seam only for a real consumer |
 | Version bookkeeping overhead | Six lockstep packages, automated by Changesets and Renovate |
 | Prisma composition limits | Spike before the identity wave ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)) |
 | Existing-database baselines go wrong | Lock file, schema-diff gate, rehearsal on a restored backup |
 | Invariants are lost when tests move | Conformance suites run in every app (`runPlatformConformance()`) |
 | Duplicate framework instances | `peerDependencies` plus a single-instance check in CI |
-| EvoPath launch is delayed by packaging | Packaging never blocks launch; wave-0 fixes are ported once |
+| A SaaS launch is delayed by packaging | Packaging never blocks launch; wave-0 fixes are ported once |
+| Packages are hard to extend because the docs are thin | Documentation standard enforced in CI; reference-app examples for every extension point; seam requests |
 | Public packages expose internals | `exports` map, strict semver, `SECURITY.md` |
 | Tenancy retrofit cost grows with table count | Make the contract org-aware now, while the tables are few |
 | Scope creep and over-engineering | Start coarse; add a seam only for a real consumer; go/no-go gate after wave 3 |
@@ -907,8 +1105,9 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | D6 | MemoriaHub circles are sharing groups, not tenants |
 | D7 | Three deployment modes (SaaS, BYOC, on-prem), SaaS first |
 | D8 | SSO beyond OAuth is low priority |
-| D9 | EvoPath is the first SaaS; AWS RDS likely |
+| D9 | SaaS hosting on AWS, RDS likely; which app is the first SaaS is undecided |
 | D10 | Scale incrementally (bigger server first) |
+| D11 | Every package is designed and documented for extension by apps that do not exist yet |
 
 ### PROPOSED (recommended, not yet confirmed)
 
@@ -923,16 +1122,17 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | P7 | RLS on `org_id`, plus app policy inside an org |
 | P8 | Scaling seams as adapters; a modular monolith |
 | P9 | Public npm with provenance; a Changesets fixed group |
-| P10 | Adoption order: EvoPath, kvox, MemoriaHub |
+| P10 | Adoption order: undecided (owner decides later); per-app strategy follows measured drift |
 | P11 | Roadmap waves, with a go/no-go gate after wave 3 |
+| P12 | Package documentation standard enforced in CI; seam requests as the route to new extension points |
 
 ## Open questions
 
 | Question | Why it matters |
 |---|---|
-| EvoPath SaaS launch date | Decides whether wave 0 must finish before launch |
+| Which app adopts first and which launches first as SaaS, and when | Decides the adoption order and whether wave 0 must finish before a SaaS launch |
 | Prisma spike outcomes: composed `User`, multi-file schema, RLS, RDS Proxy pinning | Gates the identity wave and the RLS design |
-| Exact MemoriaHub circle-to-group mapping | Settled during its re-platform |
+| Exact MemoriaHub circle-to-group mapping | Settled when MemoriaHub is re-platformed |
 | Package scope and names (`@marinoscar/platform-*`) | Hard to change after the first publish |
 | When to rename the repository | Cosmetic, but affects links and the starter |
 
@@ -953,6 +1153,9 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | Consumer app | A product built on the platform: EvoPath, kvox, MemoriaHub |
 | Extension Contract | The rules every package follows so apps extend without editing platform code ([The Extension Contract](#the-extension-contract)) |
 | Registry | An additive, typed, string-keyed list that replaces a closed list in platform code |
+| Extension-point catalog | The README section that lists every registry, injection token, event, slot, theme token and overlay point of a package, each with signature, use, example and stability level |
+| Seam | A deliberate extension point in a package: an option, registry, token, event, slot, theme token or overlay point |
+| Seam request | An issue asking the platform to add a seam, instead of an app editing platform code: the need, why existing rungs fail, the proposed seam |
 | Conformance suite | Tests that enforce a platform invariant and ship with the package so every app runs them |
 | Tenancy mode | A deployment setting: single-org or multi-org |
 | Org (organization) | The tenant: an isolation boundary with an admin and members |
@@ -967,3 +1170,4 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 ## History
 
 - 2026-10-04: proposed after an architecture discussion covering drift measurement across the four code bases, package granularity, the Extension Contract, migrations, tenancy, deployment modes and scaling. No implementation has started.
+- 2026-10-04 (rev 2): extensibility and documentation standard made explicit; adoption order and first SaaS left to the owner.
