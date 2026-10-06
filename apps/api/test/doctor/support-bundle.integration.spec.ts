@@ -217,7 +217,7 @@ describe('Support bundle API (Integration)', () => {
       });
       expect(versions.host).not.toHaveProperty('hostname');
       expect(versions.proxy).toEqual({ mode: 'container' });
-      for (const excluded of ['customer-host-01', 'customer-name', 'customer-proxy', '8443', 'smtpPassword', 'c'.repeat(40)]) {
+      for (const excluded of ['customer-host-01', 'customer-name', 'customer-proxy', '"bindPort"', 'smtpPassword', 'c'.repeat(40)]) {
         expect(text).not.toContain(excluded);
       }
     }, 30000);
