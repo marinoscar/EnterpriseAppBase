@@ -237,14 +237,28 @@ describe('AuthService', () => {
       mockPrisma.role.findUnique
         .mockResolvedValueOnce(mockViewerRole as any) // Get default role
         .mockResolvedValueOnce(mockAdminRole as any); // Get admin role in transaction
-      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      const order: string[] = [];
+      mockPrisma.$transaction.mockImplementation(async (callback) => {
+        const value = await callback(mockPrisma);
+        order.push('transaction:committed');
+        return value;
+      });
       mockPrisma.user.create.mockResolvedValue(mockUserCreated as any);
       mockPrisma.userRole.upsert.mockResolvedValue({} as any);
       mockPrisma.user.update.mockResolvedValue(mockUserWithAdmin as any);
       mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+      const invalidate = jest
+        .spyOn(principalCache, 'invalidate')
+        .mockImplementation(() => void order.push('invalidate'));
 
       const adminProfile = { ...mockGoogleProfile, email: 'admin@example.com' };
       const result = await service.handleGoogleLogin(adminProfile);
+
+      // PP-1.12 (#683): the first-login admin grant is invalidated after its
+      // transaction committed (and again after the provider-profile update).
+      expect(invalidate).toHaveBeenCalledWith({ userId: 'new-admin' });
+      expect(order[0]).toBe('transaction:committed');
+      expect(order[1]).toBe('invalidate');
 
       expect(mockAdminBootstrap.shouldGrantAdminRole).toHaveBeenCalledWith('admin@example.com');
       // Admin role is now assigned directly in transaction, not via adminBootstrap.assignAdminRole

@@ -169,6 +169,8 @@ export class AuthService {
         providerProfileImageUrl: profile.picture || null,
       },
     });
+    // Principal cache (PP-1.12, #683): the cached row carries these columns.
+    this.principalCache.invalidate({ userId: user.id });
 
     // Check if user is disabled
     if (!user.isActive) {
@@ -371,6 +373,11 @@ export class AuthService {
 
       return newUser;
     });
+
+    // Principal cache (PP-1.12, #683): after the transaction (which may have
+    // upserted the admin role) committed. The user is new, so nothing should
+    // be cached for it — belt and braces.
+    this.principalCache.invalidate({ userId: user.id });
 
     this.logger.log(`User created successfully: ${user.email}`);
     return user;

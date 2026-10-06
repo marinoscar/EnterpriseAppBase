@@ -4,6 +4,9 @@ import { Logger } from '@nestjs/common';
 import { AdminBootstrapService } from './admin-bootstrap.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
+import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
+
+const principalCacheStub = { invalidate: jest.fn() };
 
 describe('AdminBootstrapService', () => {
   let service: AdminBootstrapService;
@@ -22,6 +25,8 @@ describe('AdminBootstrapService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AdminBootstrapService,
+        // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
+        { provide: PrincipalCache, useValue: principalCacheStub },
         { provide: PrismaService, useValue: prismaService },
         { provide: ConfigService, useValue: mockConfigService },
       ],
@@ -309,6 +314,19 @@ describe('AdminBootstrapService', () => {
           roleId: adminRoleId,
         },
       });
+    });
+
+    it('invalidates the cached principal after the grant (PP-1.12, #683)', async () => {
+      principalCacheStub.invalidate.mockClear();
+      prismaService.role.findUnique.mockResolvedValue({ id: 'admin-role-id', name: 'admin' } as any);
+      prismaService.userRole.upsert.mockResolvedValue({} as any);
+
+      await service.assignAdminRole('user-123');
+
+      expect(principalCacheStub.invalidate).toHaveBeenCalledWith({ userId: 'user-123' });
+      expect(prismaService.userRole.upsert.mock.invocationCallOrder[0]).toBeLessThan(
+        principalCacheStub.invalidate.mock.invocationCallOrder[0],
+      );
     });
 
     it('should throw error when admin role not found', async () => {

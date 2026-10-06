@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
 import { UpdateUserSettingsDto } from '../dto/update-user-settings.dto';
 import { PatchUserSettingsDto } from '../dto/update-user-settings.dto';
 import {
@@ -53,7 +54,11 @@ function namespaces(): readonly UserSettingsNamespace[] {
 export class UserSettingsService {
   private readonly logger = new Logger(UserSettingsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // PP-1.12 (#683): `syncDisplayName` writes a column the cached principal carries.
+    private readonly principalCache: PrincipalCache,
+  ) {}
 
   /**
    * Build the API response projection for a stored settings value.
@@ -397,6 +402,8 @@ export class UserSettingsService {
       where: { id: userId },
       data: { displayName: displayName || null },
     });
+    // Principal cache (PP-1.12, #683): the cached row carries `displayName`.
+    this.principalCache.invalidate({ userId });
   }
 
   /**

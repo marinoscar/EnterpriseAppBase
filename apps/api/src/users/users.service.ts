@@ -14,6 +14,7 @@ import { ROLES } from '../common/constants/roles.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { RoleChangedEmailData } from '../email';
 import { resolveProfileImageUrl } from '../common/profile-image/profile-image';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 
 @Injectable()
 export class UsersService {
@@ -23,6 +24,8 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
+    // PP-1.12 (#683): every write here changes what the user's JWT resolves to.
+    private readonly principalCache: PrincipalCache,
   ) {}
 
   /**
@@ -175,6 +178,11 @@ export class UsersService {
       },
     });
 
+    // Principal cache (PP-1.12, #683): ALWAYS, after the write committed —
+    // cheap, and it is what makes `isActive: false` reject the user's very
+    // next request (on this replica now, on others within bus latency).
+    this.principalCache.invalidate({ userId: id });
+
     // Log audit event
     await this.createAuditEvent(adminUserId, 'user:update', 'user', id, {
       changes: dto,
@@ -254,6 +262,10 @@ export class UsersService {
         })),
       });
     });
+
+    // Principal cache (PP-1.12, #683): AFTER the transaction committed, never
+    // inside it — a removed role stops authorising the next request.
+    this.principalCache.invalidate({ userId: id });
 
     // Log audit event
     await this.createAuditEvent(adminUserId, 'user:roles_update', 'user', id, {

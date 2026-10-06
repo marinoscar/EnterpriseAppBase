@@ -23,6 +23,9 @@ import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
 } from './notification.types';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+
+const principalCacheStub = { invalidate: jest.fn() };
 
 // =============================================================================
 // `security.role_changed` reaches both channels, mandatory, with the delta
@@ -150,6 +153,8 @@ describe('security.role_changed: mandatory, both channels, and the before/after 
       providers: [
         UsersService,
         NotificationsService,
+        // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
+        { provide: PrincipalCache, useValue: principalCacheStub },
         NotificationDeliveryService,
         EmailNotificationChannel,
         { provide: PrismaService, useValue: prisma },

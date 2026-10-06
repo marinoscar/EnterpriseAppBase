@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TestLoginDto } from './dto/test-login.dto';
 import { JwtPayload } from '../auth/strategies/jwt.strategy';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 
 export interface TestAuthTokenResponse {
   accessToken: string;
@@ -27,6 +28,8 @@ export class TestAuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    // PP-1.12 (#683): the role swap below must reach the next request.
+    private readonly principalCache: PrincipalCache,
   ) {}
 
   /**
@@ -98,6 +101,10 @@ export class TestAuthService {
         },
       }),
     ]);
+
+    // Principal cache (PP-1.12, #683): after the transaction committed. E2E
+    // suites log the same email in under different roles back to back.
+    this.principalCache.invalidate({ userId: user.id });
 
     // Reload user with updated roles
     user = await this.prisma.user.findUnique({
