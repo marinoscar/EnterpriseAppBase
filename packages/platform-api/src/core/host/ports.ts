@@ -142,7 +142,20 @@ export interface PrismaClientLike {
  * @stability experimental
  */
 export type PortBinding<T> =
-  | { useExisting: Type<T> | string | symbol }
-  | { useClass: Type<T> }
-  // Nest's own factory signature: dependencies arrive untyped, in `inject` order.
-  | { useFactory: (...deps: any[]) => T | Promise<T>; inject?: any[] };
+  | {
+      /** Reuse a provider the app already has (a class, or a string or symbol token). */
+      useExisting: Type<T> | string | symbol;
+    }
+  | {
+      /** Instantiate this class (its own dependencies are injected). */
+      useClass: Type<T>;
+    }
+  | {
+      /**
+       * Build the port. Nest's own factory signature: dependencies arrive
+       * untyped, in `inject` order.
+       */
+      useFactory: (...deps: any[]) => T | Promise<T>;
+      /** The tokens whose instances `useFactory` receives. */
+      inject?: any[];
+    };
