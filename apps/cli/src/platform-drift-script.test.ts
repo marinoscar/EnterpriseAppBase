@@ -595,6 +595,16 @@ describe('exit codes', () => {
     }
   });
 
+  it('accepts md,json as a spelling of --format both', () => {
+    const app = makeRepo('app', {}, APP_ID);
+    const out = tmpDir('out');
+    expect(run(['--app', app, '--base', app, '--out', out, '--format', 'md,json']).status).toBe(0);
+    expect(readFileSync(join(out, 'drift-report.md'), 'utf8')).toMatch(/^# Platform drift report/);
+    expect(JSON.parse(readFileSync(join(out, 'drift-report.json'), 'utf8'))).toMatchObject({
+      schemaVersion: 1,
+    });
+  });
+
   it('prints usage for --help and exits 0', () => {
     const result = run(['--help']);
     expect(result.status).toBe(0);

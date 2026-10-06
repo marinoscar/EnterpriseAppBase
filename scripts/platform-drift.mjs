@@ -1088,7 +1088,7 @@ Options:
   --app <path>                 The consumer repository's root. Required.
   --base <path>                The base repository's root. Default: this repository.
   --out <dir>                  Output directory. Default: ./drift-report (git-ignored).
-  --format json|md|both        Which reports to write. Default: both.
+  --format json|md|both        Which reports to write (md,json means both). Default: both.
   --areas <a,b,...>            Areas to compare. Default: every area present on either side.
                                Known: ${AREA_IDS.join(', ')}
   --app-cli-name <name>        Override the consumer's CLI binary name.
@@ -1141,10 +1141,16 @@ export function parseArgs(argv) {
       case '--app': opts.app = value; break;
       case '--base': opts.base = value; break;
       case '--out': opts.out = value; break;
-      case '--format':
-        if (!['json', 'md', 'both'].includes(value)) throw new UsageError(`--format must be json, md or both, got: ${value}`);
-        opts.format = value;
+      case '--format': {
+        // `md,json` (either order) is accepted as a spelling of `both`.
+        const parts = [...new Set(value.split(',').map((s) => s.trim()))].sort();
+        const valid = parts.length > 0 && parts.every((f) => ['json', 'md', 'both'].includes(f));
+        if (!valid || (parts.includes('both') && parts.length > 1)) {
+          throw new UsageError(`--format must be json, md, both or md,json, got: ${value}`);
+        }
+        opts.format = parts.length === 2 ? 'both' : parts[0];
         break;
+      }
       case '--areas': {
         const areas = value.split(',').map((s) => s.trim()).filter(Boolean);
         const unknown = areas.filter((a) => !AREA_IDS.includes(a));
