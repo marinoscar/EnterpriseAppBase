@@ -191,6 +191,16 @@ describe('scripts/check-package-docs.mjs', () => {
       );
     });
 
+    it('accepts schema, the kind of a contract schema (#701), when the tag and the row agree', () => {
+      const root = fixture((r) => {
+        edit(r, README, (t) => t.replace('| registry |', '| schema |'));
+        edit(r, API_JSON, (t) => t.replace('"text": "registry"', '"text": "schema"'));
+      });
+      const result = check(root);
+      expect(result.stdout).toContain('1 packages, 2 READMEs, 2 extension points OK');
+      expect(result.status).toBe(0);
+    });
+
     it('a Kind outside the vocabulary', () => {
       const root = fixture((r) => edit(r, README, (t) => t.replace('| registry |', '| plugin |')));
       const result = check(root);

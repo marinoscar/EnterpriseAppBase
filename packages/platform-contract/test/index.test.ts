@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
-import { PLATFORM_PACKAGE } from './index.js';
+import { PLATFORM_PACKAGE } from '../src/index.js';
 
 const require = createRequire(import.meta.url);
 const manifest = require('../package.json') as {

@@ -67,7 +67,7 @@ Sample rows (from `packages/platform-<pkg>/src/<slice>/` the reference app is fo
 | `DOCTOR_OPTIONS` | token | `InjectionToken<DoctorOptions>` | Read the resolved options in a custom check | experimental | [example](../../../../apps/api/src/doctor/doctor.config.ts) |
 ```
 
-`Kind` is one of `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook`, `component`. `Stability` is `stable` or `experimental`. A slice with no extension point writes `None.` and one sentence why instead of the table.
+`Kind` is one of `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook`, `component`, `schema`. `Stability` is `stable` or `experimental`. A slice with no extension point writes `None.` and one sentence why instead of the table.
 
 ## Data
 

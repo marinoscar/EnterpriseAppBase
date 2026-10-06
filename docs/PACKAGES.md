@@ -57,7 +57,7 @@ One table, these columns in this order:
 | Column | Content |
 |---|---|
 | Name | The exported name, in backticks; `Class.member` for a member (`DoctorRegistry.register`). A trailing `()` is ignored. |
-| Kind | The symbol's `@extensionPoint` value: `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook` or `component`. |
+| Kind | The symbol's `@extensionPoint` value: `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook`, `component` or `schema` (a contract schema an app extends with `.extend()`). |
 | Signature | The shape an app codes against. Escape a pipe in a union type as `\|`. |
 | When to use | One sentence: the situation that calls for this seam rather than another rung of the extension ladder. |
 | Stability | The symbol's `@stability` value: `stable` or `experimental`. `internal` symbols are never exported, so never listed. |
