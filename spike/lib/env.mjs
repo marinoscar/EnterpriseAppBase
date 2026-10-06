@@ -229,3 +229,5 @@ export function copyRealMigrations(dir, { only } = {}) {
 export const realMigrationDirs = () => readdirSync(join(API_ROOT, 'prisma', 'migrations'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
 
 export const tsc = (args, opts) => run(process.execPath, [join(REPO_ROOT, 'node_modules', 'typescript', 'bin', 'tsc'), ...args], opts);
+
+export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

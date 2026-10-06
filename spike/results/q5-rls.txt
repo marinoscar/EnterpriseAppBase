@@ -1,0 +1,205 @@
+
+=== q5-rls ===
+roles: pp_5_1_owner, pp_5_1_minted, pp_5_1_bypass, pp_5_1_tenant, pp_5_1_creator (all prefixed pp_5_1_, dropped at the end)
+--- role attributes
+    postgres: superuser=true bypassrls=true
+    pp_5_1_owner: superuser=false bypassrls=false
+    pp_5_1_bypass: superuser=false bypassrls=true
+--- migration.sql (RLS part)
+     (hand-written: Prisma's schema language has no syntax for it)
+    ALTER TABLE "spike_tenant_rows" ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE "spike_tenant_rows" FORCE ROW LEVEL SECURITY;
+    CREATE POLICY "org_isolation" ON "spike_tenant_rows"
+      USING (
+        "org_id" = NULLIF(current_setting('app.org_id', true), '')::uuid
+        OR current_setting('app.rls_bypass', true) = 'on'
+      );
+    ALTER TABLE "spike_parents" ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE "spike_parents" FORCE ROW LEVEL SECURITY;
+    CREATE POLICY "org_isolation" ON "spike_parents"
+      USING (
+        "org_id" = NULLIF(current_setting('app.org_id', true), '')::uuid
+        OR current_setting('app.rls_bypass', true) = 'on'
+      );
+    ALTER TABLE "spike_leaves" ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE "spike_leaves" FORCE ROW LEVEL SECURITY;
+    CREATE POLICY "org_isolation" ON "spike_leaves"
+      USING (
+        "org_id" = NULLIF(current_setting('app.org_id', true), '')::uuid
+        OR current_setting('app.rls_bypass', true) = 'on'
+      );
+PASS  migrate deploy (as the NON-superuser owner role) applies the RLS migration  (Applying migration `20261006000000_init_rls`)
+PASS  client generates
+--- migrate diff live DB (RLS enabled, FORCE, policies) -> schema
+    exit 0
+    -- This is an empty migration.
+PASS  Prisma 7.9 `migrate diff` is blind to ENABLE/FORCE ROW LEVEL SECURITY and policies (no drift, so no allow-list entry is needed, but also no Prisma-side check)
+PASS  catalogue: both tables have relrowsecurity AND relforcerowsecurity
+PASS  FORCE ROW LEVEL SECURITY: an UNSCOPED insert by the table owner is REFUSED (fail-closed)  (Database error. Code: `42501`. Message: `new row violates row-level security policy for table "spike_tenant_rows"`)
+
+## 1. per-operation scoping through a Prisma client extension
+PASS  an UNSCOPED client sees ZERO rows (findMany and $queryRaw): forgetting the scope fails closed
+PASS  scoped findMany returns exactly the org's 20 rows
+PASS  count / aggregate / groupBy are scoped
+PASS  findUnique of ANOTHER org's id returns null (row invisible, not "forbidden")
+PASS  WITH CHECK: creating a row for ANOTHER org is refused  (Database error. Code: `42501`. Message: `new row violates row-level security policy for table "spike_tenant_rows"`)
+PASS  creating a row for the own org works
+PASS  updateMany cannot touch another org (0 rows)
+PASS  deleteMany cannot touch another org (0 rows)
+PASS  update / upsert / delete of an own row work
+PASS  $queryRaw through the scoped client is scoped too (top-level $allOperations covers raw queries)  (n=20)
+PASS  relation includes keep working under the extension
+current_setting('app.org_id', true) on a connection that previously had a transaction-local value: ""
+...and on a brand-new connection: null
+PASS  the GUC reverts to NULL on a new session but to the EMPTY STRING on a used one: policies must use NULLIF(current_setting(..., true), '')
+
+## 2. interactive transactions
+PASS  runInScope: set_config at the top of ONE interactive transaction scopes every statement in it
+PASS  an error inside runInScope rolls the writes back
+PASS  a hand-written interactive $transaction + set_config(..., true) works (what the extension does for you)
+PASS  and the value does NOT outlive the transaction: the next statement on the pool is unscoped again
+
+  pitfall: extended client inside an interactive transaction
+  extended.$transaction(tx => tx.create(...); throw): outcome=rolled back, row persisted=true
+PASS  PITFALL CONFIRMED: ops of an extended client inside $transaction escape the transaction (hence runInScope hands out the UNEXTENDED tx)
+
+## 3. concurrent requests for two orgs: direct to PostgreSQL, pool of 1 (every request shares ONE server connection, like a transaction pooler)
+PASS  200 interleaved requests (extension and runInScope): ZERO cross-org rows, every request saw its own org's rows  (cross-org rows 0, short reads 0)
+PASS  NEGATIVE CONTROL: a SESSION-level set_config(..., false) on the same shared connection LEAKS between requests (the spec's rule is not optional)  (600 cross-org rows)
+
+## 3. concurrent requests for two orgs: direct to PostgreSQL, pool of 8
+PASS  200 interleaved requests (extension and runInScope): ZERO cross-org rows, every request saw its own org's rows  (cross-org rows 0, short reads 0)
+
+## 4. PgBouncer in pool_mode=transaction, ONE server connection for everyone
+PgBouncer 1.22.0; pool_mode=transaction; default_pool_size=1; clients connect to :6543
+PASS  PgBouncer is up and proxies the scratch database
+PASS  through PgBouncer (transaction mode, 1 server connection, 10 client connections): 200 interleaved requests, ZERO cross-org rows  (cross-org 0, short reads 0)
+PASS  through PgBouncer an unscoped client is still fail-closed
+PASS  NEGATIVE CONTROL through PgBouncer: session-level set_config LEAKS across clients  (20 cross-org rows)
+(a single client that sets a session value and queries immediately saw 20 rows: a session value only appears to work until the pooler re-assigns the connection)
+--- probe: a client startup option (PGOPTIONS="-c app.rls_bypass=on") sent THROUGH PgBouncer 1.22
+    exit 2
+    psql: error: connection to server at "127.0.0.1", port 6543 failed: FATAL:  unsupported startup parameter in options: app.rls_bypass
+  => dump and restore connect straight to the database endpoint (as POSTGRES_HOST does today), never through a pooler: they are session-level, long-lived and need the startup option.
+--- pgbouncer warnings
+    2026-10-06 20:36:52.578 UTC [5238] WARNING C-0x55cd9c73e0a0: (nodb)/(nouser)@127.0.0.1:47834 unsupported startup parameter in options: app.rls_bypass=on
+    2026-10-06 20:36:52.578 UTC [5238] WARNING C-0x55cd9c73e0a0: (nodb)/(nouser)@127.0.0.1:47834 pooler error: unsupported startup parameter in options: app.rls_bypass
+
+## 5. system work: a SEPARATE connection pool with the bypass flag
+PASS  the system client counts rows of every org (purge / doctor / backup shape)  (count=40)
+PASS  the system client can delete across orgs
+PASS  the tenant pool and the system pool never share a backend connection (separate PrismaClient, separate PrismaPg pool)  (tenant 5 backends, system 3)
+PASS  the bypass flag is not left behind on any connection (transaction-local)
+PASS  and the tenant pool is still fail-closed after system work
+
+## 6. threat model of the GUC approach
+PASS  ANY SQL executed on a connection can set the GUC (including to another org, or the bypass flag): RLS here defends against missing or wrong scoping in app code, NOT against SQL injection or arbitrary raw SQL
+  consequence: unscoped raw SQL needs a lint rule (spec: "Lint"), and the bypass flag may only be set by the system client wrapper.
+
+## 7. foreign keys and RLS: referential-integrity checks BYPASS row-level security
+PASS  a plain FK lets org B store a reference to org A's parent (the FK check reads the parent as the table owner, ignoring RLS)
+PASS  ...while org B cannot read that parent: a dangling-looking cross-tenant reference (and an existence oracle for foreign ids)
+PASS  a COMPOSITE foreign key (parent id, org id), declared in Prisma with fields: [nodeId, orgId], refuses the cross-org reference  (Foreign key constraint violated on the constraint: `spike_leaves_node_id_org_id_fkey`)
+PASS  and the same-org reference works
+
+## 8. the three bypass options
+
+### Option B: ENABLE without FORCE; the owner bypasses; scoped transactions SET LOCAL ROLE
+PASS  B: UNSCOPED code (no SET LOCAL ROLE) sees EVERY org's rows: it FAILS OPEN  (n=12)
+PASS  B: inside SET LOCAL ROLE + set_config the scope is enforced (5 rows)
+PASS  B: the tenant role with no org set sees nothing (the tenant role itself is fail-closed)
+   B costs: every new table needs GRANT ... TO tenant role (a package migration obligation), a second role on every deployment, and a role switch per transaction;
+   B can never FORCE (the owner would then be subject to policies and the "system" path disappears), so protection depends on every request path remembering SET LOCAL ROLE.
+PASS  B: pg_dump as the owner works with the current default arguments (owner bypasses) and captures all rows
+
+### Option C: a separate login role with BYPASSRLS
+PASS  C: a BYPASSRLS login sees every row of a FORCEd table with no flag at all  (n=40)
+PASS  C: pg_dump as that role works with today's default arguments (row_security off is fine for a BYPASSRLS role)
+--- a CREATEROLE (non-superuser) role like app_job_minter tries CREATE ROLE ... BYPASSRLS
+    permission denied to create role
+PASS  C: a CREATEROLE role cannot mint a BYPASSRLS role, so the per-job dump role (pg-job-role.broker.ts) cannot be made to bypass RLS this way  (permission denied to create role)
+PASS  C: nor can it ALTER an existing role to BYPASSRLS  (permission denied to alter role)
+   C also adds a second DATABASE login and therefore a new deployment secret (and one more thing to rotate and to hold outside the encrypted `credentials` table).
+   RDS: whether the master user may CREATE ROLE ... BYPASSRLS / hold BYPASSRLS is UNMEASURED here; the manual check is in docs/runbooks/rds-proxy-rls-check.md.
+
+## 9. option A with pg_dump and pg_restore (the arguments of buildPgDumpArgs / buildPgRestoreArgs)
+live table: 60 rows across two orgs
+--- D1: pg_dump as the app role, today's arguments (row_security = off)
+    exit 1
+    pg_dump: error: query failed: ERROR:  query would be affected by row-level security policy for table "spike_leaves"
+    HINT:  To disable the policy for the table's owner, use ALTER TABLE NO FORCE ROW LEVEL SECURITY.
+    pg_dump: detail: Query was: COPY public.spike_leaves (id, org_id, node_id) TO stdout;
+PASS  D1: with FORCE RLS the CURRENT backup invocation FAILS LOUDLY ("query would be affected by row-level security policy")
+--- D2: --enable-row-security WITHOUT the bypass flag
+    exit 0
+    rows captured in the archive: 0 of 60
+PASS  D2: DANGER, --enable-row-security alone exits 0 and writes an archive with ZERO rows (a silent empty backup)
+--- D3: --enable-row-security + PGOPTIONS="-c app.rls_bypass=on"
+    exit 0
+    rows captured: 60 of 60
+PASS  D3: the app role with --enable-row-security AND the bypass startup option captures EVERY row
+--- D3b: the bypass option WITHOUT --enable-row-security
+    exit 1
+    pg_dump: error: query failed: ERROR:  query would be affected by row-level security policy for table "spike_leaves"
+PASS  D3b: the GUC alone is not enough, pg_dump keeps row_security = off and still errors, so BOTH halves are required
+PASS  D4: the minted SELECT-only role also FAILS with today's arguments (policies apply to non-owners even without FORCE)
+PASS  D4: the minted role with --enable-row-security + PGOPTIONS bypass captures every row: option A needs NO change to the broker's role, grants or attributes  (rows 60)
+PASS  D4: that role, WITHOUT the flag, sees nothing (its SELECT grant alone no longer exposes tenant rows)
+--- D5: archive TOC entries for the RLS table
+    218; 1259 121231 TABLE public spike_tenant_rows pp_5_1_owner
+    3424; 0 121231 TABLE DATA public spike_tenant_rows pp_5_1_owner
+    3420; 3256 121252 POLICY public spike_leaves org_isolation pp_5_1_owner
+    3419; 3256 121251 POLICY public spike_parents org_isolation pp_5_1_owner
+    3418; 3256 121250 POLICY public spike_tenant_rows org_isolation pp_5_1_owner
+    3416; 0 121226 ROW SECURITY public spike_leaves pp_5_1_owner
+    3415; 0 121219 ROW SECURITY public spike_parents pp_5_1_owner
+    3417; 0 121231 ROW SECURITY public spike_tenant_rows pp_5_1_owner
+PASS  D5: the archive carries ROW SECURITY and POLICY entries (so a restore re-creates the protection)
+PASS  D5: FORCE is preserved in the archive
+   TOC order: TABLE DATA at 23, ROW SECURITY at 37, i.e. data is loaded BEFORE RLS is switched on
+--- R1: pg_restore as the app role, --exit-on-error, NO bypass option
+    exit 0
+    
+    rows in restored table: 60
+   observed: the restore SUCCEEDS and 60 of 60 rows are readable (as superuser)
+PASS  R2: pg_restore as the app role WITH PGOPTIONS bypass restores every row  (exit 0, rows 60)
+--- R3: pg_restore -j 3 (what database-restore.service.ts does) with ONLY the bypass option
+    exit 1
+    pg_restore: error: could not execute query: ERROR:  query would be affected by row-level security policy for table "spike_tenant_rows"
+    HINT:  To disable the policy for the table's owner, use ALTER TABLE NO FORCE ROW LEVEL SECURITY.
+    CONTEXT:  SQL statement "SELECT fk."parent_id" FROM ONLY "public"."spike_tenant_rows" fk LEFT OUTER JOIN ONLY "public"."spike_parents" pk ON ( pk."id" OPERATOR(pg_catalog.=) fk."parent_id") WHERE pk."id" IS NULL AND (fk."parent_id" IS NOT NULL)"
+    Command was: ALTER TABLE ONLY public.spike_tenant_rows
+PASS  R3: a PARALLEL restore with only the bypass option FAILS: pg_restore sets row_security = off, and the post-data ADD CONSTRAINT FOREIGN KEY check then trips over a FORCEd table ("query would be affected by row-level security policy")
+PASS  R3b: -j 3 with --enable-row-security AND the bypass option restores every row: the restore needs the SAME two halves as the dump  (exit 0, rows 60)
+PASS  R4: the restored database has the policy, ENABLE and FORCE intact
+PASS  R5: and the restored database enforces the policy (org A sees its 30 rows)  (n=30)
+--- R3c: -j 3 with --enable-row-security but NO bypass option
+    exit 0
+PASS  R3c: --enable-row-security ALONE also restores every row, because the archive loads TABLE DATA before ROW SECURITY is switched on; the bypass option is kept as defence for any step that reads rows after it (and for a restoring role that does not own the tables)  (rows 60)
+--- R6: pg_restore as a SUPERUSER with no flag (the cluster-admin shape)
+    exit 0
+    rows 60
+PASS  R6: a true superuser restores everything with no flag (superusers ignore RLS even under FORCE). On RDS the master user is NOT a superuser: UNMEASURED, see the runbook
+
+## 10. migrations and seeds under FORCE: a backfill is system work
+PASS  M1: a data migration that UPDATEs an RLS table WITHOUT the bypass applies "successfully" but changes ZERO rows (FORCE makes the owner subject to the policy)  (rows changed: 0)
+--- M2: a bare `SELECT set_config('app.rls_bypass', 'on', true);` as the first statement
+    migrate deploy exit 0; rows updated 0/60
+PASS  M2: a bare `SELECT set_config('app.rls_bypass', 'on', true);` as the first statement does NOT work: the schema engine runs a migration statement by statement, so a transaction-local value is gone before the UPDATE (0 rows, no error)  (0/60)
+--- M3: an explicit BEGIN; SELECT set_config(..., true); UPDATE ...; COMMIT;
+    migrate deploy exit 0; rows updated 60/60
+PASS  M3: an explicit BEGIN; SELECT set_config(..., true); UPDATE ...; COMMIT; updates every row  (60/60)
+--- M4: a SESSION-level `SELECT set_config(..., false)` (the schema engine's own connection, never a request pool)
+    migrate deploy exit 0; rows updated 60/60
+PASS  M4: a SESSION-level `SELECT set_config(..., false)` (the schema engine's own connection, never a request pool) updates every row  (60/60)
+   rule for migration authors: any statement that must see all orgs begins with that set_config; DDL is unaffected by RLS. (rows before: 0)
+
+## 11. overhead of per-operation scoping (indicative: localhost, shared 4-CPU machine, pool of 5)
+--- mean ms per call
+    bare findFirst (unscoped, returns nothing):         0.81
+    extension findFirst (BEGIN, set_config, query, COMMIT): 3.08
+    3 bare operations:                                     2.78
+    3 operations inside one runInScope:                   3.24
+PASS  scoping adds a bounded constant per operation (extension < 10x bare on localhost; runInScope amortises it over a unit of work)  (2.26 ms extra per extension call)
+
+68/68 checks passed
