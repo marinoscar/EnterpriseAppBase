@@ -11,8 +11,23 @@
 // ONE SANCTIONED SIBLING: `nodes/node-fleet-metrics.service.ts` (#606) creates
 // the `app.nodes.*` gauges, because its callback needs `NodeOffloadService` and
 // the fleet policy, which this global module cannot import without a cycle. It
-// takes its meter, clock and gate from `gaugeContext()` and its names from
-// `APP_METRIC_NAMES` below, so the conventions still have one owner.
+// takes its meter, clock and gate from `gaugeContext()` and its names, units
+// and descriptions from the app-metric registry (`createRegisteredGauge`), so
+// the conventions still have one owner.
+//
+// -----------------------------------------------------------------------------
+// DECLARED IN A REGISTRY (issue #680)
+// -----------------------------------------------------------------------------
+//
+// Every metric is declared in the app-metric registry (`app-metric.registry.ts`):
+// the platform's in `platform-app-metrics.ts`, an app's own in `APP_METRICS`
+// (`app-registrations/telemetry.ts`), both registered by
+// `app-metric.manifest.ts` (imported below). The constructor creates EVERY
+// registered counter and histogram from its declaration. The typed methods
+// below (`jobEnqueued`, `aiUsage`, …) are the platform's call sites; `add` and
+// `record` are the generic ones, and the documented way an app emits its own
+// metrics: they admit only the attribute keys the declaration lists and bound
+// each one (`enum`: the value or `other`; `free`: `boundLabel`).
 //
 // -----------------------------------------------------------------------------
 // OFF MEANS NO-OP, FOR FREE
@@ -86,7 +101,32 @@ import {
 } from '@opentelemetry/api';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import './app-metric.manifest';
+import { appMetricRegistry, type AppMetricDef, type AppMetricKeys } from './app-metric.registry';
+import {
+  AI_STATUS_VALUES,
+  AUTH_LOGIN_OUTCOME_VALUES,
+  AUTH_REFRESH_OUTCOME_VALUES,
+  BACKUP_OUTCOME_VALUES,
+  JOB_DEPTH_STATUS_VALUES,
+  JOB_EXECUTOR_VALUES,
+  JOB_REAP_OUTCOME_VALUES,
+  JOB_SETTLE_OUTCOME_VALUES,
+  NOTIFICATION_OUTCOME_VALUES,
+  type PlatformAppMetricKey,
+} from './platform-app-metrics';
 import { telemetryGate } from './telemetry-gate';
+
+export {
+  APP_METRIC_ATTRIBUTE_KEY_PATTERN,
+  APP_METRIC_NAME_PATTERN,
+  appMetricRegistry,
+  registerAppMetrics,
+  type AppMetricAttribute,
+  type AppMetricDef,
+  type AppMetricKeys,
+  type AppMetricKind,
+} from './app-metric.registry';
 
 /** The instrumentation scope every application metric is created under. */
 export const APP_METER_NAME = 'app';
@@ -103,42 +143,17 @@ export interface AppMetricsOptions {
   gauges?: boolean;
 }
 
-/** Every metric name, in one place (the docs quote this table). */
-export const APP_METRIC_NAMES = {
-  jobsEnqueued: 'app.jobs.enqueued',
-  jobsClaimed: 'app.jobs.claimed',
-  jobsSettled: 'app.jobs.settled',
-  jobsDuration: 'app.jobs.duration',
-  jobsReaped: 'app.jobs.reaped',
-  jobsQueueDepth: 'app.jobs.queue.depth',
-  jobsOldestPendingAge: 'app.jobs.oldest_pending.age',
-  backupRuns: 'app.backup.runs',
-  backupDuration: 'app.backup.duration',
-  backupSize: 'app.backup.size',
-  backupLastSuccessTimestamp: 'app.backup.last_success.timestamp',
-  backupLastSuccessSize: 'app.backup.last_success.size',
-  authLogins: 'app.auth.logins',
-  authRefreshes: 'app.auth.refreshes',
-  aiRequests: 'app.ai.requests',
-  aiTokens: 'app.ai.tokens',
-  aiDuration: 'app.ai.request.duration',
-  notificationDeliveries: 'app.notifications.deliveries',
-  // Worker-node fleet gauges (#606). Created by `nodes/node-fleet-metrics.service.ts`
-  // through `gaugeContext()`, because they read the nodes module's services.
-  nodesCount: 'app.nodes.count',
-  nodesCpuUtilization: 'app.nodes.cpu.utilization',
-  nodesMemoryRss: 'app.nodes.memory.rss',
-  nodesHeapUsed: 'app.nodes.heap.used',
-  nodesHeapLimit: 'app.nodes.heap.limit',
-  nodesEventLoopDelayP99: 'app.nodes.event_loop.delay.p99',
-  nodesStateDirFree: 'app.nodes.state_dir.free',
-  nodesStateDirTotal: 'app.nodes.state_dir.total',
-  nodesSlotsUsed: 'app.nodes.slots.used',
-  nodesSlotsTotal: 'app.nodes.slots.total',
-  nodesUptime: 'app.nodes.uptime',
-  nodesCounter: 'app.nodes.counter',
-  nodesTypesNoEligibleNode: 'app.nodes.types.no_eligible_node',
-} as const;
+/** A registered metric's code key: the platform's, or one an app declared (and typed by augmentation). */
+export type AppMetricKey = PlatformAppMetricKey | (keyof AppMetricKeys & string);
+
+/**
+ * Every metric name by code key, derived from the app-metric registry when this
+ * module is evaluated (after the manifest registered the platform's and the
+ * app's metrics). The docs quote this table.
+ */
+export const APP_METRIC_NAMES: Readonly<Record<AppMetricKey, string>> = Object.freeze(
+  Object.fromEntries(appMetricRegistry.list().map((def) => [def.key, def.name])) as Record<AppMetricKey, string>,
+);
 
 /** How long one gauge snapshot is reused across collections and callbacks. */
 export const GAUGE_CACHE_TTL_MS = 30_000;
@@ -154,38 +169,23 @@ const EMAIL_LIKE = /@[^@]*\./;
 export const OTHER_LABEL = 'other';
 export const UNKNOWN_LABEL = 'unknown';
 
-// Histogram buckets, in the instrument's unit (seconds).
-const JOB_DURATION_BUCKETS_S = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600];
-const BACKUP_DURATION_BUCKETS_S = [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400];
-const BACKUP_SIZE_BUCKETS_BY = [
-  1e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10, 5e10, 1e11,
-];
-const AI_DURATION_BUCKETS_S = [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300];
-
-// ---- Enumerated attribute values -------------------------------------------
+// ---- Enumerated attribute values (declared in `platform-app-metrics.ts`) ----
 
 export type JobExecutorLabel = 'server' | 'node';
-const JOB_EXECUTORS = new Set<string>(['server', 'node']);
-
-/** `JobSettleOutcome` values, mirrored so this file does not import the queue. */
-const JOB_SETTLE_OUTCOMES = new Set<string>([
-  'succeeded',
-  'failed',
-  'retry-scheduled',
-  'rate-limit-deferred',
-  'claim-lost',
-  'write-failed',
-]);
+const JOB_EXECUTORS = new Set<string>(JOB_EXECUTOR_VALUES);
+const JOB_SETTLE_OUTCOMES = new Set<string>(JOB_SETTLE_OUTCOME_VALUES);
+const JOB_REAP_OUTCOMES = new Set<string>(JOB_REAP_OUTCOME_VALUES);
 
 export type JobReapOutcome = 'requeued' | 'failed';
 
 /** The queue statuses the depth gauge reports (terminal rows are history, not depth). */
-const DEPTH_STATUSES = ['pending', 'running'] as const;
+const DEPTH_STATUSES = JOB_DEPTH_STATUS_VALUES;
 
 export type BackupOutcome = 'completed' | 'failed';
+const BACKUP_OUTCOMES = new Set<string>(BACKUP_OUTCOME_VALUES);
 
 export type AuthLoginOutcome = 'success' | 'allowlist_rejected' | 'disabled';
-const AUTH_LOGIN_OUTCOMES = new Set<string>(['success', 'allowlist_rejected', 'disabled']);
+const AUTH_LOGIN_OUTCOMES = new Set<string>(AUTH_LOGIN_OUTCOME_VALUES);
 
 export type AuthRefreshOutcome =
   | 'success'
@@ -194,19 +194,12 @@ export type AuthRefreshOutcome =
   | 'expired'
   | 'user_inactive'
   | 'device_revoked';
-const AUTH_REFRESH_OUTCOMES = new Set<string>([
-  'success',
-  'invalid',
-  'reuse_detected',
-  'expired',
-  'user_inactive',
-  'device_revoked',
-]);
+const AUTH_REFRESH_OUTCOMES = new Set<string>(AUTH_REFRESH_OUTCOME_VALUES);
 
-const AI_STATUSES = new Set<string>(['succeeded', 'failed', 'cancelled']);
+const AI_STATUSES = new Set<string>(AI_STATUS_VALUES);
 
 export type NotificationDeliveryOutcome = 'sent' | 'failed' | 'rate_limited' | 'error';
-const NOTIFICATION_OUTCOMES = new Set<string>(['sent', 'failed', 'rate_limited', 'error']);
+const NOTIFICATION_OUTCOMES = new Set<string>(NOTIFICATION_OUTCOME_VALUES);
 
 export interface AiUsageMetric {
   provider: string;
@@ -253,14 +246,44 @@ export interface AppGaugeContext {
   gateOpen: () => boolean;
 }
 
+/** A created counter or histogram with its declaration and its enum sets, precomputed. */
+interface RegisteredInstrument {
+  def: AppMetricDef;
+  instrument: Counter | Histogram;
+  enums: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+function registered(def: AppMetricDef, instrument: Counter | Histogram): RegisteredInstrument {
+  const enums = new Map<string, ReadonlySet<string>>();
+  for (const [key, rule] of Object.entries(def.attributes ?? {})) {
+    if (rule.kind === 'enum') enums.set(key, new Set(rule.values));
+  }
+  return { def, instrument, enums };
+}
+
 /** An enumerated value, or `other`. */
-function enumLabel(value: unknown, allowed: Set<string>): string {
+function enumLabel(value: unknown, allowed: ReadonlySet<string>): string {
   return typeof value === 'string' && allowed.has(value) ? value : OTHER_LABEL;
 }
 
 /** Non-negative finite number, or `null`. */
 function nonNegative(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Creates the observable gauge DECLARED under `key` in the app-metric registry,
+ * with its registered name, unit and description. For gauge providers
+ * (`registerGauges()` below, `NodeFleetMetrics`, an app's own provider): the
+ * callback is theirs, the descriptor is the registry's.
+ *
+ * @throws RegistryError `UNKNOWN_ID` when no metric is declared under `key`;
+ *   `Error` when the declared metric is not a gauge.
+ */
+export function createRegisteredGauge(meter: Meter, key: AppMetricKey): ObservableGauge {
+  const def = appMetricRegistry.require(key);
+  if (def.kind !== 'gauge') throw new Error(`App metric "${key}" is a ${def.kind}, not a gauge.`);
+  return meter.createObservableGauge(def.name, { description: def.description, unit: def.unit });
 }
 
 @Injectable()
@@ -272,20 +295,10 @@ export class AppMetricsService implements OnModuleInit {
   private readonly gateOpen: () => boolean;
   private readonly gaugesForced: boolean | undefined;
 
-  private readonly jobsEnqueued: Counter;
-  private readonly jobsClaimed: Counter;
-  private readonly jobsSettled: Counter;
-  private readonly jobsDuration: Histogram;
-  private readonly jobsReaped: Counter;
-  private readonly backupRuns: Counter;
-  private readonly backupDuration: Histogram;
-  private readonly backupSize: Histogram;
-  private readonly authLogins: Counter;
-  private readonly authRefreshes: Counter;
-  private readonly aiRequests: Counter;
-  private readonly aiTokens: Counter;
-  private readonly aiDuration: Histogram;
-  private readonly notificationDeliveries: Counter;
+  /** Every registered counter and histogram, by code key, created from its declaration. */
+  private readonly instruments = new Map<string, RegisteredInstrument>();
+  /** Keys `add`/`record` were called with that name no counter/histogram; logged once each. */
+  private readonly unknownKeys = new Set<string>();
 
   /** Distinct free-form values admitted so far, per attribute key. */
   private readonly seen = new Map<string, Set<string>>();
@@ -307,69 +320,22 @@ export class AppMetricsService implements OnModuleInit {
     this.gateOpen = options?.gateOpen ?? (() => telemetryGate.isEnabled());
     this.gaugesForced = options?.gauges;
 
-    const m = this.meter;
-    const N = APP_METRIC_NAMES;
-
-    this.jobsEnqueued = m.createCounter(N.jobsEnqueued, {
-      description: 'Jobs inserted into the queue (dedup hits excluded).',
-      unit: '{job}',
-    });
-    this.jobsClaimed = m.createCounter(N.jobsClaimed, {
-      description: 'Jobs claimed by an executor.',
-      unit: '{job}',
-    });
-    this.jobsSettled = m.createCounter(N.jobsSettled, {
-      description: 'Executor reports settled by the terminal state machine, by outcome.',
-      unit: '{job}',
-    });
-    this.jobsDuration = m.createHistogram(N.jobsDuration, {
-      description: 'Run time of one job attempt, from claim to settlement.',
-      unit: 's',
-      advice: { explicitBucketBoundaries: JOB_DURATION_BUCKETS_S },
-    });
-    this.jobsReaped = m.createCounter(N.jobsReaped, {
-      description: 'Abandoned running jobs recovered by the lease reaper.',
-      unit: '{job}',
-    });
-    this.backupRuns = m.createCounter(N.backupRuns, {
-      description: 'Database backup runs settled, by outcome.',
-      unit: '{run}',
-    });
-    this.backupDuration = m.createHistogram(N.backupDuration, {
-      description: 'Wall time of a settled database backup run.',
-      unit: 's',
-      advice: { explicitBucketBoundaries: BACKUP_DURATION_BUCKETS_S },
-    });
-    this.backupSize = m.createHistogram(N.backupSize, {
-      description: 'Size of a completed, verified database backup archive.',
-      unit: 'By',
-      advice: { explicitBucketBoundaries: BACKUP_SIZE_BUCKETS_BY },
-    });
-    this.authLogins = m.createCounter(N.authLogins, {
-      description: 'Interactive sign-in attempts, by provider and outcome.',
-      unit: '{login}',
-    });
-    this.authRefreshes = m.createCounter(N.authRefreshes, {
-      description: 'Refresh-token rotations, by outcome.',
-      unit: '{refresh}',
-    });
-    this.aiRequests = m.createCounter(N.aiRequests, {
-      description: 'AI provider round-trips, by provider, model, operation and status.',
-      unit: '{request}',
-    });
-    this.aiTokens = m.createCounter(N.aiTokens, {
-      description: 'AI tokens reported by the provider, by token_type (input|output).',
-      unit: '{token}',
-    });
-    this.aiDuration = m.createHistogram(N.aiDuration, {
-      description: 'Latency of one AI provider round-trip.',
-      unit: 's',
-      advice: { explicitBucketBoundaries: AI_DURATION_BUCKETS_S },
-    });
-    this.notificationDeliveries = m.createCounter(N.notificationDeliveries, {
-      description: 'Notification delivery attempts, by channel, event and outcome.',
-      unit: '{delivery}',
-    });
+    // Every registered counter and histogram, platform and app alike, with
+    // exactly its declared name, unit, description and buckets. Gauges are
+    // created by their providers (`createRegisteredGauge`).
+    for (const def of appMetricRegistry.list()) {
+      if (def.kind === 'counter') {
+        const instrument = this.meter.createCounter(def.name, { description: def.description, unit: def.unit });
+        this.instruments.set(def.key, registered(def, instrument));
+      } else if (def.kind === 'histogram') {
+        const instrument = this.meter.createHistogram(def.name, {
+          description: def.description,
+          unit: def.unit,
+          ...(def.buckets ? { advice: { explicitBucketBoundaries: [...def.buckets] } } : {}),
+        });
+        this.instruments.set(def.key, registered(def, instrument));
+      }
+    }
   }
 
   onModuleInit(): void {
@@ -382,7 +348,7 @@ export class AppMetricsService implements OnModuleInit {
 
   /** A job row was inserted (not a dedup collapse onto an existing row). */
   jobEnqueued(type: string): void {
-    this.safely(() => this.jobsEnqueued.add(1, { job_type: this.boundLabel('job_type', type) }));
+    this.safely(() => this.counter('jobsEnqueued').add(1, { job_type: this.boundLabel('job_type', type) }));
   }
 
   /** `count` jobs of `type` were claimed by `executor`. */
@@ -395,7 +361,7 @@ export class AppMetricsService implements OnModuleInit {
       }
       const exec = enumLabel(executor, JOB_EXECUTORS);
       for (const [jobType, count] of byType) {
-        this.jobsClaimed.add(count, { job_type: jobType, executor: exec });
+        this.counter('jobsClaimed').add(count, { job_type: jobType, executor: exec });
       }
     });
   }
@@ -416,9 +382,9 @@ export class AppMetricsService implements OnModuleInit {
         outcome: enumLabel(outcome, JOB_SETTLE_OUTCOMES),
         executor: executor ? enumLabel(executor, JOB_EXECUTORS) : UNKNOWN_LABEL,
       };
-      this.jobsSettled.add(1, attrs);
+      this.counter('jobsSettled').add(1, attrs);
       const ms = nonNegative(durationMs);
-      if (ms !== null) this.jobsDuration.record(ms / 1000, attrs);
+      if (ms !== null) this.histogram('jobsDuration').record(ms / 1000, attrs);
     });
   }
 
@@ -430,9 +396,9 @@ export class AppMetricsService implements OnModuleInit {
   leaseReaped(outcome: JobReapOutcome, count: number, type?: string): void {
     this.safely(() => {
       if (!(count > 0)) return;
-      const attrs: Attributes = { outcome: enumLabel(outcome, new Set(['requeued', 'failed'])) };
+      const attrs: Attributes = { outcome: enumLabel(outcome, JOB_REAP_OUTCOMES) };
       if (type !== undefined) attrs.job_type = this.boundLabel('job_type', type);
-      this.jobsReaped.add(count, attrs);
+      this.counter('jobsReaped').add(count, attrs);
     });
   }
 
@@ -443,13 +409,13 @@ export class AppMetricsService implements OnModuleInit {
   /** A backup run settled. `sizeBytes` is recorded only for a completed run. */
   backupSettled(outcome: BackupOutcome, durationMs: number | null, sizeBytes?: number | bigint | null): void {
     this.safely(() => {
-      const attrs: Attributes = { outcome: enumLabel(outcome, new Set(['completed', 'failed'])) };
-      this.backupRuns.add(1, attrs);
+      const attrs: Attributes = { outcome: enumLabel(outcome, BACKUP_OUTCOMES) };
+      this.counter('backupRuns').add(1, attrs);
       const ms = nonNegative(durationMs);
-      if (ms !== null) this.backupDuration.record(ms / 1000, attrs);
+      if (ms !== null) this.histogram('backupDuration').record(ms / 1000, attrs);
       if (outcome === 'completed') {
         const size = nonNegative(typeof sizeBytes === 'bigint' ? Number(sizeBytes) : sizeBytes);
-        if (size !== null) this.backupSize.record(size, attrs);
+        if (size !== null) this.histogram('backupSize').record(size, attrs);
       }
     });
   }
@@ -460,7 +426,7 @@ export class AppMetricsService implements OnModuleInit {
 
   authLogin(outcome: AuthLoginOutcome, provider = 'google'): void {
     this.safely(() =>
-      this.authLogins.add(1, {
+      this.counter('authLogins').add(1, {
         provider: this.boundLabel('auth_provider', provider),
         outcome: enumLabel(outcome, AUTH_LOGIN_OUTCOMES),
       }),
@@ -469,7 +435,7 @@ export class AppMetricsService implements OnModuleInit {
 
   authRefresh(outcome: AuthRefreshOutcome): void {
     this.safely(() =>
-      this.authRefreshes.add(1, { outcome: enumLabel(outcome, AUTH_REFRESH_OUTCOMES) }),
+      this.counter('authRefreshes').add(1, { outcome: enumLabel(outcome, AUTH_REFRESH_OUTCOMES) }),
     );
   }
 
@@ -492,15 +458,15 @@ export class AppMetricsService implements OnModuleInit {
           : UNKNOWN_LABEL,
       };
 
-      this.aiRequests.add(1, withStatus);
+      this.counter('aiRequests').add(1, withStatus);
 
       const ms = nonNegative(event.latencyMs);
-      if (ms !== null) this.aiDuration.record(ms / 1000, withStatus);
+      if (ms !== null) this.histogram('aiDuration').record(ms / 1000, withStatus);
 
       const input = nonNegative(event.inputTokens);
-      if (input !== null && input > 0) this.aiTokens.add(Math.round(input), { ...base, token_type: 'input' });
+      if (input !== null && input > 0) this.counter('aiTokens').add(Math.round(input), { ...base, token_type: 'input' });
       const output = nonNegative(event.outputTokens);
-      if (output !== null && output > 0) this.aiTokens.add(Math.round(output), { ...base, token_type: 'output' });
+      if (output !== null && output > 0) this.counter('aiTokens').add(Math.round(output), { ...base, token_type: 'output' });
     });
   }
 
@@ -510,12 +476,85 @@ export class AppMetricsService implements OnModuleInit {
 
   notificationDelivery(channel: string, outcome: NotificationDeliveryOutcome, eventKey?: string): void {
     this.safely(() =>
-      this.notificationDeliveries.add(1, {
+      this.counter('notificationDeliveries').add(1, {
         channel: this.boundLabel('notification_channel', channel),
         event: eventKey ? this.boundLabel('notification_event', eventKey) : UNKNOWN_LABEL,
         outcome: enumLabel(outcome, NOTIFICATION_OUTCOMES),
       }),
     );
+  }
+
+  // ===========================================================================
+  // Generic: any registered counter or histogram (issue #680)
+  // ===========================================================================
+
+  /**
+   * Adds `value` (default 1) to the counter registered under `key`, with its
+   * declared attributes only, each bounded (`enum` → the value or `other`;
+   * `free` → {@link boundLabel}). An undeclared attribute key is dropped. An
+   * unknown key, or a key that names a histogram or gauge, is a no-op logged
+   * once at `debug`. A negative or non-finite value is ignored (counters are
+   * monotonic). Never throws.
+   */
+  add(key: AppMetricKey | (string & {}), value = 1, attributes?: Record<string, unknown>): void {
+    this.safely(() => {
+      const entry = this.instrumentFor(key, 'counter');
+      const amount = nonNegative(value);
+      if (!entry || amount === null) return;
+      (entry.instrument as Counter).add(amount, this.boundAttributes(entry, attributes));
+    });
+  }
+
+  /**
+   * Records `value` on the histogram registered under `key`, with the same
+   * attribute rules as {@link add}. A negative or non-finite value is ignored.
+   * Never throws.
+   */
+  record(key: AppMetricKey | (string & {}), value: number, attributes?: Record<string, unknown>): void {
+    this.safely(() => {
+      const entry = this.instrumentFor(key, 'histogram');
+      const amount = nonNegative(value);
+      if (!entry || amount === null) return;
+      (entry.instrument as Histogram).record(amount, this.boundAttributes(entry, attributes));
+    });
+  }
+
+  /** The declared attributes of the metric, bounded; every other key dropped. */
+  private boundAttributes(entry: RegisteredInstrument, attributes: Record<string, unknown> | undefined): Attributes {
+    const out: Attributes = {};
+    if (!attributes || typeof attributes !== 'object') return out;
+
+    for (const [key, rule] of Object.entries(entry.def.attributes ?? {})) {
+      if (!Object.prototype.hasOwnProperty.call(attributes, key)) continue;
+      const raw = attributes[key];
+      if (raw === undefined || raw === null) continue;
+      const value = typeof raw === 'number' || typeof raw === 'boolean' ? String(raw) : raw;
+      const allowed = entry.enums.get(key);
+      out[key] = rule.kind === 'enum' && allowed ? enumLabel(value, allowed) : this.boundLabel(key, value);
+    }
+    return out;
+  }
+
+  private instrumentFor(key: string, kind: 'counter' | 'histogram'): RegisteredInstrument | null {
+    const entry = this.instruments.get(key);
+    if (entry && entry.def.kind === kind) return entry;
+
+    if (!this.unknownKeys.has(key)) {
+      this.unknownKeys.add(key);
+      const why = entry ? `is a ${entry.def.kind}` : appMetricRegistry.has(key) ? 'is a gauge' : 'is not registered';
+      this.logger.debug(`Metric "${String(key)}" ${why}; ${kind === 'counter' ? 'add' : 'record'}() ignored.`);
+    }
+    return null;
+  }
+
+  /** A platform counter, by key. */
+  private counter(key: PlatformAppMetricKey): Counter {
+    return this.instruments.get(key)!.instrument as Counter;
+  }
+
+  /** A platform histogram, by key. */
+  private histogram(key: PlatformAppMetricKey): Histogram {
+    return this.instruments.get(key)!.instrument as Histogram;
   }
 
   // ===========================================================================
@@ -569,23 +608,10 @@ export class AppMetricsService implements OnModuleInit {
     if (!this.gaugesEnabled()) return;
 
     try {
-      const N = APP_METRIC_NAMES;
-      const depth = this.meter.createObservableGauge(N.jobsQueueDepth, {
-        description: 'Jobs currently pending or running, by type and status.',
-        unit: '{job}',
-      });
-      const oldest = this.meter.createObservableGauge(N.jobsOldestPendingAge, {
-        description: 'Age of the oldest runnable pending job, by type.',
-        unit: 's',
-      });
-      const lastSuccessAt = this.meter.createObservableGauge(N.backupLastSuccessTimestamp, {
-        description: 'When the most recent completed database backup finished (unix seconds).',
-        unit: 's',
-      });
-      const lastSuccessSize = this.meter.createObservableGauge(N.backupLastSuccessSize, {
-        description: 'Size of the most recent completed database backup archive.',
-        unit: 'By',
-      });
+      const depth = createRegisteredGauge(this.meter, 'jobsQueueDepth');
+      const oldest = createRegisteredGauge(this.meter, 'jobsOldestPendingAge');
+      const lastSuccessAt = createRegisteredGauge(this.meter, 'backupLastSuccessTimestamp');
+      const lastSuccessSize = createRegisteredGauge(this.meter, 'backupLastSuccessSize');
 
       this.meter.addBatchObservableCallback(
         (result) => this.observeGauges(result, { depth, oldest, lastSuccessAt, lastSuccessSize }),
