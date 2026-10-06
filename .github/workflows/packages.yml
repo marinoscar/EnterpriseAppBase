@@ -59,3 +59,37 @@ jobs:
         run: |
           node -e "require('@marinoscar/platform-api'); require('@marinoscar/platform-db'); require('@marinoscar/platform-contract')"
           node --input-type=module -e "await import('@marinoscar/platform-web'); await import('@marinoscar/platform-cli'); await import('@marinoscar/platform-infra'); await import('@marinoscar/platform-contract')"
+
+  # Package documentation standard (issue #693; docs/PACKAGES.md): TypeDoc
+  # validation (every export documented) and scripts/check-package-docs.mjs
+  # (README outline, @stability, extension-point catalog against the tags,
+  # example links into the reference app). The generated API reference of
+  # each package is uploaded as the `api-reference` artifact; it is never
+  # committed.
+  package-docs:
+    name: Package docs
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # TypeDoc resolves imports between packages through their built types.
+      - run: npm run build:packages
+
+      - run: npm run check:package-docs
+
+      - name: Upload API reference
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-reference
+          path: packages/*/docs-api/
+          if-no-files-found: warn

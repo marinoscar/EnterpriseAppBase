@@ -527,7 +527,12 @@ npm run typecheck:packages
 npm run lint:packages        # boundary lint, packages/platform-*/src only
 npm run test:packages
 npm run dev:packages         # one build, then tsc --watch per package
+npm run docs:packages        # TypeDoc API reference per package (docs-api/, gitignored)
+npm run check:package-docs   # docs:packages, then the README and catalog checker
 ```
+
+How to document a package or slice so `check:package-docs` passes is in
+[PACKAGES.md](PACKAGES.md).
 
 Run `dev:packages` in its own terminal alongside the app dev servers. CI
 builds the packages right after `npm ci` in every job

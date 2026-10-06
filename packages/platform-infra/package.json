@@ -37,6 +37,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc --noEmit",
+    "docs": "typedoc --options typedoc.json",
     "test": "vitest",
     "test:run": "vitest run"
   },

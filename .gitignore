@@ -95,3 +95,7 @@ __pycache__/
 
 # Output of scripts/platform-drift.mjs (issue #674): a local measurement, never committed
 drift-report/
+
+# Generated API reference of the platform packages (TypeDoc, #693); built by
+# `npm run docs:packages`, uploaded by CI, never committed.
+packages/*/docs-api/
