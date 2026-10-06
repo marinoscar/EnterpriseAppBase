@@ -26,6 +26,7 @@ In this order:
 | [personal-access-tokens.md](personal-access-tokens.md) | Creating and using `pat_` tokens for scripts and CI |
 | [../SECURITY.md](../SECURITY.md) | Supported versions, private vulnerability reporting, response targets and scope |
 | [../apps/cli/README.md](../apps/cli/README.md) | `appctl`: install, `login`, `api`, `config`, `deploy`, `node`, CI usage |
+| [PACKAGES.md](PACKAGES.md) | Documenting a `@marinoscar/platform-*` package or slice: the README template, TSDoc tags, the extension-point catalog, TypeDoc and the `check:package-docs` checks |
 
 ## Feature specs
 

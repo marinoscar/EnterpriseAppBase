@@ -533,7 +533,7 @@ Stability levels:
 
 ## Package documentation standard
 
-**DECIDED principle; PROPOSED details.** Every package, and every slice inside a layer package, is documented well enough that a developer of a future app can extend it from the documentation alone. Documentation is part of the product: it ships, is versioned and is tested with the package.
+**DECIDED principle; PROPOSED details.** Every package, and every slice inside a layer package, is documented well enough that a developer of a future app can extend it from the documentation alone. Documentation is part of the product: it ships, is versioned and is tested with the package. The implementation (templates, TSDoc tags, TypeDoc configuration and the `check:package-docs` checks) is described in [PACKAGES.md](../PACKAGES.md).
 
 ### What ships with every package
 
