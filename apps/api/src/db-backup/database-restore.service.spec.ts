@@ -57,11 +57,13 @@ import {
   type DatabaseRestoreSeam,
 } from './database-restore.service';
 import type { DatabaseBackupRunnerService } from './db-backup-runner.service';
-import { DatabaseRestoreSwapError } from './db-backup.errors';
+import { DatabaseRestoreDisabledError, DatabaseRestoreSwapError } from './db-backup.errors';
 import type {
   DatabaseRestorePreflightService,
   RestorePreflightResult,
 } from './restore-preflight.service';
+import type { DeploymentMode } from '../common/deployment/deployment-mode';
+import { deploymentModeFor } from '../../test/helpers/deployment-mode.helper';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -173,6 +175,8 @@ function okPreflight(overrides: PreflightOverrides = {}): RestorePreflightResult
 // ---------------------------------------------------------------------------
 
 interface HarnessOptions {
+  /** #685: the deployment mode. Unset means `self-hosted`, every existing case. */
+  deploymentMode?: DeploymentMode;
   /**
    * #353: what `startRestore`'s durable guard finds already queued. `null`
    * (the default) means nothing is.
@@ -501,6 +505,7 @@ function makeHarness(options: HarnessOptions = {}) {
     notifications,
     config,
     jobs,
+    deploymentModeFor(options.deploymentMode),
     seam
   );
 
@@ -1886,5 +1891,104 @@ describe('the retained-database sweep', () => {
 
     expect(await h.service.dropExpiredOldDatabases(POLICY, NOW)).toBe(0);
     expect(h.statements()).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// DEPLOYMENT_MODE=saas (#685): in-app restore does not exist
+// ===========================================================================
+describe('in DEPLOYMENT_MODE=saas (#685)', () => {
+  /** Every collaborator a restore could touch, as spies on the SAME harness. */
+  function saasHarness(options: HarnessOptions = {}) {
+    const h = makeHarness({ ...options, deploymentMode: 'saas' });
+    const withAdminConnection = jest.spyOn(h.seam, 'withAdminConnection');
+    const resolveConnection = jest.spyOn(h.seam, 'resolveConnection');
+
+    /** Nothing was read, probed, downloaded, dumped, queued or executed. */
+    const expectUntouched = () => {
+      expect(h.jobFindFirst).not.toHaveBeenCalled();
+      expect(h.check).not.toHaveBeenCalled();
+      expect(h.download).not.toHaveBeenCalled();
+      expect(h.startBackup).not.toHaveBeenCalled();
+      expect(h.enqueue).not.toHaveBeenCalled();
+      expect(h.runPgRestore).not.toHaveBeenCalled();
+      expect(resolveConnection).not.toHaveBeenCalled();
+      expect(withAdminConnection).not.toHaveBeenCalled();
+      expect(h.statements()).toEqual([]);
+      expect(h.stateWrites).toEqual([]);
+      expect(h.auditRows).toEqual([]);
+    };
+
+    return { h, expectUntouched, withAdminConnection };
+  }
+
+  it('startRestore refuses FIRST — before the queue guard, the pre-flight and any connection', async () => {
+    const { h, expectUntouched } = saasHarness();
+
+    await expect(h.service.startRestore(backupRow(), { actorUserId: ACTOR })).rejects.toBeInstanceOf(
+      DatabaseRestoreDisabledError
+    );
+
+    expectUntouched();
+  });
+
+  it('refuses even with the schema override, which unblocks one gate and never this one', async () => {
+    const { h, expectUntouched } = saasHarness();
+
+    await expect(
+      h.service.startRestore(backupRow(), { actorUserId: ACTOR, overrideSchemaMismatch: true })
+    ).rejects.toBeInstanceOf(DatabaseRestoreDisabledError);
+
+    expectUntouched();
+  });
+
+  it('rollback refuses before the existence probe opens an admin connection', async () => {
+    const { h, expectUntouched } = saasHarness({ databases: [OLD] });
+    const swapped = backupRow({
+      restoreStatus: 'completed',
+      restoreScratchDb: SCRATCH,
+      restoreOldDb: OLD,
+      preRestoreBackupId: 'pre-restore-run',
+    });
+
+    await expect(h.service.rollback(swapped, ACTOR)).rejects.toBeInstanceOf(
+      DatabaseRestoreDisabledError
+    );
+
+    expectUntouched();
+    expect(h.cluster.has(OLD)).toBe(true);
+  });
+
+  it('executeRestoreJob refuses a job queued before the switch without reading the run', async () => {
+    const { h, expectUntouched } = saasHarness();
+    const job = {
+      id: 'job-queued-while-self-hosted',
+      payload: {
+        runId: backupRow().id,
+        actorUserId: ACTOR,
+        scratchDatabase: SCRATCH,
+        oldDatabase: OLD,
+        rollbackMode: 'retain_database',
+        startedAt: NOW.toISOString(),
+      },
+    } as never;
+
+    await expect(h.service.executeRestoreJob(job)).rejects.toBeInstanceOf(
+      DatabaseRestoreDisabledError
+    );
+
+    expectUntouched();
+  });
+
+  it('still drops a retained database past its window — cleanup is not a restore', async () => {
+    const expired = {
+      id: 'run-expired',
+      restoreOldDb: OLD,
+      swappedAt: new Date('2026-09-01T00:00:00.000Z'),
+    };
+    const { h } = saasHarness({ databases: [OLD], sweepRows: [expired] });
+
+    expect(await h.service.dropExpiredOldDatabases(POLICY, NOW)).toBe(1);
+    expect(h.cluster.has(OLD)).toBe(false);
   });
 });

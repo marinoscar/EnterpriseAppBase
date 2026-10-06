@@ -156,6 +156,7 @@ import {
 } from '@nestjs/common';
 import { DatabaseBackupRun, Prisma } from '@prisma/client';
 
+import { DeploymentModeService } from '../common/deployment/deployment-mode.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import type { PatchSystemSettingsDto } from '../settings/dto/update-system-settings.dto';
@@ -258,7 +259,10 @@ export class DatabaseBackupAdminService {
     // node's request is refused with come from the same probe — a second
     // implementation of "can we CREATE ROLE?" is how a screen starts saying yes
     // while the claim path says no.
-    private readonly jobRoles: PgJobRoleBroker
+    private readonly jobRoles: PgJobRoleBroker,
+    // #685. Read for `getConfig`'s `restore` block, and asserted first by both
+    // restore entry points below.
+    private readonly deployment: DeploymentModeService
   ) {}
 
   // =========================================================================
@@ -283,6 +287,11 @@ export class DatabaseBackupAdminService {
       ...policy,
       nextRunAt: this.projectNextRunAt(policy, now)?.toISOString() ?? null,
       activeRunId,
+      // #685. A deployment fact, not a setting: the page hides its restore and
+      // rollback actions on `available: false` and says why.
+      restore: this.deployment.inAppRestoreEnabled
+        ? { available: true, reason: null }
+        : { available: false, reason: 'deployment_mode_saas' },
     };
   }
 
@@ -744,6 +753,10 @@ export class DatabaseBackupAdminService {
     id: string,
     options: { overrideSchemaCheck: boolean; actorUserId: string }
   ): Promise<StartRestoreResult> {
+    // #685. Before the run lookup: in `saas` mode the answer is the same for
+    // every id, so nothing is read to give it.
+    this.refuseRestoreIfDisabled('restore', id, options.actorUserId);
+
     const run = await this.requireRestorableRun(id);
 
     this.logger.warn(
@@ -781,6 +794,9 @@ export class DatabaseBackupAdminService {
    * @throws {DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
    */
   async rollbackRestore(id: string, actorUserId: string): Promise<RestoreRollbackResult> {
+    // #685. See `startRestore`.
+    this.refuseRestoreIfDisabled('rollback', id, actorUserId);
+
     const run = await this.requireRunForRestore(id);
 
     if (run.restoreStatus === null) {
@@ -803,6 +819,30 @@ export class DatabaseBackupAdminService {
   // =========================================================================
   // Internals
   // =========================================================================
+
+  /**
+   * The deployment-mode gate for the two restore routes (#685).
+   *
+   * Logs the refusal at `warn` with the actor and the run, then rethrows the
+   * service's `DatabaseRestoreDisabledError` for the controller to map to 403.
+   * No audit event: the request never started anything, which is what an audit
+   * row would record.
+   */
+  private refuseRestoreIfDisabled(
+    operation: 'restore' | 'rollback',
+    runId: string,
+    actorUserId: string
+  ): void {
+    try {
+      this.deployment.assertInAppRestoreEnabled();
+    } catch (error) {
+      this.logger.warn(
+        `Refused a database ${operation} of backup run ${runId} requested by user ` +
+          `${actorUserId}: in-app restore is disabled (DEPLOYMENT_MODE=${this.deployment.mode}).`
+      );
+      throw error;
+    }
+  }
 
   /**
    * One `completed` run, or a typed refusal.

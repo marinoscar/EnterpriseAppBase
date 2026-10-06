@@ -97,6 +97,7 @@ import {
   sleep,
 } from '../helpers/scratch-database.helper';
 import { resolveDbSuite } from '../jobs/db-test-support';
+import { deploymentModeFor } from '../helpers/deployment-mode.helper';
 
 const { describeWithDb } = resolveDbSuite('database-restore-round-trip.db.spec');
 
@@ -228,6 +229,8 @@ async function buildEnvironment(dbName: string): Promise<Environment> {
       // make every case in this file assert against a restore that never
       // happened. `runQueuedRestore` below is the worker.
       new JobsService(prisma as unknown as PrismaService),
+      // #685: self-hosted, the only mode in which a restore runs at all.
+      deploymentModeFor('self-hosted'),
       seam
     );
   }

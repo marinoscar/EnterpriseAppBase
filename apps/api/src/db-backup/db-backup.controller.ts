@@ -127,6 +127,7 @@ import {
   ConflictException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -145,6 +146,7 @@ import { PERMISSIONS, ROLES } from '../common/constants/roles.constants';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import {
+  DatabaseRestoreDisabledError,
   DatabaseRestoreNotAllowedError,
   DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
@@ -198,11 +200,15 @@ export class DatabaseBackupController {
       'runtime cannot resolve — this endpoint stays a 200 in that case precisely so the screen ' +
       'that can fix the setting still loads. `activeRunId` names the run currently holding the ' +
       'single-active-run slot; treat it as a display value, never as a pre-flight check, ' +
-      'because the slot can be claimed by another instance between this read and your write.',
+      'because the slot can be claimed by another instance between this read and your write. ' +
+      '`restore` says whether this deployment offers in-app restore and rollback at all: ' +
+      '`available: false` with `reason: "deployment_mode_saas"` when `DEPLOYMENT_MODE=saas`, ' +
+      "in which case recovery is the database provider's point-in-time recovery and the two " +
+      'restore routes answer 403. Backups are unaffected.',
   })
   @ApiResponse({
     status: 200,
-    description: 'The policy, plus nextRunAt and activeRunId',
+    description: 'The policy, plus nextRunAt, activeRunId and restore availability',
     type: DatabaseBackupConfigDto,
   })
   async getConfig(): Promise<unknown> {
@@ -432,6 +438,13 @@ export class DatabaseBackupController {
       'The confirmation was missing or wrong (nothing was started), or the run is not a ' +
       'completed backup',
   })
+  @ApiResponse({
+    status: 403,
+    description:
+      'The caller lacks `db_backup:restore`, or in-app restore is disabled on this deployment ' +
+      '(`DEPLOYMENT_MODE=saas`): then `details.reason` is `deployment_mode_saas`, nothing was ' +
+      "read or started, and recovery is the database provider's point-in-time recovery",
+  })
   @ApiResponse({ status: 404, description: 'No such run' })
   @ApiResponse({
     status: 409,
@@ -512,6 +525,13 @@ export class DatabaseBackupController {
     description:
       'The confirmation was missing or wrong (nothing was started), or this run was never ' +
       'restored so there is no swap to undo',
+  })
+  @ApiResponse({
+    status: 403,
+    description:
+      'The caller lacks `db_backup:restore`, or in-app restore is disabled on this deployment ' +
+      '(`DEPLOYMENT_MODE=saas`): then `details.reason` is `deployment_mode_saas`, nothing was ' +
+      "read or started, and recovery is the database provider's point-in-time recovery",
   })
   @ApiResponse({ status: 404, description: 'No such run' })
   @ApiResponse({
@@ -611,6 +631,16 @@ export class DatabaseBackupController {
    * `db-backup-admin.service.ts`'s header.
    */
   private toHttp(error: unknown): unknown {
+    if (error instanceof DatabaseRestoreDisabledError) {
+      // A 403 rather than a 400 or 409 (#685): the request is well formed and
+      // nothing is in conflict — this DEPLOYMENT does not offer the operation,
+      // whatever permission the caller holds, and retrying cannot change that.
+      return new ForbiddenException({
+        message: error.message,
+        details: { reason: error.reason },
+      });
+    }
+
     if (error instanceof DatabaseRestoreRunNotFoundError) {
       return new NotFoundException({
         message: error.message,

@@ -68,6 +68,9 @@ export class UpdateDatabaseBackupConfigDto extends createZodDto(
 /** The parsed shape `DatabaseBackupAdminService.updateConfig` consumes. */
 export type UpdateDatabaseBackupConfig = z.output<typeof updateDatabaseBackupConfigSchema>;
 
+/** Why `restore.available` is false. One today; the enum is the contract. */
+export const RESTORE_UNAVAILABLE_REASONS = ['deployment_mode_saas'] as const;
+
 export const databaseBackupConfigSchema = systemDatabaseBackupSchema.extend({
   /**
    * When the schedule will next fire, in UTC.
@@ -101,6 +104,20 @@ export const databaseBackupConfigSchema = systemDatabaseBackupSchema.extend({
    * for why a `findFirst` before the insert is racy exactly when it matters.
    */
   activeRunId: z.uuid().nullable(),
+
+  /**
+   * Whether this deployment offers in-app restore and rollback (#685).
+   *
+   * A DEPLOYMENT FACT, not part of the stored policy and not settable through
+   * `PUT config`: it comes from `DEPLOYMENT_MODE`, which only whoever runs the
+   * infrastructure can change. `available: false` means the restore and
+   * rollback routes answer 403 for everyone; `reason` says why, with the same
+   * token those 403s carry in `details.reason`. Backups are unaffected.
+   */
+  restore: z.object({
+    available: z.boolean(),
+    reason: z.enum(RESTORE_UNAVAILABLE_REASONS).nullable(),
+  }),
 });
 
 export class DatabaseBackupConfigDto extends createZodDto(databaseBackupConfigSchema) {}

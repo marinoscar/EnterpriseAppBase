@@ -26,12 +26,15 @@ import {
   DatabaseRestoreRunHandler,
   RESTORE_JOB_MAX_RUNTIME_MS,
 } from './db-restore-run.handler';
+import type { DeploymentMode } from '../../common/deployment/deployment-mode';
+import { DatabaseRestoreDisabledError } from '../db-backup.errors';
+import { deploymentModeFor } from '../../../test/helpers/deployment-mode.helper';
 
-function makeHandler() {
+function makeHandler(mode: DeploymentMode = 'self-hosted') {
   const registry = new JobHandlerRegistry();
   const executeRestoreJob = jest.fn(async () => undefined);
   const restore = { executeRestoreJob } as unknown as DatabaseRestoreService;
-  const handler = new DatabaseRestoreRunHandler(registry, restore);
+  const handler = new DatabaseRestoreRunHandler(registry, restore, deploymentModeFor(mode));
 
   handler.onModuleInit();
 
@@ -91,5 +94,24 @@ describe('DatabaseRestoreRunHandler', () => {
     executeRestoreJob.mockRejectedValue(new Error('pg_restore exited 1') as never);
 
     await expect(handler.process({ id: 'job-1' } as never)).rejects.toThrow('pg_restore exited 1');
+  });
+
+  describe('in DEPLOYMENT_MODE=saas (#685)', () => {
+    it('refuses the job with DatabaseRestoreDisabledError and never reaches the service', async () => {
+      // A job queued while the deployment was still self-hosted: the payload
+      // is irrelevant, because nothing reads it.
+      const { handler, executeRestoreJob } = makeHandler('saas');
+      const job = { id: 'job-queued-before-the-switch', payload: { runId: 'r' } } as never;
+
+      await expect(handler.process(job)).rejects.toBeInstanceOf(DatabaseRestoreDisabledError);
+      expect(executeRestoreJob).not.toHaveBeenCalled();
+    });
+
+    it('stays registered and server-only, so the queue can still claim and fail it', () => {
+      const { registry, handler } = makeHandler('saas');
+
+      expect(registry.get(DB_RESTORE_RUN_TYPE)).toBe(handler);
+      expect(registry.serverOnlyTypes()).toContain(DB_RESTORE_RUN_TYPE);
+    });
   });
 });
