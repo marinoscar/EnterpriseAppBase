@@ -120,7 +120,7 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 ## Extension-point catalog
 
-Seven symbols are extension points; the other exports are the types, errors and constants that go with them (listed below the table). The full recipe (declaring entries, writing a manifest, instance versus static registries) is [the app's registry README](../../../../apps/api/src/common/registry/README.md).
+Seven symbols are extension points; the other exports are the types, errors and constants that go with them (listed below the table). The full recipe (declaring entries, writing a manifest, instance versus static registries) is [registry/README.md](./registry/README.md).
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
@@ -194,5 +194,5 @@ None (first release).
 ## Links
 
 - Spec: [platform-packages.md](../../../../docs/specs/platform-packages.md), "The Extension Contract" (rung 2, registries).
-- Recipe and behaviour rules: [common/registry/README.md](../../../../apps/api/src/common/registry/README.md).
+- Recipe and behaviour rules: [registry/README.md](./registry/README.md).
 - Package README: [platform-api](../../README.md).

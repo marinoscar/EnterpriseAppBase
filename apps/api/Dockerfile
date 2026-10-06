@@ -78,9 +78,10 @@ COPY apps/web/package.json ./apps/web/
 # trade worth making to remove the failure mode entirely.
 COPY packages/shared ./packages/shared/
 # `@marinoscar/platform-api` (issue #694) is a workspace dependency of this app:
-# `src/common/registry` re-exports it, and since #696 the admin Doctor
-# (`src/doctor/doctor.config.ts`) and the host ports (`src/platform/`) come from
-# it, so the API cannot boot without its built `dist/`. Copied whole for the same reason as packages/shared above (every
+# it imports the package's `core` slice (registry, exception filter, secret
+# cipher, host ports; issues #696 and #698) and the admin Doctor
+# (`src/doctor/doctor.config.ts`), so the API cannot boot without its built
+# `dist/`. Copied whole for the same reason as packages/shared above (every
 # later stage inherits it through `COPY --from=deps /app ./`, production
 # included, where node_modules/@marinoscar/platform-api is a symlink into it)
 # and built right after `npm ci` below. It extends tsconfig.base.json.

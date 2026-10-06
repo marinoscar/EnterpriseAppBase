@@ -81,7 +81,7 @@ A check may reuse the test services' pure helpers where they exist. `push.vapid`
 
 ### 2.3 The registry
 
-`DoctorCheckRegistry` (`packages/platform-api/src/doctor/doctor-check.registry.ts`) is the one place that knows which checks run. It has `register`, `get` and `list` (registration order). It is built on the generic registry primitive (`@marinoscar/platform-api/core`; recipe in [`apps/api/src/common/registry/`](../../apps/api/src/common/registry/README.md)) as an instance registry, and freezes in `onApplicationBootstrap`, so a check that registers after every `onModuleInit` has run fails with `FROZEN`.
+`DoctorCheckRegistry` (`packages/platform-api/src/doctor/doctor-check.registry.ts`) is the one place that knows which checks run. It has `register`, `get` and `list` (registration order). It is built on the generic registry primitive ([`@marinoscar/platform-api/core`](../../packages/platform-api/src/core/registry/README.md)) as an instance registry, and freezes in `onApplicationBootstrap`, so a check that registers after every `onModuleInit` has run fails with `FROZEN`.
 
 **Explicit self-registration.** Each check lives in its owning feature module under `<module>/doctor/`, injects the registry and calls `this.registry.register(this)` from its own `onModuleInit`. This is the mechanism and the rationale of `apps/api/src/jobs/job-handler.registry.ts`: "why does the Doctor run this check?" has a grep-able answer (one `register(this)` line), and a check nobody wired up is a missing line in a diff rather than a decorator scan that silently matched nothing. Every `onModuleInit` has run before the first HTTP request, so the Doctor never races a registration.
 

@@ -7,7 +7,7 @@ import { BACKUP_KEY_PREFIX } from '../db-backup/db-backup-storage';
 import { NODE_OUTPUT_KEY_PREFIX } from '../nodes/node-data-plane.service';
 import { avatarKeyPrefix } from '../common/profile-image/profile-image';
 import { aiOutputKeyPrefix } from '../ai/storage/ai-output-writer';
-import { withTemporaryEntries } from '../common/registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { STORAGE_PROBE_KEY_PREFIX } from './config/storage-connection-test.service';
 import {
   STORAGE_KEY_PREFIX_PATTERN,
@@ -323,7 +323,7 @@ describe('storage-key-prefixes.ts stays a no-import leaf', () => {
   it('loaded alone (jest.isolateModules), it pulls in neither the manifest nor the registry', () => {
     jest.isolateModules(() => {
       require('./storage-key-prefixes');
-      const { listDefinedRegistries } = require('../common/registry') as typeof import('../common/registry');
+      const { listDefinedRegistries } = require('@marinoscar/platform-api/core') as typeof import('@marinoscar/platform-api/core');
 
       // Had the leaf loaded the manifest, this isolated copy of the primitive
       // would already have the storage-key-prefixes registry defined.

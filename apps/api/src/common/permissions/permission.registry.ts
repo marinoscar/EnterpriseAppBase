@@ -20,7 +20,7 @@
 //     the declaration files directly, so it stays free of side effects.
 // =============================================================================
 
-import { defineRegistry } from '../registry';
+import { defineRegistry } from '@marinoscar/platform-api/core';
 import type {
   PermissionDeclaration,
   PermissionDeclarationMap,

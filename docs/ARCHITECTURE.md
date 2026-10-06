@@ -735,7 +735,7 @@ Health endpoints (public, reachable during maintenance):
 | A packaged slice's access to the app (auth, audit, settings, Prisma; web transport and viewer) | [platform-api core README, Host ports](../packages/platform-api/src/core/README.md#host-ports), [platform-web core README](../packages/platform-web/src/core/README.md) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
-| A registry entry (permission, setting, …) | [registry/README.md](../apps/api/src/common/registry/README.md) |
+| A registry entry (permission, setting, …) | [registry/README.md](../packages/platform-api/src/core/registry/README.md) |
 | A permission or role (platform module or app) | [permissions/README.md](../apps/api/src/common/permissions/README.md) |
 | An object-storage key prefix | [specs/storage-providers.md §4](specs/storage-providers.md#4-extending-it-in-a-fork) |
 | A user-owned model (any model with a `User` relation) | [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md) |
