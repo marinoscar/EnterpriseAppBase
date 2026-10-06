@@ -453,8 +453,13 @@ node scripts/new-project.mjs --reset-release --license mit --holder "Your Name o
 
 - `--reset-release` resets `CHANGELOG.md` to `[Unreleased]` + `[0.1.0]` and
   sets all four workspace `package.json` versions to `0.1.0`.
-- `--license <id>` writes a `LICENSE` file and replaces the README's
-  `[Your License Here]` placeholder. Only `mit` and `proprietary` are built
+- `--license <id>` writes a `LICENSE` file. The template ships its own MIT
+  `LICENSE`, and MIT requires that notice to stay with substantial portions of
+  the code, so the script moves it to `LICENSE.platform` (it never deletes it)
+  and writes yours in its place; no `--force` is needed for that. Any other
+  existing `LICENSE` still needs `--force`. It also rewrites the README's
+  MIT licence line (and the older `[Your License Here]` placeholder) to point
+  at both files. Only `mit` and `proprietary` are built
   in — not because those are the only licences that exist, but because
   embedding the full text of every licence choice would make this script
   mostly licence text. For anything else (Apache-2.0, BSD, GPL, ...), copy

@@ -120,8 +120,9 @@ interactive API reference (Scalar) at `/api/docs`. On top of that stack:
    ```
 
    Add `--license mit --holder "Your Name"` to write a licence. The script
-   refuses to run while `origin` still points at the template's repository,
-   so rename and re-point the remote first.
+   keeps the template's own MIT notice as `LICENSE.platform` and writes yours
+   as `LICENSE`. It refuses to run while `origin` still points at the
+   template's repository, so rename and re-point the remote first.
 
 The full walkthrough, including what the rename leaves alone and the manual
 steps after it, is [docs/RENAMING.md](docs/RENAMING.md#starting-a-whole-new-project).
@@ -240,4 +241,6 @@ More debugging tips: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## License
 
-[Your License Here]
+MIT — see [LICENSE](LICENSE).
+
+To report a vulnerability, follow [SECURITY.md](SECURITY.md).

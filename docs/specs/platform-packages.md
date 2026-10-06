@@ -99,7 +99,7 @@ A reusable unit, a **slice**, can span all four layers. Telemetry is the cleares
 - EnterpriseAppBase is a template. Apps are forks created from it (`scripts/new-project.mjs`, `scripts/rename.mjs`; see [RENAMING.md](../RENAMING.md)).
 - Stack: React 19 and MUI 9 (web), NestJS 11 on Fastify, Prisma 7.8, Zod 4, PostgreSQL 16, Vite 8, TypeScript 6, Commander and ink (`appctl` CLI), Docker Compose, OpenTelemetry with GreptimeDB.
 - The workspaces are `apps/*` and `packages/*`; `packages/shared` already carries the product identity (`identity.json`) used by api, web and cli.
-- No `LICENSE` or `SECURITY.md` file exists in the repository today.
+- `LICENSE` (MIT), `SECURITY.md` and `CODEOWNERS` exist.
 
 **All four repositories run the same framework versions** (Nest 11.1, Prisma 7.8, Zod 4.4, React 19.2, MUI 9.1, Vite 8, TypeScript 6.0). No framework upgrade stands in the way of sharing code.
 
