@@ -19,7 +19,7 @@ name: Release
 #                    `platform-tarballs` artifact. No environment, no id-token,
 #                    so it never waits for approval and can never publish.
 #
-# There is no NPM_TOKEN, ever: the publish job authenticates with its OIDC
+# There is no npm token secret, ever: the publish job authenticates with its OIDC
 # token. The app release flow (deploy.yml, `v*` tags) is separate and
 # untouched; `platform-v<version>` tags mark platform releases.
 
@@ -162,7 +162,7 @@ jobs:
       - run: npm run test:packages
 
       # In pre mode `changeset publish` uses the `next` dist-tag by itself;
-      # never pass --tag latest. Versions already on the registry are skipped,
+      # never force the latest dist-tag. Versions already on the registry are skipped,
       # so a re-run is safe.
       - name: Publish (trusted publishing, provenance)
         run: npx changeset publish
