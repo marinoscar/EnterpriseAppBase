@@ -6,6 +6,7 @@ import { EmailSettingsController } from './email-settings.controller';
 import { EmailSettingsService } from './email-settings.service';
 import { EmailTestSendService } from './email-test-send.service';
 import { EmailConfigDoctorCheck } from './doctor/email-config.doctor-check';
+import { EmailEgressContributor } from './doctor/egress/email.egress.contributor';
 import { SesEmailProvider } from './providers/ses-email.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
 
@@ -67,6 +68,8 @@ import { SmtpEmailProvider } from './providers/smtp-email.provider';
     SmtpEmailProvider,
     // Doctor check (#634): reads the admin view, never sends.
     EmailConfigDoctorCheck,
+    // Egress inventory (#773): the SMTP relay or the SES regional endpoint.
+    EmailEgressContributor,
   ],
   // EmailTestSendService is deliberately NOT exported: sending a test message
   // is an admin action reached through this module's controller, not a service
