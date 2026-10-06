@@ -155,7 +155,10 @@ ran.
   become sections, comments above a key become its help, an active `KEY=value`
   is a required-shape entry, a commented `# KEY=value` is optional, and
   trailing inline comments are stripped from values.
-- **`env-metadata.ts`** is the only hard-coded list: `secret` (masked input,
+- **`env-metadata.ts`** plus the registered env-spec fragments are the only
+  hard-coded lists (the telemetry keys are `telemetryEnvSpecFragment` in
+  `@marinoscar/platform-cli/telemetry`, #706; `metadataFor` reads both, and a
+  key has one owner): `secret` (masked input,
   redacted in logs), `generate` (`randomBytes(32)` in-process for
   `JWT_SECRET`, `COOKIE_SECRET`, `SECRETS_ENCRYPTION_KEY`), validators (32-char
   minimum; `SECRETS_ENCRYPTION_KEY` must decode to 32 bytes), `derivedFrom`
@@ -414,7 +417,10 @@ GreptimeDB's PostgreSQL wire port is published on
 
 - **New environment variables.** Add them to `infra/compose/.env.example`; the
   wizard picks them up. Add an `env-metadata.ts` entry for anything secret
-  (`secret: true`), generated, derived, essential or grouped. Never add a
+  (`secret: true`), generated, derived, essential or grouped, or register an
+  env-spec fragment for a set of keys that belongs together
+  (`registerEnvSpecFragment` in `apps/cli/src/platform-host/register.ts`; see
+  [the CLI README](../../apps/cli/README.md#extending-the-cli-from-an-app)). Never add a
   commented `# KEY=value` example line that is not a real optional key: the
   parser treats it as a declaration.
 - **A new doctor check.** Add it to the matching module in `checks/` and to
