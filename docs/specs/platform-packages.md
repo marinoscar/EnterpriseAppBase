@@ -811,6 +811,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 | Upgrades | Customers upgrade on their own schedule | Forward-only expand/contract migrations, a supported upgrade path, the Doctor as a pre-upgrade check, release notes |
 | Supply chain | Not addressed | Signed images, an SBOM and vulnerability scanning |
 | Configuration | Runtime settings in the database; environment variables only for deployment secrets | Already fits |
+| Mode switch | `DEPLOYMENT_MODE` (`self-hosted`, the default, or `saas`), a deployment-level variable that fails startup on an unknown value (#685). `saas` disables in-app restore and rollback; backups stay | Further mode-dependent behaviour joins `DeploymentCapabilities` in `apps/api/src/common/deployment/`; see [database restore spec](database-restore.md#deployment-mode) |
 
 ## Scaling posture
 
