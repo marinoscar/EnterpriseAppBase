@@ -16,12 +16,8 @@
 // =============================================================================
 
 import { DEFAULT_SYSTEM_SETTINGS, DEFAULT_USER_SETTINGS } from '../../src/common/types/settings.types';
-import {
-  systemSettingsSchema,
-  systemSettingsPatchSchema,
-  userSettingsSchema,
-  userSettingsPatchSchema,
-} from '../../src/common/schemas/settings.schema';
+import { systemSettingsSchema, systemSettingsPatchSchema } from '../../src/settings/registry/composed';
+import { userSettingsSchema, userSettingsPatchSchema } from '../../src/common/schemas/settings.schema';
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,
@@ -33,7 +29,7 @@ import {
 } from '../../src/settings/dto/update-user-settings.dto';
 import { userSettingsResponseSchema } from '../../src/settings/dto/user-settings-response.dto';
 
-/** DEFAULT_SYSTEM_SETTINGS on main before #677, key order included. */
+/** DEFAULT_SYSTEM_SETTINGS on main before #677 (including #681's `retention`), key order included. */
 const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
   "notifications": {
     "browserEnabled": true,
@@ -135,6 +131,24 @@ const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
       "maxResultRowsToModel": 100,
       "maxSteps": 15
     }
+  },
+  "retention": {
+    "notifications": {
+      "enabled": true,
+      "days": 180
+    },
+    "notificationDeliveries": {
+      "enabled": true,
+      "days": 90
+    },
+    "auditEvents": {
+      "enabled": false,
+      "days": 365
+    },
+    "aiRuns": {
+      "enabled": true,
+      "days": 90
+    }
   }
 };
 
@@ -151,7 +165,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "maintenance",
   "storage",
   "ai",
-  "telemetry"
+  "telemetry",
+  "retention"
  ],
  "systemSettingsPatchSchema": [
   "notifications",
@@ -161,7 +176,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "maintenance",
   "storage",
   "ai",
-  "telemetry"
+  "telemetry",
+  "retention"
  ],
  "updateSystemSettingsSchema": [
   "notifications",
@@ -171,7 +187,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "maintenance",
   "storage",
   "ai",
-  "telemetry"
+  "telemetry",
+  "retention"
  ],
  "patchSystemSettingsSchema": [
   "notifications",
@@ -181,7 +198,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "maintenance",
   "storage",
   "ai",
-  "telemetry"
+  "telemetry",
+  "retention"
  ],
  "systemSettingsResponseSchema": [
   "security",
@@ -192,6 +210,7 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "maintenance",
   "storage",
   "ai",
+  "retention",
   "updatedAt",
   "updatedBy",
   "version"

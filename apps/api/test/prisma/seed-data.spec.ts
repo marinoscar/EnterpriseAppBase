@@ -6,7 +6,7 @@ import {
 } from '../../prisma/seed-data';
 import { PERMISSIONS as PERMISSION_CONSTANTS } from '../../src/common/constants/roles.constants';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import { systemSettingsSchema } from '../../src/common/schemas/settings.schema';
+import { systemSettingsSchema } from '../../src/settings/registry/composed';
 
 // =============================================================================
 // Seed data guard (#256, epic #254)

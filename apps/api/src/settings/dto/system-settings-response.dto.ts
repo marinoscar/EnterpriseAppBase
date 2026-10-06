@@ -1,30 +1,16 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-import {
-  notificationsResponseSchema,
-  jobsResponseSchema,
-  nodesResponseSchema,
-  databaseBackupResponseSchema,
-  maintenanceResponseSchema,
-  storageResponseSchema,
-  aiResponseSchema,
-  retentionResponseSchema,
-} from './system-settings-response.schemas';
+import { composedSystemSettingsResponseValue } from '../registry/composed';
 
 export const systemSettingsResponseSchema = z.object({
   security: z.object({
     jwtAccessTtlMinutes: z.number(),
     refreshTtlDays: z.number(),
   }),
-  notifications: notificationsResponseSchema,
-  jobs: jobsResponseSchema,
-  nodes: nodesResponseSchema,
-  databaseBackup: databaseBackupResponseSchema,
-  maintenance: maintenanceResponseSchema,
-  storage: storageResponseSchema,
-  ai: aiResponseSchema,
-  retention: retentionResponseSchema,
+  // One branch per registered system settings namespace (#677), in
+  // registration order; branches live in `system-settings-response.schemas.ts`.
+  ...composedSystemSettingsResponseValue,
   updatedAt: z.iso.datetime(),
   updatedBy: z
     .object({

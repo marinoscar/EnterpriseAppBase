@@ -1,9 +1,9 @@
 import { z } from 'zod';
+import { AI_PROVIDER_IDS } from './settings.schema';
 import {
-  AI_PROVIDER_IDS,
   systemSettingsSchema,
   systemSettingsPatchSchema,
-} from './settings.schema';
+} from '../../settings/registry/composed';
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,
