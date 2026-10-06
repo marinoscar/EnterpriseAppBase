@@ -22,3 +22,8 @@ export {
   type TripwireProblem,
   type TripwireProblemCode,
 } from './raw-sql-tripwire.js';
+export {
+  runDbConformance,
+  type DbConformanceOptions,
+  type DbConformanceTestApi,
+} from './db-conformance.js';
