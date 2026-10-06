@@ -3,8 +3,11 @@ import {
   EVENT_BROWSER_TEMPLATES,
   sanitizeLink,
 } from './browser-notification.channel';
-import { NOTIFICATION_EVENTS } from '../notification-events';
-import type { NotificationChannel } from '../notification-events';
+import { withTemporaryEntries } from '../../common/registry';
+import { NOTIFICATION_EVENTS, findEvent } from '../notification-events';
+import type { NotificationChannel, NotificationEventDef } from '../notification-events';
+import { eventBrowserTemplateRegistry, notificationEventRegistry } from '../registry';
+import type { BrowserNotificationTemplate } from './browser-templates';
 import type {
   NotificationDispatchContext,
   NotificationRecipient,
@@ -97,7 +100,7 @@ function contextFor(
   data: unknown = {},
   channels?: readonly NotificationChannel[],
 ): NotificationDispatchContext {
-  const event = NOTIFICATION_EVENTS.find((e) => e.key === eventKey);
+  const event = findEvent(eventKey);
   if (!event) {
     throw new Error(`Test fixture error: no such event '${eventKey}' in the registry.`);
   }
@@ -437,91 +440,105 @@ describe('BrowserNotificationChannel', () => {
   // Truncation, and a throwing template
   // ==========================================================================
   //
-  // `EVENT_BROWSER_TEMPLATES` is a plain (non-frozen) object exported for
-  // #128 to populate later. It is empty today, but nothing stops a test from
-  // registering a temporary entry at runtime to exercise `render()`'s other
-  // two branches — a template that returns oversized content, and one that
-  // throws — without touching the source file. Removed in `afterEach` so it
-  // never leaks into another test.
+  // Since #678 the renderers live in `eventBrowserTemplateRegistry`, which
+  // only accepts a renderer for a registered event that declares `browser` or
+  // `push`. So each test registers a throwaway browser event plus a renderer
+  // for it with `withTemporaryEntries`, which restores both registries when
+  // the test ends, to exercise `render()`'s other two branches — a template
+  // that returns oversized content, and one that throws — without touching the
+  // source file.
   // ==========================================================================
 
-  describe('title/body truncation (registered template returns oversized content)', () => {
-    const EVENT_KEY = 'user.welcome';
+  const RENDER_TEST_EVENT: NotificationEventDef = {
+    key: 'test.browser_render',
+    label: 'Render test',
+    description: 'A temporary event that exercises the browser renderer.',
+    channels: ['browser'],
+    defaultEnabled: true,
+  };
 
-    afterEach(() => {
-      delete EVENT_BROWSER_TEMPLATES[EVENT_KEY];
-    });
+  function withTemporaryTemplate<R>(
+    render: BrowserNotificationTemplate,
+    fn: () => Promise<R>,
+  ): Promise<R> {
+    return withTemporaryEntries(notificationEventRegistry, [RENDER_TEST_EVENT], () =>
+      withTemporaryEntries(
+        eventBrowserTemplateRegistry,
+        [{ eventKey: RENDER_TEST_EVENT.key, render }],
+        fn,
+      ),
+    );
+  }
+
+  describe('title/body truncation (registered template returns oversized content)', () => {
+    const EVENT_KEY = RENDER_TEST_EVENT.key;
 
     it('caps title at 200 chars and body at 2000 chars, each ending with an ellipsis', async () => {
       const oversizedTitle = 'T'.repeat(250);
       const oversizedBody = 'B'.repeat(2500);
 
-      EVENT_BROWSER_TEMPLATES[EVENT_KEY] = () => ({
+      await withTemporaryTemplate(() => ({
         title: oversizedTitle,
         body: oversizedBody,
+      }), async () => {
+        mockPrisma.notification.create.mockResolvedValue({
+          id: 'notif-1',
+          createdAt: new Date(),
+        });
+        mockStream.publish.mockReturnValue(0);
+
+        const context = contextFor(EVENT_KEY);
+        await channel.deliver(context, 'user-1');
+
+        const [[createArgs]] = mockPrisma.notification.create.mock.calls as unknown as [
+          [{ data: { title: string; body: string } }],
+        ];
+
+        expect(createArgs.data.title).toHaveLength(200);
+        expect(createArgs.data.title.endsWith('…')).toBe(true);
+        expect(createArgs.data.body).toHaveLength(2000);
+        expect(createArgs.data.body.endsWith('…')).toBe(true);
       });
-
-      mockPrisma.notification.create.mockResolvedValue({
-        id: 'notif-1',
-        createdAt: new Date(),
-      });
-      mockStream.publish.mockReturnValue(0);
-
-      const context = contextFor(EVENT_KEY);
-      await channel.deliver(context, 'user-1');
-
-      const [[createArgs]] = mockPrisma.notification.create.mock.calls as unknown as [
-        [{ data: { title: string; body: string } }],
-      ];
-
-      expect(createArgs.data.title).toHaveLength(200);
-      expect(createArgs.data.title.endsWith('…')).toBe(true);
-      expect(createArgs.data.body).toHaveLength(2000);
-      expect(createArgs.data.body.endsWith('…')).toBe(true);
     });
 
     it('leaves content under the cap untouched, with no ellipsis added', async () => {
-      EVENT_BROWSER_TEMPLATES[EVENT_KEY] = () => ({
+      await withTemporaryTemplate(() => ({
         title: 'Short title',
         body: 'Short body.',
+      }), async () => {
+        mockPrisma.notification.create.mockResolvedValue({
+          id: 'notif-1',
+          createdAt: new Date(),
+        });
+        mockStream.publish.mockReturnValue(0);
+
+        const context = contextFor(EVENT_KEY);
+        await channel.deliver(context, 'user-1');
+
+        const [[createArgs]] = mockPrisma.notification.create.mock.calls as unknown as [
+          [{ data: { title: string; body: string } }],
+        ];
+        expect(createArgs.data.title).toBe('Short title');
+        expect(createArgs.data.body).toBe('Short body.');
       });
-
-      mockPrisma.notification.create.mockResolvedValue({
-        id: 'notif-1',
-        createdAt: new Date(),
-      });
-      mockStream.publish.mockReturnValue(0);
-
-      const context = contextFor(EVENT_KEY);
-      await channel.deliver(context, 'user-1');
-
-      const [[createArgs]] = mockPrisma.notification.create.mock.calls as unknown as [
-        [{ data: { title: string; body: string } }],
-      ];
-      expect(createArgs.data.title).toBe('Short title');
-      expect(createArgs.data.body).toBe('Short body.');
     });
   });
 
   describe('when a registered template throws', () => {
-    const EVENT_KEY = 'user.welcome';
-
-    afterEach(() => {
-      delete EVENT_BROWSER_TEMPLATES[EVENT_KEY];
-    });
+    const EVENT_KEY = RENDER_TEST_EVENT.key;
 
     it('deliver() returns { success: false, error } WITHOUT ever calling prisma.notification.create', async () => {
-      EVENT_BROWSER_TEMPLATES[EVENT_KEY] = () => {
+      await withTemporaryTemplate(() => {
         throw new Error('template blew up');
-      };
+      }, async () => {
+        const context = contextFor(EVENT_KEY);
+        const result = await channel.deliver(context, 'user-1');
 
-      const context = contextFor(EVENT_KEY);
-      const result = await channel.deliver(context, 'user-1');
-
-      expect(result.success).toBe(false);
-      expect((result as { error: string }).error).toContain('template blew up');
-      expect(mockPrisma.notification.create).not.toHaveBeenCalled();
-      expect(mockStream.publish).not.toHaveBeenCalled();
+        expect(result.success).toBe(false);
+        expect((result as { error: string }).error).toContain('template blew up');
+        expect(mockPrisma.notification.create).not.toHaveBeenCalled();
+        expect(mockStream.publish).not.toHaveBeenCalled();
+      });
     });
   });
 

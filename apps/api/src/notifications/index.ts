@@ -38,13 +38,19 @@
 // #128 filled `EVENT_EMAIL_TEMPLATES` and `EVENT_BROWSER_TEMPLATES` and wired
 // the three real triggers — user creation in `AuthService.handleGoogleLogin`,
 // `AllowlistService.addEmail`, and `UsersService.updateUserRoles` — which
-// closes epic #109. Adding the next notification is three steps and is written
-// up under "Adding a notification" in the repository's CLAUDE.md.
+// closes epic #109.
+//
+// #678 (PP-1.6) turned those closed maps, the event list and the channel list
+// into registries (./registry). Adding a notification is now one
+// `registerNotification` entry next to the module that raises it, or in
+// `app-registrations/notifications.ts` for an app; see ./README.md, "Adding a
+// notification", and ./registry/README.md.
 // =============================================================================
 
 export {
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENTS,
+  listNotificationEvents,
   findEvent,
   channelsFor,
   supportsChannel,
@@ -96,6 +102,30 @@ export type { NotificationConfigResponse } from './dto/notification-config.dto';
 // from its own module if it ever needs to live in one.
 export { NOTIFICATION_CHANNEL_SENDERS } from './notification.types';
 
+// The registries (#678). Framework-free; see ./registry/README.md.
+export {
+  emailTemplateRegistry,
+  eventBrowserTemplateRegistry,
+  eventEmailTemplateRegistry,
+  notificationChannelRegistry,
+  notificationEventRegistry,
+  registerEmailTemplates,
+  registerNotification,
+  registerNotificationChannels,
+  registerNotifications,
+} from './registry';
+export type {
+  EmailTemplateEntry,
+  EventBrowserTemplateBinding,
+  EventEmailTemplateBinding,
+  NotificationChannelDef,
+  NotificationChannelIds,
+  NotificationRegistration,
+} from './registry';
+
+// Where an app's own channel sender registers itself (#678).
+export { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
+
 export type {
   NotificationChannel,
   NotificationEventDef,
@@ -120,13 +150,13 @@ export type {
 } from './dto/notification.dto';
 
 // The browser channel's template contract (#127). Exported as TYPES ONLY —
-// #128 needs these to write the renderers it registers in
-// `EVENT_BROWSER_TEMPLATES`, and nothing outside the channel needs the class
-// or the map itself.
+// a module needs these to write the renderer it binds with
+// `registerNotification({ browserTemplate })`, and nothing outside the channel
+// needs the class itself.
 export type {
   BrowserNotificationContent,
   BrowserNotificationTemplate,
-} from './channels/browser-notification.channel';
+} from './channels/browser-templates';
 
 // The live-stream payload and its SSE event name (#127). The web client needs
 // both — the shape it parses, and the string it passes to

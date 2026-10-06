@@ -32,8 +32,9 @@ job types, one table. It is not a second notification system.
 
 ### 2.1 Two registry events
 
-`NOTIFICATION_EVENTS` (`apps/api/src/notifications/notification-events.ts`)
-declares:
+`apps/api/src/notifications/broadcasts/broadcasts.notifications.ts` declares
+(registered into the notification event registry; see
+[browser-notifications.md §2.1](browser-notifications.md#21-the-event-registry)):
 
 ```ts
 { key: 'admin.broadcast',          label: 'Announcements',
@@ -100,10 +101,11 @@ newline inside a paragraph is joined with a space (mail clients reflow). Empty
 paragraphs are dropped. `broadcast.email.ts` interpolates each paragraph as a
 value into the `html` tagged literal (`email/templates/safe-html.ts`), which
 escapes by construction; `SafeHtml.unsafeFromTrustedString` is never called.
-The browser/push template (`EVENT_BROWSER_TEMPLATES`) is a projection that
+The browser/push template (`broadcastBrowserTemplate` in
+`notifications/channels/browser-templates.ts`, bound to both keys) is a projection that
 validates `title` and `body` are strings and throws otherwise (a recorded
 delivery failure). Truncation and link sanitising happen once, in the browser
-channel. The push channel reuses the browser template map, so neither event
+channel. The push channel reuses the browser binding, so neither event
 needs a third registration.
 
 ### 2.4 The audience

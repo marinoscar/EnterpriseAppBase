@@ -40,6 +40,16 @@ registry:
 | File | Registry | Recipe |
 |---|---|---|
 | `settings.ts` | System and user settings namespaces, and extensions of platform namespaces | [settings/registry/README.md](../settings/registry/README.md) |
+registry:
+
+| File | Registries it feeds | Read |
+|---|---|---|
+| `notifications.ts` | notification channels (`APP_NOTIFICATION_CHANNELS`), email templates (`APP_EMAIL_TEMPLATES`), notifications: event plus email template and browser renderer (`APP_NOTIFICATIONS`) | [notifications/registry/README.md](../notifications/registry/README.md) |
+
+A notification channel's transport is a Nest provider, so it cannot live
+here: it goes in the app's own module and registers itself into
+`NotificationChannelSenderRegistry` (see
+[notifications/README.md](../notifications/README.md#adding-a-channel)).
 
 ## What goes here, and what does not
 

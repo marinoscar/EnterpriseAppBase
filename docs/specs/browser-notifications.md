@@ -40,14 +40,35 @@ runtime.
 
 ### 2.1 The event registry
 
-`NOTIFICATION_EVENTS` in `apps/api/src/notifications/notification-events.ts`
-declares every event. Each entry has:
+Events, channels and their renderers are registries
+(`apps/api/src/notifications/registry/`, issue #678), filled at import time by
+`registry/notification.manifest.ts`:
+
+| What | Declared in | Registry |
+|---|---|---|
+| Channels | `registry/platform-channels.ts` (`email`, `browser`, `push`); an app's in `app-registrations/notifications.ts` | `notificationChannelRegistry` |
+| Events | Next to the module that raises them: `auth/auth.notifications.ts`, `allowlist/allowlist.notifications.ts`, `users/users.notifications.ts`, `notifications/broadcasts/broadcasts.notifications.ts`, `notifications/ops/ops.notifications.ts`, `nodes/nodes.notifications.ts`, `db-backup/db-backup.notifications.ts`; an app's in `app-registrations/notifications.ts` | `notificationEventRegistry` |
+| Email templates | `email/templates/platform-email-templates.ts`; an app's in `app-registrations/notifications.ts` | `emailTemplateRegistry` |
+| Event -> email template, event -> browser/push renderer | The `emailTemplate` and `browserTemplate` of each event's `registerNotification` entry; platform renderers in `notifications/channels/browser-templates.ts` | `eventEmailTemplateRegistry`, `eventBrowserTemplateRegistry` |
+| Channel transports | Platform: the `NOTIFICATION_CHANNEL_SENDERS` factory in `notifications.module.ts`. An app's: a provider that calls `NotificationChannelSenderRegistry.register(this)` in `onModuleInit` | `NotificationChannelSenderRegistry` (DI) |
+
+The manifest registers platform entries before app entries, and platform
+events in the order below, which is the order `GET /api/notifications/events`
+and the preferences matrix use. The registries refuse a malformed or duplicate
+key, an unregistered or empty channel list, `mandatory` without
+`defaultEnabled`, and a binding to an unknown template, at import time. The
+former closed lists (`NOTIFICATION_EVENTS`, `NOTIFICATION_CHANNELS`,
+`EMAIL_TEMPLATES`, `EVENT_EMAIL_TEMPLATES`, `EVENT_BROWSER_TEMPLATES`) remain
+as read-only views. API and recipe:
+[`registry/README.md`](../../apps/api/src/notifications/registry/README.md).
+
+Each event has:
 
 | Field | Meaning |
 |---|---|
 | `key` | Stable dotted `<area>.<event>`. Stored preferences are keyed by it, so renaming is a data migration. |
 | `label`, `description` | User-facing copy on the preferences page. |
-| `channels` | Subset of `NOTIFICATION_CHANNELS` (`email`, `browser`, `push`) the event can be delivered over. |
+| `channels` | Registered channels (`email`, `browser`, `push`, or an app's) the event can be delivered over. Non-empty, no repeats. |
 | `defaultEnabled` | What a user with no stored preference gets. Absent preference means "use the default"; no preference rows are created. |
 | `mandatory` | `true` means the user cannot mute it. All-or-nothing: stored preferences are ignored entirely. A mandatory event must be `defaultEnabled: true`. |
 
@@ -109,13 +130,15 @@ outside any `$transaction`.
 
 | Channel | Sender | What it does |
 |---|---|---|
-| `email` | `channels/email-notification.channel.ts` | Renders the template mapped in `EVENT_EMAIL_TEMPLATES` and sends it over the configured transport (SMTP settings at `/admin/settings/email`, or SES). A missing mapping is a recorded failure. |
+| `email` | `channels/email-notification.channel.ts` | Renders the template bound to the event (`eventEmailTemplateRegistry`) and sends it over the configured transport (SMTP settings at `/admin/settings/email`, or SES). A missing binding is a recorded failure. |
 | `browser` | `channels/browser-notification.channel.ts` | Writes a `notifications` row (the inbox), then publishes it to the user's SSE stream with a server-computed `toast` flag and a `pushed` flag (§2.12). Titles and bodies are truncated (`MAX_TITLE_LENGTH`, `MAX_BODY_LENGTH`); `link` goes through `sanitizeLink` (root-relative only). |
 | `push` | `channels/push-notification.channel.ts` | Writes its own `notifications` row, then sends an encrypted Web Push message to each of the user's `push_subscriptions` (§2.7). |
 
-`EVENT_BROWSER_TEMPLATES` maps an event to `{ title, body, link? }`. The push
-channel reads the same map; without an entry the registry's `label` and
-`description` are used.
+The browser binding (`eventBrowserTemplateRegistry`) maps an event to a
+renderer returning `{ title, body, link? }`. The push channel reads the same
+binding; without one the event's `label` and `description` are used. An
+application's own channel (EvoPath's `android_app`, say) is a fourth sender
+that self-registers; see §4.
 
 The push channel writes its own row rather than sharing the browser channel's.
 Channels are independently pluggable, and no event today declares both
@@ -624,7 +647,12 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 
 Adding an event, its templates and its call site is the recipe in
 [`apps/api/src/notifications/README.md`](../../apps/api/src/notifications/README.md).
-Three steps, no migration.
+Three steps, no migration, and no platform file edited: a fork declares its
+channels, email templates and notifications in
+`apps/api/src/app-registrations/notifications.ts`, and a channel's transport is
+a provider in the fork's own module that registers itself into
+`NotificationChannelSenderRegistry` from `onModuleInit` (the same file's
+"Adding a channel"). Never rename an event key or a channel id; add a new one.
 
 Choosing an entry point:
 
@@ -778,3 +806,7 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
 - PP-1.11 (issue #682): the SSE stream fans out across replicas through the
   event bus (`notifications.stream`), with oversize events sent by reference
   (§2.13).
+- PP-1.6 (issue #678): events, channels, email templates and their bindings
+  become registries; platform events are declared beside their modules, apps
+  add theirs in `app-registrations/notifications.ts`, and app channel senders
+  self-register (§2.1).

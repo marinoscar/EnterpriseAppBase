@@ -7,7 +7,7 @@ import { WebPushError } from 'web-push';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { describeThrown } from './describe-thrown';
-import { NOTIFICATION_EVENTS } from './notification-events';
+import { listNotificationEvents } from './notification-events';
 import { policyChannels } from './notification-policy';
 import { NotificationPolicyService } from './notification-policy.service';
 import {
@@ -372,7 +372,7 @@ export class PushTestService {
   ): PushTestEventDiagnostics[] {
     const preferences = readNotificationPreferences(settingsValue);
 
-    return NOTIFICATION_EVENTS.filter((event) =>
+    return listNotificationEvents().filter((event) =>
       event.channels.includes('push'),
     ).map((event) => ({
       eventKey: event.key,

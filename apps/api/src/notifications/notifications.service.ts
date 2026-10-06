@@ -13,6 +13,7 @@ import {
   type NotificationEventDef,
 } from './notification-events';
 import { NotificationPolicyService } from './notification-policy.service';
+import { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
 import {
   readNotificationPreferences,
   resolveChannels,
@@ -205,6 +206,14 @@ export class NotificationsService implements OnModuleDestroy {
     // #600. Optional: see `fallbackAppMetrics`.
     @Optional()
     private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    // #678. Where an app's own sender lands: it self-registers from its own
+    // module's `onModuleInit`, after this constructor ran, so it is looked up
+    // at dispatch time (see `senderFor`). Optional so the unit specs that
+    // build this service with only `NOTIFICATION_CHANNEL_SENDERS` keep working.
+    // The platform senders stay in the map below; the registry answers only
+    // for app senders.
+    @Optional()
+    private readonly senderRegistry?: NotificationChannelSenderRegistry,
   ) {
     this.senders = new Map();
 
@@ -1161,6 +1170,16 @@ export class NotificationsService implements OnModuleDestroy {
   }
 
   /**
+   * The transport for `channel`: a platform sender from the module factory, or
+   * an app sender that registered itself in `NotificationChannelSenderRegistry`
+   * (#678). Resolved per delivery because app senders register in their own
+   * `onModuleInit`, which runs after this service was constructed.
+   */
+  private senderFor(channel: NotificationChannel): NotificationChannelSender | undefined {
+    return this.senders.get(channel) ?? this.senderRegistry?.get(channel);
+  }
+
+  /**
    * One (event, recipient, channel) attempt, with its delivery record.
    *
    * EVERY EXIT FROM THIS METHOD IS NORMAL. It has no throwing path, so one
@@ -1177,7 +1196,7 @@ export class NotificationsService implements OnModuleDestroy {
     channel: NotificationChannel,
   ): Promise<Pick<ChannelDeliveryResult, 'rateLimited' | 'retryAfterMs'>> {
     const { event, recipient } = context;
-    const sender = this.senders.get(channel);
+    const sender = this.senderFor(channel);
 
     if (!sender) {
       // A channel the registry declares with no transport implemented —
