@@ -1,28 +1,9 @@
+import { emailTemplateRegistry } from '../../notifications/registry';
 import type { EmailTemplate, RenderedEmail } from './email-template.types';
-import {
-  type AllowlistInvitationEmailData,
-  allowlistInvitationEmail,
-} from './allowlist-invitation.email';
-import { type BroadcastEmailData, broadcastEmail } from './broadcast.email';
-import {
-  type BackupFailedEmailData,
-  backupFailedEmail,
-} from './backup-failed.email';
-import { type JobFailedEmailData, jobFailedEmail } from './job-failed.email';
-import {
-  type NodeOfflineEmailData,
-  nodeOfflineEmail,
-} from './node-offline.email';
-import {
-  type RestoreCompletedEmailData,
-  restoreCompletedEmail,
-} from './restore-completed.email';
-import { type RoleChangedEmailData, roleChangedEmail } from './role-changed.email';
-import { type TestEmailData, testEmail } from './test-email.email';
-import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.email';
+import type { PlatformEmailTemplateDataMap } from './platform-email-templates';
 
 // =============================================================================
-// Email template registry (issue #123, epic #109)
+// Email template registry (issue #123, epic #109; a registry view since #678)
 // =============================================================================
 //
 // The same idea as `../../notifications/notification-events.ts` on a different
@@ -36,26 +17,24 @@ import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.emai
 // never sent" and which therefore produces no error to notice.
 //
 // -----------------------------------------------------------------------------
-// THE THREE-WAY LOCK
+// SINCE #678 (PP-1.6): THE TEMPLATES LIVE IN A REGISTRY
 // -----------------------------------------------------------------------------
 //
-// Adding a template means editing TWO places, and the compiler forces the
-// second:
+// The closed `EMAIL_TEMPLATES` literal that used to live here made an app that
+// added a template edit this platform file. Now:
 //
-//   1. add `'thing': ThingEmailData` to `EmailTemplateDataMap`
-//   2. add `'thing': thingEmail` to `EMAIL_TEMPLATES`
+//   - the platform's templates are `PLATFORM_EMAIL_TEMPLATES` in
+//     `./platform-email-templates.ts`, which keeps the compile-time
+//     "three-way lock" between a name, its data type and its renderer;
+//   - an app adds its own in `app-registrations/notifications.ts`, and widens
+//     {@link EmailTemplateDataMap} by module augmentation;
+//   - `notifications/registry/notification.manifest.ts` registers both into
+//     `emailTemplateRegistry`, platform first.
 //
-// `EmailTemplateName` is DERIVED from the data map rather than declared as its
-// own union, so step 1 cannot produce a name with no data type. `EMAIL_TEMPLATES`
-// is a mapped type over `EmailTemplateName`, so step 1 without step 2 is a
-// compile error, and step 2 without step 1 is an excess-property error. There
-// is no ordering in which a half-registered template compiles.
-//
-// This differs from `notification-events.ts`, which uses an ARRAY as its source
-// of truth because #126 renders the preferences matrix in declaration order.
-// Nothing renders templates in order — they are only ever looked up by key — so
-// a keyed object is the honest shape here, and it buys the exhaustiveness above
-// that an array cannot give.
+// Every export below keeps its name and meaning. `EMAIL_TEMPLATES` and
+// `EMAIL_TEMPLATE_NAMES` are frozen snapshots of the registry (complete: the
+// manifest runs before this module finishes loading); the functions read the
+// registry live.
 //
 // This file is intentionally NOT a Nest provider, for the same reason
 // notification-events.ts is not: it is pure data and pure functions, so a test
@@ -65,37 +44,20 @@ import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.emai
 /**
  * Every template, mapped to the data it renders from.
  *
- * The source of truth for {@link EmailTemplateName}. Add the entry here first.
+ * The source of truth for {@link EmailTemplateName}. The platform's entries are
+ * {@link PlatformEmailTemplateDataMap}; an app adds its own by augmentation,
+ * next to its registration in `app-registrations/notifications.ts`:
  *
- * #128 added the three real event templates. NAMES ARE KEBAB-CASE AND MATCH
- * THE FILE, while the notification event keys that select them are dotted
- * (`user.welcome` -> `user-welcome`): the mapping between the two lives in
- * `EVENT_EMAIL_TEMPLATES` (notifications/channels/email-notification.channel.ts)
- * and is deliberately explicit rather than derived, so a rename on either side
- * is a compile error or a reviewed edit instead of a silent "template not
- * found" at send time.
+ * ```ts
+ * declare module '../email/templates' {
+ *   interface EmailTemplateDataMap { 'coach-weekly-review': CoachWeeklyReviewData }
+ * }
+ * ```
+ *
+ * Names are kebab-case and match the file; see `./platform-email-templates.ts`.
  */
-export interface EmailTemplateDataMap {
-  'test-email': TestEmailData;
-  'user-welcome': UserWelcomeEmailData;
-  'allowlist-invitation': AllowlistInvitationEmailData;
-  'role-changed': RoleChangedEmailData;
-  // #322 (epic #319). The odd one out: every entry above renders content this
-  // codebase wrote, and this one renders a title and body an administrator
-  // typed. Its data type carries no recipient, because a broadcast reads the
-  // same for everybody — see broadcast.email.ts.
-  broadcast: BroadcastEmailData;
-
-  // #288 (epic #254). The four OPERATIONAL messages. What sets them apart from
-  // every entry above is the recipient: these are addressed to whoever holds an
-  // administrative permission, not to a user something happened to — see
-  // `NotificationsService.notifyPermissionHolders`. Their payloads are
-  // correspondingly free of any per-recipient field.
-  'job-failed': JobFailedEmailData;
-  'node-offline': NodeOfflineEmailData;
-  'backup-failed': BackupFailedEmailData;
-  'restore-completed': RestoreCompletedEmailData;
-}
+// eslint-disable-next-line @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type
+export interface EmailTemplateDataMap extends PlatformEmailTemplateDataMap {}
 
 /**
  * A registered template name.
@@ -112,38 +74,29 @@ export interface EmailTemplateDataMap {
 export type EmailTemplateName = keyof EmailTemplateDataMap & string;
 
 /**
- * Name -> renderer.
+ * Name -> renderer, as a read-only view of `emailTemplateRegistry`.
  *
- * The mapped type is what makes this exhaustive: every `EmailTemplateName`
- * must appear, and each entry's data parameter is pinned to that name's entry
- * in {@link EmailTemplateDataMap}, so a template cannot be registered under a
- * key whose payload it does not accept.
+ * A FROZEN SNAPSHOT taken when this module loads, typed with the same mapped
+ * type as before #678, so a caller that indexes it by a literal name gets that
+ * name's payload type.
  */
 export const EMAIL_TEMPLATES: {
-  [K in EmailTemplateName]: EmailTemplate<EmailTemplateDataMap[K]>;
-} = {
-  'test-email': testEmail,
-  'user-welcome': userWelcomeEmail,
-  'allowlist-invitation': allowlistInvitationEmail,
-  'role-changed': roleChangedEmail,
-  broadcast: broadcastEmail,
-  'job-failed': jobFailedEmail,
-  'node-offline': nodeOfflineEmail,
-  'backup-failed': backupFailedEmail,
-  'restore-completed': restoreCompletedEmail,
-};
+  readonly [K in EmailTemplateName]: EmailTemplate<EmailTemplateDataMap[K]>;
+} = Object.freeze(
+  Object.fromEntries(emailTemplateRegistry.list().map((entry) => [entry.name, entry.render])),
+) as { readonly [K in EmailTemplateName]: EmailTemplate<EmailTemplateDataMap[K]> };
 
 /**
- * Every registered name, derived from the registry rather than restated.
+ * Every registered name, in registration order (platform first).
  *
  * For #124/#126 and for tests that need to assert something about all
  * templates at once — that each returns a non-empty `subject`, `html` AND
  * `text`, for instance, which is a test that has to be able to enumerate them
  * or it only ever checks the ones somebody remembered to list.
  */
-export const EMAIL_TEMPLATE_NAMES = Object.keys(
-  EMAIL_TEMPLATES,
-) as EmailTemplateName[];
+export const EMAIL_TEMPLATE_NAMES: readonly EmailTemplateName[] = Object.freeze(
+  emailTemplateRegistry.ids() as EmailTemplateName[],
+);
 
 /**
  * Is `value` a registered template name?
@@ -154,7 +107,7 @@ export const EMAIL_TEMPLATE_NAMES = Object.keys(
  * decommissioned name becomes an `undefined` function call at runtime.
  */
 export function isEmailTemplateName(value: string): value is EmailTemplateName {
-  return Object.prototype.hasOwnProperty.call(EMAIL_TEMPLATES, value);
+  return emailTemplateRegistry.has(value);
 }
 
 /**
@@ -177,7 +130,7 @@ export function isEmailTemplateName(value: string): value is EmailTemplateName {
 export function findEmailTemplate(
   name: string,
 ): EmailTemplate<never> | undefined {
-  return isEmailTemplateName(name) ? EMAIL_TEMPLATES[name] : undefined;
+  return emailTemplateRegistry.get(name)?.render;
 }
 
 /**
@@ -191,13 +144,18 @@ export function findEmailTemplate(
  * Does not catch: a template is a pure, synchronous function of its input
  * (see `EmailTemplate` in ./email-template.types.ts) and has nothing to throw
  * about. Wrapping it would only hide a genuine bug behind a message that
- * silently never sends.
+ * silently never sends. A name declared in {@link EmailTemplateDataMap} but
+ * never registered throws the registry's `UNKNOWN_ID`, which is that same kind
+ * of bug.
+ *
+ * @throws RegistryError `UNKNOWN_ID` when `name` is not registered.
  */
 export function renderEmailTemplate<K extends EmailTemplateName>(
   name: K,
   data: EmailTemplateDataMap[K],
 ): RenderedEmail {
-  return EMAIL_TEMPLATES[name](data);
+  const render = emailTemplateRegistry.require(name).render as EmailTemplate<EmailTemplateDataMap[K]>;
+  return render(data);
 }
 
 // -----------------------------------------------------------------------------
@@ -248,6 +206,12 @@ export { jobFailedEmail } from './job-failed.email';
 export { nodeOfflineEmail } from './node-offline.email';
 export { backupFailedEmail } from './backup-failed.email';
 export { restoreCompletedEmail } from './restore-completed.email';
+
+export { PLATFORM_EMAIL_TEMPLATES } from './platform-email-templates';
+export type {
+  PlatformEmailTemplateDataMap,
+  PlatformEmailTemplateName,
+} from './platform-email-templates';
 
 export type { PlainTextOptions, RenderLayoutOptions } from './layout';
 export type { EmailTemplate, RenderedEmail } from './email-template.types';

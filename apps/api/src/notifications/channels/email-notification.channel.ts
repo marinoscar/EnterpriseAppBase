@@ -17,6 +17,7 @@ import type {
 } from '../../email';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
+import { eventEmailTemplateRegistry } from '../registry';
 import type {
   ChannelDeliveryResult,
   NotificationChannelSender,
@@ -77,17 +78,20 @@ import type {
 // =============================================================================
 
 /**
- * Notification event key -> the email template that renders it.
+ * Notification event key -> the email template that renders it, as a
+ * READ-ONLY VIEW of `eventEmailTemplateRegistry`.
  *
  * -----------------------------------------------------------------------------
- * FILLED BY #128. THESE THREE LINES ARE HALF OF "WIRING AN EVENT".
+ * SINCE #678 THE MAP IS A REGISTRY; THIS IS ITS SNAPSHOT
  * -----------------------------------------------------------------------------
  *
- * #125 shipped this empty because inventing a template before anybody had
- * written the copy would ship a message nobody had reviewed. #128 adds the
- * three templates and the three lines here that point at them.
+ * #128 filled this map by hand, one line per event. It is now built from the
+ * bindings each module declares with its events (`registerNotification({
+ * event, emailTemplate })`, e.g. `users/users.notifications.ts`), so an app adds
+ * an email template for its own event without editing this file. A frozen
+ * snapshot taken at module load; `deliver` reads the registry itself.
  *
- * EVERY EVENT DECLARING THE `email` CHANNEL MUST APPEAR HERE. A missing entry
+ * EVERY EVENT DECLARING THE `email` CHANNEL MUST HAVE A BINDING. A missing one
  * is not a silent skip: `deliver` below records a FAILED delivery saying no
  * template is registered, so "declared but unsendable" shows up in
  * `notification_deliveries` rather than being invisible.
@@ -96,39 +100,22 @@ import type {
  * template names are kebab-case and match their file (`user-welcome` ->
  * `user-welcome.email.ts`). Deriving one from the other would couple two
  * independently-owned naming schemes and turn a rename into a silent
- * "template not found" at send time — the map is three lines and it is
- * greppable from either side.
+ * "template not found" at send time. The registry refuses a binding to an
+ * unregistered template, or for an event that does not declare `email`, at
+ * import time.
  *
- * `Partial<Record<...>>` so a lookup is typed `EmailTemplateName | undefined`
- * and the missing case has to be handled rather than trusted. The VALUES are
- * `EmailTemplateName`, so a typo on the right-hand side is a compile error;
- * only the event keys on the left are unchecked strings, and an unknown one is
- * dead weight rather than a runtime fault (the dispatcher never looks it up).
+ * ONE TEMPLATE MAY SERVE SEVERAL KEYS (#322, epic #319): `admin.broadcast` and
+ * `admin.broadcast_critical` both bind `broadcast`, because they differ in
+ * whether a recipient may MUTE them, not in how the message reads.
  */
-export const EVENT_EMAIL_TEMPLATES: Partial<Record<string, EmailTemplateName>> =
-  {
-    'user.welcome': 'user-welcome',
-    'allowlist.invitation': 'allowlist-invitation',
-    'security.role_changed': 'role-changed',
-    // ONE TEMPLATE, TWO KEYS (#322, epic #319). `admin.broadcast` and
-    // `admin.broadcast_critical` differ in whether a recipient may MUTE them —
-    // `mandatory` on the second — not in how the message reads, and the copy
-    // they render was typed by an administrator either way. A second template
-    // would be a copy of the first that drifts from it, so the `critical` flag
-    // in the payload adds the one footer line that differs. This map is
-    // `Partial<Record<string, ...>>`, so two keys pointing at one name is
-    // exactly as legal as it is correct.
-    'admin.broadcast': 'broadcast',
-    'admin.broadcast_critical': 'broadcast',
-    // The four operational events (#288, epic #254). One template each: unlike
-    // the broadcast pair above, these four say genuinely different things, and
-    // the only shape they share is the detail table their layouts happen to
-    // use.
-    'jobs.job_failed': 'job-failed',
-    'nodes.node_offline': 'node-offline',
-    'db_backup.backup_failed': 'backup-failed',
-    'db_backup.restore_completed': 'restore-completed',
-  };
+export const EVENT_EMAIL_TEMPLATES: Readonly<Partial<Record<string, EmailTemplateName>>> =
+  Object.freeze(
+    Object.fromEntries(
+      eventEmailTemplateRegistry
+        .list()
+        .map((binding) => [binding.eventKey, binding.template as EmailTemplateName]),
+    ),
+  );
 
 @Injectable()
 export class EmailNotificationChannel implements NotificationChannelSender {
@@ -206,7 +193,9 @@ export class EmailNotificationChannel implements NotificationChannelSender {
     // "this event is declared but can never be sent" is a bug that should be
     // visible in the same place an operator already looks for undelivered
     // notifications.
-    const templateName = EVENT_EMAIL_TEMPLATES[eventKey];
+    const templateName = eventEmailTemplateRegistry.get(eventKey)?.template as
+      | EmailTemplateName
+      | undefined;
     if (templateName === undefined) {
       return {
         success: false,
@@ -352,10 +341,10 @@ export class EmailNotificationChannel implements NotificationChannelSender {
     const template = findEmailTemplate(templateName);
 
     if (!template) {
-      // Only reachable if `EVENT_EMAIL_TEMPLATES` names a template that has
-      // since been removed from the template registry. The type system stops
-      // that in a single build; a rolling deploy of two builds is where it
-      // could briefly be true.
+      // Only reachable if a binding names a template that has since been
+      // removed from the template registry. The binding registry refuses that
+      // at import time in a single build; a rolling deploy of two builds is
+      // where it could briefly be true.
       return {
         ok: false,
         error: `Email template '${templateName}' is not registered.`,

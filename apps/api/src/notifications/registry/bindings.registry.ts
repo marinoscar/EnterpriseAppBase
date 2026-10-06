@@ -27,7 +27,7 @@
 // =============================================================================
 
 import { RegistryError, defineRegistry } from '../../common/registry';
-import type { BrowserNotificationTemplate } from '../channels/browser-notification.channel';
+import type { BrowserNotificationTemplate } from '../channels/browser-templates';
 import { emailTemplateRegistry } from './email-template.registry';
 import {
   NOTIFICATION_EVENT_KEY_PATTERN,

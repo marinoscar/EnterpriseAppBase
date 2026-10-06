@@ -26,7 +26,7 @@ import type { Observable } from 'rxjs';
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { NOTIFICATION_EVENTS } from './notification-events';
+import { listNotificationEvents } from './notification-events';
 import { policyChannels } from './notification-policy';
 import { NotificationPolicyService } from './notification-policy.service';
 import {
@@ -140,8 +140,8 @@ export class NotificationsController {
     //   1. `mandatory` is normalised from `boolean | undefined` to `boolean`,
     //      so no client has to know that absent means "the user is in charge".
     //   2. `channels` is a FRESH ARRAY out of `policyChannels`. The arrays in
-    //      `NOTIFICATION_EVENTS` are the registry's own state and this is a
-    //      module-level constant living for the process lifetime; handing out
+    //      the registered events are the registry's own state and live for
+    //      the process lifetime; handing out
     //      the live array would let a serialiser or an interceptor that sorts
     //      in place reconfigure delivery for every later dispatch.
     //   3. The response shape is decided here, in code that is about the
@@ -153,7 +153,7 @@ export class NotificationsController {
     // for the same reason as point 2. The admin policy page needs it: listing
     // events from the filtered `channels` makes a suppressed event disappear,
     // and with it the only control that could un-suppress it.
-    return NOTIFICATION_EVENTS.map((event) => ({
+    return listNotificationEvents().map((event) => ({
       key: event.key,
       label: event.label,
       description: event.description,
