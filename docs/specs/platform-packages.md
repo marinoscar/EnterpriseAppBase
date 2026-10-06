@@ -815,7 +815,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 | Storage | S3 provider only (covers AWS, MinIO and S3-compatible) | An Azure Blob provider when a client needs it |
 | AI | Anthropic, Azure OpenAI, Gemini, OpenAI, OpenAI-compatible, plus a kill switch | Already fits |
 | Telemetry | Self-hosted GreptimeDB and OTel | Add a **support bundle**: doctor results, versions and telemetry export |
-| Air-gapped | No CDN fonts found; SMTP is configurable; Web Push and Google login need the internet | Degrade gracefully; a doctor check that lists outbound dependencies |
+| Air-gapped | No CDN fonts found; SMTP is configurable; Web Push and Google login need the internet | Degrade gracefully; a doctor check that lists outbound dependencies (shipped: `network.egress` with `EgressRegistry` and `DEPLOYMENT_NETWORK`, [#773](https://github.com/marinoscar/EnterpriseAppBase/issues/773); see [the air-gapped runbook](../runbooks/air-gapped.md)) |
 | Upgrades | Customers upgrade on their own schedule | Forward-only expand/contract migrations, a supported upgrade path, the Doctor as a pre-upgrade check, release notes |
 | Supply chain | Images signed keyless with an SBOM and provenance attestation; Trivy scan reported, not blocking ([runbook](../runbooks/container-images.md)) | Make the vulnerability scan a gate once the baseline is triaged |
 | Configuration | Runtime settings in the database; environment variables only for deployment secrets | Already fits |
@@ -1076,7 +1076,7 @@ Parallel, and only when needed:
 - The support bundle (early).
 - An Azure Blob storage provider.
 - A Helm chart when the first customer-cloud client appears.
-- An air-gap doctor check.
+- An air-gap doctor check (shipped as `network.egress`, [#773](https://github.com/marinoscar/EnterpriseAppBase/issues/773)).
 
 ## Program tracking and rollback
 
