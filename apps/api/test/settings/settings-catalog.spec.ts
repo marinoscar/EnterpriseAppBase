@@ -35,7 +35,7 @@ import { userSettingsResponseSchema } from '../../src/settings/dto/user-settings
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { z } from 'zod';
-import { withTemporaryEntries } from '../../src/common/registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   SETTINGS_CATALOG_STALE_MESSAGE,
   checkSystemSettingsCatalog,
@@ -403,7 +403,7 @@ describe('an app namespace registered through withTemporaryEntries (#677)', () =
       const isolatedZod = require('zod').z as typeof z;
       require('../../src/settings/registry/system-settings.manifest');
       require('../../src/settings/registry/user-settings.manifest');
-      const { withTemporaryEntries: withEntries } = require('../../src/common/registry');
+      const { withTemporaryEntries: withEntries } = require('@marinoscar/platform-api/core');
       const { systemSettingsNamespaceRegistry: systemRegistry } = require('../../src/settings/registry/system-settings-namespace');
       const { userSettingsNamespaceRegistry: userRegistry } = require('../../src/settings/registry/user-settings-namespace');
 

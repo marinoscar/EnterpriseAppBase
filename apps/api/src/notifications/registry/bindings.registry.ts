@@ -26,7 +26,7 @@
 // FRAMEWORK-FREE: registries, a type, nothing else.
 // =============================================================================
 
-import { RegistryError, defineRegistry } from '../../common/registry';
+import { RegistryError, defineRegistry } from '@marinoscar/platform-api/core';
 import type { BrowserNotificationTemplate } from '../channels/browser-templates';
 import { emailTemplateRegistry } from './email-template.registry';
 import {

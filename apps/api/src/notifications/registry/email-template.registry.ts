@@ -21,7 +21,7 @@
 // FRAMEWORK-FREE: imports only the registry primitive and a type.
 // =============================================================================
 
-import { defineRegistry } from '../../common/registry';
+import { defineRegistry } from '@marinoscar/platform-api/core';
 import type { EmailTemplate } from '../../email/templates/email-template.types';
 
 /** One registered email template. */

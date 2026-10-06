@@ -3,7 +3,7 @@ import {
   EVENT_BROWSER_TEMPLATES,
   sanitizeLink,
 } from './browser-notification.channel';
-import { withTemporaryEntries } from '../../common/registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_EVENTS, findEvent } from '../notification-events';
 import type { NotificationChannel, NotificationEventDef } from '../notification-events';
 import { eventBrowserTemplateRegistry, notificationEventRegistry } from '../registry';

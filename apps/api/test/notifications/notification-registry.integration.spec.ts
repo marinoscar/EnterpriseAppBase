@@ -14,7 +14,7 @@ import { prismaMock, resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockAdminUser, authHeader } from '../helpers/auth-mock.helper';
 import { AppModule } from '../../src/app.module';
-import { RegistryError, withTemporaryEntries } from '../../src/common/registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { EmailSettingsService } from '../../src/email/email-settings.service';
 import { SmtpEmailProvider } from '../../src/email/providers/smtp-email.provider';
 import type { EmailTemplate } from '../../src/email/templates';

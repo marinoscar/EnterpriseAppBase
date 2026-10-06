@@ -24,7 +24,7 @@
 // evaluation time, the seed and standalone scripts can read it.
 // =============================================================================
 
-import { defineRegistry } from '../../common/registry';
+import { defineRegistry } from '@marinoscar/platform-api/core';
 
 /** One delivery channel, described for documentation and diagnostics. */
 export interface NotificationChannelDef {
