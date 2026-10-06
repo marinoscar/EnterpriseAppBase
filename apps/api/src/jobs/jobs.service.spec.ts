@@ -26,6 +26,8 @@ import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing
 import { buildDedupKey } from './job-keys';
 import { isActiveDedupConflict, JobsService } from './jobs.service';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { EventBus } from '../common/event-bus/event-bus.interface';
+import { JOBS_ENQUEUED_CHANNEL } from './job-wake';
 
 /** A P2002 shaped the way `@prisma/adapter-pg` reports one. */
 function adapterConflict(constraintFields: string[], indexName: string) {
@@ -377,5 +379,68 @@ describe('JobsService', () => {
 
       await expect(service.recordProvider('job-1', null, null)).resolves.toBeUndefined();
     });
+  });
+});
+
+describe('JobsService — jobs.enqueued wake-up (PP-1.11, #682)', () => {
+  let create: jest.Mock;
+  let findFirst: jest.Mock;
+  let publish: jest.Mock;
+  let service: JobsService;
+
+  beforeEach(() => {
+    create = jest.fn().mockResolvedValue(jobRow());
+    findFirst = jest.fn();
+    publish = jest.fn().mockResolvedValue(undefined);
+    service = new JobsService(
+      { job: { create, findFirst } } as unknown as PrismaService,
+      undefined,
+      { publish } as unknown as EventBus,
+    );
+    jest.spyOn(service['logger'], 'debug').mockImplementation(() => undefined);
+  });
+
+  it('publishes { type } after the INSERT for a job due now', async () => {
+    await service.enqueue({ type: 'example.echo', reason: 'upload', payload: { secret: 'never-on-the-bus' } });
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(JOBS_ENQUEUED_CHANNEL, { type: 'example.echo' });
+    expect(create.mock.invocationCallOrder[0]).toBeLessThan(publish.mock.invocationCallOrder[0]);
+  });
+
+  it('publishes for a job scheduled in the past (already due)', async () => {
+    await service.enqueue({ type: 'example.echo', reason: 'upload', scheduledFor: new Date(Date.now() - 1_000) });
+
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish for a job scheduled in the future — the poll covers it', async () => {
+    await service.enqueue({ type: 'example.echo', reason: 'upload', scheduledFor: new Date(Date.now() + 60_000) });
+
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('does not publish when the INSERT fails', async () => {
+    create.mockRejectedValue(new Error('connection terminated'));
+
+    await expect(service.enqueue({ type: 'example.echo', reason: 'upload' })).rejects.toThrow();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('does not publish when dedup collapses onto a job already in flight', async () => {
+    create.mockRejectedValue(adapterConflict(['dedup_key'], 'jobs_active_dedup_uniq_idx'));
+    findFirst.mockResolvedValue(jobRow({ id: 'winner' }));
+
+    await service.enqueue({ type: 'example.echo', reason: 'upload' });
+
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('enqueueWithin never publishes: the row is invisible until the caller commits', async () => {
+    const tx = { job: { create: jest.fn().mockResolvedValue(jobRow()) } } as unknown as Prisma.TransactionClient;
+
+    await service.enqueueWithin(tx, { type: 'example.echo', reason: 'upload' });
+
+    expect(publish).not.toHaveBeenCalled();
   });
 });

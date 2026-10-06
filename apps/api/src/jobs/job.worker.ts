@@ -96,6 +96,7 @@ import { ConfigService } from '@nestjs/config';
 import { Context, Span, SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
 import { Job } from '@prisma/client';
 
+import { EVENT_BUS, type EventBus } from '../common/event-bus/event-bus.interface';
 import { resolveServiceName } from '../common/otel/service-name';
 
 import { JobClaimService } from './job-claim.service';
@@ -113,6 +114,7 @@ import { JobSettleOutcome, JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { NodeOffloadService } from './node-offload.service';
 import { jobParentContext } from './job-trace-context';
+import { JOBS_ENQUEUED_CHANNEL, isJobsEnqueuedMessage } from './job-wake';
 
 /** The settle outcomes that mark a job's span as an error (#607). */
 const ERRORED_SPAN_OUTCOMES: ReadonlySet<JobSettleOutcome> = new Set<JobSettleOutcome>([
@@ -359,6 +361,25 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly timers = new Set<PendingTimer>();
 
   /**
+   * The SUBSET of `timers` that are idle poll sleeps (PP-1.11) — the only
+   * timers `wake()` may cut short. Kept apart so a wake-up can never reach a
+   * per-job timeout or a lease-renewal timer, which share `timers` because
+   * `stop()` must cancel all three kinds.
+   */
+  private readonly idleSleeps = new Set<PendingTimer>();
+
+  /**
+   * Bumped by every `wake()`. A slot records it before claiming and, if it
+   * changed while the claim was in flight, claims again instead of sleeping:
+   * a wake-up that lands between "the claim found nothing" and "the sleep
+   * started" is otherwise lost for a full poll interval.
+   */
+  private wakeGeneration = 0;
+
+  /** Unsubscribes from `jobs.enqueued`; null while not subscribed. */
+  private unsubscribeWake: (() => void) | null = null;
+
+  /**
    * Extra types already reported as unregistered, so the warning in
    * `systemModeEligibleTypes` is once per type rather than once per claim.
    * Instance-level (unlike the mode latch) because it is keyed by type and
@@ -387,7 +408,11 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // `JobTerminalService` — production always gets the real clock. Only
     // `now()` is taken from it here; the sleeps are local timers because they
     // must be individually cancellable (see `PendingTimer`).
-    @Optional() @Inject(JOB_CLOCK) clock?: JobClock
+    @Optional() @Inject(JOB_CLOCK) clock?: JobClock,
+    // THE WAKE-UP (PP-1.11, #682). Optional and last, so every hand-built
+    // worker in the suites stays valid; the global `EventBusModule` always
+    // provides it in the application. Without it the pool simply polls.
+    @Optional() @Inject(EVENT_BUS) private readonly bus?: EventBus
   ) {
     this.clock = clock ?? systemJobClock;
   }
@@ -443,6 +468,7 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     }
 
     this.running = true;
+    this.subscribeToWakeUps();
     this.slots = Array.from({ length: concurrency }, (_unused, slot) => this.slotLoop(slot));
 
     this.logger.log(
@@ -460,6 +486,8 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    */
   async stop(graceMs: number = SHUTDOWN_GRACE_MS): Promise<void> {
     this.running = false;
+    this.unsubscribeWake?.();
+    this.unsubscribeWake = null;
 
     // Cancel every live timer BEFORE awaiting the loops. A slot parked in a
     // five-second poll sleep would otherwise take up to five seconds to
@@ -467,6 +495,7 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // `running === false`, and it returns.
     const pending = [...this.timers];
     this.timers.clear();
+    this.idleSleeps.clear();
 
     for (const entry of pending) {
       clearTimeout(entry.timer);
@@ -629,6 +658,7 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private async slotLoop(slot: number): Promise<void> {
     while (this.running) {
       let job: Job | undefined;
+      const generation = this.wakeGeneration;
 
       try {
         job = await this.claimOne();
@@ -645,6 +675,13 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
       }
 
       if (!job) {
+        // A wake-up arrived while this claim was in flight: the job it
+        // announced may have been inserted after our SELECT ran. Claim again
+        // rather than sleep through it.
+        if (generation !== this.wakeGeneration) {
+          continue;
+        }
+
         await this.idle(this.pollMs());
         continue;
       }
@@ -1106,8 +1143,73 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     }
 
     return new Promise<void>((resolve) => {
-      this.track(ms, resolve, resolve);
+      const done = (): void => {
+        this.idleSleeps.delete(entry);
+        resolve();
+      };
+      const entry = this.track(ms, done, done);
+      this.idleSleeps.add(entry);
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // The wake-up (PP-1.11, #682)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Subscribes to `jobs.enqueued`, once, while the pool runs.
+   *
+   * Never in mode `off`: a process that claims nothing has nothing to wake.
+   * Called from `start()` (which `onApplicationBootstrap` reaches only for a
+   * mode other than `off`), and guarded here too so a direct `start()` in that
+   * mode cannot subscribe either.
+   */
+  private subscribeToWakeUps(): void {
+    if (!this.bus || this.unsubscribeWake || this.mode() === 'off') {
+      return;
+    }
+
+    this.unsubscribeWake = this.bus.subscribe<unknown>(JOBS_ENQUEUED_CHANNEL, (message) =>
+      this.onJobsEnqueued(message)
+    );
+  }
+
+  /**
+   * Wakes the idle slots when the announced type is one this worker would
+   * claim — the SAME list `claimOne` passes to the claim, so `system` mode is
+   * not woken for node-eligible work and vice versa. A wasted wake-up would be
+   * harmless (a claim that finds nothing); filtering just avoids the query.
+   */
+  private async onJobsEnqueued(message: unknown): Promise<void> {
+    if (!this.running || !isJobsEnqueuedMessage(message)) {
+      return;
+    }
+
+    const eligible = await this.eligibleTypes();
+
+    if (eligible.includes(message.type)) {
+      this.wake();
+    }
+  }
+
+  /**
+   * Resolves every IDLE poll sleep now. Touches `idleSleeps` only: a job
+   * timeout or a lease renewal is never fired early by a wake-up.
+   *
+   * @returns how many sleeping slots were woken. Tests and logging only.
+   */
+  private wake(): number {
+    this.wakeGeneration += 1;
+
+    const sleeping = [...this.idleSleeps];
+    this.idleSleeps.clear();
+
+    for (const entry of sleeping) {
+      this.clear(entry);
+      entry.abort();
+    }
+
+    return sleeping.length;
   }
 
   /** Registers an `unref`'d timer in `this.timers`. See `PendingTimer`. */

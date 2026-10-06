@@ -62,13 +62,15 @@
 // `enqueue`'s own comments.
 // =============================================================================
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Job, JobReason, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
 import { buildDedupKey } from './job-keys';
 import { captureJobTraceContext } from './job-trace-context';
+import { EVENT_BUS, type EventBus } from '../common/event-bus/event-bus.interface';
+import { JOBS_ENQUEUED_CHANNEL, type JobsEnqueuedMessage } from './job-wake';
 
 /**
  * The name of the partial unique index that enforces active dedup. Declared
@@ -283,6 +285,11 @@ export class JobsService {
     // #600. Optional so hand-built instances in tests need no stub; the global
     // `AppMetricsModule` always provides it in the application.
     @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    // PP-1.11 (#682): wakes idle workers, on this replica and others, when a
+    // job is due now. Optional for the same reason as `metrics`; the global
+    // `EventBusModule` always provides it in the application. Without it,
+    // workers simply find the job on their next poll.
+    @Optional() @Inject(EVENT_BUS) private readonly bus?: EventBus,
   ) {}
 
   /**
@@ -315,6 +322,9 @@ export class JobsService {
         // Counted on an actual INSERT only — a dedup collapse below returns
         // the existing row and is not a new job.
         this.metrics.jobEnqueued(input.type);
+        // AFTER the INSERT, which has committed (this is not a transaction):
+        // a worker woken now can see the row it was woken for.
+        this.announceEnqueued(input);
         return created;
       } catch (error) {
         // Any conflict that is NOT this index's is somebody else's problem
@@ -421,7 +431,28 @@ export class JobsService {
     // later rollback of that transaction is not un-counted (rare, and the
     // counter is a rate, not a ledger).
     this.metrics.jobEnqueued(input.type);
+    // ⚠ NO `jobs.enqueued` WAKE-UP HERE (PP-1.11). This runs inside the
+    // CALLER'S transaction: the row is not visible to any other session until
+    // that transaction commits, which happens after this returns and may not
+    // happen at all. A worker woken now would claim nothing, and one woken for
+    // a rolled-back insert would be told about a job that never existed. The
+    // `JOBS_POLL_MS` poll picks the job up once the caller commits.
     return created;
+  }
+
+  /**
+   * Publishes `jobs.enqueued` for a job that is due NOW, so idle workers claim
+   * it without waiting out their poll. A job scheduled for the future is left
+   * to the poll — waking a worker for a row it may not claim yet is a wasted
+   * round trip on every replica. Fire and forget: `EventBus.publish` never
+   * rejects. See `job-wake.ts`.
+   */
+  private announceEnqueued(input: EnqueueJobInput): void {
+    if (!this.bus) return;
+    if (input.scheduledFor && input.scheduledFor.getTime() > Date.now()) return;
+
+    const message: JobsEnqueuedMessage = { type: input.type };
+    void this.bus.publish(JOBS_ENQUEUED_CHANNEL, message);
   }
 
   /**
