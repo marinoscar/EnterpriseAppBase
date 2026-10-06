@@ -65,3 +65,18 @@ export function renderPermissionCatalog(catalog: PermissionCatalog = buildPermis
   };
   return `${JSON.stringify(document, null, 2)}\n`;
 }
+
+/**
+ * Compares a committed catalog file with what the registries render now.
+ *
+ * @param committed - the file's contents, or `undefined` when it is missing.
+ * @returns `null` when up to date, otherwise the failure message (which names
+ *   the regenerate command). Used by `--check` and by the staleness test.
+ */
+export function checkPermissionCatalog(committed: string | undefined): string | null {
+  if (committed === renderPermissionCatalog()) return null;
+  return (
+    `${PERMISSION_CATALOG_PATH} is ${committed === undefined ? 'missing' : 'stale'}: ` +
+    `run ${PERMISSION_CATALOG_COMMAND} and commit the result.`
+  );
+}

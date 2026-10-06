@@ -17,36 +17,33 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import {
-  PERMISSION_CATALOG_COMMAND,
   PERMISSION_CATALOG_PATH,
+  checkPermissionCatalog,
   renderPermissionCatalog,
 } from '../src/common/permissions';
 
 function main(): number {
   const check = process.argv.includes('--check');
   const target = resolve(__dirname, '..', PERMISSION_CATALOG_PATH);
-  const expected = renderPermissionCatalog();
 
   if (check) {
-    let actual: string | undefined;
+    let committed: string | undefined;
     try {
-      actual = readFileSync(target, 'utf8');
+      committed = readFileSync(target, 'utf8');
     } catch {
-      actual = undefined;
+      committed = undefined;
     }
-    if (actual === expected) {
+    const failure = checkPermissionCatalog(committed);
+    if (failure === null) {
       console.log(`${PERMISSION_CATALOG_PATH} is up to date.`);
       return 0;
     }
-    console.error(
-      `${PERMISSION_CATALOG_PATH} is ${actual === undefined ? 'missing' : 'stale'}: ` +
-        `run ${PERMISSION_CATALOG_COMMAND} and commit the result.`,
-    );
+    console.error(failure);
     return 1;
   }
 
   mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, expected);
+  writeFileSync(target, renderPermissionCatalog());
   console.log(`Wrote ${PERMISSION_CATALOG_PATH}.`);
   return 0;
 }

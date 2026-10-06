@@ -18,6 +18,7 @@ export {
   PERMISSION_CATALOG_COMMAND,
   PERMISSION_CATALOG_PATH,
   buildPermissionCatalog,
+  checkPermissionCatalog,
   renderPermissionCatalog,
 } from './permission-catalog';
 export type { PermissionCatalog } from './permission-catalog';
