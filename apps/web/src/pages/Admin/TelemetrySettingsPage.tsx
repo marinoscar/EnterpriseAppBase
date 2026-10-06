@@ -72,6 +72,7 @@ import {
   TelemetryConnectionSection,
 } from '../../components/telemetry/TelemetryConnectionSection';
 import { TelemetryServicesSection } from '../../components/telemetry/TelemetryServicesSection';
+import { telemetryTokens } from '../../theme/telemetryTokens';
 import {
   TELEMETRY_INSTANCE_ID_PATTERN,
   TELEMETRY_LIMITS,
@@ -280,7 +281,7 @@ function StatusCard({
                   : status.ttl.raw
                 : 'None set'}
               {status.ttl?.days != null && status.ttl.days !== status.retentionDays && (
-                <Typography component="span" variant="body2" color="warning.main" sx={{ ml: 1 }}>
+                <Typography component="span" variant="body2" sx={{ ml: 1, color: (theme) => telemetryTokens(theme).status.warn }}>
                   (setting is {status.retentionDays} days — the background job has not applied it yet)
                 </Typography>
               )}
