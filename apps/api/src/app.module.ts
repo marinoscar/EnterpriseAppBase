@@ -6,6 +6,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ZodValidationPipe } from 'nestjs-zod';
 
 import { PrismaModule } from './prisma/prisma.module';
+import { EventBusModule } from './common/event-bus/event-bus.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -59,6 +60,11 @@ import configuration from './config/configuration';
 
     // Database
     PrismaModule,
+
+    // Cross-replica event bus (PP-1.11, #682). Global, like the database: the
+    // SSE stream and the job worker inject `EVENT_BUS` without an import edge.
+    // `EVENT_BUS_ADAPTER` picks the adapter; see common/event-bus/.
+    EventBusModule,
 
     // Logger
     LoggerModule,
