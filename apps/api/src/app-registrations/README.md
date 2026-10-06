@@ -50,6 +50,11 @@ A notification channel's transport is a Nest provider, so it cannot live
 here: it goes in the app's own module and registers itself into
 `NotificationChannelSenderRegistry` (see
 [notifications/README.md](../notifications/README.md#adding-a-channel)).
+registry:
+
+| File | Registry | Recipe |
+|---|---|---|
+| `user-owned-models.ts` | `userOwnedModelRegistry`: every model with a foreign key to `User` | [prisma/ownership/README.md](../prisma/ownership/README.md) |
 
 ## What goes here, and what does not
 

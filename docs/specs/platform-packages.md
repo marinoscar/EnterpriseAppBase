@@ -751,7 +751,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 |---|---|
 | Registry | A registry of user-owned and org-owned models |
 | Scoped data access | A Prisma client extension that applies the scope; an explicit `asSystem()` for system paths |
-| Lint | A rule against unscoped raw SQL |
+| Lint | A rule against unscoped raw SQL (today a Jest tripwire over an allowlist, `apps/api/test/prisma/raw-sql-allowlist.spec.ts`, since the API has no linter) |
 | Tripwire test | Fails if a model with an owner or org column is unregistered, or lacks a purge and export policy. It replaces EvoPath's hand-written purge list. |
 | Postgres row-level security (RLS) | On `org_id`, over the principal's memberships. A cross-tenant leak is a contractual breach, so the database enforces it. |
 | App policy | Handles owner, group and grant rules inside one org |
