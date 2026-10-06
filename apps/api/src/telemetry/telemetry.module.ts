@@ -27,6 +27,7 @@ import { TelemetryConfigController } from './telemetry-config.controller';
 import { TelemetryExplorerController } from './telemetry-explorer.controller';
 import { TelemetrySettingsService } from './telemetry-settings.service';
 import { TelemetryStatusService } from './telemetry-status.service';
+import { TelemetrySupportBundleSection } from './telemetry-support-bundle.section';
 import { TelemetryConnectionDoctorCheck } from './doctor/telemetry-connection.doctor-check';
 import { GreptimeDbEgressContributor } from './doctor/egress/greptimedb.egress.contributor';
 import { TelemetryExportDoctorCheck } from './doctor/telemetry-export.doctor-check';
@@ -116,6 +117,9 @@ import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-che
     TelemetryFreshnessDoctorCheck,
     // Egress inventory (#773): the GreptimeDB host.
     GreptimeDbEgressContributor,
+    // Support-bundle section (#772): telemetry health as aggregates only,
+    // gated on telemetry:query. Registers itself with SupportBundleRegistry.
+    TelemetrySupportBundleSection,
   ],
   exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })
