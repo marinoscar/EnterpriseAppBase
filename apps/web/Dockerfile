@@ -35,9 +35,20 @@ COPY apps/web/package.json ./apps/web/
 # inherits it through `COPY --from=deps /app ./` — Vite inlines the constant
 # into the bundle, so nginx's production stage needs nothing further.
 COPY packages/shared ./packages/shared/
+# `@marinoscar/platform-web` (issue #696) is a workspace dependency of this app:
+# the Doctor page and the platform host provider come from it, and its
+# `exports` map points at its built `dist/`. Copied whole for the same reason
+# as packages/shared above (the build and development stages inherit it through
+# `COPY --from=deps /app ./`, where node_modules/@marinoscar/platform-web is a
+# symlink into it) and built right after `npm ci` below with `tsc`. It extends
+# tsconfig.base.json. Vite bundles it, so nginx's production stage needs
+# nothing further.
+COPY tsconfig.base.json ./
+COPY packages/platform-web ./packages/platform-web/
 # The root postinstall (patch-react-transition-group.js) runs during npm ci
 COPY scripts ./scripts
 RUN npm ci --workspace=web --include-workspace-root
+RUN npm run build --workspace=@marinoscar/platform-web
 
 # -----------------------------------------------------------------------------
 # Development stage
