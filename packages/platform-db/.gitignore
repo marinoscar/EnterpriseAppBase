@@ -1,3 +1,5 @@
 # Build output; never committed (the published tarball is built in CI).
 dist/
 *.tsbuildinfo
+# Scratch folders of test/compose/app-with-domain.spec.ts (a generated client).
+.work-*/
