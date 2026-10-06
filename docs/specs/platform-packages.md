@@ -454,7 +454,7 @@ All of these are additive calls made from the app's own module. None of them tou
 // Rung 2: registries (additive, typed, string ids)
 registerPermissions([{ id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'viewer'] }]);
 registerSettingsNamespace('coach', coachSettingsSchema);          // a zod schema
-registerNotificationTemplate('coach.weekly-review', weeklyReviewTemplate);
+registerNotification({ event: coachWeeklyReview, emailTemplate: 'coach-weekly-review' }); // via app-registrations/notifications.ts
 registerJobHandler(new WeeklyReviewHandler());                    // job type id is permanent
 registerDoctorCheck(new CoachProviderCheck());
 

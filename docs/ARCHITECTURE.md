@@ -249,14 +249,14 @@ A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That c
 
 ### 5.11 Notifications, email and Web Push
 
-Every notification is an event declared once in `NOTIFICATION_EVENTS` with its channels and default. A caller raises it with `notify(eventKey, userId, payload)`. The dispatcher narrows the declared channels by admin policy (`system_settings.notifications`), then by the user's preferences, and delivers each channel through its sender. Every attempt is a `notification_deliveries` row. Mandatory events (such as a role change) ignore user preferences. The live SSE stream fans out across API replicas through the event bus ([§5.21](#521-event-bus)).
+Every notification is an event declared once, next to the module that raises it (`<module>.notifications.ts`), with its channels, default, email template and browser renderer; an application declares its own in `app-registrations/notifications.ts`. Events, channels, email templates and their bindings are registries filled at import time by `notifications/registry/notification.manifest.ts`, and an application's channel transport registers itself into `NotificationChannelSenderRegistry` from its own module. A caller raises it with `notify(eventKey, userId, payload)`. The dispatcher narrows the declared channels by admin policy (`system_settings.notifications`), then by the user's preferences, and delivers each channel through its sender. Every attempt is a `notification_deliveries` row. Mandatory events (such as a role change) ignore user preferences. The live SSE stream fans out across API replicas through the event bus ([§5.21](#521-event-bus)).
 
 The channels are email (SMTP or SES, configured at `/admin/settings/email`), in-app (a `notifications` inbox row pushed to open tabs over an SSE stream), and Web Push (VAPID keys generated and rotated at `/admin/settings/push`). The web app ships a service worker that handles push and notification clicks.
 
 - **Code:** `apps/api/src/notifications/`, `apps/api/src/email/`
 - **UI:** `/admin/settings/notifications`, `/admin/settings/push`, `/admin/settings/email`; user `/settings/notifications`
 - **Permissions:** `system_settings:read/write` (email, policy), `push:read/write` (VAPID keys)
-- **Read more:** [notifications README](../apps/api/src/notifications/README.md), [specs/browser-notifications.md](specs/browser-notifications.md), [runbooks/vapid-keys.md](runbooks/vapid-keys.md)
+- **Read more:** [notifications README](../apps/api/src/notifications/README.md), [notification registries](../apps/api/src/notifications/registry/README.md), [specs/browser-notifications.md](specs/browser-notifications.md), [runbooks/vapid-keys.md](runbooks/vapid-keys.md)
 
 ### 5.12 Admin broadcasts
 
@@ -714,7 +714,7 @@ Health endpoints (public, reachable during maintenance):
 | An API endpoint | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) (UI), [settings/registry/README.md](../apps/api/src/settings/registry/README.md) (API namespace) |
 | A background job type | [jobs/handlers/README.md](../apps/api/src/jobs/handlers/README.md) |
-| A notification event | [notifications/README.md](../apps/api/src/notifications/README.md) |
+| A notification event, email template or channel | [notifications/README.md](../apps/api/src/notifications/README.md) (app entries in `app-registrations/notifications.ts`; API in [notifications/registry/README.md](../apps/api/src/notifications/registry/README.md)) |
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |

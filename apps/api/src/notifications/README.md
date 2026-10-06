@@ -8,25 +8,32 @@ in-app inbox, Web Push subscriptions and configuration, and admin broadcasts.
 
 | Path | What it does |
 |---|---|
-| `notification-events.ts` | `NOTIFICATION_EVENTS`, the registry of every event the application can raise, and `NOTIFICATION_CHANNELS` (`email`, `browser`, `push`). |
+| `registry/` | The registries: channels, events, email templates, the event-to-template bindings and `registerNotification` (static, filled at import time by `registry/notification.manifest.ts`), plus `NotificationChannelSenderRegistry` (DI-held, the transports). See [`registry/README.md`](registry/README.md). |
+| `notification-events.ts` | Views over the registry: `NOTIFICATION_EVENTS`, `NOTIFICATION_CHANNELS` (`email`, `browser`, `push`, then any app channel), `findEvent`, `channelsFor`, `supportsChannel`, `isMandatory`, `listNotificationEvents`. |
 | `notifications.service.ts` | The dispatcher. `notify`, `notifyNow`, `notifyAddress`, `notifyPermissionHolders` and `notifyPermissionHoldersNow` all converge on one private `dispatch()`. |
 | `notification-preferences.ts` | Pure functions: what this user wants, per event and channel (`user_settings.notifications`). |
 | `notification-policy.ts`, `notification-policy.service.ts` | What this deployment is willing to send (`system_settings.notifications`: `browserEnabled`, `disabledEvents`). |
 | `notification-delivery.service.ts` | Writes one `notification_deliveries` row per channel attempt. |
 | `notification-store.service.ts`, `notification-stream.service.ts` | The in-app inbox (`notifications` table) and the per-user SSE stream that pushes new rows to open tabs. |
 | `notifications.controller.ts` | `/api/notifications`: event list, config, SSE stream, inbox reads and mark-read, push subscribe/unsubscribe. |
-| `channels/` | One `NotificationChannelSender` per channel. `email-notification.channel.ts` renders an email template and sends it over SMTP or SES. `browser-notification.channel.ts` writes the inbox row and publishes it to the stream. `push-notification.channel.ts` sends an encrypted Web Push message to each of the user's `push_subscriptions`. |
+| `channels/` | One `NotificationChannelSender` per channel. `email-notification.channel.ts` renders an email template and sends it over SMTP or SES. `browser-notification.channel.ts` writes the inbox row and publishes it to the stream. `push-notification.channel.ts` sends an encrypted Web Push message to each of the user's `push_subscriptions`. `browser-templates.ts` holds the platform's browser/push renderers (a leaf, so declaration files can import it). |
 | `push-config.*`, `push-subscription.service.ts` | Web Push: runtime VAPID key management (`/api/admin/push-config`, including the test-push route served by `push-test.service.ts`) and storage of browser push subscriptions. |
-| `broadcasts/` | Admin broadcasts: `/api/admin/broadcasts`, the audience, and the two fan-out job handlers under `broadcasts/handlers/`. A sibling module (`BroadcastsModule`), not part of `NotificationsModule`. |
-| `ops/` | `JobFailureNotifier`, a `job.settled` listener that raises `jobs.job_failed` to everyone holding the permission that can act on it. |
+| `broadcasts/` | Admin broadcasts: `/api/admin/broadcasts`, the audience, and the two fan-out job handlers under `broadcasts/handlers/`. A sibling module (`BroadcastsModule`), not part of `NotificationsModule`. `broadcasts.notifications.ts` declares its two events. |
+| `ops/` | `JobFailureNotifier`, a `job.settled` listener that raises `jobs.job_failed` to everyone holding the permission that can act on it. `ops.notifications.ts` declares that event. |
 
 Email templates live outside this folder, in
-[`../email/templates/`](../email/templates/index.ts).
+[`../email/templates/`](../email/templates/index.ts); the platform's are
+listed in `platform-email-templates.ts`. Each platform module declares the
+events it raises in its own `<module>.notifications.ts`
+(`auth/`, `allowlist/`, `users/`, `nodes/`, `db-backup/`, plus `broadcasts/`
+and `ops/` here). This application's own channels, templates and
+notifications go in
+[`../app-registrations/notifications.ts`](../app-registrations/notifications.ts).
 
 ## Delivery model
 
-A caller raises an event by key. The dispatcher looks the event up in
-`NOTIFICATION_EVENTS`, takes the channels it declares, narrows them by admin
+A caller raises an event by key. The dispatcher looks the event up in the
+event registry, takes the channels it declares, narrows them by admin
 policy (`policyChannels`), then by the recipient's stored preferences
 (`resolveChannels`). A `mandatory` event ignores stored preferences, so every
 declared channel stays on. Each surviving channel receives the event through
@@ -47,24 +54,59 @@ there is no environment-variable fallback.
 
 ## Adding a notification
 
-Three steps and no migration.
+Three steps and no migration. An application adds its own notifications in
+[`../app-registrations/notifications.ts`](../app-registrations/notifications.ts);
+a platform module declares its own in `<module>.notifications.ts` next to the
+code that raises them, and appends one line to
+[`registry/notification.manifest.ts`](registry/notification.manifest.ts).
+Neither edits a list in this folder.
 
 ### 1. Declare the event
 
-Add an entry to `NOTIFICATION_EVENTS` in
-[`notification-events.ts`](notification-events.ts):
+Each notification is one `NotificationRegistration`: the event, plus the
+email template and the browser renderer that render it.
 
-- `key`: stable and dotted, `<area>.<event>` (`billing.invoice_ready`).
-  Renaming a key later is a data migration, because stored preferences are
-  keyed by it.
+```ts
+// app-registrations/notifications.ts (in an application)
+export const APP_NOTIFICATIONS: readonly NotificationRegistration[] = [
+  {
+    event: {
+      key: 'billing.invoice_ready',
+      label: 'Invoice ready',
+      description: 'Sent when a new invoice is available to download.',
+      channels: ['email', 'browser'],
+      defaultEnabled: true,
+    },
+    emailTemplate: 'invoice-ready',            // a registered template name
+    browserTemplate: invoiceReadyBrowserTemplate, // also serves push
+  },
+];
+```
+
+The event's fields:
+
+- `key`: stable and dotted, `<area>.<event>` (`billing.invoice_ready`),
+  lower snake case, at most 64 characters. **Never rename a key; add a new
+  one.** Stored preferences and delivery rows are keyed by it, and a user who
+  muted the old key would silently start receiving the new one.
 - `label` and `description`: user-facing copy for the preferences page.
 - `channels`: the channels this event can genuinely be delivered over
-  (`email`, `browser`, `push`). An event whose recipient has no account, such
-  as `allowlist.invitation`, declares `email` only.
+  (`email`, `browser`, `push`, or a channel the application registered). An
+  event whose recipient has no account, such as `allowlist.invitation`,
+  declares `email` only.
 - `defaultEnabled`: what an account with no stored preference gets.
 - `mandatory: true`: only for events a user must not be able to silence, such
   as a privilege or security change. A mandatory event must also be
   `defaultEnabled: true`.
+
+The manifest registers it with `registerNotification`, which validates the
+event and both bindings before it registers any of them. A malformed or
+duplicate key, an empty or unregistered channel, `mandatory` without
+`defaultEnabled`, a template name nobody registered, an email template on an
+event without `email`, or a browser renderer on an event with neither
+`browser` nor `push` fails at import time with a `RegistryError` naming the
+key. App notifications register after the platform's, so they list after the
+platform's on `GET /api/notifications/events` and in the preferences matrix.
 
 This one entry feeds the dispatcher, the `/settings/notifications` matrix and
 `GET /api/notifications/events`. There is no second list to update, and no
@@ -75,31 +117,36 @@ event's default".
 
 Write one template per channel the event declares.
 
-**Email.** Create `apps/api/src/email/templates/<name>.email.ts`. Export a
-payload interface and a pure function returning `{ subject, html, text }`.
+**Email.** Create the template module (`apps/api/src/email/templates/<name>.email.ts`
+on the platform). Export a payload interface and a pure function returning
+`{ subject, html, text }`.
 
 - Build the body with the `html` tagged literal so every interpolation is
   escaped.
 - Pass it to `renderLayout`. Put any call-to-action URL through the layout,
   which applies `safeUrl`.
 - Hand-write the text part. There is no HTML-to-text helper.
-- Register the template in
-  [`../email/templates/index.ts`](../email/templates/index.ts), in both
-  `EmailTemplateDataMap` and `EMAIL_TEMPLATES`. The compiler rejects half a
-  registration.
-- Map the event key to the template name in `EVENT_EMAIL_TEMPLATES`
-  ([`channels/email-notification.channel.ts`](channels/email-notification.channel.ts)).
-  A missing entry is a recorded delivery failure, not a silent skip.
+- Register it. A platform template goes in both `PlatformEmailTemplateDataMap`
+  and `PLATFORM_EMAIL_TEMPLATES` in
+  [`../email/templates/platform-email-templates.ts`](../email/templates/platform-email-templates.ts);
+  the compiler rejects half a registration. An application's goes in
+  `APP_EMAIL_TEMPLATES` and, for a typed `renderEmailTemplate`, augments
+  `EmailTemplateDataMap`.
+- Name it in the notification's `emailTemplate`. An event that declares
+  `email` with no template is a recorded delivery failure, not a silent skip.
 
-**Browser and push.** Add an entry to `EVENT_BROWSER_TEMPLATES`
-([`channels/browser-notification.channel.ts`](channels/browser-notification.channel.ts))
-returning `{ title, body, link? }`. The push channel reads the same map. The
-entry is optional: without one, the registry's `label` and `description` are
-used. `link` must be a root-relative path.
+**Browser and push.** Give the notification a `browserTemplate` returning
+`{ title, body, link? }`. The push channel uses the same renderer. It is
+optional: without one, the event's `label` and `description` are used. `link`
+must be a root-relative path. A platform renderer lives in
+[`channels/browser-templates.ts`](channels/browser-templates.ts), never in the
+channel class (the declaration files import it, and the class imports the
+registry).
 
 Worked examples:
-[`test-email.email.ts`](../email/templates/test-email.email.ts) and
-[`role-changed.email.ts`](../email/templates/role-changed.email.ts).
+[`test-email.email.ts`](../email/templates/test-email.email.ts),
+[`role-changed.email.ts`](../email/templates/role-changed.email.ts) and
+[`../users/users.notifications.ts`](../users/users.notifications.ts).
 
 ### 3. Call `notify()` at the real trigger
 
@@ -137,6 +184,58 @@ Live examples:
   See §2.9 and §6 of the
   [browser notifications spec](../../../../docs/specs/browser-notifications.md)
   for the operational events and why `jobs.job_failed` has no digest.
+
+## Adding a channel
+
+A channel is two things: an id in the channel registry, and a transport
+(`NotificationChannelSender`) that delivers over it.
+
+1. **Declare the id** in `APP_NOTIFICATION_CHANNELS` in
+   [`../app-registrations/notifications.ts`](../app-registrations/notifications.ts),
+   and widen the type by augmenting `NotificationChannelIds`:
+
+   ```ts
+   export const APP_NOTIFICATION_CHANNELS: readonly NotificationChannelDef[] = [
+     { id: 'android_app', label: 'Android app', description: 'A notification on the paired Android app.' },
+   ];
+
+   declare module '../notifications/registry/channel.registry' {
+     interface NotificationChannelIds { android_app: true }
+   }
+   ```
+
+   A channel id is persisted in preferences and delivery rows: never rename
+   one.
+
+2. **Provide the sender** in the application's own module, which imports
+   `NotificationsModule`. The sender injects `NotificationChannelSenderRegistry`
+   and registers itself in `onModuleInit`, the same pattern as a doctor check:
+
+   ```ts
+   @Injectable()
+   export class AndroidAppNotificationChannel implements NotificationChannelSender, OnModuleInit {
+     readonly channel = 'android_app';
+     constructor(private readonly registry: NotificationChannelSenderRegistry) {}
+     onModuleInit(): void {
+       this.registry.register(this);
+     }
+     resolveTo(recipient: NotificationRecipient): string | null { /* ... */ }
+     async deliver(context: NotificationDispatchContext, to: string): Promise<ChannelDeliveryResult> { /* ... */ }
+   }
+   ```
+
+   `deliver` must never throw: return `{ success: false, error }` instead.
+
+3. **Declare the channel on the events** that can use it (`channels: [...,
+   'android_app']`).
+
+The registration is an explicit call in the application's diff, never
+discovery. A second sender for a channel that already has one (`email`, say)
+fails at bootstrap with `Duplicate notification channel sender registered for
+'email'.`; a sender for an undeclared channel fails too. The platform's own
+three senders stay in the `NOTIFICATION_CHANNEL_SENDERS` factory in
+`notifications.module.ts`. A declared channel with no sender is skipped
+quietly, so declaring the id before the transport ships is safe.
 
 ## Admin broadcasts
 
