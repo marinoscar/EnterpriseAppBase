@@ -45,8 +45,8 @@ Source of truth for every claim below:
   store.
 - `apps/api/src/ai/keys/user-ai-keys.service.ts` — the AI BYOK store, which is
   **not** owner-bound (see step 6 below).
-- `apps/api/prisma/schema.prisma` — models `Credential`, `UserCredential`,
-  `UserAiKey`.
+- `packages/platform-db/schema/credentials.prisma` and `ai.prisma` — models
+  `Credential`, `UserCredential`, `UserAiKey`.
 
 ---
 

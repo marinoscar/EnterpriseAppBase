@@ -356,7 +356,7 @@ All logical channels are multiplexed onto one physical Postgres channel, `platfo
 
 ### 6.1 Prisma models
 
-The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-column reasoning. All 31 models, grouped by subsystem:
+The schema is composed from per-slice fragments in `packages/platform-db/schema/` (one file per slice: identity, settings, storage, credentials, notifications, jobs, db-backup, ai; plus `base.prisma` for the generator and datasource) and the app's own `apps/api/prisma/fragments/`. `npm run db:compose --workspace=api` writes the generated, committed folder `apps/api/prisma/schema/` that Prisma reads; a back-relation on a platform model (`User`, `Job`, `StorageObject`) is an `extend model` block in the fragment that owns the foreign key ([platform packages spec](specs/platform-packages.md#known-hard-problem-relations-to-package-owned-models)). The fragments' block comments carry per-column reasoning. All 31 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|

@@ -477,7 +477,7 @@ Existing precedent in the base: Doctor checks and job handlers already register 
 | Privacy and ownership | Register the new model in the user-owned-data registry with a purge and export policy; the tripwire test fails otherwise |
 | Migrations | The app's own migrations live in the app's `prisma/migrations`, after the installed package migrations ([Data, migrations and seeds](#data-migrations-and-seeds)) |
 
-How the Prisma relation to a package-owned `User` is expressed is the open question the spike settles ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)). The rule above holds either way.
+The Prisma relation to a package-owned model is written in the app's fragment as an `extend model` block ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)): `extend model User { workouts Workout[] }` next to the `Workout` model, with no edit to a platform file.
 
 #### Web
 
@@ -594,8 +594,8 @@ Documentation drift becomes a failing build.
 
 | Item | Today |
 |---|---|
-| Schema | One file, `apps/api/prisma/schema.prisma`. Base: 2,557 lines, 31 models. EvoPath: 3,905 lines, 77 models. |
-| Config | `prisma.config.ts` with `@prisma/adapter-pg` |
+| Schema | The base is a generated, committed folder, `apps/api/prisma/schema/` (31 models, 10 enums, 9 files), composed by `platform db compose` from `packages/platform-db/schema/` (one fragment per slice plus `base.prisma`) and the app's own `apps/api/prisma/fragments/` ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D1 and D2). EvoPath still has one file of 3,905 lines and 77 models. |
+| Config | `prisma.config.ts` with `@prisma/adapter-pg`, `schema: 'prisma/schema'` and an explicit `migrations.path` |
 | Migrations | One linear history per app (21 directories in the base, plus `migration_lock.toml`) |
 | Seeds | `prisma/seed.ts` and `prisma/seed-data.ts` |
 | Startup | The API does not migrate on startup |
@@ -662,21 +662,23 @@ The baseline tool needs a **partial mode**: an app that lacks some platform migr
 
 ### Known hard problem: relations to package-owned models
 
-Prisma requires relation fields on both sides. A `Workout` model with a relation to `User` needs a `workouts Workout[]` field on `User`, and the package owns `User`. The same applies to any package-owned model an app points at: `User`, `Job`, `StorageObject` and `Group`. Prisma also cannot extend one model across files.
+Prisma requires relation fields on both sides. A `Workout` model with a relation to `User` needs a `workouts Workout[]` field on `User`, and the package owns `User`. The same applies to any package-owned model an app points at: `User`, `Job`, `StorageObject` and `Group`. Prisma also cannot extend one model across files (a model declared twice is error `P1012`).
 
 | Option | Description | Trade-off |
 |---|---|---|
-| 1 (leaning) | **Generate the composed models** (`User`, `Job`, `StorageObject`, `Group`) from fragments contributed by slices and apps; composition generates the back-relations on every package-owned model, not only `User` | Keeps `include` and typed relations; needs a small generator |
-| 2 | Domain tables carry a plain `userId` with the foreign key added in raw SQL | Loses `include`; creates schema drift |
+| 1 (**decided**, [ADR 0002](../adr/0002-database-packaging-and-rls.md) D2) | **Merge `extend model` fragments** into the models their owner marked `// @extensible` (`User`, `Job`, `StorageObject`; `Group` and `Organization` when they ship). The composer **merges explicit blocks and generates nothing**: the slice or app that owns the foreign key writes the back-relation | Keeps `include`, nested writes and relation filters; the generated schema is committed and checked |
+| 2 (rejected) | Domain tables carry a plain `userId` with the foreign key added in raw SQL | Loses `include`; creates schema drift (Prisma plans to drop the hand-written key) |
 
-Resolve with a **one-week spike** that also validates:
+**How it works (shipped in `@marinoscar/platform-db`, issue #709).**
 
-- Prisma 7 multi-file schema support.
-- Back-relation generation on every package-owned model, not only `User`.
-- Migration ordering across fragments.
-- The install and baseline procedure ([Baseline adoption for existing databases](#baseline-adoption-for-existing-databases)).
-- Row-level security with Prisma ([Enforcement](#enforcement)).
-- Backup and restore on RLS-protected tables ([Enforcement](#enforcement)).
+- The package ships `schema/base.prisma` (generator and datasource) and one fragment per slice. A model another slice or an app may point at carries `// @extensible` in the comment run above it; everything else is closed, and opening one more is a minor-version package change reached through a seam request.
+- An `extend model User { ... }` block, in any package or app fragment, holds **back-relation fields only**. A scalar field, an owning relation (`fields: [...]`) or a block attribute is rejected, because each would alter the package's table.
+- `platform db compose` (`npm run db:compose`) merges the blocks and writes plain Prisma files to `apps/api/prisma/schema/`: `platform.<slice>.prisma` per package fragment and `app.<fragment>.prisma` per app fragment, each starting with a do-not-edit header. Package fragments load first, app fragments second, each alphabetically. The folder is committed and `npm run db:compose:check` (CI) fails when it differs from a fresh compose, the same pattern as `openapi:dump`.
+- An app `base.prisma` replaces the package's, which is the only way to change the generator `output` or `previewFeatures`.
+- Rejections carry a stable code, a file and a line: `NOT_EXTENSIBLE`, `UNKNOWN_MODEL`, `FIELD_COLLISION`, `EXTEND_SCALAR_FIELD`, `EXTEND_OWNING_RELATION`, `EXTEND_BLOCK_ATTRIBUTE`, `EXTEND_UNKNOWN_TYPE`, `DUPLICATE_MODEL`, `DUPLICATE_BASE`, `MALFORMED`.
+- The split is schema-neutral: `prisma migrate diff` from the old single file to the composed folder, and from the migrated database to it, report no difference.
+
+The spike ([ADR 0002](../adr/0002-database-packaging-and-rls.md)) validated multi-file schemas, back-relations on `User`, `Job` and `StorageObject`, the install and baseline procedure, row-level security with Prisma and backup and restore on RLS tables; its sentences superseding this spec are listed there.
 
 ## Tenancy and access model
 
@@ -755,7 +757,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 | Scoped data access | A Prisma client extension that applies the scope; an explicit `asSystem()` for system paths |
 | Lint | A rule against unscoped raw SQL (today a Jest tripwire over an allowlist, `apps/api/test/prisma/raw-sql-allowlist.spec.ts`, since the API has no linter) |
 | Tripwire test | Fails if a model with an owner or org column is unregistered, or lacks a purge and export policy. It replaces EvoPath's hand-written purge list. |
-| Postgres row-level security (RLS) | On `org_id`, over the principal's memberships. A cross-tenant leak is a contractual breach, so the database enforces it. |
+| Postgres row-level security (RLS) | On `org_id`, one active org per transaction ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D5). A cross-tenant leak is a contractual breach, so the database enforces it. |
 | App policy | Handles owner, group and grant rules inside one org |
 | Optional owner-based RLS | For sensitive tables, such as EvoPath's health records |
 
@@ -763,7 +765,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 
 - RLS settings must be **transaction-local** (`set_config(..., true)` or `SET LOCAL`) so they survive connection poolers.
 - Cross-org system work (backups, purge, doctor) uses a **separate bypass connection**, as the restore flow already does for its cluster admin connection.
-- `pg_dump` and `pg_restore` fail on RLS-protected tables unless the connecting role can bypass RLS (`BYPASSRLS`). Database backup, database restore and the worker-node dump role must each handle this when RLS lands ([database backup spec](database-backup.md), [database restore spec](database-restore.md)).
+- `pg_dump` and `pg_restore` fail on RLS-protected tables with today's arguments. They succeed for a role that owns or can read the tables when given `--enable-row-security` and the `app.rls_bypass` startup option; no `BYPASSRLS` role is needed ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D5). Database backup, database restore and the worker-node dump role must each carry both halves when RLS lands ([database backup spec](database-backup.md), [database restore spec](database-restore.md)).
 
 ### Per-slice impact
 
@@ -883,7 +885,7 @@ An **event bus**, a **cache and rate-limit store** and a **backup strategy** shi
 | About 5k | **ECS Fargate** (2 or more API tasks plus worker tasks) behind an ALB and CloudFront; RDS Multi-AZ |
 | About 50k | RDS Proxy or PgBouncer; a read replica |
 
-ECS, not EKS. In the spike, verify whether RDS Proxy pins connections when `set_config(..., true)` is used; the fallback is PgBouncer on ECS.
+ECS, not EKS. Whether RDS Proxy pins connections when `set_config(..., true)` is used is still unmeasured ([runbook](../runbooks/rds-proxy-rls-check.md)); until it is, the assumption is PgBouncer on ECS.
 
 **App-specific considerations if EvoPath is hosted as SaaS**
 

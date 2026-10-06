@@ -27,7 +27,7 @@ job, either in the API process or on a worker node. Each attempt is one row in
 
 ### Model: `database_backup_runs`
 
-One row per attempt (`DatabaseBackupRun` in `apps/api/prisma/schema.prisma`).
+One row per attempt (`DatabaseBackupRun` in `packages/platform-db/schema/db-backup.prisma`).
 It is **not** a `jobs` row; it links to the job driving it through `job_id`
 (`@unique`, `onDelete: SetNull`).
 

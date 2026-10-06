@@ -34,7 +34,7 @@ Two node-eligible types ship today: `example.checksum` (the reference) and `db.b
 
 `NodeStatus` is `online` | `draining` | `offline` | `disabled`. Health (`healthy` / `stale` / `offline`) is never stored; it is derived at read time (see Derived health).
 
-Per-column reasoning lives in the block comments of `apps/api/prisma/schema.prisma`.
+Per-column reasoning lives in the block comments of `packages/platform-db/schema/jobs.prisma`.
 
 ### Node credentials
 
