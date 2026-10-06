@@ -11,6 +11,9 @@ import { AdminBootstrapService } from '../common/services/admin-bootstrap.servic
 import { AllowlistService } from '../allowlist/allowlist.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import { AppMetricsService } from '../common/otel/app-metrics.service';
+import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
+import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
+import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from './principal-cache/principal-cache.service';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -21,6 +24,9 @@ describe('AuthService', () => {
   let mockAllowlistService: jest.Mocked<AllowlistService>;
   let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
   let mockMetrics: { authLogin: jest.Mock; authRefresh: jest.Mock };
+  // PP-1.12 (#683): a REAL principal cache (fresh per test) on a controllable clock.
+  let principalCache: PrincipalCache;
+  let clock: number;
 
   const mockGoogleProfile: GoogleProfile = {
     id: 'google-123',
@@ -30,6 +36,7 @@ describe('AuthService', () => {
   };
 
   beforeEach(async () => {
+    clock = 1_000_000;
     mockPrisma = createMockPrismaService();
     mockJwtService = {
       sign: jest.fn().mockReturnValue('mock-jwt-token'),
@@ -65,6 +72,9 @@ describe('AuthService', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AdminBootstrapService, useValue: mockAdminBootstrap },
         { provide: AllowlistService, useValue: mockAllowlistService },
+        PrincipalCache,
+        { provide: EVENT_BUS, useValue: new InProcessEventBus() },
+        { provide: PRINCIPAL_CACHE_CLOCK, useValue: () => clock },
         // #600: application metrics, stubbed so the outcome labels can be asserted.
         {
           provide: AppMetricsService,
@@ -89,6 +99,7 @@ describe('AuthService', () => {
     }).compile();
 
     service = module.get<AuthService>(AuthService);
+    principalCache = module.get(PrincipalCache);
   });
 
   afterEach(() => {
@@ -1480,6 +1491,113 @@ describe('AuthService', () => {
         'user_inactive',
         'success',
       ]);
+    });
+  });
+
+  describe('validateJwtPayload — principal cache (PP-1.12, #683)', () => {
+    const payload = { sub: 'user-1', email: 'test@example.com', roles: ['admin'] };
+    const activeUser = {
+      id: 'user-1',
+      email: 'test@example.com',
+      isActive: true,
+      userRoles: [
+        { role: { name: 'admin', rolePermissions: [{ permission: { name: 'users:read' } }] } },
+      ],
+    };
+
+    it('misses once, then serves the same principal from the cache within the TTL', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(activeUser as any);
+
+      const first = await service.validateJwtPayload(payload);
+      const second = await service.validateJwtPayload(payload);
+
+      expect(first).toEqual(activeUser);
+      expect(second).toBe(first);
+      expect(Object.isFrozen(second)).toBe(true);
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(1);
+      expect(principalCache.stats()).toMatchObject({ hits: 1, misses: 1, size: 1 });
+    });
+
+    it('reads the database again once the TTL has passed', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(activeUser as any);
+
+      await service.validateJwtPayload(payload);
+      clock += principalCache.ttlMs;
+      await service.validateJwtPayload(payload);
+
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(2);
+    });
+
+    it('reads the database again after an invalidation', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(activeUser as any);
+      await service.validateJwtPayload(payload);
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ ...activeUser, userRoles: [] } as any);
+      principalCache.invalidate({ userId: 'user-1' });
+      const after = await service.validateJwtPayload(payload);
+
+      expect(after?.userRoles).toEqual([]);
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects an inactive user served FROM the cache', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ ...activeUser, isActive: false } as any);
+
+      await expect(service.validateJwtPayload(payload)).resolves.toBeNull();
+      await expect(service.validateJwtPayload(payload)).resolves.toBeNull();
+
+      // The inactive row was cached (one read), and still rejected on the hit.
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(1);
+      expect(principalCache.stats().hits).toBe(1);
+    });
+
+    it('does not cache a missing user', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      await service.validateJwtPayload(payload);
+      await service.validateJwtPayload(payload);
+
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(2);
+      expect(principalCache.stats().size).toBe(0);
+    });
+
+    it('never stores a principal read while an invalidation landed (generation guard)', async () => {
+      let release!: (value: unknown) => void;
+      mockPrisma.user.findUnique.mockImplementationOnce(
+        () => new Promise((resolve) => (release = resolve)) as any,
+      );
+
+      const inFlight = service.validateJwtPayload(payload);
+      await Promise.resolve();
+      principalCache.invalidate({ userId: 'user-1' });
+      release(activeUser);
+
+      // The request that started before the change still gets its answer...
+      await expect(inFlight).resolves.toEqual(activeUser);
+      // ...but it was not stored, so the next request reads the database again.
+      expect(principalCache.stats().size).toBe(0);
+    });
+
+    it('checks the device session on EVERY request, even while the principal is cached', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(activeUser as any);
+      const live = {
+        id: 'device-code-1',
+        userId: 'user-1',
+        revokedAt: null,
+        credentialExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      };
+      mockPrisma.deviceCode.findUnique.mockResolvedValueOnce(live as any);
+      const devicePayload = { ...payload, did: 'device-code-1' };
+
+      await expect(service.validateJwtPayload(devicePayload)).resolves.not.toBeNull();
+
+      // Revoked: the next request is refused although the principal is cached.
+      mockPrisma.deviceCode.findUnique.mockResolvedValueOnce({ ...live, revokedAt: new Date() } as any);
+      await expect(service.validateJwtPayload(devicePayload)).resolves.toBeNull();
+
+      expect(mockPrisma.deviceCode.findUnique).toHaveBeenCalledTimes(2);
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledTimes(1);
+      expect(principalCache.get('user-1')).toBeDefined();
     });
   });
 });

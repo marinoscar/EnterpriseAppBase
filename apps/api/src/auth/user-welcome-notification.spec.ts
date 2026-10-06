@@ -21,6 +21,9 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { GoogleProfile } from './strategies/google.strategy';
+import { PrincipalCache } from './principal-cache/principal-cache.service';
+import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
+import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
 
 // =============================================================================
 // `user.welcome` fires only after the creating transaction has committed
@@ -113,6 +116,9 @@ describe('user.welcome: fires after commit, and the dispatcher reads the recipie
         AuthService,
         NotificationsService,
         NotificationDeliveryService,
+        // PP-1.12 (#683): the JWT principal cache and the bus it invalidates on.
+        PrincipalCache,
+        { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prisma },
         // #226. The dispatcher now reads the deployment-wide notification
         // policy; this suite is not about that policy, so it gets the

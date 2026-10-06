@@ -27,6 +27,8 @@ import { JwtService } from '@nestjs/jwt';
 import { DeviceCodeStatus, type PrismaClient } from '@prisma/client';
 
 import { AuthService } from '../../src/auth/auth.service';
+import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
+import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 import { DeviceAuthService } from '../../src/device-auth/device-auth.service';
 import { PatService } from '../../src/pat/pat.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
@@ -88,6 +90,9 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
       {} as never,
       {} as never,
       {} as never,
+      // PP-1.12 (#683): a real, enabled principal cache — revocation must
+      // still bite on the next request while the principal is cached.
+      new PrincipalCache(config, new InProcessEventBus()),
     );
     deviceAuth = new DeviceAuthService(
       prisma,
