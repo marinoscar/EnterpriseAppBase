@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "@marinoscar/platform-contract",
+      "@marinoscar/platform-api",
+      "@marinoscar/platform-web",
+      "@marinoscar/platform-db",
+      "@marinoscar/platform-cli",
+      "@marinoscar/platform-infra"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": ["api", "web", "cli", "stack-agent", "@app/shared"],
+  "privatePackages": { "version": false, "tag": false }
+}
