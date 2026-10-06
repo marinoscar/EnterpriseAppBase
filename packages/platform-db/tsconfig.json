@@ -1,0 +1,15 @@
+{
+  // Typecheck config (`npm run typecheck` = tsc --noEmit), covering src/, the
+  // tests and vitest.config.mts. `rootDir`/`outDir` live only in
+  // tsconfig.build.json (same split as apps/cli).
+  //
+  // CommonJS: `"type": "commonjs"` plus NodeNext (tsconfig.base.json) emits
+  // require()/exports, like apps/api, which is this package's consumer.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*", "vitest.config.mts"],
+  "exclude": ["node_modules", "dist"]
+}
