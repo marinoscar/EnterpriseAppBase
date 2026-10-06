@@ -89,9 +89,15 @@ cleanupOutdatedCaches();
 // (Strictly, `NavigationRoute` only sees requests whose `mode` is `navigate`,
 // which an `EventSource` connection is not. The denylist is belt-and-braces
 // against exactly that reasoning being used to remove it.)
+//
+// `/.well-known/` is the server's too: documents there (Digital Asset Links,
+// `security.txt`, OpenID metadata) are served by nginx or the API. A
+// platform's own verification fetch never passes through this worker, but a
+// person opening the URL in a tab would otherwise get the SPA shell instead of
+// the document they came to check.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL('/index.html'), {
-    denylist: [/^\/api\//],
+    denylist: [/^\/api\//, /^\/\.well-known\//],
   }),
 );
 

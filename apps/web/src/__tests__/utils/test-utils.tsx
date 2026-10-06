@@ -32,6 +32,8 @@ interface WrapperOptions {
   user?: MockUser | null;
   isLoading?: boolean;
   providers?: AuthProviderType[];
+  /** `AuthContext.sessionExpired`: the server refused a refresh. */
+  sessionExpired?: boolean;
   /**
    * Stand in for the shell's `AiConfigProvider` (#425) with a settled answer:
    * `true` → AI on (`mockAiPublicConfigEnabled`), `false` → AI off. Omitted,
@@ -152,6 +154,7 @@ interface MockAuthProviderProps {
   user?: MockUser | null;
   isLoading?: boolean;
   providers?: AuthProviderType[];
+  sessionExpired?: boolean;
 }
 
 function MockAuthProvider({
@@ -160,12 +163,14 @@ function MockAuthProvider({
   user = mockUser,
   isLoading = false,
   providers = defaultMockProviders,
+  sessionExpired = false,
 }: MockAuthProviderProps) {
   const contextValue = {
     user: authenticated ? user : null,
     isLoading,
     isAuthenticated: authenticated,
     providers,
+    sessionExpired,
     login: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     refreshUser: vi.fn().mockResolvedValue(undefined),
@@ -186,6 +191,7 @@ function createWrapper(options: WrapperOptions = {}) {
     user = mockUser,
     isLoading = false,
     providers = defaultMockProviders,
+    sessionExpired = false,
     aiEnabled,
     telemetryEnabled,
   } = options;
@@ -236,6 +242,7 @@ function createWrapper(options: WrapperOptions = {}) {
             user={user}
             isLoading={isLoading}
             providers={providers}
+            sessionExpired={sessionExpired}
           >
             {aiValue ? (
               <AiConfigContext.Provider value={aiValue}>{withTelemetry}</AiConfigContext.Provider>

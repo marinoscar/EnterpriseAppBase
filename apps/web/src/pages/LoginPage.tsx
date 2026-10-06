@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
+  Alert,
   Box,
   Card,
   CardContent,
@@ -18,7 +19,7 @@ interface LocationState {
 }
 
 export default function LoginPage() {
-  const { isAuthenticated, isLoading, providers, login } = useAuth();
+  const { isAuthenticated, isLoading, providers, login, sessionExpired } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -68,6 +69,13 @@ export default function LoginPage() {
               Sign in to continue
             </Typography>
           </Box>
+
+          {/* The server refused to refresh a signed-in session. */}
+          {sessionExpired && (
+            <Alert severity="info" sx={{ mb: 3 }} data-testid="session-expired-notice">
+              Your session expired. Please sign in again.
+            </Alert>
+          )}
 
           <Divider sx={{ mb: 3 }}>
             <Typography variant="body2" color="text.secondary">

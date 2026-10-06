@@ -682,6 +682,10 @@ export const handlers = [
     return HttpResponse.json({ data: mockStorageObject({ id: String(params.id), status: 'ready' }) });
   }),
 
+  // Storage status: configured by default, so no upload control is swapped
+  // for a "not enabled" notice in existing suites.
+  http.get(`${API_BASE}/storage/status`, () => HttpResponse.json({ data: { configured: true } })),
+
   http.post(`${API_BASE}/ai/runs/:id/cancel`, ({ params }) => {
     return HttpResponse.json({
       data: { ...mockAiRun, id: String(params.id), status: 'cancelled', output: null },

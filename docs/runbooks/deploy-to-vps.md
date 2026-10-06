@@ -302,7 +302,8 @@ installed at `--root` — run `install` first.
 
 **If the revision hasn't moved, `update` exits `0` and does nothing else** —
 no rebuild, no restart, no seed. That's what makes it safe to run
-unattended, for example from cron:
+unattended, for example from cron. The one check that runs regardless is
+the **edge-config** step (see "The application's nginx after an update" below):
 
 ```cron
 # Check for a new release every night at 03:00, do nothing if there isn't one
@@ -578,12 +579,18 @@ docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f vps.compo
 docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f vps.compose.yml exec nginx nginx -T 2>/dev/null | grep worker_
 ```
 
-**The application's nginx after an update.** `update` runs `docker compose up -d`,
-and the changed `nginx` service definition (its new `ulimits`) makes Compose
-**recreate** the container, which is also what makes it read the new
-`nginx.conf`: the file is bind-mounted on its own, and a running container
-keeps seeing the old file after `git` replaces it. If the checks above still
-show 1024, recreate it explicitly:
+**The application's nginx after an update.** `nginx.conf` and `csp.conf` are
+bind-mounted into the container as single files, and a running container keeps
+reading the old file after `git` replaces it (a single-file mount pins the
+inode, not the path). So `update` **recreates** nginx after a changed run
+rather than restarting it, and on **every** run, changed or not, its
+`edge-config` step compares the `sha256sum` of both files inside the running
+nginx with the checkout's. On a mismatch, or when nginx is not running, it
+recreates only nginx (`up -d --no-deps --force-recreate nginx`) once and checks
+again; if the container still reads different bytes, `update` fails with the
+manual command, because the cause is then a mount or an override, not a stale
+inode. When everything matches the step costs one `exec`. If the checks above
+still show 1024, recreate it explicitly:
 
 ```bash
 docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f vps.compose.yml up -d --no-deps --force-recreate nginx

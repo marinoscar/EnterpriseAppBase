@@ -9,6 +9,7 @@ import {
   abortOnDisconnect,
   formatSseEvent,
   pipeAiSse,
+  type SseFrame,
   toErrorEvent,
 } from './ai-sse';
 
@@ -145,6 +146,53 @@ describe('pipeAiSse', () => {
 
     expect(res.chunks).toEqual([formatSseEvent(created), formatSseEvent(delta)]);
     expect(res.writableEnded).toBe(true);
+  });
+
+  it('streams a feature route\'s own frame type through the same wire rules', async () => {
+    interface ProgressFrame extends SseFrame {
+      type: 'progress' | 'done';
+      percent?: number;
+      note?: string;
+    }
+    const res = new FakeResponse();
+    const frames: ProgressFrame[] = [
+      { type: 'progress', percent: 50, note: 'half\nway' },
+      { type: 'done' },
+    ];
+
+    await pipeAiSse<ProgressFrame>(
+      fakeReply(res),
+      (async function* () {
+        yield* frames;
+      })(),
+      abortOnDisconnect(res as never),
+    );
+
+    expect(res.headers).toMatchObject({ 'Content-Type': 'text/event-stream; charset=utf-8' });
+    expect(res.chunks).toEqual([
+      'event: progress\ndata: {"type":"progress","percent":50,"note":"half\\nway"}\n\n',
+      'event: done\ndata: {"type":"done"}\n\n',
+    ]);
+    expect(res.chunks).toEqual(frames.map((frame) => formatSseEvent(frame)));
+    expect(res.writableEnded).toBe(true);
+  });
+
+  it('a custom frame stream that throws still ends with the standard error frame', async () => {
+    const res = new FakeResponse();
+
+    await pipeAiSse<SseFrame>(
+      fakeReply(res),
+      (async function* () {
+        yield { type: 'progress' };
+        throw new AiError('AI_PROVIDER_UNAVAILABLE', 'The AI provider request failed.');
+      })(),
+      abortOnDisconnect(res as never),
+    );
+
+    expect(res.chunks).toEqual([
+      'event: progress\ndata: {"type":"progress"}\n\n',
+      'event: error\ndata: {"type":"error","code":"AI_PROVIDER_UNAVAILABLE","message":"The AI provider request failed."}\n\n',
+    ]);
   });
 
   it('turns a mid-stream throw into an error frame', async () => {

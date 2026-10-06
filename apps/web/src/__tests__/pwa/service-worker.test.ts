@@ -244,6 +244,12 @@ describe('src/sw.ts', () => {
     expect(source).toMatch(/denylist:\s*\[\s*\/\^\\\/api\\\/\//);
   });
 
+  it('denylists /.well-known on the navigation route', () => {
+    // Server-owned documents (Digital Asset Links, security.txt) must reach
+    // the network, never be answered with the SPA shell.
+    expect(source).toMatch(/denylist:\s*\[[^\]]*\/\^\\\/\\\.well-known\\\/\//);
+  });
+
   it('exposes the SKIP_WAITING handshake issue #219 will call', () => {
     // Under `registerType: 'prompt'` a worker with no listener here can never
     // be told to activate, so it sits in `waiting` forever and users never

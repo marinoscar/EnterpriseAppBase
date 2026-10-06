@@ -1123,3 +1123,8 @@ export interface AboutResponse {
   database: AboutDatabase | null;
   databaseError: string | null;
 }
+
+/** `GET /api/storage/status`: whether object storage is configured. Never provider details. */
+export interface StorageStatus {
+  configured: boolean;
+}

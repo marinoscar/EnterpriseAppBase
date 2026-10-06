@@ -114,13 +114,22 @@ body:
 
 - `code` is always derived from the status: `BAD_REQUEST` (400),
   `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409),
-  `PAYLOAD_TOO_LARGE` (413), `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS`
-  (429), `INTERNAL_ERROR` (500), and `ERROR` for anything else (for example
-  503). A `code` on a thrown exception is ignored.
+  `PRECONDITION_FAILED` (412), `PAYLOAD_TOO_LARGE` (413),
+  `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS` (429), `INTERNAL_ERROR`
+  (500), and `ERROR` for anything else (for example 503). A `code` on a thrown
+  exception is ignored. The base's own `If-Match` routes answer a version
+  mismatch with `409 CONFLICT` (see [Optimistic Concurrency](#optimistic-concurrency-if-match)); `412` is mapped for
+  routes that choose the HTTP precondition status.
 - `details` is optional and endpoint-specific. It is the only place a custom
   field survives. Branch on `details.reason` where an endpoint documents one
   (for example `AI_DISABLED`, `AI_KEY_REQUIRED`, `MAINTENANCE_MODE`), never on
   `message`.
+- A body or query that fails the global Zod validation pipe answers `400
+  BAD_REQUEST` with `details.issues`, one `{ "path": "items.0.name",
+  "message": "…" }` per failing field (`path` is the dotted Zod path, `""` for
+  the object itself, such as an unknown key on a strict schema). Only the path
+  and the message are published, never the submitted value. An exception that
+  already carries `details` keeps its own.
 - Outside production, an unexpected non-HTTP error puts its stack in `details`.
 - A `429` whose `details.retryAfterMs` is set also carries a `Retry-After`
   header, in whole seconds rounded up.
