@@ -62,7 +62,11 @@ export interface InfraFragment {
   readonly collectorConfigs: { readonly platform: string; readonly app: string };
   /** Images an app overlay may use instead of building from source. */
   readonly images: {
-    /** The stack-agent sidecar image, without a tag (published by the platform release; tagged with the platform version). */
+    /**
+     * The stack-agent sidecar image, without a tag. Published by the platform
+     * release (#692) and tagged with the platform version; until that image
+     * exists, the reference app builds `apps/stack-agent` from source.
+     */
     readonly stackAgent: string;
   };
 }
@@ -105,7 +109,7 @@ export const telemetryInfraFragment: InfraFragment = deepFreeze({
     app: 'infra/otel/app-collector.yaml',
   },
   images: {
-    stackAgent: 'ghcr.io/marinoscar/platform-stack-agent',
+    stackAgent: 'ghcr.io/marinoscar/enterpriseappbase-stack-agent',
   },
 });
 

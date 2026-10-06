@@ -43,7 +43,7 @@ describe('telemetryInfraFragment', () => {
   });
 
   it('references the stack-agent image by repository, without a tag', () => {
-    expect(telemetryInfraFragment.images.stackAgent).toBe('ghcr.io/marinoscar/platform-stack-agent');
+    expect(telemetryInfraFragment.images.stackAgent).toBe('ghcr.io/marinoscar/enterpriseappbase-stack-agent');
     expect(telemetryInfraFragment.images.stackAgent).not.toMatch(/:[^/]*$/);
   });
 
