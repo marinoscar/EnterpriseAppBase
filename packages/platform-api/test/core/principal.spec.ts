@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { RequestUser } from '../../auth/interfaces/authenticated-user.interface';
-import * as contract from './principal.types';
+import * as contract from '../../src/core/principal/principal.types';
 import type {
   CredentialKind,
   GroupMembership,
@@ -14,11 +13,19 @@ import type {
   SystemActor,
   TenancyMode,
   UserPrincipal,
-} from './index';
+} from '../../src/core';
 
 // =============================================================================
 // The principal and scope contract, pinned at type level (ADR 0001)
 // =============================================================================
+//
+// Moved from apps/api/src/common/principal/principal.types.spec.ts (issue
+// #698) with its assertions unchanged. The part that needs the app's
+// `RequestUser` (the ADR's mapping from today's request user) stays in the
+// app, in apps/api/test/platform/principal-request-user.spec.ts: a package
+// test cannot import application code. The types are imported through the
+// slice's public entry point (`src/core`), so a type dropped from
+// `core/index.ts` fails here too.
 //
 // MOST OF THIS FILE IS CHECKED BY `tsc`, NOT BY JEST. Jest transpiles specs
 // with `isolatedModules` and never type-checks them; `npm run typecheck`
@@ -83,23 +90,14 @@ export type ContractFields = [
 ];
 
 // -----------------------------------------------------------------------------
-// Today's RequestUser maps onto the contract with no missing data
+// The ADR's derivations, written out as local functions
 // -----------------------------------------------------------------------------
 //
-// The mapping the ADR specifies, written out as an object literal. This is a
-// local function, not an exported helper: the runtime `toPrincipal()` is not
-// part of this contract yet.
-
-/** Every RequestUser field except `isActive` (dropped) has a home on the principal. */
-type RequestUserFieldsCarried = Exclude<keyof RequestUser, 'isActive' | 'id'> | 'userId';
-export type RequestUserCoverage = [
-  Expect<Equal<RequestUserFieldsCarried extends keyof UserPrincipal ? true : false, true>>,
-  Expect<Equal<RequestUser['roles'] extends UserPrincipal['roles'] ? true : false, true>>,
-  Expect<Equal<RequestUser['permissions'] extends UserPrincipal['permissions'] ? true : false, true>>,
-];
+// Local, not exported helpers: the runtime `toPrincipal()` is not part of
+// this contract yet (issue #724).
 
 function userPrincipalFrom(
-  user: RequestUser,
+  user: { id: string; email: string; roles: string[]; permissions: string[] },
   credential: Exclude<CredentialKind, 'node'>,
 ): UserPrincipal {
   return {
@@ -112,7 +110,10 @@ function userPrincipalFrom(
   };
 }
 
-function nodePrincipalFrom(owner: RequestUser, nodeId?: string): NodePrincipal {
+function nodePrincipalFrom(
+  owner: { id: string; email: string; roles: string[]; permissions: string[] },
+  nodeId?: string,
+): NodePrincipal {
   return {
     kind: 'node',
     userId: owner.id,
@@ -172,7 +173,7 @@ export function contractRejections(principal: UserPrincipal, scope: Scope): void
 // Runtime
 // -----------------------------------------------------------------------------
 
-const requestUser: RequestUser = {
+const requestUser = {
   id: '00000000-0000-4000-8000-000000000001',
   email: 'user@example.test',
   roles: ['Viewer'],
@@ -186,12 +187,12 @@ describe('principal and scope contract', () => {
   });
 
   it('imports nothing, so it can move into a package unchanged', () => {
-    const source = readFileSync(join(__dirname, 'principal.types.ts'), 'utf8');
+    const source = readFileSync(join(__dirname, '..', '..', 'src', 'core', 'principal', 'principal.types.ts'), 'utf8');
     expect(source).not.toMatch(/^\s*import\s/m);
     expect(source).not.toMatch(/\brequire\(/);
   });
 
-  it('builds a user principal and its scope from a RequestUser and a credential kind', () => {
+  it('builds a user principal and its scope from a request user and a credential kind', () => {
     const principal = userPrincipalFrom(requestUser, 'device');
 
     expect(principal).toEqual({
