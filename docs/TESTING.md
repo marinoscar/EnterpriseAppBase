@@ -396,7 +396,9 @@ pass GreptimeDB the `--user-provider` argument its reader/admin split needs,
 so the job starts it as an explicit step and polls its `/health` endpoint
 before running the tier.
 
- They discover it (from the Nest
+## Tripwire suites
+
+These suites never hand-list what they check. They discover it (from the Nest
 router, the job registry, the seed file, the filesystem), so a new route, job
 type, provider SDK import or doc link is covered the moment it exists, with
 no edit to the suite.
