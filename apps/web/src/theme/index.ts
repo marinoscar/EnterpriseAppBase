@@ -2,6 +2,8 @@ import { createTheme, ThemeOptions } from '@mui/material/styles';
 import { lightPalette } from './light';
 import { darkPalette } from './dark';
 import { componentOverrides } from './components';
+import './augment';
+import { withTelemetryTokens } from './telemetryTokens';
 
 const baseTheme: ThemeOptions = {
   typography: {
@@ -18,22 +20,24 @@ const baseTheme: ThemeOptions = {
   },
 };
 
-export const lightTheme = createTheme({
+// Both themes carry the telemetry token contract (`palette.status`,
+// `palette.chart.series`, issue #686); see `telemetryTokens.ts`.
+export const lightTheme = withTelemetryTokens(createTheme({
   ...baseTheme,
   palette: {
     mode: 'light',
     ...lightPalette,
   },
   components: componentOverrides('light'),
-});
+}));
 
-export const darkTheme = createTheme({
+export const darkTheme = withTelemetryTokens(createTheme({
   ...baseTheme,
   palette: {
     mode: 'dark',
     ...darkPalette,
   },
   components: componentOverrides('dark'),
-});
+}));
 
 export type ThemeMode = 'light' | 'dark' | 'system';
