@@ -141,6 +141,7 @@ INSERT → P2002 on jobs_active_dedup_uniq_idx → re-read the ACTIVE row → re
 ```
 
 - `jobs_active_dedup_uniq_idx` is a partial unique index on `dedup_key` `WHERE status IN ('pending','running') AND dedup_key IS NOT NULL`. Only the database can make "is there already an active job with this key" atomic with the insert.
+- The index SQL lives in the platform migration `packages/platform-db/migrations/0008_add_jobs/migration.sql` (installed in the base as `apps/api/prisma/migrations/20260906120000_add_jobs`, identical bytes), next to `jobs_attempts_gt1_idx` and `jobs_succeeded_duration_idx`. All three are listed in `RAW_SQL_INDEXES` (`packages/platform-db/raw-sql-indexes.json`): the package's tripwire fails when a migration adds an unlisted partial index and when a schema fragment declares `@@unique` or `@@index` on `jobs.dedup_key` (Prisma would build a full index, not this one). Never edit the migration file to change the index; a change is a new migration.
 - The caller gets either its new row or the active row that beat it, with no flag distinguishing them. When dedup collapses a call, `reason`, `priority`, `payload` and `scheduledFor` are the first caller's.
 - `skipDedup: true` leaves `dedup_key` `NULL`; NULLs never collide, so any number coexist.
 - A job reaching `succeeded` or `failed` leaves the index predicate and frees its key. Dedup only collapses work still in flight.

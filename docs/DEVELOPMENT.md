@@ -524,8 +524,12 @@ An app's own migration is not promoted: it is an ordinary
    ```
    Review the SQL. Prisma writes it into `prisma/migrations/<timestamp>_add_orgs/`.
    For a partial or expression index, hand-write it here and add it to
-   `packages/platform-db/raw-sql-indexes.json` (name, definition, reason, the
-   migration that creates it).
+   `packages/platform-db/raw-sql-indexes.json` (`name`, `table`, `unique`,
+   `definition` as `pg_indexes.indexdef` prints it, `reason`, `doc`, and
+   `createdIn`, the platform id the promote will assign). The tripwire
+   (`packages/platform-db/test/raw-sql-indexes.spec.ts`, and
+   `runDbConformance()` in the app) fails on an unlisted partial or expression
+   index.
 3. Promote it (from `apps/api`; `--id` is the package slug, the sequence
    number is assigned):
    ```bash

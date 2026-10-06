@@ -422,8 +422,19 @@ All three are seeded Admin-only, and every route also requires the Admin role.
   or the SELECT-only node role stops being enough.
 - **Another long-running database job.** Follow the same shape: a queue job
   with its own `profile`, a dedicated table if its lifetime outlives a lease,
-  and a partial unique index (never a pre-check) for "one at a time". See
+  and a partial unique index (never a pre-check) for "one at a time", listed in
+  `RAW_SQL_INDEXES` (`packages/platform-db/raw-sql-indexes.json`) so the
+  package's tripwire knows it is intentional. See
   [job-queue.md](job-queue.md) and `apps/api/src/jobs/handlers/README.md`.
+- **Where the single-active-run index lives.** `database_backup_runs_active_uniq_idx`
+  (a unique index on the constant expression `(true)`, `WHERE status IN
+  ('pending','running')`) is created in
+  `packages/platform-db/migrations/0010_add_database_backup_runs` and dropped and
+  re-created in `0012_add_backup_run_job_link`, which tightens it from "one
+  pending and one running" to "one active run". The base installs the same bytes
+  as `20260907120000_add_database_backup_runs` and
+  `20260907140000_add_backup_run_job_link`. Prisma cannot express it; it is
+  intentional drift, asserted by `platform db drift` against `pg_indexes`.
 - **Operator UI.** The card is registered in
   `apps/web/src/config/adminSections.tsx`; follow
   [settings-ui.md](settings-ui.md).
