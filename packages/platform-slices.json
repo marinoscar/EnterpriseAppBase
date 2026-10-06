@@ -4,6 +4,6 @@
   "platform-web": {},
   "platform-contract": {},
   "platform-db": {},
-  "platform-cli": {},
+  "platform-cli": { "core": [] },
   "platform-infra": { "telemetry": [] }
 }
