@@ -187,10 +187,36 @@ allowlist.
 - Signed HS256 with `JWT_SECRET` (at least 32 characters).
 - Sent as `Authorization: Bearer <jwt>`. The strategy reads only the header,
   never a cookie.
-- `JwtStrategy` verifies signature and expiry, then loads the user with roles
-  and permissions from the database on every request and rejects an inactive
-  user. Roles in the token are informational; the database is authoritative,
-  so a role change or deactivation takes effect on the next request.
+- `JwtStrategy` verifies signature and expiry, then resolves the user with
+  roles and permissions (the *principal*) and rejects an inactive user. Roles
+  in the token are informational; the database is authoritative.
+- The principal is read through a short-TTL, in-process cache
+  (`PrincipalCache`, `apps/api/src/auth/principal-cache/`), keyed by user id,
+  for at most `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` turns it
+  off and every request reads the database). Every write that changes what a
+  principal resolves to (`PATCH /api/users/{id}`, `PUT /api/users/{id}/roles`,
+  the first-login and bootstrap admin grants, profile and display-name
+  updates) invalidates the entry after it commits. The guarantee for a role
+  change or deactivation is therefore:
+  - **the next request on the replica that made the change** is refused or
+    re-authorised: the local entry is dropped synchronously;
+  - **other replicas** drop their entry within event-bus latency, through the
+    `auth.principal.invalidate` channel (`EVENT_BUS_ADAPTER=postgres`);
+  - **if the bus is unavailable** (or the deployment runs more than one
+    replica on the `in-process` adapter), a stale entry lives at most
+    `AUTH_PRINCIPAL_CACHE_TTL_SECONDS`, well under the access-token lifetime.
+    The Doctor's `auth.principal-cache` check warns in both cases;
+  - a request whose database read was already in flight when the change
+    landed can never store its stale result (a per-user generation guard);
+  - a token carrying `did` (a device session) has that session checked
+    **live, on every request**, before the cache is consulted, so revoking a
+    device session is still immediate.
+
+  The cache holds only the user/role/permission row graph the join already
+  loaded, deep-frozen, never token material, and at most 10,000 entries. PATs
+  and node credentials are not cached: their token row is read per request.
+  A role ↔ permission change made by the seed reaches running replicas within
+  the TTL; a deploy restarts the API, which empties the cache anyway.
 
 ---
 
@@ -408,7 +434,9 @@ Fastify's cookie plugin is registered with `COOKIE_SECRET` (falling back to
 - `POST /api/auth/logout-all` revokes every refresh token the user holds.
 - Deactivating a user (`PATCH /api/users/{id}` with `isActive: false`) stops
   their JWTs, refresh tokens, PATs and node credentials on the next request,
-  because every validator checks `isActive`.
+  because every validator checks `isActive`. For a JWT on another API replica,
+  "next request" means within event-bus latency, and at most
+  `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` if the bus is down (see §1).
 
 ### Cleanup
 
@@ -1030,6 +1058,7 @@ Security-relevant environment variables. The full list is in
 JWT_SECRET=                      # at least 32 characters
 JWT_ACCESS_TTL_MINUTES=15
 JWT_REFRESH_TTL_DAYS=14
+AUTH_PRINCIPAL_CACHE_TTL_SECONDS=30  # principal cache bound if the bus is down; 0 disables (§1)
 COOKIE_SECRET=
 
 # Encryption of runtime-configured secrets
@@ -1063,7 +1092,9 @@ APP_URL=https://yourdomain.com   # OAuth redirects; must be HTTPS in production
 ```
 
 Shorter lifetimes trade convenience for exposure. A high-security deployment
-might use `JWT_ACCESS_TTL_MINUTES=5` and `JWT_REFRESH_TTL_DAYS=1`.
+might use `JWT_ACCESS_TTL_MINUTES=5` and `JWT_REFRESH_TTL_DAYS=1`, and either
+run `EVENT_BUS_ADAPTER=postgres` or set `AUTH_PRINCIPAL_CACHE_TTL_SECONDS=0`
+so a demotion never waits on a TTL.
 
 ---
 

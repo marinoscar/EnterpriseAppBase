@@ -343,6 +343,7 @@ All logical channels are multiplexed onto one physical Postgres channel, `platfo
 |---|---|---|---|
 | `notifications.stream` | `NotificationStreamService.publish` | every replica's `NotificationStreamService` | `{ userId, event }`, or `{ userId, ref }` when oversize |
 | `jobs.enqueued` | `JobsService.enqueue` (due now; never `enqueueWithin`) | every running `JobWorker` (not mode `off`) | `{ type }` |
+| `auth.principal.invalidate` | `PrincipalCache.invalidate`, after a user or role write commits | every replica's `PrincipalCache` | `{ userId }` or `{ all: true }` |
 
 - **Code:** `apps/api/src/common/event-bus/`
 - **Doctor:** `core.event-bus` reports the adapter and the listener's state.
@@ -480,6 +481,10 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
 Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_config:*`, `db_backup:restore`, `telemetry:*`) exist because each gates something with a distinct blast radius. Folding them into `system_settings:*` would hand that authority to anyone granted routine settings access. See [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) for the design.
+
+### 7.3 Principal cache
+
+`AuthService.validateJwtPayload` resolves a JWT's user, roles and permissions through `PrincipalCache` (`apps/api/src/auth/principal-cache/`, provided by the global `PrincipalCacheModule`): an in-process map keyed by user id, at most 10,000 deep-frozen entries, each kept for `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` disables it). The device-session (`did`) check runs first and is never cached; PATs and node credentials bypass the cache. The invalidation sites, each called after its write commits and outside any transaction, are `UsersService.updateUser` and `updateUserRoles`, `AuthService` (first-login admin grant, provider-profile update), `AdminBootstrapService.assignAdminRole`, `UserSettingsService` (display-name sync) and `TestAuthService` (role swap). `invalidate` drops the local entry synchronously and publishes on `auth.principal.invalidate` ([§5.21](#521-event-bus)), so other replicas follow within bus latency; the TTL bounds staleness when the bus is down. `test/auth/principal-invalidation-sites.spec.ts` fails when a new `user`/`userRole`/`role`/`rolePermission` write appears in a file that never invalidates. Doctor: `auth.principal-cache`. Guarantee: [SECURITY-ARCHITECTURE.md §1](SECURITY-ARCHITECTURE.md#1-authentication).
 
 ---
 

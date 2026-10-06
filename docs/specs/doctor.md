@@ -170,6 +170,7 @@ This is the single home for the list of checks. Twenty-five checks ship. `depend
 | `auth.jwt-secret` | JWT signing secret | none | `JWT_SECRET` is a real value. | pass: set and at least 32 characters (length in `data`). warn: shorter than 32. fail: unset or the publicly known fallback value. |
 | `auth.providers` | Sign-in providers | none | At least one sign-in provider is enabled, from the list the sign-in page renders. | pass: names the providers. fail: none enabled. |
 | `auth.initial-admin` | Administrator access | `db.connection` | Somebody can administer the deployment. Settings page `/admin/settings/users`. | pass: at least one active Admin and `INITIAL_ADMIN_EMAIL` set. warn: active admins but `INITIAL_ADMIN_EMAIL` unset. fail: no active user holds the Admin role. |
+| `auth.principal-cache` | JWT principal cache | none | How fast a role change or deactivation reaches every replica, from `PrincipalCache.stats()` and `EventBus.health()`, two in-memory snapshots: no I/O, no probe message. `data`: `ttlSeconds`, `size`, `hits`, `misses`, `invalidations`, `adapter`. | pass: enabled on a connected `postgres` bus. warn: enabled on the `in-process` bus (with more than one replica, invalidations do not cross; remedy `EVENT_BUS_ADAPTER=postgres`), or the `postgres` listener is disconnected (changes from other replicas wait for the TTL; last error in `error`). skip: `AUTH_PRINCIPAL_CACHE_TTL_SECONDS=0`. Never `fail`. |
 
 #### maintenance
 
@@ -418,3 +419,4 @@ By hand, with the app running and signed in as an Admin:
 - #644 removed the `telemetry.stack` check, because the stack agent is not part of telemetry capture, and surfaced the agent's error on the Telemetry settings page instead.
 - PP-1.11 (#682) added `core.event-bus`.
 - #685 added `core.deployment-mode` (platform-packages PP-1.14).
+- PP-1.12 (#683) added `auth.principal-cache`.
