@@ -30,6 +30,7 @@ import request from 'supertest';
 const ORIGINAL_KEY_ENV = process.env.SECRETS_ENCRYPTION_KEY;
 process.env.SECRETS_ENCRYPTION_KEY = Buffer.alloc(32, 5).toString('base64');
 
+import { readSchemaText } from '../prisma/schema-datamodel';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
@@ -487,7 +488,7 @@ describe('User AI keys and usable models Integration', () => {
     const PRISMA_DIR = join(__dirname, '..', '..', 'prisma');
 
     it('the schema relation deletes a user’s keys with the user', () => {
-      const schema = readFileSync(join(PRISMA_DIR, 'schema.prisma'), 'utf8');
+      const schema = readSchemaText(join(PRISMA_DIR, 'schema'));
       const model = schema.slice(schema.indexOf('model UserAiKey {'));
       const body = model.slice(0, model.indexOf('\n}'));
 

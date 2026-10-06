@@ -86,6 +86,13 @@ COPY packages/shared ./packages/shared/
 # and built right after `npm ci` below. It extends tsconfig.base.json.
 COPY tsconfig.base.json ./
 COPY packages/platform-api ./packages/platform-api/
+# `@marinoscar/platform-db` (issue #709) is a workspace dependency too: its
+# `platform db compose` bin generates apps/api/prisma/schema/ on a developer
+# machine and in CI. The image never runs it (the generated folder is
+# committed and copied below) and nothing imports the package at run time, so
+# it is not built here; it is copied whole only so `npm ci` can resolve the
+# workspace link and its own dependencies against the lockfile.
+COPY packages/platform-db ./packages/platform-db/
 # Prisma schema and config are needed by `prisma generate` below
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/
