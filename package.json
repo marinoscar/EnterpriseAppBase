@@ -25,7 +25,8 @@
     "dev:packages": "node scripts/dev-packages.mjs",
     "docs:packages": "npm run docs -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-cli -w @marinoscar/platform-infra",
     "check:package-docs": "npm run docs:packages && node scripts/check-package-docs.mjs",
-    "check:single-instance": "node scripts/check-single-instance.mjs"
+    "check:single-instance": "node scripts/check-single-instance.mjs",
+    "platform:infra:sync": "platform-infra sync"
   },
   "overrides": {
     "@nestjs/common": "^11.1.12",
