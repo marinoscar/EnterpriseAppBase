@@ -809,7 +809,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 | Telemetry | Self-hosted GreptimeDB and OTel | Add a **support bundle**: doctor results, versions and telemetry export |
 | Air-gapped | No CDN fonts found; SMTP is configurable; Web Push and Google login need the internet | Degrade gracefully; a doctor check that lists outbound dependencies |
 | Upgrades | Customers upgrade on their own schedule | Forward-only expand/contract migrations, a supported upgrade path, the Doctor as a pre-upgrade check, release notes |
-| Supply chain | Not addressed | Signed images, an SBOM and vulnerability scanning |
+| Supply chain | Images signed keyless with an SBOM and provenance attestation; Trivy scan reported, not blocking ([runbook](../runbooks/container-images.md)) | Make the vulnerability scan a gate once the baseline is triaged |
 | Configuration | Runtime settings in the database; environment variables only for deployment secrets | Already fits |
 | Mode switch | `DEPLOYMENT_MODE` (`self-hosted`, the default, or `saas`), a deployment-level variable that fails startup on an unknown value (#685). `saas` disables in-app restore and rollback; backups stay | Further mode-dependent behaviour joins `DeploymentCapabilities` in `apps/api/src/common/deployment/`; see [database restore spec](database-restore.md#deployment-mode) |
 
@@ -911,7 +911,7 @@ ECS, not EKS. In the spike, verify whether RDS Proxy pins connections when `set_
 | Account hygiene | Scope-level two-factor authentication |
 | Versioning | Changesets with a "fixed" group: all platform packages share one version. Strict semver. |
 | Governance | `CODEOWNERS`; `SECURITY.md` with a disclosure contact; seam requests reviewed through `CODEOWNERS`, with the decision recorded ([Seam requests as governance](#seam-requests-as-governance)) |
-| Containers | Public images on GHCR: api, web, worker, stack-agent |
+| Containers | Public images on GHCR: api, web, worker, stack-agent, built by one reusable workflow (`images.yml`), tagged with the platform version and channel, signed keyless, with an SBOM and provenance ([runbook](../runbooks/container-images.md)) |
 | Consumers | Renovate in each consumer repository |
 | Pre-release channel | A `next` channel that the reference app and the app currently adopting (EvoPath first) try before `latest` |
 | Currency policy | No app more than one minor version behind; security patches are fast-tracked |
