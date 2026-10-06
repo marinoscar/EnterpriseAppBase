@@ -5,11 +5,14 @@
  * warning highlight.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { act, screen, within } from '@testing-library/react';
+import { act, render as renderPlain, screen, within } from '@testing-library/react';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { render } from '../../../utils/test-utils';
 import { resetViewportWidth, setViewportWidth } from '../../../setup';
 import { KpiTiles } from '../../../../components/telemetry/dashboard/KpiTiles';
 import type { DashboardTile, DashboardUnknownRoutes } from '../../../../services/telemetryDashboard';
+import { lightTheme } from '../../../../theme';
+import { withTelemetryTokens } from '../../../../theme/telemetryTokens';
 
 const tile = (value: number | null, previous: number | null): DashboardTile => ({
   key: 'unknownRoutes',
@@ -85,5 +88,47 @@ describe('KpiTiles: unknown API routes (#650)', () => {
     );
     expect(screen.getByTestId('tile-errorLogs')).not.toHaveAttribute('data-highlight');
     expect(screen.getAllByTestId(/-caption$/)).toHaveLength(1);
+  });
+});
+
+describe('KpiTiles: telemetry theme tokens (#686)', () => {
+  const WARN = '#ff6f00';
+  const CRIT = '#b00020';
+  const OK = '#00796b';
+
+  it('colours the highlight with palette.status.warn and a bad change with status.crit', () => {
+    const theme = withTelemetryTokens(createTheme({ palette: { status: { warn: WARN, crit: CRIT } } }));
+    renderPlain(
+      <ThemeProvider theme={theme}>
+        <KpiTiles tiles={[tile(15, 10)]} unknownRoutes={block()} />
+      </ThemeProvider>,
+    );
+    const card = screen.getByTestId('tile-unknownRoutes');
+    expect(card).toHaveStyle({ borderColor: WARN });
+    expect(within(card).getByText('15')).toHaveStyle({ color: WARN });
+    expect(within(card).getByLabelText('Up 50% vs previous window')).toHaveStyle({ color: CRIT });
+  });
+
+  it('colours a good change with palette.status.ok', () => {
+    const theme = withTelemetryTokens(createTheme({ palette: { status: { ok: OK } } }));
+    renderPlain(
+      <ThemeProvider theme={theme}>
+        <KpiTiles tiles={[tile(5, 10)]} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByLabelText('Down 50% vs previous window')).toHaveStyle({ color: OK });
+  });
+
+  it('keeps the base theme on the palette colours it used before the tokens', () => {
+    renderPlain(
+      <ThemeProvider theme={lightTheme}>
+        <KpiTiles tiles={[tile(15, 10)]} unknownRoutes={block()} />
+      </ThemeProvider>,
+    );
+    const card = screen.getByTestId('tile-unknownRoutes');
+    expect(card).toHaveStyle({ borderColor: lightTheme.palette.warning.main });
+    expect(within(card).getByLabelText('Up 50% vs previous window')).toHaveStyle({
+      color: lightTheme.palette.error.main,
+    });
   });
 });
