@@ -86,6 +86,13 @@ COPY packages/shared ./packages/shared/
 # and built right after `npm ci` below. It extends tsconfig.base.json.
 COPY tsconfig.base.json ./
 COPY packages/platform-api ./packages/platform-api/
+# `@marinoscar/platform-db` (issue #709) is a workspace dependency too: its
+# `platform db compose` bin generates apps/api/prisma/schema/ on a developer
+# machine and in CI. The image never runs it (the generated folder is
+# committed and copied below), but it is built with the other platform
+# packages so every platform dependency resolves to a built `dist/` (see
+# test/production-image.spec.ts).
+COPY packages/platform-db ./packages/platform-db/
 # Prisma schema and config are needed by `prisma generate` below
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/
@@ -98,6 +105,7 @@ RUN cd apps/api && \
 # Compile the platform package (tsc, so decorator metadata survives) into
 # packages/platform-api/dist, which its `exports` map points at.
 RUN npm run build --workspace=@marinoscar/platform-api
+RUN npm run build --workspace=@marinoscar/platform-db
 
 # -----------------------------------------------------------------------------
 # Development stage

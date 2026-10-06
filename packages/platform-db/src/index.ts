@@ -8,3 +8,5 @@
  * @stability experimental
  */
 export const PLATFORM_PACKAGE = '@marinoscar/platform-db' as const;
+
+export * from './compose/index.js';

@@ -1,6 +1,6 @@
 # Background Job Queue
 
-> **Status:** shipped · **Code:** `apps/api/src/jobs/`, `apps/api/prisma/schema.prisma` (`Job`, `JobStatsRollup`) · **API:** `/api/admin/jobs/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/jobs`, `/admin/settings/jobs/insights` · **Recipe:** [apps/api/src/jobs/handlers/README.md](../../apps/api/src/jobs/handlers/README.md) · **Related:** [worker-nodes.md](worker-nodes.md)
+> **Status:** shipped · **Code:** `apps/api/src/jobs/`, `packages/platform-db/schema/jobs.prisma` (`Job`, `JobStatsRollup`) · **API:** `/api/admin/jobs/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/jobs`, `/admin/settings/jobs/insights` · **Recipe:** [apps/api/src/jobs/handlers/README.md](../../apps/api/src/jobs/handlers/README.md) · **Related:** [worker-nodes.md](worker-nodes.md)
 
 The job queue is a PostgreSQL `jobs` table that every long-running activity in the application goes through. A feature enqueues a row; an executor claims it atomically with `FOR UPDATE SKIP LOCKED` under a lease, runs the handler registered for its `type`, and settles it through one terminal chokepoint that decides succeed, retry, defer or fail. The executor is either the in-process worker pool inside the API or a remote worker node; the same handler code runs in both places. A lease reaper recovers work whose executor died, a nightly purge compacts history into lifetime counters, and an admin API reports on and repairs the queue.
 

@@ -37,6 +37,8 @@
     "catalog:permissions": "ts-node -P scripts/tsconfig.json --transpile-only scripts/generate-permission-catalog.ts",
     "catalog:settings": "ts-node -P scripts/tsconfig.json --transpile-only scripts/generate-settings-catalog.ts",
     "prisma:typecheck": "tsc -p prisma/tsconfig.json",
+    "db:compose": "platform db compose",
+    "db:compose:check": "platform db compose --check",
     "storage:purge": "node dist/storage/purge/storage-purge.main.js"
   },
   "dependencies": {
@@ -50,6 +52,7 @@
     "@fastify/multipart": "^10.0.0",
     "@google/genai": "^2.24.0",
     "@marinoscar/platform-api": "*",
+    "@marinoscar/platform-db": "*",
     "@nestjs/common": "^11.1.12",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.12",

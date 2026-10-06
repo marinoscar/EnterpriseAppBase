@@ -415,7 +415,7 @@ no edit to the suite.
 | `apps/api/test/ai/ai-jobs-server-only.spec.ts` | No `ai.*` job type is node-eligible |
 | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` | No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src` |
 | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` | Every AI settings card's `permission` equals the string its API controller enforces, read from the controller source |
-| `apps/api/test/prisma/user-owned-models.spec.ts` | Every `User` foreign key in `prisma/schema.prisma` is in the user-owned data registry, every registered model and field exists, and every purge policy matches the relation's `onDelete` (read from the schema file; the rules are proven on synthetic datamodels) |
+| `apps/api/test/prisma/user-owned-models.spec.ts` | Every `User` foreign key in the `prisma/schema/` folder is in the user-owned data registry, every registered model and field exists, and every purge policy matches the relation's `onDelete` (read from the schema file; the rules are proven on synthetic datamodels) |
 | `apps/api/test/prisma/raw-sql-allowlist.spec.ts` | Only the files in `raw-sql-allowlist.ts` use `$queryRaw`/`$executeRaw` (or their `Unsafe` variants) under `apps/api/src`, comments and strings ignored, and every listed file still does |
 
 ### Conformance suites in packages

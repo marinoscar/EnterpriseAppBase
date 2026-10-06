@@ -177,7 +177,7 @@ EnterpriseAppBase/
 ├── apps/
 │   ├── api/                  # NestJS + Fastify API
 │   │   ├── src/              # One folder per module (auth, jobs, ai, storage, ...)
-│   │   ├── prisma/           # schema.prisma, migrations, seed
+│   │   ├── prisma/           # fragments/, schema/ (generated), migrations, seed
 │   │   └── test/             # Jest integration and real-Postgres suites
 │   ├── web/                  # React + MUI frontend (Vite)
 │   └── cli/                  # appctl: login, api, deploy, node

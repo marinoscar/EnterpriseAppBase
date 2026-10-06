@@ -4,7 +4,7 @@ Issue #688 (PP-1.9). Two things live in this folder:
 
 1. **The user-owned data registry**: every Prisma model with a foreign key to
    `User`, with the role of that key, a purge policy, an export policy and a
-   rationale. A tripwire test keeps it in step with `prisma/schema.prisma`.
+   rationale. A tripwire test keeps it in step with the `prisma/schema/` folder.
 2. **Scoped data access**: `ScopedPrismaService.forUser(userId)` returns a
    Prisma client that cannot read or change another user's rows in a
    registered model, and `asSystem(actor)` is the explicit, named way to run

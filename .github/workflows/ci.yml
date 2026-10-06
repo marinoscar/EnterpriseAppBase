@@ -78,6 +78,14 @@ jobs:
       - run: npm ci
       - run: npm run build:packages
 
+      # apps/api/prisma/schema/ is GENERATED from @marinoscar/platform-db's
+      # fragments and apps/api/prisma/fragments/ (issue #709). A hand edit of
+      # a generated file, or an edited fragment without a re-compose, fails
+      # here naming the file and the diff: run `npm run db:compose
+      # --workspace=api` and commit the result. Needs the built package (the
+      # `platform` bin runs its dist/), hence after build:packages.
+      - run: npm run db:compose:check --workspace=api
+
       - run: npx prisma generate
         working-directory: apps/api
 

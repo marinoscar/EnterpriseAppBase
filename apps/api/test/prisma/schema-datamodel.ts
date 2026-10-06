@@ -1,5 +1,5 @@
 // =============================================================================
-// A minimal reader for prisma/schema.prisma's models and relations (#688)
+// A minimal reader for the prisma/schema/ folder's models and relations (#688)
 // =============================================================================
 //
 // WHY PARSE THE FILE: the ownership tripwire needs each relation's foreign
@@ -16,7 +16,7 @@
 // NOT A `*.spec.ts` FILE, so Jest never runs it as a suite.
 // =============================================================================
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** A relation's arguments, as written in `@relation(...)`. */
@@ -45,8 +45,11 @@ export interface DatamodelModel {
   readonly fields: readonly DatamodelField[];
 }
 
-/** Path of the schema the generated client is built from. */
-export const SCHEMA_PATH = join(__dirname, '..', '..', 'prisma', 'schema.prisma');
+/**
+ * Path of the schema the generated client is built from: the folder of
+ * `*.prisma` files that `platform db compose` writes (a multi-file schema).
+ */
+export const SCHEMA_PATH = join(__dirname, '..', '..', 'prisma', 'schema');
 
 /** Removes a `//` comment (including `///` doc comments), ignoring `//` inside a string literal. */
 export function stripLineComment(line: string): string {
@@ -133,9 +136,23 @@ export function parsePrismaSchema(source: string): DatamodelModel[] {
   return models;
 }
 
-/** The models of the schema at {@link SCHEMA_PATH}. */
+/**
+ * The text of a schema: one file, or every `*.prisma` file of a folder in
+ * name order (the order Prisma loads them, which is the order of the
+ * generated client's models).
+ */
+export function readSchemaText(path: string = SCHEMA_PATH): string {
+  if (!statSync(path).isDirectory()) return readFileSync(path, 'utf8');
+  return readdirSync(path)
+    .filter((name) => name.endsWith('.prisma'))
+    .sort()
+    .map((name) => readFileSync(join(path, name), 'utf8'))
+    .join('\n');
+}
+
+/** The models of the schema at {@link SCHEMA_PATH} (a file or a folder). */
 export function readSchemaDatamodel(path: string = SCHEMA_PATH): DatamodelModel[] {
-  return parsePrismaSchema(readFileSync(path, 'utf8'));
+  return parsePrismaSchema(readSchemaText(path));
 }
 
 /**

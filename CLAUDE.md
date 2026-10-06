@@ -13,7 +13,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 ```
 /
   apps/
-    api/                      # NestJS API: src/, test/, prisma/ (schema.prisma, migrations/, seed), Dockerfile
+    api/                      # NestJS API: src/, test/, prisma/ (fragments/ hand-edited, schema/ GENERATED, migrations/, seed), Dockerfile
     web/                      # React app: src/, src/__tests__/, Dockerfile
     cli/                      # `appctl` first-party CLI
       src/commands/           # init, login, api, config, deploy, node
@@ -21,6 +21,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
     stack-agent/              # VPS-only sidecar: holds the Docker socket, starts the telemetry stack
   packages/shared/            # product identity (identity.json) shared by api, web, cli
   packages/platform-*/        # @marinoscar/platform-{contract,api,web,db,cli,infra}: published platform packages
+                              # (platform-db/schema/*.prisma: the platform's model fragments; `platform db compose` writes apps/api/prisma/schema/)
   docs/
     specs/                    # feature design and rationale
     runbooks/                 # operator procedures (incl. VPS deploy, worker nodes)
@@ -204,6 +205,7 @@ Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secr
 Each is enforced by tests and explained in the linked doc. Read it before touching the area.
 
 - **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx` and `database_backup_runs_active_uniq_idx` exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md) and [database-backup.md](docs/specs/database-backup.md).
+- **`apps/api/prisma/schema/` is generated; never hand-edit it.** Edit the fragment that owns the model (`packages/platform-db/schema/<slice>.prisma` or `apps/api/prisma/fragments/`), run `npm run db:compose --workspace=api`, then `prisma:generate`; CI's `db:compose:check` fails on a stale or hand-edited file. A back-relation on a platform model is an `extend model` block, never an edit to a platform file. See [DEVELOPMENT.md](docs/DEVELOPMENT.md#making-database-changes) and the [platform packages spec](docs/specs/platform-packages.md#known-hard-problem-relations-to-package-owned-models).
 - **A backup archive is never buffered.** `pg_dump` streams straight into object storage, and both the upload and the dump's exit code are awaited. See [database-backup.md](docs/specs/database-backup.md).
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).
@@ -250,6 +252,7 @@ cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f tel
 # (the API does not migrate on startup)
 docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:migrate
 docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:seed
+cd apps/api && npm run db:compose                                   # after editing a fragment (packages/platform-db/schema/ or apps/api/prisma/fragments/); before prisma:generate
 cd apps/api && npm run prisma:generate                              # after schema changes
 cd apps/api && npm run prisma:migrate:dev -- --name <migration_name> # new migration
 
