@@ -56,6 +56,10 @@ registry:
 |---|---|---|
 | `user-owned-models.ts` | `userOwnedModelRegistry`: every model with a foreign key to `User` | [prisma/ownership/README.md](../prisma/ownership/README.md) |
 
+| File | Registries it feeds | Recipe |
+|---|---|---|
+| `telemetry.ts` | Telemetry Dashboard metric groups (`APP_METRIC_GROUPS`) and `app.*` metrics (`APP_METRICS`); one file for both, because a group usually charts the app's own metrics | [runbooks/telemetry.md §8.4](../../../../docs/runbooks/telemetry.md#84-adding-an-app-metric-group) |
+
 ## What goes here, and what does not
 
 | Goes here | Does not |

@@ -609,6 +609,103 @@ FROM nginx_connections_current
 ORDER BY state, greptime_timestamp DESC
 ```
 
+### 8.4 Adding an app metric group
+
+**Who:** a developer of an application built on this platform. **Where:**
+only `apps/api/src/app-registrations/telemetry.ts` (and the code that emits
+the metric). No platform file, manifest, web file or collector config
+changes: the dashboard renders any registered group, and the collector
+already exports every `app.*` instrument. Design: [spec §11.13](../specs/telemetry.md#1113-application-metrics)
+and [§11.14](../specs/telemetry.md#1114-metric-catalog-and-the-metrics-route).
+
+The worked example: a `coach` group over one counter the app records.
+
+1. **Declare the metric** in `APP_METRICS`. Its name picks its GreptimeDB
+   table (a counter `app.coach.nudges.sent` with unit `{nudge}` lands in
+   `app_coach_nudges_sent_total`; spec §11.13 "Table naming"). Declare every
+   label it may carry; nothing else is exported.
+
+   ```ts
+   export const APP_METRICS: readonly AppMetricDef[] = [
+     {
+       key: 'coachNudgesSent',
+       name: 'app.coach.nudges.sent',
+       kind: 'counter',
+       unit: '{nudge}',
+       description: 'Coach nudges sent, by persona and outcome.',
+       attributes: {
+         persona: { kind: 'free' },
+         outcome: { kind: 'enum', values: ['sent', 'skipped', 'failed'] },
+       },
+     },
+   ];
+   ```
+
+2. **Emit it** from the feature, through the injected `AppMetricsService`
+   (it never throws; an unknown key is a no-op):
+
+   ```ts
+   this.metrics.add('coachNudgesSent', 1, { persona: nudge.persona, outcome: 'sent' });
+   ```
+
+   A histogram uses `record(key, value, attributes)` and declares its
+   `buckets`. A gauge is declared the same way and created by your own
+   provider with `createRegisteredGauge(this.metrics.gaugeContext()!.meter, key)`.
+   Never label with a user id, an e-mail, a URL or an error message.
+
+3. **Declare the group** in `APP_METRIC_GROUPS`, with its families (and
+   optional ratios and tables) in the catalog shapes of `metric-catalog.ts`.
+   Its `order` places it among the platform's 10 to 60:
+
+   ```ts
+   export const APP_METRIC_GROUPS: readonly MetricGroupDef[] = [
+     {
+       id: 'coach',
+       label: 'Coach',
+       title: 'Coach',
+       order: 70,
+       description: 'nudges sent per persona and outcome',
+       families: [
+         {
+           key: 'coachNudges',
+           group: 'coach',
+           label: 'Nudges sent',
+           table: 'app_coach_nudges_sent_total',
+           kind: 'counter',
+           unit: 'per_min',
+           rate: 'per_min',
+           groupBy: 'outcome',
+           requiredColumns: ['outcome', 'persona'],
+           filters: ['service', 'instance'],
+         },
+       ],
+     },
+   ];
+
+   declare module '../telemetry/metrics/metric-group.registry' {
+     interface MetricGroupIds {
+       coach: true;
+     }
+   }
+   ```
+
+4. **Check it.** `npm run typecheck --workspace=api` and `npm test
+   --workspace=api`: a malformed group (a key another group uses, a unit
+   outside `METRIC_UNITS`, a family whose `group` is not `coach`, a ratio
+   naming an unknown family) fails at import time, so the API does not
+   start. Then:
+   - `GET /api/admin/telemetry/dashboard/metric-groups` lists `coach`;
+   - `GET /api/admin/telemetry/dashboard/metrics?group=coach` answers its
+     tiles and series (`available: false` and the family in `skipped` until
+     the first point reaches GreptimeDB);
+   - the dashboard shows a **Coach** section after Telemetry pipeline (every
+     tile, one chart per series key, every table), and the assistant's
+     `metrics_overview` tool offers `coach`.
+
+**Limits.** A verdict rule is platform code, so an app group adds tiles,
+charts and tables but no verdict reason. `npm run openapi:dump` lists the new
+id in the `group` enum, which is expected.
+
 ## 9. Point a deployment at a GreptimeDB, or rotate credentials, from the UI
 
 The GreptimeDB connection the API uses is resolved at runtime, not fixed

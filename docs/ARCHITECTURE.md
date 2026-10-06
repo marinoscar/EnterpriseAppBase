@@ -701,7 +701,8 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 - A second, independent switch — the `telemetry.enabled` system setting — decides whether the SDK's output is actually exported, checked at export time by a runtime gate (`apps/api/src/common/otel/telemetry-gate.ts`) that starts closed and converges across a fleet within about five seconds of an administrator's change. See [specs/telemetry.md §2](specs/telemetry.md#2-the-two-switches).
 - The collector (`infra/otel/otel-collector-config.yaml`) redacts credential-bearing attributes (`Authorization`, `Cookie`, `Set-Cookie`, query strings) before anything reaches GreptimeDB, and authenticates to it as a write-only user.
 - The collector also scrapes the host (`hostmetrics` over a read-only `/hostfs` mount), its own pipeline counters and a subset of GreptimeDB's `/metrics`, into their own tables, and probes uptime and TLS expiry of the app, the API and the public origin (`httpcheck`) and nginx's connection counters (`nginx` over an internal `:8081` listener). See [specs/telemetry.md §11.2](specs/telemetry.md#112-data-sources-what-is-collected-and-why-no-docker-stats).
-- `AppMetricsModule` (`apps/api/src/common/otel/`, global) is the one place first-party application metrics (`app.*`: jobs, backups, auth, AI, notifications) are defined; features record through `AppMetricsService`. See [specs/telemetry.md §11.13](specs/telemetry.md#1113-application-metrics).
+- `AppMetricsModule` (`apps/api/src/common/otel/`, global) is the one place first-party application metrics (`app.*`: jobs, backups, auth, AI, notifications, the event bus) are created; features record through `AppMetricsService`. Every metric is declared in the app-metric registry (`app-metric.registry.ts`; the platform's in `platform-app-metrics.ts`, an app's in `app-registrations/telemetry.ts`), and an app emits its own with `add(key, …)`/`record(key, …)`. See [specs/telemetry.md §11.13](specs/telemetry.md#1113-application-metrics).
+- The dashboard's metric groups are a registry too (`apps/api/src/telemetry/metrics/metric-group.registry.ts`: the six platform groups in `groups/`, an app's in `app-registrations/telemetry.ts`). `GET /api/admin/telemetry/dashboard/metric-groups` (`telemetry:query`) serves their metadata, and the web renders one section per group. See [specs/telemetry.md §11.14](specs/telemetry.md#1114-metric-catalog-and-the-metrics-route).
 - Each log line carries the request ID and trace ID assigned by the request-ID middleware, so a log line leads to its trace.
 - Never log secrets. The AI platform, credential stores and auth guards keep key material out of logs, spans and error bodies by design.
 - Administrators query GreptimeDB with SQL, export results, and ask an AI assistant about them, from the Telemetry Explorer (`/admin/settings/telemetry/explorer`, `telemetry:query`) — see [specs/telemetry.md](specs/telemetry.md).
@@ -738,6 +739,7 @@ Health endpoints (public, reachable during maintenance):
 | A permission or role (platform module or app) | [permissions/README.md](../apps/api/src/common/permissions/README.md) |
 | An object-storage key prefix | [specs/storage-providers.md §4](specs/storage-providers.md#4-extending-it-in-a-fork) |
 | A user-owned model (any model with a `User` relation) | [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md) |
+| An app metric or dashboard metric group | [runbooks/telemetry.md §8.4](runbooks/telemetry.md#84-adding-an-app-metric-group) |
 
 ---
 
