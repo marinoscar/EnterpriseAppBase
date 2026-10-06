@@ -677,6 +677,168 @@ export function summarise(files) {
 }
 
 // =============================================================================
+// Migrations
+// =============================================================================
+
+const MIGRATION_ID = /^(\d{14})_(.+)$/;
+
+/** The part of a migration id after its 14-digit timestamp (the whole id when it has none). */
+export function migrationSuffix(id) {
+  const m = MIGRATION_ID.exec(id);
+  return m ? m[2] : id;
+}
+
+/** Every `migrations/<id>/migration.sql` under a Prisma directory, as sorted `{ id, sql }`. */
+export function readMigrations(prismaDir) {
+  const dir = join(prismaDir, 'migrations');
+  if (!isDirectory(dir)) return [];
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const buf = readOrNull(join(dir, entry.name, 'migration.sql'));
+    if (buf !== null) out.push({ id: entry.name, sql: buf.toString('utf8') });
+  }
+  return out.sort((a, b) => compareStrings(a.id, b.id));
+}
+
+/**
+ * Match two migration histories. `base` and `app` are `{ id, sql }` lists.
+ *
+ * Normalised SQL hash first, then the name suffix:
+ *
+ *   shared                   same id, same SQL
+ *   renamed                  same SQL, different id (the same change under another timestamp)
+ *   same-name-different-sql  same suffix (or id), different SQL
+ *   base-only / app-only     no match on the other side
+ *
+ * Greedy and deterministic: candidates are always taken in id order.
+ */
+export function matchMigrations(base, app, table = []) {
+  const hashOf = (m) => sha256(normaliseText(m.sql, 'migration.sql', table));
+  const b = [...base].sort((x, y) => compareStrings(x.id, y.id)).map((m) => ({ ...m, hash: hashOf(m), used: false }));
+  const a = [...app].sort((x, y) => compareStrings(x.id, y.id)).map((m) => ({ ...m, hash: hashOf(m), used: false }));
+  const entries = [];
+  const pair = (status, bm, am) => {
+    if (bm) bm.used = true;
+    if (am) am.used = true;
+    entries.push({ status, base: bm ? bm.id : null, app: am ? am.id : null });
+  };
+  // 1. Same id, same SQL.
+  for (const bm of b) {
+    const am = a.find((x) => !x.used && x.id === bm.id && x.hash === bm.hash);
+    if (am) pair('shared', bm, am);
+  }
+  // 2. Same SQL under a different id.
+  for (const bm of b) {
+    if (bm.used) continue;
+    const am = a.find((x) => !x.used && x.hash === bm.hash);
+    if (am) pair('renamed', bm, am);
+  }
+  // 3. Same id, then same suffix, with different SQL.
+  for (const bm of b) {
+    if (bm.used) continue;
+    const am = a.find((x) => !x.used && x.id === bm.id)
+      ?? a.find((x) => !x.used && migrationSuffix(x.id) === migrationSuffix(bm.id));
+    if (am) pair('same-name-different-sql', bm, am);
+  }
+  for (const bm of b) if (!bm.used) pair('base-only', bm, null);
+  for (const am of a) if (!am.used) pair('app-only', null, am);
+
+  const statusOrder = ['shared', 'renamed', 'same-name-different-sql', 'base-only', 'app-only'];
+  entries.sort((x, y) => statusOrder.indexOf(x.status) - statusOrder.indexOf(y.status)
+    || compareStrings(x.base ?? '', y.base ?? '') || compareStrings(x.app ?? '', y.app ?? ''));
+  const count = (status) => entries.filter((e) => e.status === status).length;
+  return {
+    base: base.length,
+    app: app.length,
+    shared: count('shared'),
+    renamed: count('renamed'),
+    sameNameDifferentSql: count('same-name-different-sql'),
+    baseOnly: count('base-only'),
+    appOnly: count('app-only'),
+    entries,
+  };
+}
+
+// =============================================================================
+// Prisma models
+// =============================================================================
+
+/**
+ * Model names and their field names from one Prisma schema text, as an
+ * object with sorted keys: `{ User: ['email', 'id', ...], ... }`. Comments
+ * are stripped first; `@@` block attributes are not fields.
+ */
+export function parsePrismaModels(text) {
+  const lines = stripTextComments(text.replace(/\r\n?/g, '\n'), 'slash').split('\n');
+  const models = {};
+  let current = null;
+  for (const line of lines) {
+    if (current === null) {
+      const m = /^model (\w+) \{/.exec(line);
+      if (m) {
+        current = m[1];
+        models[current] ??= [];
+      }
+      continue;
+    }
+    if (/^\}/.test(line)) {
+      current = null;
+      continue;
+    }
+    if (/^\s*@@/.test(line)) continue;
+    const f = /^\s+(\w+)\s+\S+/.exec(line);
+    if (f && !models[current].includes(f[1])) models[current].push(f[1]);
+  }
+  const sorted = {};
+  for (const name of Object.keys(models).sort(compareStrings)) sorted[name] = models[name].sort(compareStrings);
+  return sorted;
+}
+
+/** Every model in `schema.prisma` and in each `*.prisma` under `schema/` (a multi-file schema). */
+export function readPrismaModels(prismaDir) {
+  const texts = [];
+  const single = readOrNull(join(prismaDir, 'schema.prisma'));
+  if (single !== null) texts.push(single.toString('utf8'));
+  const multi = join(prismaDir, 'schema');
+  if (isDirectory(multi)) {
+    for (const rel of walk(multi)) {
+      if (rel.endsWith('.prisma')) texts.push(readFileSync(join(multi, rel), 'utf8'));
+    }
+  }
+  const merged = {};
+  for (const text of texts) {
+    for (const [model, fields] of Object.entries(parsePrismaModels(text))) {
+      merged[model] = [...new Set([...(merged[model] ?? []), ...fields])].sort(compareStrings);
+    }
+  }
+  const sorted = {};
+  for (const name of Object.keys(merged).sort(compareStrings)) sorted[name] = merged[name];
+  return sorted;
+}
+
+/** Compare two `parsePrismaModels` results. */
+export function compareModels(base, app) {
+  const baseNames = Object.keys(base).sort(compareStrings);
+  const appNames = Object.keys(app).sort(compareStrings);
+  const presentInApp = baseNames.filter((n) => n in app);
+  const changed = [];
+  for (const name of presentInApp) {
+    const addedFields = app[name].filter((f) => !base[name].includes(f));
+    const removedFields = base[name].filter((f) => !app[name].includes(f));
+    if (addedFields.length > 0 || removedFields.length > 0) changed.push({ model: name, addedFields, removedFields });
+  }
+  return {
+    base: baseNames.length,
+    app: appNames.length,
+    presentInApp,
+    missingFromApp: baseNames.filter((n) => !(n in app)),
+    appOnly: appNames.filter((n) => !(n in base)),
+    changed,
+  };
+}
+
+// =============================================================================
 // Building the report
 // =============================================================================
 
@@ -738,6 +900,10 @@ export function buildReport(opts) {
   const orderedAreas = {};
   for (const id of AREA_IDS) if (areas[id]) orderedAreas[id] = areas[id];
 
+  const wantsPrisma = wanted.includes('prisma');
+  const baseRootPrisma = join(baseRoot, 'apps', 'api', 'prisma');
+  const appRootPrisma = join(appRoot, 'apps', 'api', 'prisma');
+
   return {
     schemaVersion: SCHEMA_VERSION,
     generatedAt: (opts.now ?? new Date()).toISOString(),
@@ -747,6 +913,12 @@ export function buildReport(opts) {
     areas: orderedAreas,
     modules,
     files,
+    migrations: wantsPrisma
+      ? matchMigrations(readMigrations(baseRootPrisma), readMigrations(appRootPrisma), table)
+      : null,
+    prismaModels: wantsPrisma
+      ? compareModels(readPrismaModels(baseRootPrisma), readPrismaModels(appRootPrisma))
+      : null,
   };
 }
 
@@ -854,11 +1026,49 @@ export function renderMarkdown(report, { maxModified = 50 } = {}) {
 }
 
 function renderMigrations(report, p) {
-  if (!report.migrations) return;
+  const m = report.migrations;
+  if (!m) return;
+  p('## Migrations');
+  p();
+  p('Matched by normalised SQL first, then by the name after the 14-digit timestamp.');
+  p();
+  p('| Base | App | Shared | Renamed | Same name, different SQL | Base-only | App-only |');
+  p('|---|---|---|---|---|---|---|');
+  p(`| ${m.base} | ${m.app} | ${m.shared} | ${m.renamed} | ${m.sameNameDifferentSql} | ${m.baseOnly} | ${m.appOnly} |`);
+  p();
+  const list = (title, status, render) => {
+    const rows = m.entries.filter((e) => e.status === status);
+    if (rows.length === 0) return;
+    p(`${title}:`);
+    p();
+    for (const e of rows) p(`- ${render(e)}`);
+    p();
+  };
+  list('Renamed (same SQL, different id)', 'renamed', (e) => `\`${e.base}\` is \`${e.app}\` in the app`);
+  list('Same name, different SQL', 'same-name-different-sql', (e) => `\`${e.base}\` / \`${e.app}\``);
+  list('Base-only', 'base-only', (e) => `\`${e.base}\``);
+  list('App-only', 'app-only', (e) => `\`${e.app}\``);
 }
 
 function renderPrismaModels(report, p) {
-  if (!report.prismaModels) return;
+  const m = report.prismaModels;
+  if (!m) return;
+  p('## Prisma models');
+  p();
+  p(`Base models present in the app: ${m.presentInApp.length} of ${m.base}. Total models in the app: ${m.app}.`);
+  p();
+  const names = (list) => (list.length === 0 ? 'none' : list.map((n) => `\`${n}\``).join(', '));
+  p(`- Missing from the app: ${names(m.missingFromApp)}`);
+  p(`- App-only: ${names(m.appOnly)}`);
+  p();
+  if (m.changed.length > 0) {
+    p('Shared models whose fields differ:');
+    p();
+    p('| Model | Fields added in the app | Fields removed in the app |');
+    p('|---|---|---|');
+    for (const c of m.changed) p(`| \`${c.model}\` | ${names(c.addedFields)} | ${names(c.removedFields)} |`);
+    p();
+  }
 }
 
 // =============================================================================
