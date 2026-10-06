@@ -16,6 +16,8 @@ Source of truth for every claim below:
 
 - `infra/compose/telemetry.compose.yml`, `infra/compose/vps.telemetry.compose.yml`, `infra/compose/vps.compose.yml` (`stack-agent`)
 - `infra/otel/otel-collector-config.yaml`
+  (these three are generated from `@marinoscar/platform-infra/telemetry`, §2)
+- `infra/otel/app-collector.yaml` (the app's own collector overlay, §2.4)
 - `infra/compose/.env.example` (the `GREPTIME_*` and `STACK_AGENT_TOKEN` blocks)
 - `apps/api/src/telemetry/` (settings, status, retention, explorer, assistant)
 - `apps/api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
@@ -50,6 +52,28 @@ turns it on (§4).
   see [ai-configuration.md](ai-configuration.md).
 
 ## 2. Enable the overlay
+
+**The telemetry files are generated.** `infra/compose/telemetry.compose.yml`,
+`infra/compose/vps.telemetry.compose.yml` and
+`infra/otel/otel-collector-config.yaml` are copies of the canonical files in
+`@marinoscar/platform-infra` (`packages/platform-infra/telemetry/`),
+materialised and committed so that a VPS deploy, which runs `docker compose`
+from the cloned repository with no `node_modules`, finds them. Each starts with
+a `# GENERATED from @marinoscar/platform-infra@<version> (telemetry)` header,
+and `infra/platform-infra.lock.json` records the version and a checksum of
+each body. Never edit them by hand; to change the platform files, edit the
+package and re-sync, from the repository root:
+
+```bash
+npm run build:packages            # the sync command runs the package's dist/
+npm run platform:infra:sync       # rewrites the three files and the lock
+npm run platform:infra:sync -- --check   # what CI runs: writes nothing
+```
+
+`sync` never overwrites the app's own overlay, `infra/otel/app-collector.yaml`
+(§2.4); it creates it from the package's behaviour-neutral example only when it
+is missing. App changes to the compose services go into a compose overlay file
+of your own, applied after `telemetry.compose.yml`.
 
 ### 2.1 Development
 
@@ -128,6 +152,74 @@ The messages shown here are always about "the telemetry services" or
 "GreptimeDB" — never about compose, a compose file, or the CLI. If you would
 rather do this from a shell (for example, while debugging), §10 below still
 works exactly as it did before this feature.
+
+### 2.4 Add your own collector pipelines (app overlay)
+
+The collector starts with two config files, merged in order
+(`telemetry.compose.yml`):
+
+```yaml
+command: ["--config=/etc/otelcol/platform.yaml", "--config=/etc/otelcol/app.yaml"]
+volumes:
+  - ../otel/otel-collector-config.yaml:/etc/otelcol/platform.yaml:ro   # generated
+  - ../otel/app-collector.yaml:/etc/otelcol/app.yaml:ro                # yours
+```
+
+`infra/otel/app-collector.yaml` belongs to the app: edit it freely, commit
+it, and no sync touches it again. As shipped it holds comments only, so the
+collector runs exactly the platform config.
+
+> ⚠ **Maps merge; lists are replaced, never appended.** A receiver, processor
+> or exporter you define is added beside the platform's. But
+> `service.pipelines.metrics.receivers: [prometheus/app]` in the overlay
+> REPLACES the platform's whole `receivers` list for `metrics`, silently
+> dropping `otlp` (the API's own metrics). To extend an existing pipeline you
+> would have to restate its full list, and fall behind the next time the
+> platform changes it. The same applies to `service.extensions`.
+
+The safe pattern is a **new named pipeline** that reuses the platform's
+processors and exporters by name:
+
+```yaml
+receivers:
+  prometheus/app:
+    config:
+      scrape_configs:
+        - job_name: app-sidecar
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["sidecar:9464"]
+
+service:
+  pipelines:
+    metrics/app:
+      receivers: [prometheus/app]
+      processors: [memory_limiter, attributes/redact, transform/promote_labels, batch]
+      exporters: [otlphttp/greptime]
+```
+
+Then restart the collector (`docker compose ... restart otel-collector`) and
+check its logs (§7). A variable your overlay reads (`${env:NAME}`) must also
+reach the container: add it to `otel-collector`'s `environment` in your own
+compose overlay, never in the generated `telemetry.compose.yml`, and never put
+a secret in the overlay itself.
+
+Check an overlay before deploying it with the pinned collector image (CI's
+`collector-config` job runs the same command over the shipped files):
+
+```bash
+mkdir -p /tmp/hostfs/etc && echo dev > /tmp/hostfs/etc/hostname && chmod -R a+rX /tmp/hostfs
+docker run --rm -v "$PWD/infra/otel:/cfg:ro" -v /tmp/hostfs:/hostfs:ro \
+  -e GREPTIME_DB=public -e GREPTIME_WRITER_USER=w -e GREPTIME_WRITER_PASSWORD=x \
+  -e POSTGRES_HOST=db -e POSTGRES_PORT=5432 -e POSTGRES_DB=appdb -e POSTGRES_SSL=false \
+  -e POSTGRES_MONITOR_USER=u -e POSTGRES_MONITOR_PASSWORD=p \
+  -e UPTIME_PUBLIC_URL=http://nginx/nginx-health \
+  otel/opentelemetry-collector-contrib:0.145.0 \
+  validate --config=/cfg/otel-collector-config.yaml --config=/cfg/app-collector.yaml
+```
+
+Swap `validate` for `print-config` to see the merged result, pipelines
+included.
 
 ## 3. Set the GreptimeDB passwords
 
@@ -237,6 +329,11 @@ self-heals on the next run without any action from you.
 
 ## 7. Verify
 
+0. **The collector loaded both configs.** `docker compose ... logs
+   otel-collector` ends its startup with `Everything is ready. Begin running
+   and processing data.`; a broken overlay instead stops it with an error
+   naming the offending key (`docker compose ps otel-collector` shows it
+   restarting).
 1. **Status card.** `GET /api/admin/telemetry/status` (or the settings page)
    reports `configured: true`, `reachable: true`, a `version` string, the
    `ttl` currently in force, and the store's tables with row estimates. This
@@ -660,6 +757,10 @@ configured to do.
 | A query or the assistant returns `TELEMETRY_QUERY_TIMEOUT` (504) | The statement outran `telemetry.query.timeoutSeconds` | Narrow the query (add a time filter, reduce the row cap) or raise the setting (≤ 120 s), then retry |
 | The nginx assistant route hangs or drops mid-stream | A proxy in front of nginx is buffering the response | Confirm the deployment's own reverse proxy (in front of nginx, on a VPS) does not buffer `/api/admin/telemetry/assistant/stream`; nginx itself already forwards it unbuffered |
 | The assistant reports no logs (or an empty `opentelemetry_logs`) even though the app is running | The logs pipeline specifically isn't reaching the store — `OTEL_ENABLED` unset/`false` on the `api` service, `telemetry.enabled` off, or the export gate not yet open | Check `OTEL_ENABLED=true` on `api` (§12 above) and `telemetry.enabled` (§4); confirm with `SELECT count(*) FROM opentelemetry_logs` in the explorer — if traces have rows but logs do not, the app's own log level or exporter, not telemetry, is the next thing to check |
+| `npm run platform:infra:sync -- --check` (CI's Build & Test) fails with `error: infra/...: differs from @marinoscar/platform-infra@<version> (telemetry)` | A generated telemetry file was edited by hand, or `@marinoscar/platform-infra` was upgraded without re-syncing | Run `npm run build:packages && npm run platform:infra:sync` and commit the result. If the edit was deliberate, move it into `infra/otel/app-collector.yaml` (collector, §2.4) or a compose overlay of your own (services), or change the package's canonical file in `packages/platform-infra/telemetry/` and re-sync |
+| `--check` fails with `infra/platform-infra.lock.json: ...` | The lock is missing, was edited, or predates the files | `npm run platform:infra:sync` rewrites it; commit it with the files |
+| `otel-collector` exits at startup with `read /etc/otelcol/app.yaml: is a directory` | `infra/otel/app-collector.yaml` is missing, so Docker created an empty directory at the mount source | Remove that directory and run `npm run platform:infra:sync` to recreate the file from the example (or restore it from git) |
+| A platform pipeline lost data after an overlay change (for example no API metrics) | The overlay restated a platform pipeline's `receivers`/`processors`/`exporters`, and lists are replaced, not appended | Move the addition into a new named pipeline (`metrics/app`, §2.4); `print-config` shows the merged pipelines |
 | `PUT`/`DELETE .../connection` answers 409 | Someone else saved the connection first (stale `If-Match`) | Re-read `GET /api/admin/telemetry/connection` for the current `version` and retry |
 
 ## 13. Summary checklist

@@ -6,7 +6,11 @@ Deployment configuration shipped as files: Compose fragments (`compose/`), nginx
 
 Compose fragments, nginx and collector configuration of the platform, plus `infraFile()` to locate them. It does not own the app's own overlays, `.env` or images.
 
-Status: scaffold only (version `0.0.0`). The package builds, packs and loads, and exports `infraFile()` and its own name (`PLATFORM_PACKAGE`). Slices arrive as subpath exports (`@marinoscar/platform-infra/<slice>`) in later releases of the platform program, each with its own README.
+Slices, each a subpath export with its own README:
+
+- [`@marinoscar/platform-infra/telemetry`](src/telemetry/README.md): the collector and GreptimeDB compose fragments, the platform collector config, the app-owned collector overlay and their typed manifest.
+
+The package also ships the `platform-infra` command (`bin/platform-infra.mjs`), which materialises the fragments into the app. Version `0.0.0`, unpublished; the base, prod, vps and worker fragments and nginx follow (#714).
 
 ## Install and peer dependencies
 
@@ -24,15 +28,22 @@ import { infraFile } from '@marinoscar/platform-infra';
 const base = infraFile('compose/base.compose.yml'); // absolute path for docker compose -f
 ```
 
-The fragments themselves arrive with the infra slices; until then `compose/` is empty.
+Fragments are copied into the app and committed, never resolved from `node_modules` at deploy time (an app's VPS deploy runs `docker compose` from its cloned repository, where there is no `node_modules`):
+
+```bash
+npx platform-infra sync           # materialise every fragment into infra/, write infra/platform-infra.lock.json
+npx platform-infra sync --check   # CI: fail when a generated file differs from the package or the lock
+```
+
+In this repository the root script is `npm run platform:infra:sync`.
 
 ## Configuration
 
-None. No slice is exported yet, so there is no `forRoot()` or other option to set.
+No `forRoot()`. The `platform-infra sync` command takes `--check` (write nothing; exit 1 on drift) and `--root <dir>` (the app's repository root, default the current directory); see the [telemetry slice README](src/telemetry/README.md#configuration).
 
 ## Extension-point catalog
 
-None. Nothing the package exports is an extension point yet; each slice adds its rows (`Name`, `Kind`, `Signature`, `When to use`, `Stability`, `Example`) when it is extracted.
+None. The root entry point exports no extension point; each slice lists its own (`telemetryInfraFragment` and the collector overlay: [telemetry slice README](src/telemetry/README.md#extension-point-catalog)).
 
 ## Data
 
@@ -48,15 +59,17 @@ None. The package renders nothing.
 
 ## Infra
 
-Scaffold only: `compose/`, `nginx/` and `otel/` are empty. `infraFile(relativePath)` (`@stability experimental`) returns the absolute path of a shipped file and throws on an empty, absolute or escaping path. No environment variable is read.
+Slice files ship under `<slice>/` (`telemetry/compose/`, `telemetry/otel/`); the root `compose/`, `nginx/` and `otel/` folders are still empty. `infraFile(relativePath)` (`@stability experimental`) returns the absolute path of a shipped file and throws on an empty, absolute or escaping path. No environment variable is read.
+
+Generated files start with a `# GENERATED from @marinoscar/platform-infra@<version> (<slice>)` header and are never edited in the app; `infra/platform-infra.lock.json` records the version and the sha256 of each body. App-owned files (the collector overlay `infra/otel/app-collector.yaml`) are created once from a package example and never overwritten.
 
 ## Observability
 
-None. The package emits nothing at run time.
+None. The package emits nothing at run time; the telemetry slice ships the collector configuration itself (see its README). `platform-infra sync` prints only the files it wrote.
 
 ## Security notes
 
-`infraFile()` refuses absolute paths and any path that resolves outside the package root, so a caller cannot use it to read arbitrary files.
+`infraFile()` refuses absolute paths and any path that resolves outside the package root, so a caller cannot use it to read arbitrary files. `platform-infra sync` refuses any path that leaves the app root or the package, validates its whole plan before writing, and never overwrites an app-owned file.
 
 ## Conformance suite
 
@@ -68,7 +81,7 @@ None. No version has been published yet, so there is nothing to migrate from.
 
 ## Troubleshooting
 
-None yet. Build and import problems common to every platform package are in [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages).
+`sync --check` failures (a hand-edited generated file, a stale lock) are in the [telemetry slice README](src/telemetry/README.md#troubleshooting) and [the telemetry runbook § 12](../../docs/runbooks/telemetry.md#12-troubleshooting). Build and import problems common to every platform package are in [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages).
 
 ## Links
 

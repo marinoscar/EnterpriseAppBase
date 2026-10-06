@@ -1178,6 +1178,31 @@ from here. Telemetry collection is unaffected." plus the `agentError` reason.
 `not_configured` keeps its own text, since there is no agent to be
 unresponsive.
 
+### The image reference in the platform-infra manifest
+
+The telemetry compose files are generated from
+`@marinoscar/platform-infra/telemetry` (see the
+[runbook §2](../runbooks/telemetry.md#2-enable-the-overlay)), and its typed
+manifest, `telemetryInfraFragment`, also carries
+`images.stackAgent = 'ghcr.io/marinoscar/enterpriseappbase-stack-agent'`: the
+stack-agent image the platform release publishes (#692), tagged with the
+platform version. It is **data only** and `experimental`. The reference app
+does not use it: `vps.compose.yml` keeps `build: { context: ../..,
+dockerfile: apps/stack-agent/Dockerfile }`. A consumer app that does not carry
+`apps/stack-agent` can, once the image is published, replace the build with
+the image in a compose overlay of its own, applied after `vps.compose.yml`
+(the general app compose-overlay mechanism of the deploy is #714):
+
+```yaml
+services:
+  stack-agent:
+    image: ghcr.io/marinoscar/enterpriseappbase-stack-agent:<platform version>
+    build: !reset null
+```
+
+Everything else about the service (socket mount, read-only root, dropped
+capabilities, no ports) stays as `vps.compose.yml` declares it.
+
 ### `STACK_AGENT_TOKEN`
 
 Generated as 32 hex bytes, without a prompt, on every VPS install and update

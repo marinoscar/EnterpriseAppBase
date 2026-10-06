@@ -1243,8 +1243,10 @@ under its own "Defaults" comment block and has to be changed there directly.
 2. Gets the source — either `git clone --depth 1` of `APPCTL_REPO` at
    `APPCTL_REF`, or a copy of `APPCTL_SRC` if set — into a temp directory
    that's cleaned up on exit.
-3. Builds the CLI workspace: `npm install --workspace=cli` then
-   `npm run build --workspace=cli`, from that temp checkout.
+3. Builds the CLI workspace: `npm install --workspace=cli`, then the
+   `@marinoscar/platform-*` packages the CLI depends on, then
+   `npm run build --workspace=cli`, from that temp checkout. Those packages
+   are vendored into the install like `@app/shared`.
 4. Deploys the standalone app: copies `apps/cli/dist`, `package.json` and
    `README.md` into `~/.appctl/app` (replacing any previous install), then
    runs `npm install --omit=dev` there to pull in just the runtime
@@ -1264,6 +1266,7 @@ itself inside this monorepo, build and run it from the workspace instead:
 
 ```bash
 # from the repo root, after the workspace's node_modules are installed
+npm run build:packages            # the CLI imports @marinoscar/platform-infra's dist/
 npm run build --workspace=cli
 ```
 

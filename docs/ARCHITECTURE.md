@@ -622,17 +622,17 @@ All HTTP calls go through `ApiService` in `apps/web/src/services/api.ts`. It res
 
 ### 10.1 Compose files
 
-All files live in `infra/compose/` and are layered with repeated `-f` flags from that folder.
+All files live in `infra/compose/` and are layered with repeated `-f` flags from that folder. The two telemetry files are the committed output of `platform-infra sync` (versions and checksums in `infra/platform-infra.lock.json`); CI's `npm run platform:infra:sync -- --check` fails on a hand edit. See [runbooks/telemetry.md §2](runbooks/telemetry.md#2-enable-the-overlay).
 
 | File | Purpose | When used |
 |---|---|---|
 | `base.compose.yml` | Core services: `nginx`, `api`, `web`. No database service. | Always |
 | `dev.compose.yml` | Hot reload, source volumes, exposed ports | Local development |
 | `devdb.compose.yml` | Opt-in PostgreSQL 16 container (`db`) for development | Local development without a shared database |
-| `telemetry.compose.yml` | OpenTelemetry Collector and GreptimeDB standalone | When you want traces, metrics and logs locally |
+| `telemetry.compose.yml` | OpenTelemetry Collector and GreptimeDB standalone. **Generated** from `@marinoscar/platform-infra/telemetry` (`npm run platform:infra:sync`; never edit by hand). The collector loads `infra/otel/otel-collector-config.yaml` (generated) and then `infra/otel/app-collector.yaml` (app-owned overlay). | When you want traces, metrics and logs locally |
 | `prod.compose.yml` | Resource limits, restart policies | Production |
 | `vps.compose.yml` | Publishes nothing on a public interface; the app sits behind a shared host proxy. Also adds `stack-agent`, the only service that holds the Docker socket — it lets the admin UI (re)deploy the telemetry containers with no shell step. See [specs/telemetry.md §10](specs/telemetry.md#10-deploying-the-stack-stack-agent). | VPS deployment via `appctl deploy`, after `prod.compose.yml` |
-| `vps.telemetry.compose.yml` | Hardens the telemetry stack for a VPS: no collector host ports, GreptimeDB's Postgres wire port on `127.0.0.1` only | VPS deployment, after `telemetry.compose.yml` and `vps.compose.yml` (always layered — the telemetry stack ships with every VPS deployment) |
+| `vps.telemetry.compose.yml` | Hardens the telemetry stack for a VPS: no collector host ports, GreptimeDB's Postgres wire port on `127.0.0.1` only. **Generated** from `@marinoscar/platform-infra/telemetry`, like `telemetry.compose.yml`. | VPS deployment, after `telemetry.compose.yml` and `vps.compose.yml` (always layered — the telemetry stack ships with every VPS deployment) |
 | `test.compose.yml` | Disposable PostgreSQL (`db-test`, host port 5433) | Real-database test runs |
 | `worker.compose.yml` | Worker node containers from the published image; scale with `--scale worker=N` | Running a worker fleet |
 | `worker.build.compose.yml` | Builds the worker image from source | Developing the worker itself |

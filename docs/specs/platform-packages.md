@@ -506,6 +506,8 @@ otelcol --config=platform-collector.yaml --config=app-collector.yaml   # the fil
 
 The overlay adds the app's own services, environment and collector pipelines. Platform fragments are never edited.
 
+Because a VPS deploy runs compose from the cloned app repository, where no `node_modules` exists, fragments are **materialised** into the app's `infra/` by `npx platform-infra sync` and committed, with a generated-file header and `infra/platform-infra.lock.json`; `sync --check` in CI fails on a hand edit. App-owned overlays such as `infra/otel/app-collector.yaml` are created once and never overwritten. The collector merges its `--config` files with maps merged and lists replaced, so an overlay adds a new named pipeline (`metrics/app`) rather than restating a platform one ([telemetry runbook §2.4](../runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)).
+
 #### CLI
 
 ```ts
