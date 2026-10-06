@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-api",
-  "version": "0.0.0",
+  "version": "0.1.0-next.0",
   "description": "NestJS dynamic modules of the platform (CommonJS, built with tsc for decorator metadata).",
   "license": "MIT",
   "type": "commonjs",
@@ -63,6 +63,11 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^4.4.3"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@nestjs/common": "^11.1.12",

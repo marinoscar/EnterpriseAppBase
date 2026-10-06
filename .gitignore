@@ -103,3 +103,7 @@ packages/*/docs-api/
 # Copied from the root LICENSE by each platform package's `prepack`
 # (scripts/copy-license.mjs, issue #691); the root file is the only source.
 packages/platform-*/LICENSE
+
+# Consumer smoke (tests/consumer-smoke): each run resolves its dependencies
+# fresh in a temp directory, so no lockfile is ever committed there.
+tests/consumer-smoke/**/package-lock.json

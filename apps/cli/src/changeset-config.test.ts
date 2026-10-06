@@ -261,4 +261,28 @@ describe('.github/workflows/release.yml', () => {
     const grants = workflow.split('\n').filter((line) => /^\s*id-token: write/.test(line));
     expect(grants).toHaveLength(2);
   });
+
+  it('runs the registry smoke only after a real publish, read-only, with the provenance check', () => {
+    const smoke = job('registry-smoke');
+    expect(smoke).toMatch(/needs: publish\b/);
+    expect(smoke).toMatch(/needs\.publish\.result == 'success'/);
+    expect(smoke).toMatch(/^      contents: read$/m);
+    expect(smoke).not.toMatch(/id-token|environment:|contents: write/);
+    expect(smoke).toMatch(/run\.mjs --from registry "\$VERSION" --audit-signatures/);
+  });
+
+  it('attaches the tarballs to a GitHub release with GITHUB_TOKEN only, once the version is final', () => {
+    const release = job('github-release');
+    expect(release).toMatch(/needs\.version\.outputs\.pending == 'false'/);
+    expect(release).toMatch(/github\.ref == 'refs\/heads\/main'/);
+    expect(release).toMatch(/^      contents: write\b/m);
+    expect(release).not.toMatch(/id-token|environment:|npm publish|changeset publish/);
+    expect(release).toMatch(/GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+    expect(release).toMatch(/run\.mjs --from tarballs/);
+    expect(release).toMatch(/--prerelease/);
+    expect(release).toMatch(/--latest=false/);
+    // A fork that inherited the version never releases the platform packages.
+    expect(release).toMatch(/repository\.url/);
+    expect(release).toMatch(/"\$home" != "\$GH_REPO"/);
+  });
 });

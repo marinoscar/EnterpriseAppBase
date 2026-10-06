@@ -741,6 +741,16 @@ node scripts/check-single-instance.mjs --lockfile-only --json # machine-readable
    package resolved outside the repository (an `npm link`ed checkout) is
    checked as well, since it resolves its peers from its own `node_modules`.
 
+It also checks an app outside this repository: `--root <dir>` on a project
+with no `workspaces` resolves from that project's own root, and
+`--guard <name>` (repeatable) adds the platform packages it installs to the
+guarded list and checks them as origins. The consumer smoke
+([TESTING.md](TESTING.md#consumer-smoke-packed-and-published-packages)) runs
+it that way on every temporary consumer project. It is how the smoke found
+that `fastify` must be an optional peer of `@marinoscar/platform-api`: as a
+required peer, npm auto-installed a second fastify next to the exact version
+`@nestjs/platform-fastify` pins.
+
 Exit codes: 0 clean, 1 duplicates, 2 usage error (unknown flag, missing
 lockfile, or no `node_modules` without `--lockfile-only`). The
 `single-instance` job in `.github/workflows/packages.yml` runs it after
