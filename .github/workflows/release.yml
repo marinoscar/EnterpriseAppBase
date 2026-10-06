@@ -14,6 +14,8 @@ name: Release
 #                    is not on the registry yet.
 #   publish          the real publish: trusted publishing (OIDC) with
 #                    provenance, from the protected `npm-publish` environment.
+#   images           after a real publish: the container images of the same
+#                    version, through images.yml (workflow_call).
 #   publish-dry-run  every other case: the same build, tests and pack, then
 #                    `npm publish --dry-run`, with the tarballs uploaded as the
 #                    `platform-tarballs` artifact. No environment, no id-token,
@@ -144,6 +146,7 @@ jobs:
       id-token: write # OIDC for trusted publishing and provenance
     outputs:
       version: ${{ steps.v.outputs.version }}
+      channel: ${{ steps.v.outputs.channel }}
     steps:
       - uses: actions/checkout@v6
 
@@ -176,12 +179,30 @@ jobs:
         run: |
           v=$(node -p "require('./packages/platform-api/package.json').version")
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          # Pre mode publishes to next; after `changeset pre exit`, to latest.
+          if [ -f .changeset/pre.json ]; then echo "channel=next" >> "$GITHUB_OUTPUT"; else echo "channel=latest" >> "$GITHUB_OUTPUT"; fi
           if git ls-remote --exit-code --tags origin "refs/tags/platform-v$v" >/dev/null; then
             echo "platform-v$v already exists"
           else
             git tag "platform-v$v" && git push origin "platform-v$v"
           fi
           echo "Published @marinoscar/platform-* $v (tag platform-v$v)" >> "$GITHUB_STEP_SUMMARY"
+
+  # The container images of the same platform version (images.yml, issue
+  # #692): tags <version>, the channel and sha-<sha>, signed and attested.
+  images:
+    name: Images
+    needs: publish
+    if: vars.NPM_PUBLISH_ENABLED == 'true' && needs.publish.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    uses: ./.github/workflows/images.yml
+    with:
+      version: ${{ needs.publish.outputs.version }}
+      channel: ${{ needs.publish.outputs.channel }}
 
   publish-dry-run:
     name: Publish dry run

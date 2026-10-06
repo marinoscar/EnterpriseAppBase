@@ -252,9 +252,13 @@ describe('.github/workflows/release.yml', () => {
     expect(dryRun).toMatch(/dry run: \$REASON/);
   });
 
-  it('gives no other job an id-token', () => {
-    const others = workflow.split('\n').filter((line) => /id-token/.test(line) && !/^\s*#/.test(line));
-    // The publish job's permission line and nothing else (comments excluded).
-    expect(others.filter((line) => /id-token: write/.test(line))).toHaveLength(1);
+  it('grants an id-token only to the publish job and the images call it starts', () => {
+    for (const name of ['version', 'gate', 'publish-dry-run']) expect(job(name)).not.toMatch(/id-token/);
+    const images = job('images');
+    expect(images).toMatch(/needs: publish\b/);
+    expect(images).toMatch(/uses: \.\/\.github\/workflows\/images\.yml/);
+    expect(images).toMatch(/version: \$\{\{ needs\.publish\.outputs\.version \}\}/);
+    const grants = workflow.split('\n').filter((line) => /^\s*id-token: write/.test(line));
+    expect(grants).toHaveLength(2);
   });
 });

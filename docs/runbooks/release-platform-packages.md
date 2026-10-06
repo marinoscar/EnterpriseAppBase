@@ -92,6 +92,7 @@ After the Version Packages pull request merges:
 2. Approve the `npm-publish` deployment.
 3. The job upgrades npm to 11.5.1 or later (trusted publishing needs it), builds and tests the packages, and runs `npx changeset publish` with provenance on. Versions already on the registry are skipped, so re-running a failed job is safe.
 4. It pushes the git tag `platform-v<version>` and writes the published version to the job summary.
+5. The `images` job then calls `.github/workflows/images.yml` with that version and the channel (`next` in pre mode, `latest` after it), which builds, signs and attests the api, web, worker and stack-agent images ([container-images runbook](container-images.md)).
 
 Never run `npm publish` for a release from your own machine; the only manual publish is the one-off `bootstrap` in the prerequisites.
 
