@@ -392,6 +392,8 @@ Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible s
 
 Two indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`) and `database_backup_runs_active_uniq_idx` (at most one active backup run). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
 
+The retention sweeps read "oldest rows older than the cutoff" across every user, so `notifications`, `notification_deliveries` and `ai_runs` each carry a plain `created_at` index (migration `add_retention_created_at_indexes`); `audit_events` already had one. See [runbooks/data-retention.md](runbooks/data-retention.md).
+
 ### 6.2 Settings storage
 
 `system_settings` holds three rows, each keyed:
@@ -414,6 +416,7 @@ Namespaces of the `global` document (`systemSettingsSchema`):
 | `maintenance` | Window state, message, `allowAdmins` |
 | `storage` | Provider, bucket, region, endpoint, access key ID, path style (secret key is in `credentials`) |
 | `ai` | Kill switch, key policy, per-provider settings, hosted tools, limits, usage retention |
+| `retention` | `{ enabled, days }` per table: `notifications`, `notificationDeliveries`, `auditEvents` (off by default), `aiRuns`. See [runbooks/data-retention.md](runbooks/data-retention.md) |
 
 Every read completes missing namespaces from built-in defaults, so the stored document is always whole.
 
@@ -481,7 +484,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 23 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
+All 27 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
 
 | Type | Handler | What it does | Node-eligible |
 |---|---|---|:-:|
@@ -491,6 +494,7 @@ All 23 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `ai.audio.transcribe` | `ai/runtime/ai-audio-transcribe.handler.ts` | Streams a user's recording to the provider; stores the transcript on the run | No |
 | `ai.audio.speech` | `ai/runtime/ai-audio-speech.handler.ts` | Text-to-speech; the audio becomes the user's storage object | No |
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Deletes `ai_usage_events` past `ai.usageRetentionDays`, in batches; daily | No |
+| `ai.runs.purge` | `ai/runtime/ai-runs-purge.handler.ts` | Deletes terminal `ai_runs` past `retention.aiRuns`, in batches; daily at 01:00; not gated on the kill switch | No |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Re-verifies stale user keys for one provider, refreshes reachable models | No |
 | `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
 | `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
@@ -500,6 +504,9 @@ All 23 registered job types. Handler paths are relative to `apps/api/src/`. A ty
 | `nodes.fleet.prune` | `nodes/handlers/node-fleet-prune.handler.ts` | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
 | `admin.broadcast.start` | `notifications/broadcasts/handlers/broadcast-start.handler.ts` | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
 | `admin.broadcast.chunk` | `notifications/broadcasts/handlers/broadcast-chunk.handler.ts` | Delivers one page of recipients, enqueues its successor | No |
+| `notifications.inbox.purge` | `notifications/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
+| `notifications.deliveries.purge` | `notifications/retention/notification-deliveries-purge.handler.ts` | Deletes `sent`/`failed` `notification_deliveries` past `retention.notificationDeliveries` (never `queued`); daily at 01:00 | No |
+| `audit.events.purge` | `common/retention/audit-events-purge.handler.ts` | Deletes `audit_events` past `retention.auditEvents` (off by default); daily at 01:00 | No |
 | `storage.cleanup.stale-uploads` | `storage/handlers/storage-cleanup.handler.ts` | Cleans up abandoned uploads, aborting billed multipart parts | No |
 | `storage.object.process` | `storage/handlers/storage-object-process.handler.ts` | Runs registered post-upload processors on one object and marks it `ready`/`failed` | No |
 | `db.backup.run` | `db-backup/handlers/db-backup-run.handler.ts` | Streams `pg_dump` into object storage | Yes |

@@ -540,7 +540,8 @@ is the single-model check and the one origin of `AI_MODEL_NOT_ENABLED`,
 - **`/api/admin/ai/*` is deliberately outside the guard**, so an
   administrator can always switch AI back on.
 - AI job handlers check `ai.enabled` when they run and end without retry if
-  it went off. `ai.usage.purge` is not gated (retention is data hygiene).
+  it went off. `ai.usage.purge` and `ai.runs.purge` are not gated (retention
+  is data hygiene).
 - The catalog cron enqueues nothing while disabled.
 - The web app hides every AI card, route and navigation entry.
 
@@ -559,6 +560,7 @@ org key must never be brokered to a worker node.
 | `ai.audio.speech` | `{ runId }` | 5 min, 2 attempts | A retry rewrites the same key. |
 | `ai.keys.recheck` | `{ provider }` | 30 min, 3 attempts | Weekly cron, and on catalog sync. |
 | `ai.usage.purge` | none | 30 min, 3 attempts | Daily at 05:00 via `enqueueHousekeepingJob`; 5000 ids per batch. |
+| `ai.runs.purge` | none | 30 min, 3 attempts | Daily at 01:00 via `RetentionPurgeTask`, while `retention.aiRuns.enabled` (default on, 90 days); terminal runs only, 5000 ids per batch; not gated on the kill switch. |
 
 - Media jobs extend `AiMediaRunHandler` (claim, cancel, deadline, outcomes,
   retries, settle safety net).
@@ -603,6 +605,11 @@ shape:
   `day` or `model` only and is scoped to the caller in SQL.
 - Rows are purged after `ai.usageRetentionDays` (default 180) by
   `ai.usage.purge`.
+- `ai_runs` rows (which hold the full prompt in `request`) are purged after
+  `retention.aiRuns.days` (default 90) by `ai.runs.purge`, `succeeded`,
+  `failed` and `cancelled` only; `pending` and `running` runs are never
+  touched. Storage objects a run produced are not deleted. See
+  [runbooks/data-retention.md](../runbooks/data-retention.md).
 - UI: the admin **AI Usage** card, and a Usage section inside `/settings/ai`.
 
 **Audit.** Admin and key acts write audit rows with codes, counts or field

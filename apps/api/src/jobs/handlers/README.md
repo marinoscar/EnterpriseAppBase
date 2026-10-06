@@ -471,6 +471,15 @@ read, a batched loop and a transaction. Its scheduling half lives in
 `@Cron` that ENQUEUES rather than doing the work inline, so the run is
 observable, retried on the queue's budget, and executed on a worker slot.
 
+For a retention purge — "delete rows older than a setting, in bounded batches"
+— use `../../common/retention/batched-purge.ts` rather than writing the loop
+again: `purgeInBatches` (5000 ids per batch, oldest first, delete by the exact
+ids read, a 1000-batch safety stop) and `runRetentionPolicyPurge` (the
+disabled no-op and the summary log line). The four `retention.*` handlers
+(`notifications.inbox.purge`, `notifications.deliveries.purge`,
+`audit.events.purge`, `ai.runs.purge`) are worked examples, and
+`../../common/retention/retention-purge.task.ts` enqueues them.
+
 ## Related Files
 
 | File | What it is |
@@ -479,6 +488,7 @@ observable, retried on the queue's budget, and executed on a worker slot.
 | `../job-handler.registry.ts` | The registry, and why registration is explicit |
 | `../job-keys.ts` | `buildDedupKey()` — the single definition of `Job.dedupKey` |
 | `../job-type-labels.ts` | Display labels for the admin UI |
+| `../../common/retention/batched-purge.ts` | The batched-delete helper for retention purges |
 | `../contracts/` | Node result schemas, published as JSON Schema by `GET /api/nodes/job-types` |
 | `../../storage/storage-job-input.ts` | `resolveStorageObjectInput()` — a job's input, or a named failure |
 | `../../nodes/node-data-plane.service.ts` | The presigned download/upload routes a node uses |
