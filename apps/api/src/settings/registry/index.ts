@@ -21,3 +21,20 @@ export type {
   SystemSettingsValue,
 } from './system-settings-namespace';
 export { mergeOptional } from './merge-helpers';
+export {
+  RESERVED_USER_SETTINGS_KEYS,
+  registerUserSettingsNamespaces,
+  userSettingsNamespaceRegistry,
+} from './user-settings-namespace';
+export type {
+  UserSettingsNamespace,
+  UserSettingsNamespaceDeclarations,
+  UserSettingsNamespaces,
+  UserSettingsNamespacesValue,
+} from './user-settings-namespace';
+export {
+  extendSystemSettingsNamespace,
+  extendUserSettingsNamespace,
+  foldSettingsExtensions,
+} from './extend';
+export type { SystemSettingsNamespaceExtension, UserSettingsNamespaceExtension } from './extend';
