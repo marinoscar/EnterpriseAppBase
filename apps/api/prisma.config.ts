@@ -22,6 +22,10 @@ export default defineConfig({
   schema: 'prisma/schema',
   datasource: {
     url: process.env.DATABASE_URL as string,
+    // Only `prisma migrate diff --from-migrations` (the `db:drift` CI test)
+    // needs one; `platform db drift` supplies it. `migrate dev` makes its own
+    // when this is unset.
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
   },
   migrations: {
     path: 'prisma/migrations',
