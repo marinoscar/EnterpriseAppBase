@@ -3,6 +3,7 @@ import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@ne
 import { Reflector } from '@nestjs/core';
 import { JwtAuthGuard, NODE_ROUTE_PREFIX } from './jwt-auth.guard';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { authCredentialOf } from '../decorators/auth-credential.decorator';
 import { PatService } from '../../pat/pat.service';
 import { NodeCredentialService } from '../../nodes/node-credential.service';
 
@@ -18,7 +19,7 @@ describe('JwtAuthGuard', () => {
     } as any;
 
     patService = {
-      validateToken: jest.fn(),
+      resolveToken: jest.fn(),
     } as any;
 
     nodeCredentialService = {
@@ -179,7 +180,7 @@ describe('JwtAuthGuard', () => {
   // ============================================================================
 
   describe('PAT token handling', () => {
-    it('should route Bearer pat_... tokens to PatService.validateToken', async () => {
+    it('should route Bearer pat_... tokens to PatService.resolveToken', async () => {
       reflector.getAllAndOverride.mockReturnValue(false);
 
       const mockUser = {
@@ -188,16 +189,17 @@ describe('JwtAuthGuard', () => {
         isActive: true,
         userRoles: [],
       };
-      patService.validateToken.mockResolvedValue(mockUser as any);
+      patService.resolveToken.mockResolvedValue({ user: mockUser as any, tokenId: 'pat-id-1' });
 
       const context = createMockContext('Bearer pat_abc123def456');
       const request = context.switchToHttp().getRequest();
 
       const result = await guard.canActivate(context);
 
-      expect(patService.validateToken).toHaveBeenCalledWith('pat_abc123def456');
+      expect(patService.resolveToken).toHaveBeenCalledWith('pat_abc123def456');
       expect(result).toBe(true);
       expect(request.user).toBe(mockUser);
+      expect(request.authCredential).toEqual({ kind: 'pat', tokenId: 'pat-id-1' });
     });
 
     it('should set request.user to the AuthenticatedUser returned by PatService', async () => {
@@ -216,7 +218,7 @@ describe('JwtAuthGuard', () => {
           },
         ],
       };
-      patService.validateToken.mockResolvedValue(mockUser as any);
+      patService.resolveToken.mockResolvedValue({ user: mockUser as any, tokenId: 'pat-id-1' });
 
       const context = createMockContext('Bearer pat_mytoken123');
       const request = context.switchToHttp().getRequest();
@@ -226,9 +228,9 @@ describe('JwtAuthGuard', () => {
       expect(request.user).toEqual(mockUser);
     });
 
-    it('should throw UnauthorizedException when PAT is invalid (validateToken returns null)', async () => {
+    it('should throw UnauthorizedException when PAT is invalid (resolveToken returns null)', async () => {
       reflector.getAllAndOverride.mockReturnValue(false);
-      patService.validateToken.mockResolvedValue(null);
+      patService.resolveToken.mockResolvedValue(null);
 
       const context = createMockContext('Bearer pat_invalidtoken');
 
@@ -246,8 +248,9 @@ describe('JwtAuthGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
       expect(superSpy).toHaveBeenCalledWith(context);
+      expect(context.switchToHttp().getRequest().authCredential).toEqual({ kind: 'jwt' });
     });
 
     it('should NOT route requests without Authorization header to PatService', async () => {
@@ -258,7 +261,7 @@ describe('JwtAuthGuard', () => {
 
       await guard.canActivate(context);
 
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
       expect(superSpy).toHaveBeenCalledWith(context);
     });
 
@@ -269,22 +272,22 @@ describe('JwtAuthGuard', () => {
 
       const result = await guard.canActivate(context);
 
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
       expect(result).toBe(true);
     });
 
-    it('should pass the full raw token (with pat_ prefix) to validateToken', async () => {
+    it('should pass the full raw token (with pat_ prefix) to resolveToken', async () => {
       reflector.getAllAndOverride.mockReturnValue(false);
 
       const mockUser = { id: 'user-789', email: 'x@x.com', isActive: true, userRoles: [] };
-      patService.validateToken.mockResolvedValue(mockUser as any);
+      patService.resolveToken.mockResolvedValue({ user: mockUser as any, tokenId: 'pat-id-1' });
 
       const rawToken = 'pat_0011223344556677889900aabbccddeeff00112233445566778899aabbccddee';
       const context = createMockContext(`Bearer ${rawToken}`);
 
       await guard.canActivate(context);
 
-      expect(patService.validateToken).toHaveBeenCalledWith(rawToken);
+      expect(patService.resolveToken).toHaveBeenCalledWith(rawToken);
     });
   });
 
@@ -323,7 +326,7 @@ describe('JwtAuthGuard', () => {
       expect(result).toBe(true);
       expect(request.user).toBe(nodeUser);
       // A nod_ token must never fall through to the PAT branch or to Passport.
-      expect(patService.validateToken).not.toHaveBeenCalled();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
     });
 
     it('accepts a path UNDER /api/nodes/', async () => {
@@ -439,7 +442,7 @@ describe('JwtAuthGuard', () => {
       // Regression guard for the boundary between the two opaque families —
       // #267 must not have narrowed the PAT's documented universality.
       reflector.getAllAndOverride.mockReturnValue(false);
-      patService.validateToken.mockResolvedValue(nodeUser as any);
+      patService.resolveToken.mockResolvedValue(nodeUser as any);
 
       const context = createMockContext('Bearer pat_something', '/api/users');
 
@@ -474,6 +477,67 @@ describe('JwtAuthGuard', () => {
       // Invalid tokens, expired tokens, and missing tokens are handled
       // by Passport's AuthGuard and tested in integration tests
       expect(true).toBe(true);
+    });
+  });
+
+  // ============================================================================
+  // request.authCredential — which credential admitted the caller
+  // ============================================================================
+
+  describe('authCredential stamping', () => {
+    const owner = { id: 'user-1', email: 'u@example.com', isActive: true, userRoles: [] };
+
+    it('stamps { kind: "jwt" } when Passport admits a session JWT', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      const context = createMockContext('Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig');
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+
+      expect(context.switchToHttp().getRequest().authCredential).toEqual({ kind: 'jwt' });
+    });
+
+    it('stamps nothing when Passport refuses the JWT', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      jest.spyOn(Object.getPrototypeOf(JwtAuthGuard.prototype), 'canActivate').mockResolvedValue(false as never);
+      const context = createMockContext('Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig');
+
+      await expect(guard.canActivate(context)).resolves.toBe(false);
+
+      expect(context.switchToHttp().getRequest().authCredential).toBeUndefined();
+    });
+
+    it('stamps { kind: "pat", tokenId } with the token id, never the token', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      patService.resolveToken.mockResolvedValue({ user: owner as any, tokenId: 'pat-row-7' });
+      const context = createMockContext('Bearer pat_' + 'a'.repeat(64));
+
+      await guard.canActivate(context);
+
+      const credential = context.switchToHttp().getRequest().authCredential;
+      expect(credential).toEqual({ kind: 'pat', tokenId: 'pat-row-7' });
+      expect(JSON.stringify(credential)).not.toContain('pat_');
+    });
+
+    it('stamps { kind: "node" } for a node credential on a node route', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(owner as any);
+      const context = createMockContext('Bearer nod_0011223344556677889900aabbccddeeff', NODE_ROUTE_PREFIX);
+
+      await guard.canActivate(context);
+
+      expect(context.switchToHttp().getRequest().authCredential).toEqual({ kind: 'node' });
+    });
+
+    it('leaves a @Public() route without a credential, so @AuthCredential() yields null', async () => {
+      reflector.getAllAndOverride.mockReturnValue(true);
+      const context = createMockContext('Bearer pat_' + 'a'.repeat(64));
+      const request = context.switchToHttp().getRequest();
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+
+      expect(request.authCredential).toBeUndefined();
+      expect(authCredentialOf(request)).toBeNull();
+      expect(patService.resolveToken).not.toHaveBeenCalled();
     });
   });
 });
