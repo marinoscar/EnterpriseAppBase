@@ -69,7 +69,7 @@ Sample rows (the Example link is relative to the README, so from `packages/platf
 
 ```markdown
 | `DoctorRegistry.register` | registry | `register(check: DoctorCheck): void` | Add a check to the report from a feature module | stable | [example](../../apps/api/src/health/doctor/db-connection.doctor-check.ts) |
-| `DOCTOR_OPTIONS` | token | `InjectionToken<DoctorOptions>` | Read the resolved options in a custom check | experimental | [example](../../apps/api/src/doctor/doctor.module.ts#L12) |
+| `DOCTOR_OPTIONS` | token | `InjectionToken<DoctorOptions>` | Read the resolved options in a custom check | experimental | [example](../../apps/api/src/doctor/doctor.config.ts) |
 ```
 
 `Kind` is one of `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook`, `component`. `Stability` is `stable` or `experimental` (`internal` symbols are never exported, so never listed). A package with no extension point yet writes `None.` and one sentence why instead of the table.

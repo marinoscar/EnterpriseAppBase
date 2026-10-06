@@ -1,9 +1,13 @@
 /**
  * Admin → Observability → Doctor (`/admin/settings/doctor`), issue #634.
  *
- * msw rather than a mocked hook, so the request shape (`refresh=true` on a
- * rerun) is under test too. `usePermissions` stays real, driven through the
- * auth fixture.
+ * Since #696 the page is packaged (`@marinoscar/platform-web/doctor/ui`); this
+ * suite proves the app's WIRING: msw through the real transport
+ * (`services/api.ts`) and the real platform host adapter
+ * (`platform/platformHost.tsx`, mounted by the test wrapper), so the request
+ * shape (`refresh=true` on a rerun) is under test too. `usePermissions` stays
+ * real, driven through the auth fixture. The page's own behaviour is covered in
+ * the package's tests.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -14,7 +18,7 @@ import { server } from '../../mocks/server';
 import { render, mockAdminUser, mockUser } from '../../utils/test-utils';
 import DoctorPage, { categoryLabel } from '../../../pages/Admin/DoctorPage';
 import { api } from '../../../services/api';
-import type { DoctorCheckReport, DoctorReport } from '../../../services/doctor';
+import type { DoctorCheckReport, DoctorReport } from '@marinoscar/platform-web/doctor/headless';
 import { setViewportWidth } from '../../setup';
 
 function check(overrides: Partial<DoctorCheckReport> & Pick<DoctorCheckReport, 'id' | 'category'>): DoctorCheckReport {

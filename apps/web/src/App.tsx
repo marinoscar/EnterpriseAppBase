@@ -24,6 +24,8 @@ import { MaintenanceGate } from './components/common/MaintenanceGate';
 // hundred bytes in the entry chunk.
 import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { InstallPrompt } from './components/pwa/InstallPrompt';
+// The platform host every packaged page reads (#696).
+import { AppPlatformHostProvider } from './platform/platformHost';
 
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
@@ -175,12 +177,21 @@ function AppRoutes() {
                     page, instead of one request per consumer.
                     `TelemetryConfigProvider` (#537, epic #528) is its twin for
                     `GET /api/telemetry/config`. */}
+                {/* `AppPlatformHostProvider` (#696) is the platform host every
+                    packaged page reads (`@marinoscar/platform-web`): the app's
+                    transport, the viewer's permissions and the feature map.
+                    Innermost, so the AI and telemetry feature flags it exposes
+                    come from the two providers above, and inside
+                    `ProtectedRoute` and `AuthProvider`, so the viewer is the
+                    signed-in user. See `platform/platformHost.tsx`. */}
                 <Route
                   element={
                     <NotificationProvider>
                       <AiConfigProvider>
                         <TelemetryConfigProvider>
-                          <Layout />
+                          <AppPlatformHostProvider>
+                            <Layout />
+                          </AppPlatformHostProvider>
                         </TelemetryConfigProvider>
                       </AiConfigProvider>
                     </NotificationProvider>
@@ -703,7 +714,12 @@ function AppRoutes() {
                     }
                   />
                   {/* Issue #634. `system_settings:read`, the string the `Doctor`
-                      card declares and `doctor/doctor.controller.ts` enforces.
+                      card declares and `@marinoscar/platform-api/doctor`
+                      enforces (bound in `apps/api/src/doctor/doctor.config.ts`).
+                      Path and permission are the packaged page's descriptor
+                      (`doctorSettingsPage.card`, #696), written as literals
+                      because `destinations.test.ts` reads this file as text;
+                      `platformPages.test.ts` proves the two agree.
                       NOT behind `RequireTelemetryEnabled` or `RequireAiEnabled`:
                       the page reports on those capabilities while they are
                       off. */}

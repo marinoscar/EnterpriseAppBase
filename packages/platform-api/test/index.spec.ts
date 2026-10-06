@@ -41,6 +41,7 @@ describe('@marinoscar/platform-api', () => {
       '.': { types: './dist/index.d.ts', default: './dist/index.js' },
       './core': { types: './dist/core/index.d.ts', default: './dist/core/index.js' },
       './testing': { types: './dist/testing/index.d.ts', default: './dist/testing/index.js' },
+      './doctor': { types: './dist/doctor/index.d.ts', default: './dist/doctor/index.js' },
       './package.json': './package.json',
     });
   });

@@ -124,3 +124,42 @@ describe('the api image installs no build-only packages', () => {
     expect(dockerfile).toContain('--ignore-scripts');
   });
 });
+
+// =============================================================================
+// The production stage copies the platform packages' dist (issue #696)
+// =============================================================================
+//
+// Every `@marinoscar/platform-*` workspace dependency of the API is a symlink
+// in node_modules pointing at packages/platform-<name>, whose `exports` map
+// points at its built `dist/`. The Doctor (#696) made one of them load on every
+// boot (`doctor/doctor.config.ts`), so an image without the built package
+// starts and dies with ERR_MODULE_NOT_FOUND. The rule, asserted for every such
+// dependency rather than for the one that exists today: the deps stage copies
+// the package and builds it, and the production stage inherits that stage.
+// =============================================================================
+
+describe('the api production image ships the platform packages it depends on', () => {
+  const dockerfile = read('Dockerfile');
+  const stage = productionStage(dockerfile);
+  const depsStage = dockerfile.slice(dockerfile.indexOf('AS deps'), dockerfile.indexOf('AS development'));
+  const platformDependencies = Object.keys(
+    (JSON.parse(read('package.json')) as { dependencies?: Record<string, string> }).dependencies ?? {},
+  ).filter((name) => name.startsWith('@marinoscar/platform-'));
+
+  it('depends on at least @marinoscar/platform-api (guards a vacuous pass)', () => {
+    expect(platformDependencies).toContain('@marinoscar/platform-api');
+  });
+
+  it('copies and builds every platform package in the deps stage', () => {
+    const missing = platformDependencies.filter((name) => {
+      const dir = `packages/${name.replace('@marinoscar/', '')}`;
+      return !depsStage.includes(`COPY ${dir} ./${dir}/`) || !depsStage.includes(`npm run build --workspace=${name}`);
+    });
+
+    expect(missing).toEqual([]);
+  });
+
+  it("copies the deps stage, and with it the packages' dist, into the production stage", () => {
+    expect(stage).toContain('COPY --from=deps /app ./');
+  });
+});

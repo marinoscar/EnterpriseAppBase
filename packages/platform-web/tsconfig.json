@@ -1,6 +1,6 @@
 {
   // Typecheck config (`npm run typecheck` = tsc --noEmit). It covers src/ AND
-  // the tests and vitest.config.ts, which is why `rootDir`/`outDir` live only
+  // the tests (src/**/*.test.* and test/) and vitest.config.ts, which is why `rootDir`/`outDir` live only
   // in tsconfig.build.json (a rootDir of ./src would make tsc reject the
   // config file with TS6059) - the same split as apps/cli.
   //
@@ -21,6 +21,6 @@
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*", "vitest.config.ts"],
+  "include": ["src/**/*", "test/**/*", "vitest.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

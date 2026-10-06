@@ -1,4 +1,4 @@
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import type { EventBusSelection } from '../event-bus.config';
 import type { EventBus, EventBusHealth } from '../event-bus.interface';
 import { decideEventBus, EventBusDoctorCheck } from './event-bus.doctor-check';

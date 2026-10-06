@@ -30,6 +30,10 @@
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     },
+    "./doctor": {
+      "types": "./dist/doctor/index.d.ts",
+      "default": "./dist/doctor/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -63,7 +67,9 @@
   "devDependencies": {
     "@nestjs/common": "^11.1.12",
     "@nestjs/core": "^11.1.12",
+    "@nestjs/platform-fastify": "^11.1.12",
     "@nestjs/swagger": "^11.2.5",
+    "@nestjs/testing": "^11.1.12",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^7.8.0",
     "@types/jest": "^30.0.0",

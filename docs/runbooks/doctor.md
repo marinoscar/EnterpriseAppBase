@@ -125,6 +125,7 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 | The whole run takes many seconds | Telemetry checks wait on each other in a chain, up to 36 seconds when GreptimeDB is unreachable. | Fix the telemetry connection, or read the other categories while it finishes. |
 | `storage.bucket` passes but uploads fail | The check is a read and cannot prove a write. | Run **Test connection** at `/admin/settings/storage`. |
 | The API itself is down | The Doctor runs inside the API. | Run `appctl deploy doctor` on the server ([deploy runbook](deploy-to-vps.md)) and read the container logs. |
+| The API exits at boot with `DoctorModule.forRoot: ... is required ... never public` or `Duplicate doctor check id` | The Doctor's binding (`apps/api/src/doctor/doctor.config.ts`) lost its platform host, or two checks share an id. | A code fix, not an operator one: see the [API slice README](../../packages/platform-api/src/doctor/README.md#troubleshooting). |
 
 ## 6. Summary checklist
 
@@ -139,5 +140,6 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 ## See also
 
 - [Admin Doctor spec](../specs/doctor.md): the check contract, every rule, how to add a check.
+- Code: the framework is the packaged slice `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor` ([API README](../../packages/platform-api/src/doctor/README.md), [web README](../../packages/platform-web/src/doctor/README.md)); the app holds its binding (`apps/api/src/doctor/doctor.config.ts`, `apps/web/src/pages/Admin/DoctorPage.tsx`) and the checks under `apps/api/src/<module>/doctor/`.
 - [Maintenance mode runbook](maintenance-mode.md), [telemetry runbook](telemetry.md), [deploy to a VPS](deploy-to-vps.md).
 - [`appctl` reference](../../apps/cli/README.md#checking-prerequisites): the host-level `appctl deploy doctor`.

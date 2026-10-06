@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -268,6 +268,25 @@ describe('scripts/check-package-docs.mjs', () => {
       const result = check(root);
       expect(result.status).toBe(1);
       expect(result.stdout).toContain(`${PKG}/typedoc.json:1 slice "./widgets" is exported but src/widgets/index.ts is not in entryPoints`);
+    });
+
+    it('a nested subpath (./<slice>/<part>) missing from typedoc.json entryPoints, catalogued by the slice README', () => {
+      // `./doctor/headless` and `./doctor/ui` (#696) are two entry points of
+      // ONE slice: each needs its own typedoc entry point, and both are
+      // catalogued in src/doctor/README.md, never in a README of their own.
+      const root = fixture((r) => {
+        edit(r, `${PKG}/package.json`, (t) =>
+          t.replace('"./package.json"', '"./widgets/extra": { "types": "./dist/widgets/extra/index.d.ts", "default": "./dist/widgets/extra/index.js" },\n    "./package.json"'),
+        );
+        mkdirSync(join(r, PKG, 'src', 'widgets', 'extra'), { recursive: true });
+        writeFileSync(join(r, PKG, 'src', 'widgets', 'extra', 'index.ts'), 'export {};\n');
+      });
+      const result = check(root);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toContain(
+        `${PKG}/typedoc.json:1 slice "./widgets/extra" is exported but src/widgets/extra/index.ts is not in entryPoints`,
+      );
+      expect(result.stdout).not.toContain('src/widgets/extra/README.md');
     });
 
     it('a missing api.json', () => {

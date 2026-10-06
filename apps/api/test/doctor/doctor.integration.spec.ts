@@ -2,7 +2,8 @@
 // Integration tests for GET /api/admin/doctor (issue #634)
 // =============================================================================
 //
-// `src/doctor/doctor.service.spec.ts` proves what the service DECIDES. This
+// The package's `test/doctor/doctor.service.spec.ts`
+// (`@marinoscar/platform-api/doctor`) proves what the service DECIDES. This
 // suite drives the route through the REAL AppModule, guard stack, validation
 // pipe and response interceptor — the things a unit test cannot see:
 //
@@ -22,9 +23,10 @@ process.env.SECRETS_ENCRYPTION_KEY = ENCRYPTION_KEY;
 
 import request from 'supertest';
 
+import { DoctorService } from '@marinoscar/platform-api/doctor';
+
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
-import { DoctorController } from '../../src/doctor/doctor.controller';
-import { DoctorService } from '../../src/doctor/doctor.service';
+import { doctorModule } from '../../src/doctor/doctor.config';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
@@ -36,6 +38,10 @@ import {
 } from '../helpers/auth-mock.helper';
 
 const ROUTE = '/api/admin/doctor';
+
+// The controller class `DoctorModule.forRoot()` created for this app, with the
+// app's own `@Auth()` applied through the platform host (#696).
+const DoctorController = doctorModule.controllers![0] as { name: string; prototype: { getReport: object } };
 
 describe('Doctor API (Integration)', () => {
   let context: TestContext;
@@ -63,6 +69,7 @@ describe('Doctor API (Integration)', () => {
 
   describe('permissions', () => {
     it('declares exactly system_settings:read, and invents no doctor:read', () => {
+      expect(DoctorController.name).toBe('DoctorController');
       const declared = Reflect.getMetadata(PERMISSIONS_KEY, DoctorController.prototype.getReport);
 
       expect(declared).toEqual(['system_settings:read']);

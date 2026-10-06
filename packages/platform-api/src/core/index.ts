@@ -8,3 +8,8 @@
 
 export * from './registry/index';
 export { RegistryFreezeService } from './registry/registry-freeze.service';
+
+// The host ports (issue #696): the access port (`definePlatformHost`), the
+// DI-time ports (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`) and
+// `PlatformHostModule`, which binds them. Every packaged slice reuses them.
+export * from './host/index';

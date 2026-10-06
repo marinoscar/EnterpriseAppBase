@@ -572,6 +572,30 @@ imports.
   app-owned overlay instead (`infra/otel/app-collector.yaml`, see
   [the telemetry runbook §2.4](runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)).
 
+**Changing a package while the Docker dev stack runs.** The apps consume the
+packages' built `dist/` (each `exports` map points there), and
+`dev.compose.yml` mounts only `apps/*/src` into the containers. The API and
+web images build `@marinoscar/platform-api` and `@marinoscar/platform-web` in
+their `deps` stage (#694, #696), so after editing anything under
+`packages/platform-*/` rebuild the images that consume it:
+
+```bash
+cd infra/compose
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml build api web
+docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml up -d api web
+```
+
+Outside Docker, `npm run dev:packages` rebuilds `dist/` on save and the app
+dev servers pick it up. No compose file changes for this.
+
+**Host ports.** A packaged slice reaches app-owned capabilities only through
+the host ports (#696): on the API, `definePlatformHost` (access decorators),
+`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE` and `PLATFORM_PRISMA`, bound once in
+`apps/api/src/platform/`; on the web, `PlatformHostProvider`, bound once in
+`apps/web/src/platform/platformHost.tsx`. See the core READMEs of
+[platform-api](../packages/platform-api/src/core/README.md#host-ports) and
+[platform-web](../packages/platform-web/src/core/README.md).
+
 ---
 
 ## Single-instance dependencies

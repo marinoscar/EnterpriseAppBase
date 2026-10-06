@@ -1032,6 +1032,8 @@ The gap assessment of kvox and MemoriaHub is **done**: see [Measured drift](#mea
 
 The **Doctor framework** (`apps/api/src/doctor`, 9 files, no drift, no tables; see [doctor spec](doctor.md)): publish it, consume it in every app, wire Renovate and the Docker build. It proves the delivery pipeline in days, before any hard design work.
 
+Extracted by #696 into `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor/{headless,ui}`. Being the first slice to leave the app, it also defined the **host ports** every later slice reuses unchanged: on the API, a decorator-time access port (`definePlatformHost`: the app's own auth decorators, applied to a controller the slice creates inside its `forRoot()`) and DI-time tokens (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`, bound once by `PlatformHostModule.forRoot()`); on the web, `PlatformHostProvider` (the app's transport and viewer) and the `PlatformSettingsPage` descriptor the app turns into a registry card and a route. They live in each package's `core` slice; the app binds them in `apps/api/src/platform/` and `apps/web/src/platform/`. See the [platform-api core README](../../packages/platform-api/src/core/README.md#host-ports) and the [platform-web core README](../../packages/platform-web/src/core/README.md).
+
 ### Wave 2: core contracts
 
 Principal and scope (org-aware), registries, scoped access. Code only, no tables.

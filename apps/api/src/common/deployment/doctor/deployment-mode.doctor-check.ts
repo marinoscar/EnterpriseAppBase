@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/doctor-check.interface';
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
 import { DEPLOYMENT_MODE_ENV_VAR, capabilitiesFor, type DeploymentMode } from '../deployment-mode';
 import { DeploymentModeService } from '../deployment-mode.service';
