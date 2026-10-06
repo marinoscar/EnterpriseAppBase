@@ -18,6 +18,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 
+import { DeploymentModeService } from '../common/deployment/deployment-mode.service';
 import { DatabaseHealthIndicator } from '../health/indicators/database.indicator';
 import { resolveApiVersion } from '../openapi/version';
 import { readDeployInfo, resolveDeployInfoPath } from './deploy-info';
@@ -37,7 +38,12 @@ const DATABASE_INDICATOR_KEY = 'database';
 export class AboutService {
   private readonly logger = new Logger(AboutService.name);
 
-  constructor(private readonly database: DatabaseHealthIndicator) {}
+  constructor(
+    private readonly database: DatabaseHealthIndicator,
+    // #685. Memory only: the mode was parsed when the container built, so
+    // reading it cannot fail and cannot cost the "always answers 200" rule.
+    private readonly deployment: DeploymentModeService,
+  ) {}
 
   /**
    * Builds the whole report.
@@ -56,7 +62,7 @@ export class AboutService {
     const document = deployInfo.document;
 
     return {
-      api: { version: resolveApiVersion() },
+      api: { version: resolveApiVersion(), deploymentMode: this.deployment.mode },
 
       deployInfoStatus: deployInfo.status,
       deployInfoPath: deployInfo.path,

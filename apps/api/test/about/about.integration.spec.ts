@@ -176,6 +176,8 @@ describe('About API (Integration)', () => {
       expect(response.body.data.databaseError).toBe("Can't reach database server");
       // The rest of the report survives the database being gone.
       expect(response.body.data.api.version).toEqual(expect.any(String));
+      // #685: from memory, so it survives too. Unset in tests → self-hosted.
+      expect(response.body.data.api.deploymentMode).toBe('self-hosted');
     });
 
     it('200 with everything degraded at once', async () => {
