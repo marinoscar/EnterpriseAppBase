@@ -212,6 +212,22 @@ export const systemNotificationsSchema = z.object({
 
 export type SystemNotificationsValue = z.infer<typeof systemNotificationsSchema>;
 
+/**
+ * `notifications`, PATCH counterpart.
+ *
+ * `disabledEvents` REPLACES wholesale rather than merging, which is both RFC
+ * 7396's rule for arrays and the only sane one here: a merge has no way to
+ * express "re-enable this event", so a patch that could only ever add would
+ * make the admin page's uncheck a no-op.
+ */
+export const systemNotificationsPatchSchema = z.object({
+  browserEnabled: z.boolean().optional(),
+  disabledEvents: z
+    .array(notificationEventKeySchema)
+    .max(MAX_DISABLED_NOTIFICATION_EVENTS)
+    .optional(),
+});
+
 // =============================================================================
 // Operations namespaces (epic #254, issue #256)
 // =============================================================================
@@ -1400,19 +1416,7 @@ export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
 
 // Partial schema for PATCH operations (zod v4: deepPartial removed, use manual deep partial)
 export const systemSettingsPatchSchema = z.object({
-  // `disabledEvents` REPLACES wholesale rather than merging, which is both RFC
-  // 7396's rule for arrays and the only sane one here: a merge has no way to
-  // express "re-enable this event", so a patch that could only ever add would
-  // make the admin page's uncheck a no-op.
-  notifications: z
-    .object({
-      browserEnabled: z.boolean().optional(),
-      disabledEvents: z
-        .array(notificationEventKeySchema)
-        .max(MAX_DISABLED_NOTIFICATION_EVENTS)
-        .optional(),
-    })
-    .optional(),
+  notifications: systemNotificationsPatchSchema.optional(),
   // Operations namespaces (#256, epic #254). Optional at the namespace level
   // like every other branch of a PATCH, and optional field by field inside —
   // `{ "databaseBackup": { "enabled": true } }` must be a legal body, or the
