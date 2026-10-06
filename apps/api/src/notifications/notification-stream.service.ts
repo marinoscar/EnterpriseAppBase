@@ -1,5 +1,16 @@
-import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 import { Observable, type Subscriber } from 'rxjs';
+
+import { exceedsEventBusPayloadLimit } from '../common/event-bus/event-bus-core';
+import { EVENT_BUS, type EventBus, type EventBusMeta } from '../common/event-bus/event-bus.interface';
+import { PrismaService } from '../prisma/prisma.service';
 
 // =============================================================================
 // NotificationStreamService — the live half of the browser channel (#127, #109)
@@ -36,28 +47,49 @@ import { Observable, type Subscriber } from 'rxjs';
 // there is no user-supplied value anywhere on the path that selects a stream.
 //
 // -----------------------------------------------------------------------------
-// PER-PROCESS. IT DOES NOT FAN OUT ACROSS REPLICAS. READ THIS BEFORE SCALING.
+// ACROSS REPLICAS: THROUGH THE EVENT BUS, AT MOST ONCE (PP-1.11, #682)
 // -----------------------------------------------------------------------------
 //
-// This Map lives in one Node process's heap. With more than one API replica
-// behind the proxy, a user whose tab is connected to pod A receives NOTHING
-// for an event published on pod B — their connection simply never sees it.
-// There is no error and no retry; the event is not lost, it is just not live
-// for that tab.
+// The registry itself is still one Map in one Node heap: a connection lives
+// on the replica whose socket it is, and nothing else can write to it. What
+// changed is that `publish` no longer stops at this process. It delivers to
+// this replica's connections directly (`deliverLocal`, the original body) and
+// then hands the same event to the event bus on `notifications.stream`. Every
+// OTHER replica's instance of this class receives it from the bus and runs
+// the same `deliverLocal` against its own Map. What that means per adapter
+// (`EVENT_BUS_ADAPTER`, see common/event-bus/):
 //
-// THAT IS SURVIVABLE ONLY BECAUSE THE TABLE, NOT THE STREAM, IS THE SOURCE OF
-// TRUTH. `notifications` rows are written by the channel BEFORE this is
-// called, in the shared database every replica reads, so the bell and the
-// unread count are correct on every pod. The tab misses the live nudge and
-// picks the notification up on its next fetch. Losing liveness is a
-// degradation; losing the notification would be a defect, and the ordering
+//   - `in-process` (the default when unset): exactly the old behaviour. The
+//     bus reaches this process only, and this class ignores its own local
+//     echo, so with ONE replica every connection is reached. With two or more,
+//     a tab on pod B still sees nothing for an event published on pod A.
+//   - `postgres`: LISTEN/NOTIFY. A tab connected to any replica receives the
+//     event, normally within milliseconds.
+//
+// ISOLATION IS UNCHANGED, AND STILL STRUCTURAL. A bus message names ONE user
+// and is delivered with `deliverLocal(thatUser, …)` into that user's bucket
+// and no other; there is still no method that reaches more than one user. The
+// user id on the message is the one `publish` was called with — the `user_id`
+// of the row just written — and a message received from the bus is validated
+// and dropped if malformed, never "best-effort" delivered.
+//
+// OVERSIZE EVENTS TRAVEL BY REFERENCE. A rendered body is unbounded in bytes
+// (multi-byte text, JSON escaping), and a bus envelope is capped at
+// `EVENT_BUS_MAX_PAYLOAD_BYTES`. When the full event would not fit, the bus
+// carries `{ userId, ref: { notificationId, toast, pushed } }` and the
+// receiving replica reads the row back with BOTH `id` AND `userId` in the
+// `where` — so a forged or mistaken reference can never surface another
+// user's notification. A row that is gone is dropped silently.
+//
+// STILL NOT A DELIVERY GUARANTEE. The bus is at most once with no replay: a
+// replica whose listener is reconnecting misses what was sent meanwhile. That
+// stays survivable for the reason it always was — THE TABLE, NOT THE STREAM,
+// IS THE SOURCE OF TRUTH. The `notifications` row is written by the channel
+// BEFORE this is called, in the shared database every replica reads, so the
+// bell and the unread count are correct everywhere; a tab that missed the
+// live nudge picks the notification up on its next fetch. Losing liveness is
+// a degradation; losing the notification would be a defect, and the ordering
 // (row first, publish second) is what keeps it the former.
-//
-// Making it fan out means a shared bus — Postgres LISTEN/NOTIFY, or Redis
-// pub/sub — and that is deliberately NOT in #127: this baseline runs a single
-// API container, and the failure mode above is a missing toast rather than a
-// missing notification. When a second replica is deployed, `publish` is the
-// single seam to reimplement; nothing above it moves.
 //
 // -----------------------------------------------------------------------------
 // RECONNECTION: `EventSource` RETRIES, BUT NOTHING IS REPLAYED
@@ -73,7 +105,8 @@ import { Observable, type Subscriber } from 'rxjs';
 // `GET /api/notifications` — and is therefore correct after any gap of any
 // length, including one caused by the multi-replica case above. Building
 // replay would add a durable per-connection cursor to make the stream do what
-// one indexed query already does correctly.
+// one indexed query already does correctly. The same refetch covers a live
+// event a replica missed while its bus listener was reconnecting.
 // =============================================================================
 
 /**
@@ -200,9 +233,97 @@ export interface SseMessage {
   comment?: string;
 }
 
+/** The event bus channel this service fans out on (PP-1.11). */
+export const NOTIFICATION_STREAM_BUS_CHANNEL = 'notifications.stream';
+
+/**
+ * What crosses the bus: the full event, or — when the full event would not fit
+ * in a bus envelope — a reference the receiver resolves against the table.
+ * Either way, exactly ONE user.
+ */
+export type NotificationStreamBusMessage =
+  | { userId: string; event: NotificationStreamEvent }
+  | { userId: string; ref: { notificationId: string; toast: boolean; pushed: boolean } };
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value !== '';
+}
+
+function isStreamEvent(value: unknown): value is NotificationStreamEvent {
+  if (typeof value !== 'object' || value === null) return false;
+  const e = value as Record<string, unknown>;
+  return (
+    isNonEmptyString(e.id) &&
+    typeof e.eventKey === 'string' &&
+    typeof e.title === 'string' &&
+    typeof e.body === 'string' &&
+    (e.link === null || typeof e.link === 'string') &&
+    typeof e.createdAt === 'string' &&
+    typeof e.toast === 'boolean' &&
+    typeof e.pushed === 'boolean'
+  );
+}
+
+/**
+ * Validates a message received from the bus, or returns `null`.
+ *
+ * The bus is a shared database channel, so a message is DATA to check, not an
+ * instruction to follow: anything not exactly one of the two shapes above is
+ * dropped rather than partially delivered.
+ */
+export function parseNotificationStreamBusMessage(raw: unknown): NotificationStreamBusMessage | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const message = raw as Record<string, unknown>;
+  if (!isNonEmptyString(message.userId)) return null;
+
+  if ('event' in message) {
+    return isStreamEvent(message.event) ? { userId: message.userId, event: message.event } : null;
+  }
+
+  const ref = message.ref as Record<string, unknown> | undefined;
+  if (
+    typeof ref === 'object' &&
+    ref !== null &&
+    isNonEmptyString(ref.notificationId) &&
+    typeof ref.toast === 'boolean' &&
+    typeof ref.pushed === 'boolean'
+  ) {
+    return {
+      userId: message.userId,
+      ref: { notificationId: ref.notificationId, toast: ref.toast, pushed: ref.pushed },
+    };
+  }
+
+  return null;
+}
+
 @Injectable()
-export class NotificationStreamService implements OnModuleDestroy {
+export class NotificationStreamService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NotificationStreamService.name);
+
+  /** Unsubscribes from the bus on shutdown; null when there is no bus. */
+  private unsubscribeBus: (() => void) | null = null;
+
+  /**
+   * BOTH OPTIONAL, so `new NotificationStreamService()` remains a complete,
+   * single-process instance (the unit suite builds it that way). In the
+   * application the `@Global()` `EventBusModule` and `PrismaModule` always
+   * provide them. Prisma is read ONLY to resolve an oversize event's reference.
+   */
+  constructor(
+    @Optional() @Inject(EVENT_BUS) private readonly bus?: EventBus,
+    @Optional() private readonly prisma?: PrismaService,
+  ) {}
+
+  /** Starts receiving other replicas' events. Registers a handler; no I/O. */
+  onModuleInit(): void {
+    if (!this.bus || this.unsubscribeBus) return;
+
+    this.unsubscribeBus = this.bus.subscribe<unknown>(
+      NOTIFICATION_STREAM_BUS_CHANNEL,
+      (message, meta) => this.onBusMessage(message, meta),
+    );
+  }
 
   /**
    * user id -> that user's open connections.
@@ -301,7 +422,9 @@ export class NotificationStreamService implements OnModuleDestroy {
   }
 
   /**
-   * Deliver a notification to every connection this user currently has open.
+   * Deliver a notification to every connection this user currently has open
+   * — on this replica directly, and on every other replica through the event
+   * bus (`notifications.stream`; see the header for what each adapter reaches).
    *
    * NEVER THROWS, and that is a hard requirement rather than a courtesy: the
    * only caller is `BrowserNotificationChannel.deliver`, which is on the
@@ -316,10 +439,104 @@ export class NotificationStreamService implements OnModuleDestroy {
    * connections; see its own comment for why anything else would mark real
    * deliveries as failures.
    *
-   * @returns how many connections it was written to. For logging and tests
-   *          only — no caller makes a delivery decision from it.
+   * @returns how many connections ON THIS REPLICA it was written to. For
+   *          logging and tests only — no caller makes a delivery decision from
+   *          it, and other replicas' deliveries are not (cannot be) counted.
    */
   publish(userId: string, event: NotificationStreamEvent): number {
+    const delivered = this.deliverLocal(userId, event);
+
+    // Then every other replica, fire and forget. `EventBus.publish` never
+    // rejects, so neither does this; the `void` is the whole error handling.
+    if (this.bus) {
+      void this.bus.publish(NOTIFICATION_STREAM_BUS_CHANNEL, this.busMessageFor(userId, event));
+    }
+
+    return delivered;
+  }
+
+  /**
+   * The full event when it fits in a bus envelope, a reference when it does
+   * not. See "OVERSIZE EVENTS TRAVEL BY REFERENCE" in the header.
+   */
+  private busMessageFor(userId: string, event: NotificationStreamEvent): NotificationStreamBusMessage {
+    const full: NotificationStreamBusMessage = { userId, event };
+    if (!exceedsEventBusPayloadLimit(NOTIFICATION_STREAM_BUS_CHANNEL, full)) return full;
+
+    return { userId, ref: { notificationId: event.id, toast: event.toast, pushed: event.pushed } };
+  }
+
+  /**
+   * Another replica's event. Our own (`meta.local`) was already delivered by
+   * `publish`, so it is ignored — delivering it again would double every frame.
+   */
+  private async onBusMessage(raw: unknown, meta: EventBusMeta): Promise<void> {
+    if (meta.local) return;
+
+    const message = parseNotificationStreamBusMessage(raw);
+    if (!message) {
+      this.logger.warn(`Dropping a malformed "${NOTIFICATION_STREAM_BUS_CHANNEL}" message from the event bus.`);
+      return;
+    }
+
+    if ('event' in message) {
+      this.deliverLocal(message.userId, message.event);
+      return;
+    }
+
+    // Nobody on this replica is listening for this user: skip the read.
+    if (this.connectionCount(message.userId) === 0) return;
+
+    const event = await this.resolveReference(message.userId, message.ref);
+    if (event) this.deliverLocal(message.userId, event);
+  }
+
+  /**
+   * Reads a referenced notification back, scoped to its user.
+   *
+   * ⚠ `id` AND `userId` ARE BOTH IN THE `where`. The id alone would let a
+   * reference naming user A and notification-of-user-B push B's row into A's
+   * tabs. With both, the worst a bad reference can do is find nothing.
+   */
+  private async resolveReference(
+    userId: string,
+    ref: { notificationId: string; toast: boolean; pushed: boolean },
+  ): Promise<NotificationStreamEvent | null> {
+    if (!this.prisma) return null;
+
+    try {
+      const row = await this.prisma.notification.findFirst({
+        where: { id: ref.notificationId, userId },
+        select: { id: true, eventKey: true, title: true, body: true, link: true, createdAt: true },
+      });
+
+      if (!row) return null;
+
+      return {
+        id: row.id,
+        eventKey: row.eventKey,
+        title: row.title,
+        body: row.body,
+        link: row.link,
+        createdAt: row.createdAt.toISOString(),
+        toast: ref.toast,
+        pushed: ref.pushed,
+      };
+    } catch (err) {
+      this.logger.debug(
+        `Could not resolve a streamed notification reference: ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Writes one event into ONE user's bucket on THIS replica. The original body
+   * of `publish`, and still the only code that touches a connection.
+   */
+  private deliverLocal(userId: string, event: NotificationStreamEvent): number {
     const bucket = this.subscribers.get(userId);
     if (!bucket || bucket.size === 0) return 0;
 
@@ -366,6 +583,9 @@ export class NotificationStreamService implements OnModuleDestroy {
    * paths), so intervals and Map entries are released here too.
    */
   async onModuleDestroy(): Promise<void> {
+    this.unsubscribeBus?.();
+    this.unsubscribeBus = null;
+
     if (this.subscribers.size === 0) return;
 
     this.logger.log(

@@ -1,9 +1,15 @@
+import { Logger } from '@nestjs/common';
+
+import type { EventBus, EventBusHandler, EventBusMeta } from '../common/event-bus/event-bus.interface';
+import type { PrismaService } from '../prisma/prisma.service';
 import {
   HEARTBEAT_INTERVAL_MS,
   NOTIFICATION_SSE_EVENT,
+  NOTIFICATION_STREAM_BUS_CHANNEL,
   NotificationStreamEvent,
   NotificationStreamService,
   SseMessage,
+  parseNotificationStreamBusMessage,
 } from './notification-stream.service';
 
 // =============================================================================
@@ -323,5 +329,224 @@ describe('NotificationStreamService', () => {
 
       expect(completions.sort()).toEqual(['a1', 'a2', 'b1']);
     });
+  });
+});
+
+// =============================================================================
+// Fan-out through the event bus (PP-1.11, issue #682)
+// =============================================================================
+//
+// A stub bus that records publishes and hands the test the subscribed handler,
+// so "a message arrived from another replica" is a direct call with
+// `local: false`. The two-instance proof over a shared network bus is in
+// test/notifications/notification-stream-fanout.integration.spec.ts.
+// =============================================================================
+
+describe('NotificationStreamService — event bus fan-out', () => {
+  const REMOTE: EventBusMeta = { origin: 'other-replica', local: false };
+  const LOCAL: EventBusMeta = { origin: 'this-replica', local: true };
+
+  let publish: jest.Mock;
+  let handler: EventBusHandler<unknown> | undefined;
+  let unsubscribe: jest.Mock;
+  let findFirst: jest.Mock;
+  let service: NotificationStreamService;
+
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+    publish = jest.fn().mockResolvedValue(undefined);
+    unsubscribe = jest.fn();
+    handler = undefined;
+    const bus = {
+      adapter: 'postgres',
+      origin: 'this-replica',
+      publish,
+      subscribe: jest.fn((channel: string, h: EventBusHandler<unknown>) => {
+        expect(channel).toBe(NOTIFICATION_STREAM_BUS_CHANNEL);
+        handler = h;
+        return unsubscribe;
+      }),
+      health: jest.fn(),
+    } as unknown as EventBus;
+    findFirst = jest.fn();
+    service = new NotificationStreamService(bus, {
+      notification: { findFirst },
+    } as unknown as PrismaService);
+    service.onModuleInit();
+  });
+
+  afterEach(async () => {
+    await service.onModuleDestroy();
+    jest.restoreAllMocks();
+  });
+
+  function frames(userId: string): SseMessage[] {
+    const messages: SseMessage[] = [];
+    service.subscribe(userId).subscribe((msg) => messages.push(msg));
+    return messages;
+  }
+
+  const notificationFrames = (messages: SseMessage[]) =>
+    messages.filter((m) => m.type === NOTIFICATION_SSE_EVENT);
+
+  it('still delivers locally and synchronously, and returns the local count', () => {
+    const a = frames('user-a');
+
+    expect(service.publish('user-a', makeEvent())).toBe(1);
+    expect(notificationFrames(a)).toEqual([{ type: NOTIFICATION_SSE_EVENT, data: makeEvent() }]);
+  });
+
+  it('publishes the full event, for exactly that user, on notifications.stream', () => {
+    service.publish('user-a', makeEvent());
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith(NOTIFICATION_STREAM_BUS_CHANNEL, {
+      userId: 'user-a',
+      event: makeEvent(),
+    });
+  });
+
+  it('publishes even when nobody is connected on this replica (another may have the tab)', () => {
+    expect(service.publish('user-a', makeEvent())).toBe(0);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('delivers a remote message into that user’s bucket only', async () => {
+    const a = frames('user-a');
+    const b = frames('user-b');
+
+    await handler!({ userId: 'user-a', event: makeEvent({ id: 'remote-1' }) }, REMOTE);
+
+    expect(notificationFrames(a)).toEqual([
+      { type: NOTIFICATION_SSE_EVENT, data: makeEvent({ id: 'remote-1' }) },
+    ]);
+    expect(notificationFrames(b)).toEqual([]);
+    // Receiving never re-publishes (no ping-pong between replicas).
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('ignores its own local echo — publish already delivered it', async () => {
+    const a = frames('user-a');
+
+    await handler!({ userId: 'user-a', event: makeEvent() }, LOCAL);
+
+    expect(notificationFrames(a)).toEqual([]);
+  });
+
+  it('drops a malformed remote message', async () => {
+    const a = frames('user-a');
+
+    await handler!({ userId: 'user-a', event: { id: 'x' } }, REMOTE);
+    await handler!({ event: makeEvent() }, REMOTE);
+    await handler!('nonsense', REMOTE);
+
+    expect(notificationFrames(a)).toEqual([]);
+  });
+
+  describe('oversize events', () => {
+    // 2,000 four-byte characters: within the channel's 2,000-character body
+    // cap, but 8,000 UTF-8 bytes — over the bus envelope limit.
+    const hugeBody = '\u{1F600}'.repeat(2_000);
+
+    it('publishes a reference instead of the event, and still delivers locally in full', () => {
+      const a = frames('user-a');
+      const event = makeEvent({ id: 'big-1', body: hugeBody, toast: false, pushed: true });
+
+      expect(service.publish('user-a', event)).toBe(1);
+
+      expect(notificationFrames(a)).toEqual([{ type: NOTIFICATION_SSE_EVENT, data: event }]);
+      expect(publish).toHaveBeenCalledWith(NOTIFICATION_STREAM_BUS_CHANNEL, {
+        userId: 'user-a',
+        ref: { notificationId: 'big-1', toast: false, pushed: true },
+      });
+    });
+
+    it('resolves a remote reference filtered on BOTH id and user id, and rebuilds the event', async () => {
+      const a = frames('user-a');
+      findFirst.mockResolvedValue({
+        id: 'big-1',
+        eventKey: 'security.role_changed',
+        title: 'Your roles changed',
+        body: hugeBody,
+        link: '/settings',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+
+      await handler!({ userId: 'user-a', ref: { notificationId: 'big-1', toast: false, pushed: true } }, REMOTE);
+
+      expect(findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'big-1', userId: 'user-a' } }),
+      );
+      expect(notificationFrames(a)).toEqual([
+        {
+          type: NOTIFICATION_SSE_EVENT,
+          data: makeEvent({ id: 'big-1', body: hugeBody, toast: false, pushed: true }),
+        },
+      ]);
+    });
+
+    it('drops a reference whose row is not that user’s (or is gone) silently', async () => {
+      const a = frames('user-a');
+      findFirst.mockResolvedValue(null);
+
+      await handler!({ userId: 'user-a', ref: { notificationId: 'someone-elses', toast: true, pushed: false } }, REMOTE);
+
+      expect(notificationFrames(a)).toEqual([]);
+    });
+
+    it('drops a reference when the read fails', async () => {
+      const a = frames('user-a');
+      findFirst.mockRejectedValue(new Error('invalid input syntax for type uuid'));
+
+      await expect(
+        handler!({ userId: 'user-a', ref: { notificationId: 'not-a-uuid', toast: true, pushed: false } }, REMOTE),
+      ).resolves.toBeUndefined();
+      expect(notificationFrames(a)).toEqual([]);
+    });
+
+    it('skips the read when nobody on this replica is connected for that user', async () => {
+      await handler!({ userId: 'user-a', ref: { notificationId: 'big-1', toast: true, pushed: false } }, REMOTE);
+
+      expect(findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  it('unsubscribes from the bus on shutdown', async () => {
+    await service.onModuleDestroy();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a bus, behaves exactly as the single-process service', () => {
+    const plain = new NotificationStreamService();
+    plain.onModuleInit();
+    const messages: SseMessage[] = [];
+    plain.subscribe('user-a').subscribe((m) => messages.push(m));
+
+    expect(plain.publish('user-a', makeEvent())).toBe(1);
+    void plain.onModuleDestroy();
+  });
+});
+
+describe('parseNotificationStreamBusMessage', () => {
+  it('accepts the two shapes and nothing else', () => {
+    expect(parseNotificationStreamBusMessage({ userId: 'u', event: makeEvent() })).toEqual({
+      userId: 'u',
+      event: makeEvent(),
+    });
+    expect(
+      parseNotificationStreamBusMessage({ userId: 'u', ref: { notificationId: 'n', toast: true, pushed: false } }),
+    ).toEqual({ userId: 'u', ref: { notificationId: 'n', toast: true, pushed: false } });
+
+    for (const bad of [
+      null,
+      { userId: '', event: makeEvent() },
+      { userId: 'u' },
+      { userId: 'u', event: { ...makeEvent(), toast: 'yes' } },
+      { userId: 'u', ref: { notificationId: 'n' } },
+      { userId: 7, event: makeEvent() },
+    ]) {
+      expect(parseNotificationStreamBusMessage(bad)).toBeNull();
+    }
   });
 });
