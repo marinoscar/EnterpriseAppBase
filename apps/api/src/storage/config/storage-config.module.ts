@@ -9,6 +9,7 @@ import { StorageConfigController } from './storage-config.controller';
 import { StorageConnectionTestService } from './storage-connection-test.service';
 import { StorageBucketDoctorCheck } from './doctor/storage-bucket.doctor-check';
 import { StorageConfigDoctorCheck } from './doctor/storage-config.doctor-check';
+import { StorageEgressContributor } from './doctor/egress/storage.egress.contributor';
 
 // =============================================================================
 // StorageConfigModule (issue #375, epic #372)
@@ -80,6 +81,8 @@ import { StorageConfigDoctorCheck } from './doctor/storage-config.doctor-check';
     // Doctor checks (#634): read-only, never the connection test above.
     StorageConfigDoctorCheck,
     StorageBucketDoctorCheck,
+    // Egress inventory (#773): the object store's host (server and browser).
+    StorageEgressContributor,
   ],
 })
 export class StorageConfigModule {}
