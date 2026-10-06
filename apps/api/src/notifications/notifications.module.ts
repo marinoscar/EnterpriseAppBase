@@ -26,6 +26,7 @@ import {
 import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
 import { NotificationDeliveriesPurgeHandler } from './retention/notification-deliveries-purge.handler';
 import { NotificationInboxPurgeHandler } from './retention/notification-inbox-purge.handler';
+import { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
 
 // =============================================================================
 // NotificationsModule (issues #121/#124/#125, epic #109)
@@ -59,6 +60,17 @@ import { NotificationInboxPurgeHandler } from './retention/notification-inbox-pu
 // would then have no answer readable in a file, and a channel added by an
 // import side effect is a channel that appears in production without appearing
 // in a diff. This list is short, it is reviewed, and it is the point.
+//
+// APP CHANNELS SELF-REGISTER (#678), STILL EXPLICITLY. The factory below
+// remains the reviewed list of PLATFORM transports. An app's own transport
+// (EvoPath's `android_app`) must not be an edit to this file, so
+// `NotificationChannelSenderRegistry` is provided and EXPORTED here: the app
+// declares the channel id in `app-registrations/notifications.ts`, provides its
+// sender in its own module, injects the registry and calls
+// `this.registry.register(this)` from `onModuleInit` (the doctor-check
+// pattern). That is an explicit call in the app's own diff, never discovery;
+// the argument above still holds. A second sender for an existing channel
+// fails at bootstrap. See notifications/registry/README.md, "Adding a channel".
 //
 // #125 SHIPPED NO BROWSER STUB, and #127 is the payoff: registering
 // `BrowserNotificationChannel` below is the entire wiring change. Nothing in
@@ -200,6 +212,9 @@ import { NotificationInboxPurgeHandler } from './retention/notification-inbox-pu
     // delivery log, enqueued nightly by `RetentionPurgeTask`. Not exported.
     NotificationInboxPurgeHandler,
     NotificationDeliveriesPurgeHandler,
+    // #678: every channel's sender, platform (from the factory below) and app
+    // (self-registered). Exported so an app's module can register into it.
+    NotificationChannelSenderRegistry,
     {
       provide: NOTIFICATION_CHANNEL_SENDERS,
       useFactory: (
@@ -223,6 +238,11 @@ import { NotificationInboxPurgeHandler } from './retention/notification-inbox-pu
   // if there is no way around it. `PushConfigService` is different in kind —
   // it is the admin configuration surface itself, not a delivery internal — so
   // it is exported like `NotificationsService`.
-  exports: [NotificationsService, PushConfigService],
+  //
+  // `NotificationChannelSenderRegistry` (#678) is exported for one purpose: an
+  // app's own sender registers itself into it. It never hands out a platform
+  // sender (its `get` answers only for app-registered channels), so exporting
+  // it opens no way around the dispatcher's gate.
+  exports: [NotificationsService, PushConfigService, NotificationChannelSenderRegistry],
 })
 export class NotificationsModule {}
