@@ -30,6 +30,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import boundaries from 'eslint-plugin-boundaries';
+import tsdoc from 'eslint-plugin-tsdoc';
 import tseslint from 'typescript-eslint';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -185,6 +186,31 @@ export function slicePolicies(graph) {
   return policies;
 }
 
+/**
+ * eslint-plugin-tsdoc, pinned to the repository's tsdoc.json. Without a
+ * type-aware program the plugin looks for tsdoc.json in
+ * `context.parserOptions.tsconfigRootDir` (gone from ESLint 10's rule context)
+ * and then in ESLint's `cwd`, so it would miss the root tsdoc.json whenever
+ * ESLint runs from another directory (an editor, a package folder, the
+ * fixture workspaces of the lint tests). The wrapper hands the rule a context
+ * whose `parserOptions.tsconfigRootDir` is this file's directory; everything
+ * else is the real context (its prototype).
+ */
+const tsdocAtRepoRoot = {
+  rules: {
+    syntax: {
+      ...tsdoc.rules.syntax,
+      create(context) {
+        // ESLint freezes the context, so derive from it instead of wrapping it.
+        const pinned = Object.create(context, {
+          parserOptions: { value: { ...context.languageOptions?.parserOptions, tsconfigRootDir: ROOT } },
+        });
+        return tsdoc.rules.syntax.create(pinned);
+      },
+    },
+  },
+};
+
 /** The whole flat config for a given slice graph. */
 export function createPlatformLintConfig({ graph = readSliceGraph(), rootPath = ROOT } = {}) {
   return [
@@ -231,6 +257,15 @@ export function createPlatformLintConfig({ graph = readSliceGraph(), rootPath = 
         'platform/no-relative-escape': 'error',
         'boundaries/dependencies': ['error', { default: 'allow', policies: slicePolicies(graph) }],
       },
+    },
+    // TSDoc syntax (issue #693; docs/PACKAGES.md). Every doc comment in a
+    // platform package must parse as TSDoc under the repository's tsdoc.json,
+    // which declares the two platform tags `@stability` and `@extensionPoint`
+    // on top of TypeDoc's.
+    {
+      files: PLATFORM_SOURCE_FILES,
+      plugins: { tsdoc: tsdocAtRepoRoot },
+      rules: { 'tsdoc/syntax': 'error' },
     },
   ];
 }
