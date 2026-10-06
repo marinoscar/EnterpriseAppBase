@@ -4,8 +4,9 @@
  * Server requests per bucket as bars stacked by status class (2xx, 3xx, 4xx,
  * 5xx), with p95 latency as a line on a secondary (ms) axis. Composed from
  * `@mui/x-charts` parts because a bar + line pair on two y axes is not one of
- * the packaged charts. Colours come from the theme palette, so both modes
- * work; the legend names every series, so colour is never the only key.
+ * the packaged charts. Bar colours are the theme's status tokens (#686:
+ * 2xx ok, 3xx info, 4xx warn, 5xx crit), so both modes work and an app can
+ * restyle them; the legend names every series, so colour is never the only key.
  *
  * Zoom: see `ZoomBrush` — the caller chooses drag and/or tap per layout.
  */
@@ -25,6 +26,7 @@ import type { DashboardApiBucket } from '../../../services/telemetryDashboard';
 import { formatDuration } from './format';
 import { TIMELINE_AXIS_ID, timelineXAxis } from './timelineAxis';
 import { ZoomBrush } from './ZoomBrush';
+import { useTelemetryTokens } from '../../../theme/telemetryTokens';
 
 export interface TimelineChartProps {
   height: number;
@@ -41,6 +43,7 @@ export interface ApiTimelineChartProps extends TimelineChartProps {
 
 export function ApiTimelineChart({ buckets, height, spanMs, compact, zoom, onZoomBuckets }: ApiTimelineChartProps) {
   const theme = useTheme();
+  const tokens = useTelemetryTokens();
   const starts = buckets.map((bucket) => bucket.t);
   const bar = (id: 's2xx' | 's3xx' | 's4xx' | 's5xx', label: string, color: string) => ({
     type: 'bar' as const,
@@ -62,10 +65,10 @@ export function ApiTimelineChart({ buckets, height, spanMs, compact, zoom, onZoo
         height={height}
         skipAnimation
         series={[
-          bar('s2xx', '2xx', theme.palette.success.main),
-          bar('s3xx', '3xx', theme.palette.info.main),
-          bar('s4xx', '4xx', theme.palette.warning.main),
-          bar('s5xx', '5xx', theme.palette.error.main),
+          bar('s2xx', '2xx', tokens.status.ok),
+          bar('s3xx', '3xx', tokens.status.info),
+          bar('s4xx', '4xx', tokens.status.warn),
+          bar('s5xx', '5xx', tokens.status.crit),
           {
             type: 'line',
             id: 'p95',
