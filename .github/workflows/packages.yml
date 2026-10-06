@@ -138,8 +138,18 @@ jobs:
 
       - run: git fetch --no-tags origin main
 
+      # A version commit (`npm run version-packages`, issue #697: the first
+      # `next` version was prepared on a story branch) consumes changesets
+      # rather than adding one; in pre mode their ids move into
+      # .changeset/pre.json. It is recognised by a changed platform version
+      # and exempt, like the Version Packages branch above.
       - name: Changeset status since main
-        run: npx changeset status --since=origin/main
+        run: |
+          if git diff origin/main...HEAD -- packages/platform-api/package.json | grep -qE '^\+\s+"version":'; then
+            echo "Version commit: the platform version changed, so its changesets are consumed; check skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npx changeset status --since=origin/main
 
   # Consumer smoke (issue #697): pack the six packages and install the
   # tarballs into minimal consumer apps in a temp directory outside the

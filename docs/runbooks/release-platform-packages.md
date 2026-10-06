@@ -88,7 +88,7 @@ npx changeset --empty
 
 ## The Version Packages pull request
 
-Opened and kept current by the `version` job; never edit versions by hand. It runs `npm run version-packages` (`changeset version && npm install --package-lock-only`), so the lockfile is in step. In pre mode the versions read `x.y.z-next.N`: the first one, from `.changeset/initial-platform-scaffold.md`, is `0.1.0-next.0` for all six. Review the six `CHANGELOG.md` diffs, then merge it like any other pull request. `changeset-check` skips it (its branch is `changeset-release/main`).
+Opened and kept current by the `version` job; never edit versions by hand. It runs `npm run version-packages` (`changeset version && npm install --package-lock-only`), so the lockfile is in step. In pre mode the versions read `x.y.z-next.N`: the first one, from `.changeset/initial-platform-scaffold.md`, is `0.1.0-next.0` for all six. Review the six `CHANGELOG.md` diffs, then merge it like any other pull request. `changeset-check` skips it (its branch is `changeset-release/main`), and likewise skips any pull request in which the platform version changes, since a version commit consumes changesets instead of adding one (the first `next` version, `0.1.0-next.0`, was prepared that way on the issue #697 branch).
 
 ## Publish
 
