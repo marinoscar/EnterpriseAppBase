@@ -61,6 +61,13 @@ Follow it once, then come back here.
     `APP_URL` and `GOOGLE_CALLBACK_URL` at that origin (and register the
     callback with Google), or sign in through the development-only test login
     at `/testing/login`.
+- **Event bus adapter.** Outside Docker, `EVENT_BUS_ADAPTER` is usually
+  unset, so the API uses the `in-process` bus: live notifications and job
+  wake-ups reach only that one process, which is all a single dev API needs.
+  `infra/compose/.env` (from `.env.example`) sets `postgres`, which also works
+  against one replica and is what a multi-replica deployment requires. Tests
+  run in-process (`.env.test` leaves it unset); the real-Postgres adapter is
+  covered by `apps/api/test/event-bus/postgres-event-bus.db.spec.ts`.
 - **Scratch test database.** `infra/compose/test.compose.yml` starts a
   disposable PostgreSQL 16 (`db-test`) on host port 5433 for real-database
   test runs:
@@ -427,6 +434,8 @@ end-to-end and visual tests) is in [TESTING.md](TESTING.md). In short:
 | `User logged out: user@example.com` | A logout succeeded |
 | `Refresh token reuse detected for user: …` | A rotated refresh token was replayed; possible token theft |
 | `CRITICAL: Default role "viewer" not found in database` | Seeds have not run |
+| `Event bus adapter "in-process": live events reach this process only.` | `EVENT_BUS_ADAPTER` is unset or `in-process`; fine for one API replica |
+| `Event bus listener is disconnected (…); reconnecting in …ms.` | The `postgres` bus lost its `LISTEN` session and is retrying with backoff; live events from other replicas are missed until it is back |
 
 ---
 

@@ -28,7 +28,7 @@ runtime.
 |---|---|
 | `new Notification(...)` throws on Android Chrome. | Notifications go through a service worker's `registration.showNotification()`. Without a service worker, Android gets nothing. |
 | iOS/iPadOS Safari grants the Notifications API only to a web app added to the Home Screen, which needs a manifest with `display: 'standalone'`. | The app ships a web app manifest. Without it, iOS gets nothing. |
-| The SSE stream is liveness only: no replay, no `Last-Event-ID`, per-process fan-out. A closed tab receives nothing. | Web Push is the only way to reach a phone with the app closed. |
+| The SSE stream is liveness only: no replay, no `Last-Event-ID`, at-most-once fan-out across replicas through the event bus (§2.13). A closed tab receives nothing. | Web Push is the only way to reach a phone with the app closed. |
 
 ### What it is not
 
@@ -534,6 +534,42 @@ Three independent checks in the page:
   registration's list is shared by all tabs, and both the SW path and the page
   `Notification` fallback set `tag` to the notification id.
 
+### 2.13 Fan-out across replicas
+
+`NotificationStreamService` keeps its connection registry in one process's
+memory: a connection lives on the replica whose socket it is. `publish(userId,
+event)` delivers to this replica's connections for that user directly, then
+publishes `{ userId, event }` on the event bus's `notifications.stream` channel
+(`apps/api/src/common/event-bus/`, docs/ARCHITECTURE.md "Event bus"). Every
+other replica's instance receives it and delivers it into its own bucket for
+that one user. The signature, the return value (connections reached on this
+replica) and the caller in the browser channel are unchanged.
+
+| `EVENT_BUS_ADAPTER` | What a publish reaches |
+|---|---|
+| unset or `in-process` | This process only: the previous behaviour, correct for exactly one API replica. |
+| `postgres` (the `.env.example` value) | Every replica, through Postgres `LISTEN`/`NOTIFY`, normally within milliseconds. |
+
+Delivery semantics:
+
+- **At most once, no replay.** A replica whose bus listener is reconnecting
+  misses what was sent meanwhile. The `notifications` row is written before
+  the publish, and the client refetches the unread count and the list on every
+  (re)connect, so a missed live event is a missing toast, never a missing
+  notification. The row-first, publish-second order is unchanged.
+- **Isolation stays structural.** A bus message names one user and is
+  delivered into that user's bucket only; a received message is validated and
+  dropped if malformed. There is still no method that reaches more than one
+  user.
+- **Oversize events travel by reference.** A bus envelope is capped at 7,500
+  bytes (Postgres limits a `NOTIFY` payload to 8,000). A body within the
+  channel's 2,000-character cap can still exceed that in UTF-8 bytes, so when
+  the full event does not fit the bus carries `{ userId, ref: { notificationId,
+  toast, pushed } }`. The receiving replica reads the row with **both** `id` and
+  `userId` in the `where`, so a forged or mistaken reference can never surface
+  another user's notification, and drops it silently if the row is gone. The
+  publishing replica still delivers the full event to its own connections.
+
 ## 3. Configuration and permissions
 
 ### Settings
@@ -550,6 +586,9 @@ Three independent checks in the page:
 - `SECRETS_ENCRYPTION_KEY`: required to store the VAPID private key. There is
   no environment variable for the key pair itself; it is configured
   exclusively at `/admin/settings/push` (§2.7).
+- `EVENT_BUS_ADAPTER`: which event bus the live stream fans out through
+  (§2.13). Deployment topology, not a notification setting; `postgres` is
+  required once more than one API replica serves the same database.
 
 ### Permissions
 
@@ -675,6 +714,11 @@ Web (`apps/web/src/__tests__/`):
 - **Permission-addressed operational events, not role-addressed.** The
   audience follows grants automatically; a renamed or split role cannot leave
   it mailing the wrong bundle.
+- **Cross-replica fan-out through a Postgres bus, not Redis and not replay**
+  (PP-1.11). The database every replica already shares carries the live event,
+  so a second replica needs no new infrastructure. Replay was rejected for the
+  same reason as before: the client's refetch on (re)connect is already
+  correct after a gap of any length.
 - **No digest for `jobs.job_failed`.** Nothing in the template produces the
   volume, and a roll-up is a second scheduler and a way for a failure notice to
   arrive late. A fork with the volume builds it in front of
@@ -709,6 +753,7 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
 
 ## History
 
+
 - Epic #215 (issues #216–#233): brand icons, manifest, `injectManifest`
   service worker, update and install prompts (#219), nginx caching and CSP
   (#220), the capability model (#221), SW display and click handling, foreground
@@ -730,3 +775,6 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
   shipped. `resolveActiveVapidConfig()` narrowed from four cases to three; a
   deployment relying on the old env-var path must configure a key pair at
   `/admin/settings/push` after upgrading.
+- PP-1.11 (issue #682): the SSE stream fans out across replicas through the
+  event bus (`notifications.stream`), with oversize events sent by reference
+  (§2.13).

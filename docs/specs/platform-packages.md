@@ -835,7 +835,7 @@ Ranked from the code. Each is a known limit, not a defect.
 | Rank | Finding | Evidence | Fix |
 |---|---|---|---|
 | 1 | Single-host Compose topology is a single point of failure (about 5k users) | `infra/compose/` | Managed Postgres, 2 or more API replicas, separate worker processes |
-| 2 | SSE subscribers live in one process's memory; it blocks the second replica | `apps/api/src/notifications/notification-stream.service.ts`: "PER-PROCESS. IT DOES NOT FAN OUT ACROSS REPLICAS. READ THIS BEFORE SCALING." | A Postgres `LISTEN/NOTIFY` bus behind an adapter |
+| 2 | SSE subscribers live in one process's memory; it blocks the second replica | `apps/api/src/notifications/notification-stream.service.ts`: "PER-PROCESS. IT DOES NOT FAN OUT ACROSS REPLICAS. READ THIS BEFORE SCALING." | A Postgres `LISTEN/NOTIFY` bus behind an adapter. Adapter shipped (#682); enable with `EVENT_BUS_ADAPTER=postgres` (its listener needs a direct or session-mode connection, see rank 5) |
 | 3 | Per-process limiters: AI limits (in-memory plus a DB `COUNT(*)`), provider throttle (in-memory), maintenance-mode cache | Documented as approximate across replicas | A pluggable shared store: Postgres by default, a Redis or Valkey adapter later |
 | 4 | Every authenticated request loads the user with roles and permissions, plus AI-call `COUNT(*)` queries (about 50k users) | `validateJwtPayload` in `apps/api/src/auth/auth.service.ts` | A short-TTL principal cache, or permissions inside the 15-minute token |
 | 5 | Database connections multiply with replicas | Per-replica Prisma pools | PgBouncer or RDS Proxy; RLS must be transaction-local |
@@ -847,7 +847,7 @@ Ranked from the code. Each is a known limit, not a defect.
 
 - `infra/nginx/nginx.conf` set `worker_connections 1024`, which capped long-lived SSE connections (each takes two). Done in PP-1.13 (#684): `worker_connections 16384`, `worker_rlimit_nofile 65536` and `nofile` ulimits on `nginx` and `api`, and the same limits on a CLI-bootstrapped shared proxy.
 - 38 offset (`skip`) paginations against 7 cursor paginations.
-- Idle workers poll every 5 s (`DEFAULT_POLL_MS` in `apps/api/src/jobs/job.worker.ts`); a `LISTEN/NOTIFY` wake-up replaces the poll.
+- Idle workers poll every 5 s (`DEFAULT_POLL_MS` in `apps/api/src/jobs/job.worker.ts`); a `LISTEN/NOTIFY` wake-up removes the wait and the poll stays as the fallback, because NOTIFY is lost across a listener reconnect. Shipped in #682 (`jobs.enqueued` on the event bus).
 - Telemetry needs trace sampling, and GreptimeDB on its own host.
 - Big-table migrations need expand/contract and concurrent indexes.
 - **AI jobs are server-only by rule** (keys never leave the server; see CLAUDE.md, "AI Platform Rules"). AI throughput therefore scales with server worker replicas, not with worker nodes.

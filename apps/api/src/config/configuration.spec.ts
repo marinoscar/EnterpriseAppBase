@@ -95,3 +95,28 @@ describe('configuration() — storage.allowedMimeTypes / storage.maxFileSize (#5
     });
   });
 });
+
+describe('configuration() — eventBus.adapter (PP-1.11, #682)', () => {
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env.EVENT_BUS_ADAPTER;
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.EVENT_BUS_ADAPTER;
+    else process.env.EVENT_BUS_ADAPTER = saved;
+  });
+
+  it('defaults to in-process when unset', () => {
+    delete process.env.EVENT_BUS_ADAPTER;
+    expect(configuration().eventBus.adapter).toBe('in-process');
+  });
+
+  it('passes a configured value through raw (parseEventBusAdapter is the one parse)', () => {
+    process.env.EVENT_BUS_ADAPTER = 'postgres';
+    expect(configuration().eventBus.adapter).toBe('postgres');
+    process.env.EVENT_BUS_ADAPTER = 'redis';
+    expect(configuration().eventBus.adapter).toBe('redis');
+  });
+});

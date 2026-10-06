@@ -373,9 +373,11 @@ and the UI label ("delivery attempts during this broadcast") say so. For a
 `failed` broadcast the window is closed at `finishedAt`; a resume clears it and
 the window reopens. `startedAt` never moves.
 
-Live toasts reach only tabs connected to the process that dispatched a given
-recipient (the SSE stream is per-process). The durable row and `GET
-/api/notifications` are the source of truth.
+Live toasts reach tabs on every API replica when `EVENT_BUS_ADAPTER=postgres`,
+and only tabs connected to the dispatching process with `in-process`; either
+way the stream is at most once ([browser-notifications.md
+§2.13](browser-notifications.md#213-fan-out-across-replicas)). The durable row
+and `GET /api/notifications` are the source of truth.
 
 ## 3. Configuration and permissions
 

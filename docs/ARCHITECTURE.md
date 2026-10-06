@@ -196,7 +196,7 @@ Uploads come in two shapes. A simple upload (`POST /api/storage/objects`, up to 
 
 ### 5.7 Background job queue
 
-The `jobs` table is the queue. There is no Redis or message broker. Executors claim runnable rows with one atomic `FOR UPDATE SKIP LOCKED` statement, so any number of claimants (in-process worker slots, API replicas, remote nodes) can run without coordinating with each other. Attempts are charged at claim time. Each claim carries a lease and a per-claim token; the executor renews the lease while it works, and every settle write is conditional on still holding that claim. A lease reaper requeues or fails rows whose executor died.
+The `jobs` table is the queue. There is no Redis or message broker. Executors claim runnable rows with one atomic `FOR UPDATE SKIP LOCKED` statement, so any number of claimants (in-process worker slots, API replicas, remote nodes) can run without coordinating with each other. Attempts are charged at claim time. Each claim carries a lease and a per-claim token; the executor renews the lease while it works, and every settle write is conditional on still holding that claim. A lease reaper requeues or fails rows whose executor died. Idle in-process workers poll, and are also woken early by a `jobs.enqueued` message on the event bus ([§5.21](#521-event-bus)); the poll remains the guarantee.
 
 A job type is one `JobHandler` class that self-registers from `onModuleInit()`. `Job.type` is a plain string, so a new type needs no migration. Enqueueing the same type and subject twice is deduplicated while the first job is active. Failures retry with exponential backoff; provider rate limits defer the job on a separate budget. `job_stats_rollup` keeps lifetime counts and durations after the history purge removes old rows. The job inventory is in [§8](#8-background-work).
 
@@ -246,7 +246,7 @@ A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That c
 
 ### 5.11 Notifications, email and Web Push
 
-Every notification is an event declared once in `NOTIFICATION_EVENTS` with its channels and default. A caller raises it with `notify(eventKey, userId, payload)`. The dispatcher narrows the declared channels by admin policy (`system_settings.notifications`), then by the user's preferences, and delivers each channel through its sender. Every attempt is a `notification_deliveries` row. Mandatory events (such as a role change) ignore user preferences.
+Every notification is an event declared once in `NOTIFICATION_EVENTS` with its channels and default. A caller raises it with `notify(eventKey, userId, payload)`. The dispatcher narrows the declared channels by admin policy (`system_settings.notifications`), then by the user's preferences, and delivers each channel through its sender. Every attempt is a `notification_deliveries` row. Mandatory events (such as a role change) ignore user preferences. The live SSE stream fans out across API replicas through the event bus ([§5.21](#521-event-bus)).
 
 The channels are email (SMTP or SES, configured at `/admin/settings/email`), in-app (a `notifications` inbox row pushed to open tabs over an SSE stream), and Web Push (VAPID keys generated and rotated at `/admin/settings/push`). The web app ships a service worker that handles push and notification clicks.
 
@@ -322,6 +322,28 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 - **UI:** `/admin/settings/doctor` (`apps/web/src/pages/Admin/DoctorPage.tsx`)
 - **Permissions:** `system_settings:read`
 - **Read more:** [specs/doctor.md](specs/doctor.md), [runbooks/doctor.md](runbooks/doctor.md)
+
+### 5.21 Event bus
+
+A small publish/subscribe seam, the `EventBus` interface behind the `EVENT_BUS` token, that reaches every API process sharing the database, not just the publishing one. It is what lets a second API replica run without losing live behaviour. `EventBusModule` is `@Global()` and imported once in `app.module.ts`; `EVENT_BUS_ADAPTER` (deployment topology, read once at boot) picks the adapter:
+
+| Adapter | Transport | Use |
+|---|---|---|
+| `in-process` | A `Map` in this process. | Exactly one API replica; the default when the variable is unset (tests, local dev). |
+| `postgres` | `pg_notify` to publish, one `LISTEN` session to receive. | Any number of replicas; the `.env.example` value. |
+
+Delivery is local-once (on every adapter) and remote at-most-once with no replay: a process drops its own echo by origin, and a message sent while a listener reconnects is lost. Every consumer therefore keeps a durable fallback. Payloads are JSON in a 7,500-byte envelope (Postgres caps `NOTIFY` at 8,000); larger data travels as a reference. The bus never carries a secret, and `publish` is never called inside a transaction.
+
+All logical channels are multiplexed onto one physical Postgres channel, `platform_bus`, as `{ v, c, o, p }`, so subscribing never issues SQL. The listener is a dedicated `pg.Client` on the **application** database, outside the Prisma pool, because `LISTEN` is session state a pooled connection cannot hold; it is the same structural reason the restore's admin connection (`db-backup/admin-connection.util.ts`) lives outside the pool, though that one attaches to the maintenance database. It never blocks startup and reconnects with backoff. A transaction-mode pooler (PgBouncer in transaction mode, RDS Proxy) cannot carry it.
+
+| Logical channel | Publisher | Subscriber | Payload |
+|---|---|---|---|
+| `notifications.stream` | `NotificationStreamService.publish` | every replica's `NotificationStreamService` | `{ userId, event }`, or `{ userId, ref }` when oversize |
+| `jobs.enqueued` | `JobsService.enqueue` (due now; never `enqueueWithin`) | every running `JobWorker` (not mode `off`) | `{ type }` |
+
+- **Code:** `apps/api/src/common/event-bus/`
+- **Doctor:** `core.event-bus` reports the adapter and the listener's state.
+- **Read more:** [specs/browser-notifications.md §2.13](specs/browser-notifications.md#213-fan-out-across-replicas), [specs/job-queue.md](specs/job-queue.md) (Worker modes, "Wake-up")
 
 ---
 
@@ -636,6 +658,7 @@ The reference for every variable is [`infra/compose/.env.example`](../infra/comp
 - **Runtime-configured features have no variables.** Object storage, AI, Web Push and SMTP are configured in the admin UI and stored in `system_settings` plus encrypted `credentials`. Never add `STORAGE_PROVIDER`, `S3_BUCKET`, `OPENAI_API_KEY` or similar.
 - **`SECRETS_ENCRYPTION_KEY`** encrypts those runtime secrets. It is required for a working deployment.
 - **Process tuning** (`JOBS_*`, `NODE_*`, `DB_BACKUP_SCHEDULE_ENABLED`) controls what this process runs, not deployment policy. Deployment policy is a system setting.
+- **`EVENT_BUS_ADAPTER`** is deployment topology: `postgres` once more than one API replica shares the database, `in-process` (or unset) for exactly one. It is the same on every replica; see [§5.21](#521-event-bus).
 - **`MAINTENANCE_MODE`** is a break-glass override; see [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md).
 
 The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run prisma:seed` inside the `api` container after the first start and after each upgrade.

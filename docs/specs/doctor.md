@@ -151,7 +151,7 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-three checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Twenty-four checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
@@ -160,6 +160,7 @@ This is the single home for the list of checks. Twenty-three checks ship. `depen
 | `db.connection` | Database connection | none | The database answers `SELECT 1`, through `DatabaseHealthIndicator`, the same definition the readiness probe and About use. | pass: connected (latency in `data`). warn: round trip over 500 ms. fail: no answer. |
 | `db.migrations` | Database migrations | `db.connection` | One `SELECT` on `_prisma_migrations`: no migration is half-applied. | pass: at least one applied, none unfinished or rolled back. fail: a migration started and never finished (names the first), a rolled-back migration never re-applied, none applied at all, or the table unreadable. |
 | `secrets.encryption-key` | Secrets encryption key | none | `SECRETS_ENCRYPTION_KEY` is present and a valid 32-byte key, via the assertion bootstrap uses. | pass: valid. fail: missing or malformed (the error describes the key's shape, never its bytes). |
+| `core.event-bus` | Event bus | none | Which event bus this process uses and whether it is connected, from `EventBus.health()`, an in-memory snapshot: no I/O, no probe message. | pass: `postgres` with its `LISTEN` session connected, or `in-process` with a recognised value (detail: single-process delivery; set `EVENT_BUS_ADAPTER=postgres` before running more than one API replica). warn: `postgres` disconnected (remedy names the transaction-mode pooler caveat and `POSTGRES_*`; last error in `error`), or an unrecognised `EVENT_BUS_ADAPTER`. Never `fail`. |
 
 #### auth
 
@@ -414,3 +415,4 @@ By hand, with the app running and signed in as an Admin:
 
 - #634 added the admin Doctor: the check contract, registry, service and `GET /api/admin/doctor`, the checks in each owning module, and the `/admin/settings/doctor` page and card.
 - #644 removed the `telemetry.stack` check, because the stack agent is not part of telemetry capture, and surfaced the agent's error on the Telemetry settings page instead.
+- PP-1.11 (#682) added `core.event-bus`.

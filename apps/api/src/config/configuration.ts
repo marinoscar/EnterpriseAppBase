@@ -355,6 +355,16 @@ export default () => {
     sesRegionFallback: process.env.SES_REGION || '',
   },
 
+  // The cross-replica event bus (PP-1.11, #682): `in-process` (the default,
+  // one replica) or `postgres` (LISTEN/NOTIFY, any number of replicas).
+  // DEPLOYMENT TOPOLOGY, deliberately an env var and not a system setting —
+  // every replica must agree before any of them boots. Passed through raw;
+  // `parseEventBusAdapter` (common/event-bus/event-bus.config.ts) is the one
+  // parse, and maps an unrecognised value to `in-process` with a warning.
+  eventBus: {
+    adapter: process.env.EVENT_BUS_ADAPTER || 'in-process',
+  },
+
   logLevel: process.env.LOG_LEVEL || 'info',
   };
 };

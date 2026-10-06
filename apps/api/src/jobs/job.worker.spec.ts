@@ -36,6 +36,9 @@ import { ProviderThrottleService } from './provider-throttle.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { NodeOffloadService } from './node-offload.service';
 import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { EventBus } from '../common/event-bus/event-bus.interface';
+import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
+import { JOBS_ENQUEUED_CHANNEL } from './job-wake';
 
 /** Every worker setting, with the shipped defaults spelled out rather than imported. */
 interface WorkerConfig {
@@ -135,7 +138,11 @@ interface Harness {
   error: jest.SpyInstance;
 }
 
-function makeWorker(config: WorkerConfig = {}, throttle?: ProviderThrottleService): Harness {
+function makeWorker(
+  config: WorkerConfig = {},
+  throttle?: ProviderThrottleService,
+  bus?: EventBus
+): Harness {
   const registry = new JobHandlerRegistry();
 
   const claim = jest.fn().mockResolvedValue([] as Job[]);
@@ -162,7 +169,9 @@ function makeWorker(config: WorkerConfig = {}, throttle?: ProviderThrottleServic
     { completeSucceeded, completeFailed } as unknown as JobTerminalService,
     throttle ?? ({ acquire } as unknown as ProviderThrottleService),
     { renew } as unknown as JobLeaseService,
-    offload
+    offload,
+    undefined,
+    bus
   );
 
   return {
@@ -1586,5 +1595,185 @@ describe('JobWorker', () => {
 
       await worker.stop();
     });
+  });
+});
+
+// =============================================================================
+// The wake-up (PP-1.11, issue #682)
+// =============================================================================
+//
+// A real `InProcessEventBus` — the same-process adapter — so the path under
+// test is the production one: `jobs.enqueued` published, the worker's handler
+// filtering on its eligible types, and `wake()` cutting the idle sleeps short.
+// The poll interval is a minute throughout, so anything that runs promptly
+// ran because it was woken.
+// =============================================================================
+
+describe('JobWorker — wake-up on jobs.enqueued', () => {
+  beforeEach(() => {
+    resetUnknownWorkerModeWarning();
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('starts an immediately-enqueued job of a type it claims within ~100 ms, not the poll', async () => {
+    const bus = new InProcessEventBus();
+    const { worker, registry, claim, completeSucceeded } = makeWorker({ 'jobs.pollMs': 60_000 }, undefined, bus);
+    registry.register(handler('test.wake', async () => undefined));
+    claim.mockResolvedValueOnce([]).mockResolvedValueOnce([claimedJob('test.wake')]).mockResolvedValue([]);
+
+    worker.start(1);
+    await waitFor(() => claim.mock.calls.length === 1);
+    await drain();
+
+    const started = Date.now();
+    await bus.publish(JOBS_ENQUEUED_CHANNEL, { type: 'test.wake' });
+    await waitFor(() => completeSucceeded.mock.calls.length === 1, 1_000);
+    const elapsed = Date.now() - started;
+
+    // ~100 ms is the target (typically a few ms); the margin absorbs a loaded
+    // CI machine running suites in parallel. The poll
+    // it replaces is 60 s here.
+    expect(elapsed).toBeLessThan(500);
+    await worker.stop();
+  });
+
+  it('is not woken for a type it does not claim', async () => {
+    const bus = new InProcessEventBus();
+    const { worker, registry, claim } = makeWorker({ 'jobs.pollMs': 60_000 }, undefined, bus);
+    registry.register(handler('test.mine', async () => undefined));
+
+    worker.start(1);
+    await waitFor(() => claim.mock.calls.length === 1);
+
+    await bus.publish(JOBS_ENQUEUED_CHANNEL, { type: 'test.someone-elses' });
+    await bus.publish(JOBS_ENQUEUED_CHANNEL, { nonsense: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(claim).toHaveBeenCalledTimes(1);
+    await worker.stop();
+  });
+
+  it('wakes every idle slot; the claim decides which one gets the job', async () => {
+    const bus = new InProcessEventBus();
+    const { worker, registry, claim } = makeWorker(
+      { 'jobs.pollMs': 60_000, 'jobs.workerConcurrency': 3 },
+      undefined,
+      bus
+    );
+    registry.register(handler('test.wake', async () => undefined));
+
+    worker.start(3);
+    await waitFor(() => claim.mock.calls.length === 3);
+    await drain();
+
+    expect((worker as unknown as { wake: () => number }).wake()).toBe(3);
+    await waitFor(() => claim.mock.calls.length === 6);
+    await worker.stop();
+  });
+
+  it('never fires a job-timeout timer: wake() resolves only idle sleeps', async () => {
+    const bus = new InProcessEventBus();
+    let release!: () => void;
+    const { worker, registry, claim, completeSucceeded, completeFailed } = makeWorker(
+      { 'jobs.pollMs': 60_000, 'jobs.workerConcurrency': 2, 'jobs.jobTimeoutMs': 60_000 },
+      undefined,
+      bus
+    );
+    registry.register(
+      handler('test.long', () => new Promise<void>((resolve) => (release = resolve)))
+    );
+    claim.mockResolvedValueOnce([claimedJob('test.long')]).mockResolvedValue([]);
+
+    worker.start(2);
+    // One slot is running the long job (timeout armed), the other is idle.
+    await waitFor(() => typeof release === 'function' && claim.mock.calls.length >= 2);
+    await drain();
+
+    const internals = worker as unknown as {
+      wake: () => number;
+      timers: Set<unknown>;
+      idleSleeps: Set<unknown>;
+    };
+    expect(internals.idleSleeps.size).toBe(1);
+    const timeoutsBefore = internals.timers.size - internals.idleSleeps.size;
+
+    expect(internals.wake()).toBe(1);
+    await drain();
+
+    // The job's timeout (and lease renewal) timers are untouched, and the job
+    // was not failed by a fired timeout.
+    expect(internals.timers.size - internals.idleSleeps.size).toBe(timeoutsBefore);
+    expect(completeFailed).not.toHaveBeenCalled();
+
+    release();
+    await waitFor(() => completeSucceeded.mock.calls.length === 1);
+    await worker.stop();
+  });
+
+  it('claims again when a wake-up lands while its claim is in flight', async () => {
+    const bus = new InProcessEventBus();
+    const { worker, registry, claim, completeSucceeded } = makeWorker({ 'jobs.pollMs': 60_000 }, undefined, bus);
+    registry.register(handler('test.wake', async () => undefined));
+
+    let finishFirstClaim!: (rows: Job[]) => void;
+    claim
+      .mockImplementationOnce(() => new Promise<Job[]>((resolve) => (finishFirstClaim = resolve)))
+      .mockResolvedValueOnce([claimedJob('test.wake')])
+      .mockResolvedValue([]);
+
+    worker.start(1);
+    await waitFor(() => typeof finishFirstClaim === 'function');
+
+    // The job is inserted (and announced) after the first SELECT ran…
+    await bus.publish(JOBS_ENQUEUED_CHANNEL, { type: 'test.wake' });
+    await drain();
+    // …which therefore finds nothing.
+    finishFirstClaim([]);
+
+    await waitFor(() => completeSucceeded.mock.calls.length === 1, 1_000);
+    await worker.stop();
+  });
+
+  it('still recovers work on the poll when no wake-up arrives', async () => {
+    const bus = new InProcessEventBus();
+    const { worker, registry, claim, completeSucceeded } = makeWorker({ 'jobs.pollMs': 10 }, undefined, bus);
+    registry.register(handler('test.polled', async () => undefined));
+    claim.mockResolvedValueOnce([]).mockResolvedValueOnce([claimedJob('test.polled')]).mockResolvedValue([]);
+
+    worker.start(1);
+    await waitFor(() => completeSucceeded.mock.calls.length === 1);
+    await worker.stop();
+  });
+
+  it('does not subscribe in mode off — neither from bootstrap nor from a direct start()', async () => {
+    const subscribe = jest.fn(() => () => undefined);
+    const bus = { subscribe } as unknown as EventBus;
+    const { worker } = makeWorker({ 'jobs.workerMode': 'off' }, undefined, bus);
+
+    worker.onApplicationBootstrap();
+    worker.start(1);
+
+    expect(subscribe).not.toHaveBeenCalled();
+    await worker.stop();
+  });
+
+  it('subscribes once while running and unsubscribes on stop', async () => {
+    const off = jest.fn();
+    const subscribe = jest.fn(() => off);
+    const bus = { subscribe } as unknown as EventBus;
+    const { worker } = makeWorker({}, undefined, bus);
+
+    worker.start(1);
+    worker.start(1);
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(subscribe).toHaveBeenCalledWith(JOBS_ENQUEUED_CHANNEL, expect.any(Function));
+
+    await worker.stop();
+    expect(off).toHaveBeenCalledTimes(1);
   });
 });

@@ -190,6 +190,15 @@ export function validatePort(value: string): string | undefined {
     : 'must be a port number between 1 and 65535';
 }
 
+/**
+ * A validator accepting exactly one of `values` (case-sensitive, as the API
+ * compares after its own normalisation; the wizard writes the canonical form).
+ */
+export function oneOf(...values: readonly string[]) {
+  return (value: string): string | undefined =>
+    values.includes(value) ? undefined : `must be one of: ${values.join(', ')}`;
+}
+
 export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // --- Application ---------------------------------------------------------
   NODE_ENV: { fixed: 'production' },
@@ -351,6 +360,13 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // same way #377 removed storage's): SES_REGION still reads as a fallback
   // default, and only SES does.
   SES_REGION: { group: 'email' },
+
+  // --- Cross-replica event bus (PP-1.11, #682) ------------------------------
+  // Deployment topology: LISTEN/NOTIFY across replicas, or this process only.
+  // The template ships `postgres`; the API itself falls back to `in-process`
+  // on anything unrecognised, so the wizard refuses a typo before it is
+  // written rather than leaving a deployment silently single-replica.
+  EVENT_BUS_ADAPTER: { validate: oneOf('postgres', 'in-process') },
 };
 
 export function metadataFor(key: string): EnvVarMetadata {

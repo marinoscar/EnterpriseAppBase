@@ -374,6 +374,25 @@ describe('env metadata', () => {
   it('rejects a JWT secret under 32 characters', () => {
     expect(metadataFor('JWT_SECRET').validate?.('short')).toContain('32');
   });
+
+  it('accepts exactly postgres or in-process for EVENT_BUS_ADAPTER', () => {
+    const validate = metadataFor('EVENT_BUS_ADAPTER').validate;
+
+    expect(validate?.('postgres')).toBeUndefined();
+    expect(validate?.('in-process')).toBeUndefined();
+    for (const bad of ['redis', 'Postgres', 'in_process', '']) {
+      expect(validate?.(bad)).toContain('postgres, in-process');
+    }
+  });
+
+  it('ships EVENT_BUS_ADAPTER=postgres, uncommented, in the template', () => {
+    const spec = parseEnvExample(readFileSync(REAL_TEMPLATE, 'utf8')).find(
+      (entry) => entry.key === 'EVENT_BUS_ADAPTER',
+    );
+
+    expect(spec?.defaultValue).toBe('postgres');
+    expect(spec?.optional).toBe(false);
+  });
 });
 
 describe('validateBase64Key32', () => {
