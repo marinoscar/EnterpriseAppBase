@@ -36,7 +36,7 @@ import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { DeploymentModule } from './common/deployment/deployment.module';
 import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
-import { DoctorModule } from './doctor/doctor.module';
+import { doctorModule } from './doctor/doctor.config';
 import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
 
@@ -75,13 +75,6 @@ import configuration from './config/configuration';
     // Application metrics (#600): the one `app` meter every feature records
     // into. Global; a no-op unless OTEL_ENABLED installed the SDK.
     AppMetricsModule,
-
-    // The platform host ports (#696): binds AUDIT_SINK, SYSTEM_SETTINGS_STORE
-    // and PLATFORM_PRISMA to the app's adapters, once, globally, so every
-    // packaged slice (`@marinoscar/platform-api/<slice>`) reaches app-owned
-    // capabilities by token. `src/platform/` is the single place the app is
-    // bound to the platform; see platform-host.module.ts.
-    platformHostModule,
 
     // Feature modules
     CommonModule,
@@ -216,10 +209,12 @@ import configuration from './config/configuration';
     AboutModule,
 
     // `GET /api/admin/doctor` (#634): read-only configuration and health
-    // checks for every capability. `@Global()` so each feature module
+    // checks for every capability. Global so each feature module
     // contributes its checks by providing them (they inject the registry and
-    // self-register) without importing this module; see `doctor.module.ts`.
-    DoctorModule,
+    // self-register) without importing this module. The module itself is the
+    // package's (`@marinoscar/platform-api/doctor`, #696); the app's binding is
+    // `doctor/doctor.config.ts`.
+    doctorModule,
 
     // The AI platform (epic #419). Since #424 this is only the
     // provider-agnostic core: contracts and an in-memory provider registry,
@@ -238,6 +233,15 @@ import configuration from './config/configuration';
     // delivery-log and AI-run purges live with their tables, in
     // `NotificationsModule` and `AiRuntimeModule`.
     RetentionModule,
+
+    // The platform host ports (#696): binds AUDIT_SINK, SYSTEM_SETTINGS_STORE
+    // and PLATFORM_PRISMA to the app's adapters, once, globally, so every
+    // packaged slice (`@marinoscar/platform-api/<slice>`) reaches app-owned
+    // capabilities by token. `src/platform/` is the single place the app is
+    // bound to the platform; see platform-host.module.ts.
+    // LAST on purpose: it imports `SettingsModule`, and listing it earlier
+    // would move that module's routes up the generated OpenAPI document.
+    platformHostModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
