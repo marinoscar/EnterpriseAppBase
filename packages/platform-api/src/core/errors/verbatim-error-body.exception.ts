@@ -75,8 +75,8 @@ const VERBATIM_ERROR_BODY = Symbol.for('EnterpriseAppBase.verbatimErrorBody');
 
 /**
  * Mark an exception so `HttpExceptionFilter` sends its payload to the client
- * exactly as given, instead of rebuilding it as `{ statusCode, code, message,
- * … }`.
+ * exactly as given, instead of rebuilding it as
+ * `{ statusCode, code, message, … }`.
  *
  * Returns the same exception instance, so the class identity is untouched:
  * `withVerbatimErrorBody(new BadRequestException(…))` is still a
@@ -87,6 +87,20 @@ const VERBATIM_ERROR_BODY = Symbol.for('EnterpriseAppBase.verbatimErrorBody');
  *
  * The payload MUST be an object; a string payload has nothing to send verbatim
  * and the filter falls back to the envelope for it.
+ *
+ * Only for a body an external standard dictates (RFC 8628's
+ * `{ error, error_description }` is the one use in the reference app); see
+ * the header of this file.
+ *
+ * @param exception - The exception to brand; returned as is.
+ * @returns The same exception instance.
+ * @stability stable
+ * @example
+ * ```ts
+ * throw withVerbatimErrorBody(
+ *   new BadRequestException({ error: 'slow_down', error_description: 'Polling too fast' }),
+ * );
+ * ```
  */
 export function withVerbatimErrorBody<T extends HttpException>(
   exception: T,
@@ -107,6 +121,15 @@ export function withVerbatimErrorBody<T extends HttpException>(
 /**
  * Whether an exception opted out of the envelope. Read only by
  * `HttpExceptionFilter`.
+ *
+ * @param exception - Anything thrown.
+ * @returns `true` only for an `HttpException` branded by
+ *   {@link withVerbatimErrorBody}.
+ * @stability stable
+ * @example
+ * ```ts
+ * hasVerbatimErrorBody(withVerbatimErrorBody(new BadRequestException({ error: 'x' }))); // true
+ * ```
  */
 export function hasVerbatimErrorBody(exception: unknown): boolean {
   return (

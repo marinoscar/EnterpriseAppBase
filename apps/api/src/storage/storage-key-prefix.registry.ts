@@ -28,7 +28,7 @@
 // `storage/purge/storage-purge.main.ts`, exactly like `storage-key-prefixes.ts`.
 // =============================================================================
 
-import { Registry, RegistryError, defineRegistry } from '../common/registry';
+import { Registry, RegistryError, defineRegistry } from '@marinoscar/platform-api/core';
 
 /** One object-storage key prefix this application writes under. */
 export interface StorageKeyPrefixDef {

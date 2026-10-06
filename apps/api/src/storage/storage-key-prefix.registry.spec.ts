@@ -1,7 +1,7 @@
 // The storage key-prefix registry (issue #679): validation, overlap, the frozen
 // view, and the app extension seam.
 
-import { RegistryError, withTemporaryEntries } from '../common/registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   STORAGE_KEY_PREFIX_PATTERN,
   isRegisteredStorageKey,

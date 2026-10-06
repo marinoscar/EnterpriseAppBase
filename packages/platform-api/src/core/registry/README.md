@@ -3,15 +3,15 @@
 The generic, typed registry primitive (issue #675). Every closed list the
 platform opens up for apps (permissions, settings namespaces, notification
 events, storage prefixes, metric groups, user-owned models, doctor checks)
-is a `Registry<T>` from this folder, so they all share one duplicate rule,
+is a `Registry<T>` from `@marinoscar/platform-api/core`, so they all share one duplicate rule,
 one ordering rule and one set of error codes.
 
 Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 "The Extension Contract" (rung 2) and "What an extension may and may not rely
-on". The app-owned seam: [app-registrations/README.md](../../app-registrations/README.md).
+on". The app-owned seam in the reference app: [app-registrations/README.md](../../../../../apps/api/src/app-registrations/README.md).
 
 **Worked examples.** The first real static registries are the role and
-permission registries: [common/permissions/README.md](../permissions/README.md)
+permission registries: [common/permissions/README.md](../../../../../apps/api/src/common/permissions/README.md)
 (declaration files beside each module, a manifest, an app-owned file, module
 augmentation for typed ids, and a generated seed catalog for code that cannot
 import `src/`). Read it alongside the recipe below, whose names are
@@ -19,22 +19,26 @@ illustrative.
 
 ## Files
 
-The primitive itself now lives in `@marinoscar/platform-api/core` (issue #694,
-`packages/platform-api/src/core/registry/`; slice README
-[`packages/platform-api/src/core/README.md`](../../../../../packages/platform-api/src/core/README.md)).
-What stays in this folder is the app's seam onto it.
+This folder is the primitive itself, part of the `core` slice of
+`@marinoscar/platform-api` (slice README: [../README.md](../README.md)). It
+moved here from `apps/api/src/common/registry/` (issue #694); issue #698
+removed the app's re-export shim, so the reference app imports
+`@marinoscar/platform-api/core` directly, and
+`apps/api/test/platform/no-local-core-copies.spec.ts` fails if a local copy
+comes back.
 
 | File | What it holds |
 |---|---|
-| `index.ts` | A re-export shim: `import { Registry, defineRegistry } from '../common/registry'` keeps working. Restricted to the framework-free symbols; it never re-exports `RegistryFreezeService`, so seeds, standalone scripts and import-time DTOs can use it without a Nest container. |
-| `registry-freeze.service.spec.ts` | Proves `CommonModule` provides `RegistryFreezeService` and that it freezes every defined registry on bootstrap. |
+| `registry.ts` | `Registry<T>`, `RegistryError`, `defineRegistry`, `listDefinedRegistries`, `freezeDefinedRegistries`. Imports nothing; `test/core/registry.spec.ts` enforces it. |
+| `registry-freeze.service.ts` | `RegistryFreezeService`, the Nest provider the app registers (the reference app does it in `CommonModule`); freezes in `onApplicationBootstrap`. |
+| `testing.ts` | `withTemporaryEntries`, for tests only. |
+| `index.ts` | The framework-free barrel the slice's `index.ts` re-exports. |
 
-In the package: `registry.ts` (`Registry<T>`, `RegistryError`, `defineRegistry`,
-`listDefinedRegistries`, `freezeDefinedRegistries`; imports nothing, a test
-enforces it), `registry-freeze.service.ts` (the Nest provider `CommonModule`
-registers; freezes in `onApplicationBootstrap`), `testing.ts`
-(`withTemporaryEntries`, for tests only) and the spec that pins the behaviour
-below (`packages/platform-api/test/core/registry.spec.ts`).
+The spec that pins the behaviour below is
+`packages/platform-api/test/core/registry.spec.ts`; the reference app's
+`apps/api/test/platform/registry-freeze.service.spec.ts` proves `CommonModule`
+provides `RegistryFreezeService` and that it freezes every defined registry on
+bootstrap.
 
 ## The behaviour apps may rely on
 
@@ -88,7 +92,7 @@ registry; names are illustrative.
 
 ```typescript
 // apps/api/src/common/permissions/permission.registry.ts
-import { defineRegistry } from '../registry';
+import { defineRegistry } from '@marinoscar/platform-api/core';
 
 export interface PermissionDefinition {
   readonly id: string;          // 'jobs:read'
@@ -172,7 +176,7 @@ export const APP_PERMISSIONS: readonly PermissionDefinition[] = [];
 ```
 
 A fork adds its entries to that array and never edits a platform declaration
-or manifest. See [app-registrations/README.md](../../app-registrations/README.md).
+or manifest. See [app-registrations/README.md](../../../../../apps/api/src/app-registrations/README.md).
 
 ### 6. Let apps extend the types by module augmentation
 
@@ -228,7 +232,7 @@ the module graph is shared by every test in a file. Add a temporary entry with
 restores the previous entries and frozen state even if the callback throws:
 
 ```typescript
-import { withTemporaryEntries } from '../common/registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 
 it('accepts an app permission', async () => {
   await withTemporaryEntries(permissionRegistry, [{ id: 'test:read', description: 'x' }], async () => {

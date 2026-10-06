@@ -1967,7 +1967,7 @@ controls instead, just not by selecting a span on the chart itself.
 
 #### The app-metric registry (#680)
 
-Every `app.*` metric is **declared** in a static registry (`appMetricRegistry`, built on the registry primitive, `apps/api/src/common/registry/README.md`), one `AppMetricDef` each:
+Every `app.*` metric is **declared** in a static registry (`appMetricRegistry`, built on the registry primitive, `packages/platform-api/src/core/registry/README.md`), one `AppMetricDef` each:
 
 | Field | Rule |
 |---|---|

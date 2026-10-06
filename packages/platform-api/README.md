@@ -8,7 +8,7 @@ Dynamic modules, services, guards and registries of the platform's API slices. I
 
 Status: pre-release (version `0.0.0`). The root export is only the package name (`PLATFORM_PACKAGE`); the slices are subpath exports, each with its own README:
 
-- `@marinoscar/platform-api/core`: the typed registry primitive (`defineRegistry`, `Registry`, `RegistryError`, `RegistryFreezeService`, `withTemporaryEntries`). [README](src/core/README.md).
+- `@marinoscar/platform-api/core`: the bottom of the slice graph, code only: the typed registry primitive (`defineRegistry`, `Registry`, `RegistryError`, `RegistryFreezeService`, `withTemporaryEntries`), the principal and scope contract (`Principal`, `Scope`, `SystemActor`, ADR 0001), the exception filter and its exceptions (`HttpExceptionFilter`, `ErrorDto`, `withVerbatimErrorBody`, `DatabaseSeedException`), the secret cipher (`encryptSecret`, `decryptSecret`, `userCredentialPurpose`, `verifyEncryptionKeyAtStartup`) and the OpenAPI tag registry (`openApiTags`). [README](src/core/README.md).
 - `@marinoscar/platform-api/testing`: the conformance harness (`runPlatformConformance`, `conformanceSuites`, the `cron-enqueue-only` suite). [README](src/testing/README.md).
 - `@marinoscar/platform-api/doctor`: the admin Doctor, `GET /api/admin/doctor` (`DoctorModule.forRoot({ host })`, `DoctorCheckRegistry`, the check contract). The first packaged slice (#696). [README](src/doctor/README.md).
 
@@ -51,7 +51,7 @@ runPlatformConformance({
 });
 ```
 
-Declare a registry with `defineRegistry` from `@marinoscar/platform-api/core`; see the [core README](src/core/README.md).
+Declare a registry with `defineRegistry`, register the exception filter and validate the encryption key at bootstrap with `@marinoscar/platform-api/core`; see the [core README](src/core/README.md#quick-start).
 
 ## Configuration
 
@@ -75,15 +75,15 @@ None. Pages and settings cards live in `@marinoscar/platform-web`.
 
 ## Infra
 
-None. Compose, nginx and collector configuration live in `@marinoscar/platform-infra`; this package reads no environment variable yet.
+Compose, nginx and collector configuration live in `@marinoscar/platform-infra`. The one environment variable the package reads is `SECRETS_ENCRYPTION_KEY`, read by the `core` slice's secret cipher (see the [core README](src/core/README.md#configuration)).
 
 ## Observability
 
-The `doctor` slice logs one `warn` line when a check throws; `core` logs one `debug` line when it freezes the static registries. Packaged code logs through Nest's `Logger`, which the app routes to its own logger. Other slices document theirs as they are extracted.
+The `doctor` slice logs one `warn` line when a check throws; `core` logs one `debug` line when it freezes the static registries, one line per handled error and the encryption-key startup check ([core README](src/core/README.md#observability)). Packaged code logs through Nest's `Logger`, which the app routes to its own logger. Other slices document theirs as they are extracted.
 
 ## Security notes
 
-Every packaged controller takes the app's auth decorators through the host access port (`definePlatformHost`) rather than ship its own, and every `forRoot` refuses to build one without a host, so a packaged route is never public. The one route so far, `GET /api/admin/doctor`, is read-only and requires `system_settings:read` by default.
+Every packaged controller takes the app's auth decorators through the host access port (`definePlatformHost`) rather than ship its own, and every `forRoot` refuses to build one without a host, so a packaged route is never public. The one route so far, `GET /api/admin/doctor`, is read-only and requires `system_settings:read` by default. The `core` slice also holds the secret cipher and the exception filter; their key handling, the module-scope key cache (install exactly one copy of the package) and the error-body rules are in the [core README](src/core/README.md#security-notes).
 
 ## Conformance suite
 

@@ -141,7 +141,7 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // display string — see the file's own comment on `VERBATIM_ERROR_BODY` for
   // why it must be a stable, globally-unique string, not why it happens to be
   // spelled like the product name.
-  'apps/api/src/common/exceptions/verbatim-error-body.exception.ts',
+  'packages/platform-api/src/core/errors/verbatim-error-body.exception.ts',
   // The platform-packages program spec names the real repositories it spans
   // (this platform repository and the apps that consume it) as prose; they
   // are cross-repository references, not this fork's rebrand targets.
@@ -337,7 +337,7 @@ function wordBoundaryPattern(value: string): RegExp {
   const lead = /^\w/.test(value) ? '\\b' : '';
   const tail = /\w$/.test(value) ? '\\b' : '';
   // Deliberately CASE-SENSITIVE (no `i` flag). This is what lets
-  // `apps/api/src/common/crypto/secret-cipher.ts`'s HKDF label
+  // `packages/platform-api/src/core/crypto/secret-cipher.ts`'s HKDF label
   // `'enterpriseappbase:secret-cipher:v1:'` (lowercase) pass with no
   // allowlist entry — that label must NEVER change, because doing so makes
   // every already-stored credential permanently undecryptable. A

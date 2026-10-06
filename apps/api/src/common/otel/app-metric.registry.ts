@@ -1,4 +1,4 @@
-import { defineRegistry, RegistryError, type Registry } from '../registry';
+import { defineRegistry, RegistryError, type Registry } from '@marinoscar/platform-api/core';
 
 // =============================================================================
 // The app-metric registry (issue #680, epic #660)
@@ -20,7 +20,7 @@ import { defineRegistry, RegistryError, type Registry } from '../registry';
 // through `app-metrics.service.ts` (which imports the manifest), never through
 // this file alone.
 //
-// ⚠ FRAMEWORK-FREE (a static registry, common/registry/README.md): it imports
+// ⚠ FRAMEWORK-FREE (a static registry, packages/platform-api/src/core/registry/README.md): it imports
 // only the registry primitive.
 //
 // Every rule runs at REGISTRATION, so a malformed metric fails at import time.

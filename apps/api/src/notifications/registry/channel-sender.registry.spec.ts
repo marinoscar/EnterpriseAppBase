@@ -1,4 +1,4 @@
-import { RegistryError, withTemporaryEntries } from '../../common/registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import type { NotificationChannel } from '../notification-events';
 import type { NotificationChannelSender } from '../notification.types';
 import { NotificationChannelSenderRegistry } from './channel-sender.registry';

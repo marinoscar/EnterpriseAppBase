@@ -119,7 +119,7 @@ async listMine(userId: string) {
 }
 ```
 
-`forScope(scope)` takes the `Scope` from `common/principal` (ADR 0001);
+`forScope(scope)` takes the `Scope` from `@marinoscar/platform-api/core` (ADR 0001);
 `forUser(userId)` is `forScope({ userId })`. Only `scope.userId` is applied:
 `orgId` and `groupIds` are accepted and ignored until row-level security
 (#725) and group grants (#729).

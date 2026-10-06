@@ -18,7 +18,7 @@
 // ⚠ NO COLUMN HERE CAN EVER HOLD A PLAINTEXT PROVIDER KEY
 // -----------------------------------------------------------------------------
 // `UserAiKey.secret` is ciphertext ONLY — the output of `encryptSecret(
-// plaintext, 'ai_user_key')` (`common/crypto/secret-cipher.ts`), the same
+// plaintext, 'ai_user_key')` (`@marinoscar/platform-api/core`), the same
 // AES-GCM helper `Credential.secret` already uses, keyed under a purpose
 // label specific to this table so a ciphertext lifted from one row cannot be
 // decrypted as if it were the other's. `hint` is the non-secret display aid

@@ -1,5 +1,5 @@
 import { PERMISSIONS, ROLES } from '../constants/roles.constants';
-import { RegistryError, withTemporaryEntries } from '../registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   buildPermissionCatalog,
   permissionIds,

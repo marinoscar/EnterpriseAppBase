@@ -19,7 +19,7 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { defineRegistry } from '../../common/registry';
+import { defineRegistry } from '@marinoscar/platform-api/core';
 import { SETTINGS_SECRET_FIELD_NAMES } from '../../common/schemas/settings.schema';
 import { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './schema-walk';
 import { SETTINGS_NAMESPACE_KEY_PATTERN } from './system-settings-namespace';

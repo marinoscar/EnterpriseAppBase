@@ -24,7 +24,7 @@
 // FRAMEWORK-FREE: imports only the registry primitive and the channel registry.
 // =============================================================================
 
-import { defineRegistry } from '../../common/registry';
+import { defineRegistry } from '@marinoscar/platform-api/core';
 import { notificationChannelRegistry, type NotificationChannel } from './channel.registry';
 
 /**

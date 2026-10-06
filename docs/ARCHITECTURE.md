@@ -300,7 +300,7 @@ A maintenance window takes the application out of service on purpose. While open
 
 Secrets configured at runtime are encrypted with AES-256-GCM under `SECRETS_ENCRYPTION_KEY` before they are stored. `CredentialsService` holds deployment-owned secrets in `credentials`, addressed by `(purpose, name)`: the SMTP password, the VAPID private key, the storage secret access key and the AI org keys. `UserCredentialsService` holds user-owned secrets in `user_credentials` under an owner-bound cipher domain, so a row moved to another user fails authentication instead of decrypting. Users' AI provider keys live in their own table, `user_ai_keys`, under a dedicated cipher purpose. No API ever returns secret material; admin screens show a masked status.
 
-- **Code:** `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/common/crypto/secret-cipher.ts`
+- **Code:** `apps/api/src/credentials/`, `apps/api/src/user-credentials/`; the cipher and its startup check are in `@marinoscar/platform-api/core` (`packages/platform-api/src/core/crypto/`, [§5.22](#522-platform-core-marinoscarplatform-apicore))
 - **Read more:** [specs/user-credentials.md](specs/user-credentials.md), [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md)
 
 ### 5.17 Observability
@@ -349,6 +349,13 @@ All logical channels are multiplexed onto one physical Postgres channel, `platfo
 - **Code:** `apps/api/src/common/event-bus/`
 - **Doctor:** `core.event-bus` reports the adapter and the listener's state.
 - **Read more:** [specs/browser-notifications.md §2.13](specs/browser-notifications.md#213-fan-out-across-replicas), [specs/job-queue.md](specs/job-queue.md) (Worker modes, "Wake-up")
+
+### 5.22 Platform core (`@marinoscar/platform-api/core`)
+
+The primitives every other platform slice builds on, consumed by the API as a package rather than kept in `apps/api/src/common/` (issue #698): the typed registry primitive (`defineRegistry`, `Registry`, `RegistryFreezeService`), the org-aware principal and scope types ([ADR 0001](adr/0001-org-aware-principal-and-scope.md)), `HttpExceptionFilter` with `ErrorDto`, `withVerbatimErrorBody` and `DatabaseSeedException`, the secret cipher (`encryptSecret`, `decryptSecret`, `userCredentialPurpose`) with `verifyEncryptionKeyAtStartup`, and the OpenAPI tag registry (`openApiTags`). Code only, no tables; it imports no other slice and no Prisma client. The app registers `HttpExceptionFilter` as its `APP_FILTER` (`app.module.ts`), provides `RegistryFreezeService` (`CommonModule`), calls `verifyEncryptionKeyAtStartup(() => prisma.credential.count(), logger)` before binding the port (`main.ts`), and registers its OpenAPI taxonomy in `openapi/tags.ts`. `apps/api/test/platform/no-local-core-copies.spec.ts` fails if a local copy of any of these reappears under `apps/api/src/common/`.
+
+- **Code:** `packages/platform-api/src/core/`
+- **Read more:** [core README](../packages/platform-api/src/core/README.md), [specs/platform-packages.md](specs/platform-packages.md) (Dependency graph)
 
 ---
 
@@ -735,11 +742,13 @@ Health endpoints (public, reachable during maintenance):
 | A packaged slice's access to the app (auth, audit, settings, Prisma; web transport and viewer) | [platform-api core README, Host ports](../packages/platform-api/src/core/README.md#host-ports), [platform-web core README](../packages/platform-web/src/core/README.md) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
-| A registry entry (permission, setting, …) | [registry/README.md](../apps/api/src/common/registry/README.md) |
+| A registry entry (permission, setting, …) | [registry/README.md](../packages/platform-api/src/core/registry/README.md) |
 | A permission or role (platform module or app) | [permissions/README.md](../apps/api/src/common/permissions/README.md) |
 | An object-storage key prefix | [specs/storage-providers.md §4](specs/storage-providers.md#4-extending-it-in-a-fork) |
 | A user-owned model (any model with a `User` relation) | [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md) |
 | An app metric or dashboard metric group | [runbooks/telemetry.md §8.4](runbooks/telemetry.md#84-adding-an-app-metric-group) |
+| An OpenAPI tag (`@ApiTags`) from a slice or module | [core README](../packages/platform-api/src/core/README.md) (`openApiTags`) |
+| A secret stored encrypted (a new cipher purpose) | [core README](../packages/platform-api/src/core/README.md) (crypto), [specs/user-credentials.md](specs/user-credentials.md) |
 
 ---
 

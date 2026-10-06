@@ -25,7 +25,7 @@
 //
 // Imported only by `./index.ts`. Never register from `onModuleInit`: several
 // Nest applications share one module graph in a Jest worker, and the second
-// would hit a frozen registry (common/registry/README.md).
+// would hit a frozen registry (packages/platform-api/src/core/registry/README.md).
 // =============================================================================
 
 import { ALLOWLIST_NOTIFICATIONS } from '../../allowlist/allowlist.notifications';

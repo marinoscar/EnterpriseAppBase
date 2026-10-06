@@ -3,15 +3,17 @@
 // =============================================================================
 //
 // TYPES ONLY. This file has no runtime exports and imports nothing: not
-// `@prisma/client`, not `@nestjs/*`, not an app module. That is what lets it
-// move unchanged into `@marinoscar/platform-api/core`, and it is pinned by
-// `principal.types.spec.ts`.
+// `@prisma/client`, not `@nestjs/*`, not an app module. It was written that
+// way in the app (issue #687) so it could move into
+// `@marinoscar/platform-api/core` unchanged, which it did (issue #698). Both
+// properties are pinned by `test/core/principal.spec.ts` in this package.
 //
-// Nothing in the app imports it yet. Requests still carry `RequestUser`
-// (`auth/interfaces/authenticated-user.interface.ts`); attaching a
-// `Principal` to the request and the runtime `toPrincipal()` mapper arrive
-// later. The derivation rules this contract is built on (credential mapping,
-// scope derivation, tenancy modes, `SystemActor`) are written down in
+// Nothing in the reference app consumes it yet. Requests still carry the
+// app's `RequestUser` (`apps/api/src/auth/interfaces/authenticated-user.interface.ts`);
+// attaching a `Principal` to the request, the runtime `toPrincipal()` mapper
+// and `@CurrentPrincipal()` arrive later (issue #724). The derivation rules
+// this contract is built on (credential mapping, scope derivation, tenancy
+// modes, `SystemActor`) are written down in
 // docs/adr/0001-org-aware-principal-and-scope.md. Read it before changing a
 // field here.
 // =============================================================================
@@ -223,8 +225,11 @@ export type Principal = UserPrincipal | NodePrincipal;
  * ```
  */
 export interface Scope {
+  /** The user the operation acts for: always `principal.userId`. */
   readonly userId: string;
+  /** The organisation: `principal.activeOrgId`. Required once organisations exist. */
   readonly orgId?: string;
+  /** Groups to narrow to, each one the principal belongs to; never widened. */
   readonly groupIds?: readonly string[];
 }
 
@@ -239,6 +244,7 @@ export interface Scope {
  * ```
  */
 export interface SystemActor {
+  /** Discriminant: always `'system'`. */
   readonly kind: 'system';
   /**
    * Short, greppable reason, e.g. `'retention.purge'`, `'db.backup.run'`.

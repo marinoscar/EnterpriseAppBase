@@ -5,10 +5,17 @@ import {
   isAuthenticatedOperation,
   SECURITY_SCHEMES,
 } from '../../src/openapi/document';
-import { OPENAPI_TAGS, OPENAPI_TAG_GROUPS } from '../../src/openapi/tags';
+import { openApiTagGroups, openApiTags } from '@marinoscar/platform-api/core';
+
+import '../../src/openapi/tags';
 import { REQUIREMENTS_MARKER } from '../../src/openapi/rbac-docs';
 import { RBAC_EXTENSION_KEY } from '../../src/auth/decorators/auth.decorator';
 import { DocOperation, forEachOperation, MutableDocument } from '../../src/openapi/types';
+
+// The app's taxonomy, as registered by src/openapi/tags.ts into the core
+// OpenAPI tag registry (issue #698).
+const OPENAPI_TAGS = openApiTags.list();
+const OPENAPI_TAG_GROUPS = openApiTagGroups();
 
 /**
  * Boots the real AppModule once and asserts the document it produces.

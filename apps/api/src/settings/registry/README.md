@@ -3,7 +3,7 @@
 The system settings document (`system_settings.value`, the `global` row) and
 each user's settings document (`user_settings.value`) are built from
 **namespaces**, each declared once, next to the module that owns it, and
-registered in two static registries on the [registry primitive](../../common/registry/README.md)
+registered in two static registries on the [registry primitive](../../../../../packages/platform-api/src/core/registry/README.md)
 (issue #677). Every top-level settings object the code uses is **derived** from
 those registries: nothing lists the namespaces by hand.
 

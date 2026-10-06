@@ -1,12 +1,12 @@
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
-import { HttpExceptionFilter } from './http-exception.filter';
-import { withVerbatimErrorBody } from '../exceptions/verbatim-error-body.exception';
-import { DatabaseSeedException } from '../exceptions/database-seed.exception';
+import { HttpExceptionFilter } from '../../src/core/errors/http-exception.filter';
+import { withVerbatimErrorBody } from '../../src/core/errors/verbatim-error-body.exception';
+import { DatabaseSeedException } from '../../src/core/errors/database-seed.exception';
 import { ZodValidationException } from 'nestjs-zod';
 import { z } from 'zod';
 
 /**
- * The closed `code` enum published by `common/dto/error.dto.ts`. Kept as a
+ * The closed `code` enum published by `src/core/errors/error.dto.ts`. Kept as a
  * literal copy here (rather than importing the DTO) so this spec pins the
  * WIRE CONTRACT independently of whatever the DTO file happens to say —
  * if someone edits the enum without meaning to change the contract, this
@@ -449,7 +449,7 @@ describe('HttpExceptionFilter', () => {
       expect(response.code).toBe('INTERNAL_ERROR');
 
       // And whatever the filter produces must stay inside the closed enum
-      // `common/dto/error.dto.ts` publishes as the API's error contract.
+      // `src/core/errors/error.dto.ts` publishes as the API's error contract.
       expect(PUBLISHED_ERROR_CODES).toContain(response.code);
 
       // The identifying data DatabaseSeedException wanted to surface is

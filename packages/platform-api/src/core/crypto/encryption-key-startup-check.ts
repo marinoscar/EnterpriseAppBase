@@ -1,6 +1,5 @@
-import { Logger } from '@nestjs/common';
+import type { LoggerService } from '@nestjs/common';
 
-import { PrismaService } from '../../prisma/prisma.service';
 import { assertEncryptionKeyConfigured } from './secret-cipher';
 
 // =============================================================================
@@ -92,6 +91,16 @@ import { assertEncryptionKeyConfigured } from './secret-cipher';
 // without stranding anyone — every path that would then break has by that point
 // been told about the variable. Tightening it TODAY would only mean breaking CI
 // and every deployment to protect a feature nothing uses.
+//
+// -----------------------------------------------------------------------------
+// MOVED INTO @marinoscar/platform-api/core (issue #698)
+// -----------------------------------------------------------------------------
+// The one signature change of that move: the function used to take the app's
+// `PrismaService` and call `prisma.credential.count()` itself. It now takes a
+// `countStoredSecrets` callback, so core never imports a Prisma client or an
+// app model. The reference app passes
+// `() => app.get(PrismaService).credential.count()` from `main.ts`. Every
+// message and every decision branch above is unchanged.
 // =============================================================================
 
 /**
@@ -114,11 +123,26 @@ const GENERATE_COMMAND = 'openssl rand -base64 32';
  * full decision; the short version is that a present key is always validated
  * and an absent one is only fatal when there is something to decrypt.
  *
- * @throws if the key is set but malformed, or unset while credentials exist.
+ * - Key set: validated (throws the cipher's operator-facing error if
+ *   malformed), then one `log` line.
+ * - Key absent, `countStoredSecrets()` rejects: one `warn` line, boot continues.
+ * - Key absent, count above zero: throws.
+ * - Key absent, count zero: one `warn` line, boot continues.
+ *
+ * @param countStoredSecrets - How many encrypted secrets the deployment has
+ *   stored (the reference app counts its `credentials` rows). Called only
+ *   when the key is absent.
+ * @param logger - Where the outcome is logged; a Nest `Logger` fits.
+ * @throws if the key is set but malformed, or unset while secrets are stored.
+ * @stability stable
+ * @example
+ * ```ts
+ * await verifyEncryptionKeyAtStartup(() => app.get(PrismaService).credential.count(), logger);
+ * ```
  */
 export async function verifyEncryptionKeyAtStartup(
-  prisma: PrismaService,
-  logger: Logger,
+  countStoredSecrets: () => Promise<number>,
+  logger: Pick<LoggerService, 'log' | 'warn' | 'error'>,
 ): Promise<void> {
   // An empty value ('SECRETS_ENCRYPTION_KEY=' with nothing after it, which is
   // exactly what copying `.env.example` produces) is deliberately treated as
@@ -142,7 +166,7 @@ export async function verifyEncryptionKeyAtStartup(
 
   let storedCredentials: number;
   try {
-    storedCredentials = await prisma.credential.count();
+    storedCredentials = await countStoredSecrets();
   } catch (error) {
     // A failed probe is NOT a boot failure, and specifically is not reported as
     // an encryption-key problem.

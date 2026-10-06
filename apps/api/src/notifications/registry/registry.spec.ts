@@ -1,4 +1,4 @@
-import { RegistryError, withTemporaryEntries } from '../../common/registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../common/schemas/user-settings-namespaces.schema';
 import {
   EMAIL_TEMPLATES,

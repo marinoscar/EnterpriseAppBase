@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { RegistryError, withTemporaryEntries } from '../../common/registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   ownerFieldOf,
   ownerRelationOf,
@@ -111,7 +111,7 @@ describe('userOwnedModelRegistry', () => {
     const imports = [...source.matchAll(/^import\s.*?from\s+'([^']+)';/gms)].map((match) => match[0]);
     expect(imports).toEqual([
       "import type { Prisma } from '@prisma/client';",
-      "import { defineRegistry } from '../../common/registry';",
+      "import { defineRegistry } from '@marinoscar/platform-api/core';",
     ]);
   });
 });

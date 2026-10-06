@@ -1,7 +1,7 @@
 # Notification registries
 
 The notification events, channels and templates as registries on the
-[common registry primitive](../../common/registry/README.md) (issue #678,
+[registry primitive](../../../../../packages/platform-api/src/core/registry/README.md) in `@marinoscar/platform-api/core` (issue #678,
 PP-1.6). Before #678 each was a closed literal in a platform file, so an
 application that added an event, a template or a transport had to edit
 platform code. Now platform modules declare their own entries next to the
@@ -139,7 +139,7 @@ platform sender first, then an application one.
 
 ## Testing
 
-Add temporary entries with `withTemporaryEntries` from `common/registry`. To
+Add temporary entries with `withTemporaryEntries` from `@marinoscar/platform-api/core`. To
 exercise `registerNotification` itself, open the three registries it writes
 and call it inside:
 

@@ -10,7 +10,7 @@ import {
   renderPermissionCatalog,
   roleRegistry,
 } from '../../src/common/permissions';
-import { withTemporaryEntries } from '../../src/common/registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 
 // =============================================================================
 // Seeded RBAC baseline (issue #676, PP-1.4)

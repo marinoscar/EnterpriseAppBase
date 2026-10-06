@@ -5,7 +5,7 @@ where **this application** adds its own entries (permissions, settings
 namespaces, notification events, storage prefixes, metric groups, user-owned
 models) to registries the platform defines.
 
-The primitive and the full recipe: [common/registry/README.md](../common/registry/README.md).
+The primitive and the full recipe: [packages/platform-api/src/core/registry/README.md](../../../../packages/platform-api/src/core/registry/README.md).
 Spec: [platform-packages.md](../../../../docs/specs/platform-packages.md),
 "The Extension Contract".
 

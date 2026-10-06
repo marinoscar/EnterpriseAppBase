@@ -590,7 +590,7 @@ A protected request passes these checkpoints in order:
 5. **ZodValidationPipe** (global): validates body, query and params against
    the route's Zod DTO. Unknown keys are stripped.
 6. **Controller and service**: business logic, including ownership checks.
-7. **HttpExceptionFilter** (global): turns every error into the standard
+7. **HttpExceptionFilter** (global, from `@marinoscar/platform-api/core`): turns every error into the standard
    error envelope with a closed `code` set and no stack trace.
 
 After the guards, `request.user` is the full `AuthenticatedUser` (with role
@@ -969,13 +969,18 @@ of the object-storage secret; the access key id is an ordinary field in the
 
 ### The cipher
 
-`apps/api/src/common/crypto/secret-cipher.ts`:
+`packages/platform-api/src/core/crypto/secret-cipher.ts`, exported by
+`@marinoscar/platform-api/core` (moved from `apps/api/src/common/crypto/` by
+issue #698, byte-compatible; see the
+[core README](../packages/platform-api/src/core/README.md#security-notes)):
 
 - **AES-256-GCM**, key from `SECRETS_ENCRYPTION_KEY` (base64, 32 bytes).
 - Stored as one base64 string: `[iv 12 bytes][auth tag 16 bytes][ciphertext]`.
 - A fresh random IV per encryption; equal secrets never produce equal ciphertext.
 - Any tampering, a wrong key, or a wrong purpose fails authentication and
   throws. It never returns corrupted plaintext.
+- The key is read from `process.env` once and cached at module scope, so the
+  process must load exactly one copy of the package.
 
 ### Purpose-bound keys
 
@@ -994,7 +999,9 @@ is permanent: changing it makes every stored credential undecryptable (see
 
 ### Startup validation
 
-`verifyEncryptionKeyAtStartup` runs in `main.ts` before the port is bound:
+`verifyEncryptionKeyAtStartup` (also in `@marinoscar/platform-api/core`) runs in
+`main.ts` before the port is bound; the app passes it a counter,
+`() => prisma.credential.count()`, so the package never imports Prisma:
 
 | Key | Rows in `credentials` | Result |
 |---|---|---|
@@ -1152,7 +1159,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | PATs | `apps/api/src/pat/` |
 | Device flow | `apps/api/src/device-auth/` |
 | Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |
-| Encrypted stores | `apps/api/src/common/crypto/secret-cipher.ts`, `encryption-key-startup-check.ts`, `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
+| Encrypted stores | `packages/platform-api/src/core/crypto/secret-cipher.ts`, `encryption-key-startup-check.ts` (`@marinoscar/platform-api/core`), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
 | Test auth | `apps/api/src/test-auth/`, `apps/web/src/pages/TestLoginPage.tsx` |
 | Edge | `infra/nginx/nginx.conf`, `infra/nginx/csp.conf`, `infra/nginx/csp.dev.conf` |
 | Web session | `apps/web/src/contexts/AuthContext.tsx`, `apps/web/src/services/api.ts` |

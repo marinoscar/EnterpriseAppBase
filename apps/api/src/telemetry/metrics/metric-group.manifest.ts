@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // The one explicit, grep-able list of the Telemetry Dashboard's metric groups,
-// registered at import time (common/registry/README.md, "Recipe: a static
+// registered at import time (packages/platform-api/src/core/registry/README.md, "Recipe: a static
 // registry"). Platform groups first, in the dashboard's historic order, then
 // the app's own (`app-registrations/telemetry.ts`), so a collision names the
 // app. Imported by `metric-catalog.ts`; nothing else imports this file.

@@ -13,7 +13,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  * THE ONE EXCEPTION (#153): an endpoint whose error body is fixed by an
  * external standard can opt out of this envelope entirely, by branding its
  * exception with `withVerbatimErrorBody`
- * (`common/exceptions/verbatim-error-body.exception.ts`). Its body is then sent
+ * (`./verbatim-error-body.exception.ts`). Its body is then sent
  * exactly as thrown, with none of the keys below. Today the only user is
  * `POST /auth/device/token`, which RFC 8628 §3.5 requires to answer with
  * `{ error, error_description }` — see `DeviceTokenErrorDto`, which the
@@ -23,15 +23,24 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  *
  * Kept as an `@ApiProperty` class rather than a zod DTO because nothing
  * validates it — it is documentation-only, produced by the filter and never
- * parsed on the way in.
+ * parsed on the way in. The OpenAPI schema name is `ErrorDto`; it is
+ * published, so the class name does not change.
+ *
+ * @stability stable
+ * @example
+ * ```ts
+ * @ApiResponse({ status: 409, description: 'Already exists', type: ErrorDto })
+ * ```
  */
 export class ErrorDto {
+  /** HTTP status code, repeated in the body. */
   @ApiProperty({
     description: 'HTTP status code, repeated in the body so a logged payload is self-describing.',
     example: 409,
   })
   statusCode!: number;
 
+  /** Status-derived machine-readable code (closed enum, see the property's `@ApiProperty`). */
   @ApiProperty({
     description:
       'Stable machine-readable code. Derived from the status by the exception filter, which ' +
@@ -55,12 +64,14 @@ export class ErrorDto {
   })
   code!: string;
 
+  /** Human-readable description of what went wrong. */
   @ApiProperty({
     description: 'Human-readable description of what went wrong.',
     example: 'Email already in allowlist',
   })
   message!: string;
 
+  /** Endpoint-specific structured data, when the failure carried any. */
   @ApiPropertyOptional({
     description:
       'Endpoint-specific structured data — the only place a custom field survives the exception ' +
@@ -70,12 +81,14 @@ export class ErrorDto {
   })
   details?: unknown;
 
+  /** When the error was produced, ISO 8601 UTC. */
   @ApiProperty({
     description: 'When the error was produced, ISO 8601 UTC.',
     example: '2026-08-17T04:37:58.000Z',
   })
   timestamp!: string;
 
+  /** Request path that produced the error. */
   @ApiProperty({
     description: 'Request path that produced the error.',
     example: '/api/allowlist',

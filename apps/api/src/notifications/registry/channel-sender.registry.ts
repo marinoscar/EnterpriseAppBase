@@ -39,7 +39,7 @@
 
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 
-import { Registry } from '../../common/registry';
+import { Registry } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_CHANNEL_SENDERS, type NotificationChannelSender } from '../notification.types';
 // From the barrel, so the manifest has filled the channel registry first.
 import { notificationChannelRegistry } from '.';

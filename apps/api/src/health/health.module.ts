@@ -15,7 +15,7 @@ import { EncryptionKeyDoctorCheck } from './doctor/encryption-key.doctor-check';
   controllers: [HealthController],
   // The `core` doctor checks (#634): database liveness and migrations reuse
   // this module's indicator and Prisma; the encryption-key check has no module
-  // of its own to live in (`common/crypto` is plain functions), and a
+  // of its own to live in (the cipher in `@marinoscar/platform-api/core` is plain functions), and a
   // deployment-health fact belongs beside the other two.
   providers: [
     DatabaseHealthIndicator,

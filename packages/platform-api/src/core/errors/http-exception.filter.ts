@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ZodValidationException } from 'nestjs-zod';
-import { hasVerbatimErrorBody } from '../exceptions/verbatim-error-body.exception';
+import { hasVerbatimErrorBody } from './verbatim-error-body.exception';
 
 interface ErrorResponse {
   statusCode: number;
@@ -18,10 +18,47 @@ interface ErrorResponse {
   path: string;
 }
 
+/**
+ * The application-wide exception filter: turns every thrown value into the one
+ * error envelope (`{ statusCode, code, message, details?, timestamp, path }`,
+ * documented by {@link ErrorDto}) on a Fastify reply, and logs one line per
+ * failure (`warn` below 500, `error` with the stack from 500 up).
+ *
+ * `code` is always derived from the HTTP status; a `code` on the thrown
+ * payload is ignored. `details` is the only place endpoint-specific data
+ * survives. An exception branded with {@link withVerbatimErrorBody} skips the
+ * envelope and is sent exactly as thrown. A 429 whose `details.retryAfterMs`
+ * is a positive number also gets a `Retry-After` header (whole seconds,
+ * rounded up). A `ZodValidationException` without explicit details answers
+ * `details.issues` (`[{ path, message }]`), never the submitted value. A
+ * non-`HttpException` error is a 500 whose `details` carries the stack unless
+ * `NODE_ENV` is `production`.
+ *
+ * Register it once, as an `APP_FILTER` provider of the root module. There is
+ * no module to import and nothing to configure.
+ *
+ * @stability stable
+ * @extensionPoint component
+ * @example
+ * ```ts
+ * import { APP_FILTER } from '@nestjs/core';
+ * import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
+ *
+ * @Module({ providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }] })
+ * export class AppModule {}
+ * ```
+ */
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
+  /**
+   * Nest's `ExceptionFilter` hook: write the error response for `exception`
+   * on the HTTP reply of `host`. Called by Nest, not by application code.
+   *
+   * @param exception - Whatever was thrown.
+   * @param host - The Nest arguments host of the failed request (HTTP only).
+   */
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse();
@@ -45,7 +82,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // destroys it — the envelope reads only `message`, `code` and `details`,
       // so all four RFC outcomes used to arrive as the same generic 400 and a
       // polling client could not tell them apart. See
-      // `common/exceptions/verbatim-error-body.exception.ts` for why the opt-out
+      // `./verbatim-error-body.exception.ts` for why the opt-out
       // is an explicit brand rather than the filter sniffing for an `error` key.
       //
       // Nothing is merged in — not `statusCode`, not `timestamp`, not `path`.
@@ -99,12 +136,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       // because honouring a payload `code` is a real behaviour change on the
       // wire and the current behaviour is the one the API actually promises:
       //
-      //   * `common/dto/error.dto.ts` publishes `code` as a CLOSED ENUM of the
+      //   * `./error.dto.ts` publishes `code` as a CLOSED ENUM of the
       //     nine status-derived values, and says in so many words that the
       //     filter overwrites any `code` an exception supplied. That DTO is the
       //     `default` error response on every operation in the OpenAPI document,
       //     so it is a published contract, not a comment.
-      //   * `http-exception.filter.spec.ts` asserts it ("The filter overrides
+      //   * `test/core/http-exception.filter.spec.ts` asserts it ("The filter overrides
       //     custom code with standard code mapping"). The behaviour is tested,
       //     not accidental.
       //   * One exception does pass a `code`: `DatabaseSeedException` sends

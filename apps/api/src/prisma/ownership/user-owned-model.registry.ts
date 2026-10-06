@@ -28,7 +28,7 @@
 
 import type { Prisma } from '@prisma/client';
 
-import { defineRegistry } from '../../common/registry';
+import { defineRegistry } from '@marinoscar/platform-api/core';
 
 /**
  * What happens to a registered row when its user's data is purged.

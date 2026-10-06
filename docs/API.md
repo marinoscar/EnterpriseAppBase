@@ -104,8 +104,9 @@ streams and `204 No Content` responses are not enveloped.
 ## Errors
 
 Every error goes through one global exception filter
-(`apps/api/src/common/filters/http-exception.filter.ts`), which builds this
-body:
+(`HttpExceptionFilter` from `@marinoscar/platform-api/core`,
+`packages/platform-api/src/core/errors/http-exception.filter.ts`, registered as
+the app's `APP_FILTER`), which builds this body:
 
 ```json
 { "statusCode": 409, "code": "CONFLICT", "message": "Settings version mismatch. Expected 3, found 4",

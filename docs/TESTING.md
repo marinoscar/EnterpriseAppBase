@@ -422,6 +422,8 @@ no edit to the suite.
 | `npm run db:check:database` (`smoke` job) | Every row of `_prisma_migrations` matches the migration file on disk (Prisma itself never checks this) |
 | `npm run db:drift` (`smoke` job) | The migration history replayed in a shadow database equals the schema (`prisma migrate diff --exit-code`), and every raw-SQL index in `packages/platform-db/raw-sql-indexes.json` (plus the lock's `rawSqlIndexes`) exists with its recorded definition |
 | `apps/api/test/prisma/platform-raw-sql-indexes.db.spec.ts` | The partial and expression indexes found in `pg_indexes` equal `raw-sql-indexes.json`, so an unlisted raw-SQL index fails the build |
+| `apps/api/test/platform/no-local-core-copies.spec.ts` | Nothing that moved into `@marinoscar/platform-api/core` (registry, principal, exception filter, exceptions, `ErrorDto`, secret cipher) exists again under `apps/api/src/common/`, and no file under `apps/api` imports those paths |
+| `apps/api/test/platform/secret-cipher-compat.spec.ts` | Ciphertexts the app's cipher wrote before the move into the package still decrypt (fixed key and fixtures; never regenerate them) |
 
 ### Conformance suites in packages
 
@@ -726,7 +728,7 @@ Several bugs in the Fastify + Passport integration are pinned by tests:
 
 | Behavior | Pinned by |
 |---|---|
-| The exception filter replies with Fastify's `code()`/`send()`, not Express's `status()`/`json()` | `src/common/filters/http-exception.filter.spec.ts` |
+| The exception filter replies with Fastify's `code()`/`send()`, not Express's `status()`/`json()` | `packages/platform-api/test/core/http-exception.filter.spec.ts` (the filter lives in `@marinoscar/platform-api/core`) |
 | `GoogleOAuthGuard` hands Passport the raw request/response and copies `user` back | the OAuth redirect cases in `test/auth/oauth.integration.spec.ts` |
 | New users (and the bootstrap admin role) are created in one transaction | `src/auth/auth.service.spec.ts` |
 | A sign-in failure redirects with a closed error code, never a message | `src/auth/auth.controller.spec.ts`, `src/auth/filters/google-oauth-exception.filter.spec.ts`, `test/auth/oauth.integration.spec.ts` |

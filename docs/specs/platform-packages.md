@@ -317,7 +317,7 @@ flowchart TD
 
 Rules:
 
-- `core` is code only. It owns no tables.
+- `core` is code only. It owns no tables. Shipped so far (issue #698): registries (including the OpenAPI tag registry), principal and scope types, errors (`HttpExceptionFilter`, `ErrorDto`), crypto (the secret cipher and its startup check); scoped data access follows (issue #699). "Config" and "zod helpers" turned out to have no generic code to move: the app's `configuration.ts` maps its own variables, `database-url.ts` moves with `platform-db`, and zod is used directly through `nestjs-zod`'s `createZodDto` and the global `ZodValidationPipe`.
 - `otel-core` (emitting) is separate from the **telemetry product** (viewing and querying). Every slice emits through `otel-core`. Apps must still run with `OTEL_ENABLED=false` and no telemetry stack.
 - `identity` owns the user tables, so every other slice may reference a user.
 - A slice may depend only on slices above it in the graph. Lint enforces it.
