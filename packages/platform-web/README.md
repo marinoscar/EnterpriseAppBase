@@ -6,7 +6,11 @@ The React side of the platform: pages, components and hooks built on MUI, expose
 
 Pages, components, hooks and settings-page descriptors of the platform's web slices. It does not own the app's router, theme or settings registries; the app binds the package's descriptors into its own.
 
-Status: scaffold only (version `0.0.0`). The package builds, packs and loads, and exports its own name (`PLATFORM_PACKAGE`). Slices arrive as subpath exports (`@marinoscar/platform-web/<slice>`) in later releases of the platform program, each with its own README.
+Status: pre-release (version `0.0.0`). The root export is only the package name (`PLATFORM_PACKAGE`); the slices are subpath exports, each with its own README:
+
+- `@marinoscar/platform-web/core`: the web host ports every packaged page reuses (`PlatformHostProvider`, `PlatformApiClient`, `PlatformViewer`, `PlatformSettingsPage`). [README](src/core/README.md).
+- `@marinoscar/platform-web/testing`: test doubles for those ports (`createTestPlatformHost`). [README](src/testing/README.md).
+- `@marinoscar/platform-web/doctor/headless` and `@marinoscar/platform-web/doctor/ui`: the admin Doctor page, its hook and client, and its settings-page descriptor (#696). [README](src/doctor/README.md).
 
 ## Install and peer dependencies
 
@@ -28,15 +32,24 @@ Install these in the app; the package never bundles its own copy (a second copy 
 
 ## Quick start
 
-None. Scaffold only (version `0.0.0`): the package exports nothing but its own name, `PLATFORM_PACKAGE`, so there is nothing to set up yet.
+Mount the app's host once, inside the auth provider, then register each packaged page as a card and a route (the reference app: [`platformHost.tsx`](../../apps/web/src/platform/platformHost.tsx), [`adminSections.tsx`](../../apps/web/src/config/adminSections.tsx)):
+
+```tsx
+<PlatformHostProvider host={host}><Layout /></PlatformHostProvider>
+
+// ADMIN_SECTIONS, appended last
+{ ...doctorSettingsPage.card, Icon: doctorSettingsPage.Icon },
+```
+
+See the [core README](src/core/README.md#registering-a-packaged-page-settings-ui-pattern).
 
 ## Configuration
 
-None. No slice is exported yet, so there is no `forRoot()` or other option to set.
+None at the package level. `PlatformHostProvider`'s host is documented in the [core README](src/core/README.md#configuration), `DoctorPage`'s props in the [doctor README](src/doctor/README.md#configuration).
 
 ## Extension-point catalog
 
-None. Nothing the package exports is an extension point yet; each slice adds its rows (`Name`, `Kind`, `Signature`, `When to use`, `Stability`, `Example`) when it is extracted.
+None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [doctor](src/doctor/README.md#extension-point-catalog)).
 
 ## Data
 
@@ -44,11 +57,11 @@ None. The browser holds no data model; it reads and writes through the API.
 
 ## Permissions and settings
 
-None yet. Each slice documents the permissions its pages require (the exact strings the API enforces) as it is extracted.
+The Doctor's card and route require `system_settings:read`, the exact string `@marinoscar/platform-api/doctor` enforces ([README](src/doctor/README.md#permissions-and-settings)). Packaged pages check no permission themselves: the app's route gate does.
 
 ## UI
 
-None yet. Each slice lists its pages, registry entries, slots and theme tokens in its own README.
+One page so far: the Doctor (`/admin/settings/doctor`), one admin registry card, one slot (`slots.Header`), and the theme tokens `palette.status.*` ([README](src/doctor/README.md#ui)).
 
 ## Infra
 
@@ -56,11 +69,11 @@ None. The package ships no deployment configuration and reads no environment var
 
 ## Observability
 
-None yet. Each slice documents what it reports as it is extracted.
+None. No slice logs or measures anything in the browser yet.
 
 ## Security notes
 
-Nothing is exported yet. Pages never hold an API key and never call an AI provider from the browser; authorization stays in the API.
+Pages never hold an API key and never call an AI provider from the browser; they call the API only through the app's transport (`PlatformApiClient`), and authorization stays in the API and the app's route gates.
 
 ## Conformance suite
 

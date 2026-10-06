@@ -10,6 +10,9 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 
 - `@marinoscar/platform-api/core`: the typed registry primitive (`defineRegistry`, `Registry`, `RegistryError`, `RegistryFreezeService`, `withTemporaryEntries`). [README](src/core/README.md).
 - `@marinoscar/platform-api/testing`: the conformance harness (`runPlatformConformance`, `conformanceSuites`, the `cron-enqueue-only` suite). [README](src/testing/README.md).
+- `@marinoscar/platform-api/doctor`: the admin Doctor, `GET /api/admin/doctor` (`DoctorModule.forRoot({ host })`, `DoctorCheckRegistry`, the check contract). The first packaged slice (#696). [README](src/doctor/README.md).
+
+The `core` slice also holds the **host ports** (#696: `definePlatformHost`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`, `PlatformHostModule`), the one mechanism every packaged slice uses to reach app-owned capabilities, with test doubles in `testing`. [Host ports](src/core/README.md#host-ports).
 
 More slices arrive in later releases of the platform program.
 
@@ -52,11 +55,11 @@ Declare a registry with `defineRegistry` from `@marinoscar/platform-api/core`; s
 
 ## Configuration
 
-None. The package has no `forRoot()`; each slice documents its own options (the harness options are in the [testing README](src/testing/README.md#configuration)).
+None at the package level. Each slice documents its own options: `DoctorModule.forRoot()` in the [doctor README](src/doctor/README.md#configuration), `PlatformHostModule.forRoot()` in the [core README](src/core/README.md#host-ports), the harness in the [testing README](src/testing/README.md#configuration).
 
 ## Extension-point catalog
 
-None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [testing](src/testing/README.md#extension-point-catalog)).
+None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [testing](src/testing/README.md#extension-point-catalog), [doctor](src/doctor/README.md#extension-point-catalog)).
 
 ## Data
 
@@ -64,7 +67,7 @@ None yet. A slice that owns models documents them here and in its own README; th
 
 ## Permissions and settings
 
-None yet. Each slice declares its permissions and settings in its own README as it is extracted.
+The `doctor` slice requires `system_settings:read` by default and declares no permission of its own ([README](src/doctor/README.md#permissions-and-settings)). Other slices declare theirs in their own README as they are extracted.
 
 ## UI
 
@@ -76,11 +79,11 @@ None. Compose, nginx and collector configuration live in `@marinoscar/platform-i
 
 ## Observability
 
-None yet. Each slice documents the logs, metrics and spans it emits as it is extracted.
+The `doctor` slice logs one `warn` line when a check throws; `core` logs one `debug` line when it freezes the static registries. Packaged code logs through Nest's `Logger`, which the app routes to its own logger. Other slices document theirs as they are extracted.
 
 ## Security notes
 
-Nothing is exported yet, so there is no route or guard to secure. Every packaged controller will take the app's auth decorators through the host ports rather than ship its own.
+Every packaged controller takes the app's auth decorators through the host access port (`definePlatformHost`) rather than ship its own, and every `forRoot` refuses to build one without a host, so a packaged route is never public. The one route so far, `GET /api/admin/doctor`, is read-only and requires `system_settings:read` by default.
 
 ## Conformance suite
 

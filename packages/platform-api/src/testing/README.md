@@ -9,6 +9,8 @@ The base enforces its invariants with tripwire tests. If those tests stayed in t
 Does: scan the app's source tree, register one `describe` block per enabled suite, make an opt-out visible, refuse an unknown suite key.
 Does not: depend on Jest or Vitest (it takes a minimal test API, defaulting to the globals), change what a rule accepts, or hold an app's exemptions.
 
+It also holds the **host-port test doubles** (#696), for package tests: `createTestPlatformHost()` (access decorators driven by an `x-test-permissions` request header: no header is 401, a missing permission 403; never for apps), `InMemoryAuditSink` and `InMemorySystemSettingsStore` (one document version, a `ConflictException` on a stale `ifMatchVersion`), plus the constants `TEST_PERMISSIONS_HEADER` and `TEST_REQUIRED_PERMISSIONS_KEY`. See the [core README](../core/README.md#test-doubles).
+
 ## Install and peer dependencies
 
 ```bash
