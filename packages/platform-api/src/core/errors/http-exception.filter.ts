@@ -29,8 +29,10 @@ interface ErrorResponse {
  * survives. An exception branded with {@link withVerbatimErrorBody} skips the
  * envelope and is sent exactly as thrown. A 429 whose `details.retryAfterMs`
  * is a positive number also gets a `Retry-After` header (whole seconds,
- * rounded up). A non-`HttpException` error is a 500 whose `details` carries
- * the stack unless `NODE_ENV` is `production`.
+ * rounded up). A `ZodValidationException` without explicit details answers
+ * `details.issues` (`[{ path, message }]`), never the submitted value. A
+ * non-`HttpException` error is a 500 whose `details` carries the stack unless
+ * `NODE_ENV` is `production`.
  *
  * Register it once, as an `APP_FILTER` provider of the root module. There is
  * no module to import and nothing to configure.

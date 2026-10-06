@@ -14,7 +14,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 const CORE = join(__dirname, '..', '..', 'src', 'core');
 
 /** The only non-relative specifiers core may import. */
-const ALLOWED_EXTERNAL = [/^@nestjs\/common$/, /^@nestjs\/swagger$/, /^fastify$/, /^node:[a-z_/]+$/];
+const ALLOWED_EXTERNAL = [/^@nestjs\/common$/, /^@nestjs\/swagger$/, /^nestjs-zod$/, /^fastify$/, /^node:[a-z_/]+$/];
 
 function tsFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
@@ -34,7 +34,7 @@ function specifiersOf(file: string): string[] {
   return patterns.flatMap((re) => [...source.matchAll(re)].map((m) => m[1]));
 }
 
-describe('the core slice imports nothing but Nest, node built-ins and itself', () => {
+describe('the core slice imports nothing but Nest, nestjs-zod, node built-ins and itself', () => {
   const files = tsFiles(CORE);
 
   it('finds the slice (guards against a path that matches nothing)', () => {
@@ -66,7 +66,7 @@ describe('the core slice imports nothing but Nest, node built-ins and itself', (
     expect(offenders).toEqual([]);
   });
 
-  it('external imports are only @nestjs/common, @nestjs/swagger, fastify and node: built-ins', () => {
+  it('external imports are only @nestjs/common, @nestjs/swagger, nestjs-zod, fastify and node: built-ins', () => {
     const offenders = files.flatMap((file) =>
       specifiersOf(file)
         .filter((specifier) => !specifier.startsWith('.'))

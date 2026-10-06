@@ -25,7 +25,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { HttpExceptionFilter, defineRegistry, encryptSecret } from '@marinoscar/platform-api/core';
 ```
 
-Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, and `ErrorDto` needs `@nestjs/swagger`. `test/core/core-imports.spec.ts` pins that set (no `@prisma/client`, no other slice).
+Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, `ErrorDto` needs `@nestjs/swagger`, and `HttpExceptionFilter` needs `nestjs-zod` (it names the failing fields of a `ZodValidationException`). `test/core/core-imports.spec.ts` pins that set (no `@prisma/client`, no other slice).
 
 ## Quick start
 
@@ -252,7 +252,7 @@ None. The slice is API-side code only.
 - **Purposes.** Every secret is encrypted under a sub-key derived from its purpose, so a ciphertext copied into another column or another user's row fails authentication instead of decrypting. Per-user secrets use `userCredentialPurpose`, which binds the owner. Owner-bound sub-keys are not cached.
 - **No key material leaves the module.** Errors carry the variable name, a byte count and the generation command; decryption failures are one flat message. Nothing in the slice logs a key, a derived key or a plaintext.
 - **Byte compatibility.** The env var name, the sub-key label prefix, the IV and tag lengths, the payload layout and the error texts are fixed: changing the label makes every stored credential undecryptable. `apps/api/test/platform/secret-cipher-compat.spec.ts` decrypts ciphertexts written before the move.
-- **Error bodies.** The filter rebuilds every body from a fixed key set, so a thrown exception cannot leak extra fields; stacks are omitted from responses in `production`.
+- **Error bodies.** The filter rebuilds every body from a fixed key set, so a thrown exception cannot leak extra fields; a validation failure names the failing fields (`details.issues`) but never echoes the submitted value; stacks are omitted from responses in `production`.
 - **Host ports.** The host's access port fails closed: `definePlatformHost` refuses missing or non-decorator access functions and an empty permission list, and every packaged `forRoot` refuses a missing `host`, so a packaged route is never public. The audit port never receives secret material (`meta` is scalars only), and the settings port patches only through the app's own validated, versioned, audited path. `createTestPlatformHost` trusts a request header and is for package tests only.
 - **Principal and scope.** A `Scope` is derived from the principal, never from request input; `SystemActor` is the only unscoped path and always carries a reason.
 
