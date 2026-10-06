@@ -11,7 +11,12 @@
   // declarations of the same format.
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./src"
+    "rootDir": "./src",
+    // src/ uses no Node API (the contract also runs in the browser, and the
+    // lint forbids Node built-ins there, #701), so the build needs no
+    // @types/node: the web image builds this package without installing it.
+    // tsconfig.json keeps "node" for the tests.
+    "types": []
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
