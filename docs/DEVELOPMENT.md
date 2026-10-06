@@ -14,6 +14,7 @@ the usual workflow for schema and endpoint changes.
 6. [Testing Guidelines](#testing-guidelines)
 7. [Debugging Tips](#debugging-tips)
 8. [Development Workflow](#development-workflow)
+9. [Platform packages](#platform-packages)
 
 ---
 
@@ -484,6 +485,74 @@ Anything that outlives the request must be a queue job; see
 4. Add tests for the guard logic.
 5. Document the behaviour in
    [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md).
+
+---
+
+## Platform packages
+
+The platform is being extracted into six layer packages under `packages/`
+([platform packages spec](specs/platform-packages.md)). They are npm
+workspaces like the apps, published as `@marinoscar/platform-*`. Each one has
+its own README (see [`docs/README.md`](README.md#developer-recipes-in-the-code)).
+
+| Package | Format | Built with | Tests |
+|---|---|---|---|
+| `packages/platform-contract` | Dual CommonJS + ESM (`dist/cjs`, `dist/esm`) | `tsc` twice, then `scripts/write-dist-stubs.mjs` | Vitest |
+| `packages/platform-api` | CommonJS | `tsc` (decorator metadata) | Jest + ts-jest |
+| `packages/platform-web` | ESM, `sideEffects: false` | `tsc` | Vitest + jsdom |
+| `packages/platform-db` | CommonJS | `tsc` | Vitest |
+| `packages/platform-cli` | ESM, `sideEffects: false` | `tsc` | Vitest |
+| `packages/platform-infra` | ESM, `sideEffects: false` | `tsc` | Vitest |
+
+The formats follow the consumers: `apps/api` is CommonJS, `apps/web` and
+`apps/cli` are ESM, and only the contract (Zod DTOs shared by api and web)
+crosses runtimes, so only it is dual. Each half of the contract ships its own
+declarations, so a CommonJS consumer on `moduleResolution: node16` does not
+read ESM-format types.
+
+**Why `tsc` for the API package.** Nest dependency injection reads the
+`design:paramtypes` metadata that `emitDecoratorMetadata` emits. esbuild and
+tsup do not emit it, and Nest then injects `undefined` without an error.
+`packages/platform-api/test/index.spec.ts` compiles a decorated provider with
+the package's build options and asserts the metadata is there. Never switch
+an API-side package to esbuild, tsup or vitest.
+
+**Commands** (from the repository root):
+
+```bash
+npm run build:packages       # all six, platform-contract first
+npm run typecheck:packages
+npm run lint:packages        # boundary lint, packages/platform-*/src only
+npm run test:packages
+npm run dev:packages         # one build, then tsc --watch per package
+```
+
+Run `dev:packages` in its own terminal alongside the app dev servers. CI
+builds the packages right after `npm ci` in every job
+(`.github/workflows/ci.yml`), and `.github/workflows/packages.yml` adds the
+lint, the tests, a pack check (`scripts/check-package-pack.mjs`) and smoke
+imports.
+
+**Rules.**
+
+- An app imports a package only through its `exports` map
+  (`@marinoscar/platform-api`, later `@marinoscar/platform-api/<slice>`),
+  never `src/`, `dist/` or a slice's `internal/` folder.
+- A package never imports an app or `@app/shared`. A package that needs the
+  product name takes it as an option.
+- Single-instance libraries (`@nestjs/*`, `fastify`, `@prisma/client`, `zod`,
+  `react`, `@mui/*`, `@emotion/*`) are `peerDependencies`, never
+  `dependencies`. `package-lock.json` must keep exactly one copy of each.
+- Every folder under `packages/platform-<pkg>/src/` is a slice. A slice
+  imports another slice only when
+  [`packages/platform-slices.json`](../packages/platform-slices.json) lists
+  the edge, and only through that slice's `index.ts`. Adding a slice means
+  appending it to that file. `eslint.config.mjs` enforces this (rule B) and
+  the deep-import rule (rule A); `packages/platform-api/test/slice-graph.spec.ts`
+  checks the graph is acyclic and matches the folders on disk.
+- Do not add a platform package to `WORKSPACE_MANIFESTS` in
+  `scripts/new-project.mjs`: a fork resetting its release must not renumber
+  platform versions.
 
 ---
 

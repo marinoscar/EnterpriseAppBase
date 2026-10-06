@@ -146,6 +146,16 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // (this platform repository and the apps that consume it) as prose; they
   // are cross-repository references, not this fork's rebrand targets.
   'docs/specs/platform-packages.md',
+  // Each published platform package's `repository.url` points at the
+  // platform repository it is built from (npm provenance checks it). A fork
+  // consumes these packages unchanged, so the URL is not a rebrand target;
+  // scripts/rename.mjs never touches them (rename-script.test.ts).
+  'packages/platform-api/package.json',
+  'packages/platform-cli/package.json',
+  'packages/platform-contract/package.json',
+  'packages/platform-db/package.json',
+  'packages/platform-infra/package.json',
+  'packages/platform-web/package.json',
 ]);
 
 // Deliberately NOT allowlisted, on purpose, spelled out so nobody "fixes" this

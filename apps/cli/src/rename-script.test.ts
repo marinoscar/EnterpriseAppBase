@@ -129,6 +129,39 @@ describe('scripts/rename.mjs --dry-run reports a hit for every declared anchor',
   });
 });
 
+describe('scripts/rename.mjs never touches the platform packages', () => {
+  it('plans no edit under packages/platform-* and leaves their names alone (issue #690)', () => {
+    // `@marinoscar/platform-*` names a published npm package, not this
+    // product: a fork that renames itself still depends on the same
+    // packages, and each platform package.json carries the platform's own
+    // repository URL (which shares a prefix with anchors the codemod
+    // rewrites in README.md and install.sh). docs/RENAMING.md lists them
+    // under "never renamed".
+    const manifest = join(REPO_ROOT, 'packages', 'platform-api', 'package.json');
+    const before = readFileSync(manifest, 'utf8');
+
+    const result = run([
+      '--dry-run',
+      '--name',
+      'Rename Guard Sample',
+      '--repo',
+      'sample-owner/sample-repo',
+      '--theme',
+      '#123456',
+      '--cli-name',
+      'samplectl',
+    ]);
+
+    expect(result.status, `stderr:\n${result.stderr}`).toBe(0);
+    const planned = result.stdout.split('\n').filter((line) => /^\s*[~=] /.test(line));
+    expect(planned.length).toBeGreaterThan(0);
+    expect(planned.filter((line) => line.includes('packages/platform-'))).toEqual([]);
+    expect(result.stdout).not.toMatch(/@marinoscar\/platform-/);
+    expect(readFileSync(manifest, 'utf8')).toBe(before);
+    expect(JSON.parse(before).name).toBe('@marinoscar/platform-api');
+  });
+});
+
 describe('scripts/rename.mjs --help', () => {
   it('exits 0 and prints usage', () => {
     const result = run(['--help']);

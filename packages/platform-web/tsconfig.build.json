@@ -1,0 +1,12 @@
+{
+  // Emit config: src/ in, dist/ out, flat. Tests and vitest.config.ts are
+  // excluded so the published dist/ never puts vitest on a consumer's import
+  // graph.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"]
+}

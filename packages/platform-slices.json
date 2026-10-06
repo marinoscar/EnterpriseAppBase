@@ -1,0 +1,9 @@
+{
+  "$comment": "Slice dependency graph. A slice may import only the slices listed for it. Append-only; see docs/specs/platform-packages.md#dependency-graph.",
+  "platform-api": { "core": [], "testing": ["core"] },
+  "platform-web": {},
+  "platform-contract": {},
+  "platform-db": {},
+  "platform-cli": {},
+  "platform-infra": {}
+}

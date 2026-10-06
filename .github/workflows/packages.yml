@@ -1,0 +1,61 @@
+name: Packages
+
+# The six @marinoscar/platform-* packages (issue #690): build, typecheck,
+# lint, test, pack check and smoke imports, in one job. Later platform
+# stories append their own jobs to this file (append-only); the app jobs in
+# ci.yml already run `npm run build:packages` after `npm ci`, so an app can
+# consume a package without touching ci.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    name: Build, lint & test packages
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Dependency order (platform-contract first) is the order of the
+      # workspaces in the root script.
+      - run: npm run build:packages
+
+      - run: npm run typecheck:packages
+
+      - run: npm run lint:packages
+
+      - run: npm run test:packages
+
+      # `npm pack --dry-run` per package: every exports/main/types target and
+      # README.md are in the tarball; nothing outside `files` (no src/,
+      # test/, specs, tsconfig*.json) is.
+      - name: Pack check
+        run: node scripts/check-package-pack.mjs
+
+      # Load each package the way a consumer does, from outside its own
+      # directory: CommonJS require for api/db/contract, plain Node ESM
+      # import for web/cli/infra/contract. Catches a missing `.js` extension,
+      # a wrong `type`, or a broken dual-format stub.
+      - name: Smoke imports
+        run: |
+          node -e "require('@marinoscar/platform-api'); require('@marinoscar/platform-db'); require('@marinoscar/platform-contract')"
+          node --input-type=module -e "await import('@marinoscar/platform-web'); await import('@marinoscar/platform-cli'); await import('@marinoscar/platform-infra'); await import('@marinoscar/platform-contract')"
