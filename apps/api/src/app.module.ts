@@ -38,6 +38,7 @@ import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { DoctorModule } from './doctor/doctor.module';
 import { RetentionModule } from './common/retention/retention.module';
+import { platformHostModule } from './platform/platform-host.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -74,6 +75,13 @@ import configuration from './config/configuration';
     // Application metrics (#600): the one `app` meter every feature records
     // into. Global; a no-op unless OTEL_ENABLED installed the SDK.
     AppMetricsModule,
+
+    // The platform host ports (#696): binds AUDIT_SINK, SYSTEM_SETTINGS_STORE
+    // and PLATFORM_PRISMA to the app's adapters, once, globally, so every
+    // packaged slice (`@marinoscar/platform-api/<slice>`) reaches app-owned
+    // capabilities by token. `src/platform/` is the single place the app is
+    // bound to the platform; see platform-host.module.ts.
+    platformHostModule,
 
     // Feature modules
     CommonModule,
