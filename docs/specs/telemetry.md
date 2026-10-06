@@ -2227,6 +2227,78 @@ normalized paths are unchanged.
 unknown routes in its baseline and to name the method + path of any
 unknown-route request with a bearer.
 
+### 11.16 Theme tokens (#686)
+
+The telemetry UI (`components/telemetry/**`, `pages/Admin/Telemetry*.tsx`)
+never reads a raw MUI palette role to mean "status" or "chart series", and
+never carries a colour literal. It reads two palette roles the app's theme
+owns, declared by MUI module augmentation in `apps/web/src/theme/augment.ts`
+and read through `apps/web/src/theme/telemetryTokens.ts`. This is the
+token contract the telemetry package keeps when it is extracted
+([platform-packages.md](platform-packages.md), UI extensibility): the
+package owns structure, the app owns appearance.
+
+| Token | Meaning | Used for | Default |
+|---|---|---|---|
+| `palette.status.ok` | Healthy, succeeded | 2xx bars, "Up" cells, succeeded jobs, a good tile change | `palette.success.main` |
+| `palette.status.warn` | Needs attention | 4xx bars, warn logs, client errors, the unknown-routes highlight | `palette.warning.main` |
+| `palette.status.crit` | Failed | 5xx bars, error logs, "Down" cells, failed jobs, a bad tile change | `palette.error.main` |
+| `palette.status.info` | Informational | 3xx bars, info logs | `palette.info.main` |
+| `palette.status.neutral` | No particular status | "Other" log records | `palette.grey[500]` |
+| `palette.chart.series` | Categorical series colours, in assignment order | Metric chart lines, the tile sparkline (`series[0]`) | `primary`, `secondary`, `warning`, `success`, `error`, `info` (`.main`), then `grey[500]`, `text.primary` |
+
+**Status and series never mix.** A status token is used only where the
+colour means something (an outcome, a status class, a severity); a series
+token only where it means "a different line". Neutral chrome stays on MUI's
+own roles (`text.*`, `action.*`, `background.*`, `divider`), and `primary`
+stays the selection accent (the zoom brush, the user's chat bubble). MUI's
+semantic props (`<Alert severity>`, `<Chip color>`, `<LinearProgress
+color>`) are themed through the palette already and are left as they are.
+
+**API.** `withTelemetryTokens(theme)` returns a copy of the theme whose
+`palette.status` and `palette.chart` are complete: tokens the app set win,
+missing ones derive from that theme's own palette (the table above). It is
+pure and idempotent and does not mutate its input. `apps/web/src/theme/index.ts`
+applies it to `lightTheme` and `darkTheme`, so the defaults reproduce the
+colours the dashboard drew before the tokens existed (the visual baselines
+do not move). Components call `useTelemetryTokens()`; code handed a theme
+calls `telemetryTokens(theme)`, which applies the same defaults to a theme
+that never went through `withTelemetryTokens` (a test's `createTheme()`).
+
+**Overriding.** An app sets the tokens in its own theme options, then
+applies the defaults for the rest:
+
+```ts
+import { createTheme } from '@mui/material/styles';
+import { withTelemetryTokens } from './theme/telemetryTokens';
+
+export const theme = withTelemetryTokens(
+  createTheme({
+    palette: {
+      mode: 'light',
+      status: { crit: '#b00020' },                      // 5xx bars, error logs, "Down"
+      chart: { series: ['#0057b8', '#ffd700', '#7a1fa2'] }, // metric lines in this order
+    },
+  }),
+);
+```
+
+The augmentation's shape is deliberate: `PaletteChart { series: string[] }`
+and `Palette.chart: PaletteChart` match an existing app augmentation
+(EvoPath's), so TypeScript merges the two instead of rejecting a second,
+different declaration. `palette.chart` is an object rather than a bare
+array so later chart tokens (grid, axis) have room.
+
+**Tripwire.** `apps/web/src/__tests__/theme/telemetryTokenUsage.test.ts`
+scans the telemetry UI (comments stripped) and fails on
+`theme.palette.(success|error|warning|info|secondary|grey)`, a quoted
+`(success|error|warning|info|secondary).(main|light|dark)` path, a hex
+literal and `rgb(`/`rgba(`/`hsl(`, naming each offending line.
+`telemetryTokens.test.tsx` holds the defaults to the palette reads they
+replaced on both themes, and `telemetryTokenTheming.test.tsx` and
+`KpiTiles.test.tsx` render under an overriding theme to prove the 5xx bar,
+the error log band, the first metric line and the tile colours follow it.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -2305,3 +2377,4 @@ unknown-route request with a bearer.
   table (§11.14).
 - #650: unknown API routes and client errors (§11.15) — an `onRequest` hook writes `http.route`, `app.route.matched=false` and the `app.request.bearer` presence flag on the server span; the summary's "Unknown API routes" tile and `unknownRoutes` block; a verdict rule that degrades on any unknown-route request with a bearer (critical at 20 requests or 3 routes) and never on anonymous ones; `clientErrors`/`unknownRequests`/`unknown` on problem routes, now ordered 5xx, then 4xx except 401, then p95; `httpStatuses`, `unknownRoutes` and `unknownRoutePaths` in the assistant's `health_overview`.
 - #654: copy and download of the assistant conversation (§6) — a per-reply Copy, and header Copy conversation and Download (`.md`), all client-side Markdown from `assistantExport.ts`.
+- #686: the telemetry theme-token contract (§11.16) — `palette.status.{ok,warn,crit,info,neutral}` and `palette.chart.series` by MUI augmentation, `withTelemetryTokens` on both app themes with defaults equal to the palette reads they replace, every status and series colour in the telemetry UI read through `useTelemetryTokens()`, and a tripwire against raw palette reads and colour literals.

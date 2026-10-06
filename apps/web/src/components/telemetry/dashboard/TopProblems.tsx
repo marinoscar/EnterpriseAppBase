@@ -40,6 +40,7 @@ import type {
 import { DashboardPanel, type PanelAction } from './DashboardPanel';
 import type { DashboardLayout } from './DashboardFilterBar';
 import { formatDuration, formatRelative, formatTimestamp } from './format';
+import { useTelemetryTokens } from '../../../theme/telemetryTokens';
 
 const pct = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
 const ms = (value: number | null) => (value === null ? '—' : formatDuration(value));
@@ -70,6 +71,7 @@ const clamp = (lines: number) => ({
 });
 
 function RoutesTable({ items }: { items: DashboardTopRoute[] }) {
+  const tokens = useTelemetryTokens();
   return (
     <TableContainer sx={{ overflowX: 'auto' }}>
       <Table size="small" aria-label="Top routes">
@@ -94,12 +96,12 @@ function RoutesTable({ items }: { items: DashboardTopRoute[] }) {
                 {item.unknown && <UnknownRouteChip />}
               </TableCell>
               <TableCell align="right">{item.count.toLocaleString()}</TableCell>
-              <TableCell align="right" sx={{ color: item.errors > 0 ? 'error.main' : undefined, whiteSpace: 'nowrap' }}>
+              <TableCell align="right" sx={{ color: item.errors > 0 ? tokens.status.crit : undefined, whiteSpace: 'nowrap' }}>
                 {pct(item.errorRatePct)}
               </TableCell>
               <TableCell
                 align="right"
-                sx={{ color: (item.clientErrors ?? 0) > 0 ? 'warning.main' : undefined, whiteSpace: 'nowrap' }}
+                sx={{ color: (item.clientErrors ?? 0) > 0 ? tokens.status.warn : undefined, whiteSpace: 'nowrap' }}
               >
                 {clientErrorsText(item)}
               </TableCell>
@@ -152,6 +154,7 @@ function ErrorsTable({ items, now }: { items: DashboardTopError[]; now: number }
 }
 
 function RoutesCards({ items }: { items: DashboardTopRoute[] }) {
+  const tokens = useTelemetryTokens();
   return (
     <List disablePadding aria-label="Top routes">
       {items.map((item, index) => (
@@ -162,11 +165,11 @@ function RoutesCards({ items }: { items: DashboardTopRoute[] }) {
           </Typography>
           <Typography variant="caption" color="text.secondary">
             {item.count.toLocaleString()} req ·{' '}
-            <Box component="span" sx={{ color: item.errors > 0 ? 'error.main' : undefined }}>
+            <Box component="span" sx={{ color: item.errors > 0 ? tokens.status.crit : undefined }}>
               {pct(item.errorRatePct)} 5xx
             </Box>{' '}
             ·{' '}
-            <Box component="span" sx={{ color: (item.clientErrors ?? 0) > 0 ? 'warning.main' : undefined }}>
+            <Box component="span" sx={{ color: (item.clientErrors ?? 0) > 0 ? tokens.status.warn : undefined }}>
               {clientErrorsText(item)} 4xx
             </Box>{' '}
             · p95 {ms(item.p95Ms)}

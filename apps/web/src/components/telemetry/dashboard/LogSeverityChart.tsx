@@ -7,12 +7,13 @@
  * with `info`, the band nearest it, so the default error+warn view stays about
  * problems.
  */
-import { Box, useTheme } from '@mui/material';
+import { Box } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
 import type { DashboardLogsBucket, DashboardSeverity } from '../../../services/telemetryDashboard';
 import { timelineXAxis } from './timelineAxis';
 import { ZoomBrush } from './ZoomBrush';
 import type { TimelineChartProps } from './ApiTimelineChart';
+import { useTelemetryTokens } from '../../../theme/telemetryTokens';
 
 export interface LogSeverityChartProps extends TimelineChartProps {
   buckets: DashboardLogsBucket[];
@@ -28,13 +29,13 @@ export function LogSeverityChart({
   zoom,
   onZoomBuckets,
 }: LogSeverityChartProps) {
-  const theme = useTheme();
+  const { status } = useTelemetryTokens();
   const starts = buckets.map((bucket) => bucket.t);
   const bands: { id: keyof Omit<DashboardLogsBucket, 't'>; label: string; color: string; shown: boolean }[] = [
-    { id: 'error', label: 'Error', color: theme.palette.error.main, shown: severities.includes('error') },
-    { id: 'warn', label: 'Warn', color: theme.palette.warning.main, shown: severities.includes('warn') },
-    { id: 'info', label: 'Info', color: theme.palette.info.main, shown: severities.includes('info') },
-    { id: 'other', label: 'Other', color: theme.palette.grey[500], shown: severities.includes('info') },
+    { id: 'error', label: 'Error', color: status.crit, shown: severities.includes('error') },
+    { id: 'warn', label: 'Warn', color: status.warn, shown: severities.includes('warn') },
+    { id: 'info', label: 'Info', color: status.info, shown: severities.includes('info') },
+    { id: 'other', label: 'Other', color: status.neutral, shown: severities.includes('info') },
   ];
   const shown = bands.filter((band) => band.shown);
 

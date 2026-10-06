@@ -19,6 +19,7 @@ import { Box, Chip, List, ListItem, Typography } from '@mui/material';
 import type { DashboardUnknownRoute, DashboardUnknownRoutes } from '../../../services/telemetryDashboard';
 import { DashboardPanel, type PanelAction } from './DashboardPanel';
 import { UNKNOWN_ROUTES_ANCHOR } from './unknownRoutes';
+import { useTelemetryTokens } from '../../../theme/telemetryTokens';
 
 export const UNKNOWN_ROUTES_TITLE = 'Unknown API routes';
 
@@ -50,6 +51,7 @@ export interface UnknownRoutesPanelProps {
 
 export function UnknownRoutesPanel({ unknownRoutes, sql, actions = [], isRefreshing = false }: UnknownRoutesPanelProps) {
   const { requests, bearer, anonymous, topRoutes, truncated } = unknownRoutes;
+  const tokens = useTelemetryTokens();
   return (
     <DashboardPanel
       id="panel-unknown-routes"
@@ -63,7 +65,7 @@ export function UnknownRoutesPanel({ unknownRoutes, sql, actions = [], isRefresh
     >
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }} data-testid="unknown-routes-summary">
         {requests.toLocaleString()} {requests === 1 ? 'request' : 'requests'} to routes this API does not have:{' '}
-        <Box component="span" sx={{ color: bearer > 0 ? 'warning.main' : undefined, fontWeight: bearer > 0 ? 600 : undefined }}>
+        <Box component="span" sx={{ color: bearer > 0 ? tokens.status.warn : undefined, fontWeight: bearer > 0 ? 600 : undefined }}>
           {bearer.toLocaleString()} from the app
         </Box>
         , {anonymous.toLocaleString()} anonymous.

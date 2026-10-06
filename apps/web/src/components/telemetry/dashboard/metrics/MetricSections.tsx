@@ -17,7 +17,7 @@
  * The API decides every value, threshold and row; this only presents them.
  */
 import type { ReactNode } from 'react';
-import { Grid, Stack, Typography, useTheme, type Theme } from '@mui/material';
+import { Grid, Stack, Typography, useTheme } from '@mui/material';
 import type { DashboardResource } from '../../../../hooks/useTelemetryDashboard';
 import type {
   DashboardMetricGroup,
@@ -39,6 +39,7 @@ import {
   type MetricTableTopN,
 } from './MetricTable';
 import { metricPanelId, metricSectionAnchor, metricSectionTitle } from './metricSections';
+import { telemetryTokens, type TelemetryTokens } from '../../../../theme/telemetryTokens';
 
 type Row = DashboardMetricTable['rows'][number];
 
@@ -46,8 +47,8 @@ interface ChartSpec {
   title: string;
   /** Series keys, in legend order; every series of a key (one per `groupBy`) is drawn. */
   keys: string[];
-  /** Fixed colours per `groupBy` value (the settle outcomes). */
-  colors?: Record<string, (theme: Theme) => string>;
+  /** Fixed colours per `groupBy` value (the settle outcomes), from the telemetry status tokens. */
+  colors?: Record<string, (tokens: TelemetryTokens) => string>;
 }
 
 interface TableSpec {
@@ -109,8 +110,8 @@ export const SECTION_SPECS: Record<DashboardMetricGroup, SectionSpec> = {
         title: 'Jobs settled per minute by outcome',
         keys: ['jobsSettled'],
         colors: {
-          succeeded: (theme) => theme.palette.success.main,
-          failed: (theme) => theme.palette.error.main,
+          succeeded: (tokens) => tokens.status.ok,
+          failed: (tokens) => tokens.status.crit,
         },
       },
     ],
@@ -277,7 +278,7 @@ function SectionBody({
                 spanMs={spanMs}
                 compact={compact}
                 testId={`metric-chart-${group}`}
-                colorFor={(s) => (s.groupBy && chart.colors?.[s.groupBy] ? chart.colors[s.groupBy](theme) : undefined)}
+                colorFor={(s) => (s.groupBy && chart.colors?.[s.groupBy] ? chart.colors[s.groupBy](telemetryTokens(theme)) : undefined)}
               />
             </Grid>
           ))}

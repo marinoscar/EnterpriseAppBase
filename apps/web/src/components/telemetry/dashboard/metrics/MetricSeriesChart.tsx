@@ -11,10 +11,11 @@
  *
  * Built on `@mui/x-charts`, like the API and log timelines.
  */
-import { Box, Typography, useTheme } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { DashboardMetricSeries } from '../../../../services/telemetryDashboard';
 import { formatBucketLabel, formatMetricValue, formatTimestamp } from '../format';
+import { useTelemetryTokens } from '../../../../theme/telemetryTokens';
 
 /** Lines past this many are left out (and said so): a 20-line chart reads as noise. */
 export const METRIC_CHART_MAX_LINES = 8;
@@ -27,7 +28,7 @@ export interface MetricSeriesChartProps {
   spanMs: number;
   /** Phone: legend below and at most 4 x labels. */
   compact: boolean;
-  /** A fixed colour for a line (`outcome` → success/error); others take the palette in order. */
+  /** A fixed colour for a line (`outcome` → status ok/crit); others take `palette.chart.series` in order. */
   colorFor?: (series: DashboardMetricSeries) => string | undefined;
   testId?: string;
 }
@@ -46,7 +47,7 @@ export function MetricSeriesChart({
   colorFor,
   testId,
 }: MetricSeriesChartProps) {
-  const theme = useTheme();
+  const tokens = useTelemetryTokens();
   if (series.length === 0) return null;
   const shown = series.slice(0, METRIC_CHART_MAX_LINES);
   const hidden = series.length - shown.length;
@@ -56,17 +57,8 @@ export function MetricSeriesChart({
     (longest, s) => (s.points.length > longest.length ? s.points.map((p) => p.t) : longest),
     [],
   );
-  // Distinct hues first (primary and info are both blue in this theme).
-  const palette = [
-    theme.palette.primary.main,
-    theme.palette.secondary.main,
-    theme.palette.warning.main,
-    theme.palette.success.main,
-    theme.palette.error.main,
-    theme.palette.info.main,
-    theme.palette.grey[500],
-    theme.palette.text.primary,
-  ];
+  // The theme's categorical series (`palette.chart.series`, #686).
+  const palette = tokens.chart.series;
   const step = compact ? Math.max(1, Math.ceil(starts.length / 4)) : 1;
 
   return (

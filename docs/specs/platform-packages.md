@@ -397,7 +397,7 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 |---|---|
 | A package never creates a theme | The app owns the MUI theme |
 | Peer dependencies | React, MUI, Emotion and `@mui/x-charts` are `peerDependencies`; two MUI copies break theme context |
-| Token contract with defaults | `withTelemetryTokens(theme)` adds defaults such as `palette.status.{ok,warn,crit}` and `palette.chart.series` (matching EvoPath's existing `PaletteChart { series }`) |
+| Token contract with defaults | `withTelemetryTokens(theme)` adds defaults for `palette.status.{ok,warn,crit,info,neutral}` and `palette.chart.series` (matching EvoPath's existing `PaletteChart { series }`), derived from the theme's own palette; see [telemetry.md §11.16](telemetry.md#1116-theme-tokens-686) |
 | Styling hooks | Components accept `sx`, `className` and `slots` |
 | Pages are route-level components plus registry entries | Rendered inside the app's shell; they never import the app's Layout, navigation or auth context |
 | Split exports | Headless hooks and services under `/headless`; components under `/ui` |
@@ -406,7 +406,7 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 
 **Existing token work.** EvoPath already has `theme/tokens.ts`, `chartPalette.ts` and `augment.ts`. They become its overrides of the package defaults.
 
-**Telemetry UI today** uses about 258 theme-token references and about 33 direct palette-role reads. Those 33 reads are routed through the token contract in wave 0 ([Roadmap](#roadmap)).
+**Telemetry UI today** uses about 258 theme-token references and about 33 direct palette-role reads. Those 33 reads are routed through the token contract in wave 0 ([Roadmap](#roadmap)); done in #686, which also found one more (a quoted `warning.main` on the telemetry settings page).
 
 **Auth UX.** The package provides a headless `AuthProvider`, `useAuth`, `RequireAuth(permission)` and a callback route. The login page is composed from slots (logo, copy, providers) with `registerAuthProvider()` for additional sign-in methods.
 
