@@ -73,6 +73,7 @@ In this order:
 | [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor |
 | [runbooks/platform-drift-report.md](runbooks/platform-drift-report.md) | Measuring how far a fork has drifted from the base with `scripts/platform-drift.mjs` (maintainers) |
 | [runbooks/data-retention.md](runbooks/data-retention.md) | Seeing and changing how long each kind of data is kept, and turning audit-log retention on |
+| [runbooks/container-images.md](runbooks/container-images.md) | Finding, verifying (cosign, SBOM) and pinning the published api, web, worker and stack-agent images; making the GHCR packages public |
 
 ## Developer recipes in the code
 
