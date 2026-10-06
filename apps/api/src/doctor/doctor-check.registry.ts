@@ -24,28 +24,32 @@
 // Two checks claiming one id is always a copy-paste mistake, and reporting one
 // of them while silently dropping the other would hide exactly the check its
 // author thought they had added. Failing at boot is loud and trivially fixed.
+//
+// Built on the generic registry primitive (`common/registry/`, issue #675): an
+// INSTANCE registry with the primitive's default duplicate policy (throw), kept
+// in registration order, and frozen in `onApplicationBootstrap`, after every
+// check's `onModuleInit` has registered it. A check that registers any later is
+// a wiring mistake and fails with `FROZEN`.
 // =============================================================================
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 
+import { Registry } from '../common/registry';
 import { DoctorCheck } from './doctor-check.interface';
 
 @Injectable()
-export class DoctorCheckRegistry {
-  private readonly checks = new Map<string, DoctorCheck>();
+export class DoctorCheckRegistry implements OnApplicationBootstrap {
+  private readonly checks = new Registry<DoctorCheck>({
+    name: 'doctor-checks',
+    idOf: (check) => check.id,
+    describeDuplicate: (existing, incoming) =>
+      `Duplicate doctor check id "${incoming.id}": ${existing.constructor.name} and ` +
+      `${incoming.constructor.name} both register it. Check ids must be unique.`,
+  });
 
-  /** Adds `check`. Throws when another check already uses its id. */
+  /** Adds `check`. Throws when another check already uses its id, or after bootstrap. */
   register(check: DoctorCheck): void {
-    const existing = this.checks.get(check.id);
-
-    if (existing) {
-      throw new Error(
-        `Duplicate doctor check id "${check.id}": ${existing.constructor.name} and ` +
-          `${check.constructor.name} both register it. Check ids must be unique.`,
-      );
-    }
-
-    this.checks.set(check.id, check);
+    this.checks.register(check);
   }
 
   /** The check registered under `id`, or `undefined`. */
@@ -55,6 +59,11 @@ export class DoctorCheckRegistry {
 
   /** Every registered check, in registration order. */
   list(): DoctorCheck[] {
-    return [...this.checks.values()];
+    return this.checks.list();
+  }
+
+  /** Refuses further registrations once every module's `onModuleInit` has run. */
+  onApplicationBootstrap(): void {
+    this.checks.freeze();
   }
 }

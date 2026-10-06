@@ -684,6 +684,7 @@ Health endpoints (public, reachable during maintenance):
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
+| A registry entry (permission, setting, …) | [registry/README.md](../apps/api/src/common/registry/README.md) |
 
 ---
 

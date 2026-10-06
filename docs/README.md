@@ -86,6 +86,8 @@ READMEs that live next to the code they describe.
 | [../apps/api/src/device-auth/README.md](../apps/api/src/device-auth/README.md) | Device flow reference: schemas, fields, security rationale |
 | [../apps/api/scripts/README.md](../apps/api/scripts/README.md) | The `prisma-env.js` wrapper that builds `DATABASE_URL` |
 | [../packages/shared/README.md](../packages/shared/README.md) | Product identity: name and brand colours shared by every app |
+| [../apps/api/src/common/registry/README.md](../apps/api/src/common/registry/README.md) | Defining a registry, declaring its entries and writing its manifest; the registry behaviour apps rely on |
+| [../apps/api/src/app-registrations/README.md](../apps/api/src/app-registrations/README.md) | The app-owned seam: where a fork adds its own registry entries without editing platform files |
 
 ## Agent rules
 
