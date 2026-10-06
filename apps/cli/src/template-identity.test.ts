@@ -142,6 +142,10 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // why it must be a stable, globally-unique string, not why it happens to be
   // spelled like the product name.
   'apps/api/src/common/exceptions/verbatim-error-body.exception.ts',
+  // The platform-packages program spec names the real repositories it spans
+  // (this platform repository and the apps that consume it) as prose; they
+  // are cross-repository references, not this fork's rebrand targets.
+  'docs/specs/platform-packages.md',
 ]);
 
 // Deliberately NOT allowlisted, on purpose, spelled out so nobody "fixes" this
