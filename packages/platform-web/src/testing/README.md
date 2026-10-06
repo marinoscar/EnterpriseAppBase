@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: `createTestPlatformHost({ permissions, userId, features, responses, formatRelativeTime })` (a `PlatformWebHost` plus `requests`, the log of every call) and `createTestApiError(status, message, code?)` (a rejection shaped like the app adapter's errors).
+Does: `createTestPlatformHost({ permissions, userId, features, responses, formatRelativeTime })` (a `PlatformWebHost` plus `requests`, the log of every call) `createTestApiError(status, message, code?)` (a rejection shaped like the app adapter's errors) and `createTestBlobResponse(body, headers?)` (a canned download for the host's `getBlob`, answered from the same `responses` table under `'GET <path>'`).
 
 Does not: run in production, mock `fetch`, or replace the app's own wiring tests (the reference app keeps msw tests through its real transport and real host adapter).
 

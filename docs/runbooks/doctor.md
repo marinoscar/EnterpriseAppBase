@@ -120,7 +120,22 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 |---|---|---|
 | `network.egress` | Only with `DEPLOYMENT_NETWORK=air-gapped` (online it always passes, as an inventory). Fail: a required dependency points at the internet, such as Google as the only sign-in provider. Warn: optional ones do (an AI provider, Web Push, the docs CDN, ...); `data.public_ids` lists them. | [Air-gapped runbook](air-gapped.md): one section per dependency id, with what breaks offline and the internal alternative. |
 
-## 5. Troubleshooting
+## 5. Send a support bundle
+
+When you need help from whoever supports your deployment, send ONE file instead of screenshots: the support bundle holds the Doctor report, the versions from the About page and a 24-hour telemetry summary, with secrets and personal data removed. Design and the exact redaction rules: [Doctor spec §2.10](../specs/doctor.md#210-support-bundle).
+
+1. Open the Doctor (`/admin/settings/doctor`) and choose **Download support bundle**, next to **Run again**. The browser saves `support-bundle-<app>-<yyyyMMddTHHmmssZ>.json`.
+   Over HTTP: `curl -sS -OJ "https://<your-deployment>/api/admin/doctor/support-bundle" -H "Authorization: Bearer $TOKEN"` (`-OJ` keeps the server's filename).
+2. **Open the file before you send it.** It is plain, pretty-printed JSON; read it in any editor. Check:
+   - `redaction.rules` is `v1` and `redaction.replacements` is a number (how many values were replaced: emails, IPs, tokens, long keys, `password`-like fields);
+   - search it for anything you would not paste into a ticket: your domain, hostnames, customer names, email addresses. The bundle never includes the hostname, the domain, the deploy-info path, raw logs, traces, routes or query results, and the downloader's id and email are never written into it;
+   - each entry under `sections` is `ok`, `omitted` (with a `reason`) or `error`. `telemetry` is `omitted` unless your account holds `telemetry:query` and telemetry is on; `versions` with `deployInfoStatus: "absent"` simply means no deploy document was found.
+3. Attach the file to the ticket yourself. The application never uploads it anywhere.
+4. If the supporter needs raw telemetry rows, export them deliberately from the Telemetry Explorer (audited per query); never paste them from logs.
+
+Each download is recorded in the audit log as `support_bundle:download` (who, when, section statuses, size, replacement count). It needs `system_settings:read`, like the Doctor itself.
+
+## 6. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -131,9 +146,12 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 | The whole run takes many seconds | Telemetry checks wait on each other in a chain, up to 36 seconds when GreptimeDB is unreachable. | Fix the telemetry connection, or read the other categories while it finishes. |
 | `storage.bucket` passes but uploads fail | The check is a read and cannot prove a write. | Run **Test connection** at `/admin/settings/storage`. |
 | The API itself is down | The Doctor runs inside the API. | Run `appctl deploy doctor` on the server ([deploy runbook](deploy-to-vps.md)) and read the container logs. |
+| **Download support bundle** shows "This app's transport cannot download files" | The web app's platform host has no `getBlob`. | A code fix: see the [web slice README](../../packages/platform-web/src/doctor/README.md#troubleshooting). |
+| A bundle section is `error` with "timed out after 10000 ms" | That section's source did not answer in time; the rest of the bundle is complete. | Send it anyway and mention it; the Doctor report usually shows the cause. |
+| A bundle section is `error` with "section output did not match its schema" | The section produced a field it does not allow, so its data was dropped on purpose. | A code fix in the section; the API log names the field path. |
 | The API exits at boot with `DoctorModule.forRoot: ... is required ... never public` or `Duplicate doctor check id` | The Doctor's binding (`apps/api/src/doctor/doctor.config.ts`) lost its platform host, or two checks share an id. | A code fix, not an operator one: see the [API slice README](../../packages/platform-api/src/doctor/README.md#troubleshooting). |
 
-## 6. Summary checklist
+## 7. Summary checklist
 
 - [ ] Signed in as an Admin; no maintenance window blocking admins
 - [ ] Ran the Doctor and read the verdict
@@ -142,6 +160,7 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 - [ ] Understood every `skip` (dependency or intentionally off)
 - [ ] Used the settings page's Test button where a pass is weaker than an end-to-end test
 - [ ] **Run again**, and the verdict is what you expected
+- [ ] If asking for help: downloaded the support bundle, opened and read it, then attached it
 
 ## See also
 

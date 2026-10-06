@@ -816,7 +816,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 | Login | Google OAuth plus JWT | OIDC and SAML per org, later |
 | Storage | S3 provider only (covers AWS, MinIO and S3-compatible) | An Azure Blob provider when a client needs it |
 | AI | Anthropic, Azure OpenAI, Gemini, OpenAI, OpenAI-compatible, plus a kill switch | Already fits |
-| Telemetry | Self-hosted GreptimeDB and OTel | Add a **support bundle**: doctor results, versions and telemetry export |
+| Telemetry | Self-hosted GreptimeDB and OTel; a redacted **support bundle** (doctor results, versions and a 24-hour telemetry summary, aggregates only) at `GET /api/admin/doctor/support-bundle` (#772, [doctor spec §2.10](doctor.md#210-support-bundle)) | Already fits; the bundle's `egress` section carries the outbound-dependency inventory (hosts and scopes) |
 | Air-gapped | No CDN fonts found; SMTP is configurable; Web Push and Google login need the internet | Degrade gracefully; a doctor check that lists outbound dependencies (shipped: `network.egress` with `EgressRegistry` and `DEPLOYMENT_NETWORK`, [#773](https://github.com/marinoscar/EnterpriseAppBase/issues/773); see [the air-gapped runbook](../runbooks/air-gapped.md)) |
 | Upgrades | Customers upgrade on their own schedule | Forward-only expand/contract migrations, a supported upgrade path, the Doctor as a pre-upgrade check, release notes |
 | Supply chain | Images signed keyless with an SBOM and provenance attestation; Trivy scan reported, not blocking ([runbook](../runbooks/container-images.md)) | Make the vulnerability scan a gate once the baseline is triaged |
@@ -1075,7 +1075,7 @@ A separate track from the platform waves, in the **decided** order: EvoPath (ret
 Parallel, and only when needed:
 
 - Image signing and SBOM (early).
-- The support bundle (early).
+- The support bundle (early; shipped by #772 as a bounded synchronous download, not a queue job: [doctor spec §2.10](doctor.md#210-support-bundle)).
 - An Azure Blob storage provider.
 - A Helm chart when the first customer-cloud client appears.
 - An air-gap doctor check (shipped as `network.egress`, [#773](https://github.com/marinoscar/EnterpriseAppBase/issues/773)).

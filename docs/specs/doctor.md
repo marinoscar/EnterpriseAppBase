@@ -1,6 +1,6 @@
 # Admin Doctor
 
-> **Status:** shipped · **Code:** `@marinoscar/platform-api/doctor` (`packages/platform-api/src/doctor/`: contract, registry, service, controller factory), bound by `apps/api/src/doctor/doctor.config.ts`; checks under `apps/api/src/<module>/doctor/`; page `@marinoscar/platform-web/doctor/ui` (`packages/platform-web/src/doctor/`), bound by `apps/web/src/pages/Admin/DoctorPage.tsx`; wire schemas `@marinoscar/platform-contract/doctor` (`packages/platform-contract/src/doctor/`) · **API:** `GET /api/admin/doctor` (see `/api/docs`, tag `Doctor`) · **Admin UI:** `/admin/settings/doctor` · **Runbook:** [doctor.md](../runbooks/doctor.md) · **Recipe:** [§4](#4-extending-it-in-a-fork)
+> **Status:** shipped · **Code:** `@marinoscar/platform-api/doctor` (`packages/platform-api/src/doctor/`: contract, registry, service, controller factory), bound by `apps/api/src/doctor/doctor.config.ts`; checks under `apps/api/src/<module>/doctor/`; page `@marinoscar/platform-web/doctor/ui` (`packages/platform-web/src/doctor/`), bound by `apps/web/src/pages/Admin/DoctorPage.tsx`; wire schemas `@marinoscar/platform-contract/doctor` (`packages/platform-contract/src/doctor/`) · **API:** `GET /api/admin/doctor`, `GET /api/admin/doctor/support-bundle` (see `/api/docs`, tag `Doctor`) · **Admin UI:** `/admin/settings/doctor` · **Runbook:** [doctor.md](../runbooks/doctor.md) · **Recipe:** [§4](#4-extending-it-in-a-fork)
 
 The Doctor answers one question for an administrator: is every capability of this deployment configured, reachable and healthy? It runs a set of small, read-only checks, one per fact worth knowing, that each capability's own module contributes, and returns one report. Each row carries a status, a one-line detail and, when something needs attention, a remedy and the settings page that fixes it.
 
@@ -278,6 +278,55 @@ The contract deliberately mirrors the CLI's pre-install doctor (`apps/cli/src/de
 
 They are counterparts, not duplicates. The CLI cannot see settings stored in the database, and the API cannot see the host. When the Doctor shows the API or its dependencies as unreachable, run `appctl deploy doctor` on the server.
 
+### 2.10 Support bundle
+
+`GET /api/admin/doctor/support-bundle` (issue #772) returns ONE JSON file an operator attaches to a support ticket, instead of pasting fragments of the Doctor, About and telemetry pages. The file is the deployment's configuration and health, never its data: the Doctor's no-secret rule extended to a downloadable artefact that combines several sources.
+
+**Shape.** The envelope is `supportBundleSchema` in `@marinoscar/platform-contract/doctor`:
+
+```json
+{
+  "bundleVersion": 1,
+  "generatedAt": "2026-10-06T09:08:07.654Z",
+  "redaction": { "rules": "v1", "replacements": 4 },
+  "sections": {
+    "meta":      { "status": "ok", "data": { "platformPackages": { "@marinoscar/platform-api": "0.1.0" }, "sections": ["meta", "doctor", "versions", "telemetry"] } },
+    "doctor":    { "status": "ok", "data": { "verdict": "warn", "checks": [] } },
+    "versions":  { "status": "ok", "data": { "api": { "version": "1.4.0", "deploymentMode": "self-hosted" } } },
+    "telemetry": { "status": "omitted", "reason": "requires the telemetry:query permission" }
+  }
+}
+```
+
+Each section is `ok` (collected; `truncated: true` with `data: null` when a size cap dropped it), `omitted` (a section permission is missing or the capability is off, with a `reason`) or `error` (it threw, timed out or broke its schema; one redacted line, the data dropped). The rest of the bundle is always intact.
+
+**Sections.** A section is a registry entry (`SupportBundleRegistry`, `@marinoscar/platform-api/doctor`) with an id, a label, an optional extra permission, a STRICT zod schema and a read-only `collect()`, registered from `onModuleInit` exactly like a check ([§2.3](#23-the-registry); duplicate ids throw).
+
+| Section | Registered by | Holds | Deliberately excludes |
+|---|---|---|---|
+| `meta` | the package (`DoctorModule.forRoot`) | installed `@marinoscar/platform-*` versions, the section ids | the caller's id and email |
+| `doctor` | the package | the full report, from the 15 s cache (`run({ refresh: false })`) | nothing more: checks already obey rule 4 ([§2.1](#21-the-check-contract)) |
+| `versions` | the app's About module (`apps/api/src/about/about-support-bundle.section.ts`) | `api.{version,deploymentMode}`, `app.{name,version,commitSha,ref}`, `deployedBy`, `lastCommand`, `installedAt`, `updatedAt`, `deployInfoStatus`, `remote.{commitsBehind,checkedAt}`, `runtime.{nodeVersion,environment,processStartedAt}`, `database.status`, `host.{os,kernel,arch,cpus,memoryBytes,dockerVersion,composeVersion}`, `proxy.mode`, `history` as `{ count, last: { at, command, commitSha, cliVersion, durationMs } }` | `host.hostname`, `domain`, `deployInfoPath`, `deployInfoError` (it may echo file content), `databaseError`, `proxy.container`, `bindPort`, `run` |
+| `telemetry` | the app's telemetry module (`apps/api/src/telemetry/telemetry-support-bundle.section.ts`); needs `telemetry:query` | status (configured, reachable, store version, TTL days, retention, table names and row counts, error), stack (agent state, each container's state and health), the 24-hour dashboard summary's verdict level and reasons and its fixed and runtime tiles (`key`, `label`, `value`, `previous`, `unit`), the metric group ids | `sql`, `sparkline`, `unknownRoutes` (its top routes are request paths), the database name, `agentError`, the last deploy's output, every raw log, span, trace and explorer row |
+
+`telemetry` is `omitted` when no store is configured or telemetry is switched off. Its summary read is audited by the dashboard as `telemetry:dashboard`, exactly as when an administrator opens the dashboard, and comes from the dashboard's 15 s result cache. An `egress` section (the outbound-dependency inventory of #773) joins when that lands.
+
+**Redaction, rules v1** (`packages/platform-api/src/doctor/support-bundle/redact.ts`, pure, table-tested). It runs over every section AFTER its schema, as a second line of defence; every replacement is counted in `redaction.replacements`.
+
+- **Key-based.** A property whose name matches `/pass(word)?|secret|token|api[_-]?key|private[_-]?key|authorization|cookie|credential|fingerprint|hint|dsn|connection[_-]?string/i` has its non-null value replaced by `"[redacted]"`.
+- **Value-based**, in every string and every property name, in this order: PEM blocks → `[pem]`; `Bearer <token>` (a token holding a non-letter) → `Bearer [redacted]`; JWTs → `[jwt]`; URL userinfo → `scheme://[redacted]@host`; URL query strings (with a scheme, or a path starting `/`) → `?[redacted]`; `pat_…` and `nod_…` tokens → `[token]`; AWS access key ids (`AKIA…`, `ASIA…`) → `[aws-key]`; email addresses → `[email]`; IPv6 (validated, so times and `a::b` survive) and IPv4 literals → `[ip]`; runs of 32+ base64/hex characters → `[redacted]` (hex with dashes counts, so a UUID user id is redacted; runs made only of words, such as URL paths and `snake_case` names, survive).
+- **Path allowlist.** A value that is exactly a 40-hex commit SHA survives only at `sections.versions.data.app.commitSha` and `sections.versions.data.history.last.commitSha` (`COMMIT_SHA_ALLOWED_PATHS`); anywhere else it is redacted. An explicit path list, not a relaxed pattern.
+
+Over-redaction is the accepted failure: a supporter can ask for a value; a leaked key cannot be recalled.
+
+**Bounds, and why it is not a queue job.** The work is bounded and finishes inside the request, like the telemetry export ("in memory, and bounded"): sections run in parallel, each cut off after its `timeoutMs` (default 10 s, `supportBundle.sectionTimeoutMs`); the doctor section reads the 15 s report cache, so a download never multiplies probes; the telemetry summary reads the dashboard's 15 s result cache; and the file is capped at 512 KiB per section and 2 MiB in all (pretty-printed JSON; the largest sections are truncated first). A build therefore takes at most the longest section timeout. A fork that registers a slow section is bounded by that section's timeout. Nothing is stored: no object, no row beyond the audit event.
+
+**Access.** The same `system_settings:read` as the report (no new permission: the content is the deployment's configuration and health, which that permission covers); a section may require one more and is `omitted` for a caller without it. Not `@AllowDuringMaintenance()`, like the report ([§2.6](#26-access-and-maintenance-mode)). The response is the file itself (not the `{ data }` envelope): `Content-Type: application/json; charset=utf-8`, `Content-Disposition: attachment; filename="support-bundle-<APP_SLUG>-<yyyyMMdd'T'HHmmss'Z'>.json"`, `Cache-Control: no-store`.
+
+**Audit.** One `support_bundle:download` event per download, written through the host's `AUDIT_SINK` after the body is built: `targetType: 'deployment'`, `targetId: 'support_bundle'`, `meta: { sections: 'meta=ok,doctor=ok,versions=ok,telemetry=omitted', bytes, replacements }`. The actor is the event's `actorUserId`; no email. A failed audit write is logged, not fatal.
+
+**Web.** The Doctor page's header has a **Download support bundle** button next to **Run again**, with the helper text "Includes the doctor report, versions and a 24-hour telemetry summary. Secrets and personal data are removed." It is visible to anyone who can see the page. `useSupportBundleDownload` (`@marinoscar/platform-web/doctor/headless`) fetches the file through the host transport's `getBlob` and saves it under the server's filename. No card, route or tab is added (Settings UI Pattern): the action lives on the existing Doctor destination.
+
 ## 3. Configuration and permissions
 
 The Doctor has no settings, no environment variables and no database tables. The constants are in code: the 5000 ms default timeout and the 15 s cache TTL (the defaults of `DoctorModule.forRoot`'s `defaultTimeoutMs` and `cacheTtlMs`, which the reference app does not override), the thresholds inside each check (`DB_SLOW_LATENCY_MS`, `BACKUP_MAX_AGE_HOURS`, `JOBS_OLDEST_PENDING_WARN_MINUTES`, `JWT_MIN_SECRET_LENGTH`).
@@ -287,6 +336,7 @@ The Doctor has no settings, no environment variables and no database tables. The
 | Route | Purpose | Permission |
 |---|---|---|
 | `GET /api/admin/doctor` | Run every check (or one `category`) and return the report | `system_settings:read` |
+| `GET /api/admin/doctor/support-bundle` | Download the redacted support bundle ([§2.10](#210-support-bundle)) | `system_settings:read` (the `telemetry` section also needs `telemetry:query`) |
 
 | Query | Type | Effect |
 |---|---|---|
@@ -380,6 +430,37 @@ export class ReportQuotaDoctorCheck implements DoctorCheck, OnModuleInit {
 
 **Add a web surface.** None is needed: the page renders whatever the API returns.
 
+**Add a support-bundle section.** A section belongs to the module that owns the facts, like a check ([§2.10](#210-support-bundle)). The reference example is `apps/api/src/about/about-support-bundle.section.ts`.
+
+1. Create `apps/api/src/<module>/<module>-support-bundle.section.ts`: an `@Injectable()` implementing `SupportBundleSection` and `OnModuleInit`, which injects `SupportBundleRegistry` and calls `this.registry.register(this)`.
+2. Give it a lowercase `id` (unique; a duplicate throws at boot), a `label`, and a STRICT schema: `.strict()` on every object, so a field nobody chose fails the section closed instead of leaking.
+3. In `collect()`, COPY the fields you mean to send into a new object; never spread a service's response. Return `omitSupportBundleSection('<why>')` when the capability is off.
+4. Declare `permission` when the facts need more than `system_settings:read` (telemetry declares `telemetry:query`), and `timeoutMs` if it can legitimately exceed 10 s.
+5. Read only, like a check: no writes, jobs, model calls or "test" services. Aggregates and counts, never rows.
+6. Add the class to the module's `providers`, and a spec that parses `collect()`'s output with the schema and asserts what is excluded.
+
+```ts
+@Injectable()
+export class ReportsSupportBundleSection implements SupportBundleSection<ReportsSectionData>, OnModuleInit {
+  readonly id = 'reports';
+  readonly label = 'Reports';
+  readonly schema = z.object({ quotaUsed: z.number().int(), quotaLimit: z.number().int() }).strict();
+
+  constructor(private readonly registry: SupportBundleRegistry, private readonly reports: ReportsService) {}
+
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
+
+  async collect(): Promise<ReportsSectionData> {
+    const usage = await this.reports.usage();
+    return { quotaUsed: usage.used, quotaLimit: usage.limit };
+  }
+}
+```
+
+The central redaction pass still runs over your section, but it is the second line of defence: your schema is the first.
+
 ## 5. Guardrails
 
 | Invariant | Test |
@@ -395,6 +476,10 @@ export class ReportQuotaDoctorCheck implements DoctorCheck, OnModuleInit {
 | Every packaged page the app uses has exactly one card (built from its descriptor) and one route, gated on the permission the packaged controller enforces | `apps/web/src/__tests__/config/platformPages.test.ts` |
 | App wiring: title matches its card, loading skeleton, request error with retry, mixed report, all-pass, Problems only, Run again sends `refresh=true` (msw through the real transport and host adapter), phone width, redirect without `system_settings:read`, category labels | `apps/web/src/__tests__/pages/Admin/DoctorPage.test.tsx` |
 | Packaged page: loading skeleton, request error and retry, mixed report ordering, Problems only, `refresh=true`, unknown category title-cased, custom categories, `slots.Header` and `sx`, the host's time formatter, `palette.status` tokens | `packages/platform-web/test/doctor/doctor-page.test.tsx` |
+| Support bundle, package: redaction rules v1 table (positive and negative per rule, the commit-SHA path allowlist), registry (duplicate and invalid ids, frozen), service (parallel sections, permission omission, throw, timeout with abort, strict-schema failure, 512 KiB and 2 MiB caps, central redaction count, section ids never treated as keys, audit row, failed audit), route through `forRoot` (401/403/200, headers, contract parse, `supportBundle: false`, OpenAPI), built-in sections | `packages/platform-api/test/doctor/support-bundle/*.spec.ts` |
+| Support bundle, app: exact permission, 401/403/200, attachment headers and filename, `supportBundleSchema` parse, every app section, the versions allowlist, telemetry omitted (no `telemetry:query`, no store, switched off) and present (24-hour verdict and tiles, no `sql`), one audit row without email, under 15 s | `apps/api/test/doctor/support-bundle.integration.spec.ts` |
+| Support bundle secret egress: JWT secret, encryption key, VAPID private key, SMTP password, AI org key, a user BYOK key, GreptimeDB reader and admin passwords, storage secret key, a PAT, a node token, an email, a user id and an IP (via a leaky check) never appear in the file, its headers or the audit row, raw, base64, base64url or hex | `apps/api/test/doctor/support-bundle-secret-egress.integration.spec.ts` |
+| Support bundle, web: `filenameFromContentDisposition`, the hook (request, filename, 403, missing `getBlob`), the button and the page; the app transport's `getBlob` and the download through msw | `packages/platform-web/test/doctor/support-bundle.test.tsx`, `apps/web/src/__tests__/platform/platformHost.test.tsx`, `apps/web/src/__tests__/pages/Admin/DoctorPage.test.tsx` |
 | Hook and client: loads on mount without refresh, a failing verdict is data rather than an error, `403` message, network fallback message, `rerun` sends `refresh=true` and clears a previous error, explicit client, moved path | `packages/platform-web/test/doctor/headless.test.tsx` |
 | Egress inventory: host classification table (no DNS), `egressDependency` reduces to hostnames and caps hosts, `EgressRegistry` duplicates throw and freeze, `gradeEgress` table (online inventory, air-gapped pass/warn/fail, `unknown` as public), a throwing contributor becomes one `unknown` entry, scalars only in `data`, the check is the app's to contribute | `packages/platform-api/test/doctor/egress/*.spec.ts` |
 | `network.egress` through the real app: one row for `category=network`, the three air-gapped scenarios, no seeded secret, URL path, query or userinfo on the wire or in the full inventory, no network I/O with `fetch`, `dns.lookup` and `net.connect` stubbed to throw, every module contributor registered | `apps/api/test/doctor/network-egress.integration.spec.ts`; each contributor's spec under `apps/api/src/<module>/doctor/egress/` |
@@ -413,6 +498,10 @@ The read-only rule has no single tripwire suite that scans every check for calls
 - **Always `200`.** A `503` from a diagnostic withholds the list of what is wrong, exactly when it is wanted.
 - **In-process cache, not a stored report.** Fifteen seconds is long enough that a polling page or two administrators do not multiply the probes, and short enough that "Run again" is rarely needed. A stored report would be stale by the time anyone read it.
 - **Dependencies skip rather than cascade failures.** "Bucket unreachable" beneath "storage not configured" is noise and would only time out. `skip` names the cause in its detail and keeps the real problem at the top.
+- **The support bundle is a bounded request, not a queue job** ([§2.10](#210-support-bundle)). Rejected: a job writing the bundle to object storage, which adds retention and access questions and fails on air-gapped installs with no storage configured.
+- **The support bundle carries aggregates, never raw telemetry.** Rejected: a zip with raw logs and the last N traces (log bodies, routes with ids and user agents are personal data). A supporter who needs rows asks the operator for a Telemetry Explorer export, which is audited per query.
+- **Redaction by key AND by value.** Doctor `detail` and verdict reasons are free text, so key names alone would miss an address or an IP in a sentence. Rejected: key-only redaction.
+- **No `support:read` permission.** The bundle is the deployment's configuration and health, which `system_settings:read` covers; telemetry keeps its own `telemetry:query` gate per section.
 - **The stack agent is not a Doctor check.** The stack agent only powers the "Deploy / redeploy telemetry services" button; telemetry capture never calls it. A check on it reported a stopped agent as a telemetry `warn` on a VPS where capture was healthy, which misleads the operator. The agent's state is shown where it matters, on the Telemetry settings page ([telemetry spec §10](telemetry.md#the-admin-deploy-flow)). Rejected: keeping the check as informational only (the report has no such status).
 
 ## 7. Verification
@@ -435,6 +524,7 @@ By hand, with the app running and signed in as an Admin:
 4. With a bearer token: `curl -H "Authorization: Bearer $TOKEN" "http://localhost:3535/api/admin/doctor?category=core&refresh=true"` returns only `core` rows.
 5. A second call within 15 s without `refresh` returns the same `generatedAt`.
 6. As a Viewer, the same call answers `403`.
+7. Click **Download support bundle**. A file `support-bundle-<slug>-<timestamp>.json` downloads; it parses as JSON, `redaction.rules` is `v1`, and searching it for your email or the server's hostname finds nothing.
 
 ## History
 
@@ -443,6 +533,7 @@ By hand, with the app running and signed in as an Admin:
 - PP-1.11 (#682) added `core.event-bus`.
 - #685 added `core.deployment-mode` (platform-packages PP-1.14).
 - PP-1.12 (#683) added `auth.principal-cache`.
+- #772 (platform-packages PP-13.1) added the support bundle: `GET /api/admin/doctor/support-bundle`, `SupportBundleRegistry` with the built-in `meta` and `doctor` sections and the app's `versions` and `telemetry` sections, redaction rules v1, the `support_bundle:download` audit event, and the **Download support bundle** button.
 - #696 (platform-packages PP-2.7) moved the framework into `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor/{headless,ui}`, defined the host ports every packaged slice reuses, and left the app its binding (`doctor.config.ts`, the page binding) and its checks. `DOCTOR_CATEGORIES` became `PLATFORM_DOCTOR_CATEGORIES` (alias kept); a category is added with `categoryOrder` / `categories` instead of editing a list. No behaviour, route, permission or OpenAPI change.
 - PP-13.2 (#773) added `network.egress`, the egress inventory (`EgressRegistry`, `EgressContributor`, `classifyHost`) and `DEPLOYMENT_NETWORK`; `network` joined `PLATFORM_DOCTOR_CATEGORIES`.
 - #701 (platform-packages PP-3.4) moved the schemas and wire types into `@marinoscar/platform-contract/doctor`, the first contract slice: the API's DTOs wrap them, the web types come from them, and the hand-written web mirrors are gone. Both packages re-export the old names. The OpenAPI document is byte-identical and the web bundle carries no zod.
