@@ -10,6 +10,13 @@ Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 "The Extension Contract" (rung 2) and "What an extension may and may not rely
 on". The app-owned seam: [app-registrations/README.md](../../app-registrations/README.md).
 
+**Worked examples.** The first real static registries are the role and
+permission registries: [common/permissions/README.md](../permissions/README.md)
+(declaration files beside each module, a manifest, an app-owned file, module
+augmentation for typed ids, and a generated seed catalog for code that cannot
+import `src/`). Read it alongside the recipe below, whose names are
+illustrative.
+
 ## Files
 
 | File | What it holds |

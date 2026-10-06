@@ -454,8 +454,10 @@ end-to-end and visual tests) is in [TESTING.md](TESTING.md). In short:
    ```bash
    npm run prisma:generate
    ```
-4. If the change needs seed data, edit `prisma/seed.ts` (and
-   `prisma/seed-data.ts` for roles and permissions), then run
+4. If the change needs seed data, edit `prisma/seed.ts` (roles and
+   permissions are declared beside their modules instead: see
+   [common/permissions/README.md](../apps/api/src/common/permissions/README.md),
+   then run `npm run catalog:permissions --workspace=api`), then run
    `npm run prisma:seed`.
 
 The project configures the database with individual `POSTGRES_*` variables,

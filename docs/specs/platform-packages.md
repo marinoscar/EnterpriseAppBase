@@ -452,7 +452,7 @@ All of these are additive calls made from the app's own module. None of them tou
 
 ```ts
 // Rung 2: registries (additive, typed, string ids)
-registerPermissions([{ id: 'workouts:read', description: 'Read own workouts' }]);
+registerPermissions([{ id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'viewer'] }]);
 registerSettingsNamespace('coach', coachSettingsSchema);          // a zod schema
 registerNotificationTemplate('coach.weekly-review', weeklyReviewTemplate);
 registerJobHandler(new WeeklyReviewHandler());                    // job type id is permanent
@@ -465,7 +465,7 @@ TelemetryModule.forRoot({ dashboard: { verdictThresholds: coachThresholds } });
 { provide: VERDICT_POLICY, useClass: CoachVerdictPolicy }
 ```
 
-Existing precedent in the base: Doctor checks and job handlers already register themselves this way ([doctor spec](doctor.md), [job queue spec](job-queue.md)).
+Existing precedent in the base: Doctor checks and job handlers already register themselves this way ([doctor spec](doctor.md), [job queue spec](job-queue.md)). Permissions and roles are the first static registry: an app declares them as data in `apps/api/src/app-registrations/permissions.ts`, and the permission manifest passes them to `registerPermissions()` after the platform's ([permissions README](../../apps/api/src/common/permissions/README.md)).
 
 #### Data
 
@@ -635,6 +635,7 @@ flowchart LR
 - **Never rewrite a released `migration.sql`.** Prisma's checksum covers SQL comments, so even a comment-only edit breaks every database that already applied it.
 - **Declared deviations.** An app that alters a package-owned table (EvoPath's `push_subscriptions.platform`) records it in the lock file as a declared deviation, so the drift test accepts it knowingly.
 - **Seeds:** `seedPlatform(registry)` runs first, then the app's own seed. Both are idempotent.
+- **Seeds read generated catalogs, never `src/`.** The seed runs in the production image, which carries `dist/` and `prisma/` only. Registry data a seed needs is generated into a committed file under `prisma/catalog/` with a `--check` mode and a staleness test. The first is `prisma/catalog/permissions.json` (#676): roles, permissions and default grants, from the permission registry.
 - **Install order** follows each slice's `requires`.
 - **CI drift test:** compose the schema from fragments, diff it against the migrations, and allow only the listed raw-SQL indexes (platform and app-contributed) and the declared deviations.
 - **Big-table changes** use concurrent index builds.

@@ -437,10 +437,26 @@ Three seeded roles:
 - **Viewer**: the default for new users. Manage own settings, read storage.
 
 The full permission list and the role-to-permission matrix are in
-[ARCHITECTURE.md](ARCHITECTURE.md#7-authorization). Seed data lives in
-`apps/api/prisma/seed-data.ts` (`ROLE_PERMISSIONS`); `npm run prisma:seed`
-upserts it, so re-seeding an existing database adds new permissions without
-duplicating grants.
+[ARCHITECTURE.md](ARCHITECTURE.md#7-authorization).
+
+Where RBAC data is declared: each permission, with its description and
+default role grants, in a declaration file beside the module whose controller
+enforces it (`apps/api/src/<module>/<module>.permissions.ts`); the three roles
+in `apps/api/src/common/permissions/platform-roles.ts`; an app's own roles and
+permissions in `apps/api/src/app-registrations/permissions.ts`. The role and
+permission registries (`apps/api/src/common/permissions/`) validate them at
+import time (id shape, non-empty description, every grant names a registered
+role, no duplicate id), so a malformed declaration stops the API from
+starting. `roles.constants.ts` derives the `PERMISSIONS` constants `@Auth()`
+names from the same files, so the enforced string and the seeded string
+cannot drift.
+
+The seed runs in the production image, which has no `src/`, so it reads a
+generated, committed catalog: `apps/api/prisma/catalog/permissions.json`
+(`npm run catalog:permissions --workspace=api`; a test fails when it is
+stale). `npm run prisma:seed` upserts it, so re-seeding an existing database
+adds new permissions without duplicating grants, and never removes a grant an
+administrator revoked.
 
 ### Guards
 
@@ -1099,7 +1115,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | Guards and decorators | `apps/api/src/auth/guards/` (`jwt-auth.guard.ts`, `roles.guard.ts`, `permissions.guard.ts`, `google-oauth.guard.ts`), `apps/api/src/auth/decorators/` |
 | Token cleanup | `apps/api/src/auth/tasks/token-cleanup.task.ts`, `auth/handlers/token-cleanup.handler.ts` |
 | Admin bootstrap | `apps/api/src/common/services/admin-bootstrap.service.ts` |
-| Roles and permissions | `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/seed-data.ts` |
+| Roles and permissions | `apps/api/src/common/permissions/` (registries, manifest, recipe), `apps/api/src/*/*.permissions.ts` (declarations), `apps/api/src/common/constants/roles.constants.ts` (derived constants), `apps/api/prisma/catalog/permissions.json` (generated seed catalog), `apps/api/prisma/seed-data.ts` |
 | Allowlist | `apps/api/src/allowlist/` |
 | PATs | `apps/api/src/pat/` |
 | Device flow | `apps/api/src/device-auth/` |
