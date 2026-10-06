@@ -22,6 +22,25 @@ export interface PlatformApiClient {
   patch<T>(path: string, body?: unknown, options?: { ifMatch?: string }): Promise<T>;
   /** `DELETE path`. */
   delete<T>(path: string): Promise<T>;
+  /**
+   * `GET path` for a file download: the raw body and the response headers
+   * (for `Content-Disposition`), never the `{ data }` envelope. Optional: a
+   * transport without it cannot serve downloads (the support bundle's
+   * `useSupportBundleDownload` reports so instead of failing silently).
+   */
+  getBlob?(path: string): Promise<PlatformBlobResponse>;
+}
+
+/**
+ * What {@link PlatformApiClient.getBlob} resolves with.
+ *
+ * @stability experimental
+ */
+export interface PlatformBlobResponse {
+  /** The response body. */
+  blob: Blob;
+  /** The response headers (only `get` is needed). */
+  headers: { get(name: string): string | null };
 }
 
 /**

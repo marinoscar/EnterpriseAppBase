@@ -12,3 +12,12 @@ export { useDoctor } from './use-doctor.js';
 export type { UseDoctorReturn } from './use-doctor.js';
 export { PLATFORM_DOCTOR_CATEGORY_LABELS, categoryLabel } from './categories.js';
 export type { DoctorCategoryLabel } from './categories.js';
+export {
+  SUPPORT_BUNDLE_PATH,
+  filenameFromContentDisposition,
+  useSupportBundleDownload,
+} from './use-support-bundle-download.js';
+export type {
+  UseSupportBundleDownloadOptions,
+  UseSupportBundleDownloadReturn,
+} from './use-support-bundle-download.js';
