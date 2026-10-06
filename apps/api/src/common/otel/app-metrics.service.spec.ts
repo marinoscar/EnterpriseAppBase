@@ -440,3 +440,146 @@ describe('AppMetricsService', () => {
     });
   });
 });
+
+// =============================================================================
+// Baseline pinned on `main` before the app-metric registry (issue #680)
+// =============================================================================
+//
+// Every instrument must keep its exact name, kind, unit, description and
+// bucket boundaries: they are the OTLP descriptor, and so the GreptimeDB table
+// name and every dashboard query that reads it. A recording meter captures the
+// create calls verbatim and delegates to a real SDK meter.
+// =============================================================================
+
+interface CreatedInstrument {
+  kind: 'counter' | 'histogram' | 'gauge';
+  name: string;
+  options: unknown;
+}
+
+function recordingMeter(): { meter: AppMetricsOptions['meter']; created: CreatedInstrument[] } {
+  const inner = new MeterProvider({ readers: [new TestReader()] }).getMeter('app');
+  const created: CreatedInstrument[] = [];
+  const meter = {
+    createCounter: (name: string, options?: unknown) => {
+      created.push({ kind: 'counter', name, options });
+      return inner.createCounter(name, options as never);
+    },
+    createHistogram: (name: string, options?: unknown) => {
+      created.push({ kind: 'histogram', name, options });
+      return inner.createHistogram(name, options as never);
+    },
+    createObservableGauge: (name: string, options?: unknown) => {
+      created.push({ kind: 'gauge', name, options });
+      return inner.createObservableGauge(name, options as never);
+    },
+    addBatchObservableCallback: (...args: Parameters<typeof inner.addBatchObservableCallback>) =>
+      inner.addBatchObservableCallback(...args),
+  };
+  return { meter: meter as unknown as AppMetricsOptions['meter'], created };
+}
+
+const BASELINE_APP_METRIC_NAMES = {
+  jobsEnqueued: 'app.jobs.enqueued',
+  jobsClaimed: 'app.jobs.claimed',
+  jobsSettled: 'app.jobs.settled',
+  jobsDuration: 'app.jobs.duration',
+  jobsReaped: 'app.jobs.reaped',
+  jobsQueueDepth: 'app.jobs.queue.depth',
+  jobsOldestPendingAge: 'app.jobs.oldest_pending.age',
+  backupRuns: 'app.backup.runs',
+  backupDuration: 'app.backup.duration',
+  backupSize: 'app.backup.size',
+  backupLastSuccessTimestamp: 'app.backup.last_success.timestamp',
+  backupLastSuccessSize: 'app.backup.last_success.size',
+  authLogins: 'app.auth.logins',
+  authRefreshes: 'app.auth.refreshes',
+  aiRequests: 'app.ai.requests',
+  aiTokens: 'app.ai.tokens',
+  aiDuration: 'app.ai.request.duration',
+  notificationDeliveries: 'app.notifications.deliveries',
+  nodesCount: 'app.nodes.count',
+  nodesCpuUtilization: 'app.nodes.cpu.utilization',
+  nodesMemoryRss: 'app.nodes.memory.rss',
+  nodesHeapUsed: 'app.nodes.heap.used',
+  nodesHeapLimit: 'app.nodes.heap.limit',
+  nodesEventLoopDelayP99: 'app.nodes.event_loop.delay.p99',
+  nodesStateDirFree: 'app.nodes.state_dir.free',
+  nodesStateDirTotal: 'app.nodes.state_dir.total',
+  nodesSlotsUsed: 'app.nodes.slots.used',
+  nodesSlotsTotal: 'app.nodes.slots.total',
+  nodesUptime: 'app.nodes.uptime',
+  nodesCounter: 'app.nodes.counter',
+  nodesTypesNoEligibleNode: 'app.nodes.types.no_eligible_node',
+};
+
+describe('AppMetricsService baseline (#680)', () => {
+  it('keeps APP_METRIC_NAMES (31 names, same keys)', () => {
+    expect(APP_METRIC_NAMES).toEqual(BASELINE_APP_METRIC_NAMES);
+    expect(Object.keys(APP_METRIC_NAMES)).toHaveLength(31);
+  });
+
+  it('creates every counter, histogram and gauge with its exact name, unit, description and buckets', () => {
+    const { meter, created } = recordingMeter();
+    const config = { get: jest.fn((key: string) => (key === 'otel.enabled' ? true : undefined)) };
+    const service = new AppMetricsService(
+      prismaStub() as unknown as PrismaService,
+      config as unknown as ConfigService,
+      { meter, now: () => 0, gateOpen: () => false },
+    );
+    service.registerGauges();
+
+    expect(created).toEqual([
+      { kind: 'counter', name: 'app.jobs.enqueued', options: { description: 'Jobs inserted into the queue (dedup hits excluded).', unit: '{job}' } },
+      { kind: 'counter', name: 'app.jobs.claimed', options: { description: 'Jobs claimed by an executor.', unit: '{job}' } },
+      { kind: 'counter', name: 'app.jobs.settled', options: { description: 'Executor reports settled by the terminal state machine, by outcome.', unit: '{job}' } },
+      {
+        kind: 'histogram',
+        name: 'app.jobs.duration',
+        options: {
+          description: 'Run time of one job attempt, from claim to settlement.',
+          unit: 's',
+          advice: { explicitBucketBoundaries: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600] },
+        },
+      },
+      { kind: 'counter', name: 'app.jobs.reaped', options: { description: 'Abandoned running jobs recovered by the lease reaper.', unit: '{job}' } },
+      { kind: 'counter', name: 'app.backup.runs', options: { description: 'Database backup runs settled, by outcome.', unit: '{run}' } },
+      {
+        kind: 'histogram',
+        name: 'app.backup.duration',
+        options: {
+          description: 'Wall time of a settled database backup run.',
+          unit: 's',
+          advice: { explicitBucketBoundaries: [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400] },
+        },
+      },
+      {
+        kind: 'histogram',
+        name: 'app.backup.size',
+        options: {
+          description: 'Size of a completed, verified database backup archive.',
+          unit: 'By',
+          advice: { explicitBucketBoundaries: [1e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10, 5e10, 1e11] },
+        },
+      },
+      { kind: 'counter', name: 'app.auth.logins', options: { description: 'Interactive sign-in attempts, by provider and outcome.', unit: '{login}' } },
+      { kind: 'counter', name: 'app.auth.refreshes', options: { description: 'Refresh-token rotations, by outcome.', unit: '{refresh}' } },
+      { kind: 'counter', name: 'app.ai.requests', options: { description: 'AI provider round-trips, by provider, model, operation and status.', unit: '{request}' } },
+      { kind: 'counter', name: 'app.ai.tokens', options: { description: 'AI tokens reported by the provider, by token_type (input|output).', unit: '{token}' } },
+      {
+        kind: 'histogram',
+        name: 'app.ai.request.duration',
+        options: {
+          description: 'Latency of one AI provider round-trip.',
+          unit: 's',
+          advice: { explicitBucketBoundaries: [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300] },
+        },
+      },
+      { kind: 'counter', name: 'app.notifications.deliveries', options: { description: 'Notification delivery attempts, by channel, event and outcome.', unit: '{delivery}' } },
+      { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
+      { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },
+      { kind: 'gauge', name: 'app.backup.last_success.timestamp', options: { description: 'When the most recent completed database backup finished (unix seconds).', unit: 's' } },
+      { kind: 'gauge', name: 'app.backup.last_success.size', options: { description: 'Size of the most recent completed database backup archive.', unit: 'By' } },
+    ]);
+  });
+});
