@@ -13,3 +13,10 @@ export type {
 } from './egress.types';
 export { EgressRegistry } from './egress.registry';
 export { classifyHost, egressDependency, hostnameOf, scopeOfHosts } from './classify-host';
+export {
+  AIR_GAPPED_RUNBOOK,
+  NETWORK_EGRESS_CHECK_ID,
+  NetworkEgressDoctorCheck,
+  describeEgress,
+  gradeEgress,
+} from './network-egress.doctor-check';
