@@ -276,6 +276,20 @@ Admin only. They are distinct from `system_settings:*` and from `storage:*`
   and have `ResolvingStorageProvider` build it.
 - **Never** add an environment variable for provider, bucket, region,
   endpoint or credential.
+- **Write under a new key prefix:** declare it, or `npm run storage:purge`
+  (`appctl deploy uninstall --purge-storage`) leaves its objects in the
+  bucket. The purge enumerates only the prefixes registered in the storage
+  key-prefix registry (`apps/api/src/storage/storage-key-prefix.registry.ts`),
+  never a filtered listing of the whole bucket, because a filter can be
+  inverted by a later edit and a fixed enumeration cannot. A platform module
+  adds a `StorageKeyPrefixDef` (`id`, `prefix`, `owner`, `description`) to
+  `storage/platform-storage-prefixes.ts`; an app adds its own to
+  `apps/api/src/app-registrations/storage-prefixes.ts` and never edits a
+  platform file. A prefix ends with exactly one `/`, has no leading `/` and no
+  `//`, and neither repeats nor overlaps another registered prefix; anything
+  else fails at import time with a `RegistryError`. Name the writer's constant
+  `*_KEY_PREFIX`: `storage-key-prefixes.spec.ts` scans `apps/api/src` for every
+  such literal and fails on one no registered prefix covers.
 
 ## 5. Guardrails
 
@@ -289,6 +303,7 @@ Admin only. They are distinct from `system_settings:*` and from `storage:*`
 | Four checks, `skipped` vs `failed`, 404 vs 403, redaction, auditing | `apps/api/src/storage/config/storage-connection-test.service.spec.ts` |
 | CORS rule, `LocationConstraint`, all outcomes, `guided` with real values, runbook path | `apps/api/src/storage/config/storage-bucket-provision.service.spec.ts` |
 | Permissions per route; no secret in any response; probes answer `200` | `apps/api/test/settings/storage-config.integration.spec.ts` |
+| Key prefixes: well formed, no overlap, rejected at import time; every `*_KEY_PREFIX` literal in `apps/api/src` registered; writers match their entries; the purge enumerates exactly the registered prefixes | `apps/api/src/storage/storage-key-prefix.registry.spec.ts`, `apps/api/src/storage/storage-key-prefixes.spec.ts`, `apps/api/src/storage/purge/storage-purge.main.spec.ts` |
 
 The unit suites mock the AWS SDK. They prove request shapes and error
 classification, not live vendor behaviour.

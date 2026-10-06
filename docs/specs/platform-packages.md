@@ -348,7 +348,7 @@ Prefer earlier rungs. Move down only when the earlier rung cannot express the ne
 | Rung | Mechanism | Example |
 |---|---|---|
 | 1 | **Options** in `forRoot()`, merged over defaults | Tune values: EvoPath's own verdict thresholds (`DASHBOARD_VERDICT_THRESHOLDS`) |
-| 2 | **Registries** (`register...()`), additive and typed | `registerMetricGroup(coachGroup)`, `registerPermissions()`, `registerSettingsNamespace(zodSchema)`, `registerKeyPrefix()`, notification events, templates and channels, a user-owned-data registry, doctor checks, job handlers |
+| 2 | **Registries** (`register...()`), additive and typed | `registerMetricGroup(coachGroup)`, `registerPermissions()`, `registerSettingsNamespace(zodSchema)`, `registerStorageKeyPrefixes()` (storage key prefixes), notification events, templates and channels, a user-owned-data registry, doctor checks, job handlers |
 | 3 | **Injection tokens** so an app overrides one provider | A `VerdictPolicy` token |
 | 4 | **Events and hooks**: react without replacing | A hook on user creation |
 | 5 | **Composition**: the app builds its own module on exported primitives | A custom module built from `core` primitives |

@@ -723,7 +723,11 @@ confirmation of that resource's **own real name** — never a generic word like
   step runs **before** the stack and the clone are torn down, because it
   needs the application's own image and configuration to do its job; if it
   fails, `uninstall` stops and removes nothing rather than leaving you
-  uncertain whether your bucket was emptied.
+  uncertain whether your bucket was emptied. "Every object this application
+  ever wrote" means every object under a registered storage key prefix (the
+  platform's and the app's own; see
+  [`docs/specs/storage-providers.md`](../specs/storage-providers.md#4-extending-it-in-a-fork));
+  anything else in the bucket is left alone.
 - `--drop-database --confirm-database <database-name>` drops the
   application's PostgreSQL database once the stack has stopped: confirmation
   first, then the optional storage purge, then `compose down -v`, then the

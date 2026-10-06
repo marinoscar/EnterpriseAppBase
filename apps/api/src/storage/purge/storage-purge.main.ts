@@ -60,7 +60,7 @@ import {
 import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from '../../app.module';
-import { STORAGE_KEY_PREFIXES } from '../storage-key-prefixes';
+import { STORAGE_KEY_PREFIXES } from '../storage-key-prefix.view';
 import { StorageConfigService } from '../config/storage-config.service';
 import type { ResolvedStorageConfig } from '../config/storage-config';
 import {
@@ -144,7 +144,8 @@ async function purge(
   const prefixes: PrefixReport[] = [];
   let deleted = 0;
 
-  // ⚠ Targets come ONLY from the application's own list, never from a listing
+  // ⚠ Targets come ONLY from the application's own list (every prefix in the
+  // storage key-prefix registry, platform and app), never from a listing
   // of the whole bucket filtered afterwards. A filter can be inverted by a
   // later edit; enumerating a fixed list cannot be.
   for (const prefix of STORAGE_KEY_PREFIXES) {
