@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 
+import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EVENT_BUS_SELECTION } from './event-bus.config';
 import { EVENT_BUS, type EventBus } from './event-bus.interface';
@@ -26,7 +27,11 @@ describe('EventBusModule (PP-1.11, #682)', () => {
         EventBusModule,
       ],
     })
-      .useMocker((token) => (token === PrismaService ? { $executeRaw: jest.fn() } : undefined))
+      .useMocker((token) => {
+        if (token === PrismaService) return { $executeRaw: jest.fn() };
+        if (token === DoctorCheckRegistry) return new DoctorCheckRegistry();
+        return undefined;
+      })
       .compile();
     return moduleRef;
   }

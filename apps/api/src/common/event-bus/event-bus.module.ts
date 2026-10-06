@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { buildDatabaseUrl } from '../database-url';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EventBusDoctorCheck } from './doctor/event-bus.doctor-check';
 import { EVENT_BUS_SELECTION, EventBusSelection, parseEventBusAdapter } from './event-bus.config';
 import { EVENT_BUS, type EventBus } from './event-bus.interface';
 import { InProcessEventBus } from './in-process-event-bus';
@@ -64,6 +65,9 @@ export function createEventBus(selection: EventBusSelection, prisma: PrismaServi
       inject: [EVENT_BUS_SELECTION, PrismaService],
       useFactory: createEventBus,
     },
+    // `core.event-bus`. Injects the @Global doctor registry, so it adds no
+    // import edge to this module.
+    EventBusDoctorCheck,
   ],
   exports: [EVENT_BUS, EVENT_BUS_SELECTION],
 })
