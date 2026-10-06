@@ -27,6 +27,11 @@ import {
 // Key source: SECRETS_ENCRYPTION_KEY, a base64-encoded 32 bytes.
 // Generate with: openssl rand -base64 32
 //
+// MOVED INTO @marinoscar/platform-api/core (issue #698) BYTE-COMPATIBLE: the
+// env var name, the sub-key label, the IV/tag lengths, the payload layout and
+// every error text are unchanged. A ciphertext written by the app before the
+// move decrypts after it (apps/api/test/platform/secret-cipher-compat.spec.ts).
+//
 // THIS MODULE MUST NOT LOG. Every value passing through it is either a secret,
 // a key, or a key-derived value; a Logger here is a plaintext leak waiting for
 // someone to raise the log level. Errors carry lengths and variable names only.
@@ -63,8 +68,14 @@ const SUBKEY_LABEL_PREFIX = 'enterpriseappbase:secret-cipher:v1:';
 /**
  * First segment of every owner-bound sub-key domain (issue #387). See
  * {@link userCredentialPurpose}. System purposes may not contain `:` at all
- * (`credentials/credential-internals.ts`), so no system purpose can begin
- * with this.
+ * (the reference app enforces it in `credentials/credential-internals.ts`),
+ * so no system purpose can begin with this.
+ *
+ * @stability stable
+ * @example
+ * ```ts
+ * purpose.startsWith(USER_CREDENTIAL_DOMAIN_PREFIX); // an owner-bound domain
+ * ```
  */
 export const USER_CREDENTIAL_DOMAIN_PREFIX = 'user:';
 
@@ -76,7 +87,19 @@ export const USER_CREDENTIAL_DOMAIN_PREFIX = 'user:';
 const CANONICAL_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** Is `value` a canonical (lowercase, hyphenated) UUID string? */
+/**
+ * Is `value` a canonical (lowercase, hyphenated) UUID string?
+ *
+ * @param value - Anything.
+ * @returns `true` for `8-4-4-4-12` lowercase hex, the spelling Postgres and
+ *   Prisma render.
+ * @stability stable
+ * @example
+ * ```ts
+ * isCanonicalUuid('00000000-0000-4000-8000-000000000001'); // true
+ * isCanonicalUuid('00000000-0000-4000-8000-00000000000A'); // false (uppercase)
+ * ```
+ */
 export function isCanonicalUuid(value: unknown): value is string {
   return typeof value === 'string' && CANONICAL_UUID_PATTERN.test(value);
 }
@@ -228,7 +251,16 @@ function deriveKey(purpose: string): Buffer {
  * Returns a base64 string carrying its own IV and auth tag — safe to put
  * straight into a `text` column.
  *
+ * @param plaintext - The secret, as UTF-8 text.
+ * @param purpose - The sub-key domain: a short fixed string per kind of
+ *   secret (`'smtp'`), or {@link userCredentialPurpose} for a per-user one.
+ * @returns base64 of `[iv: 12 bytes][authTag: 16 bytes][ciphertext]`.
  * @throws if the key is missing/malformed, or `purpose` is empty.
+ * @stability stable
+ * @example
+ * ```ts
+ * const stored = encryptSecret(password, 'smtp');
+ * ```
  */
 export function encryptSecret(plaintext: string, purpose: string): string {
   const key = deriveKey(purpose);
@@ -270,8 +302,16 @@ export function encryptSecret(plaintext: string, purpose: string): string {
  * That is the entire reason this is GCM and not CBC: an unauthenticated mode
  * would hand back corrupted bytes that then get used as an SMTP password.
  *
+ * @param payload - A string returned by {@link encryptSecret}.
+ * @param purpose - The same purpose it was encrypted under.
+ * @returns The plaintext.
  * @throws if the key is missing/malformed, `purpose` is empty, the payload is
  *         truncated, or authentication fails.
+ * @stability stable
+ * @example
+ * ```ts
+ * const password = decryptSecret(row.encryptedValue, 'smtp');
+ * ```
  */
 export function decryptSecret(payload: string, purpose: string): string {
   const key = deriveKey(purpose);
@@ -337,6 +377,14 @@ export function decryptSecret(payload: string, purpose: string): string {
  * this issue only provides the check.
  *
  * Also warms the cache, so the first real encrypt does not pay for validation.
+ *
+ * @throws the operator-facing key error (names the variable, the shape of the
+ *   failure and the generation command; never key material).
+ * @stability stable
+ * @example
+ * ```ts
+ * assertEncryptionKeyConfigured(); // throws if SECRETS_ENCRYPTION_KEY is unusable
+ * ```
  */
 export function assertEncryptionKeyConfigured(): void {
   getMasterKey();
@@ -366,6 +414,14 @@ export function assertEncryptionKeyConfigured(): void {
  * @throws a plain Error (no values in it) on a non-canonical id or a bad
  *         purpose. Callers validate first and report their own 400; this is
  *         the backstop that keeps a malformed domain from ever deriving a key.
+ * @param userId - The owner: a canonical UUID.
+ * @param purpose - The kind of secret; non-empty, no `:`.
+ * @returns `user:<userId>:<purpose>`.
+ * @stability stable
+ * @example
+ * ```ts
+ * const stored = encryptSecret(apiKey, userCredentialPurpose(userId, 'ai_user_key'));
+ * ```
  */
 export function userCredentialPurpose(userId: string, purpose: string): string {
   if (!isCanonicalUuid(userId)) {

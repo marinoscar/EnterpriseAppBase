@@ -35,3 +35,16 @@ export { HttpExceptionFilter } from './errors/http-exception.filter';
 export { withVerbatimErrorBody, hasVerbatimErrorBody } from './errors/verbatim-error-body.exception';
 export { DatabaseSeedException } from './errors/database-seed.exception';
 export { ErrorDto } from './errors/error.dto';
+
+// Crypto: the AES-256-GCM secret cipher under every runtime-configured
+// credential, and its bootstrap check (issue #698). The cipher reads
+// SECRETS_ENCRYPTION_KEY from the environment once and caches it.
+export {
+  USER_CREDENTIAL_DOMAIN_PREFIX,
+  assertEncryptionKeyConfigured,
+  decryptSecret,
+  encryptSecret,
+  isCanonicalUuid,
+  userCredentialPurpose,
+} from './crypto/secret-cipher';
+export { verifyEncryptionKeyAtStartup } from './crypto/encryption-key-startup-check';

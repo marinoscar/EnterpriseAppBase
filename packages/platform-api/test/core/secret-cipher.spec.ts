@@ -18,10 +18,10 @@ import { randomBytes } from 'node:crypto';
 // uncached module state regardless of what earlier tests configured.
 // =============================================================================
 
-type SecretCipherModule = typeof import('./secret-cipher');
+type SecretCipherModule = typeof import('../../src/core/crypto/secret-cipher');
 
 const ENV_VAR = 'SECRETS_ENCRYPTION_KEY';
-const MODULE_PATH = './secret-cipher';
+const MODULE_PATH = '../../src/core/crypto/secret-cipher';
 
 /** A deterministic, valid 32-byte key (base64-encoded) for tests that don't care about the key's value. */
 const VALID_KEY = Buffer.alloc(32, 7).toString('base64');
