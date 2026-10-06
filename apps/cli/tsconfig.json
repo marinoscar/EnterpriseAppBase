@@ -56,5 +56,8 @@
     "allowJs": true
   },
   "include": ["src/**/*", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist"]
+  // src/__fixtures__ holds mini repositories the root-script tests copy and
+  // run tools over (package-docs: a fixture platform package); they are
+  // inputs, not part of this program.
+  "exclude": ["node_modules", "dist", "src/__fixtures__"]
 }

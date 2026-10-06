@@ -1,0 +1,11 @@
+{
+  "name": "@fixture/platform-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./widgets": "./dist/widgets/index.js",
+    "./package.json": "./package.json"
+  }
+}

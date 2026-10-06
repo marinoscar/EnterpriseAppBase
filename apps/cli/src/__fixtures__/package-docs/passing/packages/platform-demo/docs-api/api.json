@@ -1,0 +1,403 @@
+{
+  "schemaVersion": "2.0",
+  "id": 0,
+  "name": "@fixture/platform-demo",
+  "variant": "project",
+  "kind": 1,
+  "flags": {},
+  "children": [
+    {
+      "id": 1,
+      "name": "index",
+      "variant": "declaration",
+      "kind": 2,
+      "flags": {},
+      "children": [
+        {
+          "id": 2,
+          "name": "DemoRegistry",
+          "variant": "declaration",
+          "kind": 128,
+          "flags": {},
+          "comment": {
+            "summary": [
+              {
+                "kind": "text",
+                "text": "Collects the demo checks."
+              }
+            ],
+            "blockTags": [
+              {
+                "tag": "@stability",
+                "content": [
+                  {
+                    "kind": "text",
+                    "text": "stable"
+                  }
+                ]
+              }
+            ]
+          },
+          "children": [
+            {
+              "id": 3,
+              "name": "constructor",
+              "variant": "declaration",
+              "kind": 512,
+              "flags": {},
+              "signatures": [
+                {
+                  "id": 4,
+                  "name": "DemoRegistry",
+                  "variant": "signature",
+                  "kind": 16384,
+                  "flags": {},
+                  "type": {
+                    "type": "reference",
+                    "target": 2,
+                    "name": "DemoRegistry",
+                    "package": "@fixture/platform-demo"
+                  }
+                }
+              ]
+            },
+            {
+              "id": 5,
+              "name": "ids",
+              "variant": "declaration",
+              "kind": 1024,
+              "flags": {
+                "isReadonly": true
+              },
+              "comment": {
+                "summary": [
+                  {
+                    "kind": "text",
+                    "text": "The ids registered so far, in registration order."
+                  }
+                ]
+              },
+              "sources": [
+                {
+                  "fileName": "index.ts",
+                  "line": 8,
+                  "character": 11
+                }
+              ],
+              "type": {
+                "type": "array",
+                "elementType": {
+                  "type": "intrinsic",
+                  "name": "string"
+                }
+              },
+              "defaultValue": "[]"
+            },
+            {
+              "id": 6,
+              "name": "register",
+              "variant": "declaration",
+              "kind": 2048,
+              "flags": {},
+              "sources": [
+                {
+                  "fileName": "index.ts",
+                  "line": 16,
+                  "character": 2
+                }
+              ],
+              "signatures": [
+                {
+                  "id": 7,
+                  "name": "register",
+                  "variant": "signature",
+                  "kind": 4096,
+                  "flags": {},
+                  "comment": {
+                    "summary": [
+                      {
+                        "kind": "text",
+                        "text": "Adds a check. Throws on a duplicate id."
+                      }
+                    ],
+                    "blockTags": [
+                      {
+                        "tag": "@extensionPoint",
+                        "content": [
+                          {
+                            "kind": "text",
+                            "text": "registry"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "sources": [
+                    {
+                      "fileName": "index.ts",
+                      "line": 16,
+                      "character": 2
+                    }
+                  ],
+                  "parameters": [
+                    {
+                      "id": 8,
+                      "name": "id",
+                      "variant": "param",
+                      "kind": 32768,
+                      "flags": {},
+                      "comment": {
+                        "summary": [
+                          {
+                            "kind": "text",
+                            "text": "Unique id of the check."
+                          }
+                        ]
+                      },
+                      "type": {
+                        "type": "intrinsic",
+                        "name": "string"
+                      }
+                    }
+                  ],
+                  "type": {
+                    "type": "intrinsic",
+                    "name": "void"
+                  }
+                }
+              ]
+            }
+          ],
+          "groups": [
+            {
+              "title": "Constructors",
+              "children": [
+                3
+              ]
+            },
+            {
+              "title": "Properties",
+              "children": [
+                5
+              ]
+            },
+            {
+              "title": "Methods",
+              "children": [
+                6
+              ]
+            }
+          ],
+          "sources": [
+            {
+              "fileName": "index.ts",
+              "line": 6,
+              "character": 13
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "name": "DEMO_NAME",
+          "variant": "declaration",
+          "kind": 32,
+          "flags": {
+            "isConst": true
+          },
+          "comment": {
+            "summary": [
+              {
+                "kind": "text",
+                "text": "The demo package name."
+              }
+            ],
+            "blockTags": [
+              {
+                "tag": "@stability",
+                "content": [
+                  {
+                    "kind": "text",
+                    "text": "experimental"
+                  }
+                ]
+              }
+            ]
+          },
+          "sources": [
+            {
+              "fileName": "index.ts",
+              "line": 27,
+              "character": 13
+            }
+          ],
+          "type": {
+            "type": "literal",
+            "value": "demo"
+          },
+          "defaultValue": "'demo'"
+        }
+      ],
+      "groups": [
+        {
+          "title": "Classes",
+          "children": [
+            2
+          ]
+        },
+        {
+          "title": "Variables",
+          "children": [
+            9
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "fileName": "index.ts",
+          "line": 1,
+          "character": 0
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "widgets",
+      "variant": "declaration",
+      "kind": 2,
+      "flags": {},
+      "children": [
+        {
+          "id": 11,
+          "name": "WIDGET_SLOT",
+          "variant": "declaration",
+          "kind": 32,
+          "flags": {
+            "isConst": true
+          },
+          "comment": {
+            "summary": [
+              {
+                "kind": "text",
+                "text": "Name of the slot a widget renders into."
+              }
+            ],
+            "blockTags": [
+              {
+                "tag": "@stability",
+                "content": [
+                  {
+                    "kind": "text",
+                    "text": "experimental"
+                  }
+                ]
+              },
+              {
+                "tag": "@extensionPoint",
+                "content": [
+                  {
+                    "kind": "text",
+                    "text": "slot"
+                  }
+                ]
+              }
+            ]
+          },
+          "sources": [
+            {
+              "fileName": "widgets/index.ts",
+              "line": 7,
+              "character": 13
+            }
+          ],
+          "type": {
+            "type": "literal",
+            "value": "demo.widget"
+          },
+          "defaultValue": "'demo.widget'"
+        }
+      ],
+      "groups": [
+        {
+          "title": "Variables",
+          "children": [
+            11
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "fileName": "widgets/index.ts",
+          "line": 1,
+          "character": 0
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "title": "Modules",
+      "children": [
+        1,
+        10
+      ]
+    }
+  ],
+  "packageName": "@fixture/platform-demo",
+  "symbolIdMap": {
+    "1": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/index.ts",
+      "qualifiedName": ""
+    },
+    "2": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/index.ts",
+      "qualifiedName": "DemoRegistry"
+    },
+    "5": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/index.ts",
+      "qualifiedName": "DemoRegistry.ids"
+    },
+    "6": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/index.ts",
+      "qualifiedName": "DemoRegistry.register"
+    },
+    "7": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/index.ts",
+      "qualifiedName": "DemoRegistry.register"
+    },
+    "8": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/index.ts",
+      "qualifiedName": "id"
+    },
+    "9": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/index.ts",
+      "qualifiedName": "DEMO_NAME"
+    },
+    "10": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/widgets/index.ts",
+      "qualifiedName": ""
+    },
+    "11": {
+      "packageName": "@fixture/platform-demo",
+      "packagePath": "src/widgets/index.ts",
+      "qualifiedName": "WIDGET_SLOT"
+    }
+  },
+  "files": {
+    "entries": {
+      "1": "src/index.ts",
+      "2": "src/widgets/index.ts"
+    },
+    "reflections": {
+      "1": 1,
+      "2": 10
+    }
+  }
+}
