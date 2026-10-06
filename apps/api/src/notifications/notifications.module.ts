@@ -70,7 +70,7 @@ import { NotificationChannelSenderRegistry } from './registry/channel-sender.reg
 // `this.registry.register(this)` from `onModuleInit` (the doctor-check
 // pattern). That is an explicit call in the app's own diff, never discovery;
 // the argument above still holds. A second sender for an existing channel
-// fails at bootstrap. See notifications/registry/README.md, "Adding a channel".
+// fails at bootstrap. See notifications/README.md, "Adding a channel".
 //
 // #125 SHIPPED NO BROWSER STUB, and #127 is the payoff: registering
 // `BrowserNotificationChannel` below is the entire wiring change. Nothing in

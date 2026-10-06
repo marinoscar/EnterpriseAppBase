@@ -16,7 +16,7 @@
 //
 // Pure data only: no `register()` calls (the manifest registers), no Nest, no
 // Prisma, no services. A channel's TRANSPORT is a Nest provider and lives in the
-// app's own module; see notifications/registry/README.md, "Adding a channel".
+// app's own module; see notifications/README.md, "Adding a channel".
 //
 // Example (in a fork):
 //

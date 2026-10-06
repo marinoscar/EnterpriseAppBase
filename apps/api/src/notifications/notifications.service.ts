@@ -209,8 +209,9 @@ export class NotificationsService implements OnModuleDestroy {
     // #678. Where an app's own sender lands: it self-registers from its own
     // module's `onModuleInit`, after this constructor ran, so it is looked up
     // at dispatch time (see `senderFor`). Optional so the unit specs that
-    // build this service with only `NOTIFICATION_CHANNEL_SENDERS` keep working;
-    // the platform senders are in both places and the map wins.
+    // build this service with only `NOTIFICATION_CHANNEL_SENDERS` keep working.
+    // The platform senders stay in the map below; the registry answers only
+    // for app senders.
     @Optional()
     private readonly senderRegistry?: NotificationChannelSenderRegistry,
   ) {
