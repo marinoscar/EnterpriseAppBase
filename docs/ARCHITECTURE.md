@@ -321,8 +321,9 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 
 `GET /api/admin/doctor` runs a set of read-only checks and answers one question: is every capability of this deployment configured, reachable and healthy? Each capability's own module contributes its checks (`<module>/doctor/`), which register themselves with `DoctorCheckRegistry`. `DoctorService` runs them in parallel, skips a check whose dependency did not pass, bounds each with a timeout, caches the report for 15 seconds and always answers `200`: a failing check is a row with a `remedy` and the settings page that fixes it. No check sends, writes, spends tokens or enqueues a job. The host-level counterpart is `appctl deploy doctor` ([§5.9](#59-appctl-cli)).
 
-- **Code:** `apps/api/src/doctor/` (contract, registry, service, controller), `apps/api/src/*/doctor/` (the checks)
-- **UI:** `/admin/settings/doctor` (`apps/web/src/pages/Admin/DoctorPage.tsx`)
+- **Code:** `@marinoscar/platform-api/doctor` (`packages/platform-api/src/doctor/`: contract, registry, service, controller factory), the first packaged slice (#696); the app's binding is `apps/api/src/doctor/doctor.config.ts`, its checks are `apps/api/src/*/doctor/`
+- **UI:** `/admin/settings/doctor`: `@marinoscar/platform-web/doctor/ui` (`DoctorPage`, `doctorSettingsPage`), bound by `apps/web/src/pages/Admin/DoctorPage.tsx`
+- **Host ports:** the packaged controller and page reach the app through `apps/api/src/platform/` and `apps/web/src/platform/platformHost.tsx`, the single places the app is bound to the platform
 - **Permissions:** `system_settings:read`
 - **Read more:** [specs/doctor.md](specs/doctor.md), [runbooks/doctor.md](runbooks/doctor.md)
 
@@ -730,6 +731,7 @@ Health endpoints (public, reachable during maintenance):
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
+| A packaged slice's access to the app (auth, audit, settings, Prisma; web transport and viewer) | [platform-api core README, Host ports](../packages/platform-api/src/core/README.md#host-ports), [platform-web core README](../packages/platform-web/src/core/README.md) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
 | A registry entry (permission, setting, …) | [registry/README.md](../apps/api/src/common/registry/README.md) |
