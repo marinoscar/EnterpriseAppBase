@@ -16,6 +16,7 @@ import { JobsModule } from '../jobs/jobs.module';
 import { AuthProvidersDoctorCheck } from './doctor/auth-providers.doctor-check';
 import { InitialAdminDoctorCheck } from './doctor/initial-admin.doctor-check';
 import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
+import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check';
 
 @Module({
   imports: [
@@ -63,6 +64,9 @@ import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
     JwtSecretDoctorCheck,
     AuthProvidersDoctorCheck,
     InitialAdminDoctorCheck,
+    // PP-1.12 (#683): `auth.principal-cache`. The cache itself is provided
+    // by the global `PrincipalCacheModule` (see principal-cache.module.ts).
+    PrincipalCacheDoctorCheck,
   ],
   exports: [AuthService, JwtModule],
 })
