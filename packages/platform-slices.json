@@ -5,5 +5,5 @@
   "platform-contract": {},
   "platform-db": {},
   "platform-cli": {},
-  "platform-infra": {}
+  "platform-infra": { "telemetry": [] }
 }
