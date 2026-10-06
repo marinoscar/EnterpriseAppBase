@@ -56,7 +56,7 @@ import { JobSettledEvent } from '../../jobs/events/job-settled.event';
 import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { AiError } from '../core/ai-error';
+import { AiError, aiErrorLogDetails } from '../core/ai-error';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AI_RUN_CANCEL_POLL_MS, AI_RUN_TERMINAL_CODES } from './ai-response-run.handler';
 import { aiRunOperation, type AiRunOperation } from './ai-run-operation';
@@ -261,7 +261,10 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
 
     if (AI_RUN_TERMINAL_CODES.has(error.code)) {
       await this.runs.fail(runId, error.code, error.message);
-      this.logger.log(`AI ${this.noun} run ${runId} ended with ${error.code} (job ${job.id})`);
+      // The provider's safe metadata (status, code, request id) says WHY a
+      // terminal failure happened; `aiErrorLogDetails` redacts and caps it.
+      const details = aiErrorLogDetails(error);
+      this.logger.log(`AI ${this.noun} run ${runId} ended with ${error.code}${details ? ` ${details}` : ''} (job ${job.id})`);
       return;
     }
 

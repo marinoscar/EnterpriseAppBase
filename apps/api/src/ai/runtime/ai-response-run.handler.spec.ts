@@ -323,6 +323,29 @@ describe('AiResponseRunHandler', () => {
       expect(row(handle.runId)).toMatchObject({ status: 'failed', errorCode: 'AI_KEY_INVALID' });
     });
 
+    it("logs a terminal provider rejection with the provider's safe metadata, redacted", async () => {
+      const { h, handler, jobFor } = setup({
+        fake: {
+          responses: () => {
+            throw new AiError('AI_INVALID_REQUEST', 'The provider rejected the request.', {
+              cause: new Error(`400 Invalid input for ${HARNESS_USER_KEY} see https://files.example.test/o?sig=1`),
+              details: { status: 400, providerCode: 'invalid_value', url: 'https://files.example.test/o?sig=1' },
+            });
+          },
+        },
+      });
+      const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
+
+      await expect(handler.process(jobFor(handle))).resolves.toBeUndefined();
+
+      const line = log.mock.calls.map((call) => String(call[0])).find((text) => text.includes('ended with'));
+      expect(line).toContain('ended with AI_INVALID_REQUEST status=400 providerCode="invalid_value"');
+      expect(line).toContain('providerMessage="400 Invalid input for [redacted] see [redacted]"');
+      expect(line).not.toContain(HARNESS_USER_KEY);
+      expect(line).not.toContain('files.example.test');
+    });
+
     it('is a no-op for a finished run, a missing run, and rejects a malformed payload', async () => {
       const { h, handler, jobFor } = setup();
       const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });

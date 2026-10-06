@@ -52,7 +52,7 @@ import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../jobs/events/job-settle
 import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { AiError, type AiErrorCode } from '../core/ai-error';
+import { AiError, type AiErrorCode, aiErrorLogDetails } from '../core/ai-error';
 import type { AiResponse } from '../core/types/responses.types';
 import { AiOutputWriter } from '../storage/ai-output-writer';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
@@ -240,7 +240,10 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     await this.runs.fail(runId, error.code, error.message);
 
     if (AI_RUN_TERMINAL_CODES.has(error.code)) {
-      this.logger.log(`AI run ${runId} ended with ${error.code} (job ${jobId})`);
+      // The provider's safe metadata (status, code, request id) says WHY a
+      // terminal failure happened; `aiErrorLogDetails` redacts and caps it.
+      const details = aiErrorLogDetails(error);
+      this.logger.log(`AI run ${runId} ended with ${error.code}${details ? ` ${details}` : ''} (job ${jobId})`);
       return;
     }
 
