@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
@@ -18,6 +19,7 @@ import {
   deriveHint,
   isBlankSecret,
 } from '../credentials/credential-internals';
+import { ScopedPrismaService } from '../prisma/ownership';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   UserCredentialInfo,
@@ -36,6 +38,12 @@ import type {
 // `userId` IS THE FIRST PARAMETER OF EVERY METHOD, and every query is scoped
 // by it. There is no id-addressed read and no cross-user listing, so no code
 // path here can reach another user's row.
+//
+// AND THE DATABASE CLIENT ENFORCES IT (#688): every query goes through
+// `ScopedPrismaService.forUser(userId)`, the user-scoped client
+// (prisma/ownership/README.md), which confines `user_credentials` queries to
+// that user whatever the `where` says. The explicit `userId` filters stay:
+// they are the address, and the scoped client is the guarantee.
 //
 // THE SAME TWO INVARIANTS AS `CredentialsService` — read its header:
 //
@@ -82,7 +90,20 @@ const USER_CREDENTIAL_INFO_SELECT: Record<keyof UserCredentialInfo, true> = {
 export class UserCredentialsService {
   private readonly logger = new Logger(UserCredentialsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly scoped: ScopedPrismaService;
+
+  /**
+   * @param prisma - used only when `scoped` is not injected (a test or script
+   *        constructing the service by hand); Nest injects both.
+   */
+  constructor(prisma: PrismaService, @Optional() scoped?: ScopedPrismaService) {
+    this.scoped = scoped ?? new ScopedPrismaService(prisma);
+  }
+
+  /** This user's credentials, through the user-scoped client. */
+  private credentialsOf(userId: string) {
+    return this.scoped.forUser(userId).userCredential;
+  }
 
   // ---------------------------------------------------------------------------
   // Reads
@@ -109,7 +130,7 @@ export class UserCredentialsService {
   ): Promise<string | null> {
     this.assertAddress(userId, purpose, name);
 
-    const row = await this.prisma.userCredential.findUnique({
+    const row = await this.credentialsOf(userId).findUnique({
       where: { userId_purpose_name: { userId, purpose, name } },
       select: { secret: true },
     });
@@ -148,7 +169,7 @@ export class UserCredentialsService {
   ): Promise<UserCredentialInfo | null> {
     this.assertAddress(userId, purpose, name);
 
-    const row = await this.prisma.userCredential.findUnique({
+    const row = await this.credentialsOf(userId).findUnique({
       where: { userId_purpose_name: { userId, purpose, name } },
       select: USER_CREDENTIAL_INFO_SELECT,
     });
@@ -170,7 +191,7 @@ export class UserCredentialsService {
       assertCredentialPurpose(purpose);
     }
 
-    const rows = await this.prisma.userCredential.findMany({
+    const rows = await this.credentialsOf(userId).findMany({
       where: purpose === undefined ? { userId } : { userId, purpose },
       select: USER_CREDENTIAL_INFO_SELECT,
       orderBy: [{ purpose: 'asc' }, { name: 'asc' }],
@@ -214,7 +235,7 @@ export class UserCredentialsService {
     const encrypted = encryptSecret(secret, userCredentialPurpose(userId, purpose));
     const hint = deriveHint(secret);
 
-    await this.prisma.userCredential.upsert({
+    await this.credentialsOf(userId).upsert({
       where: { userId_purpose_name: { userId, purpose, name } },
       create: {
         user: { connect: { id: userId } },
@@ -242,7 +263,7 @@ export class UserCredentialsService {
   async deleteSecret(userId: string, purpose: string, name: string): Promise<void> {
     this.assertAddress(userId, purpose, name);
 
-    const { count } = await this.prisma.userCredential.deleteMany({
+    const { count } = await this.credentialsOf(userId).deleteMany({
       where: { userId, purpose, name },
     });
 
@@ -266,7 +287,7 @@ export class UserCredentialsService {
     name: string,
     metaUpdate: Prisma.UserCredentialUpdateInput,
   ): Promise<void> {
-    const existing = await this.prisma.userCredential.findUnique({
+    const existing = await this.credentialsOf(userId).findUnique({
       where: { userId_purpose_name: { userId, purpose, name } },
       select: { id: true },
     });
@@ -282,9 +303,10 @@ export class UserCredentialsService {
       return;
     }
 
-    await this.prisma.userCredential.update({
-      // `existing.id` came from a lookup scoped by this owner, so updating by
-      // id here cannot reach another user's row.
+    await this.credentialsOf(userId).update({
+      // `existing.id` came from a lookup scoped by this owner, and the scoped
+      // client adds the owner to this unique where too, so updating by id
+      // here cannot reach another user's row.
       where: { id: existing.id },
       data: metaUpdate,
     });

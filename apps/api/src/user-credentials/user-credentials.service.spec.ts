@@ -3,6 +3,7 @@ import { BadRequestException, InternalServerErrorException } from '@nestjs/commo
 
 import { UserCredentialsService } from './user-credentials.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ScopedPrismaService } from '../prisma/ownership';
 import {
   createMockPrismaService,
   MockPrismaService,
@@ -136,7 +137,15 @@ describe('UserCredentialsService', () => {
     });
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [UserCredentialsService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        UserCredentialsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        // The deep mock cannot run `$extends`, so the scoped client is a
+        // double handing back the same mock: the service's own arguments
+        // reach it unchanged. The real scoped client is proven by
+        // test/prisma/scoped-access.db.spec.ts and user-credentials.db.spec.ts.
+        { provide: ScopedPrismaService, useValue: { forUser: () => mockPrisma } },
+      ],
     }).compile();
 
     service = module.get(UserCredentialsService);
