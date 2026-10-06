@@ -19,10 +19,11 @@ here.
 10. [CLI tests](#cli-tests)
 11. [End-to-end tests (Playwright)](#end-to-end-tests-playwright)
 12. [Visual regression](#visual-regression)
-13. [Mocking OAuth](#mocking-oauth)
-14. [Writing a new test](#writing-a-new-test)
-15. [CI](#ci)
-16. [Common issues](#common-issues)
+13. [Consumer smoke (packed and published packages)](#consumer-smoke-packed-and-published-packages)
+14. [Mocking OAuth](#mocking-oauth)
+15. [Writing a new test](#writing-a-new-test)
+16. [CI](#ci)
+17. [Common issues](#common-issues)
 
 ## Overview
 
@@ -36,6 +37,7 @@ here.
 | CLI | `apps/cli/src/**/*.test.{ts,tsx}` | Vitest, Node environment | `npm run test:run --workspace=cli` | `build` |
 | End-to-end | `tests/e2e/specs/*.spec.ts` | Playwright against the running Compose stack, `/testing/login` bypass | `cd tests/e2e && npm test` | none (run locally) |
 | Visual regression | `tests/visual/specs/*.spec.ts` | Playwright, pinned Chromium, a Vite harness; no API or database | see [Visual regression](#visual-regression) | `visual` |
+| Consumer smoke | `tests/consumer-smoke/{api,web}` | The platform packages installed from tarballs, npm or a GitHub release into minimal apps outside the repository; `node:test`, Vitest | `npm run smoke:consumer` | `pack-smoke` (packages.yml), `github-release` and `registry-smoke` (release.yml) |
 
 Only `*.db.spec.ts` needs a database; the integration tier mocks `PrismaService`.
 
@@ -698,6 +700,34 @@ The `visual` job runs the same binary without `--update-snapshots` and
 uploads `tests/visual/playwright-report/` on every run; the report embeds the
 expected, actual and diff images.
 
+## Consumer smoke (packed and published packages)
+
+`tests/consumer-smoke/` installs the six `@marinoscar/platform-*` packages the
+way an app outside this repository does and proves they build, boot and render
+there. The app tiers above consume the packages through workspace symlinks,
+which resolve hoisted `node_modules` and the monorepo's TypeScript settings; a
+published tarball has only its `files`, its dependencies and its peers. A
+missing `files` entry, a dev-only dependency, a wrong `exports` condition or a
+peer installed twice show up only in a clean install.
+
+`tests/consumer-smoke/run.mjs` copies a consumer project (`api/`: Nest 11 +
+Fastify, `tsc` with `NodeNext` and decorator metadata; `web/`: Vite 8 + React
+19 + MUI 9) to `os.tmpdir()`, points its platform dependencies at the chosen
+source, runs `npm install`, `npm run build`, `npm test` and
+`scripts/check-single-instance.mjs --root <temp project>`. It is not an npm
+workspace and commits no lockfile.
+
+```bash
+npm run smoke:consumer                                            # build, pack, api + web
+node tests/consumer-smoke/run.mjs --project api --from tarballs <dir>
+node tests/consumer-smoke/run.mjs --from registry next --audit-signatures
+node tests/consumer-smoke/run.mjs --from release <version>
+```
+
+It needs Node 24 (npm 11). What each project asserts, and how a new slice
+adds itself: [tests/consumer-smoke/README.md](../tests/consumer-smoke/README.md).
+The release side: [release runbook, Consumption smoke](runbooks/release-platform-packages.md#consumption-smoke).
+
 ## Mocking OAuth
 
 No test talks to Google.
@@ -783,6 +813,12 @@ triggers:
 |---|---|
 | `packages` (Build, lint & test packages) | `npm ci`, build, typecheck, boundary lint and tests of the six `packages/platform-*`, pack check, smoke imports |
 | `single-instance` | `npm ci`, then `npm run check:single-instance`: one copy of each single-instance library in `package-lock.json` and as resolved from every workspace (see [DEVELOPMENT.md](DEVELOPMENT.md#single-instance-dependencies)) |
+| `pack-smoke` | On pushes to `main` and pull requests that touch the packages: build, `npm pack` the six, then the [consumer smoke](#consumer-smoke-packed-and-published-packages) for `api` and `web` against the tarballs |
+
+`.github/workflows/release.yml` runs the consumer smoke twice more:
+`github-release` on the tarballs it attaches to the GitHub release
+`platform-v<version>` (and the api project from the release URLs), and
+`registry-smoke` after a real npm publish, with `npm audit signatures`.
 
 ## Common issues
 
