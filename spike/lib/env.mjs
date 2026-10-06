@@ -9,6 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -194,3 +195,37 @@ export async function main(fn) {
   }
   finish();
 }
+
+// -- Project scaffolding ---------------------------------------------------------
+
+/**
+ * Writes a minimal Prisma project into `dir`: prisma.config.ts pointing at
+ * `schema` (a file or folder), `migrations.path` explicit, optional shadow DB.
+ */
+export function writeConfig(dir, { schema = 'prisma/schema', migrations = 'prisma/migrations', shadowDatabaseUrl } = {}) {
+  write(
+    join(dir, 'prisma.config.ts'),
+    `import { defineConfig } from '@prisma/config';
+export default defineConfig({
+  schema: '${schema}',
+  migrations: { path: '${migrations}' },
+  datasource: { url: process.env.DATABASE_URL as string${shadowDatabaseUrl ? `, shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL as string` : ''} },
+});
+`,
+  );
+}
+
+/** Copies the real 21-migration history (and lock file) to `<dir>/prisma/migrations`. */
+export function copyRealMigrations(dir, { only } = {}) {
+  const src = join(API_ROOT, 'prisma', 'migrations');
+  const dst = join(dir, 'prisma', 'migrations');
+  mkdirSync(dst, { recursive: true });
+  cpSync(join(src, 'migration_lock.toml'), join(dst, 'migration_lock.toml'));
+  const dirs = readdirSync(src, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  for (const d of dirs.slice(0, only ?? dirs.length)) cpSync(join(src, d), join(dst, d), { recursive: true });
+  return dirs.slice(0, only ?? dirs.length);
+}
+
+export const realMigrationDirs = () => readdirSync(join(API_ROOT, 'prisma', 'migrations'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+
+export const tsc = (args, opts) => run(process.execPath, [join(REPO_ROOT, 'node_modules', 'typescript', 'bin', 'tsc'), ...args], opts);

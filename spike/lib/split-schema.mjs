@@ -37,12 +37,13 @@ export function splitBySlice(src, { generatorOutput } = {}) {
  * the foreign key is the slice that knows about the relation. Returns
  * Map<fileName, text> plus a report of what moved.
  */
-export function splitIntoFragments(src, { markExtensible = [] } = {}) {
+export function splitIntoFragments(src, { markExtensible = [], generatorOutput } = {}) {
   const { blocks } = parseBlocks(src, 'schema.prisma');
   const modelNames = new Set(blocks.filter((b) => b.kind === 'model').map((b) => b.name));
   const moves = []; // {from model, to slice, lines[], fields[]}
   const bySlice = new Map(SLICES.map((s) => [s, []]));
   const baseBlocks = blocks.filter((b) => b.kind === 'generator' || b.kind === 'datasource');
+  if (generatorOutput) for (const b of baseBlocks) if (b.kind === 'generator') b.lines.splice(b.lines.length - 1, 0, `  output   = "${generatorOutput}"`);
 
   for (const b of blocks) {
     if (b.kind === 'generator' || b.kind === 'datasource') continue;

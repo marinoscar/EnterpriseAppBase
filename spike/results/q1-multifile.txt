@@ -29,7 +29,7 @@ PASS  schema path resolves relative to the config file, not the cwd  (exit 0)
 ## 2. generate: old single file vs folder
 --- single-file generate
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 974ms
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.39s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     
@@ -37,7 +37,7 @@ PASS  schema path resolves relative to the config file, not the cwd  (exit 0)
     Prisma schema loaded from prisma/schema.prisma.
 --- folder generate
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 860ms
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.25s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     
@@ -129,7 +129,7 @@ scripts copied verbatim from apps/api/package.json:
 --- npm run prisma:generate
     exit 0
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.00s
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.23s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     
@@ -167,18 +167,18 @@ PASS  migrate dev reports no drift and creates no migration  (stray dirs: 0)
     exit 0
     Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
     
-    Applying migration `20261006200932_add_spike_probe`
+    Applying migration `20261006201603_add_spike_probe`
     
     The following migration(s) have been created and applied from new schema changes:
     
     prisma/migrations/
-      └─ 20261006200932_add_spike_probe/
+      └─ 20261006201603_add_spike_probe/
         └─ migration.sql
     
     Your database is now in sync with your schema.
     
     Prisma schema loaded from prisma/schema.
-PASS  migrate dev (shadow database) works against the folder and writes into prisma/migrations  (20261006200932_add_spike_probe)
+PASS  migrate dev (shadow database) works against the folder and writes into prisma/migrations  (20261006201603_add_spike_probe)
 --- generated migration.sql
     -- CreateTable
     CREATE TABLE "spike_probes" (
@@ -194,7 +194,7 @@ Dockerfile lines (apps/api/Dockerfile): COPY apps/api/prisma ./apps/api/prisma/ 
 --- generate in the Docker-shaped copy (no scripts/, no package.json, dummy URL)
     exit 0
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 806ms
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.14s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     

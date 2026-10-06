@@ -22,7 +22,7 @@ export function parseBlocks(src, file = '<memory>') {
       if (m) {
         cur = { extend: m[1] === 'extend', kind: m[2], name: m[3], leading: acc.join('\n'), lines: [line], file, line: i + 1 };
         acc = [];
-      } else if (/^\s*(model|enum|type|view|generator|datasource|extend)\b.*\{/.test(line)) {
+      } else if (/^\s*(extend\s+)?(model|enum|type|view|generator|datasource)\s+\w+\s*(\{.*)?$/.test(line)) {
         throw new Error(`${file}:${i + 1}: block header must be "<kind> <Name> {" on one line at column 0: ${line}`);
       } else {
         acc.push(line);
