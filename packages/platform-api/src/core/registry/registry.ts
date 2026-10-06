@@ -36,10 +36,16 @@
  * It admits every id shape the codebase already uses (`db.connection`,
  * `jobs:read`, `auth.initial-admin`, `coach/weekly-review`) and rejects whitespace and a
  * leading separator. Override it per registry with {@link RegistryOptions.idPattern}.
+ *
+ * @stability stable
  */
 export const DEFAULT_REGISTRY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/;
 
-/** The longest id any registry accepts, in UTF-16 code units. */
+/**
+ * The longest id any registry accepts, in UTF-16 code units.
+ *
+ * @stability stable
+ */
 export const REGISTRY_ID_MAX_LENGTH = 128;
 
 /**
@@ -52,6 +58,8 @@ export const REGISTRY_ID_MAX_LENGTH = 128;
  * - `FROZEN`: a write after {@link Registry.freeze}.
  * - `UNKNOWN_ID`: {@link Registry.require} found no entry.
  * - `DUPLICATE_REGISTRY`: {@link defineRegistry} was given a name already in use.
+ *
+ * @stability stable
  */
 export type RegistryErrorCode =
   | 'INVALID_ID'
@@ -65,11 +73,15 @@ export type RegistryErrorCode =
  * The single error type every registry operation throws.
  *
  * @example
+ * ```ts
  * try {
  *   permissions.register(entry);
  * } catch (err) {
  *   if (err instanceof RegistryError && err.code === 'DUPLICATE_ID') { ... }
  * }
+ * ```
+ *
+ * @stability stable
  */
 export class RegistryError extends Error {
   /** Machine-readable reason; see {@link RegistryErrorCode}. */
@@ -103,6 +115,8 @@ export class RegistryError extends Error {
  * How a registry identifies, checks, de-duplicates and orders its entries.
  *
  * @typeParam T - the entry type.
+ *
+ * @stability stable
  */
 export interface RegistryOptions<T> {
   /**
@@ -150,7 +164,11 @@ export interface RegistryOptions<T> {
   order?: 'registration' | 'id' | ((a: T, b: T) => number);
 }
 
-/** The introspection shape of {@link Registry.snapshot}. */
+/**
+ * The introspection shape of {@link Registry.snapshot}.
+ *
+ * @stability stable
+ */
 export interface RegistrySnapshot {
   /** The registry's name. */
   name: string;
@@ -186,6 +204,7 @@ function messageOf(err: unknown): string {
  * @typeParam T - the entry type.
  *
  * @example
+ * ```ts
  * const colours = new Registry<{ id: string; hex: string }>({
  *   name: 'colours',
  *   idOf: (c) => c.id,
@@ -195,6 +214,10 @@ function messageOf(err: unknown): string {
  * });
  * colours.register({ id: 'brand', hex: '#3366ff' });
  * colours.require('brand').hex; // '#3366ff'
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability stable
  */
 export class Registry<T> {
   /** The registry's name, as given in {@link RegistryOptions.name}. */
@@ -422,11 +445,16 @@ const definedRegistries = new Map<string, Registry<unknown>>();
  * @throws RegistryError `DUPLICATE_REGISTRY` when a defined registry already has that name.
  *
  * @example
+ * ```ts
  * // apps/api/src/common/permissions/permission.registry.ts
  * export const permissionRegistry = defineRegistry<PermissionDefinition>({
  *   name: 'permissions',
  *   idOf: (p) => p.id,
  * });
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability stable
  */
 export function defineRegistry<T>(options: RegistryOptions<T>): Registry<T> {
   if (definedRegistries.has(options.name)) {
@@ -441,12 +469,20 @@ export function defineRegistry<T>(options: RegistryOptions<T>): Registry<T> {
   return registry;
 }
 
-/** Every registry created with {@link defineRegistry}, in definition order. */
+/**
+ * Every registry created with {@link defineRegistry}, in definition order.
+ *
+ * @stability stable
+ */
 export function listDefinedRegistries(): ReadonlyArray<Registry<unknown>> {
   return [...definedRegistries.values()];
 }
 
-/** Freezes every registry created with {@link defineRegistry}. Idempotent. */
+/**
+ * Freezes every registry created with {@link defineRegistry}. Idempotent.
+ *
+ * @stability stable
+ */
 export function freezeDefinedRegistries(): void {
   for (const registry of definedRegistries.values()) registry.freeze();
 }

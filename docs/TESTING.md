@@ -396,7 +396,9 @@ pass GreptimeDB the `--user-provider` argument its reader/admin split needs,
 so the job starts it as an explicit step and polls its `/health` endpoint
 before running the tier.
 
- They discover it (from the Nest
+## Tripwire suites
+
+These suites never hand-list what they check. They discover it (from the Nest
 router, the job registry, the seed file, the filesystem), so a new route, job
 type, provider SDK import or doc link is covered the moment it exists, with
 no edit to the suite.
@@ -404,7 +406,7 @@ no edit to the suite.
 | Suite | Invariant |
 |---|---|
 | `apps/api/test/docs-links.spec.ts` | Every relative link in `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `docs/**` and `.claude/agents/*.md` resolves to a real file (anchors stripped, fenced code ignored) |
-| `apps/api/test/jobs/cron-enqueue-only.spec.ts` | Every `@Cron` only enqueues work, except the three permanent exemptions it names |
+| `apps/api/test/jobs/cron-enqueue-only.spec.ts` | Every `@Cron` only enqueues work, except the three permanent exemptions it names. The scan runs through `@marinoscar/platform-api/testing` (`runPlatformConformance()`); the spec keeps the exemption list and the minimum |
 | `apps/api/test/jobs/on-event-no-io.spec.ts` | Every `@OnEvent` body is free of storage I/O (a direct storage-provider call, `.download(`, `.upload(`) |
 | `apps/api/test/ai/ai-kill-switch.integration.spec.ts` | With `ai.enabled=false`, every discovered `/api/ai/*` route except `GET /api/ai/config` answers 403 `AI_DISABLED`, every `/api/admin/ai/*` route stays reachable, and no `ai.*` job reaches a provider |
 | `apps/api/test/ai/ai-rbac-matrix.integration.spec.ts` | Every AI route crossed with Admin/Contributor/Viewer/anonymous; the expected permission comes from the route's `@Auth()` metadata and the grant from `prisma/seed-data.ts` |
@@ -413,6 +415,25 @@ no edit to the suite.
 | `apps/api/test/ai/ai-jobs-server-only.spec.ts` | No `ai.*` job type is node-eligible |
 | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` | No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src` |
 | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` | Every AI settings card's `permission` equals the string its API controller enforces, read from the controller source |
+
+### Conformance suites in packages
+
+A tripwire that stays in the platform repository stops checking an app the moment the app consumes a package. So the scan of an invariant ships in the package as a conformance suite, and each app runs it from a three-line spec that supplies only its own data. The entry point is `runPlatformConformance()` from `@marinoscar/platform-api/testing`; `apps/api/test/jobs/cron-enqueue-only.spec.ts` is the worked example:
+
+```ts
+runPlatformConformance({
+  sourceRoots: [join(__dirname, '..', '..', 'src')],
+  suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
+});
+```
+
+- **Data stays in the app.** The exemption list (each entry argued, more than 40 characters) and the vacuity minimum are the app's, so a fourth exemption is still a change to this repository's spec and to the spec of the rule.
+- **Runner-agnostic.** The harness imports neither Jest nor Vitest; it uses the global `describe`/`it`/`expect` or a `testApi` you pass, so the same harness serves the Jest API and the Vitest web and CLI apps.
+- **Opt-outs are visible.** `cronEnqueueOnly: false` registers a passing `cron-enqueue-only: disabled by the app` test instead of silently running nothing, and an unknown key in `suites` throws.
+- **Needs built packages.** Jest resolves `@marinoscar/platform-api/testing` through the package `exports` to `dist/`, so run `npm run build:packages` first (every CI job already does).
+- **Package tests** live in `packages/platform-api/test/testing/` (fixtures as `.ts.txt` under `test/fixtures/cron/`) and run with `npm run test:packages`.
+
+Further suites (the AI invariants, the settings registry) join the same entry point as their slices are extracted.
 
 Related guards in the same spirit: `apps/api/src/ai/core/no-provider-sdk.spec.ts`
 (no SDK in `ai/core`), the per-provider `*-sdk-boundary.spec.ts` files,

@@ -177,7 +177,12 @@ describe('Telemetry stack integration', () => {
 
       await request(server).get(BASE).set(authHeader(readOnly.accessToken)).expect(200);
       await request(server).post(`${BASE}/deploy`).set(authHeader(readOnly.accessToken)).expect(403);
-      expect(context.prismaMock.job.create).not.toHaveBeenCalled();
+      // Only a stack-deploy job matters: boot-time housekeeping backfills
+      // (backup sweep, fleet sweep...) may land in the same mock at any time.
+      const deployJobs = context.prismaMock.job.create.mock.calls.filter(
+        ([arg]: [{ data?: { type?: string } }]) => arg?.data?.type === TELEMETRY_STACK_DEPLOY_TYPE,
+      );
+      expect(deployJobs).toHaveLength(0);
     });
   });
 
@@ -281,7 +286,12 @@ describe('Telemetry stack integration', () => {
 
       expect(res.body.code).toBe('CONFLICT');
       expect(res.body.details).toMatchObject({ reason: 'STACK_AGENT_NOT_CONFIGURED' });
-      expect(context.prismaMock.job.create).not.toHaveBeenCalled();
+      // Only a stack-deploy job matters: boot-time housekeeping backfills
+      // (backup sweep, fleet sweep...) may land in the same mock at any time.
+      const deployJobs = context.prismaMock.job.create.mock.calls.filter(
+        ([arg]: [{ data?: { type?: string } }]) => arg?.data?.type === TELEMETRY_STACK_DEPLOY_TYPE,
+      );
+      expect(deployJobs).toHaveLength(0);
     });
   });
 });

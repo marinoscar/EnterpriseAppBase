@@ -39,6 +39,8 @@ describe('@marinoscar/platform-api', () => {
     expect(manifest.type).toBe('commonjs');
     expect(manifest.exports).toEqual({
       '.': { types: './dist/index.d.ts', default: './dist/index.js' },
+      './core': { types: './dist/core/index.d.ts', default: './dist/core/index.js' },
+      './testing': { types: './dist/testing/index.d.ts', default: './dist/testing/index.js' },
       './package.json': './package.json',
     });
   });

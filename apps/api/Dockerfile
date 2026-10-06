@@ -77,6 +77,14 @@ COPY apps/web/package.json ./apps/web/
 # holds one string that changes only when the product is renamed, so that is a
 # trade worth making to remove the failure mode entirely.
 COPY packages/shared ./packages/shared/
+# `@marinoscar/platform-api` (issue #694) is a workspace dependency of this app:
+# `src/common/registry` re-exports it, so the API cannot boot without its built
+# `dist/`. Copied whole for the same reason as packages/shared above (every
+# later stage inherits it through `COPY --from=deps /app ./`, production
+# included, where node_modules/@marinoscar/platform-api is a symlink into it)
+# and built right after `npm ci` below. It extends tsconfig.base.json.
+COPY tsconfig.base.json ./
+COPY packages/platform-api ./packages/platform-api/
 # Prisma schema and config are needed by `prisma generate` below
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/
@@ -86,6 +94,9 @@ RUN npm ci --workspace=api --include-workspace-root --ignore-scripts
 # schema only and never opens a connection.
 RUN cd apps/api && \
     DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
+# Compile the platform package (tsc, so decorator metadata survives) into
+# packages/platform-api/dist, which its `exports` map points at.
+RUN npm run build --workspace=@marinoscar/platform-api
 
 # -----------------------------------------------------------------------------
 # Development stage

@@ -24,6 +24,13 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 
 import { freezeDefinedRegistries, listDefinedRegistries } from './registry';
 
+/**
+ * Freezes every registry made with `defineRegistry` once the Nest application
+ * has bootstrapped. Provide it in a module of the app (the base provides it in
+ * `CommonModule`).
+ *
+ * @stability stable
+ */
 @Injectable()
 export class RegistryFreezeService implements OnApplicationBootstrap {
   private readonly logger = new Logger(RegistryFreezeService.name);

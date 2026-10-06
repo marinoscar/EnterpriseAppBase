@@ -1,0 +1,13 @@
+import { Injectable } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+
+@Injectable()
+export class DeletesInlineTask {
+  constructor(private readonly prisma: any, private readonly jobs: any) {}
+
+  @Cron('0 4 * * *')
+  async tick(): Promise<void> {
+    await this.jobs.enqueue('housekeeping.deletes-inline');
+    await this.prisma.session.deleteMany({ where: { expired: true } });
+  }
+}

@@ -6,7 +6,12 @@ The NestJS side of the platform: dynamic modules (one subpath export per slice, 
 
 Dynamic modules, services, guards and registries of the platform's API slices. It does not own the app's composition root, its product identity or its own feature modules.
 
-Status: scaffold only (version `0.0.0`). The package builds, packs and loads, and exports its own name (`PLATFORM_PACKAGE`). Slices arrive as subpath exports (`@marinoscar/platform-api/<slice>`) in later releases of the platform program, each with its own README.
+Status: pre-release (version `0.0.0`). The root export is only the package name (`PLATFORM_PACKAGE`); the slices are subpath exports, each with its own README:
+
+- `@marinoscar/platform-api/core`: the typed registry primitive (`defineRegistry`, `Registry`, `RegistryError`, `RegistryFreezeService`, `withTemporaryEntries`). [README](src/core/README.md).
+- `@marinoscar/platform-api/testing`: the conformance harness (`runPlatformConformance`, `conformanceSuites`, the `cron-enqueue-only` suite). [README](src/testing/README.md).
+
+More slices arrive in later releases of the platform program.
 
 ## Install and peer dependencies
 
@@ -31,15 +36,27 @@ Install these in the app; the package never bundles its own copy (a second copy 
 
 ## Quick start
 
-None. Scaffold only (version `0.0.0`): the package exports nothing but its own name, `PLATFORM_PACKAGE`, so there is nothing to set up yet.
+Run the platform's conformance suites from a spec of your own (the reference app's is [`apps/api/test/jobs/cron-enqueue-only.spec.ts`](../../apps/api/test/jobs/cron-enqueue-only.spec.ts)):
+
+```ts
+import { join } from 'node:path';
+import { runPlatformConformance } from '@marinoscar/platform-api/testing';
+
+runPlatformConformance({
+  sourceRoots: [join(__dirname, '..', '..', 'src')],
+  suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
+});
+```
+
+Declare a registry with `defineRegistry` from `@marinoscar/platform-api/core`; see the [core README](src/core/README.md).
 
 ## Configuration
 
-None. No slice is exported yet, so there is no `forRoot()` or other option to set.
+None. The package has no `forRoot()`; each slice documents its own options (the harness options are in the [testing README](src/testing/README.md#configuration)).
 
 ## Extension-point catalog
 
-None. Nothing the package exports is an extension point yet; each slice adds its rows (`Name`, `Kind`, `Signature`, `When to use`, `Stability`, `Example`) when it is extracted.
+None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [testing](src/testing/README.md#extension-point-catalog)).
 
 ## Data
 
@@ -67,7 +84,7 @@ Nothing is exported yet, so there is no route or guard to secure. Every packaged
 
 ## Conformance suite
 
-None yet. The package ships no conformance suite; `runPlatformConformance()` and the suites arrive with the platform's conformance harness.
+The harness is the `testing` slice: `runPlatformConformance()` from `@marinoscar/platform-api/testing` runs the platform's suites in any app, starting with `cron-enqueue-only`. See the [testing README](src/testing/README.md#conformance-suite).
 
 ## Upgrade notes
 

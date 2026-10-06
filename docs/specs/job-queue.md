@@ -394,7 +394,7 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 
 **Kill switches stay with scheduling.** `NODE_STALE_OFFLINE_ENABLED`, `NODE_OFFLINE_PRUNE_ENABLED` and `DB_BACKUP_SCHEDULE_ENABLED` are read in the task before enqueue, never re-asked in the handler, so a job queued by one replica is never dropped by another. With `JOBS_WORKER_MODE=off` these crons queue work nothing on that process executes.
 
-**Test limit.** `cron-enqueue-only.spec.ts` reads each `@Cron` method body and requires it to enqueue and to contain no marker of doing work. `test/jobs/on-event-no-io.spec.ts` is its `@OnEvent` counterpart: it reads every `@OnEvent` method body and fails on a marker of storage I/O (a direct storage-provider call, `.download(`, `.upload(`). Neither follows calls into helpers; a helper's own spec pins that it only does the bounded thing it claims.
+**Test limit.** `cron-enqueue-only.spec.ts` reads each `@Cron` method body and requires it to enqueue and to contain no marker of doing work. The scan logic ships in `@marinoscar/platform-api/testing` (`runPlatformConformance()`), so every app that consumes the platform runs the same rule; the spec keeps this app's exemption list and minimum. `test/jobs/on-event-no-io.spec.ts` is its `@OnEvent` counterpart: it reads every `@OnEvent` method body and fails on a marker of storage I/O (a direct storage-provider call, `.download(`, `.upload(`). Neither follows calls into helpers; a helper's own spec pins that it only does the bounded thing it claims.
 
 ### Job inventory
 

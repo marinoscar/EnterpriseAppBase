@@ -323,7 +323,7 @@ describe('storage-key-prefixes.ts stays a no-import leaf', () => {
   it('loaded alone (jest.isolateModules), it pulls in neither the manifest nor the registry', () => {
     jest.isolateModules(() => {
       require('./storage-key-prefixes');
-      const { listDefinedRegistries } = require('../common/registry/registry') as typeof import('../common/registry/registry');
+      const { listDefinedRegistries } = require('../common/registry') as typeof import('../common/registry');
 
       // Had the leaf loaded the manifest, this isolated copy of the primitive
       // would already have the storage-key-prefixes registry defined.

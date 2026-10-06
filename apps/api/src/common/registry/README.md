@@ -19,16 +19,26 @@ illustrative.
 
 ## Files
 
+The primitive itself now lives in `@marinoscar/platform-api/core` (issue #694,
+`packages/platform-api/src/core/registry/`; slice README
+[`packages/platform-api/src/core/README.md`](../../../../../packages/platform-api/src/core/README.md)).
+What stays in this folder is the app's seam onto it.
+
 | File | What it holds |
 |---|---|
-| `registry.ts` | `Registry<T>`, `RegistryError`, `defineRegistry`, `listDefinedRegistries`, `freezeDefinedRegistries`. Imports nothing (a test enforces it), so seeds, standalone scripts and import-time DTOs can use it. |
-| `registry-freeze.service.ts` | Nest provider in `CommonModule`: freezes every defined registry in `onApplicationBootstrap`. Not re-exported by `index.ts`. |
-| `testing.ts` | `withTemporaryEntries`, for tests only. |
-| `index.ts` | The barrel: `import { Registry, defineRegistry } from '../common/registry'`. |
+| `index.ts` | A re-export shim: `import { Registry, defineRegistry } from '../common/registry'` keeps working. Restricted to the framework-free symbols; it never re-exports `RegistryFreezeService`, so seeds, standalone scripts and import-time DTOs can use it without a Nest container. |
+| `registry-freeze.service.spec.ts` | Proves `CommonModule` provides `RegistryFreezeService` and that it freezes every defined registry on bootstrap. |
+
+In the package: `registry.ts` (`Registry<T>`, `RegistryError`, `defineRegistry`,
+`listDefinedRegistries`, `freezeDefinedRegistries`; imports nothing, a test
+enforces it), `registry-freeze.service.ts` (the Nest provider `CommonModule`
+registers; freezes in `onApplicationBootstrap`), `testing.ts`
+(`withTemporaryEntries`, for tests only) and the spec that pins the behaviour
+below (`packages/platform-api/test/core/registry.spec.ts`).
 
 ## The behaviour apps may rely on
 
-These rules are pinned by `registry.spec.ts`. They are the "registry
+These rules are pinned by `registry.spec.ts` (in the package). They are the "registry
 behaviour: ordering, duplicate-id handling, error cases" the spec promises
 stable.
 
