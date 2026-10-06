@@ -7,8 +7,12 @@ import {
 } from '@opentelemetry/sdk-metrics';
 
 import type { PrismaService } from '../../prisma/prisma.service';
+import { withTemporaryEntries } from '../registry';
 import {
   APP_METRIC_NAMES,
+  appMetricRegistry,
+  createRegisteredGauge,
+  type AppMetricDef,
   AppMetricsService,
   GAUGE_CACHE_TTL_MS,
   MAX_DISTINCT_VALUES,
@@ -581,5 +585,174 @@ describe('AppMetricsService baseline (#680)', () => {
       { kind: 'gauge', name: 'app.backup.last_success.timestamp', options: { description: 'When the most recent completed database backup finished (unix seconds).', unit: 's' } },
       { kind: 'gauge', name: 'app.backup.last_success.size', options: { description: 'Size of the most recent completed database backup archive.', unit: 'By' } },
     ]);
+  });
+});
+
+// =============================================================================
+// App metrics through the registry: generic add/record (issue #680)
+// =============================================================================
+
+const APP_COUNTER: AppMetricDef = {
+  key: 'testWidgetsMade',
+  name: 'app.test.widgets.made',
+  kind: 'counter',
+  unit: '{widget}',
+  description: 'Test widgets made, by kind and outcome.',
+  attributes: { widget_kind: { kind: 'free' }, outcome: { kind: 'enum', values: ['ok', 'failed'] } },
+};
+
+const APP_HISTOGRAM: AppMetricDef = {
+  key: 'testWidgetLatency',
+  name: 'app.test.widgets.latency',
+  kind: 'histogram',
+  unit: 's',
+  description: 'Time to make one test widget.',
+  buckets: [0.1, 1, 10],
+  attributes: { outcome: { kind: 'enum', values: ['ok', 'failed'] } },
+};
+
+const APP_GAUGE: AppMetricDef = {
+  key: 'testWidgetBacklog',
+  name: 'app.test.widgets.backlog',
+  kind: 'gauge',
+  unit: '{widget}',
+  description: 'Test widgets waiting.',
+};
+
+describe('AppMetricsService generic add/record (#680)', () => {
+  /** Registers the app metrics, THEN constructs the service (it reads the registry at construction). */
+  async function withAppMetrics(fn: (t: ReturnType<typeof setup>) => Promise<void>): Promise<void> {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_HISTOGRAM, APP_GAUGE], async () => fn(setup()));
+  }
+
+  it('creates the app counter and histogram with their declared name, unit, description and buckets', async () => {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_HISTOGRAM, APP_GAUGE], async () => {
+      const { meter, created } = recordingMeter();
+      new AppMetricsService(undefined, undefined, { meter });
+
+      expect(created.slice(-2)).toEqual([
+        {
+          kind: 'counter',
+          name: 'app.test.widgets.made',
+          options: { description: 'Test widgets made, by kind and outcome.', unit: '{widget}' },
+        },
+        {
+          kind: 'histogram',
+          name: 'app.test.widgets.latency',
+          options: { description: 'Time to make one test widget.', unit: 's', advice: { explicitBucketBoundaries: [0.1, 1, 10] } },
+        },
+      ]);
+      // A gauge is declared, not created: its provider creates it.
+      expect(created.map((c) => c.name)).not.toContain('app.test.widgets.backlog');
+    });
+  });
+
+  it('exports an app counter through add() with bounded, declared attributes only', async () => {
+    await withAppMetrics(async ({ service, reader }) => {
+      service.add('testWidgetsMade', 2, { widget_kind: 'sprocket', outcome: 'ok', user_id: 'u-123' });
+      service.add('testWidgetsMade', undefined, { widget_kind: 'sprocket', outcome: 'ok' });
+      service.add('testWidgetsMade', 1, { widget_kind: 'someone@example.com', outcome: 'exploded' });
+      service.add('testWidgetsMade');
+
+      const all = await collect(reader);
+      expect(metric(all, 'app.test.widgets.made').descriptor.unit).toBe('{widget}');
+      expect(points(all, 'app.test.widgets.made')).toEqual(
+        expect.arrayContaining([
+          // The undeclared `user_id` was dropped; value defaults to 1.
+          { attributes: { widget_kind: 'sprocket', outcome: 'ok' }, value: 3 },
+          // An address-shaped free value and an out-of-set enum value become `other`.
+          { attributes: { widget_kind: OTHER_LABEL, outcome: OTHER_LABEL }, value: 1 },
+          { attributes: {}, value: 1 },
+        ]),
+      );
+      expect(points(all, 'app.test.widgets.made')).toHaveLength(3);
+    });
+  });
+
+  it('exports an app histogram through record() with its declared buckets', async () => {
+    await withAppMetrics(async ({ service, reader }) => {
+      service.record('testWidgetLatency', 0.5, { outcome: 'ok', widget_kind: 'dropped' });
+      service.record('testWidgetLatency', 20, { outcome: 'failed' });
+
+      const all = await collect(reader);
+      const data = metric(all, 'app.test.widgets.latency');
+      expect(data.dataPointType).toBe(DataPointType.HISTOGRAM);
+      const byOutcome = Object.fromEntries(
+        data.dataPoints.map((dp) => [dp.attributes.outcome, dp.value as { count: number; buckets: { boundaries: number[] } }]),
+      );
+      expect(Object.keys(byOutcome).sort()).toEqual(['failed', 'ok']);
+      expect(byOutcome.ok?.count).toBe(1);
+      expect(byOutcome.ok?.buckets.boundaries).toEqual([0.1, 1, 10]);
+      expect(data.dataPoints.every((dp) => !('widget_kind' in dp.attributes))).toBe(true);
+    });
+  });
+
+  it('a free attribute shares the per-key distinct-value budget', async () => {
+    await withAppMetrics(async ({ service, reader }) => {
+      for (let i = 0; i < MAX_DISTINCT_VALUES + 5; i += 1) {
+        service.add('testWidgetsMade', 1, { widget_kind: `kind-${i}`, outcome: 'ok' });
+      }
+      const all = await collect(reader);
+      const kinds = new Set(points(all, 'app.test.widgets.made').map((p) => p.attributes.widget_kind));
+      expect(kinds.size).toBe(MAX_DISTINCT_VALUES + 1);
+      expect(kinds.has(OTHER_LABEL)).toBe(true);
+    });
+  });
+
+  it('ignores an unknown key, a kind mismatch and an invalid value, logging each unknown key once', async () => {
+    await withAppMetrics(async ({ service, reader }) => {
+      const debug = jest.spyOn((service as unknown as { logger: { debug: (m: string) => void } }).logger, 'debug');
+
+      expect(() => service.add('noSuchMetric')).not.toThrow();
+      expect(() => service.add('noSuchMetric', 5)).not.toThrow();
+      expect(() => service.record('testWidgetsMade', 1)).not.toThrow(); // a counter
+      expect(() => service.add('testWidgetLatency')).not.toThrow(); // a histogram
+      expect(() => service.add('testWidgetBacklog')).not.toThrow(); // a gauge
+      expect(() => service.add('testWidgetsMade', -1)).not.toThrow();
+      expect(() => service.add('testWidgetsMade', Number.NaN)).not.toThrow();
+      expect(() => service.record('testWidgetLatency', Number.POSITIVE_INFINITY)).not.toThrow();
+      expect(() => service.add('testWidgetsMade', 1, 'not-an-object' as never)).not.toThrow();
+
+      const unknown = debug.mock.calls.filter(([m]) => String(m).includes('"noSuchMetric"'));
+      expect(unknown).toHaveLength(1);
+      expect(debug.mock.calls.some(([m]) => String(m).includes('"testWidgetBacklog" is a gauge'))).toBe(true);
+
+      const all = await collect(reader);
+      expect(points(all, 'app.test.widgets.made')).toEqual([{ attributes: {}, value: 1 }]);
+      expect(all.find((m) => m.descriptor.name === 'app.test.widgets.latency')?.dataPoints ?? []).toEqual([]);
+    });
+  });
+
+  it('never throws when the instrument does', async () => {
+    await withAppMetrics(async () => {
+      const throwing = {
+        createCounter: () => ({ add: () => { throw new Error('boom'); } }),
+        createHistogram: () => ({ record: () => { throw new Error('boom'); } }),
+      } as unknown as AppMetricsOptions['meter'];
+      const service = new AppMetricsService(undefined, undefined, { meter: throwing });
+      expect(() => service.add('testWidgetsMade', 1, { outcome: 'ok' })).not.toThrow();
+      expect(() => service.record('testWidgetLatency', 1)).not.toThrow();
+      expect(() => service.jobEnqueued('x')).not.toThrow();
+    });
+  });
+
+  it('is a no-op against the global no-op meter (OTEL_ENABLED unset)', async () => {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_HISTOGRAM], async () => {
+      const service = new AppMetricsService();
+      expect(() => service.add('testWidgetsMade', 1, { outcome: 'ok' })).not.toThrow();
+      expect(() => service.record('testWidgetLatency', 1)).not.toThrow();
+    });
+  });
+
+  it('createRegisteredGauge creates a declared gauge with its descriptor, and refuses anything else', async () => {
+    await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_GAUGE], async () => {
+      const { meter, created } = recordingMeter();
+      createRegisteredGauge(meter as never, 'testWidgetBacklog' as never);
+      expect(created).toEqual([
+        { kind: 'gauge', name: 'app.test.widgets.backlog', options: { description: 'Test widgets waiting.', unit: '{widget}' } },
+      ]);
+      expect(() => createRegisteredGauge(meter as never, 'testWidgetsMade' as never)).toThrow(/not a gauge/);
+      expect(() => createRegisteredGauge(meter as never, 'nope' as never)).toThrow(/Unknown id "nope"/);
+    });
   });
 });
