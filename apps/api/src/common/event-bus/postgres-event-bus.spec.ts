@@ -45,11 +45,19 @@ class FakeClient extends EventEmitter implements EventBusListenerClient {
   }
 }
 
+async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('waitFor timed out');
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
 async function flush(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
-function makeBus(clients: FakeClient[], executeRaw = jest.fn().mockResolvedValue(1)) {
+function makeBus(clients: FakeClient[], executeRaw = jest.fn().mockResolvedValue(1), initialBackoffMs = 5) {
   let index = 0;
   const created: FakeClient[] = [];
   const bus = new PostgresEventBus(
@@ -57,8 +65,8 @@ function makeBus(clients: FakeClient[], executeRaw = jest.fn().mockResolvedValue
     {
       connectionString: 'postgresql://unused',
       origin: 'me',
-      initialBackoffMs: 5,
-      maxBackoffMs: 20,
+      initialBackoffMs,
+      maxBackoffMs: Math.max(20, initialBackoffMs),
       random: () => 0,
       createClient: () => {
         const client = clients[Math.min(index, clients.length - 1)];
@@ -166,16 +174,13 @@ describe('PostgresEventBus (fake listener)', () => {
     const failing = new FakeClient();
     failing.connectError = new Error('connection refused');
     const healthy = new FakeClient();
-    const { bus } = makeBus([failing, healthy]);
+    const { bus } = makeBus([failing, healthy], undefined, 100);
 
     bus.start();
     await flush();
     expect(bus.health()).toMatchObject({ connected: false, lastError: 'connection refused', reconnects: 1 });
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    await flush();
-
-    expect(bus.health().connected).toBe(true);
+    await waitFor(() => bus.health().connected);
     expect(healthy.queries).toContain(`LISTEN ${EVENT_BUS_PG_CHANNEL}`);
     await bus.close();
   });
@@ -193,10 +198,7 @@ describe('PostgresEventBus (fake listener)', () => {
     expect(bus.health().connected).toBe(false);
     expect(bus.health().reconnects).toBe(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    await flush();
-
-    expect(bus.health().connected).toBe(true);
+    await waitFor(() => bus.health().connected);
     expect(second.queries).toContain(`LISTEN ${EVENT_BUS_PG_CHANNEL}`);
     await bus.close();
   });
@@ -204,12 +206,14 @@ describe('PostgresEventBus (fake listener)', () => {
   it('stops reconnecting once closed', async () => {
     const failing = new FakeClient();
     failing.connectError = new Error('nope');
-    const { bus, created } = makeBus([failing]);
+    // A backoff long enough that the flush below cannot outlast it on a slow machine.
+    const { bus, created } = makeBus([failing], undefined, 200);
 
     bus.start();
     await flush();
+    expect(bus.health().reconnects).toBe(1);
     await bus.close();
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 260));
 
     expect(created).toHaveLength(1);
   });
