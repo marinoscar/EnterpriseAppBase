@@ -1,30 +1,26 @@
 /**
  * The Telemetry Dashboard's infrastructure sections — issue #602, epic #576.
  *
- * One section per `/metrics` group (#601), in the order the page shows them,
- * with the anchor a verdict reason links to. Which reason belongs to which
- * section is read off the wording of the API's infrastructure verdict rules
- * (`telemetry-dashboard.verdict.ts`, docs/specs/telemetry.md §11.7); a reason
- * no pattern matches (the traffic rules, "no data") simply gets no link.
+ * One section per `/metrics` group (#601). WHICH sections, their titles and
+ * their order come from the API's `GET …/metric-groups` (#680,
+ * `DashboardMetricGroupMeta`), so a group an application registers renders
+ * without a web change. This file keeps the anchor a verdict reason links to,
+ * and which reason belongs to which section, read off the wording of the API's
+ * infrastructure verdict rules (`telemetry-dashboard.verdict.ts`,
+ * docs/specs/telemetry.md §11.7); a reason no pattern matches (the traffic
+ * rules, "no data", an app group) simply gets no link.
  */
-import type { DashboardMetricGroup } from '../../../../services/telemetryDashboard';
+import type { DashboardMetricGroup, DashboardMetricGroupMeta } from '../../../../services/telemetryDashboard';
 
-export interface MetricSectionMeta {
-  group: DashboardMetricGroup;
-  title: string;
-}
+/** A section's metadata: one `/metric-groups` entry. */
+export type MetricSectionMeta = DashboardMetricGroupMeta;
 
-export const METRIC_SECTIONS: readonly MetricSectionMeta[] = [
-  { group: 'host', title: 'Infrastructure' },
-  { group: 'database', title: 'Database' },
-  { group: 'queue', title: 'Job queue' },
-  { group: 'nodes', title: 'Worker nodes' },
-  { group: 'uptime', title: 'Uptime & dependencies' },
-  { group: 'pipeline', title: 'Telemetry pipeline' },
-];
-
-export function metricSectionTitle(group: DashboardMetricGroup): string {
-  return METRIC_SECTIONS.find((section) => section.group === group)?.title ?? group;
+/** The section title the API gives `group`, or the id itself when the metadata does not list it. */
+export function metricSectionTitle(
+  group: DashboardMetricGroup,
+  groups: readonly Pick<DashboardMetricGroupMeta, 'id' | 'title'>[] = [],
+): string {
+  return groups.find((section) => section.id === group)?.title ?? group;
 }
 
 /** The DOM id of a section's anchor (the verdict banner scrolls to it). */

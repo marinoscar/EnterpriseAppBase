@@ -1,15 +1,19 @@
 /**
  * The Telemetry Dashboard's infrastructure sections — issue #602, epic #576.
  *
- * Six first-class sections, one per `/metrics` group (#601): Infrastructure
- * (host), Database, Job queue, Worker nodes, Uptime & dependencies and
- * Telemetry pipeline. Each is its own `DashboardPanel` over its own request
- * (`useDashboardMetrics`), so it loads, fails and retries alone, and carries
- * the same header actions as every other panel ("Ask assistant", "Open in
- * Explorer" with the group's FIRST statement — loaded, never run).
+ * One first-class section per `/metrics` group (#601), as `/metric-groups`
+ * lists them (#680): the platform's six — Infrastructure (host), Database, Job
+ * queue, Worker nodes, Uptime & dependencies and Telemetry pipeline — and any
+ * group the application registers. The section TITLE is the API's. Each is its
+ * own `DashboardPanel` over its own request (`useDashboardMetrics`), so it
+ * loads, fails and retries alone, and carries the same header actions as every
+ * other panel ("Ask assistant", "Open in Explorer" with the group's FIRST
+ * statement — loaded, never run).
  *
- * What a section shows is declared below ({@link SECTION_SPECS}): which tiles,
- * which series go in one chart, which tables with which columns. Anything the
+ * What a platform section shows is declared below ({@link SECTION_SPECS}):
+ * which tiles, which series go in one chart, which tables with which columns.
+ * A group without a spec (an application's own) shows every tile, one chart
+ * per series key and every table, in the API's order. Anything the
  * response lacks — a table not collected in this store, a skipped family — is
  * simply left out; a group the store has nothing of (`available: false`) hides
  * the whole section, and the page says so in one line.
@@ -38,7 +42,7 @@ import {
   type MetricTableColumnSpec,
   type MetricTableTopN,
 } from './MetricTable';
-import { metricPanelId, metricSectionAnchor, metricSectionTitle } from './metricSections';
+import { metricPanelId, metricSectionAnchor, type MetricSectionMeta } from './metricSections';
 import { telemetryTokens, type TelemetryTokens } from '../../../../theme/telemetryTokens';
 
 type Row = DashboardMetricTable['rows'][number];
@@ -75,7 +79,8 @@ const upStatus: MetricTableColumnSpec = {
   render: (row) => <StatusCell ok={row.up} okText="Up" badText="Down" />,
 };
 
-export const SECTION_SPECS: Record<DashboardMetricGroup, SectionSpec> = {
+/** The platform groups' presentation. A group not listed here gets {@link sectionSpec}'s default. */
+export const SECTION_SPECS: Readonly<Record<string, SectionSpec>> = {
   host: {
     tiles: ['cpuUtilization', 'memoryUtilization', 'load1m', 'filesystemUtilization'],
     charts: [{ title: 'CPU and memory utilization', keys: ['cpuUtilization', 'memoryUtilization'] }],
@@ -197,10 +202,35 @@ export const SECTION_SPECS: Record<DashboardMetricGroup, SectionSpec> = {
   },
 };
 
+/** The series label without its `groupBy` suffix (`Disk IO: read` → `Disk IO`). */
+function familyLabel(series: DashboardMetricSeries): string {
+  const suffix = series.groupBy === null ? '' : `: ${series.groupBy}`;
+  return suffix && series.label.endsWith(suffix) ? series.label.slice(0, -suffix.length) : series.label;
+}
+
+/**
+ * What a section shows: the platform group's {@link SECTION_SPECS} entry, or,
+ * for a group without one (an application's own, #680), every tile, one chart
+ * per series key and every table, in the response's order.
+ */
+export function sectionSpec(group: DashboardMetricGroup, data: DashboardMetrics): SectionSpec {
+  const declared = Object.prototype.hasOwnProperty.call(SECTION_SPECS, group) ? SECTION_SPECS[group] : undefined;
+  if (declared) return declared;
+  const seriesKeys = [...new Set(data.series.map((series) => series.key))];
+  return {
+    tiles: data.tiles.map((tile) => tile.key),
+    charts: seriesKeys.map((key) => ({
+      title: familyLabel(data.series.find((series) => series.key === key) as DashboardMetricSeries),
+      keys: [key],
+    })),
+    tables: data.tables.map((table) => ({ key: table.key })),
+  };
+}
+
 /** The section's tiles, in the spec's order, that the response carries. */
 export function sectionTiles(group: DashboardMetricGroup, data: DashboardMetrics): DashboardTile[] {
   const byKey = new Map(data.tiles.map((tile) => [tile.key, tile]));
-  return SECTION_SPECS[group].tiles.flatMap((key) => {
+  return sectionSpec(group, data).tiles.flatMap((key) => {
     const tile = byKey.get(key);
     return tile ? [tile] : [];
   });
@@ -208,18 +238,22 @@ export function sectionTiles(group: DashboardMetricGroup, data: DashboardMetrics
 
 /** The section's tables, in the spec's order, that the response carries. */
 export function sectionTables(group: DashboardMetricGroup, data: DashboardMetrics): DashboardMetricTable[] {
-  return SECTION_SPECS[group].tables.flatMap((spec) => data.tables.filter((table) => table.key === spec.key));
+  return sectionSpec(group, data).tables.flatMap((spec) => data.tables.filter((table) => table.key === spec.key));
 }
 
 function chartSeries(chart: ChartSpec, data: DashboardMetrics): DashboardMetricSeries[] {
   return chart.keys.flatMap((key) => data.series.filter((series) => series.key === key));
 }
 
-/** What "Ask assistant" describes for a section. */
-export function metricsAssistantContext(group: DashboardMetricGroup, data: DashboardMetrics): AssistantPanelContext {
+/** What "Ask assistant" describes for a section; `title` is the section title the API gives it. */
+export function metricsAssistantContext(
+  group: DashboardMetricGroup,
+  data: DashboardMetrics,
+  title: string,
+): AssistantPanelContext {
   return {
     kind: 'metrics',
-    title: metricSectionTitle(group),
+    title,
     group,
     tiles: sectionTiles(group, data),
     tables: sectionTables(group, data),
@@ -241,7 +275,7 @@ function SectionBody({
   now?: number;
 }) {
   const theme = useTheme();
-  const spec = SECTION_SPECS[group];
+  const spec = sectionSpec(group, data);
   const tiles = sectionTiles(group, data);
   const charts = spec.charts
     .map((chart) => ({ chart, series: chartSeries(chart, data) }))
@@ -306,7 +340,7 @@ function SectionBody({
 
 /** Whether a section has anything to draw for the response. */
 export function sectionHasContent(group: DashboardMetricGroup, data: DashboardMetrics): boolean {
-  const spec = SECTION_SPECS[group];
+  const spec = sectionSpec(group, data);
   return (
     sectionTiles(group, data).length > 0 ||
     spec.charts.some((chart) => chartSeries(chart, data).length > 0) ||
@@ -316,6 +350,8 @@ export function sectionHasContent(group: DashboardMetricGroup, data: DashboardMe
 
 export interface MetricSectionProps {
   group: DashboardMetricGroup;
+  /** The section title, from `/metric-groups` (#680). */
+  title: string;
   resource: DashboardResource<DashboardMetrics>;
   actions: PanelAction[];
   layout: DashboardLayout;
@@ -329,14 +365,14 @@ export interface MetricSectionProps {
  * not `available`; until the first answer it shows the panel's skeleton, and a
  * failure is this section's own (Retry refetches it alone).
  */
-export function MetricSection({ group, resource, actions, layout, spanMs, now }: MetricSectionProps) {
+export function MetricSection({ group, title, resource, actions, layout, spanMs, now }: MetricSectionProps) {
   const { data } = resource;
   if (data && !data.available) return null;
   return (
     <DashboardPanel
       id={metricPanelId(group)}
       anchorId={metricSectionAnchor(group)}
-      title={metricSectionTitle(group)}
+      title={title}
       actions={actions}
       sql={data?.sql}
       isLoading={resource.isLoading}
@@ -356,11 +392,11 @@ export function MetricSection({ group, resource, actions, layout, spanMs, now }:
  * The one-line hint for the groups the store has nothing of (#602): their
  * sections are hidden, so say which, rather than leave the reader wondering.
  */
-export function MetricsNotCollected({ groups }: { groups: DashboardMetricGroup[] }) {
+export function MetricsNotCollected({ groups }: { groups: readonly Pick<MetricSectionMeta, 'title'>[] }) {
   if (groups.length === 0) return null;
   return (
     <Typography variant="caption" color="text.secondary" component="p" data-testid="metrics-not-collected" sx={{ m: 0 }}>
-      Not collected in this telemetry store: {groups.map(metricSectionTitle).join(', ')}.
+      Not collected in this telemetry store: {groups.map((group) => group.title).join(', ')}.
     </Typography>
   );
 }

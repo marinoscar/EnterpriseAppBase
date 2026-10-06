@@ -252,9 +252,24 @@ export interface DashboardFilters extends DashboardEnvelope {
 
 // ---- metrics (#601 API, #602 web) ---------------------------------------------
 
-/** `METRIC_GROUPS` in the API, in the order the page shows them. */
-export const DASHBOARD_METRIC_GROUPS = ['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline'] as const;
-export type DashboardMetricGroup = (typeof DASHBOARD_METRIC_GROUPS)[number];
+/**
+ * A metric group id, as `/metric-groups` lists it (#680): the platform's six
+ * (`host`, `database`, `queue`, `nodes`, `uptime`, `pipeline`) and any the
+ * application registers. The page renders whatever the API lists.
+ */
+export type DashboardMetricGroup = string;
+
+/** One entry of `GET …/metric-groups` (#680): a dashboard section, in `order`. */
+export interface DashboardMetricGroupMeta {
+  /** The `/metrics` `group` value and the section anchor. */
+  id: DashboardMetricGroup;
+  /** The API label (e.g. `Host`). */
+  label: string;
+  /** The section title (e.g. `Infrastructure`). */
+  title: string;
+  /** Ascending; the API already sorts by it. */
+  order: number;
+}
 
 /** `METRIC_UNITS` in the API: the display unit of a tile, series or table column. */
 export type DashboardMetricUnit =
@@ -413,6 +428,14 @@ export async function getDashboardMetrics(
   return api.get<DashboardMetrics>(`${BASE}/metrics?${dashboardSearchParams(query, { group })}`, {
     signal: options.signal,
   });
+}
+
+/**
+ * `GET …/metric-groups` (#680) — every registered metric group, in dashboard
+ * order. Read from the API's in-memory registry: no telemetry store query.
+ */
+export async function getDashboardMetricGroups(options: RequestOptions = {}): Promise<DashboardMetricGroupMeta[]> {
+  return api.get<DashboardMetricGroupMeta[]>(`${BASE}/metric-groups`, { signal: options.signal });
 }
 
 /** `sql` as a list, primary first — what a panel's actions (#579) receive. */

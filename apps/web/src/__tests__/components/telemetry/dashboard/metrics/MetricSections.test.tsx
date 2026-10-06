@@ -16,7 +16,8 @@ import {
 } from '../../../../../components/telemetry/dashboard/metrics/MetricSections';
 import type { DashboardResource } from '../../../../../hooks/useTelemetryDashboard';
 import type { DashboardMetricGroup, DashboardMetrics } from '../../../../../services/telemetryDashboard';
-import { mockDashboardMetrics } from '../../../../mocks/fixtures/telemetryDashboard';
+import { metricSectionTitle } from '../../../../../components/telemetry/dashboard/metrics/metricSections';
+import { mockDashboardMetricGroups, mockDashboardMetrics } from '../../../../mocks/fixtures/telemetryDashboard';
 
 const NOW = Date.parse('2026-09-27T11:00:00.000Z');
 
@@ -36,6 +37,7 @@ function renderSection(group: DashboardMetricGroup, res: DashboardResource<Dashb
   render(
     <MetricSection
       group={group}
+      title={metricSectionTitle(group, mockDashboardMetricGroups)}
       resource={res}
       layout="desktop"
       spanMs={3_600_000}
@@ -247,7 +249,8 @@ describe('MetricSection — states', () => {
 
 describe('helpers', () => {
   it('MetricsNotCollected names the hidden sections, or renders nothing', () => {
-    const { rerender } = render(<MetricsNotCollected groups={['database', 'pipeline']} />);
+    const hidden = mockDashboardMetricGroups.filter((group) => group.id === 'database' || group.id === 'pipeline');
+    const { rerender } = render(<MetricsNotCollected groups={hidden} />);
     expect(screen.getByTestId('metrics-not-collected')).toHaveTextContent(
       'Not collected in this telemetry store: Database, Telemetry pipeline.',
     );
@@ -256,10 +259,46 @@ describe('helpers', () => {
   });
 
   it('metricsAssistantContext describes the section as shown', () => {
-    const context = metricsAssistantContext('host', mockDashboardMetrics.host);
+    const context = metricsAssistantContext('host', mockDashboardMetrics.host, 'Infrastructure');
     expect(context).toMatchObject({ kind: 'metrics', title: 'Infrastructure', group: 'host', skipped: ['networkIo'] });
     if (context.kind !== 'metrics') throw new Error('unreachable');
     expect(context.tiles.map((tile) => tile.key)).toEqual(['cpuUtilization', 'memoryUtilization', 'load1m', 'filesystemUtilization']);
     expect(context.tables.map((table) => table.key)).toEqual(['filesystems']);
+  });
+});
+
+describe('MetricSection — a group without a spec (an application group, #680)', () => {
+  const appData: DashboardMetrics = {
+    ...mockDashboardMetrics.queue,
+    group: 'coach',
+    sql: ['SELECT /* coach */ 1'],
+    tiles: [{ ...mockDashboardMetrics.queue.tiles[0]!, key: 'coachNudges', label: 'Nudges sent' }],
+    series: mockDashboardMetrics.queue.series.map((series) => ({ ...series, key: 'coachNudges', label: series.groupBy ? `Nudges: ${series.groupBy}` : 'Nudges' })),
+    tables: [{ ...mockDashboardMetrics.queue.tables[0]!, key: 'coachPersonas', label: 'Personas' }],
+  };
+
+  it('renders every tile, one chart per series key and every table, under the title it is given', () => {
+    render(
+      <MetricSection
+        group="coach"
+        title="Coach"
+        resource={resource({ data: appData })}
+        layout="desktop"
+        spanMs={3_600_000}
+        now={NOW}
+        actions={[]}
+      />,
+    );
+    const region = screen.getByRole('region', { name: 'Coach' });
+    expect(region).toHaveAttribute('id', 'telemetry-section-coach');
+    expect(within(within(region).getByTestId('metric-tiles-coach')).getByTestId('tile-coachNudges')).toBeInTheDocument();
+    expect(within(region).getByTestId('metric-chart-coach')).toBeInTheDocument();
+    expect(within(region).getByRole('table', { name: 'Personas' })).toBeInTheDocument();
+    expect(sectionHasContent('coach', appData)).toBe(true);
+  });
+
+  it('falls back to the id as its title when the metadata does not list it', () => {
+    expect(metricSectionTitle('coach', mockDashboardMetricGroups)).toBe('coach');
+    expect(metricSectionTitle('uptime', mockDashboardMetricGroups)).toBe('Uptime & dependencies');
   });
 });

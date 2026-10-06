@@ -5,15 +5,31 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  METRIC_SECTIONS,
+  metricPanelId,
   metricSectionAnchor,
+  metricSectionTitle,
   verdictReasonGroup,
 } from '../../../../../components/telemetry/dashboard/metrics/metricSections';
+import { mockDashboardMetricGroups } from '../../../../mocks/fixtures/telemetryDashboard';
 
 describe('metric sections', () => {
-  it('lists the six groups in page order', () => {
-    expect(METRIC_SECTIONS.map((section) => section.group)).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline']);
+  it('anchors and panel ids are derived from the group id', () => {
     expect(metricSectionAnchor('database')).toBe('telemetry-section-database');
+    expect(metricPanelId('database')).toBe('panel-metrics-database');
+    expect(metricSectionAnchor('coach')).toBe('telemetry-section-coach');
+  });
+
+  it('titles come from the /metric-groups metadata (#680), falling back to the id', () => {
+    expect(mockDashboardMetricGroups.map((group) => metricSectionTitle(group.id, mockDashboardMetricGroups))).toEqual([
+      'Infrastructure',
+      'Database',
+      'Job queue',
+      'Worker nodes',
+      'Uptime & dependencies',
+      'Telemetry pipeline',
+    ]);
+    expect(metricSectionTitle('coach', mockDashboardMetricGroups)).toBe('coach');
+    expect(metricSectionTitle('host')).toBe('host');
   });
 
   it.each([
