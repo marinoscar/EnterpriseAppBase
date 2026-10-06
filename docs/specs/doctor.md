@@ -79,7 +79,7 @@ A check may reuse the test services' pure helpers where they exist. `push.vapid`
 
 ### 2.3 The registry
 
-`DoctorCheckRegistry` (`apps/api/src/doctor/doctor-check.registry.ts`) is the one place that knows which checks run. It has `register`, `get` and `list` (registration order).
+`DoctorCheckRegistry` (`apps/api/src/doctor/doctor-check.registry.ts`) is the one place that knows which checks run. It has `register`, `get` and `list` (registration order). It is built on the generic registry primitive ([`apps/api/src/common/registry/`](../../apps/api/src/common/registry/README.md)) as an instance registry, and freezes in `onApplicationBootstrap`, so a check that registers after every `onModuleInit` has run fails with `FROZEN`.
 
 **Explicit self-registration.** Each check lives in its owning feature module under `<module>/doctor/`, injects the registry and calls `this.registry.register(this)` from its own `onModuleInit`. This is the mechanism and the rationale of `apps/api/src/jobs/job-handler.registry.ts`: "why does the Doctor run this check?" has a grep-able answer (one `register(this)` line), and a check nobody wired up is a missing line in a diff rather than a decorator scan that silently matched nothing. Every `onModuleInit` has run before the first HTTP request, so the Doctor never races a registration.
 
@@ -367,7 +367,7 @@ export class ReportQuotaDoctorCheck implements DoctorCheck, OnModuleInit {
 
 | Invariant | Test |
 |---|---|
-| Duplicate ids throw; registration order; `list()` returns a copy | `apps/api/src/doctor/doctor-check.registry.spec.ts` |
+| Duplicate ids throw; registration order; `list()` returns a copy; frozen after bootstrap | `apps/api/src/doctor/doctor-check.registry.spec.ts` |
 | Parallel start, dependency waves, `skip` on a failed or skipped dependency (transitively), `warn` does not block, unknown dependency, cycles, timeouts, throws become `fail`, remedy fallback, one-line detail, invalid status, verdict, category order, category filter, unknown category | `apps/api/src/doctor/doctor.service.spec.ts` |
 | Cache: TTL, refresh replaces the entry, keyed by category, one shared in-flight run | `apps/api/src/doctor/doctor.service.spec.ts` (`cache`) |
 | Permission is exactly `system_settings:read` with no `doctor:read`; `401`, `403` for Viewer and Contributor; admin gets the `{ data, meta }` envelope; every row has the full shape and every `warn`/`fail` a remedy; category filter; `400` on a malformed `category` or `refresh`; the JWT secret and the encryption key never appear in the response | `apps/api/test/doctor/doctor.integration.spec.ts` |
