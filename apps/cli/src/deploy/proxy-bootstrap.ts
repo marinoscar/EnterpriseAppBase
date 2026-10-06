@@ -35,6 +35,12 @@ import {
 // Container mode only. A host-mode proxy is the host's nginx, installed and
 // configured by the host; there is nothing here to bring up.
 //
+// A new proxy also gets a managed MAIN config (`renderProxyMainConfig`,
+// issue #684): the stock image config with connection limits sized for
+// long-lived SSE, plus a matching `nofile` ulimit. Only at creation -- the
+// same never-touch rule means an existing proxy keeps whatever it runs, and
+// docs/runbooks/deploy-to-vps.md gives the manual steps to raise its limits.
+//
 // =============================================================================
 // ⚠ WHY `network_mode: host`, AND NOT A BRIDGE NETWORK WITH PORTS 80/443
 // =============================================================================
@@ -67,6 +73,22 @@ export const PROXY_IMAGE = 'nginx:alpine';
 
 /** The default server, named to load first. */
 export const DEFAULT_SERVER_CONF = '00-default.conf';
+
+/**
+ * The managed main config, relative to the proxy root, and where the
+ * container sees it (issue #684).
+ */
+export const PROXY_MAIN_CONF = 'nginx/nginx.conf';
+export const CONTAINER_MAIN_CONF = '/etc/nginx/nginx.conf';
+
+/**
+ * Connection and descriptor limits of the shared proxy, the same values as
+ * the application's own infra/nginx/nginx.conf. Every SSE stream holds two
+ * connections in nginx (client and upstream), and this proxy is the first hop
+ * for every application's streams on the host.
+ */
+export const PROXY_WORKER_CONNECTIONS = 16384;
+export const PROXY_NOFILE_LIMIT = 65536;
 
 export type ProxyPresence =
   /** The proxy container is running: nothing to do. */
@@ -132,7 +154,9 @@ export async function inspectProxy(options: {
  * Mounts match what everything else in this CLI assumes of a containerised
  * proxy: `./letsencrypt` at /etc/letsencrypt and `./webroot` at
  * /var/www/certbot (`certbotArgv`, `renderVhost`), and the vhost directory at
- * /etc/nginx/conf.d. All read-only: nginx only reads them.
+ * /etc/nginx/conf.d. Plus the managed main config (`renderProxyMainConfig`)
+ * over the image's stock /etc/nginx/nginx.conf. All read-only: nginx only
+ * reads them.
  */
 export function renderProxyCompose(runtime: ProxyRuntime): string {
   assertValidContainerName(runtime.container);
@@ -149,7 +173,14 @@ services:
     container_name: ${runtime.container}
     restart: unless-stopped
     network_mode: host
+    # Open files: the main config raises worker_rlimit_nofile, which nginx can
+    # only do within the container's hard limit.
+    ulimits:
+      nofile:
+        soft: ${PROXY_NOFILE_LIMIT}
+        hard: ${PROXY_NOFILE_LIMIT}
     volumes:
+      - ./${PROXY_MAIN_CONF}:${CONTAINER_MAIN_CONF}:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./nginx/snippets:/etc/nginx/snippets:ro
       - ./letsencrypt:${CONTAINER_CERT_ROOT}:ro
@@ -159,6 +190,64 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+`;
+}
+
+/**
+ * The proxy's main nginx config (issue #684). Pure and deterministic.
+ *
+ * Without it the container runs the image's stock nginx.conf, whose
+ * `worker_connections 1024` saturates a worker at about 500 concurrent SSE
+ * streams -- each stream holds a client and an upstream connection -- across
+ * EVERY application on the host. This is the stock file with only the limits
+ * raised: the same user, log paths, pid, mime types, log format, and the
+ * `conf.d/*.conf` include every vhost this CLI writes relies on.
+ *
+ * Written only when a proxy is bootstrapped. An existing proxy is never
+ * rewritten (other applications share it); docs/runbooks/deploy-to-vps.md
+ * gives the manual steps for one.
+ */
+export function renderProxyMainConfig(): string {
+  return `# Managed by ${CLI_NAME} deploy: the main config of the shared reverse proxy.
+# The image's stock nginx.conf with the connection limits raised for long-lived
+# server-sent-event streams. Vhosts go in ./conf.d, never here.
+#
+# Every SSE stream holds TWO connections (client side and upstream side) for its
+# whole lifetime, so:
+#
+#   concurrent SSE streams ~= worker_processes x worker_connections / 2
+#                             minus ordinary traffic and upstream keepalives
+#
+# worker_rlimit_nofile must be >= worker_connections, and the container's hard
+# nofile ulimit (compose.yml) >= worker_rlimit_nofile.
+user  nginx;
+worker_processes  auto;
+worker_rlimit_nofile  ${PROXY_NOFILE_LIMIT};
+
+error_log  /var/log/nginx/error.log notice;
+pid        /var/run/nginx.pid;
+
+events {
+    worker_connections  ${PROXY_WORKER_CONNECTIONS};
+    multi_accept  on;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log  /var/log/nginx/access.log  main;
+
+    sendfile        on;
+
+    keepalive_timeout  65;
+
+    include /etc/nginx/conf.d/*.conf;
+}
 `;
 }
 
@@ -360,6 +449,11 @@ export async function bootstrapProxy(options: BootstrapProxyOptions): Promise<Bo
 
   const defaultServer = join(root, 'nginx', 'conf.d', DEFAULT_SERVER_CONF);
   if (writeIfAbsent(defaultServer, renderDefaultServer())) created.push(defaultServer);
+
+  // Beside conf.d and snippets; compose.yml mounts it over the stock one. Like
+  // the default server, a file already there is kept, never overwritten.
+  const mainConfig = join(root, PROXY_MAIN_CONF);
+  if (writeIfAbsent(mainConfig, renderProxyMainConfig())) created.push(mainConfig);
 
   // Last of the files, and `wx`: if anything raced us to it, we stop.
   const composePath = join(root, 'compose.yml');

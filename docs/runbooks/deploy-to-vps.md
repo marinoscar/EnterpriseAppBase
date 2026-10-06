@@ -51,8 +51,9 @@ yourself; let doctor do it, and fix whatever it reports.
   `certbot/certbot` for issuance and renewal — and `install` bootstraps
   that for you the first time it finds neither a running proxy container nor
   an existing compose file at `/opt/infra/proxy` (override with
-  `--proxy-root`): it writes a minimal compose project and a default
-  ACME-challenge server, creates the shared Docker network if it is missing,
+  `--proxy-root`): it writes a minimal compose project, a default
+  ACME-challenge server and a main nginx config sized for long-lived
+  streams (section 9.1), creates the shared Docker network if it is missing,
   and brings the proxy up, prompting first (`--bootstrap-proxy` skips the
   prompt for a non-interactive install). **An existing proxy is never
   touched** — a running container, or merely a compose file already sitting in
@@ -495,6 +496,95 @@ the deployment) resolves it with no flag. On a host with more than one, pass
 `--name <app>` or `--root <path>` explicitly, or simply run the command from
 inside the deployment's own directory.
 
+### 9.1 Connection limits for streaming (SSE)
+
+Every server-sent-event stream (`/api/notifications/stream`, one per open
+tab, and the AI and telemetry assistant streams) holds **two** connections in
+each nginx it passes through, for its whole lifetime: one to the client, one
+upstream. On this box a stream passes through two nginx instances: the shared
+proxy, which carries the streams of **every** application on the host, and
+the application's own `nginx` container. nginx's stock
+`worker_connections 1024` lets one worker carry about 500 streams; past that,
+the error log says `worker_connections are not enough` and new requests fail.
+
+The application's `infra/nginx/nginx.conf` sets `worker_connections 16384`
+and `worker_rlimit_nofile 65536`, and `base.compose.yml` gives the `nginx` and
+`api` containers a `nofile` ulimit of 65536 (the descriptor limit has to allow
+what nginx asks for). A shared proxy that `install` **creates** gets the same
+limits: a managed `nginx/nginx.conf` in the proxy root, mounted over the
+image's own, plus the same ulimit in its `compose.yml`. A proxy that already
+existed is never rewritten, because other applications share it, so raise its
+limits by hand as shown below.
+
+**Check** (container mode; in host mode drop the `docker exec <proxy-container>`
+prefix, and read a worker's limit with
+`grep 'open files' /proc/$(pgrep -f 'nginx: worker' | head -1)/limits` instead of `ulimit`):
+
+```bash
+docker exec <proxy-container> sh -c 'ulimit -n'              # expect 65536
+docker exec <proxy-container> nginx -T 2>/dev/null | grep -E 'worker_(connections|rlimit_nofile)'
+```
+
+For the application's own nginx, from `<root>/repo/infra/compose`, with the
+deployment's recorded project name (section 12):
+
+```bash
+docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f vps.compose.yml config | grep -A3 ulimits
+docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f vps.compose.yml exec nginx sh -c 'ulimit -n'
+docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f vps.compose.yml exec nginx nginx -T 2>/dev/null | grep worker_
+```
+
+**The application's nginx after an update.** `update` runs `docker compose up -d`,
+and the changed `nginx` service definition (its new `ulimits`) makes Compose
+**recreate** the container, which is also what makes it read the new
+`nginx.conf`: the file is bind-mounted on its own, and a running container
+keeps seeing the old file after `git` replaces it. If the checks above still
+show 1024, recreate it explicitly:
+
+```bash
+docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f vps.compose.yml up -d --no-deps --force-recreate nginx
+```
+
+**An existing shared proxy, container mode.** Do this in a quiet window:
+recreating the proxy drops every application's open connections for a moment.
+In the proxy root (`/opt/infra/proxy` by default):
+
+1. Save the main config the container runs today, then edit it:
+   ```bash
+   docker exec <proxy-container> cat /etc/nginx/nginx.conf > nginx/nginx.conf
+   ```
+   Add `worker_rlimit_nofile 65536;` beside `worker_processes`, set
+   `worker_connections 16384;` and `multi_accept on;` in `events { }`, and keep
+   `include /etc/nginx/conf.d/*.conf;` in `http { }`. (A proxy created by a
+   current `install` already has exactly this file.)
+2. In the proxy's `compose.yml`, add to the nginx service:
+   ```yaml
+       ulimits:
+         nofile:
+           soft: 65536
+           hard: 65536
+   ```
+   and the volume line `- ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro`.
+3. Validate the new main config before swapping it in, with the same mounts:
+   ```bash
+   docker run --rm -v "$PWD/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+     -v "$PWD/nginx/conf.d:/etc/nginx/conf.d:ro" -v "$PWD/nginx/snippets:/etc/nginx/snippets:ro" \
+     -v "$PWD/letsencrypt:/etc/letsencrypt:ro" nginx:alpine nginx -t
+   ```
+4. Recreate the proxy and check it: `docker compose up -d`, then
+   `docker exec <proxy-container> nginx -t` and the checks above. If the
+   proxy's compose project belongs to something other than this CLI, make the
+   same change in whatever owns it.
+
+**An existing shared proxy, host mode.** Edit `/etc/nginx/nginx.conf`: add
+`worker_rlimit_nofile 65536;` in the main context and set
+`worker_connections 16384;` in `events { }`. Then `sudo nginx -t` and
+`sudo systemctl reload nginx` (a reload starts new workers with the new limits;
+no connection is dropped). If the error log then reports
+`setrlimit(RLIMIT_NOFILE, 65536) failed`, raise the unit's own limit with a
+systemd override (`sudo systemctl edit nginx`, `[Service]` `LimitNOFILE=65536`)
+and restart nginx instead of reloading it.
+
 ## 10. Inspecting and renewing the certificate directly
 
 ```bash
@@ -684,6 +774,7 @@ the first thing to check — `deploy status`'s container list will show it.
 | Repeated `install` attempts start failing with a rate-limit error from Let's Encrypt | You burned the hourly/weekly certificate budget on earlier failed attempts (section 8). | Wait — retrying immediately makes it worse. Use `--staging` for everything except the attempt you actually intend to keep. |
 | `docker compose` commands fail as if the command doesn't exist, or behave unexpectedly | The standalone `docker-compose` **v1** binary is installed instead of the Compose **v2 plugin** (`docker compose`, no hyphen). | `doctor`'s `docker-compose-v2` check catches this directly. Install the v2 plugin per Docker's current documentation; v1 is not a supported substitute anywhere in this pipeline. |
 | `status`/health checks show the API healthy, but the site itself returns 502 | The web container's own nginx and the shared proxy's upstream port have drifted out of agreement. | This is why `status` probes the frontend **separately** from `/api/health/ready` — an API-only health check would show green while the site is down. A stock deployment is guarded by a test asserting these two ports agree; if you've modified `apps/web/nginx.conf` or `infra/nginx/nginx.conf` in a fork, check that they still match. |
+| Under many open tabs, new requests fail and the nginx error log says `worker_connections are not enough` (or `Too many open files`) | Each SSE stream holds two nginx connections for its lifetime, and the proxy is still on the stock 1024 connections, or its container's `nofile` limit is too low for `worker_rlimit_nofile`. | Check and raise the limits on the shared proxy and the application's nginx: section 9.1. |
 | The site serves an expired (or about-to-expire) certificate even though `certs` reports it was renewed | The certificate on disk was renewed, but the proxy was never reloaded, so it is still serving the old one. | `doctor`'s `certificate-served` check catches exactly this by comparing the certificate on the wire against the one on disk. The remedy is one line: `docker exec <proxy-container> nginx -t && docker exec <proxy-container> nginx -s reload` (drop the `docker exec` prefix in host mode) — see section 10. |
 | `git clone`/`git fetch` fails with an authentication prompt or error partway through `install`, against a private repository | The repository URL is an HTTPS GitHub URL, and neither `gh` nor another git credential helper is set up for it. | Install and log in with the GitHub CLI (`gh auth login`) before running `install` — `doctor`'s `gh-installed`/`gh-authenticated` checks catch this ahead of time and are `required` in exactly this situation. An SSH deploy key is unaffected either way; `gh` is only ever a credential source for HTTPS. |
 | The seed step fails during `install`/`update` with `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` | Fixed as of this version. Earlier, the seed's `ts-node` invocation fully type-checked `prisma/seed.ts`/`seed-data.ts` against the generated Prisma Client types at runtime, which could exceed the api container's 512M memory cap as the schema grew. | Update to a version carrying the fix (`apps/api/prisma.config.ts`'s seed command runs with `--transpile-only`) and re-run `update`. That type-check now runs separately, in CI, via `npm run prisma:typecheck --workspace=api`. |
