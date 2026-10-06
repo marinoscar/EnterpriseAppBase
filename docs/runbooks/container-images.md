@@ -70,7 +70,7 @@ Each run builds the four images in parallel (a matrix with `fail-fast: false`, s
 3. scans the digest with Trivy and uploads the SARIF report to code scanning as category `image-<role>`;
 4. writes the digest, the tags and an anonymous-pull check to the run's summary.
 
-The only credential is the workflow's `GITHUB_TOKEN`, with `packages: write`, `id-token: write` and `security-events: write` on the image job only.
+The only credential is the workflow's `GITHUB_TOKEN`, with `packages: write`, `id-token: write` and `security-events: write` on the image job only. A calling job must grant at least those four permissions (`contents: read` included): a reusable workflow cannot raise them, and a caller that grants less makes the run fail before it starts.
 
 ## 4. Owner step: make the packages public
 
@@ -93,7 +93,7 @@ A fork that wants its images private skips this step and gives its hosts a pull 
 
 ## 5. Verify a signature
 
-Any machine with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 2.x or later. `REPO` is `<owner>/<repo>` **as GitHub spells it** (the certificate carries the canonical case, and the match is case-sensitive); the image name is the lower-case one.
+Any machine with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) 3.x or later (the workflow signs with cosign 3, whose signatures use the Sigstore bundle format; an older cosign may report no signatures). `REPO` is `<owner>/<repo>` **as GitHub spells it** (the certificate carries the canonical case, and the match is case-sensitive); the image name is the lower-case one.
 
 ```bash
 REPO='<owner>/<repo>'                                    # e.g. the value of repoSlug in packages/shared/identity.json
