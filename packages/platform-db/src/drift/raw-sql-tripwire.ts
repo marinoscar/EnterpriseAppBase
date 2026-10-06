@@ -166,10 +166,11 @@ interface Created extends ScannedIndex {
 }
 
 /**
- * Reads the indexes that migration SQL leaves behind, in statement order:
- * `CREATE [UNIQUE] INDEX` adds one, `DROP INDEX` removes it, `ALTER INDEX ...
- * RENAME TO` renames it. Comments are ignored. An index is raw when it has a
- * `WHERE` clause or any key element that is an expression.
+ * Reads the indexes that migration SQL leaves behind, in statement order: a
+ * `CREATE INDEX` or `CREATE UNIQUE INDEX` statement adds one, `DROP INDEX`
+ * removes it and `ALTER INDEX` with `RENAME TO` renames it. Comments are
+ * ignored. An index is raw when it has a `WHERE` clause or any key element
+ * that is an expression.
  *
  * @param migrations - `[id, sql]` pairs in history order.
  * @returns The raw-SQL indexes that survive the whole history, in creation order.
@@ -228,10 +229,15 @@ export function scanRawSqlIndexes(migrations: ReadonlyArray<readonly [string, st
  * @stability experimental
  */
 export interface FragmentIndex {
+  /** The fragment's label, as passed to {@link scanFragmentIndexes}. */
   file: string;
+  /** 1-based line of the declaration. */
   line: number;
+  /** The Prisma model name. */
   model: string;
+  /** The database table (`@@map`, else the model name). */
   table: string;
+  /** Which declaration it is. */
   kind: '@@unique' | '@@index' | '@unique';
   /** Database column names in key order. */
   columns: string[];
@@ -317,7 +323,12 @@ export interface TripwireInput {
   /** Reads a package migration's SQL by directory; `undefined` when it does not exist. */
   readMigration: (dir: string) => string | undefined;
   /** Every schema fragment: a label and its text. */
-  fragments: ReadonlyArray<{ file: string; text: string }>;
+  fragments: ReadonlyArray<{
+    /** A label for messages, usually the path. */
+    file: string;
+    /** The fragment's text. */
+    text: string;
+  }>;
   /** The list to hold the migrations to; default {@link RAW_SQL_INDEXES}. */
   listed?: ReadonlyArray<PackageRawSqlIndex>;
 }

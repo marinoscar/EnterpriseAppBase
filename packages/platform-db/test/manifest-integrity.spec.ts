@@ -43,6 +43,11 @@ describe('manifest.json', () => {
     expect(manifest[21]!.id).toBe('0022_add_retention_created_at_indexes');
   });
 
+  it('is shipped: package.json files include the migrations, the schema fragments and the raw-SQL index list', () => {
+    const pkg = JSON.parse(readFileSync(join(PACKAGE_DIR, 'package.json'), 'utf8')) as { files: string[] };
+    expect(pkg.files).toEqual(expect.arrayContaining(['migrations', 'schema', 'raw-sql-indexes.json']));
+  });
+
   it('is never rewritten by an editor: no CRLF and no byte order mark in a package migration', () => {
     for (const entry of manifest) {
       const bytes = readFileSync(join(MIGRATIONS, entry.dir, 'migration.sql'));
