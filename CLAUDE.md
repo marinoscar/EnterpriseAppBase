@@ -52,6 +52,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Topic | Read |
 |---|---|
 | Architecture, subsystem map; permission matrix, Prisma models, job-type inventory, settings-page inventory, compose files | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (permissions: [§7](docs/ARCHITECTURE.md#7-authorization)) |
+| Architecture decision records (ADRs: index, template, accepted decisions) | [docs/adr/README.md](docs/adr/README.md) |
 | Security design, credential kinds, sessions, email allowlist | [docs/SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) |
 | API conventions (auth, errors, pagination, If-Match, SSE); per-endpoint reference is the generated OpenAPI at `/api/docs` | [docs/API.md](docs/API.md) |
 | Testing (tiers, helpers, tripwire suites, e2e, visual) | [docs/TESTING.md](docs/TESTING.md) |

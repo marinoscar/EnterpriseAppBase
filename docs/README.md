@@ -47,6 +47,12 @@ In this order:
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
 | [specs/platform-packages.md](specs/platform-packages.md) | Proposed: turning the template into published platform packages (extension contract, tenancy, migrations, scaling, adoption roadmap) | you plan to share platform code between apps or change how forks consume it |
 
+## Decision records
+
+| Index | What it covers |
+|---|---|
+| [adr/README.md](adr/README.md) | Architecture decision records: what an ADR is here, numbering, statuses, the template and the index of every ADR |
+
 ## Runbooks
 
 | Runbook | When you need it |
