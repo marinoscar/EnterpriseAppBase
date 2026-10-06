@@ -22,7 +22,9 @@
     "typecheck:packages": "npm run typecheck -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-cli -w @marinoscar/platform-infra",
     "test:packages": "npm run test:run -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-cli -w @marinoscar/platform-infra",
     "lint:packages": "eslint --max-warnings=0 \"packages/platform-*/src/**/*.{ts,tsx}\"",
-    "dev:packages": "node scripts/dev-packages.mjs"
+    "dev:packages": "node scripts/dev-packages.mjs",
+    "docs:packages": "npm run docs -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-cli -w @marinoscar/platform-infra",
+    "check:package-docs": "npm run docs:packages && node scripts/check-package-docs.mjs"
   },
   "overrides": {
     "@nestjs/common": "^11.1.12",

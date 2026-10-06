@@ -41,6 +41,7 @@
     "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/write-dist-stubs.mjs",
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc --noEmit",
+    "docs": "typedoc --options typedoc.json",
     "test": "vitest",
     "test:run": "vitest run"
   },
