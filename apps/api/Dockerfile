@@ -94,6 +94,11 @@ COPY packages/platform-api ./packages/platform-api/
 # packages so every platform dependency resolves to a built `dist/` (see
 # test/production-image.spec.ts).
 COPY packages/platform-db ./packages/platform-db/
+# `@marinoscar/platform-contract` (issue #701) is a dependency of
+# `@marinoscar/platform-api`: the Doctor's DTOs wrap its schemas, so the API
+# cannot boot without its built `dist/` either. Copied whole and built before
+# platform-api below, for the same reasons.
+COPY packages/platform-contract ./packages/platform-contract/
 # Prisma schema and config are needed by `prisma generate` below
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/
@@ -103,9 +108,11 @@ RUN npm ci --workspace=api --include-workspace-root --ignore-scripts
 # schema only and never opens a connection.
 RUN cd apps/api && \
     DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
-# Compile the platform package (tsc, so decorator metadata survives) into
-# packages/platform-api/dist, which its `exports` map points at.
-RUN npm run build --workspace=@marinoscar/platform-api
+# Compile the contract (dual CommonJS/ESM) and then the platform package (tsc,
+# so decorator metadata survives) into their dist/, which the `exports` maps
+# point at.
+RUN npm run build --workspace=@marinoscar/platform-contract && \
+    npm run build --workspace=@marinoscar/platform-api
 RUN npm run build --workspace=@marinoscar/platform-db
 
 # -----------------------------------------------------------------------------

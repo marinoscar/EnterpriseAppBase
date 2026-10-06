@@ -59,41 +59,13 @@
 // entries the app contributes (the Extension Contract, rung 2).
 // =============================================================================
 
-/**
- * The four outcomes of a check, identical to the CLI doctor's `CheckStatus`.
- *
- * - `pass`: verified healthy.
- * - `warn`: works, but needs attention.
- * - `fail`: broken.
- * - `skip`: not evaluated (a dependency did not pass, or the capability is
- *   intentionally switched off).
- *
- * @stability stable
- */
-export type DoctorStatus = 'pass' | 'warn' | 'fail' | 'skip';
+// The statuses, their severity order and their rank are the wire vocabulary
+// of the report, so they live in the contract (#701) and are re-exported from
+// here for every pre-contract import of this slice.
+import type { DoctorStatus } from '@marinoscar/platform-contract/doctor';
 
-/**
- * Every status, in severity order (`pass < skip < warn < fail`).
- *
- * @stability stable
- */
-export const DOCTOR_STATUSES: readonly DoctorStatus[] = ['pass', 'skip', 'warn', 'fail'];
-
-/**
- * How bad a status is, for the report's overall verdict: the worst wins.
- *
- * `skip` ranks just above `pass` — a report whose only non-pass entries are
- * intentional skips (AI off, telemetry off) is healthy, but it proved less than
- * an all-pass one, and a report where NOTHING ran must not read as "pass".
- *
- * @stability stable
- */
-export const DOCTOR_STATUS_RANK: Readonly<Record<DoctorStatus, number>> = {
-  pass: 0,
-  skip: 1,
-  warn: 2,
-  fail: 3,
-};
+export { DOCTOR_STATUSES, DOCTOR_STATUS_RANK } from '@marinoscar/platform-contract/doctor';
+export type { DoctorStatus } from '@marinoscar/platform-contract/doctor';
 
 /**
  * The categories the platform ships, in display order. The default of

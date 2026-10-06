@@ -24,6 +24,13 @@ process.env.SECRETS_ENCRYPTION_KEY = ENCRYPTION_KEY;
 import request from 'supertest';
 
 import { DoctorService } from '@marinoscar/platform-api/doctor';
+import {
+  doctorCheckReportSchema,
+  doctorQuerySchema,
+  doctorReportSchema,
+  doctorStatusSchema,
+} from '@marinoscar/platform-contract/doctor';
+import { z } from 'zod';
 
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
 import { doctorModule } from '../../src/doctor/doctor.config';
@@ -162,6 +169,38 @@ describe('Doctor API (Integration)', () => {
       expect(text).not.toContain(jwtSecret as string);
       expect(text).not.toContain(ENCRYPTION_KEY);
       expect(text).not.toContain(Buffer.from(ENCRYPTION_KEY, 'base64').toString('hex'));
+    }, 30000);
+  });
+
+  // The wire and `@marinoscar/platform-contract/doctor` (#701), the schemas the
+  // web client takes its types from, are the same shape in both directions.
+  describe('the shared contract', () => {
+    // The contract, extended in app code (never edited) to refuse any field it
+    // does not declare: a field the API adds without the contract fails here.
+    const exactReportSchema = doctorReportSchema
+      .extend({ checks: z.array(doctorCheckReportSchema.strict()) })
+      .strict();
+
+    it('answers with exactly the contract report, field for field', async () => {
+      const { body } = await request(server()).get(`${ROUTE}?refresh=true`).set(await adminAuth()).expect(200);
+
+      expect(() => exactReportSchema.parse(body.data)).not.toThrow();
+      expect(doctorStatusSchema.parse(body.data.verdict)).toBe(body.data.verdict);
+    }, 30000);
+
+    it.each([
+      [{ category: 'core', refresh: 'true' }],
+      [{ refresh: 'false' }],
+      [{ category: 'fork_widgets' }],
+      [{ category: 'Core' }],
+      [{ refresh: 'yes' }],
+    ])('validates the query %j exactly as the contract does', async (query) => {
+      const expected = doctorQuerySchema.safeParse(query).success ? 200 : 400;
+
+      await request(server())
+        .get(`${ROUTE}?${new URLSearchParams(query).toString()}`)
+        .set(await adminAuth())
+        .expect(expected);
     }, 30000);
   });
 });

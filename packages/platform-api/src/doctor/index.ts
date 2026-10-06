@@ -31,9 +31,10 @@ export type { DoctorModuleOptions } from './doctor.module';
 export { createDoctorController } from './doctor.controller.factory';
 export type { DoctorControllerInstance } from './doctor.controller.factory';
 export { DoctorQueryDto } from './dto/doctor-query.dto';
-export type { DoctorQuery } from './dto/doctor-query.dto';
 export { DoctorReportDto } from './dto/doctor-report.dto';
-export type { DoctorCheckReport, DoctorReport } from './dto/doctor-report.dto';
+// The wire types, from the contract (#701); re-exported so pre-contract
+// imports of `@marinoscar/platform-api/doctor` keep compiling.
+export type { DoctorCheckReport, DoctorQuery, DoctorReport } from '@marinoscar/platform-contract/doctor';
 export {
   AIR_GAPPED_RUNBOOK,
   DEPLOYMENT_NETWORKS,

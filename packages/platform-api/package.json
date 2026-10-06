@@ -61,6 +61,7 @@
     "test:run": "jest --config ./test/jest.config.js --ci"
   },
   "dependencies": {
+    "@marinoscar/platform-contract": "0.1.0-next.1",
     "@opentelemetry/auto-instrumentations-node": "^0.79.0",
     "@opentelemetry/core": "^2.10.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
