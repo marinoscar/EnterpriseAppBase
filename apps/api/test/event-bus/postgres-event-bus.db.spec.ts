@@ -16,6 +16,13 @@ import { PrismaClient } from '@prisma/client';
 import { buildDatabaseUrl } from '../../src/common/database-url';
 import { EVENT_BUS_MAX_PAYLOAD_BYTES, EventBusMeta } from '../../src/common/event-bus/event-bus.interface';
 import { PostgresEventBus } from '../../src/common/event-bus/postgres-event-bus';
+import { ConfigService } from '@nestjs/config';
+import { Job } from '@prisma/client';
+
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobWorker } from '../../src/jobs/job.worker';
+import { JobsService } from '../../src/jobs/jobs.service';
+import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('postgres-event-bus.db.spec');
@@ -127,6 +134,62 @@ describeWithDb('PostgresEventBus (real Postgres)', () => {
     await waitFor(() => onB.mock.calls.length === 1);
 
     expect(onB.mock.calls[0][0]).toEqual({ body });
+  });
+
+  it('wakes an idle worker on replica B when replica A enqueues, well inside its poll', async () => {
+    const type = `test.event-bus-wake.${process.pid}`;
+    const registry = new JobHandlerRegistry();
+    registry.register({ type, process: async () => undefined });
+
+    const settings: Record<string, unknown> = {
+      'jobs.workerMode': 'all',
+      'jobs.workerConcurrency': 1,
+      'jobs.pollMs': 60_000,
+      'jobs.jobTimeoutMs': 0,
+      'jobs.systemModeExtraTypes': [],
+    };
+    // The claim and settle are stubbed (their real-Postgres behaviour has its
+    // own suites); what crosses the database here is the wake-up itself.
+    const claim = jest.fn().mockResolvedValueOnce([]);
+    const completeSucceeded = jest.fn().mockResolvedValue('succeeded');
+    const worker = new JobWorker(
+      { get: (key: string) => settings[key] } as unknown as ConfigService,
+      registry,
+      { claim } as never,
+      { completeSucceeded, completeFailed: jest.fn() } as never,
+      { acquire: jest.fn().mockResolvedValue(0) } as never,
+      { renew: jest.fn().mockResolvedValue(true) } as never,
+      {} as never,
+      undefined,
+      busB,
+    );
+    const jobsOnA = new JobsService(prismaA as unknown as PrismaService, undefined, busA);
+
+    worker.start(1);
+    await waitFor(() => claim.mock.calls.length === 1);
+    await settle(50);
+
+    // Reads replica B's view of the table and hands the row out exactly ONCE,
+    // as the real claim would.
+    let handedOut = false;
+    claim.mockImplementation(async (): Promise<Job[]> => {
+      if (handedOut) return [];
+      const row = await prismaB.job.findFirst({ where: { type, status: 'pending' } });
+      if (!row) return [];
+      handedOut = true;
+      return [{ ...row, status: 'running' }];
+    });
+
+    const started = Date.now();
+    try {
+      await jobsOnA.enqueue({ type, reason: 'upload', skipDedup: true });
+      await waitFor(() => completeSucceeded.mock.calls.length === 1, 2_000);
+      // ~100 ms is typical across a local database; the poll is 60 s.
+      expect(Date.now() - started).toBeLessThan(1_000);
+    } finally {
+      await worker.stop();
+      await prismaA.job.deleteMany({ where: { type } });
+    }
   });
 
   it('reconnects after pg_terminate_backend and delivers messages published afterwards', async () => {
