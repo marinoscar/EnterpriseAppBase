@@ -42,3 +42,13 @@ export {
   type MetricsHostOptions,
 } from './metrics/metrics-host.service';
 export { OtelMetricsModule, type OtelMetricsModuleAsyncOptions } from './metrics/otel-metrics.module';
+
+export {
+  ATTR_APP_REQUEST_BEARER,
+  ATTR_APP_ROUTE_MATCHED,
+  ATTR_HTTP_ROUTE,
+  hasBearer,
+  registerRequestSpanAttributes,
+  requestSpanAttributesHook,
+} from './spans/request-span-attributes';
+export { Trace, type TraceOptions } from './spans/trace.decorator';
