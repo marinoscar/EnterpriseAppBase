@@ -277,6 +277,7 @@ a plain `npm test` never needs a database.
 | `apps/api/test/broadcasts/` | Broadcast model indexes and defaults, chunked fan-out |
 | `apps/api/test/ai/ai-usage.db.spec.ts` | Usage aggregation SQL |
 | `apps/api/test/user-credentials/` | Per-user credential store |
+| `apps/api/test/prisma/platform-*.db.spec.ts` | `platform db sync` installs byte copies whose `_prisma_migrations.checksum` equals the package file's sha256; Prisma's silence about an edited applied migration; the raw-SQL index list equals the catalogue |
 | `apps/api/src/db-backup/` | Cluster primitives for restore, the single-active-run index, the PostgreSQL job-role broker, run/job linkage |
 
 Each file's header comment names what it proves and its measured wall-clock
@@ -417,6 +418,10 @@ no edit to the suite.
 | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` | Every AI settings card's `permission` equals the string its API controller enforces, read from the controller source |
 | `apps/api/test/prisma/user-owned-models.spec.ts` | Every `User` foreign key in the `prisma/schema/` folder is in the user-owned data registry, every registered model and field exists, and every purge policy matches the relation's `onDelete` (read from the schema file; the rules are proven on synthetic datamodels) |
 | `apps/api/test/prisma/raw-sql-allowlist.spec.ts` | Only the files in `raw-sql-allowlist.ts` use `$queryRaw`/`$executeRaw` (or their `Unsafe` variants) under `apps/api/src`, comments and strings ignored, and every listed file still does |
+| `npm run db:check` (`smoke` job) | `apps/api/prisma/platform.lock` matches the files and the package: an installed migration is never edited, a released package migration is never rewritten, every package migration is installed. Logic in `packages/platform-db/test/sync/` |
+| `npm run db:check:database` (`smoke` job) | Every row of `_prisma_migrations` matches the migration file on disk (Prisma itself never checks this) |
+| `npm run db:drift` (`smoke` job) | The migration history replayed in a shadow database equals the schema (`prisma migrate diff --exit-code`), and every raw-SQL index in `packages/platform-db/raw-sql-indexes.json` (plus the lock's `rawSqlIndexes`) exists with its recorded definition |
+| `apps/api/test/prisma/platform-raw-sql-indexes.db.spec.ts` | The partial and expression indexes found in `pg_indexes` equal `raw-sql-indexes.json`, so an unlisted raw-SQL index fails the build |
 
 ### Conformance suites in packages
 
@@ -436,6 +441,12 @@ runPlatformConformance({
 - **Package tests** live in `packages/platform-api/test/testing/` (fixtures as `.ts.txt` under `test/fixtures/cron/`) and run with `npm run test:packages`.
 
 Further suites (the AI invariants, the settings registry) join the same entry point as their slices are extracted.
+
+The migration guards (`db:check`, `db:check:database`, `db:drift`) are npm scripts
+rather than Jest suites because they must also run against an app that consumes
+the package; they need the built packages (`npm run build:packages`) and, for
+the last two, a migrated database. See
+[DEVELOPMENT.md](DEVELOPMENT.md#authoring-a-platform-migration).
 
 Related guards in the same spirit: `apps/api/src/ai/core/no-provider-sdk.spec.ts`
 (no SDK in `ai/core`), the per-provider `*-sdk-boundary.spec.ts` files,

@@ -1,12 +1,14 @@
-// The `platform` command (bin/platform.js runs `main`): a subcommand router. `platform db
-// compose` is here; `platform db sync|promote|check` and `platform db baseline`
-// plug in as further `db` subcommands. `main` returns the exit code and takes
+// The `platform` command (bin/platform.js runs `main`): a subcommand router.
+// `platform db compose` (./compose) and `platform db sync|check|promote|drift`
+// (./db-commands) are here; `platform db baseline` plugs in as a further `db`
+// subcommand. `main` returns the exit code and takes
 // its output sinks so tests drive it without process.exit.
 
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { Command, CommanderError } from 'commander';
 
+import { registerDbSyncCommands, type DbCommandContext } from './db-commands.js';
 import { ComposeError, checkComposedSchema, writeComposedSchema, type ComposeOptions } from '../compose/index.js';
 
 /**
@@ -24,7 +26,10 @@ const DEFAULT_IO: CliIo = {
   err: (line) => process.stderr.write(`${line}\n`),
 };
 
-/** Exit codes: 0 success, 1 `--check` found a stale folder, 2 a rejected fragment or a usage error. */
+/**
+ * Exit codes: 0 success, 1 a failed check or a refusal (`compose --check`, `db check`, `db drift`, `db sync`),
+ * 2 a rejected fragment or a usage error.
+ */
 type ExitCode = 0 | 1 | 2;
 
 interface ComposeFlags {
@@ -84,10 +89,15 @@ function registerCompose(db: Command, io: CliIo, setExit: (code: ExitCode) => vo
  *
  * @param argv - Arguments after the command name (`['db', 'compose', '--check']`).
  * @param io - Output sinks.
+ * @param overrides - Working directory, environment, clock and package root, for tests.
  * @returns The process exit code.
  * @internal
  */
-export async function main(argv: string[], io: CliIo = DEFAULT_IO): Promise<number> {
+export async function main(
+  argv: string[],
+  io: CliIo = DEFAULT_IO,
+  overrides: Partial<Omit<DbCommandContext, 'out' | 'err' | 'setExitCode'>> = {},
+): Promise<number> {
   let exit: ExitCode = 0;
   const setExit = (code: ExitCode): void => {
     exit = code;
@@ -98,6 +108,16 @@ export async function main(argv: string[], io: CliIo = DEFAULT_IO): Promise<numb
     .configureOutput({ writeOut: (s: string) => io.out(s.replace(/\n$/, '')), writeErr: (s: string) => io.err(s.replace(/\n$/, '')) });
   const db = program.command('db').description('Database schema, migrations and seeds').exitOverride();
   registerCompose(db, io, setExit);
+  registerDbSyncCommands(db, {
+    out: io.out,
+    err: io.err,
+    cwd: process.cwd(),
+    env: process.env,
+    now: () => new Date(),
+    packageRoot: resolve(__dirname, '..', '..'),
+    ...overrides,
+    setExitCode: (code) => setExit(code as ExitCode),
+  });
   try {
     await program.parseAsync(argv, { from: 'user' });
   } catch (e) {
