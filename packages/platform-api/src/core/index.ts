@@ -48,3 +48,12 @@ export {
   userCredentialPurpose,
 } from './crypto/secret-cipher';
 export { verifyEncryptionKeyAtStartup } from './crypto/encryption-key-startup-check';
+
+// OpenAPI tag registry: apps and slices register the @ApiTags names their
+// controllers use, with a description and a sidebar group (issue #698).
+export {
+  OPENAPI_TAG_NAME_PATTERN,
+  openApiTagGroups,
+  openApiTags,
+} from './openapi/openapi-tag.registry';
+export type { OpenApiTag, OpenApiTagGroup } from './openapi/openapi-tag.registry';

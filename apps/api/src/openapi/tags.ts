@@ -20,18 +20,29 @@
 // Ordering is deliberate: `TAG_GROUPS` is emitted as `x-tagGroups`, and the
 // flattened tag order becomes the document's `tags` array, which is what a
 // renderer falls back to when it has no group support.
+//
+// THE LIST IS NO LONGER CLOSED (issue #698). Importing this file registers
+// the app's taxonomy, in this order, into `openApiTags`, the OpenAPI tag
+// registry of `@marinoscar/platform-api/core`, and `document.ts` builds the
+// published `tags` and `x-tagGroups` from the registry. A packaged slice (or a
+// fork's own module) registers its tags there too, at module scope before
+// bootstrap, instead of editing this file; a tag joins an existing group by
+// naming it, or starts a new one after these.
 // =============================================================================
 
-export interface OpenApiTag {
+import { openApiTags } from '@marinoscar/platform-api/core';
+
+/** One tag of this app's taxonomy, before it is registered with its group. */
+interface AppOpenApiTag {
   /** Must match the controller's `@ApiTags(...)` argument byte-for-byte. */
   name: string;
   /** One or two sentences. Rendered under the section heading in the sidebar. */
   description: string;
 }
 
-export interface OpenApiTagGroup {
+interface AppOpenApiTagGroup {
   name: string;
-  tags: OpenApiTag[];
+  tags: AppOpenApiTag[];
 }
 
 /**
@@ -41,7 +52,7 @@ export interface OpenApiTagGroup {
  * with authentication because it gates sign-in, even though it is administered
  * from the same screen as `Users`.
  */
-export const TAG_GROUPS: OpenApiTagGroup[] = [
+const TAG_GROUPS: AppOpenApiTagGroup[] = [
   {
     name: 'Authentication & Access',
     tags: [
@@ -268,11 +279,9 @@ export const TAG_GROUPS: OpenApiTagGroup[] = [
   },
 ];
 
-/** Flattened, in group order. Emitted as the document's `tags` array. */
-export const OPENAPI_TAGS: OpenApiTag[] = TAG_GROUPS.flatMap((group) => group.tags);
-
-/** Emitted as `x-tagGroups`, the extension Scalar and Redoc read. */
-export const OPENAPI_TAG_GROUPS = TAG_GROUPS.map((group) => ({
-  name: group.name,
-  tags: group.tags.map((tag) => tag.name),
-}));
+// Registered once, at import, in group order: the registry keeps registration
+// order, so the published `tags` and `x-tagGroups` order is exactly the order
+// of TAG_GROUPS above.
+openApiTags.registerAll(
+  TAG_GROUPS.flatMap((group) => group.tags.map((tag) => ({ ...tag, group: group.name }))),
+);

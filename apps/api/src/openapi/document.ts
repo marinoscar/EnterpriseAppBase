@@ -15,13 +15,14 @@ import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { OpenAPIObject } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
-import { ErrorDto } from '@marinoscar/platform-api/core';
+import { ErrorDto, openApiTagGroups, openApiTags } from '@marinoscar/platform-api/core';
 import { RBAC_EXTENSION_KEY } from '../auth/decorators/auth.decorator';
 import { applyDataEnvelope } from './data-envelope';
 import { buildApiDescription } from './description';
 import { applyNullableFor31 } from './nullable';
 import { applyRbacDocs } from './rbac-docs';
-import { OPENAPI_TAGS, OPENAPI_TAG_GROUPS } from './tags';
+// Side effect: registers this app's tag taxonomy into `openApiTags` (issue #698).
+import './tags';
 import { DocOperation, MutableDocument, forEachOperation } from './types';
 import { resolveApiVersion } from './version';
 
@@ -97,7 +98,7 @@ export function buildOpenApiConfig(version: string = resolveApiVersion()) {
       SECURITY_SCHEMES.PAT_AUTH,
     );
 
-  for (const tag of OPENAPI_TAGS) {
+  for (const tag of openApiTags.list()) {
     builder.addTag(tag.name, tag.description);
   }
 
@@ -271,6 +272,11 @@ function applyDefaultErrorResponse(document: MutableDocument): void {
  * `NODE_ENV !== 'production'` — and a declared-but-unused tag renders as an
  * empty sidebar section. Pruning is what makes one static taxonomy correct in
  * both environments.
+ *
+ * The taxonomy is the OpenAPI tag registry of `@marinoscar/platform-api/core`
+ * (issue #698): this app's tags (`./tags.ts`) plus any a slice registered.
+ * Only `name` and `description` are published per tag; `group` becomes
+ * `x-tagGroups`.
  */
 function applyTagGroups(document: MutableDocument): void {
   const used = new Set<string>();
@@ -278,8 +284,11 @@ function applyTagGroups(document: MutableDocument): void {
     for (const tag of operation.tags ?? []) used.add(tag);
   });
 
-  document.tags = OPENAPI_TAGS.filter((tag) => used.has(tag.name));
-  document['x-tagGroups'] = OPENAPI_TAG_GROUPS.map((group) => ({
+  const tags = openApiTags.list();
+  document.tags = tags
+    .filter((tag) => used.has(tag.name))
+    .map(({ name, description }) => ({ name, description }));
+  document['x-tagGroups'] = openApiTagGroups(tags).map((group) => ({
     name: group.name,
     tags: group.tags.filter((tag) => used.has(tag)),
   })).filter((group) => group.tags.length > 0);
