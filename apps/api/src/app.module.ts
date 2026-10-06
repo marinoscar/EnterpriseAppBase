@@ -37,6 +37,7 @@ import { DeploymentModule } from './common/deployment/deployment.module';
 import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { DoctorModule } from './doctor/doctor.module';
+import { RetentionModule } from './common/retention/retention.module';
 
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -223,6 +224,12 @@ import configuration from './config/configuration';
     // server-only `telemetry.retention.apply` job. The explorer (#535) and the
     // assistant (#536) add their services inside this module.
     TelemetryModule,
+
+    // Data retention (#681): the daily, enqueue-only cron for the `retention`
+    // settings namespace and the `audit.events.purge` handler. The inbox,
+    // delivery-log and AI-run purges live with their tables, in
+    // `NotificationsModule` and `AiRuntimeModule`.
+    RetentionModule,
 
     // Test modules (non-production only)
     ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
