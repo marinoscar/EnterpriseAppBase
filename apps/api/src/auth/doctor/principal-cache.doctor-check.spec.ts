@@ -1,6 +1,8 @@
 import type { EventBus, EventBusHealth } from '../../common/event-bus/event-bus.interface';
 import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
-import type { PrincipalCache, PrincipalCacheStats } from '../principal-cache/principal-cache.service';
+import { ConfigService } from '@nestjs/config';
+
+import { PrincipalCache, type PrincipalCacheStats } from '../principal-cache/principal-cache.service';
 import { decidePrincipalCache, PrincipalCacheDoctorCheck } from './principal-cache.doctor-check';
 
 const STATS: PrincipalCacheStats = { size: 3, hits: 40, misses: 5, invalidations: 2 };
@@ -58,30 +60,31 @@ describe('decidePrincipalCache (PP-1.12, #683)', () => {
 describe('PrincipalCacheDoctorCheck', () => {
   it('registers as auth.principal-cache and reads only in-memory snapshots', async () => {
     const registry = new DoctorCheckRegistry();
-    const cache = {
-      ttlMs: 30_000,
-      stats: jest.fn(() => STATS),
-      invalidate: jest.fn(),
-      set: jest.fn(),
-    } as unknown as PrincipalCache;
     const bus = {
       adapter: 'postgres',
+      origin: 'test',
       health: jest.fn(() => health()),
       publish: jest.fn(),
-      subscribe: jest.fn(),
+      subscribe: jest.fn(() => () => undefined),
     } as unknown as EventBus;
-    const check = new PrincipalCacheDoctorCheck(registry, cache, bus);
+    const cache = new PrincipalCache(
+      { get: () => 30 } as unknown as ConfigService,
+      bus,
+    );
+    const set = jest.spyOn(cache, 'set');
+    const invalidate = jest.spyOn(cache, 'invalidate');
+    const check = new PrincipalCacheDoctorCheck(registry, cache);
 
     check.onModuleInit();
     const outcome = await check.run();
 
     expect(check).toMatchObject({ id: 'auth.principal-cache', category: 'auth', label: 'JWT principal cache' });
     expect(registry.get('auth.principal-cache')).toBe(check);
-    expect(outcome).toMatchObject({ status: 'pass', data: { ttlSeconds: 30 } });
+    expect(outcome).toMatchObject({ status: 'pass', data: { ttlSeconds: 30, adapter: 'postgres' } });
+    expect(bus.health).toHaveBeenCalled();
     // Read-only: no invalidation, no write, no probe publish.
-    expect(cache.invalidate).not.toHaveBeenCalled();
-    expect(cache.set).not.toHaveBeenCalled();
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
     expect(bus.publish).not.toHaveBeenCalled();
-    expect(bus.subscribe).not.toHaveBeenCalled();
   });
 });

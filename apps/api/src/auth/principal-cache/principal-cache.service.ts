@@ -8,7 +8,13 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { EVENT_BUS, type EventBus, type EventBusMeta } from '../../common/event-bus/event-bus.interface';
+import {
+  EVENT_BUS,
+  type EventBus,
+  type EventBusHealth,
+  type EventBusMeta,
+} from '../../common/event-bus/event-bus.interface';
+import { InProcessEventBus } from '../../common/event-bus/in-process-event-bus';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import { DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS } from './principal-cache.config';
 
@@ -160,11 +166,19 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
 
   private unsubscribe: (() => void) | null = null;
 
+  /** The process's bus; a private in-process one only in a graph without `EventBusModule`. */
+  private readonly bus: EventBus;
+
   constructor(
     config: ConfigService,
-    @Inject(EVENT_BUS) private readonly bus: EventBus,
+    // Optional for the same reason as in `NotificationStreamService`: a test
+    // graph built from one feature module has no `EventBusModule`. There the
+    // cache still invalidates locally (single process); the app always has
+    // the global bus, and the Doctor reports which one this cache uses.
+    @Optional() @Inject(EVENT_BUS) bus?: EventBus,
     @Optional() @Inject(PRINCIPAL_CACHE_CLOCK) private readonly now: () => number = Date.now,
   ) {
+    this.bus = bus ?? new InProcessEventBus();
     const seconds = config.get<number>('auth.principalCacheTtlSeconds');
     const ttlSeconds =
       typeof seconds === 'number' && Number.isSafeInteger(seconds) && seconds >= 0
@@ -289,6 +303,11 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
     } catch {
       // Same: a synchronous throw from a misbehaving adapter never reaches the caller.
     }
+  }
+
+  /** The health of the bus invalidations travel on. Synchronous, no I/O. */
+  busHealth(): EventBusHealth {
+    return this.bus.health();
   }
 
   /** A synchronous snapshot for the Doctor. No I/O. */

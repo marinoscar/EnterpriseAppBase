@@ -1,3 +1,4 @@
+import { PrincipalCacheModule } from '../auth/principal-cache/principal-cache.module';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -7,6 +8,8 @@ import { TestAuthService } from './test-auth.service';
 
 @Module({
   imports: [
+    // PP-1.12 (#683): the role swap invalidates principals.
+    PrincipalCacheModule,
     // JWT configuration (reuse from AuthModule)
     JwtModule.registerAsync({
       imports: [ConfigModule],

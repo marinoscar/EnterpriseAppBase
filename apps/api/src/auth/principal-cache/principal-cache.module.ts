@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 
 import { PrincipalCache } from './principal-cache.service';
 
@@ -6,19 +6,20 @@ import { PrincipalCache } from './principal-cache.service';
 // PrincipalCacheModule (PP-1.12, issue #683)
 // =============================================================================
 //
-// `@Global()` and imported ONCE, in `app.module.ts` next to `EventBusModule`.
-// The cache is written from modules that `AuthModule` itself depends on —
-// `CommonModule` (`AdminBootstrapService.assignAdminRole`) — as well as from
-// `UsersModule`, `SettingsModule` and `TestAuthModule`. Providing it from
-// `AuthModule` would put an import cycle on the authentication path; a global
-// leaf module with no imports of its own (it needs only `ConfigService` and
-// the global `EVENT_BUS`) has none.
+// A LEAF MODULE, imported explicitly by every module whose providers read or
+// invalidate the cache: `AuthModule`, `CommonModule`
+// (`AdminBootstrapService.assignAdminRole`), `UsersModule`, `SettingsModule`
+// and `TestAuthModule`. It is not provided by `AuthModule` because
+// `AuthModule` itself imports `CommonModule`, which would put an import cycle
+// on the authentication path. It imports nothing: it needs only the global
+// `ConfigService` and (optionally) the global `EVENT_BUS`.
 //
-// ONE INSTANCE PER PROCESS: two would each hold entries the other's
-// `invalidate` never reaches.
+// ONE INSTANCE PER PROCESS: Nest instantiates a module class once per
+// application however many modules import it, so every importer shares the
+// same map. Two instances would each hold entries the other's `invalidate`
+// never reaches.
 // =============================================================================
 
-@Global()
 @Module({
   providers: [PrincipalCache],
   exports: [PrincipalCache],

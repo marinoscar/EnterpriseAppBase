@@ -272,6 +272,15 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       expect(c.get('u1')).toBeUndefined();
     });
 
+    it('works without an EVENT_BUS provider (a feature-module test graph): local-only', () => {
+      const c = new PrincipalCache(configWith(30), undefined, now);
+      c.onModuleInit();
+      store(c, principal('u1'));
+      expect(() => c.invalidate({ userId: 'u1' })).not.toThrow();
+      expect(c.get('u1')).toBeUndefined();
+      expect(c.busHealth().adapter).toBe('in-process');
+    });
+
     it('unsubscribes on module destroy', async () => {
       const bus = new InProcessEventBus();
       const c = cache(30, bus);

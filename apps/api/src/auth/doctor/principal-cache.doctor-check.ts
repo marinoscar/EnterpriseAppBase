@@ -1,6 +1,6 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { EVENT_BUS, type EventBus, type EventBusHealth } from '../../common/event-bus/event-bus.interface';
+import type { EventBusHealth } from '../../common/event-bus/event-bus.interface';
 import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/doctor-check.interface';
 import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
 import { PrincipalCache, type PrincipalCacheStats } from '../principal-cache/principal-cache.service';
@@ -83,15 +83,14 @@ export class PrincipalCacheDoctorCheck implements DoctorCheck, OnModuleInit {
   constructor(
     private readonly registry: DoctorCheckRegistry,
     private readonly cache: PrincipalCache,
-    @Inject(EVENT_BUS) private readonly bus: EventBus,
   ) {}
 
   onModuleInit(): void {
     this.registry.register(this);
   }
 
-  // Read-only: two in-memory snapshots, no I/O, no probe publish.
+  // Read-only: two in-memory snapshots (the cache's and its bus's), no I/O, no probe publish.
   async run(): Promise<DoctorCheckOutcome> {
-    return decidePrincipalCache(this.cache.ttlMs / 1000, this.cache.stats(), this.bus.health());
+    return decidePrincipalCache(this.cache.ttlMs / 1000, this.cache.stats(), this.cache.busHealth());
   }
 }

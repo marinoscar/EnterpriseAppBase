@@ -16,6 +16,7 @@ import { JobsModule } from '../jobs/jobs.module';
 import { AuthProvidersDoctorCheck } from './doctor/auth-providers.doctor-check';
 import { InitialAdminDoctorCheck } from './doctor/initial-admin.doctor-check';
 import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
+import { PrincipalCacheModule } from './principal-cache/principal-cache.module';
 import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check';
 
 @Module({
@@ -36,6 +37,9 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
 
     // Common module for AdminBootstrapService
     CommonModule,
+
+    // PP-1.12 (#683): `validateJwtPayload` reads principals through it.
+    PrincipalCacheModule,
 
     // Allowlist module for email allowlist checks
     AllowlistModule,
@@ -64,8 +68,7 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
     JwtSecretDoctorCheck,
     AuthProvidersDoctorCheck,
     InitialAdminDoctorCheck,
-    // PP-1.12 (#683): `auth.principal-cache`. The cache itself is provided
-    // by the global `PrincipalCacheModule` (see principal-cache.module.ts).
+    // PP-1.12 (#683): `auth.principal-cache`.
     PrincipalCacheDoctorCheck,
   ],
   exports: [AuthService, JwtModule],
