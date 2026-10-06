@@ -49,10 +49,17 @@
 // `fireDueBackup`'s own spec is what pins that it only enqueues. That limit is
 // stated rather than hidden: this test is a tripwire on the shape of a cron
 // body, not a proof about the whole call graph.
+//
+// THE SCAN LIVES IN `@marinoscar/platform-api/testing` (issue #694), so every
+// app that consumes the platform runs the very same rule through
+// `runPlatformConformance()`. What stays HERE is this application's DATA: the
+// exemption list below and the vacuity minimum. Same markers, same enqueue
+// pattern, same three exemptions as before the move.
 // =============================================================================
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
+
+import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 
 /** The API's source root, from this file. */
 const SRC = join(__dirname, '..', '..', 'src');
@@ -91,115 +98,7 @@ const EXEMPT: ReadonlyArray<{ file: string; why: string }> = [
   },
 ];
 
-/**
- * Markers of a cron doing the work itself.
- *
- * Deliberately concrete rather than clever: these are the exact shapes the
- * seven converted crons used to contain, so a revert reintroduces one of them
- * almost by definition.
- */
-const WORK_MARKERS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
-  { pattern: /\.deleteMany\(/, what: 'a bulk delete' },
-  { pattern: /\.updateMany(AndReturn)?\(/, what: 'a bulk update' },
-  { pattern: /\.\$executeRaw/, what: 'raw SQL' },
-  { pattern: /withAdminConnection\(/, what: 'a cluster admin connection' },
-  { pattern: /\bcleanupExpired\w*\(/, what: 'an inline cleanup call' },
-  { pattern: /\.prune\(\)/, what: 'an inline retention prune' },
-  { pattern: /\bdropExpired\w*\(/, what: 'an inline DROP DATABASE sweep' },
-  { pattern: /\bthis\.sweep\(/, what: 'an inline sweep' },
-  { pattern: /\bthis\.releaseStaleRuns\(/, what: 'an inline stale release' },
-  { pattern: /\bthis\.storage(Provider)?\./, what: 'a direct storage-provider call' },
-];
-
-/** Every `.ts` file under `dir`, excluding tests. */
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((entry) => {
-    const full = join(dir, entry);
-
-    if (statSync(full).isDirectory()) return sourceFiles(full);
-    if (!entry.endsWith('.ts') || entry.endsWith('.spec.ts')) return [];
-
-    return [full];
-  });
-}
-
-/**
- * The body of every `@Cron`-decorated method in `source`, brace-matched.
- *
- * Brace matching rather than a regex over the whole method: a cron body
- * contains braces (template literals, object arguments, nested blocks), and a
- * lazy match would stop at the first `}` and declare every task compliant.
- */
-function cronBodies(source: string): string[] {
-  const bodies: string[] = [];
-  let index = source.indexOf('@Cron(');
-
-  while (index !== -1) {
-    const open = source.indexOf('{', index);
-
-    if (open === -1) break;
-
-    let depth = 0;
-    let end = open;
-
-    for (; end < source.length; end += 1) {
-      if (source[end] === '{') depth += 1;
-      else if (source[end] === '}') {
-        depth -= 1;
-        if (depth === 0) break;
-      }
-    }
-
-    bodies.push(source.slice(open, end + 1));
-    index = source.indexOf('@Cron(', end);
-  }
-
-  return bodies;
-}
-
-const files = sourceFiles(SRC)
-  .map((file) => ({ path: file, rel: relative(SRC, file).split('\\').join('/') }))
-  .map((file) => ({ ...file, source: readFileSync(file.path, 'utf8') }))
-  .filter((file) => file.source.includes('@Cron('));
-
-const exemptFiles = new Set(EXEMPT.map((entry) => entry.file));
-
-describe('every @Cron enqueues rather than working', () => {
-  it('finds the crons at all, so a broken scan cannot pass vacuously', () => {
-    // The failure this guards: a refactor moves the tasks, `sourceFiles` finds
-    // nothing, and every case below passes over an empty list.
-    expect(files.length).toBeGreaterThanOrEqual(8);
-  });
-
-  it.each(EXEMPT.map((entry) => [entry.file, entry.why] as const))(
-    'exempts %s, on the record',
-    (file, why) => {
-      // The exemption is only real if the file is: a stale entry here would
-      // silently exempt nothing while looking like it exempted something.
-      expect(files.map((candidate) => candidate.rel)).toContain(file);
-      expect(why.length).toBeGreaterThan(40);
-    }
-  );
-
-  it('queues its work instead of doing it, in every non-exempt cron', () => {
-    const offenders: string[] = [];
-
-    for (const file of files) {
-      if (exemptFiles.has(file.rel)) continue;
-
-      for (const body of cronBodies(file.source)) {
-        if (!/enqueueHousekeepingJob\(|\.enqueue\(/.test(body)) {
-          offenders.push(`${file.rel}: a @Cron body that queues nothing`);
-        }
-
-        for (const marker of WORK_MARKERS) {
-          if (marker.pattern.test(body)) {
-            offenders.push(`${file.rel}: a @Cron body containing ${marker.what}`);
-          }
-        }
-      }
-    }
-
-    expect(offenders).toEqual([]);
-  });
+runPlatformConformance({
+  sourceRoots: [SRC],
+  suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
 });
