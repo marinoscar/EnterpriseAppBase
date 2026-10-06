@@ -188,7 +188,7 @@ In the web app, every settings page is a card in a registry: `ADMIN_SECTIONS` (`
 
 Files live in an S3-compatible object store: AWS S3, Cloudflare R2, or any S3-compatible endpoint. Which one is resolved at runtime, per call, from the `storage` system-settings namespace plus an encrypted secret access key. Every consumer injects the `STORAGE_PROVIDER` token, bound to a resolving provider that delegates to an S3 client built for the configuration in force. An unconfigured deployment answers storage calls with `503`.
 
-Uploads come in two shapes. A simple upload (`POST /api/storage/objects`, up to 100 MB) streams through the API. A resumable upload initializes a multipart upload, lets the client send parts directly to the bucket through presigned URLs, then completes it. A completed upload checks, in the same transaction, whether any registered processor applies: if none does the object is marked `ready` immediately; otherwise the object is marked `processing` and the `storage.object.process` job runs the applicable processors (for example, metadata extraction) and stores their results on the object. Profile pictures and AI outputs are storage objects too. Abandoned uploads are swept by the `storage.cleanup.stale-uploads` job.
+Uploads come in two shapes. A simple upload (`POST /api/storage/objects`, up to 100 MB) streams through the API. A resumable upload initializes a multipart upload, lets the client send parts directly to the bucket through presigned URLs, then completes it. A completed upload checks, in the same transaction, whether any registered processor applies: if none does the object is marked `ready` immediately; otherwise the object is marked `processing` and the `storage.object.process` job runs the applicable processors (for example, metadata extraction) and stores their results on the object. Profile pictures and AI outputs are storage objects too. Abandoned uploads are swept by the `storage.cleanup.stale-uploads` job. Every key prefix a writer uses is declared in the storage key-prefix registry (`storage/storage-key-prefix.registry.ts`; apps add theirs in `app-registrations/storage-prefixes.ts`), and `npm run storage:purge` deletes only under those prefixes.
 
 - **Code:** `apps/api/src/storage/` (`objects/`, `config/`, `providers/`, `processing/`)
 - **UI:** `/admin/settings/storage`
@@ -720,6 +720,7 @@ Health endpoints (public, reachable during maintenance):
 | A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
 | A registry entry (permission, setting, …) | [registry/README.md](../apps/api/src/common/registry/README.md) |
 | A permission or role (platform module or app) | [permissions/README.md](../apps/api/src/common/permissions/README.md) |
+| An object-storage key prefix | [specs/storage-providers.md §4](specs/storage-providers.md#4-extending-it-in-a-fork) |
 
 ---
 
