@@ -53,7 +53,8 @@ COPY apps/cli/package.json ./apps/cli/
 # image that builds clean and dies at boot with ERR_MODULE_NOT_FOUND.
 COPY packages/shared ./packages/shared/
 # Same for @marinoscar/platform-infra (issue #705): the CLI reads the
-# telemetry compose file list from its manifest. Its dist/ is built below.
+# telemetry compose file list from its manifest. The CLI's `prebuild` builds
+# its dist/ in the build stage.
 COPY packages/platform-infra ./packages/platform-infra/
 RUN npm ci --workspace=cli --include-workspace-root --ignore-scripts
 
@@ -64,9 +65,8 @@ FROM base AS build
 COPY --from=deps /app ./
 COPY tsconfig.base.json ./
 COPY apps/cli ./apps/cli
-# Platform packages the CLI imports resolve to their compiled dist/.
-RUN npm run build --workspace=@marinoscar/platform-infra
 WORKDIR /app/apps/cli
+# `prebuild` builds @marinoscar/platform-infra's dist/ first.
 RUN npm run build
 
 # -----------------------------------------------------------------------------

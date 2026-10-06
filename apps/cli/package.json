@@ -22,7 +22,7 @@
     "dist"
   ],
   "scripts": {
-    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "npm run build --workspace=@marinoscar/platform-infra && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc -p tsconfig.build.json",
     "postbuild": "node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
     "dev": "tsx src/cli.ts",
