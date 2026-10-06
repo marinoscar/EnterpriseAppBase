@@ -281,5 +281,8 @@ describe('.github/workflows/release.yml', () => {
     expect(release).toMatch(/run\.mjs --from tarballs/);
     expect(release).toMatch(/--prerelease/);
     expect(release).toMatch(/--latest=false/);
+    // A fork that inherited the version never releases the platform packages.
+    expect(release).toMatch(/repository\.url/);
+    expect(release).toMatch(/"\$home" != "\$GH_REPO"/);
   });
 });

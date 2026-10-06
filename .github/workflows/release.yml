@@ -301,13 +301,21 @@ jobs:
       GH_REPO: ${{ github.repository }}
       EVENT: ${{ github.event_name }}
     steps:
+      - uses: actions/checkout@v6
+
+      # Only the repository the packages are built from (their
+      # repository.url) releases them; a fork that inherited the version
+      # never creates platform releases of its own.
       - id: d
         name: Decide
         run: |
           tag="platform-v$VERSION"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          home=$(node -p "(require('./packages/platform-api/package.json').repository.url.match(/github\.com[/:](.+?)(\.git)?$/) || [])[1] || ''")
           go=false
-          if [ "$VERSION" = "0.0.0" ]; then
+          if [ "$home" != "$GH_REPO" ]; then
+            reason="the packages are built from '$home', not this repository (a fork)"
+          elif [ "$VERSION" = "0.0.0" ]; then
             reason="version 0.0.0 is the unreleased scaffold"
           elif gh release view "$tag" >/dev/null 2>&1; then
             if [ "$EVENT" = "workflow_dispatch" ]; then go=true; reason="updating the assets of $tag (manual run)"; else reason="release $tag already exists"; fi
@@ -316,9 +324,6 @@ jobs:
           fi
           echo "go=$go" >> "$GITHUB_OUTPUT"
           echo "GitHub release: $reason" >> "$GITHUB_STEP_SUMMARY"
-
-      - if: steps.d.outputs.go == 'true'
-        uses: actions/checkout@v6
 
       - if: steps.d.outputs.go == 'true'
         uses: actions/setup-node@v6
