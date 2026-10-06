@@ -1,0 +1,244 @@
+
+=== q1-multifile ===
+schema folder files: ai.prisma, base.prisma, credentials.prisma, db-backup.prisma, identity.prisma, jobs.prisma, notifications.prisma, settings.prisma, storage.prisma
+PASS  split produced base + 8 slice files
+PASS  all 31 models present exactly once across the folder  (31 models)
+
+## 1. Prisma 7 config: how the CLI is pointed at a folder
+--- validate, config WITHOUT a `schema` key, schema/ folder present, no schema.prisma
+    exit 1
+    Error: Could not find Prisma Schema that is required for this command.
+    You can either provide it with `--schema` argument,
+    set it in your Prisma Config file (e.g., `prisma.config.ts`),
+    set it as `prisma.schema` in your package.json,
+    or put it into the default location (`./prisma/schema.prisma`, or `./schema.prisma`.
+    Checked following paths:
+    
+    schema.prisma: file not found
+    prisma/schema.prisma: file not found
+    
+    See also https://pris.ly/d/prisma-schema-location
+PASS  without `schema` the folder is NOT auto-detected (config option is required)
+--- validate, config `schema: 'prisma/schema'`
+    exit 0
+    The schemas at prisma/schema are valid 🚀
+    Prisma schema loaded from prisma/schema.
+PASS  `defineConfig({ schema: 'prisma/schema' })` validates the folder
+PASS  schema path resolves relative to the config file, not the cwd  (exit 0)
+
+## 2. generate: old single file vs folder
+--- single-file generate
+    
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.54s
+    
+    Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+    
+    
+    Prisma schema loaded from prisma/schema.prisma.
+--- folder generate
+    
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.43s
+    
+    Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+    
+    
+    Prisma schema loaded from prisma/schema.
+PASS  both generate
+--- diff -rq single/generated-client folder/generated-client
+    Files <repo>/spike/.work/q1/single/prisma/generated-client/edge.js and <repo>/spike/.work/q1/folder/prisma/generated-client/edge.js differ
+    Files <repo>/spike/.work/q1/single/prisma/generated-client/index-browser.js and <repo>/spike/.work/q1/folder/prisma/generated-client/index-browser.js differ
+    Files <repo>/spike/.work/q1/single/prisma/generated-client/index.d.ts and <repo>/spike/.work/q1/folder/prisma/generated-client/index.d.ts differ
+    Files <repo>/spike/.work/q1/single/prisma/generated-client/index.js and <repo>/spike/.work/q1/folder/prisma/generated-client/index.js differ
+    Files <repo>/spike/.work/q1/single/prisma/generated-client/package.json and <repo>/spike/.work/q1/folder/prisma/generated-client/package.json differ
+    Files <repo>/spike/.work/q1/single/prisma/generated-client/schema.prisma and <repo>/spike/.work/q1/folder/prisma/generated-client/schema.prisma differ
+PASS  index.d.ts is the same multiset of lines (only declaration order differs)
+PASS  index.js / edge.js / index-browser.js: the model catalogue (runtimeDataModel) is deep-equal
+PASS  runtime/ and the query compiler wasm are byte-identical
+PASS  the schema copy embedded in the client lists the same 41 models+enums
+
+## 3. migrate diff old file -> folder
+--- prisma migrate diff --exit-code --from-schema <single file> --to-schema <folder>
+    exit 0
+    No difference detected.
+PASS  migrate diff single-file -> folder is EMPTY (exit 0)
+PASS  and in the other direction  (exit 0)
+
+## 4. migrations directory location
+--- migrate status, schema: 'prisma/schema', migrations at prisma/migrations (NOT inside the folder), no migrations.path
+    exit 1
+    Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
+    
+    No migration found in prisma/migrations
+    Prisma schema loaded from prisma/schema.
+    The current database is not managed by Prisma Migrate.
+    
+    Read more about how to baseline an existing production database:
+    https://pris.ly/d/migrate-baseline
+PASS  DEFAULT migrations location with a schema FOLDER is <folder>/migrations, not the sibling prisma/migrations (the CLI label still says "prisma/migrations")
+--- migrate status, migrations moved to prisma/schema/migrations (inside the folder), no migrations.path
+    exit 1
+    Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
+    
+    22 migrations found in prisma/migrations
+    Following migrations have not yet been applied:
+    20260124223146_initial
+    20260329151231_add_personal_access_tokens
+    20260830211041_add_credentials
+    20260831010356_add_notification_deliveries
+    20260831014110_drop_stale_uuid_defaults
+    20260831030721_add_notifications
+    20260905182958_add_push_subscriptions
+    20260906120000_add_jobs
+    20260906190000_add_worker_nodes
+    20260907120000_add_database_backup_runs
+    20260907130000_add_notification_broadcasts
+    20260907140000_add_backup_run_job_link
+    20260907150000_add_job_node_secrets
+    20260907160000_add_backup_run_pg_dump_version
+    20260908120000_add_job_claim_token
+    20260926034919_add_ai_platform
+    20260927000000_revoke_viewer_ai_use
+    20260927120000_add_user_credentials
+    20260927130000_add_device_session_credential_link
+    20260928100000_add_worker_node_vitals
+    20260930120000_add_job_trace_context
+    20261006120000_add_retention_created_at_indexes
+    
+    To apply migrations in development run prisma migrate dev.
+    To apply migrations in production run prisma migrate deploy.
+    Prisma schema loaded from prisma/schema.
+PASS  ...and migrations moved INSIDE the folder are found with no migrations.path
+PASS  explicit `migrations.path` finds the history at prisma/migrations  (exit 1)
+
+## 5. the existing `npm run prisma:*` scripts, unchanged
+scripts copied verbatim from apps/api/package.json:
+--- package.json scripts
+    {
+      "name": "q1-app",
+      "private": true,
+      "scripts": {
+        "prisma": "node scripts/prisma-env.js",
+        "prisma:generate": "node scripts/prisma-env.js generate",
+        "prisma:migrate": "node scripts/prisma-env.js migrate deploy",
+        "prisma:migrate:dev": "node scripts/prisma-env.js migrate dev",
+        "prisma:studio": "node scripts/prisma-env.js studio",
+        "prisma:seed": "node scripts/prisma-env.js db seed",
+        "prisma:push": "node scripts/prisma-env.js db push",
+        "prisma:typecheck": "tsc -p prisma/tsconfig.json"
+      }
+    }
+--- npm run prisma:generate
+    exit 0
+    
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.09s
+    
+    Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+    
+    
+    Prisma schema loaded from prisma/schema.
+PASS  npm run prisma:generate works on the folder
+--- npm run prisma:migrate (migrate deploy) on an empty database
+    exit 0
+    Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
+    
+    22 migrations found in prisma/migrations
+    
+    Applying migration `20260124223146_initial`
+    Applying migration `20260329151231_add_personal_access_tokens`
+    Applying migration `20260830211041_add_credentials`
+    Applying migration `20260831010356_add_notification_deliveries`
+    ...
+        └─ migration.sql
+      └─ 20261006120000_add_retention_created_at_indexes/
+        └─ migration.sql
+    
+    All migrations have been successfully applied.
+    Prisma schema loaded from prisma/schema.
+PASS  npm run prisma:migrate applies all 22 migrations
+PASS  _prisma_migrations holds 22 rows
+--- npm run prisma:migrate:dev -- --name should_not_exist (no schema change)
+    exit 0
+    Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
+    
+    Already in sync, no schema change or pending migration was found.
+    
+    Prisma schema loaded from prisma/schema.
+PASS  migrate dev reports no drift and creates no migration  (stray dirs: 0)
+--- npm run prisma:migrate:dev -- --name add_spike_probe (model added in credentials.prisma)
+    exit 0
+    Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
+    
+    Applying migration `20261006211252_add_spike_probe`
+    
+    The following migration(s) have been created and applied from new schema changes:
+    
+    prisma/migrations/
+      └─ 20261006211252_add_spike_probe/
+        └─ migration.sql
+    
+    Your database is now in sync with your schema.
+    
+    Prisma schema loaded from prisma/schema.
+PASS  migrate dev (shadow database) works against the folder and writes into prisma/migrations  (20261006211252_add_spike_probe)
+--- generated migration.sql
+    -- CreateTable
+    CREATE TABLE "spike_probes" (
+        "id" UUID NOT NULL,
+    
+        CONSTRAINT "spike_probes_pkey" PRIMARY KEY ("id")
+    );
+
+(db seed / typecheck: untouched — they read prisma.config.ts migrations.seed and prisma/tsconfig.json, neither involves the schema path)
+
+## 6. the Dockerfile recipe: COPY apps/api/prisma + prisma.config.ts, then generate with a DUMMY url
+Dockerfile lines (apps/api/Dockerfile): COPY apps/api/prisma ./apps/api/prisma/ ; COPY apps/api/prisma.config.ts ./apps/api/ ; DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy npx prisma generate
+--- generate in the Docker-shaped copy (no scripts/, no package.json, dummy URL)
+    exit 0
+    
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.10s
+    
+    Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+    
+    
+    Prisma schema loaded from prisma/schema.
+PASS  Dockerfile generate still works with a schema FOLDER (the COPY of apps/api/prisma already carries it)
+
+## 7. guard rails
+--- a SECOND generator block in a slice file
+    exit 1
+    Prisma schema loaded from prisma/schema.
+    
+    Error: Prisma schema validation - (validate wasm)
+    Error code: P1012
+    error: The generator "client" cannot be defined because a generator with that name already exists.
+      -->  prisma/schema/identity.prisma:1
+       | 
+       | 
+     1 | generator client {
+       | 
+    
+    Validation Error Count: 1
+    [Context: validate]
+    
+    Prisma CLI Version : 7.9.1
+PASS  a slice file declaring its own generator is rejected (generator/datasource belong only in base.prisma)
+--- the same model declared in two files
+    exit 1
+    Prisma schema loaded from prisma/schema.
+    
+    Error: Prisma schema validation - (validate wasm)
+    Error code: P1012
+    error: The model "User" cannot be defined because a model with that name already exists.
+      -->  prisma/schema/identity.prisma:5
+       | 
+     4 | 
+     5 | model User {
+       | 
+    
+    Validation Error Count: 1
+    [Context: validate]
+    
+    Prisma CLI Version : 7.9.1
+PASS  the same model name in two files is rejected by Prisma itself (so "extend" cannot be plain Prisma)
+
+23/23 checks passed
