@@ -140,3 +140,59 @@ jobs:
 
       - name: Changeset status since main
         run: npx changeset status --since=origin/main
+
+  # Consumer smoke (issue #697): pack the six packages and install the
+  # tarballs into minimal consumer apps in a temp directory outside the
+  # repository (tests/consumer-smoke/run.mjs), with no workspace link and no
+  # root node_modules: a Nest app (tsc with decorator metadata, boot, the
+  # Doctor route's 401/403/200, its own check, the fail-closed host) and a
+  # Vite app (vite build, a Vitest render of the Doctor page), each followed
+  # by the single-instance check on the consumer. Runs on pushes to main and
+  # on pull requests that touch what ends up in a tarball.
+  pack-smoke:
+    name: Consumer smoke (packed tarballs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: scope
+        name: Changes that affect the packages
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git fetch --no-tags origin main
+          if git diff --name-only origin/main...HEAD | grep -qE '^(packages/|tests/consumer-smoke/|scripts/check-single-instance\.mjs$|scripts/copy-license\.mjs$|package\.json$|package-lock\.json$|\.github/workflows/packages\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Consumer smoke skipped: no package-affecting change." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: steps.scope.outputs.run == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - if: steps.scope.outputs.run == 'true'
+        run: npm ci
+
+      - if: steps.scope.outputs.run == 'true'
+        run: npm run build:packages
+
+      - if: steps.scope.outputs.run == 'true'
+        name: Pack the six packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/tarballs"
+          for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
+          ls "$RUNNER_TEMP/tarballs" >> "$GITHUB_STEP_SUMMARY"
+
+      - if: steps.scope.outputs.run == 'true'
+        name: API consumer smoke
+        run: node tests/consumer-smoke/run.mjs --project api --from tarballs "$RUNNER_TEMP/tarballs"
+
+      - if: steps.scope.outputs.run == 'true'
+        name: Web consumer smoke
+        run: node tests/consumer-smoke/run.mjs --project web --from tarballs "$RUNNER_TEMP/tarballs"
