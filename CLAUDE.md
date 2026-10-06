@@ -72,6 +72,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: telemetry (GreptimeDB, explorer) | [docs/specs/telemetry.md](docs/specs/telemetry.md) |
 | Spec: VPS deploy | [docs/specs/vps-deploy.md](docs/specs/vps-deploy.md) |
 | Spec: worker nodes | [docs/specs/worker-nodes.md](docs/specs/worker-nodes.md) |
+| Spec: platform packages (package-based platform, extension contract, tenancy, migrations, adoption roadmap; proposed) | [docs/specs/platform-packages.md](docs/specs/platform-packages.md) |
 | Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |

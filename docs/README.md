@@ -44,6 +44,7 @@ In this order:
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
+| [specs/platform-packages.md](specs/platform-packages.md) | Proposed: turning the template into published platform packages (extension contract, tenancy, migrations, scaling, adoption roadmap) | you plan to share platform code between apps or change how forks consume it |
 
 ## Runbooks
 
