@@ -82,6 +82,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
 | Runbook: cross-repo drift report (`scripts/platform-drift.mjs`) | [docs/runbooks/platform-drift-report.md](docs/runbooks/platform-drift-report.md) |
 | Runbook: container images (GHCR names, tags, cosign verify, SBOM, pinning to the platform version) | [docs/runbooks/container-images.md](docs/runbooks/container-images.md) |
+| Runbook: release the platform packages | [docs/runbooks/release-platform-packages.md](docs/runbooks/release-platform-packages.md) |
 | `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
