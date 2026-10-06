@@ -147,6 +147,8 @@ INSERT → P2002 on jobs_active_dedup_uniq_idx → re-read the ACTIVE row → re
 - A P2002 from any other constraint propagates. `isActiveDedupConflict()` must positively recognise this index.
 - If the re-read finds no active row (the holder settled in between), enqueue inserts again. The loop is bounded at three attempts, then errors.
 
+**Wake-up.** After an INSERT that is due now (`scheduledFor` absent or not in the future), `enqueue` publishes `jobs.enqueued` with `{ type }` on the event bus, fire and forget (see Worker modes, "Wake-up"). A dedup collapse, a failed INSERT and a future `scheduledFor` publish nothing. `enqueueWithin(tx, …)` never publishes: its row is invisible to every other session until the caller's transaction commits, and may be rolled back; the poll picks it up after the commit.
+
 `recordProvider(jobId, providerKey, modelVersion)` writes the two audit columns and never throws; a failed annotation must not fail a job whose work succeeded.
 
 ### Trace context
@@ -317,6 +319,7 @@ Because every writer (both executors and the reaper) is claim-conditional, `job.
 - **Eligible types are resolved per claim**, never captured at bootstrap, so a late registration and runtime gate changes are seen.
 - **Per-job timeout.** `JOBS_JOB_TIMEOUT_MS` (or the profile's `maxRuntimeMs`) bounds how long a job holds a slot. A timeout is an ordinary failure (`JobTimeoutError` in `lastError`). The work is not cancelled; the slot is freed. `withTimeout` attaches handlers to the work promise before the race so a late rejection is never an `unhandledRejection`, and a late success never marks the job succeeded.
 - **Unknown type.** A claimed job whose type has no handler is failed permanently through `completeFailed(..., { permanent: true })`.
+- **Wake-up (PP-1.11).** While the pool runs (never in mode `off`), `JobWorker` subscribes to `jobs.enqueued`. For a type in the same eligible set `claimOne` uses, it calls `wake()`, which resolves every **idle** poll sleep at once. Idle sleeps are tracked in their own set, apart from the per-job timeouts and lease-renewal timers, so a wake-up can never fire either. A wake-up that lands while a slot's claim is in flight makes that slot claim again instead of sleeping. Many slots, on one replica or several, waking for one job is safe: the claim is `FOR UPDATE SKIP LOCKED`, so one wins. With `EVENT_BUS_ADAPTER=postgres` the wake-up reaches idle workers on every replica; with `in-process` only this one. **The poll is the correctness path and stays:** the bus is at most once and lossy across a listener reconnect, so `JOBS_POLL_MS` still guarantees every job is claimed; the wake-up only removes the wait in the common case.
 - **Shutdown.** `onModuleDestroy` stops claiming, wakes every sleeping slot (all timers live in one `unref`'d set), and waits at most five seconds for in-flight jobs. Anything still running is left with its lease for the reaper.
 
 ### Lease reaper
@@ -473,7 +476,7 @@ Bare, unprefixed, read through `ConfigService`, each with a fallback to its defa
 - `JOBS_RATELIMIT_MAX_HITS` — rate-limit deferrals before giving up (10).
 - `JOBS_RATELIMIT_BASE_MS` / `JOBS_RATELIMIT_MAX_MS` — deferral backoff bounds, and the throttle gate's wait cap (30000 / 900000).
 - `JOBS_WORKER_CONCURRENCY` — slot loops, fixed at startup; `0` starts no pool (2).
-- `JOBS_POLL_MS` — idle poll interval (5000).
+- `JOBS_POLL_MS` — idle poll interval (5000). The fallback behind the `jobs.enqueued` wake-up, not replaced by it.
 - `JOBS_WORKER_MODE` — `all` | `system` | `off` (`all`).
 - `JOBS_JOB_TIMEOUT_MS` — per-job timeout; `0` disables (600000).
 - `JOBS_SYSTEM_MODE_EXTRA_TYPES` — comma-separated extra types for `system` mode (unset).
@@ -583,6 +586,7 @@ Not proved: that `@Cron` schedules fire (that is Nest's), that the planner choos
 - **Derived temp prefix.** A hard-coded prefix lets two apps on one host delete each other's files.
 - **Admin reuse, not reimplementation.** A separate stuck query drops the zombie arm.
 - **`scheduled` as a boolean filter, not a status.** A status no row can carry splits the vocabulary.
+- **A `LISTEN`/`NOTIFY` wake-up on top of the poll, not instead of it** (PP-1.11). NOTIFY is lost while a listener reconnects, so removing the poll would make a lost message a stuck job. `enqueueWithin` does not wake: a wake-up for an uncommitted row finds nothing, and one for a rolled-back row announces a job that never existed.
 - **Rejected for the admin API:** a default for `olderThanMinutes`, filtering by `created_at`, returning payloads, one `updateMany` for `retry-failed`, clearing `dedup_key` on retry, force-resetting or deleting running jobs, a cache at or above the poll interval.
 - **Rejected for insights:** a cron-refreshed snapshot table (a writer on the hot path, and stale by construction), percentiles in the rollup (a percentile of a deleted distribution cannot be merged), unbounded lifetime percentiles, silently clamping `windowDays`, injecting `JobWorker` for the ETA divisor.
 
@@ -610,3 +614,4 @@ In a running app:
 - #459: broadcast failure listener. #468: reaper give-up emits `job.settled`. #477: claim-conditional terminal writes. #480: `canDelete` veto.
 - #607: `trace_context` — the enqueuing span's `traceparent`, parent of the server worker's job span and handed to nodes on claim.
 - #520: post-upload object processing becomes the `storage.object.process` job, replacing the `storage.object.uploaded` `@OnEvent` listener; `test/jobs/on-event-no-io.spec.ts` added as its tripwire.
+- PP-1.11 (#682): `jobs.enqueued` wake-up through the event bus; idle sleeps tracked apart from job timers; the poll stays the fallback.
