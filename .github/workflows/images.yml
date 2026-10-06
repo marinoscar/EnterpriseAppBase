@@ -25,6 +25,10 @@ name: Images
 #                main only, and `latest` only for an explicit channel latest
 #                on a version without a prerelease part.
 #
+# A calling job must grant contents: read, packages: write, id-token: write
+# and security-events: write; a called workflow cannot raise its caller's
+# permissions, and a caller that grants less fails before any job starts.
+#
 # The only credential is GITHUB_TOKEN. A package GHCR creates on the first push
 # is private; the workflow still owns it, so pushes and signatures succeed, and
 # the summary step reports whether an anonymous pull works. Making the packages

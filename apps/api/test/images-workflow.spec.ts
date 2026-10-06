@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -88,7 +88,9 @@ function runScript(step: string): string {
 
 describe('images.yml: what it builds', () => {
   const matrix = [
-    ...workflow.matchAll(/^ {10}- \{ role: ([\w-]+), file: ([\w./-]+), target: ('[^']*'|[\w-]+) \}$/gm),
+    ...workflow.matchAll(
+      /^ {10}- \{ role: ([\w-]+), file: ([\w./-]+), target: ('[^']*'|[\w-]+) \}$/gm
+    ),
   ].map((m) => ({ role: m[1], file: m[2], target: m[3] === "''" ? '' : m[3] }));
 
   it('has exactly the four roles', () => {
@@ -138,7 +140,11 @@ describe('images.yml: attestations and signature', () => {
   });
 
   it('grants id-token: write on the image job only', () => {
-    const top = workflow.slice(0, workflow.indexOf('\njobs:'));
+    const top = workflow
+      .slice(0, workflow.indexOf('\njobs:'))
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'))
+      .join('\n');
     expect(top).toMatch(/^permissions:\n {2}contents: read\n/m);
     expect(top).not.toContain('id-token');
     expect(workflow).toMatch(/^ {6}id-token: write\b/m);
@@ -271,7 +277,9 @@ function tagRules(): string[] {
 /** The tags metadata-action would produce, for the rule types this workflow uses. */
 function tagsFor(ctx: Context): string[] {
   const tags: string[] = [];
-  const gitTag = ctx.ref.startsWith('refs/tags/v') ? ctx.ref.slice('refs/tags/v'.length) : undefined;
+  const gitTag = ctx.ref.startsWith('refs/tags/v')
+    ? ctx.ref.slice('refs/tags/v'.length)
+    : undefined;
   for (const rule of tagRules()) {
     const attrs = Object.fromEntries(
       interpolate(rule, ctx)
@@ -279,7 +287,7 @@ function tagsFor(ctx: Context): string[] {
         .map((pair) => {
           const at = pair.indexOf('=');
           return [pair.slice(0, at), pair.slice(at + 1)];
-        }),
+        })
     ) as Record<string, string>;
     if (attrs.enable !== 'true' && attrs.enable !== 'false') {
       throw new Error(`tag rule enable must evaluate to true or false: ${rule}`);
@@ -343,13 +351,25 @@ describe('images.yml: tags', () => {
   });
 
   it.each([
-    ['a channel off main', { VERSION_INPUT: '0.1.0-next.0', CHANNEL_INPUT: 'next' }, 'refs/heads/feature'],
+    [
+      'a channel off main',
+      { VERSION_INPUT: '0.1.0-next.0', CHANNEL_INPUT: 'next' },
+      'refs/heads/feature',
+    ],
     ['a version off main', { VERSION_INPUT: '0.1.0-next.0' }, 'refs/heads/feature'],
     ['a channel with no version', { CHANNEL_INPUT: 'next' }, 'refs/heads/main'],
-    ['latest on a prerelease', { VERSION_INPUT: '0.1.0-next.0', CHANNEL_INPUT: 'latest' }, 'refs/heads/main'],
+    [
+      'latest on a prerelease',
+      { VERSION_INPUT: '0.1.0-next.0', CHANNEL_INPUT: 'latest' },
+      'refs/heads/main',
+    ],
     ['an unknown channel', { VERSION_INPUT: '0.1.0', CHANNEL_INPUT: 'beta' }, 'refs/heads/main'],
     ['a version that is not semver', { VERSION_INPUT: 'v0.1.0; true' }, 'refs/heads/main'],
-    ['a version on the app scheme', { APP_RELEASE: 'true', VERSION_INPUT: '0.1.0' }, 'refs/tags/v1.0.0'],
+    [
+      'a version on the app scheme',
+      { APP_RELEASE: 'true', VERSION_INPUT: '0.1.0' },
+      'refs/tags/v1.0.0',
+    ],
   ])('refuses %s', (_name, env, ref) => {
     const result = runPlan({ GITHUB_REF: ref, ...env });
     expect(result.ok).toBe(false);
@@ -371,21 +391,74 @@ describe('images.yml: tags', () => {
   });
 });
 
+describe('every caller of images.yml grants what its jobs need', () => {
+  // A reusable workflow cannot raise its caller's permissions: a caller that
+  // grants less than the image job asks for fails before any job starts.
+  const required = [
+    'contents: read',
+    'packages: write',
+    'id-token: write',
+    'security-events: write',
+  ];
+  const workflowsDir = resolve(repoRoot, '.github/workflows');
+  const callers = readdirSync(workflowsDir)
+    .filter((name) => /\.ya?ml$/.test(name))
+    .flatMap((name) => {
+      const text = readFileSync(join(workflowsDir, name), 'utf8');
+      const jobLines = text.split('\n');
+      const blocks: { name: string; block: string }[] = [];
+      jobLines.forEach((line, index) => {
+        if (!/^ {4}uses: \.\/\.github\/workflows\/images\.yml\s*$/.test(line)) return;
+        let start = index;
+        while (start > 0 && !/^ {2}[\w-]+:\s*$/.test(jobLines[start] ?? '')) start -= 1;
+        let end = index + 1;
+        while (
+          end < jobLines.length &&
+          !/^ {2}[\w-]+:\s*$/.test(jobLines[end] ?? '') &&
+          !/^\S/.test(jobLines[end] ?? '')
+        )
+          end += 1;
+        blocks.push({
+          name: `${name} ${(jobLines[start] ?? '').trim()}`,
+          block: jobLines.slice(start, end).join('\n'),
+        });
+      });
+      return blocks;
+    });
+
+  it('finds the callers (deploy.yml at least)', () => {
+    expect(callers.map((caller) => caller.name)).toContain('deploy.yml build-and-push:');
+  });
+
+  it.each(required)('each caller grants %s', (permission) => {
+    for (const caller of callers) {
+      expect({ caller: caller.name, grants: caller.block.includes(`      ${permission}`) }).toEqual(
+        {
+          caller: caller.name,
+          grants: true,
+        }
+      );
+    }
+  });
+});
+
 describe('deploy.yml builds its images through images.yml', () => {
   const deploy = read('.github/workflows/deploy.yml');
-  const job = deploy.slice(deploy.indexOf('  build-and-push:'), deploy.indexOf('  deploy-staging:'));
+  const job = deploy.slice(
+    deploy.indexOf('  build-and-push:'),
+    deploy.indexOf('  deploy-staging:')
+  );
 
   it('calls the reusable workflow with the app release scheme', () => {
     expect(job).toMatch(/^ {4}uses: \.\/\.github\/workflows\/images\.yml$/m);
     expect(job).toMatch(/^ {6}app-release: true$/m);
-    expect(job).toMatch(/^ {6}id-token: write\b/m);
-    expect(job).toMatch(/^ {6}packages: write\b/m);
-    expect(job).toMatch(/^ {6}security-events: write\b/m);
     expect(job).not.toContain('docker/build-push-action');
   });
 
   it('keeps the outputs the deploy jobs read', () => {
-    const used = new Set([...deploy.matchAll(/needs\.build-and-push\.outputs\.([\w-]+)/g)].map((m) => m[1]));
+    const used = new Set(
+      [...deploy.matchAll(/needs\.build-and-push\.outputs\.([\w-]+)/g)].map((m) => m[1])
+    );
     expect(used.size).toBeGreaterThan(0);
     for (const name of used) {
       expect(lines).toContain(`      ${name}:`);
