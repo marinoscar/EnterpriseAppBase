@@ -1,0 +1,227 @@
+name: Release
+
+# Releases the six @marinoscar/platform-* packages (issue #691). They share one
+# version (a Changesets "fixed" group, .changeset/config.json) and, while
+# .changeset/pre.json exists, publish as x.y.z-next.N on the `next` dist-tag.
+# Procedure and owner prerequisites: docs/runbooks/release-platform-packages.md.
+#
+#   version          (main only) opens or updates the "Version Packages" PR
+#                    from the pending changesets.
+#   gate             reads, without credentials, whether a real publish is
+#                    possible and needed: NPM_PUBLISH_ENABLED is 'true', all six
+#                    names exist on npm (the owner bootstrapped them, so a
+#                    trusted publisher can be attached), and the current version
+#                    is not on the registry yet.
+#   publish          the real publish: trusted publishing (OIDC) with
+#                    provenance, from the protected `npm-publish` environment.
+#   publish-dry-run  every other case: the same build, tests and pack, then
+#                    `npm publish --dry-run`, with the tarballs uploaded as the
+#                    `platform-tarballs` artifact. No environment, no id-token,
+#                    so it never waits for approval and can never publish.
+#
+# There is no NPM_TOKEN, ever: the publish job authenticates with its OIDC
+# token. The app release flow (deploy.yml, `v*` tags) is separate and
+# untouched; `platform-v<version>` tags mark platform releases.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version PR
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      pending: ${{ steps.cs.outputs.hasChangesets }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Opens or updates the version PR when changesets are pending; with none
+      # pending it only reports hasChangesets=false. A failure to open the PR
+      # (most often the repository setting "Allow GitHub Actions to create and
+      # approve pull requests" being off) must not turn main red: it is
+      # reported as a warning and in the job summary instead, and the
+      # `pending` output, set before the PR is attempted, still gates publish.
+      - id: cs
+        uses: changesets/action@v1
+        continue-on-error: true
+        with:
+          version: npm run version-packages
+          title: 'chore(release): version platform packages'
+          commit: 'chore(release): version platform packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report a version PR failure
+        if: steps.cs.outcome == 'failure'
+        run: |
+          echo "::warning::The Version Packages PR could not be opened or updated. See docs/runbooks/release-platform-packages.md (Troubleshooting)."
+          echo "Version PR: could not be opened or updated. Check that Settings > Actions > General > 'Allow GitHub Actions to create and approve pull requests' is on." >> "$GITHUB_STEP_SUMMARY"
+
+  gate:
+    name: Publish gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.g.outputs.publish }}
+      reason: ${{ steps.g.outputs.reason }}
+      version: ${{ steps.g.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      # Registry reads only; any error (a 404 because the scope or a package
+      # does not exist yet, or a network failure) means "not ready", which
+      # selects the dry run.
+      - id: g
+        env:
+          NPM_PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
+        run: |
+          v=$(node -p "require('./packages/platform-api/package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          publish=false
+          if [ "$NPM_PUBLISH_ENABLED" != "true" ]; then
+            reason="NPM_PUBLISH_ENABLED is not true"
+          else
+            missing=""; unpublished=""
+            for p in contract api web db cli infra; do
+              name="@marinoscar/platform-$p"
+              if ! npm view "$name" name >/dev/null 2>&1; then missing="$missing $name"; continue; fi
+              got=$(npm view "$name@$v" version 2>/dev/null || true)
+              [ "$got" = "$v" ] || unpublished="$unpublished $name"
+            done
+            if [ -n "$missing" ]; then
+              reason="not on npm yet (bootstrap them first):$missing"
+            elif [ -z "$unpublished" ]; then
+              reason="version $v is already on npm"
+            else
+              publish=true; reason="publishing $v:$unpublished"
+            fi
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Publish gate: $reason" >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish to npm
+    needs: [version, gate]
+    # Only when no changesets are pending (the version PR was merged), the
+    # gate says a publish is possible and needed, and on main.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      needs.version.outputs.pending == 'false' &&
+      needs.gate.outputs.publish == 'true' &&
+      vars.NPM_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish # protected: required reviewer, main only
+    permissions:
+      contents: write # push the platform-v<version> tag
+      id-token: write # OIDC for trusted publishing and provenance
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+
+      - run: npm run build:packages
+
+      - run: npm run test:packages
+
+      # In pre mode `changeset publish` uses the `next` dist-tag by itself;
+      # never pass --tag latest. Versions already on the registry are skipped,
+      # so a re-run is safe.
+      - name: Publish (trusted publishing, provenance)
+        run: npx changeset publish
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+
+      # A tag pushed with GITHUB_TOKEN does not trigger other workflows; the
+      # image build is started with workflow_call, not by this tag.
+      - id: v
+        name: Tag the platform version
+        run: |
+          v=$(node -p "require('./packages/platform-api/package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/platform-v$v" >/dev/null; then
+            echo "platform-v$v already exists"
+          else
+            git tag "platform-v$v" && git push origin "platform-v$v"
+          fi
+          echo "Published @marinoscar/platform-* $v (tag platform-v$v)" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-dry-run:
+    name: Publish dry run
+    needs: [version, gate]
+    # Every run the real publish does not take (including a manual run on a
+    # branch, where `version` is skipped).
+    if: >-
+      !cancelled() && needs.gate.result == 'success' &&
+      !(github.ref == 'refs/heads/main' &&
+        needs.version.outputs.pending == 'false' &&
+        needs.gate.outputs.publish == 'true' &&
+        vars.NPM_PUBLISH_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run build:packages
+
+      - run: npm run test:packages
+
+      - name: Publish dry run and pack
+        env:
+          REASON: ${{ needs.gate.outputs.reason }}
+          VERSION: ${{ needs.gate.outputs.version }}
+        run: |
+          for p in contract api web db cli infra; do npm publish --dry-run --tag next -w "@marinoscar/platform-$p"; done
+          mkdir -p tarballs && for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination tarballs; done
+          echo "dry run: $REASON (version $VERSION)" >> "$GITHUB_STEP_SUMMARY"
+          ls tarballs >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: platform-tarballs
+          path: tarballs/
