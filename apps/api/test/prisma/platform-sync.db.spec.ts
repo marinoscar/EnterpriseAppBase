@@ -40,7 +40,7 @@ import { envFor, prismaClientFor } from '../helpers/scratch-database.helper';
 const { describeWithDb } = resolveDbSuite('platform-sync.db.spec');
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
-const PLATFORM_BIN = join(REPO_ROOT, 'packages', 'platform-db', 'bin', 'platform.mjs');
+const PLATFORM_BIN = join(REPO_ROOT, 'packages', 'platform-db', 'bin', 'platform.js');
 const PRISMA_CLI = require.resolve('prisma/build/index.js');
 const DATABASE = `platform_sync_${process.pid}`;
 
