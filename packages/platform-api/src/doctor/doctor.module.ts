@@ -7,6 +7,7 @@ import { DoctorCheckRegistry } from './doctor-check.registry';
 import { createDoctorController } from './doctor.controller.factory';
 import { DOCTOR_MODULE_OPTIONS, ResolvedDoctorModuleOptions } from './doctor.options';
 import { DOCTOR_CACHE_TTL_MS, DOCTOR_DEFAULT_TIMEOUT_MS, DoctorService } from './doctor.service';
+import { EgressRegistry } from './egress/egress.registry';
 
 // =============================================================================
 // DoctorModule.forRoot() (issue #634; packaged by #696)
@@ -115,8 +116,9 @@ function resolveOptions(options: DoctorModuleOptions): ResolvedDoctorModuleOptio
 export class DoctorModule {
   /**
    * The Doctor, configured for one app: a global module providing
-   * `DoctorCheckRegistry`, `DoctorService` and `DOCTOR_MODULE_OPTIONS`, with a
-   * controller created from the app's host access decorators.
+   * `DoctorCheckRegistry`, `DoctorService`, `DOCTOR_MODULE_OPTIONS` and
+   * `EgressRegistry`, with a controller created from the app's host access
+   * decorators.
    *
    * @param options - see {@link DoctorModuleOptions}; `host` is required.
    * @returns the dynamic module to import in the app's root module.
@@ -138,8 +140,16 @@ export class DoctorModule {
       global: true,
       module: DoctorModule,
       controllers: [createDoctorController(resolved)],
-      providers: [{ provide: DOCTOR_MODULE_OPTIONS, useValue: resolved }, DoctorCheckRegistry, DoctorService],
-      exports: [DoctorCheckRegistry, DoctorService, DOCTOR_MODULE_OPTIONS],
+      providers: [
+        { provide: DOCTOR_MODULE_OPTIONS, useValue: resolved },
+        DoctorCheckRegistry,
+        DoctorService,
+        // The egress inventory (#773): the registry every module's contributor
+        // registers with. The `network.egress` check that reads it is the
+        // app's to provide (`NetworkEgressDoctorCheck`), like every check.
+        EgressRegistry,
+      ],
+      exports: [DoctorCheckRegistry, DoctorService, DOCTOR_MODULE_OPTIONS, EgressRegistry],
     };
   }
 }
