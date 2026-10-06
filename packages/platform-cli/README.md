@@ -6,7 +6,7 @@ Command and TUI building blocks for an app's own command-line client: Commander 
 
 Commander commands and ink components of the platform's CLI slices. It does not own the app's binary name, its program definition or its configuration file location.
 
-Status: scaffold only (version `0.0.0`). The package builds, packs and loads, and exports its own name (`PLATFORM_PACKAGE`). Slices arrive as subpath exports (`@marinoscar/platform-cli/<slice>`) in later releases of the platform program, each with its own README.
+Status: version `0.0.0`, unpublished. Slices are subpath exports (`@marinoscar/platform-cli/<slice>`), each with its own README: `core` (the CLI's command and env-spec fragment registries) and `telemetry` (the node span relay and the telemetry env-spec fragment). The root export is still only the package name (`PLATFORM_PACKAGE`).
 
 ## Install and peer dependencies
 
@@ -24,15 +24,26 @@ Install these in the app; the package never bundles its own copy (a second copy 
 
 ## Quick start
 
-None. Scaffold only (version `0.0.0`): the package exports nothing but its own name, `PLATFORM_PACKAGE`, so there is nothing to set up yet.
+Pick the slice you need and follow its README:
+
+| Subpath | Contents | README |
+|---|---|---|
+| `@marinoscar/platform-cli/core` | `registerCliCommand`, `registerEnvSpecFragment` and the env-key metadata helpers | [core](src/core/README.md) |
+| `@marinoscar/platform-cli/telemetry` | The worker node's span relay and `telemetryEnvSpecFragment` | [telemetry](src/telemetry/README.md) |
+
+```ts
+import { registerCliCommand } from '@marinoscar/platform-cli/core';
+
+registerCliCommand((program) => program.command('hello').action(() => console.log('hello')));
+```
 
 ## Configuration
 
-None. No slice is exported yet, so there is no `forRoot()` or other option to set.
+None at package level. The registries take no options; `NodeSpanRelayOptions` is in the [telemetry README](src/telemetry/README.md#configuration).
 
 ## Extension-point catalog
 
-None. Nothing the package exports is an extension point yet; each slice adds its rows (`Name`, `Kind`, `Signature`, `When to use`, `Stability`, `Example`) when it is extracted.
+None. The root entry point exports only `PLATFORM_PACKAGE`; the extension points are catalogued per slice, in the [core README](src/core/README.md#extension-point-catalog).
 
 ## Data
 
@@ -48,11 +59,11 @@ None. Terminal output only; the ink components are listed in each slice's README
 
 ## Infra
 
-None. The package ships no deployment configuration and reads no environment variable yet.
+None. The package ships no deployment configuration and reads no environment variable; `telemetryEnvSpecFragment` annotates keys of the app's `.env.example` (see the [telemetry README](src/telemetry/README.md#infra)).
 
 ## Observability
 
-None yet. Commands document their output and exit codes as they are extracted.
+The telemetry slice's node span relay is a worker's only span source; see the [telemetry README](src/telemetry/README.md#observability).
 
 ## Security notes
 

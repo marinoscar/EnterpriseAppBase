@@ -1,9 +1,11 @@
-import type { NodeApi, NodeSpan, NodeSpanAttributes, NodeSpanName } from './node-api.js';
-import { ApiError } from '../errors.js';
+import type { NodeSpan, NodeSpanAttributes, NodeSpanName, NodeSpanSink } from './node-span.js';
 
 // =============================================================================
 // Job phase spans, recorded here and relayed to the server  (issue #608)
 // =============================================================================
+// Moved from the reference CLI's `node/node-span-relay.ts` by PP-4.5 (#706).
+// It reads an HTTP status STRUCTURALLY (a numeric `status` on the error), so it
+// needs no app error class: the app's `ApiError` classifies exactly as before.
 //
 // A worker records WHEN each phase of a job ran (download, execute, upload,
 // submit, secret) and hands those timings to `POST /api/nodes/:id/telemetry`.
@@ -29,12 +31,25 @@ import { ApiError } from '../errors.js';
 // there is one — sanitised to the server's identifier-only shape. Messages
 // carry paths, hosts and signed URLs; the server would refuse them anyway,
 // and this side does not offer.
+//
+// ⚠ INTEGER-ONLY, ALLOWLISTED ATTRIBUTES. `bytes`, `attempt`, `exitCode` and
+// `httpStatus`, each range-checked (`cleanAttributes`); anything else, and
+// any value the server would refuse, is dropped before it is queued. There is
+// no string attribute, so no URL, path or credential can ride along in one.
 // =============================================================================
 
-/** Spans the server accepts per request. Mirrors `MAX_NODE_SPANS_PER_REQUEST`. */
+/**
+ * Spans the server accepts per request. Mirrors `MAX_NODE_SPANS_PER_REQUEST`.
+ *
+ * @stability experimental
+ */
 export const MAX_SPANS_PER_BATCH = 50;
 
-/** Spans held while waiting to send. Past this the OLDEST are dropped. */
+/**
+ * Spans held while waiting to send. Past this the OLDEST are dropped.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_MAX_QUEUED_SPANS = 500;
 
 /** Mirrors the server's `NODE_SPAN_ERROR_TYPE_PATTERN` and length cap. */
@@ -44,23 +59,47 @@ const ERROR_TYPE_MAX_LENGTH = 64;
 const MAX_DURATION_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * The HTTP status an error carries, read structurally: a numeric `status`
+ * property, as the reference CLI's `ApiError` has. `undefined` otherwise.
+ */
+function httpStatusOf(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === 'number' ? status : undefined;
+}
+
+function errorClassName(error: Error): string {
+  return error.name && error.name !== 'Error' ? error.name : error.constructor?.name || 'Error';
+}
+
+/**
  * An identifier-shaped error type for `error`: its class name, plus an HTTP
  * status (`ApiError.409`) or a string `code` (`Error.ECONNRESET`). Never its
  * message. Characters outside `[A-Za-z0-9_.-]` are replaced, and the result
  * is capped at 64. Never throws.
+ *
+ * An error with a numeric `status` is an HTTP failure: the status wins over
+ * any `code` it also carries (the reference CLI's `ApiError` has both, and its
+ * `code` is the server's, not a system errno).
+ *
+ * @param error - Anything thrown.
+ * @returns An identifier such as `ApiError.409` or `Error.ECONNREFUSED`.
+ * @stability experimental
  */
 export function errorTypeOf(error: unknown): string {
   try {
     let name = 'Error';
     let suffix: string | undefined;
 
-    if (error instanceof ApiError) {
-      name = 'ApiError';
-      suffix = String(error.status);
-    } else if (error instanceof Error) {
-      name = error.name && error.name !== 'Error' ? error.name : error.constructor?.name || 'Error';
-      const code = (error as { code?: unknown }).code;
-      if (typeof code === 'string' || typeof code === 'number') suffix = String(code);
+    if (error instanceof Error) {
+      name = errorClassName(error);
+      const status = httpStatusOf(error);
+      if (status !== undefined) {
+        suffix = String(status);
+      } else {
+        const code = (error as { code?: unknown }).code;
+        if (typeof code === 'string' || typeof code === 'number') suffix = String(code);
+      }
     } else {
       name = typeof error;
     }
@@ -88,10 +127,16 @@ function cleanAttributes(attributes: NodeSpanAttributes | undefined): NodeSpanAt
 /**
  * The spans of ONE job, recorded as it runs. Every method is synchronous and
  * swallows its own faults: recording must never be the reason a job failed.
+ *
+ * @stability experimental
  */
 export class JobSpanRecorder {
   private readonly spans: NodeSpan[] = [];
 
+  /**
+   * @param jobId - The job every recorded span belongs to.
+   * @param now - The clock, Unix epoch milliseconds. Defaults to `Date.now`.
+   */
   constructor(
     readonly jobId: string,
     private readonly now: () => number = Date.now,
@@ -156,9 +201,17 @@ export class JobSpanRecorder {
   }
 }
 
+/**
+ * Options for {@link NodeSpanRelay}.
+ *
+ * @stability experimental
+ */
 export interface NodeSpanRelayOptions {
-  api: NodeApi;
+  /** The app's API client, or anything with its optional `telemetry` method. */
+  api: NodeSpanSink;
+  /** The node the spans are relayed for. */
   nodeId: string;
+  /** Spans held while waiting to send. Defaults to `DEFAULT_MAX_QUEUED_SPANS`. */
   maxQueuedSpans?: number | undefined;
   /** Called ONCE, when a 404 disables the relay for this process. */
   onDisabled?: ((reason: string) => void) | undefined;
@@ -167,9 +220,11 @@ export interface NodeSpanRelayOptions {
 /**
  * The bounded, best-effort sender. One send in flight at a time; batches of at
  * most `MAX_SPANS_PER_BATCH`; the oldest spans dropped when the queue is full.
+ *
+ * @stability experimental
  */
 export class NodeSpanRelay {
-  private readonly api: NodeApi;
+  private readonly api: NodeSpanSink;
   private readonly nodeId: string;
   private readonly maxQueuedSpans: number;
   private readonly onDisabled: ((reason: string) => void) | undefined;
@@ -180,20 +235,23 @@ export class NodeSpanRelay {
   /** Spans discarded because the queue was full. For tests and diagnostics. */
   droppedForCapacity = 0;
 
+  /** @param options - The client, the node id and the queue bound. */
   constructor(options: NodeSpanRelayOptions) {
     this.api = options.api;
     this.nodeId = options.nodeId;
     this.maxQueuedSpans = Math.max(1, options.maxQueuedSpans ?? DEFAULT_MAX_QUEUED_SPANS);
     this.onDisabled = options.onDisabled;
-    // A `NodeApi` without the method (a test fake, an embedding that opted
+    // A client without the method (a test fake, an embedding that opted
     // out) is simply a relay that is off.
     this.disabled = typeof this.api.telemetry !== 'function';
   }
 
+  /** False once the relay is off: no `telemetry` method, or a 404 seen. */
   get enabled(): boolean {
     return !this.disabled;
   }
 
+  /** Spans waiting to be sent. */
   get queued(): number {
     return this.queue.length;
   }
@@ -227,11 +285,13 @@ export class NodeSpanRelay {
       try {
         await this.api.telemetry!(this.nodeId, { spans: batch });
       } catch (error) {
-        if (error instanceof ApiError && error.status === 404) {
+        const status = httpStatusOf(error);
+        if (status === 404) {
           this.disabled = true;
           this.queue.length = 0;
+          const serverMessage = (error as { serverMessage?: unknown }).serverMessage;
           try {
-            this.onDisabled?.(`${error.status}: ${error.serverMessage}`);
+            this.onDisabled?.(`${status}: ${typeof serverMessage === 'string' ? serverMessage : 'Not Found'}`);
           } catch {
             // An observer must not break the relay.
           }

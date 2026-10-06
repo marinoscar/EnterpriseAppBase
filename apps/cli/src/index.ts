@@ -230,6 +230,13 @@ export {
   validatePort,
 } from './deploy/env-metadata.js';
 export type { DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
+export { ENV_GROUPS } from './deploy/env-metadata.js';
+
+// The platform registries this CLI consults (PP-4.5, #706), re-exported for a
+// library consumer that embeds `buildProgram`: commands it registers appear
+// after the built-ins, fragments it registers feed `metadataFor`.
+export { registerCliCommand, registerEnvSpecFragment } from '@marinoscar/platform-cli/core';
+export type { CliCommandRegistration, EnvSpecFragment } from '@marinoscar/platform-cli/core';
 
 // The wizard, and the three prompt primitives it needed (#175). `confirm`,
 // `promptSecret` and `select` live in prompt.ts beside the one-question helper

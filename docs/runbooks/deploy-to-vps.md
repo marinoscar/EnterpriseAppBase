@@ -446,7 +446,7 @@ before a single byte reaches disk** — whether you typed it during the wizard
 or the wizard generated it. This is what makes it safe to attach a `.log` to
 a support request or a GitHub issue without a second pass to scrub it by
 hand. The honest boundary: redaction is a substring match against *known*
-secret values (the ones `env-metadata.ts` marks `secret: true`), not a
+secret values (the ones `env-metadata.ts` or a registered env-spec fragment marks `secret: true`), not a
 pattern-based scan of the output — a value your fork's own `.env.example`
 introduces with no corresponding metadata entry won't be recognized as a
 secret and won't be redacted. If you add a new secret-shaped variable to a

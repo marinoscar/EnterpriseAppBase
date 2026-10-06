@@ -1,4 +1,17 @@
-import { randomBytes } from 'node:crypto';
+import {
+  generateBase64Key,
+  generateHexKey,
+  generateValue,
+  isPlaceholderValue,
+  needsAutoGenerate,
+  resolveEnvMetadata,
+  validateBase64Key32,
+  validateEmail,
+  validatePort,
+  type EnvVarMetadata as PlatformEnvVarMetadata,
+} from '@marinoscar/platform-cli/core';
+
+import { ensurePlatformRegistrations } from '../platform-host/register.js';
 
 // =============================================================================
 // The handful of keys that need more than their template default
@@ -15,112 +28,57 @@ import { randomBytes } from 'node:crypto';
 // property: a fork that adds SENTRY_DSN gets a usable prompt without touching
 // this file. Adding an entry per variable would quietly undo that, because the
 // next fork's variables would be the ones without entries.
+//
+// NOT THE ONLY SOURCE ANY MORE (PP-4.5, #706). Slices contribute their own
+// entries as env-spec FRAGMENTS (`registerEnvSpecFragment` in
+// `@marinoscar/platform-cli/core`): the telemetry keys (PostgreSQL monitor
+// login, OTEL_*, GREPTIME_*) are `telemetryEnvSpecFragment` now. `metadataFor`
+// consults this map first, then the fragments. A key has exactly one owner:
+// this map is registered as a fragment too (`platform-host/register.ts`), so a
+// key defined here AND in a fragment throws at registration, naming both.
+// The metadata types and the pure helpers below live in the package as well
+// and are re-exported here, so no import site changes.
 // =============================================================================
+
+export type { DeriveContext, GenerateKind } from '@marinoscar/platform-cli/core';
+export {
+  generateBase64Key,
+  generateHexKey,
+  generateValue,
+  isPlaceholderValue,
+  needsAutoGenerate,
+  validateBase64Key32,
+  validateEmail,
+  validatePort,
+};
 
 /**
  * Feature groups. Their keys are skipped unless the group is enabled.
  * `observability` is ALWAYS enabled on a VPS (#567): see `effectiveGroups` in
  * compose-files.ts. The others are opt-in.
+ *
+ * A runtime list as well as a type, because a fragment from a package declares
+ * its group as a plain string: `metadataFor` refuses one naming a group this
+ * CLI does not know rather than silently never asking its keys.
  */
-export type EnvGroup = 'observability' | 'email' | 'microsoft-oauth';
+export const ENV_GROUPS = ['observability', 'email', 'microsoft-oauth'] as const;
+export type EnvGroup = (typeof ENV_GROUPS)[number];
 
 /**
- * How a generated value is made.
+ * The platform's `EnvVarMetadata` (see `@marinoscar/platform-cli/core` for
+ * every field), with `group` narrowed to this CLI's feature groups.
  *
- * - `base64-32`: 32 random bytes, standard base64 (AES-256 keys, JWT secrets).
- * - `hex-32`: 32 random bytes, lowercase hex. For values embedded in a syntax
- *   that reserves base64's own characters: GreptimeDB's
- *   `static_user_provider:cmd:user=password,user2=password2` splits on `,`,
- *   `=` and `:`, and base64 carries `=` padding (and `+`, `/`).
+ * `allowBlank` on the VPS path is set ONLY where blank has a defined meaning
+ * of its own: the PostgreSQL monitor login (#598), whose blank falls back to
+ * the API's login. The LOCAL profile in `init/` (issue #344) sets it for
+ * `GOOGLE_CLIENT_ID`, which may legitimately be filled in later. A deployment
+ * that cannot reach its own OAuth provider is still not a deployment, so the
+ * OAuth keys never carry it there. `deploy update` never counts an
+ * `allowBlank` key as needing an answer.
  */
-export type GenerateKind = 'base64-32' | 'hex-32';
-
-export interface DeriveContext {
-  /** The public hostname the deployment is being published under. */
-  domain: string;
-  /** Answers collected so far, in prompt order. */
-  answers: ReadonlyMap<string, string>;
-}
-
-export interface EnvVarMetadata {
-  /** Never echoed, never logged, never rendered into a frame. */
-  secret?: boolean;
-  /** Asked even when the template supplies a default. */
-  essential?: boolean;
-  /** Offer to generate a value rather than make someone invent one. */
-  generate?: GenerateKind;
-  /**
-   * Generate the value WITHOUT ASKING, interactive or not, whenever it is
-   * blank or still a template placeholder (`isPlaceholderValue`). A real value
-   * is never replaced. Requires `generate`.
-   *
-   * For credentials nobody needs to know, only the stack itself (#567): the
-   * GreptimeDB passwords are read back by the API from the same `.env`, so
-   * asking an operator to invent them is friction and a reused password.
-   */
-  autoGenerate?: boolean;
-  /** Returns a message when the value is unusable, undefined when it is fine. */
-  validate?: (value: string) => string | undefined;
-  /** Computed from the domain and earlier answers; never prompted for. */
-  derive?: (context: DeriveContext) => string | undefined;
-  /** Forced for a VPS deployment. Not offered, not overridable by a prompt. */
-  fixed?: string;
+export interface EnvVarMetadata extends Omit<PlatformEnvVarMetadata, 'group'> {
   /** Only asked when the operator opted into this group. */
   group?: EnvGroup;
-  /** Never written at all, whatever the template says. */
-  never?: boolean;
-  /**
-   * An EMPTY value is an acceptable answer for this key.
-   *
-   * It exists for the LOCAL profile in `init/` (issue #344), where
-   * `GOOGLE_CLIENT_ID` may legitimately be filled in later - the clone is
-   * being set up, not served - and an unattended run must produce a file
-   * rather than an error listing the credentials nobody has yet. On the VPS
-   * path it is set ONLY where blank has a defined meaning of its own: the
-   * PostgreSQL monitor login (#598), whose blank falls back to the API's
-   * login. A deployment that cannot reach its own OAuth provider is still not
-   * a deployment, so the OAuth keys never carry it there.
-   *
-   * `deploy update` never counts an `allowBlank` key as needing an answer.
-   *
-   * Blank SKIPS validation; a value that is present must still validate. That
-   * asymmetry is the whole point: "not configured yet" and "configured wrong"
-   * are different states and only the first one is allowed through.
-   */
-  allowBlank?: boolean;
-}
-
-/** 32 bytes from the CSPRNG. Never Math.random, and never a shelled-out openssl:
- * the CLI cannot assume what is installed, and this must behave identically on
- * a minimal container. */
-export function generateBase64Key(): string {
-  return randomBytes(32).toString('base64');
-}
-
-/** 32 bytes from the CSPRNG as 64 lowercase hex characters: `[0-9a-f]` only. */
-export function generateHexKey(): string {
-  return randomBytes(32).toString('hex');
-}
-
-export function generateValue(kind: GenerateKind): string {
-  return kind === 'hex-32' ? generateHexKey() : generateBase64Key();
-}
-
-/**
- * True when a value is still a template placeholder rather than something
- * anybody chose: the template's own default for the key, or the `change-me` /
- * `your-` spellings `.env.example` uses for credentials.
- */
-export function isPlaceholderValue(value: string, templateDefault?: string): boolean {
-  if (templateDefault !== undefined && templateDefault !== '' && value === templateDefault) {
-    return true;
-  }
-  return /^change-me|^your-/i.test(value);
-}
-
-/** Whether an `autoGenerate` key's current value must be replaced. */
-export function needsAutoGenerate(current: string | undefined, templateDefault?: string): boolean {
-  return current === undefined || current === '' || isPlaceholderValue(current, templateDefault);
 }
 
 function requireMinLength(minimum: number) {
@@ -147,47 +105,6 @@ function combine(
     }
     return undefined;
   };
-}
-
-/**
- * AES-256 needs exactly 32 bytes. A key that merely LOOKS like base64 passes
- * startup and then fails the first time a credential is saved, which is a long
- * way from where the mistake was made.
- */
-export function validateBase64Key32(value: string): string | undefined {
-  // Empty is allowed: the API boots without this key and only refuses to SAVE
-  // a credential, so an unattended install must be able to write a .env that
-  // leaves it blank. It is required in practice for file uploads (#377).
-  if (value === '') return undefined;
-
-  let decoded: Buffer;
-  try {
-    decoded = Buffer.from(value, 'base64');
-  } catch {
-    return 'must be base64';
-  }
-  // Buffer.from is lenient, so round-trip to catch input that is not base64 at
-  // all rather than silently accepting a truncated decode.
-  if (decoded.toString('base64').replace(/=+$/, '') !== value.replace(/=+$/, '')) {
-    return 'must be valid base64 (generate with: openssl rand -base64 32)';
-  }
-  if (decoded.length !== 32) {
-    return `must decode to exactly 32 bytes for AES-256 (got ${decoded.length})`;
-  }
-  return undefined;
-}
-
-export function validateEmail(value: string): string | undefined {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
-    ? undefined
-    : 'must be an email address';
-}
-
-export function validatePort(value: string): string | undefined {
-  const port = Number(value);
-  return Number.isInteger(port) && port > 0 && port < 65536
-    ? undefined
-    : 'must be a port number between 1 and 65535';
 }
 
 /**
@@ -232,22 +149,7 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   POSTGRES_USER: { essential: true },
   POSTGRES_PASSWORD: { essential: true, secret: true },
   POSTGRES_DB: { essential: true },
-  // The telemetry collector's PostgreSQL login (issue #598), a pg_monitor role
-  // that must already exist on the server - so never generated, only asked.
-  // Asked as a PAIR (both `essential`) because a password asked on its own
-  // would be paired with POSTGRES_USER, which it does not belong to. Blank is
-  // a real answer for both: telemetry.compose.yml then falls back to the
-  // API's own POSTGRES_USER / POSTGRES_PASSWORD, which works on any server
-  // without a new role. `allowBlank` is what keeps that blank from failing an
-  // unattended install, and from failing `deploy update` on a deployment
-  // written before these keys existed.
-  POSTGRES_MONITOR_USER: { group: 'observability', essential: true, allowBlank: true },
-  POSTGRES_MONITOR_PASSWORD: {
-    group: 'observability',
-    essential: true,
-    secret: true,
-    allowBlank: true,
-  },
+  // POSTGRES_MONITOR_USER / _PASSWORD (#598): `telemetryEnvSpecFragment`.
 
   // --- JWT / session -------------------------------------------------------
   JWT_SECRET: {
@@ -315,43 +217,9 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   TEST_AUTH_ENABLED: { never: true },
 
   // --- Observability -------------------------------------------------------
-  OTEL_ENABLED: { group: 'observability' },
-  OTEL_EXPORTER_OTLP_ENDPOINT: { group: 'observability' },
-  OTEL_SERVICE_NAME: { group: 'observability' },
-  // GreptimeDB telemetry store (telemetry.compose.yml). Three accounts with
-  // three privileges: the collector writes, the explorer / AI assistant / BI
-  // tools read, and only the retention (TTL) setting uses the admin account.
-  //
-  // The passwords are generated, never asked (#567), and as hex: they are
-  // embedded in GreptimeDB's `user=password,...` provider string, so `,`, `=`
-  // and `:` must never appear in them.
-  GREPTIME_HOST: { group: 'observability' },
-  GREPTIME_HTTP_PORT: { group: 'observability' },
-  GREPTIME_PG_PORT: { group: 'observability' },
-  // Loopback host port vps.telemetry.compose.yml publishes the PG protocol on.
-  GREPTIME_BIND_PG_PORT: { group: 'observability' },
-  GREPTIME_DB: { group: 'observability' },
-  GREPTIME_WRITER_USER: { group: 'observability' },
-  GREPTIME_WRITER_PASSWORD: {
-    group: 'observability',
-    secret: true,
-    generate: 'hex-32',
-    autoGenerate: true,
-  },
-  GREPTIME_READER_USER: { group: 'observability' },
-  GREPTIME_READER_PASSWORD: {
-    group: 'observability',
-    secret: true,
-    generate: 'hex-32',
-    autoGenerate: true,
-  },
-  GREPTIME_ADMIN_USER: { group: 'observability' },
-  GREPTIME_ADMIN_PASSWORD: {
-    group: 'observability',
-    secret: true,
-    generate: 'hex-32',
-    autoGenerate: true,
-  },
+  // OTEL_* and GREPTIME_* are `telemetryEnvSpecFragment`
+  // (`@marinoscar/platform-cli/telemetry`), registered in
+  // `platform-host/register.ts`.
 
   // --- Stack agent (#567) --------------------------------------------------
   // The API's credential for the stack-agent sidecar (vps.compose.yml), which
@@ -392,6 +260,28 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   AUTH_PRINCIPAL_CACHE_TTL_SECONDS: { validate: validateNonNegativeInteger },
 };
 
+function isEnvGroup(group: string): group is EnvGroup {
+  return (ENV_GROUPS as readonly string[]).includes(group);
+}
+
+/** A fragment's entry, narrowed to this CLI's groups, or a loud refusal. */
+function fromFragment(key: string): EnvVarMetadata | undefined {
+  const metadata = resolveEnvMetadata(key);
+  if (metadata === undefined) return undefined;
+  if (metadata.group !== undefined && !isEnvGroup(metadata.group)) {
+    throw new Error(
+      `Env key "${key}" is in group "${metadata.group}", which this CLI does not know ` +
+        `(known: ${ENV_GROUPS.join(', ')}). Add the group to ENV_GROUPS or change the fragment.`,
+    );
+  }
+  return metadata as EnvVarMetadata;
+}
+
+/**
+ * The annotation for `key`: this CLI's own entry, else the registered
+ * fragment's, else `{}` (not secret, not essential, template default).
+ */
 export function metadataFor(key: string): EnvVarMetadata {
-  return ENV_METADATA[key] ?? {};
+  ensurePlatformRegistrations();
+  return ENV_METADATA[key] ?? fromFragment(key) ?? {};
 }

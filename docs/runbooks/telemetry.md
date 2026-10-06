@@ -24,6 +24,7 @@ Source of truth for every claim below:
 - `apps/api/src/telemetry/stack/` (stack-agent client, `telemetry.stack.deploy` job, controller)
 - `apps/stack-agent/` (the sidecar)
 - `apps/cli/src/deploy/compose-files.ts`, `env-metadata.ts` (`effectiveGroups`, `STACK_AGENT_TOKEN`)
+- `packages/platform-cli/src/telemetry/` (`telemetryEnvSpecFragment`: the `OTEL_*`, `GREPTIME_*` and monitor-login wizard metadata; the worker's span relay)
 
 **Telemetry ships off, but the containers ship on.** A fresh VPS deployment
 always carries the GreptimeDB and collector containers and `stack-agent`

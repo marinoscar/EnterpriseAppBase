@@ -1234,6 +1234,49 @@ first — so it has no way to read `CLI_NAME` out of `branding.ts` and derive
 the clone URL itself; the URL is hard-coded near the top of `install.sh`
 under its own "Defaults" comment block and has to be changed there directly.
 
+## Extending the CLI from an app
+
+The CLI has two extension points, both registries in
+[`@marinoscar/platform-cli/core`](../../packages/platform-cli/src/core/README.md).
+Register into them from one place,
+[`src/platform-host/register.ts`](src/platform-host/register.ts), so what the
+CLI can do stays grep-able. That file runs lazily, from `buildProgram()` and
+`metadataFor()`, never on import.
+
+**Add a command** with `registerCliCommand`. The function receives the CLI's
+own `program`, so the command inherits its error handling and exit codes; it
+is listed in `--help` after every built-in, in registration order. A name that
+collides with a built-in (`deploy`, `login`, ...) or with `help` throws.
+
+```ts
+import { registerCliCommand } from '@marinoscar/platform-cli/core';
+
+registerCliCommand((program) =>
+  program.command('coach-seed').description('Seed coach data').action(seedCoachData),
+);
+```
+
+**Annotate environment keys** with `registerEnvSpecFragment`. The deploy
+wizard's questions still come from `infra/compose/.env.example`; a fragment
+adds the metadata for keys the template declares (secret, generate, validate,
+group, ...). A key has exactly one owner: a key in `ENV_METADATA` and in a
+fragment, or in two fragments, throws at registration, naming both. A
+fragment's `group` must be one of `ENV_GROUPS` in
+`src/deploy/env-metadata.ts`.
+
+```ts
+import { registerEnvSpecFragment } from '@marinoscar/platform-cli/core';
+
+registerEnvSpecFragment({
+  id: 'coach',
+  metadata: { COACH_API_TOKEN: { secret: true, generate: 'hex-32', autoGenerate: true } },
+});
+```
+
+The telemetry keys are the worked example: `telemetryEnvSpecFragment` from
+[`@marinoscar/platform-cli/telemetry`](../../packages/platform-cli/src/telemetry/README.md),
+registered in `register.ts`.
+
 ## How the installer works
 
 `install.sh` runs these steps, in order:
@@ -1245,13 +1288,15 @@ under its own "Defaults" comment block and has to be changed there directly.
    that's cleaned up on exit.
 3. Builds the CLI workspace: `npm install --workspace=cli` then
    `npm run build --workspace=cli` (whose `prebuild` builds the
-   `@marinoscar/platform-infra` package it imports), from that temp checkout.
-   That package is vendored into the install like `@app/shared`.
+   `@marinoscar/platform-infra` and `@marinoscar/platform-cli` packages it
+   imports), from that temp checkout.
 4. Deploys the standalone app: copies `apps/cli/dist`, `package.json` and
    `README.md` into `~/.appctl/app` (replacing any previous install), then
    runs `npm install --omit=dev` there to pull in just the runtime
    dependencies (commander, ink, ink-select-input, ink-spinner,
-   ink-text-input, react).
+   ink-text-input, react). The workspace packages it needs (`@app/shared`
+   and `@marinoscar/platform-*`) are vendored next to it as `file:`
+   dependencies, already built.
 5. Writes the `appctl` shim to `~/.local/bin/appctl` — a small script that
    `exec`s `node ~/.appctl/app/dist/cli.js "$@"` — and makes it executable.
 6. Checks whether the shim's directory is on `$PATH` and, if not, prints the
@@ -1266,8 +1311,13 @@ itself inside this monorepo, build and run it from the workspace instead:
 
 ```bash
 # from the repo root, after the workspace's node_modules are installed
-npm run build --workspace=cli     # prebuild builds @marinoscar/platform-infra's dist/ first
+npm run build --workspace=cli     # prebuild builds the platform-infra and platform-cli dist/ first
 ```
+
+The CLI imports `@marinoscar/platform-infra` and `@marinoscar/platform-cli`
+through their built `dist/`. Typechecking and testing the CLI need them too:
+run `npm run build:packages` first, or keep them current with
+`npm run dev:packages`.
 
 This runs `tsc` against `apps/cli/tsconfig.build.json`, emitting
 `apps/cli/dist/`, and marks `dist/cli.js` executable. From there you can run
