@@ -79,4 +79,4 @@ Specs, code paths and issues.
 
 | ADR | Title | Status |
 |---|---|---|
-| none yet | | |
+| [0001](0001-org-aware-principal-and-scope.md) | Org-aware principal and scope | Accepted |
