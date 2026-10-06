@@ -8,6 +8,7 @@
  *
  *   - `api`: the app's own transport (`services/api.ts`), so the auth header,
  *     the token refresh and the maintenance recogniser stay where they are.
+ *     `getBlob` uses its `blobWithHeaders` response type for downloads.
  *     The app's `ApiError` is mapped onto `PlatformApiError`; anything else
  *     (a network failure) passes through untouched. A MODULE-LEVEL constant,
  *     so its identity never changes and a packaged hook keyed on it never
@@ -32,6 +33,7 @@ import { useAiFeatures } from '../hooks/useAiConfig';
 import { usePermissions } from '../hooks/usePermissions';
 import { useTelemetryFeatures } from '../hooks/useTelemetryConfig';
 import { ApiError, api } from '../services/api';
+import type { BlobWithHeaders } from '../services/api';
 import { formatRelativeTime } from '../utils/relativeTime';
 
 /** The app's `ApiError` as a `PlatformApiError`; anything else unchanged. */
@@ -65,6 +67,9 @@ export const appPlatformApi: PlatformApiClient = Object.freeze({
       api.patch<T>(path, body, options?.ifMatch === undefined ? undefined : { headers: { 'If-Match': options.ifMatch } }),
     ),
   delete: <T,>(path: string) => mapped(() => api.delete<T>(path)),
+  // Downloads (the Doctor's support bundle, #772): the raw body and headers,
+  // through the same authenticated client (bearer, refresh, maintenance).
+  getBlob: (path: string) => mapped(() => api.get<BlobWithHeaders>(path, { responseType: 'blobWithHeaders' })),
 });
 
 /** The host for the signed-in viewer. Memoised on what it reads. */
