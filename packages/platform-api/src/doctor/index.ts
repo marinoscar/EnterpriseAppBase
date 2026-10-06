@@ -59,3 +59,42 @@ export type {
   EgressDirection,
   EgressScope,
 } from './egress/index';
+
+// The support bundle (issue #772): `GET <path>/support-bundle`, its section
+// registry, the redaction pass and the built-in sections.
+export {
+  COMMIT_SHA_ALLOWED_PATHS,
+  DoctorSupportBundleSection,
+  MetaSupportBundleSection,
+  PLATFORM_PACKAGE_NAMES,
+  REDACTED,
+  SENSITIVE_KEY_PATTERN,
+  SUPPORT_BUNDLE_AUDIT_ACTION,
+  SUPPORT_BUNDLE_MAX_BYTES,
+  SUPPORT_BUNDLE_REDACTION_VERSION,
+  SUPPORT_BUNDLE_SECTION_MAX_BYTES,
+  SUPPORT_BUNDLE_SECTION_TIMEOUT_MS,
+  SUPPORT_BUNDLE_SUBPATH,
+  SupportBundleDto,
+  SupportBundleRegistry,
+  SupportBundleService,
+  createSupportBundleController,
+  defaultSupportBundlePrincipal,
+  isSupportBundleOmission,
+  omitSupportBundleSection,
+  redactString,
+  redactValue,
+} from './support-bundle/index';
+export type {
+  DoctorSupportBundleData,
+  MetaSupportBundleData,
+  RedactionResult,
+  ResolvedSupportBundleOptions,
+  SupportBundleBuild,
+  SupportBundleControllerInstance,
+  SupportBundleOmission,
+  SupportBundleOptions,
+  SupportBundlePrincipal,
+  SupportBundleSection,
+  SupportBundleSectionContext,
+} from './support-bundle/index';

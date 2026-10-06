@@ -8,6 +8,13 @@ import { createDoctorController } from './doctor.controller.factory';
 import { DOCTOR_MODULE_OPTIONS, ResolvedDoctorModuleOptions } from './doctor.options';
 import { DOCTOR_CACHE_TTL_MS, DOCTOR_DEFAULT_TIMEOUT_MS, DoctorService } from './doctor.service';
 import { EgressRegistry } from './egress/egress.registry';
+import { DoctorSupportBundleSection } from './support-bundle/sections/doctor.section';
+import { MetaSupportBundleSection } from './support-bundle/sections/meta.section';
+import { createSupportBundleController } from './support-bundle/support-bundle.controller';
+import { resolveSupportBundleOptions } from './support-bundle/support-bundle.options';
+import type { SupportBundleOptions } from './support-bundle/support-bundle.options';
+import { SupportBundleRegistry } from './support-bundle/support-bundle.registry';
+import { SupportBundleService } from './support-bundle/support-bundle.service';
 
 // =============================================================================
 // DoctorModule.forRoot() (issue #634; packaged by #696)
@@ -63,6 +70,13 @@ export interface DoctorModuleOptions {
   defaultTimeoutMs?: number;
   /** Report cache TTL, in milliseconds. Default 15_000. */
   cacheTtlMs?: number;
+  /**
+   * The support bundle (`GET <path>/support-bundle`): the filename slug, how
+   * the caller is resolved, the per-section timeout. Pass `false` for no
+   * bundle route and no built-in sections (`SupportBundleRegistry` is still
+   * provided, so sections an app registers need no change). Default: enabled.
+   */
+  supportBundle?: SupportBundleOptions | false;
 }
 
 function invalid(why: string): never {
@@ -103,6 +117,7 @@ function resolveOptions(options: DoctorModuleOptions): ResolvedDoctorModuleOptio
     categoryOrder: Object.freeze([...categoryOrder]),
     defaultTimeoutMs: positive(options.defaultTimeoutMs, 'defaultTimeoutMs', DOCTOR_DEFAULT_TIMEOUT_MS),
     cacheTtlMs: positive(options.cacheTtlMs, 'cacheTtlMs', DOCTOR_CACHE_TTL_MS),
+    supportBundle: resolveSupportBundleOptions(options.supportBundle, invalid),
   });
 }
 
@@ -116,9 +131,11 @@ function resolveOptions(options: DoctorModuleOptions): ResolvedDoctorModuleOptio
 export class DoctorModule {
   /**
    * The Doctor, configured for one app: a global module providing
-   * `DoctorCheckRegistry`, `DoctorService`, `DOCTOR_MODULE_OPTIONS` and
-   * `EgressRegistry`, with a controller created from the app's host access
-   * decorators.
+   * `DoctorCheckRegistry`, `DoctorService`, `DOCTOR_MODULE_OPTIONS`,
+   * `EgressRegistry`, `SupportBundleRegistry` and `SupportBundleService`, with
+   * the Doctor's and the support bundle's controllers created from the app's
+   * host access decorators. The built-in `meta`, `doctor` and `egress` bundle
+   * sections register themselves.
    *
    * @param options - see {@link DoctorModuleOptions}; `host` is required.
    * @returns the dynamic module to import in the app's root module.
@@ -136,10 +153,12 @@ export class DoctorModule {
   static forRoot(options: DoctorModuleOptions): DynamicModule {
     const resolved = resolveOptions(options);
 
+    const bundle = resolved.supportBundle.enabled;
+
     return {
       global: true,
       module: DoctorModule,
-      controllers: [createDoctorController(resolved)],
+      controllers: [createDoctorController(resolved), ...(bundle ? [createSupportBundleController(resolved)] : [])],
       providers: [
         { provide: DOCTOR_MODULE_OPTIONS, useValue: resolved },
         DoctorCheckRegistry,
@@ -148,8 +167,17 @@ export class DoctorModule {
         // registers with. The `network.egress` check that reads it is the
         // app's to provide (`NetworkEgressDoctorCheck`), like every check.
         EgressRegistry,
+        SupportBundleRegistry,
+        ...(bundle ? [SupportBundleService, MetaSupportBundleSection, DoctorSupportBundleSection] : []),
       ],
-      exports: [DoctorCheckRegistry, DoctorService, DOCTOR_MODULE_OPTIONS, EgressRegistry],
+      exports: [
+        DoctorCheckRegistry,
+        DoctorService,
+        DOCTOR_MODULE_OPTIONS,
+        EgressRegistry,
+        SupportBundleRegistry,
+        ...(bundle ? [SupportBundleService] : []),
+      ],
     };
   }
 }
