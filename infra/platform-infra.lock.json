@@ -3,8 +3,8 @@
   "fragments": {
     "telemetry": {
       "files": {
-        "infra/compose/telemetry.compose.yml": "756379844bd68ecb76df7525c927b5799335fd769330ec499fc3faabb18e91a5",
-        "infra/compose/vps.telemetry.compose.yml": "7b5a00386ba9b09bca3d6d4ad091cffed7ff2897bfbf55c84c2db15e937ddc6c",
+        "infra/compose/telemetry.compose.yml": "4b24874db3bc359cad2e0dc0176400a46842f0b21faee7190e1c83a7f11c8f31",
+        "infra/compose/vps.telemetry.compose.yml": "4e35f520f4e99c17162ae53b39a45949693ba9cb9b5d3fa006c1db1bee6e66d9",
         "infra/otel/otel-collector-config.yaml": "4f7f560b7787a8cea8152bd6e22664ae5e262f135f8944287d779647cdca3832"
       }
     }

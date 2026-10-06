@@ -13,8 +13,9 @@
 #     -f vps.telemetry.compose.yml \
 #     up -d
 #
-# `appctl deploy` builds that list itself (apps/cli/src/deploy/compose-files.ts)
-# from the groups recorded at install time; nobody types it by hand.
+# The CLI's `deploy` builds that list itself (apps/cli/src/deploy/compose-files.ts,
+# from the @marinoscar/platform-infra/telemetry manifest) from the groups
+# recorded at install time; nobody types it by hand.
 #
 # WHY A SEPARATE FILE, not more entries in vps.compose.yml: vps.compose.yml is
 # applied to EVERY VPS deployment, including those without telemetry. A
@@ -54,7 +55,7 @@ services:
     # httpcheck receiver's third target, through DNS, the shared host proxy
     # and the certificate it serves, exactly as a browser arrives. REPLACES
     # telemetry.compose.yml's development value (compose merges environment
-    # by key). APP_URL is derived by `appctl deploy` as https://<domain>; the
+    # by key). APP_URL is derived by the CLI's `deploy` as https://<domain>; the
     # fallback only keeps a hand-built .env without it from failing `up`, and
     # then probes the stack's own nginx instead. Note that the collector
     # reaches the domain from INSIDE the host (NAT hairpin): a network that
