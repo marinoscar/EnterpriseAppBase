@@ -18,6 +18,8 @@ import {
   EgressRegistry,
   PLATFORM_DOCTOR_CATEGORIES,
   ResolvedDoctorModuleOptions,
+  SupportBundleRegistry,
+  SupportBundleService,
 } from '../../src/doctor';
 import { TEST_PERMISSIONS_HEADER, TEST_REQUIRED_PERMISSIONS_KEY, createTestPlatformHost } from '../../src/testing';
 
@@ -79,7 +81,14 @@ describe('DoctorModule.forRoot', () => {
       const dynamic = DoctorModule.forRoot({ host });
 
       expect(dynamic.global).toBe(true);
-      expect(dynamic.exports).toEqual([DoctorCheckRegistry, DoctorService, DOCTOR_MODULE_OPTIONS, EgressRegistry]);
+      expect(dynamic.exports).toEqual([
+        DoctorCheckRegistry,
+        DoctorService,
+        DOCTOR_MODULE_OPTIONS,
+        EgressRegistry,
+        SupportBundleRegistry,
+        SupportBundleService,
+      ]);
     });
 
     it('creates a controller named DoctorController whose getReport requires the default permission', () => {
