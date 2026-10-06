@@ -35,7 +35,7 @@ export function writeLock(appDir, lock) {
 }
 
 export const fmtTs = (d) => d.toISOString().replace(/[-:T]/g, '').slice(0, 14);
-const parseTs = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12), +s.slice(12, 14));
+export const parseTs = (s) => Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12), +s.slice(12, 14));
 
 /**
  * THE NAMING RULE.  base = max(now, latestExistingLocalTimestamp + 1s);
