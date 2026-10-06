@@ -27,6 +27,16 @@ services:
     volumes:
       - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../nginx/csp.conf:/etc/nginx/csp.conf:ro
+    # Open-file limit for long-lived SSE (issue #684). nginx.conf raises
+    # worker_rlimit_nofile to 65536, which only takes effect when the
+    # container's HARD limit allows it; without this the limit is whatever the
+    # Docker host defaults to. Changing this block also makes `docker compose
+    # up -d` RECREATE nginx on update, which is what picks up a changed
+    # single-file nginx.conf bind mount.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     depends_on:
       - api
       - web
@@ -85,6 +95,12 @@ services:
       - OTEL_ENABLED=${OTEL_ENABLED:-false}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-my-app-api}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+    # The API holds one socket per proxied SSE stream, so its descriptor limit
+    # must not become the ceiling once nginx's is raised (issue #684).
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     networks:
       - app-network
       # Shared external network carrying the central postgres container
