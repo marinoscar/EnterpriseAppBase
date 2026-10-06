@@ -71,13 +71,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_ENV: test
-  # One copy of each single-instance library (Nest, Fastify, Prisma client,
-  # zod, React, MUI, Emotion, ink, the OpenTelemetry API and every
-  # packages/platform-* workspace), issue #695: the lockfile scan, then real
-  # resolution from every workspace. See docs/DEVELOPMENT.md
-  # "Single-instance dependencies".
-  single-instance:
-    name: Single-instance dependencies
     steps:
       - uses: actions/checkout@v6
 
@@ -100,4 +93,23 @@ jobs:
           name: api-reference
           path: packages/*/docs-api/
           if-no-files-found: warn
+
+  # One copy of each single-instance library (Nest, Fastify, Prisma client,
+  # zod, React, MUI, Emotion, ink, the OpenTelemetry API and every
+  # packages/platform-* workspace), issue #695: the lockfile scan, then real
+  # resolution from every workspace. See docs/DEVELOPMENT.md
+  # "Single-instance dependencies".
+  single-instance:
+    name: Single-instance dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
       - run: npm run check:single-instance
