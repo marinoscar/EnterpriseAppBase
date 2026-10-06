@@ -104,6 +104,7 @@ const CONFIG: DbBackupConfig = {
   oldDatabaseRetentionHours: 48,
   nextRunAt: '2026-01-06T02:30:00.000Z',
   activeRunId: null,
+  restore: { available: true, reason: null },
 };
 
 function run(overrides: Partial<DbBackupRun> = {}): DbBackupRun {
@@ -419,6 +420,72 @@ describe('DbBackupPage', () => {
     expect(
       within(menu).queryByRole('menuitem', { name: 'Roll back this restore' }),
     ).not.toBeInTheDocument();
+  });
+
+  // =========================================================================
+  // The deployment mode (#685)
+  // =========================================================================
+
+  describe('when the deployment offers no in-app restore (DEPLOYMENT_MODE=saas)', () => {
+    const SAAS_CONFIG: DbBackupConfig = {
+      ...CONFIG,
+      restore: { available: false, reason: 'deployment_mode_saas' },
+    };
+
+    it('withholds restore and rollback even from a db_backup:restore holder, and says why', async () => {
+      const user = userEvent.setup();
+      const restored = run({
+        id: '55555555-5555-4555-8555-555555555555',
+        restoreStatus: 'completed',
+        restoredAt: '2026-02-01T00:00:00.000Z',
+      });
+      setConfigState({ config: SAAS_CONFIG });
+      setRunsState([completedRun, restored]);
+      renderPage(FULL);
+
+      const notice = screen.getByTestId('db-backup-restore-disabled');
+      expect(notice).toHaveTextContent(
+        "In-app restore is disabled in SaaS mode. Use your database provider's point-in-time recovery.",
+      );
+      expect(notice).toHaveTextContent('docs/runbooks/database-restore.md');
+
+      for (const row of [completedRun, restored]) {
+        const menu = await openRowMenu(user, row);
+        expect(
+          within(menu).queryByRole('menuitem', { name: 'Restore from this backup' }),
+        ).not.toBeInTheDocument();
+        expect(
+          within(menu).queryByRole('menuitem', { name: 'Roll back this restore' }),
+        ).not.toBeInTheDocument();
+        await closeRowMenu(user);
+      }
+    });
+
+    it('keeps every backup action: run now, schedule, download and delete', async () => {
+      const user = userEvent.setup();
+      setConfigState({ config: SAAS_CONFIG });
+      renderPage(FULL);
+
+      expect(screen.getByRole('button', { name: /back up now/i })).toBeEnabled();
+      expect(screen.getByLabelText('Scheduled backups')).toBeEnabled();
+
+      const menu = await openRowMenu(user, completedRun);
+      expect(within(menu).getByRole('menuitem', { name: 'Download archive' })).toBeInTheDocument();
+      expect(within(menu).getByRole('menuitem', { name: 'Delete backup' })).toBeInTheDocument();
+    });
+  });
+
+  it('shows no SaaS notice and keeps restore and rollback when restore is available', async () => {
+    const user = userEvent.setup();
+    renderPage(FULL);
+
+    expect(screen.queryByTestId('db-backup-restore-disabled')).not.toBeInTheDocument();
+
+    const menu = await openRowMenu(user, completedRun);
+    expect(
+      within(menu).getByRole('menuitem', { name: 'Restore from this backup' }),
+    ).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'Roll back this restore' })).toBeInTheDocument();
   });
 
   // =========================================================================

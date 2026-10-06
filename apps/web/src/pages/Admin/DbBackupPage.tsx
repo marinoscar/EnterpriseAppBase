@@ -31,6 +31,11 @@
  * gates its restore controls on that string alone and never on `write`.
  * Collapsing the two here would quietly undo the reason the API split them.
  *
+ * ON TOP OF THE PERMISSION, THE DEPLOYMENT (#685). `config.restore.available`
+ * is false when `DEPLOYMENT_MODE=saas`: no role may restore there, so the two
+ * actions are not offered at all and an info notice points at the database
+ * provider's point-in-time recovery instead. Backups are unchanged.
+ *
  * Controls are DISABLED with a reason rather than absent, the rule `UserList`
  * states and `JobsPage`, `WorkersPage` and `BroadcastsPage` all follow: the
  * control set must not change shape between a read-only admin and a writing
@@ -275,7 +280,15 @@ export default function DbBackupPage() {
   const showingRestartSequence = apiUnreachable && restartExpected;
 
   const canWrite = hasPermission('db_backup:write');
-  const canRestore = hasPermission('db_backup:restore');
+  /**
+   * Whether this deployment offers in-app restore at all (#685). A DEPLOYMENT
+   * fact (`DEPLOYMENT_MODE=saas` turns it off), published by the API on the
+   * config response; the API refuses both routes with 403 regardless, so this
+   * only keeps the page from offering an action that cannot succeed. Read as
+   * `=== true`: until the config has loaded, nothing destructive is offered.
+   */
+  const restoreAvailable = config?.restore.available === true;
+  const canRestore = hasPermission('db_backup:restore') && restoreAvailable;
 
   const columns = useMemo(() => buildBackupRunColumns(renderedAt), [renderedAt]);
 
@@ -475,6 +488,20 @@ export default function DbBackupPage() {
             <AlertTitle>A restore is in progress</AlertTitle>
             The archive from {new Date(restoringRun.createdAt).toLocaleString()} is being
             restored. The application keeps serving until the swap, which restarts it.
+          </Alert>
+        )}
+
+        {/* #685. Content inside this destination, not a new card or tab: in
+            SaaS mode the restore and rollback actions are gone, and this says
+            why and where recovery lives instead. Backups are unaffected. */}
+        {config && !config.restore.available && (
+          <Alert severity="info" sx={{ mb: 3 }} data-testid="db-backup-restore-disabled">
+            In-app restore is disabled in SaaS mode. Use your database provider&apos;s
+            point-in-time recovery. The procedure is in this repository at{' '}
+            <Box component="span" sx={{ fontFamily: 'monospace' }}>
+              docs/runbooks/database-restore.md
+            </Box>
+            .
           </Alert>
         )}
 
