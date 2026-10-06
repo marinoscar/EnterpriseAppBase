@@ -8,7 +8,8 @@
 // cannot:
 //
 //   1. Every packages/platform-*/README.md, and the README of every slice the
-//      package exports as a subpath (`./<slice>` -> src/<slice>/README.md),
+//      package exports as a subpath (`./<slice>` -> src/<slice>/README.md; a
+//      nested `./<slice>/<part>` subpath is catalogued in the same README),
 //      has the 15 level-2 headings of the README outline, in order, and no
 //      section is empty (a section with nothing to say says `None.` and why).
 //   2. Every exported symbol carries `@stability stable|experimental`.
@@ -18,7 +19,7 @@
 //      exported symbol (no stale rows).
 //   4. Every Example link of a catalog row resolves to an existing file of the
 //      reference app (apps/, infra/ or tests/), never into packages/.
-//   5. Every exported slice is an entry point in the package's typedoc.json.
+//   5. Every exported subpath is an entry point in the package's typedoc.json.
 //
 // Output: one `file:line problem` line per problem (paths relative to the
 // root), exit 1 if there is any. `--json` prints a JSON array of
@@ -287,10 +288,17 @@ function readApi(pkgDir, pkgRel, apiJson, report) {
   });
 }
 
-/** The README that catalogs an entry point: src/index.ts -> README.md, src/<slice>/index.ts -> src/<slice>/README.md. */
+/**
+ * The README that catalogs an entry point: src/index.ts -> README.md,
+ * src/<slice>/index.ts -> src/<slice>/README.md, and a nested entry point of a
+ * slice (src/<slice>/<part>/index.ts, a `./<slice>/<part>` subpath such as
+ * `./doctor/headless`) -> the slice's README, src/<slice>/README.md.
+ */
 function readmeForEntry(entry) {
   const dir = posix.dirname(entry);
-  return dir === 'src' || dir === '.' ? 'README.md' : `${dir}/README.md`;
+  if (dir === 'src' || dir === '.') return 'README.md';
+  const [, slice] = dir.split('/');
+  return dir.startsWith('src/') && slice ? `src/${slice}/README.md` : `${dir}/README.md`;
 }
 
 // -----------------------------------------------------------------------------
@@ -369,13 +377,22 @@ function checkCatalog(root, readmeAbs, parsed, entries, report) {
 // Per package
 // -----------------------------------------------------------------------------
 
-/** Subpath exports that are slices: `./<name>` with a src/<name>/ directory. */
-function exportedSlices(pkgDir, manifest) {
+/**
+ * Subpath exports that are slices or parts of one: `./<name>` (or
+ * `./<slice>/<part>`, e.g. `./doctor/headless`) with a src/<name>/ directory.
+ * Each needs src/<name>/index.ts in typedoc.json; its README is the slice's.
+ */
+function exportedSubpaths(pkgDir, manifest) {
   const keys = manifest.exports && typeof manifest.exports === 'object' ? Object.keys(manifest.exports) : [];
   return keys
     .filter((k) => k.startsWith('./') && k !== '.' && !k.includes('*') && !/\.[a-z0-9]+$/i.test(k))
     .map((k) => k.slice(2))
-    .filter((slice) => existsSync(join(pkgDir, 'src', slice)) && statSync(join(pkgDir, 'src', slice)).isDirectory());
+    .filter((sub) => existsSync(join(pkgDir, 'src', sub)) && statSync(join(pkgDir, 'src', sub)).isDirectory());
+}
+
+/** The slices those subpaths belong to (their first segment), once each. */
+function sliceOf(subpath) {
+  return subpath.split('/')[0];
 }
 
 export function checkPackageDocs(root) {
@@ -407,7 +424,8 @@ export function checkPackageDocs(root) {
       }
     };
     require('README.md');
-    const slices = exportedSlices(pkgDir, manifest);
+    const subpaths = exportedSubpaths(pkgDir, manifest);
+    const slices = [...new Set(subpaths.map(sliceOf))];
     for (const slice of slices) require(`src/${slice}/README.md`);
     const srcDir = join(pkgDir, 'src');
     if (existsSync(srcDir)) {
@@ -425,9 +443,9 @@ export function checkPackageDocs(root) {
       report(`${pkgRel}/typedoc.json`, 1, 'missing typedoc.json (see docs/PACKAGES.md)');
     } else {
       const entryPoints = (parseJsonc(readFileSync(typedocPath, 'utf8')).entryPoints ?? []).map((p) => p.replace(/^\.\//, ''));
-      for (const slice of slices) {
-        if (!entryPoints.some((p) => p === `src/${slice}/index.ts` || p === `src/${slice}/index.tsx`)) {
-          report(`${pkgRel}/typedoc.json`, 1, `slice "./${slice}" is exported but src/${slice}/index.ts is not in entryPoints`);
+      for (const sub of subpaths) {
+        if (!entryPoints.some((p) => p === `src/${sub}/index.ts` || p === `src/${sub}/index.tsx`)) {
+          report(`${pkgRel}/typedoc.json`, 1, `slice "./${sub}" is exported but src/${sub}/index.ts is not in entryPoints`);
         }
       }
     }

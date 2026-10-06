@@ -63,7 +63,7 @@ One table, these columns in this order:
 | Stability | The symbol's `@stability` value: `stable` or `experimental`. `internal` symbols are never exported, so never listed. |
 | Example | A relative link to a working use in the reference app (`apps/api`, `apps/web`, `apps/cli`, `infra/`, `tests/`), optionally with a `#L<n>` anchor. Never a file under `packages/`: the example proves an app can use the seam from outside. |
 
-The catalog and the tags are kept one to one: every symbol tagged `@extensionPoint` has a row in the README of its entry point (`src/index.ts` → the package README, `src/<slice>/index.ts` → the slice README), and every row names a tagged, exported symbol. A package or slice with no extension point yet writes `None.` and why instead of the table.
+The catalog and the tags are kept one to one: every symbol tagged `@extensionPoint` has a row in the README of its entry point (`src/index.ts` → the package README, `src/<slice>/index.ts` and `src/<slice>/<part>/index.ts` → the slice README), and every row names a tagged, exported symbol. A package or slice with no extension point yet writes `None.` and why instead of the table.
 
 ## TSDoc
 
@@ -123,6 +123,8 @@ When a slice becomes a subpath export (`"./<slice>"` in the package's `exports`)
 3. Tag the slice's exports with `@stability`, and its seams with `@extensionPoint`.
 4. Add a catalog row per seam, each linking a working use in the reference app.
 5. Link the slice README from the package README's Purpose and scope.
+
+A slice may be split into several subpaths (`"./<slice>/<part>"`, for example `./doctor/headless` and `./doctor/ui` in `@marinoscar/platform-web`, #696). Each part is its own `typedoc.json` entry point (`src/<slice>/<part>/index.ts`), and all of them are catalogued in the one slice README, `src/<slice>/README.md`.
 
 ## Running the checks locally
 
