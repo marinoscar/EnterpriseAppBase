@@ -80,3 +80,4 @@ Specs, code paths and issues.
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-org-aware-principal-and-scope.md) | Org-aware principal and scope | Accepted |
+| [0002](0002-database-packaging-and-rls.md) | Database packaging and row-level security | Accepted |
