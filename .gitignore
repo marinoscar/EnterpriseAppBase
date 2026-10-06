@@ -92,3 +92,6 @@ nul
 .claude/settings.local.json
 apps/web/test-results.json
 __pycache__/
+
+# Output of scripts/platform-drift.mjs (issue #674): a local measurement, never committed
+drift-report/
