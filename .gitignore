@@ -99,3 +99,7 @@ drift-report/
 # Generated API reference of the platform packages (TypeDoc, #693); built by
 # `npm run docs:packages`, uploaded by CI, never committed.
 packages/*/docs-api/
+
+# Copied from the root LICENSE by each platform package's `prepack`
+# (scripts/copy-license.mjs, issue #691); the root file is the only source.
+packages/platform-*/LICENSE
