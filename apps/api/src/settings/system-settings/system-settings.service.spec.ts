@@ -13,7 +13,7 @@ import {
 } from '../../common/types/settings.types';
 import { systemSettingsResponseSchema } from '../dto/system-settings-response.dto';
 import { patchSystemSettingsSchema } from '../dto/update-system-settings.dto';
-import { systemSettingsPatchSchema } from '../../common/schemas/settings.schema';
+import { systemSettingsPatchSchema } from '../registry/composed';
 
 /**
  * The operations namespaces (#256, epic #254) with their defaults.

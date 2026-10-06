@@ -1,14 +1,15 @@
 import { z } from 'zod';
+import { AI_PROVIDER_IDS } from './settings.schema';
 import {
-  AI_PROVIDER_IDS,
   systemSettingsSchema,
   systemSettingsPatchSchema,
-} from './settings.schema';
+} from '../../settings/registry/composed';
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,
 } from '../../settings/dto/update-system-settings.dto';
 import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
+import { systemSettingsNamespaceRegistry } from '../../settings/registry/system-settings-namespace';
 
 // =============================================================================
 // System settings parity guard (#256, epic #254)
@@ -58,6 +59,15 @@ import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
 // `test/settings/system-settings.integration.spec.ts` (which drives a real
 // PATCH through the wire DTO and asserts what reached Prisma). If you added a
 // namespace and this file is green, you are five-sixths done.
+//
+// SINCE #677 THE SIX PLACES ARE DERIVED. Each namespace is one
+// `SystemSettingsNamespace` declaration (`<module>.system-settings.ts`) whose
+// fields map onto the places: `storedSchema` (1), `patchSchema` (2),
+// `putSchema` (3), `wirePatchSchema` (4), `defaults` (5), `merge` (6), plus
+// `responseSchema` for the documented response. The composed objects below are
+// folds over the registry (`settings/registry/composed.ts`), so the assertions
+// that follow now prove the composition is faithful, and the first test proves
+// no declaration left a part out.
 //
 // HOW THE KEY SETS ARE OBTAINED. Programmatically, from the zod schemas
 // themselves — never from a list written out in this file. A hand-maintained
@@ -214,6 +224,34 @@ function expectSameKeys(actual: string[], expected: string[], context: string) {
 }
 
 describe('system settings parity across the places a namespace must be declared', () => {
+  it('every registered namespace declares every part the six places derive from (#677)', () => {
+    // `responseSchema` may be `null` (a namespace the documented response does
+    // not declare), but it must be stated: `undefined` is an omission.
+    const PARTS = [
+      'storedSchema',
+      'patchSchema',
+      'putSchema',
+      'wirePatchSchema',
+      'responseSchema',
+      'defaults',
+      'merge',
+    ] as const;
+
+    for (const ns of systemSettingsNamespaceRegistry.list()) {
+      const missing = PARTS.filter(
+        (part) => (ns as unknown as Record<string, unknown>)[part] === undefined,
+      );
+      expect({ namespace: ns.key, missing }).toEqual({ namespace: ns.key, missing: [] });
+      expect(typeof ns.merge).toBe('function');
+    }
+  });
+
+  it('composes the canonical schema from exactly the registered namespaces, in order (#677)', () => {
+    expect(Object.keys(systemSettingsSchema.shape)).toEqual(
+      systemSettingsNamespaceRegistry.ids(),
+    );
+  });
+
   it('declares the same top-level namespaces everywhere', () => {
     for (const source of OTHERS) {
       expectSameKeys(

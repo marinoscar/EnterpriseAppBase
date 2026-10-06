@@ -12,15 +12,11 @@ import {
   DEFAULT_USER_SETTINGS,
   UserSettingsValue,
 } from '../../common/types/settings.types';
-import { userSettingsSchema } from '../../common/schemas/settings.schema';
-import {
-  DATA_TABLE_MAX_TABLES,
+import type {
   DataTablesPatchValue,
   DataTablesValue,
   NavigationPatchValue,
   NavigationValue,
-  NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
-  NotificationChannelPreferencesValue,
   NotificationsPatchValue,
   NotificationsValue,
 } from '../../common/schemas/user-settings-namespaces.schema';
@@ -28,12 +24,30 @@ import type {
   UserAiSettingsPatchValue,
   UserAiSettingsValue,
 } from '../../common/schemas/settings.schema';
-import type { NotificationChannel } from '../../notifications/notification-events';
+import { currentUserSettingsSchema } from '../registry/compose';
+import {
+  userSettingsNamespaceRegistry,
+  type UserSettingsNamespace,
+  type UserSettingsNamespacesValue,
+} from '../registry/user-settings-namespace';
+import { AI_USER_SETTINGS } from '../../ai/ai.user-settings';
+import { NOTIFICATIONS_USER_SETTINGS } from '../../notifications/notifications.user-settings';
+import { DATA_TABLES_USER_SETTINGS, NAVIGATION_USER_SETTINGS } from './core.user-settings';
 import {
   isAvatarObjectFor,
   normalizeProfileSettings,
   type NormalizedProfileSettings,
 } from '../../common/profile-image/profile-image';
+
+/**
+ * The registered optional user settings namespaces, as they are NOW (#677).
+ * Read per call, not captured at load, so a namespace a test adds with
+ * `withTemporaryEntries` is merged, capped, validated and returned like any
+ * platform one. The registry is frozen at bootstrap in production.
+ */
+function namespaces(): readonly UserSettingsNamespace[] {
+  return userSettingsNamespaceRegistry.list();
+}
 
 @Injectable()
 export class UserSettingsService {
@@ -58,19 +72,37 @@ export class UserSettingsService {
       // Normalised on every read: rows written before #367 carry the legacy
       // `useProviderImage` flag instead of `imageSource`.
       profile: normalizeProfileSettings(value.profile),
-      ...(value.dataTables !== undefined
-        ? { dataTables: value.dataTables }
-        : {}),
-      ...(value.navigation !== undefined
-        ? { navigation: value.navigation }
-        : {}),
-      ...(value.notifications !== undefined
-        ? { notifications: value.notifications }
-        : {}),
-      ...(value.ai !== undefined ? { ai: value.ai } : {}),
+      // Every registered namespace, in registration order, and only when
+      // present (#677).
+      ...this.presentNamespaces(value),
       updatedAt,
       version,
     };
+  }
+
+  /**
+   * The namespaces `value` actually holds, in registration order. A namespace
+   * that is `undefined` is left out entirely, never emitted as a key.
+   */
+  private presentNamespaces(value: UserSettingsValue): UserSettingsNamespacesValue {
+    const stored = value as unknown as Record<string, unknown>;
+    const present: Record<string, unknown> = {};
+    for (const ns of namespaces()) {
+      if (stored[ns.key] !== undefined) present[ns.key] = stored[ns.key];
+    }
+    return present as UserSettingsNamespacesValue;
+  }
+
+  /**
+   * Run every namespace's cap check (`assertLimits`) over a value about to be
+   * stored. Caps are enforced here rather than in zod — see the
+   * `assertLimits` of `core.user-settings.ts` for why.
+   */
+  private assertNamespaceLimits(value: UserSettingsValue): void {
+    const stored = value as unknown as Record<string, unknown>;
+    for (const ns of namespaces()) {
+      ns.assertLimits?.(stored[ns.key]);
+    }
   }
 
   /**
@@ -105,18 +137,14 @@ export class UserSettingsService {
     // Validate against schema.
     //
     // WARNING: this line silently STRIPS any key the schema does not know
-    // about. It is exactly the line that made adding `dataTables` /
-    // `navigation` a six-file change: a namespace missing from
-    // `userSettingsSchema` is accepted by the controller, dropped here, and
-    // never seen again by a subsequent GET — with no error anywhere. If you
-    // are adding a new namespace, add it to
-    // common/schemas/user-settings-namespaces.schema.ts and wire it into
-    // `userSettingsSchema` before anything else.
-    const validated = userSettingsSchema.parse(dto);
+    // about. A namespace is known when it is registered in the user settings
+    // namespace registry (#677): `userSettingsSchema` is composed from it, so
+    // declaring the namespace once (`*.user-settings.ts`, listed in
+    // `settings/registry/user-settings.manifest.ts`) is the whole change.
+    const validated = currentUserSettingsSchema().parse(dto);
 
-    // Caps enforced here rather than in zod — see assertDataTableLimit.
-    this.assertDataTableLimit(validated.dataTables);
-    this.assertNotificationLimit(validated.notifications);
+    // Caps enforced here rather than in zod — see each namespace's assertLimits.
+    this.assertNamespaceLimits(validated);
 
     // Profile image (#367). An omitted `imageObjectId` keeps the stored one
     // rather than silently orphaning an uploaded avatar; `null` clears it.
@@ -208,46 +236,27 @@ export class UserSettingsService {
 
     // Optional namespaces: only set the key when the merge produced something,
     // so an emptied namespace collapses back to absent instead of being stored
-    // as `{}` (absent means "use built-in defaults", `{}` would not).
-    const mergedDataTables = this.mergeDataTables(
-      current.dataTables,
-      dto.dataTables,
-    );
-    if (mergedDataTables !== undefined) {
-      merged.dataTables = mergedDataTables;
+    // as `{}` (absent means "use built-in defaults", `{}` would not). Each
+    // namespace's own `merge`, in registration order (#677).
+    const currentNamespaces = current as unknown as Record<string, unknown>;
+    const body = dto as unknown as Record<string, unknown>;
+    const mergedNamespaces = merged as unknown as Record<string, unknown>;
+    for (const ns of namespaces()) {
+      const mergedNamespace = ns.merge(currentNamespaces[ns.key], body[ns.key]);
+      if (mergedNamespace !== undefined) {
+        mergedNamespaces[ns.key] = mergedNamespace;
+      }
     }
 
-    const mergedNavigation = this.mergeNavigation(
-      current.navigation,
-      dto.navigation,
-    );
-    if (mergedNavigation !== undefined) {
-      merged.navigation = mergedNavigation;
-    }
-
-    const mergedNotifications = this.mergeNotifications(
-      current.notifications,
-      dto.notifications,
-    );
-    if (mergedNotifications !== undefined) {
-      merged.notifications = mergedNotifications;
-    }
-
-    const mergedAi = this.mergeAi(current.ai, dto.ai);
-    if (mergedAi !== undefined) {
-      merged.ai = mergedAi;
-    }
-
-    // Enforce the caps AFTER the merge — see assertDataTableLimit.
-    this.assertDataTableLimit(merged.dataTables);
-    this.assertNotificationLimit(merged.notifications);
+    // Enforce the caps AFTER the merge — see each namespace's assertLimits.
+    this.assertNamespaceLimits(merged);
 
     // Validate merged result.
     //
     // WARNING: as in replaceSettings, this call silently strips unknown keys.
-    // A namespace that is not part of `userSettingsSchema` disappears right
-    // here and never round-trips through GET. See the note in replaceSettings.
-    const validated = userSettingsSchema.parse(merged);
+    // A namespace that is not registered disappears right here and never
+    // round-trips through GET. See the note in replaceSettings.
+    const validated = currentUserSettingsSchema().parse(merged);
 
     const settings = await this.prisma.userSettings.update({
       where: { userId },
@@ -269,277 +278,50 @@ export class UserSettingsService {
     return this.toResponse(value, settings.updatedAt, settings.version);
   }
 
-  /**
-   * Merge the `dataTables` namespace using JSON Merge Patch semantics,
-   * PER TABLE ID.
-   *
-   * - patch absent            -> keep the stored namespace untouched
-   * - patch is `null`         -> clear the whole namespace
-   * - `{ jobs: null }`        -> delete the `jobs` entry, leave others alone
-   * - `{ jobs: { pageSize } }`-> REPLACE the `jobs` entry wholesale. This is
-   *   deliberately not a deep merge: a table's preferences are a single
-   *   coherent view state, and a client that sends a partial entry is stating
-   *   the entry it wants, so any previously stored `density` for `jobs` is
-   *   discarded. Entries for other tables are never affected.
-   *
-   * An empty result collapses to `undefined` so the namespace disappears from
-   * storage rather than persisting as `{}`.
-   */
+  // ---------------------------------------------------------------------------
+  // Per-namespace merges and caps (#677)
+  // ---------------------------------------------------------------------------
+  //
+  // The bodies moved, verbatim, into the namespaces' declaration files
+  // (`core.user-settings.ts`, `notifications/notifications.user-settings.ts`,
+  // `ai/ai.user-settings.ts`), which carry their semantics and rationale. These
+  // delegates keep the service's long-standing seams (its unit spec drives
+  // them directly); the write paths above loop the registry instead.
+
   private mergeDataTables(
     current: DataTablesValue | undefined,
     patch: DataTablesPatchValue | null | undefined,
   ): DataTablesValue | undefined {
-    if (patch === undefined) {
-      return current;
-    }
-
-    if (patch === null) {
-      return undefined;
-    }
-
-    const merged: DataTablesValue = { ...(current ?? {}) };
-
-    for (const [tableId, entry] of Object.entries(patch)) {
-      if (entry === null) {
-        delete merged[tableId];
-      } else if (entry !== undefined) {
-        merged[tableId] = entry;
-      }
-    }
-
-    return Object.keys(merged).length > 0 ? merged : undefined;
+    return DATA_TABLES_USER_SETTINGS.merge(current, patch);
   }
 
-  /**
-   * Merge the `navigation` namespace field-wise.
-   *
-   * - patch absent           -> keep the stored namespace untouched
-   * - patch is `null`        -> clear the whole namespace
-   * - field omitted          -> stored value untouched
-   * - field set to a value   -> replaces the stored value
-   * - field set to `null`    -> deletes the field, so the client falls back to
-   *   its built-in default rather than to a hard-coded stored one
-   *
-   * As with dataTables, an empty result collapses to `undefined`.
-   */
   private mergeNavigation(
     current: NavigationValue | undefined,
     patch: NavigationPatchValue | null | undefined,
   ): NavigationValue | undefined {
-    if (patch === undefined) {
-      return current;
-    }
-
-    if (patch === null) {
-      return undefined;
-    }
-
-    const merged: NavigationValue = { ...(current ?? {}) };
-
-    if (patch.railCollapsed === null) {
-      delete merged.railCollapsed;
-    } else if (patch.railCollapsed !== undefined) {
-      merged.railCollapsed = patch.railCollapsed;
-    }
-
-    return Object.keys(merged).length > 0 ? merged : undefined;
+    return NAVIGATION_USER_SETTINGS.merge(current, patch);
   }
 
-  /**
-   * Merge the `ai` namespace (#423, epic #419, umbrella #418).
-   *
-   * - patch absent  -> keep the stored namespace untouched
-   * - patch is `null` -> clear the whole namespace (back to "no default
-   *   model chosen", the same state an untouched account is in)
-   * - patch is an object -> REPLACES the namespace wholesale. Unlike
-   *   `dataTables`/`navigation`, there is only one field
-   *   (`defaultModel`, a single (provider, modelId) pair) and
-   *   `userAiSettingsPatchSchema` makes it REQUIRED-BUT-NULLABLE, not
-   *   independently optional — so whenever a caller sends `ai` at all, it
-   *   already states the field in full (an object, or `null` to clear just
-   *   the selection while keeping the namespace present). There is no
-   *   "field omitted" case to merge field-by-field the way `navigation
-   *   .railCollapsed` has.
-   */
   private mergeAi(
     current: UserAiSettingsValue | undefined,
     patch: UserAiSettingsPatchValue | null | undefined,
   ): UserAiSettingsValue | undefined {
-    if (patch === undefined) {
-      return current;
-    }
-
-    if (patch === null) {
-      return undefined;
-    }
-
-    return { defaultModel: patch.defaultModel };
+    return AI_USER_SETTINGS.merge(current, patch);
   }
 
-  /**
-   * Merge the `notifications` namespace (#126, epic #109) using JSON Merge
-   * Patch semantics, PER CHANNEL and then PER EVENT KEY.
-   *
-   * - patch absent                       -> keep the stored namespace untouched
-   * - patch is `null`                    -> clear the whole namespace
-   * - `{ email: null }`                  -> clear the `email` channel, leaving
-   *   any `browser` preferences alone
-   * - `{ email: { 'user.welcome': null } }` -> DELETE that one event key, so
-   *   the event falls back to the registry's `defaultEnabled`. This is the
-   *   operation the preferences page sends when a control returns to its
-   *   default; storing the default value instead would pin that user to
-   *   today's default forever and re-materialise the key the sparse contract
-   *   exists to keep absent.
-   * - `{ email: { 'user.welcome': false } }` -> set that one key, touching
-   *   nothing else on the channel.
-   *
-   * WHY THIS DEEP-MERGES WHERE mergeDataTables REPLACES. A data table entry is
-   * one coherent view state, so a client sending it is stating the whole
-   * entry. A channel's preferences are the opposite: a row of INDEPENDENT
-   * per-event choices, and #126 PATCHes exactly the one key the user just
-   * toggled. Replacing the channel wholesale would therefore erase every other
-   * preference on that channel on every single toggle — silently re-enabling
-   * mail the user had already turned off, which is the loudest possible
-   * regression for a notifications feature.
-   *
-   * COLLAPSING IS LOAD-BEARING AT BOTH LEVELS. A channel whose last key was
-   * deleted is removed rather than stored as `{}`, and an empty namespace
-   * returns `undefined` so the caller omits the key entirely. Absent means
-   * "use the built-in defaults"; `{}` is a second spelling of the same state
-   * that the read path does not produce (`readNotificationPreferences` drops
-   * empty maps too), and two spellings of one state is how the UI and the
-   * dispatcher end up disagreeing about whether a user has an opinion.
-   *
-   * DELIBERATELY NO `mandatory` CHECK HERE. A stored `false` for a mandatory
-   * event is accepted and is inert: `isChannelEnabled` (#125) tests
-   * `event.mandatory` before it ever looks at stored preferences, so the value
-   * is never consulted. That resolver is the single security gate on purpose —
-   * it also covers rows written before an event became mandatory, and requests
-   * that never went near the UI. A second gate here could only disagree with
-   * the one that actually decides delivery.
-   *
-   * Event keys are NOT validated against the registry — see the header of
-   * user-settings-namespaces.schema.ts for the three ways that breaks.
-   */
   private mergeNotifications(
     current: NotificationsValue | undefined,
     patch: NotificationsPatchValue | null | undefined,
   ): NotificationsValue | undefined {
-    if (patch === undefined) {
-      return current;
-    }
-
-    if (patch === null) {
-      return undefined;
-    }
-
-    const merged: NotificationsValue = {};
-
-    // Copy the stored namespace one level deep. A shallow `{ ...current }`
-    // would share the per-channel objects with the value we just read, and the
-    // `delete` below would then mutate them in place.
-    for (const [channel, events] of Object.entries(current ?? {})) {
-      if (events !== undefined) {
-        merged[channel as NotificationChannel] = { ...events };
-      }
-    }
-
-    for (const [channel, channelPatch] of Object.entries(patch)) {
-      const key = channel as NotificationChannel;
-
-      if (channelPatch === null) {
-        delete merged[key];
-        continue;
-      }
-
-      if (channelPatch === undefined) {
-        continue;
-      }
-
-      const events: NotificationChannelPreferencesValue = {
-        ...(merged[key] ?? {}),
-      };
-
-      for (const [eventKey, choice] of Object.entries(channelPatch)) {
-        if (choice === null) {
-          delete events[eventKey];
-        } else if (choice !== undefined) {
-          events[eventKey] = choice;
-        }
-      }
-
-      if (Object.keys(events).length > 0) {
-        merged[key] = events;
-      } else {
-        // Last key deleted: the channel goes away rather than persisting as
-        // `{}`. See "COLLAPSING IS LOAD-BEARING" above.
-        delete merged[key];
-      }
-    }
-
-    return Object.keys(merged).length > 0 ? merged : undefined;
+    return NOTIFICATIONS_USER_SETTINGS.merge(current, patch);
   }
 
-  /**
-   * Enforce the per-user cap on persisted notification preferences.
-   *
-   * The event level is an OPEN map — event keys are registry data and are
-   * deliberately not validated against the registry (see
-   * user-settings-namespaces.schema.ts) — so without a cap an authenticated
-   * user can inflate their own `user_settings` row without limit by PATCHing
-   * arbitrary keys. The channel level is closed by the enum, so bounding the
-   * entries per channel bounds the namespace.
-   *
-   * Enforced here, not in zod, for the same two reasons as
-   * assertDataTableLimit: `z.record()` has no key-count refinement, and the
-   * cap has to be checked against the MERGED result rather than the request
-   * body. A ZodError thrown from the service would escape as a 500 instead of
-   * the 400 the client deserves, hence the explicit BadRequestException.
-   */
-  private assertNotificationLimit(
-    notifications: NotificationsValue | undefined,
-  ): void {
-    if (!notifications) {
-      return;
-    }
-
-    for (const [channel, events] of Object.entries(notifications)) {
-      const count = Object.keys(events ?? {}).length;
-      if (count > NOTIFICATION_MAX_EVENTS_PER_CHANNEL) {
-        throw new BadRequestException(
-          `Too many notification preferences for channel "${channel}": ${count} exceeds the maximum of ${NOTIFICATION_MAX_EVENTS_PER_CHANNEL}. Remove preferences you no longer need (send them as null) before adding new ones.`,
-        );
-      }
-    }
+  private assertNotificationLimit(notifications: NotificationsValue | undefined): void {
+    NOTIFICATIONS_USER_SETTINGS.assertLimits(notifications);
   }
 
-  /**
-   * Enforce the per-user cap on the number of persisted data table entries.
-   *
-   * This is a storage-exhaustion control (see
-   * user-settings-namespaces.schema.ts), and it is enforced HERE rather than in
-   * zod for two reasons:
-   *
-   * 1. `z.record()` cannot express "at most N keys" — there is no key-count
-   *    refinement that survives the record type.
-   * 2. Even if it could, the cap has to be checked against the MERGED result,
-   *    not the request body: a 3-entry patch on top of 39 stored entries is
-   *    over the cap while the body alone is not. Doing that check inside the
-   *    post-merge `userSettingsSchema.parse()` would surface it as a raw
-   *    `ZodError` thrown from the service — which escapes as a 500, not the
-   *    400 the client deserves. Hence an explicit BadRequestException.
-   */
   private assertDataTableLimit(dataTables: DataTablesValue | undefined): void {
-    if (!dataTables) {
-      return;
-    }
-
-    const count = Object.keys(dataTables).length;
-    if (count > DATA_TABLE_MAX_TABLES) {
-      throw new BadRequestException(
-        `Too many data table preferences: ${count} exceeds the maximum of ${DATA_TABLE_MAX_TABLES}. Remove entries for tables you no longer use (send them as null) before adding new ones.`,
-      );
-    }
+    DATA_TABLES_USER_SETTINGS.assertLimits(dataTables);
   }
 
   /**

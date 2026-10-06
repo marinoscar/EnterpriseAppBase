@@ -1,11 +1,5 @@
 import { z } from 'zod';
 import {
-  dataTablesSchema,
-  dataTablesPatchSchema,
-  navigationSchema,
-  navigationPatchSchema,
-  notificationsSchema,
-  notificationsPatchSchema,
   notificationEventKeySchema,
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
 } from './user-settings-namespaces.schema';
@@ -106,47 +100,10 @@ export const userAiSettingsPatchSchema = z.object({
 
 export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>;
 
-export const userSettingsSchema = z.object({
-  theme: z.enum(['light', 'dark', 'system']),
-  profile: userProfileSettingsSchema,
-  // Optional namespaces. Absent means "use built-in defaults" — see
-  // user-settings-namespaces.schema.ts for why these must never get `.default()`.
-  dataTables: dataTablesSchema.optional(),
-  navigation: navigationSchema.optional(),
-  // `notifications` (#126) is optional for the reason the other two are, only
-  // more so: absent means "use each event's registry default", and every
-  // existing account is absent. Making it required — or defaulting it — would
-  // materialise a preference blob for the whole user base at the first PUT
-  // and freeze them at today's defaults. See notification-preferences.ts.
-  notifications: notificationsSchema.optional(),
-  // AI preferences (#423, epic #419). Optional for the same reason as the
-  // three namespaces above: absent means "no default model chosen", and
-  // every existing account is absent until this ships an AI settings UI.
-  ai: userAiSettingsSchema.optional(),
-});
-
-export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
-
-// Partial schema for PATCH operations (zod v4: deepPartial removed, use manual deep partial)
-export const userSettingsPatchSchema = z.object({
-  theme: z.enum(['light', 'dark', 'system']).optional(),
-  profile: userProfileSettingsPatchSchema.optional(),
-  // The outer `.nullable()` is what lets `{ "dataTables": null }` clear the
-  // whole namespace; the inner nullability (in dataTablesPatchSchema) is what
-  // lets `{ "dataTables": { "jobs": null } }` delete a single entry.
-  dataTables: dataTablesPatchSchema.nullable().optional(),
-  navigation: navigationPatchSchema.nullable().optional(),
-  // Three nullable levels, three different deletes: the namespace, one
-  // channel, one event key. See notificationsPatchSchema.
-  notifications: notificationsPatchSchema.nullable().optional(),
-  // The outer `.nullable()` clears the whole `ai` namespace (back to "no
-  // default model, no other AI preference set"); the inner nullability on
-  // `defaultModel` (see `userAiSettingsPatchSchema`) is what lets
-  // `{ "ai": { "defaultModel": null } }` clear just the selection while
-  // leaving the namespace itself present. Same two-level shape
-  // `dataTablesPatchSchema` uses.
-  ai: userAiSettingsPatchSchema.nullable().optional(),
-});
+// `userSettingsSchema`, `userSettingsPatchSchema` and `UserSettingsDto` are
+// COMPOSED from the user settings namespace registry (#677) and live in
+// `settings/registry/composed.ts`: `theme` and `profile` (core fields, above),
+// then every registered optional namespace.
 
 // =============================================================================
 // System Settings Schema
@@ -212,6 +169,22 @@ export const systemNotificationsSchema = z.object({
 
 export type SystemNotificationsValue = z.infer<typeof systemNotificationsSchema>;
 
+/**
+ * `notifications`, PATCH counterpart.
+ *
+ * `disabledEvents` REPLACES wholesale rather than merging, which is both RFC
+ * 7396's rule for arrays and the only sane one here: a merge has no way to
+ * express "re-enable this event", so a patch that could only ever add would
+ * make the admin page's uncheck a no-op.
+ */
+export const systemNotificationsPatchSchema = z.object({
+  browserEnabled: z.boolean().optional(),
+  disabledEvents: z
+    .array(notificationEventKeySchema)
+    .max(MAX_DISABLED_NOTIFICATION_EVENTS)
+    .optional(),
+});
+
 // =============================================================================
 // Operations namespaces (epic #254, issue #256)
 // =============================================================================
@@ -222,15 +195,20 @@ export type SystemNotificationsValue = z.infer<typeof systemNotificationsSchema>
 // in this build looks at a single one of these values.
 //
 // WHY DECLARE THEM FIRST, WHICH LOOKS LIKE DEAD CODE. A namespace on this row
-// has to be written down in SIX places that nothing links together:
+// used to be written down in SIX places that nothing linked together:
 //
-//   1. `systemSettingsSchema`            (this file)
-//   2. `systemSettingsPatchSchema`       (this file)
+//   1. `systemSettingsSchema`            (now composed: settings/registry/composed.ts)
+//   2. `systemSettingsPatchSchema`       (now composed: same file)
 //   3. `updateSystemSettingsSchema`      (settings/dto/update-system-settings.dto.ts)
 //   4. `patchSystemSettingsSchema`       (same file — the WIRE bodies)
 //   5. `SystemSettingsValue` + `DEFAULT_SYSTEM_SETTINGS`
 //                                        (common/types/settings.types.ts)
 //   6. the hand-written merge in settings/system-settings/system-settings.service.ts
+//
+// Since #677 all six are DERIVED from one `SystemSettingsNamespace` declaration
+// per namespace (`<module>.system-settings.ts`, registered by
+// `settings/registry/system-settings.manifest.ts`). The per-namespace schemas
+// stay here; the argument below is why each place exists at all.
 //
 // Miss 3 or 4 and the namespace validates perfectly in every unit test in this
 // file while every real PATCH silently no-ops: the request body is parsed by
@@ -1363,80 +1341,11 @@ export const systemRetentionPatchSchema = z.object({
   aiRuns: retentionPolicyPatchSchema.optional(),
 });
 
-export const systemSettingsSchema = z.object({
-  notifications: systemNotificationsSchema,
-  // Operations namespaces (#256, epic #254). REQUIRED, because this schema
-  // describes the value as STORED and the stored value is always complete:
-  // every write path runs the row through `readKnownSettings`, which fills any
-  // missing block from `DEFAULT_SYSTEM_SETTINGS`. What a CLIENT may omit is a
-  // separate question, answered by `updateSystemSettingsSchema`.
-  jobs: systemJobsSchema,
-  nodes: systemNodesSchema,
-  databaseBackup: systemDatabaseBackupSchema,
-  maintenance: systemMaintenanceSchema,
-  // Storage provider configuration (#373, epic #372). REQUIRED here for the
-  // same reason the four above are: this schema describes the STORED value, and
-  // `readKnownSettings` completes every block from `DEFAULT_SYSTEM_SETTINGS`
-  // before anything parses it. What a CLIENT may omit is `updateSystemSettingsSchema`'s
-  // question, and there it is optional — no client sends this block yet.
-  storage: systemStorageSchema,
-  // AI platform policy (#423, epic #419). REQUIRED for the identical reason:
-  // this schema describes the STORED value, always completed by
-  // `readKnownSettings` before anything parses it. Optional on the wire, in
-  // `updateSystemSettingsSchema` — no client sends this block yet either.
-  ai: systemAiSchema,
-  // Telemetry policy (epic #528, story #533). REQUIRED for the identical
-  // reason as every namespace above: this schema describes the STORED value,
-  // always completed by `readKnownSettings` before anything parses it.
-  // Optional on the wire, in `updateSystemSettingsSchema` — no client sends
-  // this block yet.
-  telemetry: systemTelemetrySchema,
-  // Retention policy (#681). REQUIRED for the identical reason as every
-  // namespace above; optional on the wire, in `updateSystemSettingsSchema`.
-  retention: systemRetentionSchema,
-});
-
-export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
-
-// Partial schema for PATCH operations (zod v4: deepPartial removed, use manual deep partial)
-export const systemSettingsPatchSchema = z.object({
-  // `disabledEvents` REPLACES wholesale rather than merging, which is both RFC
-  // 7396's rule for arrays and the only sane one here: a merge has no way to
-  // express "re-enable this event", so a patch that could only ever add would
-  // make the admin page's uncheck a no-op.
-  notifications: z
-    .object({
-      browserEnabled: z.boolean().optional(),
-      disabledEvents: z
-        .array(notificationEventKeySchema)
-        .max(MAX_DISABLED_NOTIFICATION_EVENTS)
-        .optional(),
-    })
-    .optional(),
-  // Operations namespaces (#256, epic #254). Optional at the namespace level
-  // like every other branch of a PATCH, and optional field by field inside —
-  // `{ "databaseBackup": { "enabled": true } }` must be a legal body, or the
-  // admin page has to send twelve fields to change one.
-  jobs: systemJobsPatchSchema.optional(),
-  nodes: systemNodesPatchSchema.optional(),
-  databaseBackup: systemDatabaseBackupPatchSchema.optional(),
-  maintenance: systemMaintenancePatchSchema.optional(),
-  // #373, epic #372. Optional at the namespace level and field by field inside,
-  // so `{ "storage": { "bucket": "my-bucket" } }` is a legal body — an admin
-  // page must not have to send seven fields to change one.
-  storage: systemStoragePatchSchema.optional(),
-  // #423, epic #419. Optional at the namespace level and field by field
-  // inside, so `{ "ai": { "enabled": true } }` is a legal body — an admin
-  // page must not have to send the whole namespace to flip one switch.
-  ai: systemAiPatchSchema.optional(),
-  // Epic #528, story #533. Optional at the namespace level and field by field
-  // inside, so `{ "telemetry": { "enabled": true } }` is a legal body — an
-  // admin page must not have to send the whole namespace to flip one switch.
-  telemetry: systemTelemetryPatchSchema.optional(),
-  // #681. Optional at the namespace level and leaf by leaf inside, so
-  // `{ "retention": { "auditEvents": { "enabled": true } } }` is a legal body.
-  retention: systemRetentionPatchSchema.optional(),
-});
+// `systemSettingsSchema`, `systemSettingsPatchSchema` and `SystemSettingsDto`
+// are COMPOSED from the system settings namespace registry (#677) and live in
+// `settings/registry/composed.ts`. This file keeps only the per-namespace
+// leaves, and must never import a composed object (see the import-cycle rule
+// there).
 
 // -----------------------------------------------------------------------------
 // Compile-time proof that the `storage` namespace carries no secret (#373)
@@ -1462,14 +1371,24 @@ export const systemSettingsPatchSchema = z.object({
 // `smtpPassword`. The email blob bans it because that blob has no business
 // carrying AWS identity at all; this one is where AWS identity belongs.
 
-type StorageSecretFieldNames =
-  | 'secretAccessKey'
-  | 'secretKey'
-  | 'sessionToken'
-  | 'secret'
-  | 'password'
-  | 'apiKey'
-  | 'token';
+/**
+ * Field names no system settings namespace may declare (#373, generalised by
+ * #677). The settings namespace registries check every registered namespace
+ * against this list at import time (`settings/registry/schema-walk.ts`), at
+ * any depth and ignoring case, so an app namespace is held to the same rule as
+ * `storage`, `ai` and `telemetry` without a proof of its own.
+ */
+export const SETTINGS_SECRET_FIELD_NAMES = [
+  'secretAccessKey',
+  'secretKey',
+  'sessionToken',
+  'secret',
+  'password',
+  'apiKey',
+  'token',
+] as const;
+
+type StorageSecretFieldNames = (typeof SETTINGS_SECRET_FIELD_NAMES)[number];
 
 export type StorageSettingsCarriesNoSecret =
   Extract<keyof SystemStorageValue, StorageSecretFieldNames> extends never

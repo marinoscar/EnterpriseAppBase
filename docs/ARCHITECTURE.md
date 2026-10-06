@@ -175,14 +175,16 @@ A personal access token (`pat_…`) is a long-lived bearer token that acts with 
 
 ### 5.5 Settings framework
 
-Settings are stored as JSONB and validated by Zod schemas in `apps/api/src/common/schemas/settings.schema.ts`. System settings are rows in `system_settings`; per-user settings are one row per user in `user_settings` (see [§6.2](#62-settings-storage)). Writes are versioned; admin configuration endpoints use an `If-Match` version check.
+Settings are stored as JSONB and validated by Zod schemas. System settings are rows in `system_settings`; per-user settings are one row per user in `user_settings` (see [§6.2](#62-settings-storage)). Writes are versioned; admin configuration endpoints use an `If-Match` version check.
+
+The `global` system settings document and the optional user settings are built from **namespaces** held in two registries (`apps/api/src/settings/registry/`). Each namespace is declared once, beside its owning module (`<module>.system-settings.ts`, `<module>.user-settings.ts`), with its stored schema, partial, request-body and response branches, defaults and PATCH merge. The composed schemas, the request DTOs, `DEFAULT_SYSTEM_SETTINGS`, the seed defaults (generated `apps/api/prisma/catalog/system-settings-defaults.json`) and the services' merge and salvage are derived from the registries. An app adds its own namespaces, or fields inside a platform namespace, in `apps/api/src/app-registrations/settings.ts`. Registration refuses secret-named fields.
 
 In the web app, every settings page is a card in a registry: `ADMIN_SECTIONS` (`/admin/settings`) or `USER_SETTINGS_SECTIONS` (`/settings`). The shared `SettingsHub` component, the Console navigation rail and the AppBar title resolver all read those registries, so they never disagree about which pages exist. A card's `permission` is the exact string the API controller enforces; a card's `feature` hides it while a platform feature (today only AI) is off. Tabs are reserved for parallel content inside one page.
 
-- **Code:** `apps/api/src/settings/`, `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`, `apps/web/src/components/settings/SettingsHub.tsx`
+- **Code:** `apps/api/src/settings/` (namespace registries: `apps/api/src/settings/registry/`), `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`, `apps/web/src/components/settings/SettingsHub.tsx`
 - **UI:** `/settings`, `/admin/settings` (inventory in [§9.2](#92-settings-pages))
 - **Permissions:** `system_settings:read/write`, `user_settings:read/write`
-- **Read more:** [specs/settings-ui.md](specs/settings-ui.md)
+- **Read more:** [specs/settings-ui.md](specs/settings-ui.md), [settings/registry/README.md](../apps/api/src/settings/registry/README.md)
 
 ### 5.6 Object storage
 
@@ -405,7 +407,7 @@ The retention sweeps read "oldest rows older than the cutoff" across every user,
 | `webPush` | `{ enabled, publicKey, subject }`; the private key is in `credentials` | `/admin/settings/push` |
 | `telemetry_connection` | Stored GreptimeDB connection; own version counter; not reachable through `/api/system-settings`. A custom (literal) host stores the whole row (host, PG port, database, reader/admin usernames) and its own credentials wholly. An automatic host (`{ host: null }`), or an absent row, means the `GREPTIME_*` deployment default applies wholly — port, database, logins and passwords included. See [specs/telemetry.md §8](specs/telemetry.md#8-runtime-connection). | `/admin/settings/telemetry` (Connection section) |
 
-Namespaces of the `global` document (`systemSettingsSchema`):
+Namespaces of the `global` document (`systemSettingsSchema`, composed from the system settings namespace registry in registration order; each row is declared in the file named in [settings/registry/README.md](../apps/api/src/settings/registry/README.md)):
 
 | Namespace | Holds |
 |---|---|
@@ -416,11 +418,12 @@ Namespaces of the `global` document (`systemSettingsSchema`):
 | `maintenance` | Window state, message, `allowAdmins` |
 | `storage` | Provider, bucket, region, endpoint, access key ID, path style (secret key is in `credentials`) |
 | `ai` | Kill switch, key policy, per-provider settings, hosted tools, limits, usage retention |
+| `telemetry` | Collection switch, retention, query bounds, instance id, telemetry assistant |
 | `retention` | `{ enabled, days }` per table: `notifications`, `notificationDeliveries`, `auditEvents` (off by default), `aiRuns`. See [runbooks/data-retention.md](runbooks/data-retention.md) |
 
-Every read completes missing namespaces from built-in defaults, so the stored document is always whole.
+Every read completes missing namespaces from each namespace's declared defaults, so the stored document is always whole. The seed writes the same defaults from the generated `apps/api/prisma/catalog/system-settings-defaults.json` (`npm run catalog:settings --workspace=api`).
 
-`user_settings.value` namespaces (`userSettingsSchema`): `theme`, `profile` (display name, image source, uploaded image), and the optional `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (default model). An absent optional namespace means "use the defaults".
+`user_settings.value` (`userSettingsSchema`): the core fields `theme` and `profile` (display name, image source, uploaded image), then the optional namespaces from the user settings namespace registry: `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (default model). An absent optional namespace means "use the defaults".
 
 ---
 
@@ -709,7 +712,7 @@ Health endpoints (public, reachable during maintenance):
 | To add | See |
 |---|---|
 | An API endpoint | [DEVELOPMENT.md](DEVELOPMENT.md) |
-| A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) |
+| A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) (UI), [settings/registry/README.md](../apps/api/src/settings/registry/README.md) (API namespace) |
 | A background job type | [jobs/handlers/README.md](../apps/api/src/jobs/handlers/README.md) |
 | A notification event | [notifications/README.md](../apps/api/src/notifications/README.md) |
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |

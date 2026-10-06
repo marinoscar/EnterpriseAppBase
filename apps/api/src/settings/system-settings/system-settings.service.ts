@@ -3,28 +3,24 @@ import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateSystemSettingsDto } from '../dto/update-system-settings.dto';
-import {
-  PatchSystemSettingsDto,
-  updateSystemSettingsSchema,
-} from '../dto/update-system-settings.dto';
+import { PatchSystemSettingsDto } from '../dto/update-system-settings.dto';
 import {
   DEFAULT_SYSTEM_SETTINGS,
   SystemSettingsValue,
 } from '../../common/types/settings.types';
 import {
-  SystemSettingsDto,
-  systemSettingsSchema,
+  currentSystemSettingsSchema,
+  currentUpdateSystemSettingsSchema,
+  type SystemSettingsDto,
+} from '../registry';
+import {
+  systemSettingsNamespaceRegistry,
+  type SettingsReadHelpers,
+  type SystemSettingsNamespace,
+  type SystemSettingsNamespaces,
+} from '../registry/system-settings-namespace';
+import {
   systemNotificationsSchema,
-  systemJobsSchema,
-  systemNodesSchema,
-  systemDatabaseBackupSchema,
-  systemMaintenanceSchema,
-  systemStorageSchema,
-  systemAiSchema,
-  systemAiProviderSchema,
-  systemTelemetrySchema,
-  systemRetentionSchema,
-  AI_PROVIDER_IDS,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
   type SystemMaintenanceValue,
@@ -138,17 +134,30 @@ const SETTINGS_KEY = 'global';
 // =============================================================================
 
 /**
+ * The registered system settings namespaces, as they are NOW (#677).
+ *
+ * Read from the registry on every call rather than captured at module load:
+ * the registry is frozen at bootstrap in production, so this is the same list
+ * every time, but a test that adds a namespace with `withTemporaryEntries`
+ * sees it validated, merged, salvaged and preserved like any platform one.
+ */
+function namespaces(): readonly SystemSettingsNamespace[] {
+  return systemSettingsNamespaceRegistry.list();
+}
+
+/**
  * The top-level keys `systemSettingsSchema` actually understands.
  *
  * DERIVED FROM THE SCHEMA, never written out as literals. A hand-maintained
  * list is precisely the thing that goes stale: someone adds `branding` to the
  * schema, forgets the list, and the new key is treated as "unknown" — carried
  * forward but never validated, which is a quieter version of the same bug.
- * Deriving it means the two cannot drift.
+ * Deriving it means the two cannot drift. (Since #677 the schema is itself
+ * composed from the namespace registry, see `currentSystemSettingsSchema`.)
  */
-const KNOWN_TOP_LEVEL_KEYS: readonly string[] = Object.keys(
-  systemSettingsSchema.shape,
-);
+function knownTopLevelKeys(): readonly string[] {
+  return Object.keys(currentSystemSettingsSchema().shape);
+}
 
 /**
  * The known keys of every CLOSED nested object in the value, keyed by
@@ -174,45 +183,36 @@ const KNOWN_TOP_LEVEL_KEYS: readonly string[] = Object.keys(
  * a rolled-back deploy left behind, and the depth it reaches has always been
  * the depth the merge below writes.
  */
-const KNOWN_NESTED_KEYS: Readonly<Record<string, readonly string[]>> =
-  Object.fromEntries(
-    Object.entries(systemSettingsSchema.shape)
+function knownNestedKeys(): Readonly<Record<string, readonly string[]>> {
+  return Object.fromEntries(
+    Object.entries(currentSystemSettingsSchema().shape as Record<string, z.ZodType>)
       .filter(([, field]) => field instanceof z.ZodObject)
       .map(([key, field]) => [
         key,
         Object.keys((field as z.ZodObject<z.ZodRawShape>).shape),
       ]),
   );
+}
 
 /**
  * The top-level namespaces a PUT body is allowed to omit (#256).
  *
  * DERIVED FROM THE WIRE SCHEMA — the keys of `updateSystemSettingsSchema` that
- * accept `undefined` — and not from a list written out here. The two would
- * otherwise be one more pair that can drift, and the drift is invisible in
- * exactly the direction that hurts: promote a namespace to required on the
- * wire, forget this list, and `replaceSettings` goes on "carrying forward" a
- * key the caller is now obliged to send, which quietly makes the requirement
- * unenforceable.
+ * accept `undefined`, i.e. the namespaces declared `requiredOnPut: false` — and
+ * not from a list written out here. The two would otherwise be one more pair
+ * that can drift, and the drift is invisible in exactly the direction that
+ * hurts: promote a namespace to required on the wire, forget this list, and
+ * `replaceSettings` goes on "carrying forward" a key the caller is now obliged
+ * to send, which quietly makes the requirement unenforceable.
  *
- * See `updateSystemSettingsSchema` for why anything is optional there at all.
+ * See `system-settings-wire.schemas.ts` for why anything is optional there at all.
  */
-const OMITTABLE_ON_PUT: readonly string[] = (
-  Object.entries(updateSystemSettingsSchema.shape) as Array<[string, z.ZodType]>
-)
-  .filter(([, field]) => field.safeParse(undefined).success)
-  .map(([key]) => key);
-
-/**
- * PATCH merge for an OPTIONAL stored field: `undefined` (absent from the body)
- * keeps `current`, `null` removes the field, anything else replaces it.
- * Returns `undefined` for "removed", which `systemSettingsSchema.parse` then
- * drops from the stored object.
- */
-function mergeOptional<T>(patch: T | null | undefined, current: T | undefined): T | undefined {
-  if (patch === undefined) return current;
-
-  return patch === null ? undefined : patch;
+function omittableOnPut(): readonly string[] {
+  return (
+    Object.entries(currentUpdateSystemSettingsSchema().shape) as Array<[string, z.ZodType]>
+  )
+    .filter(([, field]) => field.safeParse(undefined).success)
+    .map(([key]) => key);
 }
 
 @Injectable()
@@ -327,149 +327,36 @@ export class SystemSettingsService {
    */
   private readKnownSettings(stored: unknown): SystemSettingsValue {
     const root = this.asPlainObject(stored);
-    const storedNotifications = this.asPlainObject(root?.notifications);
+    const value: Record<string, unknown> = {};
 
-    return {
-      notifications: {
-        browserEnabled:
-          typeof storedNotifications?.browserEnabled === 'boolean'
-            ? storedNotifications.browserEnabled
-            : DEFAULT_SYSTEM_SETTINGS.notifications.browserEnabled,
-        disabledEvents: this.readDisabledEvents(
-          storedNotifications?.disabledEvents,
-        ),
-      },
-      // Operations namespaces (#256). Same contract as everything above —
-      // whatever is on disk, what comes back validates — but read through one
-      // helper instead of four more hand-written ladders. See
-      // `readNamespace`.
-      jobs: this.readNamespace(
-        root?.jobs,
-        systemJobsSchema,
-        DEFAULT_SYSTEM_SETTINGS.jobs,
-      ),
-      nodes: this.readNamespace(
-        root?.nodes,
-        systemNodesSchema,
-        DEFAULT_SYSTEM_SETTINGS.nodes,
-      ),
-      databaseBackup: this.readNamespace(
-        root?.databaseBackup,
-        systemDatabaseBackupSchema,
-        DEFAULT_SYSTEM_SETTINGS.databaseBackup,
-      ),
-      maintenance: this.readNamespace(
-        root?.maintenance,
-        systemMaintenanceSchema,
-        DEFAULT_SYSTEM_SETTINGS.maintenance,
-      ),
-      // Storage provider configuration (#373, epic #372), read through the same
-      // helper. Field-by-field degradation matters more here than anywhere
-      // else in this method: "not configured" is already spelled as an empty
-      // string, so a damaged `region` that dragged the whole namespace back to
-      // the defaults would also blank the bucket an operator typed — and the
-      // symptom of that is uploads going to the wrong place (or nowhere) rather
-      // than an error anyone can read.
-      storage: this.readNamespace(
-        root?.storage,
-        systemStorageSchema,
-        DEFAULT_SYSTEM_SETTINGS.storage,
-      ),
-      // AI platform policy (#423, epic #419), read through the same helper.
-      // A damaged `providers` block degrading to the default leaves `enabled`
-      // and `logPromptContent` next to it untouched — the same field-by-field
-      // salvage `storage` above gets, and for the same reason: "not
-      // configured" and "misconfigured" must not collapse into "everything
-      // about AI resets".
-      //
-      // `providers` is salvaged one level deeper, PER PROVIDER, first
-      // (`readAiProviders`): a slot appended to `AI_PROVIDER_IDS` later
-      // (`anthropic`, #446; `gemini`, #447) is absent from every row written before it, and
-      // validating `providers` as one unit would then reset the operator's
-      // OpenAI switch and endpoint to the defaults on the first read after
-      // upgrading. `defaults` gets the same treatment, field by field, so
-      // a field appended to it later (`allowRealtime`, #449) cannot reset a
-      // stored `maxOutputTokensCap` or `allowBackgroundRuns` beside it.
-      ai: this.readNamespace(
-        this.withAiSlots(root?.ai),
-        systemAiSchema,
-        DEFAULT_SYSTEM_SETTINGS.ai,
-      ),
-      // Telemetry policy (epic #528, story #533), read through the same
-      // helper as every namespace above: whatever is on disk, what comes back
-      // validates field by field, so a damaged `assistant` block degrading to
-      // its default leaves `enabled`/`retentionDays`/`query` beside it
-      // untouched.
-      telemetry: this.readNamespace(
-        root?.telemetry,
-        systemTelemetrySchema,
-        DEFAULT_SYSTEM_SETTINGS.telemetry,
-      ),
-      // Retention policy (#681), read through the same helper: each table's
-      // `{ enabled, days }` is salvaged on its own, so one damaged policy
-      // degrading to its default leaves the other three as the operator set
-      // them. A row written before the namespace existed reads as the
-      // defaults, and nothing is written on read.
-      retention: this.readNamespace(
-        root?.retention,
-        systemRetentionSchema,
-        DEFAULT_SYSTEM_SETTINGS.retention,
-      ),
-    };
+    // One namespace at a time, in registration order (#677). A namespace with
+    // its own `read` keeps its own salvage (`notifications` its hand ladder,
+    // `ai` its per-provider-slot pass); every other one is read through
+    // `readNamespace`: whatever is on disk, what comes back validates, field
+    // by field, falling back to that namespace's defaults.
+    for (const ns of namespaces()) {
+      value[ns.key] = ns.read
+        ? ns.read(root?.[ns.key], this.readHelpers)
+        : this.readNamespace(
+            root?.[ns.key],
+            ns.storedSchema as unknown as z.ZodObject<z.ZodRawShape>,
+            ns.defaults as Record<string, unknown>,
+          );
+    }
+
+    return value as SystemSettingsValue;
   }
 
   /**
-   * `stored` (the raw `ai` namespace) with `providers` rebuilt slot by slot —
-   * each `AI_PROVIDER_IDS` slot that passes its own slot schema is kept,
-   * any other falls back to that provider's default — and `defaults` rebuilt
-   * field by field the same way (#449). Everything else in the namespace is
-   * left for `readNamespace` to salvage as usual.
+   * The helpers a namespace's own `read` receives (`SettingsReadHelpers`).
+   * They stay here, in the service, and are lent rather than imported, so a
+   * declaration file never depends on this service.
    */
-  private withAiSlots(stored: unknown): unknown {
-    const source = this.asPlainObject(stored);
-
-    if (!source) return stored;
-
-    const providers = this.asPlainObject(source.providers) ?? {};
-    const providerDefaults = DEFAULT_SYSTEM_SETTINGS.ai.providers as Record<
-      string,
-      unknown
-    >;
-    const storedDefaults = this.asPlainObject(source.defaults);
-
-    return {
-      ...source,
-      providers: Object.fromEntries(
-        AI_PROVIDER_IDS.map((id) => {
-          // Each slot against its OWN schema (#448: the Azure and
-          // OpenAI-compatible slots carry more than `enabled`/`baseUrl`).
-          const slotSchema = systemAiSchema.shape.providers.shape[id];
-          const parsed = slotSchema.safeParse(providers[id]);
-
-          return [
-            id,
-            parsed.success
-              ? parsed.data
-              : structuredClone(providerDefaults[id]),
-          ];
-        }),
-      ),
-      ...(storedDefaults
-        ? {
-            // An absent optional field (`maxOutputTokensCap`) stays absent.
-            defaults: Object.fromEntries(
-              Object.entries(
-                this.readNamespace(
-                  storedDefaults,
-                  systemAiSchema.shape.defaults,
-                  DEFAULT_SYSTEM_SETTINGS.ai.defaults,
-                ),
-              ).filter(([, value]) => value !== undefined),
-            ),
-          }
-        : {}),
-    };
-  }
+  private readonly readHelpers: SettingsReadHelpers = {
+    asPlainObject: (value) => this.asPlainObject(value),
+    readNamespace: (stored, schema, defaults) => this.readNamespace(stored, schema, defaults),
+    readDisabledEvents: (stored) => this.readDisabledEvents(stored),
+  };
 
   /**
    * Project one stored namespace down to something its schema will accept,
@@ -599,7 +486,7 @@ export class SystemSettingsService {
   ): { value: Record<string, unknown>; preservedPaths: string[] } {
     const unknownTopLevel = this.collectUnknownKeys(
       storedValue,
-      KNOWN_TOP_LEVEL_KEYS,
+      knownTopLevelKeys(),
     );
 
     const storedRoot = this.asPlainObject(storedValue);
@@ -615,7 +502,7 @@ export class SystemSettingsService {
     // schema rather than by a line per namespace (#256). Spread order is
     // load-bearing here exactly as it is above: the unknown keys go first so
     // the validated value always wins.
-    for (const [namespace, knownKeys] of Object.entries(KNOWN_NESTED_KEYS)) {
+    for (const [namespace, knownKeys] of Object.entries(knownNestedKeys())) {
       const unknown = this.collectUnknownKeys(
         storedRoot?.[namespace],
         knownKeys,
@@ -667,7 +554,7 @@ export class SystemSettingsService {
    *
    * IT IS NOT PART OF THE STORED VALUE, in any sense. `security` is absent from
    * `systemSettingsSchema`, therefore from `SystemSettingsValue` and from
-   * `KNOWN_TOP_LEVEL_KEYS`, and it plays no part in the machinery above: it
+   * `knownTopLevelKeys()`, and it plays no part in the machinery above: it
    * never enters `system_settings.value`, never reaches `mergePreservingUnknown`
    * and can be neither preserved nor clobbered. `version` and `If-Match` go on
    * describing the stored row alone.
@@ -717,43 +604,22 @@ export class SystemSettingsService {
     // the admin can save a repair through PUT/PATCH (#130).
     const value = this.readKnownSettings(row.value);
 
+    // Every registered namespace, in registration order (#677), ahead of the
+    // core fields. Part of the represented resource from the day a namespace
+    // exists, not from the day a UI reads it: a block a client cannot GET is a
+    // block it cannot echo back in a PUT, and `replaceSettings` would then be
+    // carrying it forward blind forever. Safe to publish in full BECAUSE no
+    // namespace may carry a secret: the registry refuses a secret-named field
+    // at import time, and `settings.schema.ts` proves it at compile time for
+    // `storage`, `ai` and `telemetry`. (A storage secret access key or an AI
+    // provider key lives in the credential store and is never projected.)
+    const namespaceValues: Record<string, unknown> = {};
+    for (const ns of namespaces()) {
+      namespaceValues[ns.key] = (value as unknown as Record<string, unknown>)[ns.key];
+    }
+
     return {
-      notifications: value.notifications,
-      // #256. Part of the represented resource from the day the namespaces
-      // exist, not from the day a UI reads them: a block a client cannot GET is
-      // a block it cannot echo back in a PUT, and `replaceSettings` would then
-      // be carrying it forward blind forever. Publishing it is what makes the
-      // PUT round-trip honest, and what lets the integration test prove a PATCH
-      // was actually stored rather than merely accepted.
-      jobs: value.jobs,
-      nodes: value.nodes,
-      databaseBackup: value.databaseBackup,
-      maintenance: value.maintenance,
-      // #373, epic #372. Safe to publish in full BECAUSE the secret access key
-      // is not in it: this block is the provider, the bucket, the region, the
-      // endpoint and the key ID, all of which an administrator has to be able
-      // to see to tell a misconfiguration from an outage. The secret half lives
-      // in the credential store and is never projected anywhere — see
-      // `storage/storage-credential.constants.ts`. Published from the day the
-      // namespace exists, for the reason `jobs` above gives: a block a client
-      // cannot GET is a block it cannot echo back in a PUT.
-      storage: value.storage,
-      // #423, epic #419. Safe to publish in full because it carries no
-      // secret — see the compile-time proof in `settings.schema.ts`. Published
-      // from the day the namespace exists, for the same "a block a client
-      // cannot GET is a block it cannot echo back in a PUT" reason as `jobs`
-      // above.
-      ai: value.ai,
-      // Epic #528, story #533. Safe to publish in full because it carries no
-      // credential — see the compile-time proof in `settings.schema.ts`.
-      // Published from the day the namespace exists, for the same "a block a
-      // client cannot GET is a block it cannot echo back in a PUT" reason as
-      // `jobs` above.
-      telemetry: value.telemetry,
-      // #681. Published from the day the namespace exists, for the same "a
-      // block a client cannot GET is a block it cannot echo back in a PUT"
-      // reason as `jobs` above.
-      retention: value.retention,
+      ...(namespaceValues as SystemSettingsValue),
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -1102,6 +968,26 @@ export class SystemSettingsService {
   }
 
   /**
+   * One namespace of the stored settings, read only (#677): the typed
+   * accessor for a namespace that has none of its own, an app namespace above
+   * all. Same contract as `getJobsPolicy` and its siblings: never creates the
+   * row, and a missing row, a `null` value or a malformed one yields the
+   * namespace's defaults through `readKnownSettings`.
+   *
+   * @param key - a registered namespace key, typed by `SystemSettingsNamespaces`.
+   */
+  async getNamespace<K extends keyof SystemSettingsNamespaces>(
+    key: K,
+  ): Promise<SystemSettingsNamespaces[K]> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value)[key];
+  }
+
+  /**
    * Replace system settings (PUT)
    */
   async replaceSettings(dto: UpdateSystemSettingsDto, userId: string) {
@@ -1122,12 +1008,12 @@ export class SystemSettingsService {
     // omission". `notifications` is untouched by this loop and is replaced
     // wholesale exactly as it always was: it is required on the wire, so it can
     // never be absent here. See
-    // `OMITTABLE_ON_PUT`, and `updateSystemSettingsSchema` for why any
+    // `omittableOnPut`, and `updateSystemSettingsSchema` for why any
     // namespace is omittable at all.
     const body = dto as unknown as Record<string, unknown>;
     const currentValue = this.readKnownSettings(current?.value);
     const filled: Record<string, unknown> = { ...body };
-    for (const key of OMITTABLE_ON_PUT) {
+    for (const key of omittableOnPut()) {
       if (body[key] === undefined) {
         filled[key] = (currentValue as unknown as Record<string, unknown>)[key];
       }
@@ -1135,7 +1021,7 @@ export class SystemSettingsService {
 
     // Validate against schema. This still strips unknown keys out of the
     // REQUEST, and is meant to: the body is the untrusted half.
-    const validated = systemSettingsSchema.parse(filled);
+    const validated = currentSystemSettingsSchema().parse(filled);
 
     // Read-then-write, unguarded, exactly as PATCH has always been: two
     // simultaneous PUTs can still race, and the loser's changes lose as they
@@ -1215,378 +1101,24 @@ export class SystemSettingsService {
       );
     }
 
-    // Deep merge with existing settings, namespace by namespace.
-    const merged: SystemSettingsValue = {
-      // Field by field, NOT by spread — and `disabledEvents` is therefore REPLACED wholesale when the caller sends
-      // one. That is RFC 7396's rule for arrays and the only usable semantics
-      // here: a merged list could only ever grow, so the admin page's "stop
-      // suppressing this event" would have no way to say so.
-      notifications: {
-        browserEnabled:
-          dto.notifications?.browserEnabled ??
-          currentValue.notifications.browserEnabled,
-        disabledEvents:
-          dto.notifications?.disabledEvents ??
-          currentValue.notifications.disabledEvents,
-      },
-      // -----------------------------------------------------------------------
-      // Operations namespaces (#256, epic #254)
-      // -----------------------------------------------------------------------
-      //
-      // Written out field by field like `notifications`, and NOT with
-      // a spread, because there is deliberately no generic deep merge in this
-      // service. A generic one would have to guess: whether an array replaces
-      // or concatenates (`disabledEvents` above settles that it replaces), and
-      // whether an explicit `null` means "clear this" or "no opinion" — and
-      // `maintenance.startedAt` needs those to be different answers, which is
-      // why the two nullable fields test `!== undefined` instead of using `??`.
-      // `??` treats a caller's `null` as absent, so clearing the window's
-      // provenance would silently be a no-op.
-      //
-      // Verbose on purpose: this is the sixth of the six places a namespace
-      // must be declared, and it is the one no schema can check for you.
-      jobs: {
-        history: {
-          retentionDays:
-            dto.jobs?.history?.retentionDays ??
-            currentValue.jobs.history.retentionDays,
-          purgeEnabled:
-            dto.jobs?.history?.purgeEnabled ??
-            currentValue.jobs.history.purgeEnabled,
-        },
-        stuckThresholdMinutes:
-          dto.jobs?.stuckThresholdMinutes ??
-          currentValue.jobs.stuckThresholdMinutes,
-      },
-      nodes: {
-        staleHeartbeatSeconds:
-          dto.nodes?.staleHeartbeatSeconds ??
-          currentValue.nodes.staleHeartbeatSeconds,
-        offlineStaleMultiplier:
-          dto.nodes?.offlineStaleMultiplier ??
-          currentValue.nodes.offlineStaleMultiplier,
-        offlineRetentionDays:
-          dto.nodes?.offlineRetentionDays ??
-          currentValue.nodes.offlineRetentionDays,
-        jobSecretBrokerEnabled:
-          dto.nodes?.jobSecretBrokerEnabled ??
-          currentValue.nodes.jobSecretBrokerEnabled,
-      },
-      databaseBackup: {
-        enabled: dto.databaseBackup?.enabled ?? currentValue.databaseBackup.enabled,
-        frequency:
-          dto.databaseBackup?.frequency ?? currentValue.databaseBackup.frequency,
-        dayOfWeek:
-          dto.databaseBackup?.dayOfWeek ?? currentValue.databaseBackup.dayOfWeek,
-        dayOfMonth:
-          dto.databaseBackup?.dayOfMonth ?? currentValue.databaseBackup.dayOfMonth,
-        timeOfDay:
-          dto.databaseBackup?.timeOfDay ?? currentValue.databaseBackup.timeOfDay,
-        timezone:
-          dto.databaseBackup?.timezone ?? currentValue.databaseBackup.timezone,
-        retentionCount:
-          dto.databaseBackup?.retentionCount ??
-          currentValue.databaseBackup.retentionCount,
-        storageProvider:
-          dto.databaseBackup?.storageProvider ??
-          currentValue.databaseBackup.storageProvider,
-        runStaleMinutes:
-          dto.databaseBackup?.runStaleMinutes ??
-          currentValue.databaseBackup.runStaleMinutes,
-        compressionLevel:
-          dto.databaseBackup?.compressionLevel ??
-          currentValue.databaseBackup.compressionLevel,
-        restoreRollbackMode:
-          dto.databaseBackup?.restoreRollbackMode ??
-          currentValue.databaseBackup.restoreRollbackMode,
-        oldDatabaseRetentionHours:
-          dto.databaseBackup?.oldDatabaseRetentionHours ??
-          currentValue.databaseBackup.oldDatabaseRetentionHours,
-        nodeOffloadEnabled:
-          dto.databaseBackup?.nodeOffloadEnabled ??
-          currentValue.databaseBackup.nodeOffloadEnabled,
-      },
-      maintenance: {
-        enabled: dto.maintenance?.enabled ?? currentValue.maintenance.enabled,
-        message: dto.maintenance?.message ?? currentValue.maintenance.message,
-        allowAdmins:
-          dto.maintenance?.allowAdmins ?? currentValue.maintenance.allowAdmins,
-        // `!== undefined`, never `??` — an explicit `null` is a value here.
-        startedAt:
-          dto.maintenance?.startedAt !== undefined
-            ? dto.maintenance.startedAt
-            : currentValue.maintenance.startedAt,
-        startedById:
-          dto.maintenance?.startedById !== undefined
-            ? dto.maintenance.startedById
-            : currentValue.maintenance.startedById,
-      },
-      // -----------------------------------------------------------------------
-      // Storage provider configuration (#373, epic #372)
-      // -----------------------------------------------------------------------
-      //
-      // Field by field like everything above. `??` is the RIGHT operator for
-      // every STRING field here even though it is the wrong one for
-      // `maintenance.startedAt`: none of them is nullable, so a caller can
-      // never send `null`, and `??` passes an empty string through unchanged.
-      // That last part is load-bearing — `''` is how an operator un-configures
-      // a field, and `||` would silently turn "clear the endpoint" into "keep
-      // the old endpoint", which is the class of bug that leaves a deployment
-      // writing to a bucket it was told to stop writing to.
-      //
-      // `forcePathStyle` IS THE ONE EXCEPTION, and it uses the
-      // `!== undefined` form for exactly the reason `maintenance.startedAt`
-      // does: it is tri-state (`true` / `false` / `null`, where `null` means
-      // "use this vendor's convention"), so `null` is a value a caller can
-      // legitimately SEND, and `??` treats a sent `null` the same as an absent
-      // key. With `??` there would be no request body able to put the field
-      // back to the vendor default once an operator had pinned it — the one
-      // thing a tri-state field exists to allow. Only `undefined` may mean
-      // "leave it alone".
-      //
-      // NOTHING HERE TOUCHES THE SECRET ACCESS KEY. It is not in the DTO, not
-      // in the stored value and not in this merge; it is written through
-      // `CredentialsService` on its own path.
-      storage: {
-        provider: dto.storage?.provider ?? currentValue.storage.provider,
-        bucket: dto.storage?.bucket ?? currentValue.storage.bucket,
-        region: dto.storage?.region ?? currentValue.storage.region,
-        endpoint: dto.storage?.endpoint ?? currentValue.storage.endpoint,
-        accountId: dto.storage?.accountId ?? currentValue.storage.accountId,
-        accessKeyId:
-          dto.storage?.accessKeyId ?? currentValue.storage.accessKeyId,
-        forcePathStyle:
-          dto.storage?.forcePathStyle !== undefined
-            ? dto.storage.forcePathStyle
-            : currentValue.storage.forcePathStyle,
-      },
-      // -----------------------------------------------------------------------
-      // AI platform policy (#423, epic #419, umbrella #418)
-      // -----------------------------------------------------------------------
-      //
-      // Field by field, one level deep into each `providers.<id>` and
-      // `defaults`, exactly matching `storage`'s own shape above. `??` is
-      // right for every REQUIRED field: none of them is nullable, and `??`
-      // leaves an omitted field at its current stored value.
-      //
-      // The two OPTIONAL fields, `baseUrl` and `maxOutputTokensCap`, take
-      // the `storage.forcePathStyle` form instead (`mergeOptional`): absent
-      // keeps the stored value, explicit `null` REMOVES it. With `??` a null
-      // would fall through to the stored value and an override, once set,
-      // could never be cleared (#428).
-      //
-      // NOTHING HERE TOUCHES AN API KEY. There is no such field on this DTO,
-      // this stored value, or this merge — see the compile-time proof in
-      // `settings.schema.ts`.
-      ai: {
-        enabled: dto.ai?.enabled ?? currentValue.ai.enabled,
-        keyPolicy: dto.ai?.keyPolicy ?? currentValue.ai.keyPolicy,
-        providers: {
-          openai: {
-            enabled:
-              dto.ai?.providers?.openai?.enabled ??
-              currentValue.ai.providers.openai.enabled,
-            baseUrl: mergeOptional(
-              dto.ai?.providers?.openai?.baseUrl,
-              currentValue.ai.providers.openai.baseUrl,
-            ),
-          },
-          anthropic: {
-            enabled:
-              dto.ai?.providers?.anthropic?.enabled ??
-              currentValue.ai.providers.anthropic.enabled,
-            baseUrl: mergeOptional(
-              dto.ai?.providers?.anthropic?.baseUrl,
-              currentValue.ai.providers.anthropic.baseUrl,
-            ),
-          },
-          gemini: {
-            enabled:
-              dto.ai?.providers?.gemini?.enabled ??
-              currentValue.ai.providers.gemini.enabled,
-            baseUrl: mergeOptional(
-              dto.ai?.providers?.gemini?.baseUrl,
-              currentValue.ai.providers.gemini.baseUrl,
-            ),
-          },
-          // #448. Every optional field merges like `baseUrl` (absent keeps,
-          // `null` removes); `deployments` is one value, replaced whole.
-          'azure-openai': {
-            enabled:
-              dto.ai?.providers?.['azure-openai']?.enabled ??
-              currentValue.ai.providers['azure-openai'].enabled,
-            baseUrl: mergeOptional(
-              dto.ai?.providers?.['azure-openai']?.baseUrl,
-              currentValue.ai.providers['azure-openai'].baseUrl,
-            ),
-            apiVersion: mergeOptional(
-              dto.ai?.providers?.['azure-openai']?.apiVersion,
-              currentValue.ai.providers['azure-openai'].apiVersion,
-            ),
-            apiStyle: mergeOptional(
-              dto.ai?.providers?.['azure-openai']?.apiStyle,
-              currentValue.ai.providers['azure-openai'].apiStyle,
-            ),
-            deployments: mergeOptional(
-              dto.ai?.providers?.['azure-openai']?.deployments,
-              currentValue.ai.providers['azure-openai'].deployments,
-            ),
-          },
-          'openai-compatible': {
-            enabled:
-              dto.ai?.providers?.['openai-compatible']?.enabled ??
-              currentValue.ai.providers['openai-compatible'].enabled,
-            baseUrl: mergeOptional(
-              dto.ai?.providers?.['openai-compatible']?.baseUrl,
-              currentValue.ai.providers['openai-compatible'].baseUrl,
-            ),
-            apiStyle: mergeOptional(
-              dto.ai?.providers?.['openai-compatible']?.apiStyle,
-              currentValue.ai.providers['openai-compatible'].apiStyle,
-            ),
-            requiresKey: mergeOptional(
-              dto.ai?.providers?.['openai-compatible']?.requiresKey,
-              currentValue.ai.providers['openai-compatible'].requiresKey,
-            ),
-          },
-        },
-        defaults: {
-          maxOutputTokensCap: mergeOptional(
-            dto.ai?.defaults?.maxOutputTokensCap,
-            currentValue.ai.defaults.maxOutputTokensCap,
-          ),
-          allowBackgroundRuns:
-            dto.ai?.defaults?.allowBackgroundRuns ??
-            currentValue.ai.defaults.allowBackgroundRuns,
-          allowRealtime:
-            dto.ai?.defaults?.allowRealtime ??
-            currentValue.ai.defaults.allowRealtime,
-        },
-        logPromptContent:
-          dto.ai?.logPromptContent ?? currentValue.ai.logPromptContent,
-        usageRetentionDays:
-          dto.ai?.usageRetentionDays ?? currentValue.ai.usageRetentionDays,
-        // #442: each switch field by field; the host list replaces wholesale
-        // (a merge could never remove a host). A fresh array either way, so
-        // the stored value never aliases the caller's or the default's.
-        hostedTools: {
-          web_search:
-            dto.ai?.hostedTools?.web_search ?? currentValue.ai.hostedTools.web_search,
-          file_search:
-            dto.ai?.hostedTools?.file_search ?? currentValue.ai.hostedTools.file_search,
-          code_interpreter:
-            dto.ai?.hostedTools?.code_interpreter ??
-            currentValue.ai.hostedTools.code_interpreter,
-          image_generation:
-            dto.ai?.hostedTools?.image_generation ??
-            currentValue.ai.hostedTools.image_generation,
-          mcp: dto.ai?.hostedTools?.mcp ?? currentValue.ai.hostedTools.mcp,
-          mcpAllowedHosts: [
-            ...(dto.ai?.hostedTools?.mcpAllowedHosts ??
-              currentValue.ai.hostedTools.mcpAllowedHosts),
-          ],
-        },
-        // #450: WHOLESALE — a present `limits` is the new value, an absent
-        // one keeps the stored value. A merge could never lift a limit (or
-        // drop a per-model entry), and absent is how a limit is lifted.
-        // Cloned either way so the stored value never aliases the caller's
-        // object or the module-level default.
-        limits: structuredClone(dto.ai?.limits ?? currentValue.ai.limits),
-      },
-      // -----------------------------------------------------------------------
-      // Telemetry policy (epic #528, story #533)
-      // -----------------------------------------------------------------------
-      //
-      // Field by field, one level deep into `query` and `assistant`, matching
-      // `ai`'s own shape above. `??` is right for every REQUIRED field: none
-      // of them is nullable, and `??` leaves an omitted field at its current
-      // stored value.
-      //
-      // `assistant.provider`/`assistant.modelId` are NULLABLE, not optional
-      // (`systemTelemetrySchema` never allows them to be absent), so they take
-      // the `maintenance.startedAt`/`storage.forcePathStyle` `!== undefined`
-      // form rather than `mergeOptional`: absent keeps the stored value, an
-      // explicit `null` CLEARS it. `??` would treat a sent `null` as absent,
-      // and an operator could then never clear a provider or model once set.
-      telemetry: {
-        enabled: dto.telemetry?.enabled ?? currentValue.telemetry.enabled,
-        retentionDays:
-          dto.telemetry?.retentionDays ?? currentValue.telemetry.retentionDays,
-        // #565: nullable, same `!== undefined` form as `assistant.provider`
-        // below — an explicit `null` returns to the `APP_SLUG` default.
-        instanceId:
-          dto.telemetry?.instanceId !== undefined
-            ? dto.telemetry.instanceId
-            : currentValue.telemetry.instanceId,
-        query: {
-          maxRows:
-            dto.telemetry?.query?.maxRows ?? currentValue.telemetry.query.maxRows,
-          timeoutSeconds:
-            dto.telemetry?.query?.timeoutSeconds ??
-            currentValue.telemetry.query.timeoutSeconds,
-        },
-        assistant: {
-          enabled:
-            dto.telemetry?.assistant?.enabled ??
-            currentValue.telemetry.assistant.enabled,
-          provider:
-            dto.telemetry?.assistant?.provider !== undefined
-              ? dto.telemetry.assistant.provider
-              : currentValue.telemetry.assistant.provider,
-          modelId:
-            dto.telemetry?.assistant?.modelId !== undefined
-              ? dto.telemetry.assistant.modelId
-              : currentValue.telemetry.assistant.modelId,
-          shareResults:
-            dto.telemetry?.assistant?.shareResults ??
-            currentValue.telemetry.assistant.shareResults,
-          maxResultRowsToModel:
-            dto.telemetry?.assistant?.maxResultRowsToModel ??
-            currentValue.telemetry.assistant.maxResultRowsToModel,
-          maxSteps:
-            dto.telemetry?.assistant?.maxSteps ??
-            currentValue.telemetry.assistant.maxSteps,
-        },
-      },
-      // Retention policy (#681), leaf by leaf: `{ "retention": { "auditEvents":
-      // { "enabled": true } } }` changes that one switch and nothing else.
-      retention: {
-        notifications: {
-          enabled:
-            dto.retention?.notifications?.enabled ??
-            currentValue.retention.notifications.enabled,
-          days:
-            dto.retention?.notifications?.days ??
-            currentValue.retention.notifications.days,
-        },
-        notificationDeliveries: {
-          enabled:
-            dto.retention?.notificationDeliveries?.enabled ??
-            currentValue.retention.notificationDeliveries.enabled,
-          days:
-            dto.retention?.notificationDeliveries?.days ??
-            currentValue.retention.notificationDeliveries.days,
-        },
-        auditEvents: {
-          enabled:
-            dto.retention?.auditEvents?.enabled ??
-            currentValue.retention.auditEvents.enabled,
-          days:
-            dto.retention?.auditEvents?.days ??
-            currentValue.retention.auditEvents.days,
-        },
-        aiRuns: {
-          enabled:
-            dto.retention?.aiRuns?.enabled ??
-            currentValue.retention.aiRuns.enabled,
-          days:
-            dto.retention?.aiRuns?.days ?? currentValue.retention.aiRuns.days,
-        },
-      },
-    };
+    // Deep merge with existing settings, namespace by namespace (#677): each
+    // namespace's own `merge`, handed its salvaged current value and its
+    // branch of the PATCH body (`undefined` when the body does not mention
+    // it). There is deliberately no generic deep merge in this service: a
+    // generic one would have to guess whether an array replaces or
+    // concatenates, and whether an explicit `null` means "clear this" or "no
+    // opinion" — and namespaces need different answers. Each declaration file
+    // (`<module>.system-settings.ts`) carries its block and its reasons.
+    const body = dto as unknown as Record<string, unknown>;
+    const current = currentValue as unknown as Record<string, unknown>;
+    const mergedValue: Record<string, unknown> = {};
+    for (const ns of namespaces()) {
+      mergedValue[ns.key] = ns.merge(current[ns.key], body[ns.key]);
+    }
+    const merged = mergedValue as SystemSettingsValue;
 
     // Validate merged result (still strict about the shape of what we know).
-    const validated = systemSettingsSchema.parse(merged);
+    const validated = currentSystemSettingsSchema().parse(merged);
 
     // ...then restore what `parse` and the hand-built `merged` above both drop.
     // On a PATCH this is not a nicety: the caller asked to change one flag, so
