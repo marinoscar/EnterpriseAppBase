@@ -367,8 +367,8 @@ function audit() {
       recommendation: 'fill in or delete',
       detail: ['They target https://example.com and their deploy step is an `echo`.',
                'They also expect GitHub Environments named staging and production to exist.',
-               'The image build above them is already fork-following (IMAGE_NAME uses',
-               'github.repository), so only the deploy steps need attention.'],
+               'The image build above them is already fork-following (images.yml derives',
+               'each image name from the repository), so only the deploy steps need attention.'],
     });
   }
 

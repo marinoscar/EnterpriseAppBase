@@ -427,7 +427,7 @@ GreptimeDB's PostgreSQL wire port is published on
 | Guardrail | Enforces |
 |---|---|
 | `.github/workflows/deploy-e2e.yml` | Real Docker, a real PostgreSQL service, a fake VPS layout: unattended `install`, the version bump rolled back (not left ahead of origin), the document reaching the running container, `update` twice with nothing moved and no image rebuilt, journal redaction, `status` healthy. Runs on changes to `apps/cli/**`, `infra/compose/**` or the Dockerfiles, and nightly |
-| `.github/workflows/deploy.yml` | Not this CLI: tag-triggered build and push of the `api`, `web` and `worker` images to GHCR. Its staging/production deploy jobs are `echo` stubs. Kept separate from `deploy-e2e.yml` on purpose |
+| `.github/workflows/deploy.yml` | Not this CLI: tag-triggered build and push of the `api`, `web`, `worker` and `stack-agent` images to GHCR, through the reusable `images.yml` (signed, with an SBOM; [runbook](../runbooks/container-images.md)). Its staging/production deploy jobs are `echo` stubs. Kept separate from `deploy-e2e.yml` on purpose |
 | `apps/cli/src/deploy/testing/fake-vps.test.ts` | Pipelines against a simulated server |
 | `apps/cli/src/deploy/install.test.ts`, `install-hardening.test.ts`, `update.test.ts`, `update-publish.test.ts`, `version-step.test.ts` | Step order, resume, adoption, version push rules |
 | `apps/cli/src/deploy/layout.test.ts`, `deployment-evidence.test.ts`, `adopt.test.ts`, `compose-project.test.ts` | Five ranks, the evidence predicate, adoption, recorded project names |

@@ -682,6 +682,10 @@ The reference for every variable is [`infra/compose/.env.example`](../infra/comp
 
 The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run prisma:seed` inside the `api` container after the first start and after each upgrade.
 
+### 10.5 Published images
+
+`.github/workflows/images.yml` is the one place images are built for publishing. It pushes four images to GHCR as `ghcr.io/<owner>/<repo>-<role>` (lower-cased from the repository, so a fork publishes under its own name): `api`, `web`, `worker` (`apps/cli/Dockerfile`, target `production`) and `stack-agent`. Each pushed digest carries a BuildKit SBOM and SLSA provenance attestation, a keyless cosign signature (GitHub OIDC) and a non-blocking Trivy scan in code scanning. It is a reusable workflow: `deploy.yml` calls it for app releases (`v*` tags, the semver tag set), the platform release workflow calls it with the platform version and the `next` or `latest` channel, and a manual run pushes `sha-<sha>` tags only. The compose files do not change: `worker.compose.yml` takes the image from `WORKER_IMAGE`, and `vps.compose.yml` still builds the stack-agent on the server, with a documented overlay to run the published one. See [runbooks/container-images.md](runbooks/container-images.md).
+
 ---
 
 ## 11. Observability

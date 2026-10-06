@@ -387,6 +387,50 @@ from *that* checkout, and run `deploy install` from inside it. It deploys
 your fork, at your fork's default branch, asking about your fork's own
 environment variables, automatically.
 
+### 6.1 Use the published stack-agent image
+
+`vps.compose.yml` builds the `stack-agent` sidecar from source on the server
+(`build: apps/stack-agent/Dockerfile`), and `appctl deploy` keeps doing that.
+The same sidecar is also published, signed and with an SBOM, as
+`ghcr.io/<owner>/<repo>-stack-agent` (owner and repository name lower-cased;
+names, tags and verification are in
+[container-images.md](container-images.md)). An operator who runs compose by
+hand, or a consumer app that should run the platform's stack-agent rather
+than build its own copy, can swap the build for that image with an overlay of
+its own, layered **after** `vps.compose.yml`:
+
+```yaml
+# infra/compose/stack-agent-image.compose.yml (yours; not part of the template)
+services:
+  stack-agent:
+    build: !reset null
+    image: ghcr.io/<owner>/<repo>-stack-agent:<version>   # or @sha256:<digest>
+```
+
+```bash
+cd infra/compose
+docker compose -p <project> \
+  -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml \
+  -f vps.compose.yml -f vps.telemetry.compose.yml \
+  -f stack-agent-image.compose.yml up -d stack-agent
+```
+
+Use the deployment's recorded project name for `<project>`
+([section 12](#12-the-compose-project-name)) and the same files, in the same
+order, that `appctl deploy` uses; the overlay goes last.
+
+`!reset` needs Docker Compose 2.24 or later; without it the merged service
+keeps `build:` and compose builds instead of pulling. Everything else about
+the service (the socket mount, `DEPLOY_ROOT`, `STACK_AGENT_TOKEN`, read-only
+root, no ports) comes from `vps.compose.yml` unchanged. Pin `<version>` to
+the platform version your app's `@marinoscar/platform-*` packages are on, and
+verify the digest with `cosign verify` before you deploy it
+([container-images.md §5](container-images.md#5-verify-a-signature)).
+
+`appctl deploy install`/`update` do not layer this file: they use their own
+fixed file list (`apps/cli/src/deploy/compose-files.ts`) and build on the
+server, so a later `update` rebuilds the sidecar from source.
+
 ## 7. Logs
 
 Every `doctor`, `install`, `update`, and `uninstall` run writes two files under
