@@ -562,6 +562,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                retention: DEFAULT_SYSTEM_SETTINGS.retention,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -623,6 +624,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                retention: DEFAULT_SYSTEM_SETTINGS.retention,
               },
             }),
           }),
@@ -970,6 +972,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                retention: DEFAULT_SYSTEM_SETTINGS.retention,
                 branding: { logoUrl: 'https://example.com/logo.png' },
               },
             }),
@@ -1104,6 +1107,7 @@ describe('SystemSettingsService', () => {
                 storage: DEFAULT_SYSTEM_SETTINGS.storage,
                 ai: DEFAULT_SYSTEM_SETTINGS.ai,
                 telemetry: DEFAULT_SYSTEM_SETTINGS.telemetry,
+                retention: DEFAULT_SYSTEM_SETTINGS.retention,
               },
             } as any,
           },
@@ -2503,6 +2507,128 @@ describe('SystemSettingsService', () => {
       expect(telemetry).not.toHaveProperty('apiKey');
       expect(telemetry).not.toHaveProperty('secret');
       expect(telemetry).not.toHaveProperty('evilApiKey');
+    });
+  });
+
+  describe('getRetentionPolicy (#681)', () => {
+    it('returns the shipped defaults when no row exists, and creates none', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
+
+      const result = await service.getRetentionPolicy();
+
+      expect(result).toEqual({
+        notifications: { enabled: true, days: 180 },
+        notificationDeliveries: { enabled: true, days: 90 },
+        auditEvents: { enabled: false, days: 365 },
+        aiRuns: { enabled: true, days: 90 },
+      });
+      expect(mockPrisma.systemSettings.create).not.toHaveBeenCalled();
+      expect(mockPrisma.systemSettings.upsert).not.toHaveBeenCalled();
+      expect(mockPrisma.systemSettings.update).not.toHaveBeenCalled();
+    });
+
+    it('reads a row that predates the namespace as the defaults', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: { ...DEFAULT_SYSTEM_SETTINGS, retention: undefined } as any,
+      } as any);
+
+      await expect(service.getRetentionPolicy()).resolves.toEqual(
+        DEFAULT_SYSTEM_SETTINGS.retention,
+      );
+    });
+
+    it('salvages policy by policy: a damaged one degrades alone', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        value: {
+          retention: {
+            notifications: { enabled: false, days: 30 },
+            notificationDeliveries: { enabled: true, days: 0 },
+            auditEvents: { enabled: 'yes', days: 400 },
+            aiRuns: { enabled: true, days: 14 },
+          },
+        } as any,
+      } as any);
+
+      const result = await service.getRetentionPolicy();
+
+      expect(result.notifications).toEqual({ enabled: false, days: 30 });
+      expect(result.notificationDeliveries).toEqual(
+        DEFAULT_SYSTEM_SETTINGS.retention.notificationDeliveries,
+      );
+      expect(result.auditEvents).toEqual(DEFAULT_SYSTEM_SETTINGS.retention.auditEvents);
+      expect(result.aiRuns).toEqual({ enabled: true, days: 14 });
+    });
+
+    it('never hands out the module-level defaults by reference', async () => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue(null);
+
+      const result = await service.getRetentionPolicy();
+      result.aiRuns.days = 1;
+
+      expect(DEFAULT_SYSTEM_SETTINGS.retention.aiRuns.days).toBe(90);
+    });
+  });
+
+  describe('PATCH merges retention leaf by leaf (#681)', () => {
+    beforeEach(() => {
+      mockPrisma.systemSettings.findUnique.mockResolvedValue({
+        ...mockSystemSettings,
+        value: {
+          ...DEFAULT_SYSTEM_SETTINGS,
+          retention: {
+            notifications: { enabled: false, days: 60 },
+            notificationDeliveries: { enabled: true, days: 30 },
+            auditEvents: { enabled: false, days: 730 },
+            aiRuns: { enabled: true, days: 7 },
+          },
+        } as any,
+      } as any);
+      mockPrisma.systemSettings.update.mockResolvedValue({
+        ...mockSystemSettings,
+        version: 2,
+      } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+    });
+
+    function writtenRetention(): Record<string, unknown> {
+      expect(mockPrisma.systemSettings.update).toHaveBeenCalledTimes(1);
+
+      const call = mockPrisma.systemSettings.update.mock.calls[0][0] as {
+        data: { value: { retention: Record<string, unknown> } };
+      };
+
+      return call.data.value.retention;
+    }
+
+    it('changes only the leaf the body names', async () => {
+      await service.patchSettings({ retention: { auditEvents: { enabled: true } } }, mockUserId);
+
+      expect(writtenRetention()).toEqual({
+        notifications: { enabled: false, days: 60 },
+        notificationDeliveries: { enabled: true, days: 30 },
+        auditEvents: { enabled: true, days: 730 },
+        aiRuns: { enabled: true, days: 7 },
+      });
+    });
+
+    it('leaves retention untouched when the body does not mention it', async () => {
+      await service.patchSettings({ jobs: { stuckThresholdMinutes: 15 } }, mockUserId);
+
+      expect(writtenRetention()).toEqual({
+        notifications: { enabled: false, days: 60 },
+        notificationDeliveries: { enabled: true, days: 30 },
+        auditEvents: { enabled: false, days: 730 },
+        aiRuns: { enabled: true, days: 7 },
+      });
+    });
+
+    it('sets days and enabled together on one policy', async () => {
+      await service.patchSettings(
+        { retention: { aiRuns: { enabled: false, days: 365 } } },
+        mockUserId,
+      );
+
+      expect((writtenRetention() as any).aiRuns).toEqual({ enabled: false, days: 365 });
     });
   });
 });

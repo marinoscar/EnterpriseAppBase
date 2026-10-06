@@ -421,9 +421,13 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 | `ai.audio.transcribe` | `ai/runtime/ai-audio-transcribe.handler.ts` | `POST /api/ai/audio/transcriptions` | No (permanently) |
 | `ai.audio.speech` | `ai/runtime/ai-audio-speech.handler.ts` | `POST /api/ai/audio/speech` | No (permanently) |
 | `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Daily cron | No (permanently) |
+| `ai.runs.purge` | `ai/runtime/ai-runs-purge.handler.ts` | Daily retention cron (01:00) | No (permanently) |
+| `notifications.inbox.purge` | `notifications/retention/notification-inbox-purge.handler.ts` | Daily retention cron (01:00) | No |
+| `notifications.deliveries.purge` | `notifications/retention/notification-deliveries-purge.handler.ts` | Daily retention cron (01:00) | No |
+| `audit.events.purge` | `common/retention/audit-events-purge.handler.ts` | Daily retention cron (01:00), only while `retention.auditEvents.enabled` | No |
 | `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Weekly cron, catalog sync | No (permanently) |
 
-The three AI media handlers share `ai/runtime/ai-media-run.handler.ts`. The full cross-subsystem inventory also lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
+The three AI media handlers share `ai/runtime/ai-media-run.handler.ts`. The four `retention.*` purges share `common/retention/batched-purge.ts` and are enqueued, one per enabled policy, by `common/retention/retention-purge.task.ts` (see [runbooks/data-retention.md](../runbooks/data-retention.md)). The full cross-subsystem inventory also lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ### Admin API behaviour
 

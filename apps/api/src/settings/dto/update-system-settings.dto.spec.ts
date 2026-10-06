@@ -768,4 +768,64 @@ describe('PatchSystemSettingsDto (PATCH)', () => {
       ).toThrow();
     });
   });
+
+  describe('retention field (#681)', () => {
+    const RETENTION = {
+      notifications: { enabled: true, days: 180 },
+      notificationDeliveries: { enabled: true, days: 90 },
+      auditEvents: { enabled: false, days: 365 },
+      aiRuns: { enabled: true, days: 90 },
+    };
+
+    it('accepts a full retention block in a PUT body, and lets a PUT omit it', () => {
+      expect(
+        updateSystemSettingsSchema.parse({ notifications: NOTIFICATIONS, retention: RETENTION })
+          .retention,
+      ).toEqual(RETENTION);
+      expect(
+        updateSystemSettingsSchema.parse({ notifications: NOTIFICATIONS }).retention,
+      ).toBeUndefined();
+    });
+
+    it('rejects a PUT retention block that is missing a policy', () => {
+      const { aiRuns: _omitted, ...partial } = RETENTION;
+
+      expect(() =>
+        updateSystemSettingsSchema.parse({ notifications: NOTIFICATIONS, retention: partial }),
+      ).toThrow();
+    });
+
+    it('accepts a single leaf in a PATCH body and keeps the others absent', () => {
+      expect(
+        patchSystemSettingsSchema.parse({ retention: { auditEvents: { enabled: true } } })
+          .retention,
+      ).toEqual({ auditEvents: { enabled: true } });
+    });
+
+    it.each([0, 3651, 1.5, -1])('rejects days = %p', (days) => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({ retention: { notifications: { days } } }),
+      ).toThrow();
+      expect(() =>
+        updateSystemSettingsSchema.parse({
+          notifications: NOTIFICATIONS,
+          retention: { ...RETENTION, aiRuns: { enabled: true, days } },
+        }),
+      ).toThrow();
+    });
+
+    it('accepts the bounds 1 and 3650', () => {
+      expect(
+        patchSystemSettingsSchema.parse({
+          retention: { notifications: { days: 1 }, aiRuns: { days: 3650 } },
+        }).retention,
+      ).toEqual({ notifications: { days: 1 }, aiRuns: { days: 3650 } });
+    });
+
+    it('rejects a non-boolean enabled', () => {
+      expect(() =>
+        patchSystemSettingsSchema.parse({ retention: { aiRuns: { enabled: 'true' } } }),
+      ).toThrow();
+    });
+  });
 });

@@ -20,6 +20,7 @@ import {
   aiAzureDeploymentsSchema,
   aiEndpointUrlSchema,
   TELEMETRY_INSTANCE_ID_PATTERN,
+  RETENTION_MAX_DAYS,
 } from '../../common/schemas/settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -295,6 +296,31 @@ const telemetrySettingsSchema = z.object({
   }),
 });
 
+// =============================================================================
+// Retention policy on the wire (#681)
+// =============================================================================
+//
+// Restated here rather than imported, for the reason at the top of this file.
+// Optional in the PUT body like every namespace that ships ahead of its own
+// client. Bounds mirror `systemRetentionSchema` exactly.
+
+const retentionPolicySettingsSchema = z.object({
+  enabled: z.boolean(),
+  days: z.number().int().min(1).max(RETENTION_MAX_DAYS),
+});
+
+const retentionSettingsSchema = z.object({
+  notifications: retentionPolicySettingsSchema,
+  notificationDeliveries: retentionPolicySettingsSchema,
+  auditEvents: retentionPolicySettingsSchema,
+  aiRuns: retentionPolicySettingsSchema,
+});
+
+const retentionPolicyPatchSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  days: z.number().int().min(1).max(RETENTION_MAX_DAYS).optional(),
+});
+
 // Full replacement (PUT)
 export const updateSystemSettingsSchema = z.object({
   // REQUIRED. A PUT that omits it is a 400 and
@@ -318,6 +344,8 @@ export const updateSystemSettingsSchema = z.object({
   // Epic #528, story #533 — optional for the same reason, carried forward the
   // same way.
   telemetry: telemetrySettingsSchema.optional(),
+  // #681 — optional for the same reason, carried forward the same way.
+  retention: retentionSettingsSchema.optional(),
 });
 
 export class UpdateSystemSettingsDto extends createZodDto(
@@ -532,6 +560,17 @@ export const patchSystemSettingsSchema = z.object({
           maxSteps: z.number().int().min(1).max(20).optional(),
         })
         .optional(),
+    })
+    .optional(),
+  // #681. Optional at the namespace level and leaf by leaf inside, so
+  // `{ "retention": { "auditEvents": { "enabled": true } } }` is a legal body
+  // that changes only that leaf.
+  retention: z
+    .object({
+      notifications: retentionPolicyPatchSettingsSchema.optional(),
+      notificationDeliveries: retentionPolicyPatchSettingsSchema.optional(),
+      auditEvents: retentionPolicyPatchSettingsSchema.optional(),
+      aiRuns: retentionPolicyPatchSettingsSchema.optional(),
     })
     .optional(),
 });

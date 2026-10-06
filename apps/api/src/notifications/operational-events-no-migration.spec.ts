@@ -75,6 +75,9 @@ const MIGRATIONS_AT_288 = [
   // #607: `jobs.trace_context` — the enqueuing request's W3C traceparent.
   // About job tracing, not notifications.
   '20260930120000_add_job_trace_context',
+  // #681: plain `created_at` indexes for the retention sweeps. About data
+  // retention, not the operational notification events.
+  '20261006120000_add_retention_created_at_indexes',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

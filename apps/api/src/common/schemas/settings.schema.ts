@@ -1300,6 +1300,69 @@ export type TelemetrySettingsCarriesNoSecret =
 export const TELEMETRY_SETTINGS_CARRIES_NO_SECRET: TelemetrySettingsCarriesNoSecret =
   true;
 
+// =============================================================================
+// Retention policy (`retention`) — #681, platform-packages PP-1.10
+// =============================================================================
+//
+// One `{ enabled, days }` policy per table that grows with every user action
+// and had no retention at all: the in-app inbox (`notifications`), the
+// delivery log (`notification_deliveries`), the admin audit trail
+// (`audit_events`) and background AI runs (`ai_runs`, whose `request` column
+// holds the user's full prompt — a privacy concern, not only a size one).
+//
+// ONE NAMESPACE RATHER THAN A FIELD IN EACH OWNER'S NAMESPACE. `audit` has no
+// namespace of its own, and one block lets a later settings card render the
+// four controls together. The older retention controls (`jobs.history`,
+// `ai.usageRetentionDays`, `nodes.offlineRetentionDays`, …) stay where they
+// are: moving them would be a breaking settings change.
+//
+// `enabled` and `days` are one decision per table, grouped for the reason
+// `jobs.history` groups `retentionDays` with `purgeEnabled`. The bound matches
+// every other retention field here (1–3650 days). Defaults live in
+// `DEFAULT_SYSTEM_SETTINGS`, never in a `.default()` here.
+//
+// Enforced by four server-only, batched purge jobs and one enqueue-only cron:
+// see `common/retention/` and `docs/runbooks/data-retention.md`.
+
+/** Upper bound on any `retention.*.days`: ten years, as for every retention field. */
+export const RETENTION_MAX_DAYS = 3650;
+
+export const retentionPolicySchema = z.object({
+  enabled: z.boolean(),
+  days: z.number().int().min(1).max(RETENTION_MAX_DAYS),
+});
+
+export type RetentionPolicyValue = z.infer<typeof retentionPolicySchema>;
+
+export const systemRetentionSchema = z.object({
+  notifications: retentionPolicySchema,
+  notificationDeliveries: retentionPolicySchema,
+  auditEvents: retentionPolicySchema,
+  aiRuns: retentionPolicySchema,
+});
+
+export type SystemRetentionValue = z.infer<typeof systemRetentionSchema>;
+
+/** The keys of `retention`, one per governed table. */
+export type RetentionPolicyKey = keyof SystemRetentionValue;
+
+const retentionPolicyPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  days: z.number().int().min(1).max(RETENTION_MAX_DAYS).optional(),
+});
+
+/**
+ * `retention`, one level deep and field by field, mirroring
+ * `systemJobsPatchSchema`: `{ "retention": { "auditEvents": { "enabled": true } } }`
+ * changes that one leaf.
+ */
+export const systemRetentionPatchSchema = z.object({
+  notifications: retentionPolicyPatchSchema.optional(),
+  notificationDeliveries: retentionPolicyPatchSchema.optional(),
+  auditEvents: retentionPolicyPatchSchema.optional(),
+  aiRuns: retentionPolicyPatchSchema.optional(),
+});
+
 export const systemSettingsSchema = z.object({
   notifications: systemNotificationsSchema,
   // Operations namespaces (#256, epic #254). REQUIRED, because this schema
@@ -1328,6 +1391,9 @@ export const systemSettingsSchema = z.object({
   // Optional on the wire, in `updateSystemSettingsSchema` — no client sends
   // this block yet.
   telemetry: systemTelemetrySchema,
+  // Retention policy (#681). REQUIRED for the identical reason as every
+  // namespace above; optional on the wire, in `updateSystemSettingsSchema`.
+  retention: systemRetentionSchema,
 });
 
 export type SystemSettingsDto = z.infer<typeof systemSettingsSchema>;
@@ -1367,6 +1433,9 @@ export const systemSettingsPatchSchema = z.object({
   // inside, so `{ "telemetry": { "enabled": true } }` is a legal body — an
   // admin page must not have to send the whole namespace to flip one switch.
   telemetry: systemTelemetryPatchSchema.optional(),
+  // #681. Optional at the namespace level and leaf by leaf inside, so
+  // `{ "retention": { "auditEvents": { "enabled": true } } }` is a legal body.
+  retention: systemRetentionPatchSchema.optional(),
 });
 
 // -----------------------------------------------------------------------------

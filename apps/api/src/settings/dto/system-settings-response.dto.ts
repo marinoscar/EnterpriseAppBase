@@ -154,6 +154,14 @@ export const systemSettingsResponseSchema = z.object({
         .optional(),
     }),
   }),
+  // #681 — the retention policy, one `{ enabled, days }` per governed table.
+  // Published for the same reason as every block above.
+  retention: z.object({
+    notifications: z.object({ enabled: z.boolean(), days: z.number().int() }),
+    notificationDeliveries: z.object({ enabled: z.boolean(), days: z.number().int() }),
+    auditEvents: z.object({ enabled: z.boolean(), days: z.number().int() }),
+    aiRuns: z.object({ enabled: z.boolean(), days: z.number().int() }),
+  }),
   updatedAt: z.iso.datetime(),
   updatedBy: z
     .object({

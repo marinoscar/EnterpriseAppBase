@@ -14,6 +14,7 @@ import {
   type SystemStorageValue,
   type SystemAiValue,
   type SystemTelemetryValue,
+  type SystemRetentionValue,
   type UserAiSettingsValue,
 } from '../schemas/settings.schema';
 
@@ -179,6 +180,19 @@ export interface SystemSettingsValue {
    * here is.
    */
   telemetry: SystemTelemetryValue;
+  /**
+   * Retention policy (#681): one `{ enabled, days }` per table that grows with
+   * every user action — the in-app inbox, the delivery log, the audit trail
+   * and background AI runs.
+   *
+   * REQUIRED, like every namespace above it and for the same reason —
+   * `readKnownSettings` completes it from `DEFAULT_SYSTEM_SETTINGS` on every
+   * read, so a row written before the namespace existed reads as the defaults
+   * and no consumer has to write `?? DEFAULT`.
+   *
+   * Derived from the zod schema so the two cannot drift.
+   */
+  retention: SystemRetentionValue;
 }
 
 /**
@@ -425,5 +439,22 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = {
       maxResultRowsToModel: 100,
       maxSteps: 15,
     },
+  },
+  // ---------------------------------------------------------------------------
+  // Retention policy (#681)
+  // ---------------------------------------------------------------------------
+  //
+  // ⚠ ENABLED BY DEFAULT for three of the four, and that is a behaviour change
+  // on upgrade: the first 01:00 run after deploying deletes every existing row
+  // older than its window. That is the purpose — these tables had no retention
+  // at all — and the runbook (`docs/runbooks/data-retention.md`) says so.
+  //
+  // `auditEvents` ships OFF. The audit trail is a compliance record, so
+  // deleting it is an explicit operator decision, never a default.
+  retention: {
+    notifications: { enabled: true, days: 180 },
+    notificationDeliveries: { enabled: true, days: 90 },
+    auditEvents: { enabled: false, days: 365 },
+    aiRuns: { enabled: true, days: 90 },
   },
 };

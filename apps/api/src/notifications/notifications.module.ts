@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '../credentials/credentials.module';
+import { JobsModule } from '../jobs/jobs.module';
 import { EmailModule } from '../email/email.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../settings/settings.module';
@@ -23,6 +24,8 @@ import {
   type NotificationChannelSender,
 } from './notification.types';
 import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
+import { NotificationDeliveriesPurgeHandler } from './retention/notification-deliveries-purge.handler';
+import { NotificationInboxPurgeHandler } from './retention/notification-inbox-purge.handler';
 
 // =============================================================================
 // NotificationsModule (issues #121/#124/#125, epic #109)
@@ -142,6 +145,11 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
     // service (`CredentialsService.getSecret`), so every consumer of it shows
     // up in a diff. `PushConfigService` is the consumer here.
     CredentialsModule,
+    // The two retention purge handlers (#681) register with
+    // `JobHandlerRegistry`. One-way: `JobsModule` imports nothing from
+    // notifications (the job-failure listener reaches it through the global
+    // event emitter), so this adds no cycle.
+    JobsModule,
   ],
   controllers: [NotificationsController, PushConfigController],
   providers: [
@@ -188,6 +196,10 @@ import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
     PushNotificationChannel,
     // Doctor check (#634): validates the active VAPID pair, never sends.
     PushVapidDoctorCheck,
+    // Retention (#681): server-only, batched purges of the inbox and the
+    // delivery log, enqueued nightly by `RetentionPurgeTask`. Not exported.
+    NotificationInboxPurgeHandler,
+    NotificationDeliveriesPurgeHandler,
     {
       provide: NOTIFICATION_CHANNEL_SENDERS,
       useFactory: (

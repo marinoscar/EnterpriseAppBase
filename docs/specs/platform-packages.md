@@ -841,7 +841,7 @@ Ranked from the code. Each is a known limit, not a defect.
 | 3 | Per-process limiters: AI limits (in-memory plus a DB `COUNT(*)`), provider throttle (in-memory), maintenance-mode cache | Documented as approximate across replicas | A pluggable shared store: Postgres by default, a Redis or Valkey adapter later |
 | 4 | Every authenticated request loads the user with roles and permissions, plus AI-call `COUNT(*)` queries (about 50k users) | `validateJwtPayload` in `apps/api/src/auth/auth.service.ts` | A short-TTL principal cache, or permissions inside the 15-minute token |
 | 5 | Database connections multiply with replicas | Per-replica Prisma pools | PgBouncer or RDS Proxy; RLS must be transaction-local |
-| 6 | Unbounded tables: no retention found for notifications, notification deliveries, audit events or AI runs | AI usage and job history do have purges | Retention first, then time partitioning |
+| 6 | Unbounded tables: no retention found for notifications, notification deliveries, audit events or AI runs | AI usage and job history do have purges | Retention first (shipped by #681: the `retention` settings namespace and four purge jobs, see [runbooks/data-retention.md](../runbooks/data-retention.md)), then time partitioning |
 | 7 | `pg_dump` plus in-app restore does not fit a large SaaS | [database backup spec](database-backup.md) | Physical backups and PITR (RDS); keep in-app backup for on-prem and small installs; disable in-app restore in SaaS mode |
 | 8 | No per-tenant or per-user fairness in the queue (global oldest-first claim) | [job queue spec](job-queue.md) | Caps and quotas at about 500k users or multi-org |
 
