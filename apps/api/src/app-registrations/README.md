@@ -35,6 +35,11 @@ registry.
 | File | Registry | Recipe |
 |---|---|---|
 | `permissions.ts` | Roles and permissions (`APP_ROLES`, `APP_PERMISSIONS`) | [common/permissions/README.md](../common/permissions/README.md) |
+registry:
+
+| File | Registry | Recipe |
+|---|---|---|
+| `settings.ts` | System and user settings namespaces, and extensions of platform namespaces | [settings/registry/README.md](../settings/registry/README.md) |
 
 ## What goes here, and what does not
 

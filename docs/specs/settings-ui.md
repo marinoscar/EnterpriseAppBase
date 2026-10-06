@@ -143,6 +143,8 @@ To add a settings page:
 7. Do not add a new tab to an existing settings page. Add a tab only for parallel content inside one destination (§2, Cards vs. tabs).
 8. A new settings **surface** (a third hub) is another binding over `SettingsHub.tsx`, never a copy of it.
 
+**The API side of a new setting.** A page that edits a new block of the `global` system settings document, or a new per-user preference, needs a settings **namespace** on the API first. Declare it once, beside the owning module, and register it through the API's namespace registries (`apps/api/src/settings/registry/`): the request-body DTOs, the stored schema, the defaults and the service's PATCH merge are all derived from that one declaration, so the page's PUT or PATCH cannot be silently stripped by a schema somebody forgot. A fork declares its namespaces, or fields inside a platform namespace, in `apps/api/src/app-registrations/settings.ts`. The recipe is [settings/registry/README.md](../../apps/api/src/settings/registry/README.md). The card's `permission` stays the controller's (`system_settings:read` for `/api/system-settings`); a namespace adds no permission.
+
 ## 5. Guardrails
 
 | Test | What it enforces |
@@ -186,3 +188,4 @@ Manually:
 - #366: the System, Feature Flags and Advanced (JSON) cards and the `ui`/`features` system-settings namespaces removed as unused.
 - #425 (epic #419): feature-gated cards (`feature: 'ai'`) and the AI admin group.
 - #499: `ai:use` withdrawn from Viewer, so the AI Keys card is permission-gated.
+- #677: the API's settings namespaces became registries; §4 points UI authors at the API-side recipe.

@@ -8,18 +8,16 @@ import type { NotificationPreferences } from '../../notifications/notification-p
 //
 // WHY THIS FILE EXISTS
 // --------------------
-// The user-settings shape is currently hand-maintained in five separate zod
-// declarations (common/schemas/settings.schema.ts x2,
-// settings/dto/update-user-settings.dto.ts x2, and
-// settings/dto/user-settings-response.dto.ts) plus one plain TS interface in
-// common/types/settings.types.ts. Adding a namespace to only some of them means
-// the payload is silently stripped by `userSettingsSchema.parse()` and never
-// round-trips through a subsequent GET.
+// The user-settings shape used to be hand-maintained in five separate zod
+// declarations plus one plain TS interface; adding a namespace to only some of
+// them meant the payload was silently stripped by `userSettingsSchema.parse()`
+// and never round-tripped through a subsequent GET.
 //
-// These namespaces are therefore declared ONCE, here, and imported by every
-// copy. Deduplicating the pre-existing `theme` / `profile` declarations is
-// deliberately out of scope (no behaviour change in this pass), but any NEW
-// namespace should be added here rather than copy-pasted five times.
+// These namespace SCHEMAS are therefore declared ONCE, here. Since #677 the
+// five composed objects are derived from the user settings namespace registry
+// (`settings/registry/`): each namespace is declared once, beside its module
+// (`*.user-settings.ts`), naming the schemas below. A leaf: this file must
+// never import a composed object.
 //
 // SECURITY: THE BOUNDS BELOW ARE A CONTROL, NOT ERGONOMICS
 // --------------------------------------------------------

@@ -883,8 +883,11 @@ classifier), or compose the OpenAI pieces as `providers/azure-openai/` and
    an `AiError`.
 6. **Register the provider id**: add it to `AI_PROVIDER_IDS`
    (`common/schemas/settings.schema.ts`), give it a `providers.<id>` slot
-   everywhere the namespace is declared (`settings-parity.spec.ts` checks
-   one slot per id), add `<provider>.module.ts` to `AiModule`'s imports, and
+   in each schema the `ai` namespace names (`settings.schema.ts`,
+   `settings/dto/system-settings-wire.schemas.ts`,
+   `settings/dto/system-settings-response.schemas.ts`) and in its defaults
+   and merge (`ai/ai.system-settings.ts`); `settings-parity.spec.ts` checks
+   one slot per id. Then run `npm run catalog:settings --workspace=api`. Add `<provider>.module.ts` to `AiModule`'s imports, and
    add an SDK boundary spec like `providers/gemini/gemini-sdk-boundary.spec.ts`.
 
 A new AI route needs `AiEnabledGuard` plus `ai:use` (consumer) or
