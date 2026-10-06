@@ -1,5 +1,5 @@
 import { listEnvSpecFragments, registerEnvSpecFragment } from '@marinoscar/platform-cli/core';
-import { telemetryEnvSpecFragment } from '@marinoscar/platform-cli/telemetry';
+import { telemetryEnvSpecFragment, type TelemetryEnvGroup } from '@marinoscar/platform-cli/telemetry';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 
 import { ENV_GROUPS, metadataFor, type EnvGroup } from '../deploy/env-metadata.js';
@@ -59,8 +59,9 @@ describe('ensurePlatformRegistrations', () => {
 
 describe('telemetry fragment groups', () => {
   it('names only groups this CLI knows (type level)', () => {
-    type Entry = (typeof telemetryEnvSpecFragment.metadata)[keyof typeof telemetryEnvSpecFragment.metadata];
-    expectTypeOf<NonNullable<Entry['group']>>().toExtend<EnvGroup>();
+    expectTypeOf<TelemetryEnvGroup>().toExtend<EnvGroup>();
+    type Entry = (typeof telemetryEnvSpecFragment.metadata)[string];
+    expectTypeOf<Entry['group']>().toExtend<EnvGroup>();
   });
 
   it('names only groups this CLI knows (run time)', () => {

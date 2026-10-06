@@ -1,4 +1,4 @@
-import type { EnvSpecFragment } from '../core/index.js';
+import type { EnvSpecFragment, EnvVarMetadata } from '../core/index.js';
 
 // =============================================================================
 // The telemetry slice's env-key metadata  (PP-4.5, #706)
@@ -11,6 +11,39 @@ import type { EnvSpecFragment } from '../core/index.js';
 // =============================================================================
 
 /**
+ * The feature group every telemetry key belongs to. A host CLI that gates
+ * keys by group must know it.
+ *
+ * @stability experimental
+ */
+export type TelemetryEnvGroup = 'observability';
+
+/**
+ * One telemetry key's annotation: the platform's `EnvVarMetadata`, always in
+ * {@link TelemetryEnvGroup}.
+ *
+ * @stability experimental
+ */
+export interface TelemetryEnvVarMetadata extends EnvVarMetadata {
+  /** Always `observability`. */
+  group: TelemetryEnvGroup;
+}
+
+/**
+ * The shape of {@link telemetryEnvSpecFragment}: an `EnvSpecFragment` whose
+ * entries all name {@link TelemetryEnvGroup}, so a host can check at compile
+ * time that it knows the group.
+ *
+ * @stability experimental
+ */
+export interface TelemetryEnvSpecFragment extends EnvSpecFragment {
+  /** Always `telemetry`. */
+  readonly id: 'telemetry';
+  /** Annotations by key; every entry carries `group: 'observability'`. */
+  readonly metadata: Readonly<Record<string, TelemetryEnvVarMetadata>>;
+}
+
+/**
  * The env-spec fragment for the telemetry stack: the PostgreSQL monitor login,
  * the OpenTelemetry exporter settings and the GreptimeDB store.
  *
@@ -18,7 +51,7 @@ import type { EnvSpecFragment } from '../core/index.js';
  *
  * @stability experimental
  */
-export const telemetryEnvSpecFragment = {
+export const telemetryEnvSpecFragment: TelemetryEnvSpecFragment = {
   id: 'telemetry',
   metadata: {
     // The telemetry collector's PostgreSQL login (issue #598), a pg_monitor role
@@ -77,4 +110,4 @@ export const telemetryEnvSpecFragment = {
       autoGenerate: true,
     },
   },
-} as const satisfies EnvSpecFragment;
+};

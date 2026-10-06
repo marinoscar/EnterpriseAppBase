@@ -30,7 +30,7 @@ relay.enqueue(spans.drain()); // after the job settled; never awaited on its pat
 
 ## Extension-point catalog
 
-None yet. This slice exports building blocks, not seams; #707 decides which become extension points.
+None. This slice exports building blocks, not seams; #707 decides which become extension points.
 
 ## Data
 

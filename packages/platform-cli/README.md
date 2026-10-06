@@ -43,12 +43,7 @@ None at package level. The registries take no options; `NodeSpanRelayOptions` is
 
 ## Extension-point catalog
 
-| Name | Kind | Signature | When to use | Stability | Example |
-|---|---|---|---|---|---|
-| `registerCliCommand` | registry | `registerCliCommand(register: (program: Command) => void): void` | Add an app command to the host CLI, listed after the built-ins. | experimental | [example](../../apps/cli/src/program-extension.test.ts) |
-| `registerEnvSpecFragment` | registry | `registerEnvSpecFragment(fragment: EnvSpecFragment): void` | Annotate a set of environment keys the template declares; one owner per key. | experimental | [example](../../apps/cli/src/platform-host/register.ts) |
-
-Details in the [core README](src/core/README.md#extension-point-catalog).
+None. The root entry point exports only `PLATFORM_PACKAGE`; the extension points are catalogued per slice, in the [core README](src/core/README.md#extension-point-catalog).
 
 ## Data
 

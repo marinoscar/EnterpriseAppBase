@@ -76,12 +76,14 @@ describe('metadataFor after the move to env-spec fragments', () => {
     expect(normalise(metadataFor(key))).toEqual(BEFORE[key]);
   });
 
-  it('covers exactly the keys the old map had: the app map plus every fragment', () => {
+  it('still covers every key the old map had, in the app map or a fragment', () => {
+    // A superset, not equality: keys added to ENV_METADATA after the move
+    // (DEPLOYMENT_MODE, ...) are legitimate; losing one of BEFORE is not.
     const now = new Set<string>();
     for (const fragment of listEnvSpecFragments()) {
       for (const key of Object.keys(fragment.metadata)) now.add(key);
     }
-    expect([...now].sort()).toEqual(Object.keys(BEFORE).sort());
+    expect(Object.keys(BEFORE).filter((key) => !now.has(key))).toEqual([]);
   });
 
   it('kept STACK_AGENT_TOKEN in the app map and moved every telemetry row out of it', () => {

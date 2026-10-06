@@ -5,7 +5,7 @@ import { telemetryEnvSpecFragment } from './env-fragment.js';
 const PASSWORDS = ['GREPTIME_WRITER_PASSWORD', 'GREPTIME_READER_PASSWORD', 'GREPTIME_ADMIN_PASSWORD'] as const;
 
 describe('telemetryEnvSpecFragment', () => {
-  const metadata: Record<string, Record<string, unknown>> = telemetryEnvSpecFragment.metadata;
+  const metadata = telemetryEnvSpecFragment.metadata as unknown as Readonly<Record<string, Record<string, unknown>>>;
 
   it('is the telemetry fragment and covers exactly the telemetry keys', () => {
     expect(telemetryEnvSpecFragment.id).toBe('telemetry');

@@ -103,7 +103,7 @@ export interface EnvSpecFragment {
 }
 
 const fragments: EnvSpecFragment[] = [];
-/** key -> id of the fragment that owns it. */
+/** Maps each key to the id of the fragment that owns it. */
 const owners = new Map<string, string>();
 
 /**

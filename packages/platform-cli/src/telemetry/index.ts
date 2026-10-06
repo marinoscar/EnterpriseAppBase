@@ -12,3 +12,4 @@ export {
 export type { NodeSpanRelayOptions } from './node-span-relay.js';
 export type { NodeSpan, NodeSpanAttributes, NodeSpanName, NodeSpanSink } from './node-span.js';
 export { telemetryEnvSpecFragment } from './env-fragment.js';
+export type { TelemetryEnvGroup, TelemetryEnvSpecFragment, TelemetryEnvVarMetadata } from './env-fragment.js';
