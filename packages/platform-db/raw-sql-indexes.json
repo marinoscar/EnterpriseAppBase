@@ -1,0 +1,28 @@
+{
+  "indexes": [
+    {
+      "name": "jobs_active_dedup_uniq_idx",
+      "definition": "CREATE UNIQUE INDEX jobs_active_dedup_uniq_idx ON public.jobs USING btree (dedup_key) WHERE ((status = ANY (ARRAY['pending'::\"JobStatus\", 'running'::\"JobStatus\"])) AND (dedup_key IS NOT NULL))",
+      "reason": "At most one pending or running job per dedup_key; a partial unique index Prisma cannot express (the queue relies on it instead of a find-then-insert).",
+      "createdBy": "20260906120000_add_jobs"
+    },
+    {
+      "name": "jobs_attempts_gt1_idx",
+      "definition": "CREATE INDEX jobs_attempts_gt1_idx ON public.jobs USING btree (attempts) WHERE (attempts > 1)",
+      "reason": "Partial index over retried jobs (attempts > 1) for the queue insights report; Prisma cannot express a WHERE clause.",
+      "createdBy": "20260906120000_add_jobs"
+    },
+    {
+      "name": "jobs_succeeded_duration_idx",
+      "definition": "CREATE INDEX jobs_succeeded_duration_idx ON public.jobs USING btree (finished_at, started_at, type) WHERE ((status = 'succeeded'::\"JobStatus\") AND (started_at IS NOT NULL) AND (finished_at IS NOT NULL))",
+      "reason": "Partial index over finished succeeded jobs for the duration percentiles of the queue insights report; Prisma cannot express a WHERE clause.",
+      "createdBy": "20260906120000_add_jobs"
+    },
+    {
+      "name": "database_backup_runs_active_uniq_idx",
+      "definition": "CREATE UNIQUE INDEX database_backup_runs_active_uniq_idx ON public.database_backup_runs USING btree ((true)) WHERE (status = ANY (ARRAY['pending'::\"DatabaseBackupStatus\", 'running'::\"DatabaseBackupStatus\"]))",
+      "reason": "At most one pending or running database backup at a time: a constant-expression partial unique index Prisma cannot express.",
+      "createdBy": "20260907120000_add_database_backup_runs"
+    }
+  ]
+}

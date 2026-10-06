@@ -3,7 +3,7 @@
   "platform-api": { "core": [], "testing": ["core"], "doctor": ["core"] },
   "platform-web": { "core": [], "testing": ["core"], "doctor": ["core"] },
   "platform-contract": {},
-  "platform-db": { "compose": [], "lock": [], "sync": ["lock"], "bin": ["compose"] },
+  "platform-db": { "compose": [], "lock": [], "sync": ["lock"], "drift": ["lock", "sync"], "bin": ["compose", "lock", "sync", "drift"] },
   "platform-cli": { "core": [], "telemetry": ["core"] },
   "platform-infra": { "telemetry": [] }
 }
