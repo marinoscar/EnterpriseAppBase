@@ -25,11 +25,15 @@
 //    `workspaces` globs) resolve `<name>/package.json` the way Node does and
 //    `realpath` it. Two workspaces resolving one name to different real paths
 //    fails. A name a workspace cannot resolve is skipped for that workspace.
+//    A root without `workspaces` (a consumer app, `--root <dir>`) is resolved
+//    from itself; `--guard <name>` adds the platform packages it installs
+//    (tests/consumer-smoke/run.mjs passes the six), which are then guarded and
+//    checked as origins like the monorepo's own `packages/platform-*`.
 //    The real directory of every resolved platform package outside the
 //    workspaces (an `npm link`ed checkout) is checked as an origin too.
 //
 // Usage: node scripts/check-single-instance.mjs [--lockfile-only] [--json]
-//          [--lockfile <path>] [--root <dir>]
+//          [--lockfile <path>] [--root <dir>] [--guard <name>]...
 // Exit:  0 clean, 1 duplicates or splits found, 2 usage error.
 //
 // Node built-ins only. Importing this module runs nothing: `main()` is behind
@@ -74,12 +78,15 @@ export const SINGLE_INSTANCE_PACKAGES = Object.freeze([
   'ink',
 ]);
 
-const USAGE = `Usage: node scripts/check-single-instance.mjs [--lockfile-only] [--json] [--lockfile <path>] [--root <dir>]
+const USAGE = `Usage: node scripts/check-single-instance.mjs [--lockfile-only] [--json] [--lockfile <path>] [--root <dir>] [--guard <name>]...
 
   --lockfile-only    Scan package-lock.json only (no node_modules needed).
   --json             Print a machine-readable report instead of text.
   --lockfile <path>  Lockfile to scan (default: <root>/package-lock.json).
   --root <dir>       Repository root (default: this script's parent directory).
+                     A root without workspaces is checked from itself.
+  --guard <name>     Also guard <name> (repeatable), e.g. the platform packages
+                     a consumer project installs.
 
 Exit codes: 0 clean, 1 duplicates found, 2 usage error.`;
 
@@ -152,9 +159,12 @@ export function discoverPlatformPackages(rootDir) {
   return names;
 }
 
-/** The guarded list: the fixed libraries plus every discovered platform package. */
-export function guardedNames(rootDir) {
-  return [...new Set([...SINGLE_INSTANCE_PACKAGES, ...discoverPlatformPackages(rootDir)])];
+/**
+ * The guarded list: the fixed libraries, every discovered platform package
+ * and the `extra` names (`--guard`).
+ */
+export function guardedNames(rootDir, extra = []) {
+  return [...new Set([...SINGLE_INSTANCE_PACKAGES, ...discoverPlatformPackages(rootDir), ...extra])];
 }
 
 // -----------------------------------------------------------------------------
@@ -263,7 +273,7 @@ function versionAt(dir) {
  * `{ realPath, version, origins: string[] }` and a Split is a name with more
  * than one Instance. `realPath` is relative to `rootDir` when inside it.
  */
-export function resolveInstances(rootDir, workspaces, names) {
+export function resolveInstances(rootDir, workspaces, names, originNames = discoverPlatformPackages(rootDir)) {
   const rootReal = realpathSync(rootDir);
   const display = (abs) => {
     const rel = relative(rootReal, abs);
@@ -295,10 +305,11 @@ export function resolveInstances(rootDir, workspaces, names) {
 
   for (const origin of origins) record(origin);
 
-  // A platform package resolved to a directory that is not one of the
-  // workspaces (an `npm link`ed or `file:` checkout) resolves its own peers
-  // from there; check it as an origin too.
-  const platformNames = new Set(discoverPlatformPackages(rootDir));
+  // A platform package (or a `--guard` name) resolved to a directory that is
+  // not one of the workspaces (an `npm link`ed or `file:` checkout, or an
+  // installed tarball in a consumer) resolves its own peers from there; check
+  // it as an origin too.
+  const platformNames = new Set(originNames);
   const extra = [];
   for (const name of platformNames) {
     for (const dir of resolved.get(name)?.keys() ?? []) {
@@ -335,13 +346,18 @@ export function fixHint(name, location) {
 }
 
 function parseArgs(argv) {
-  const opts = { lockfileOnly: false, json: false, lockfile: null, root: null };
+  const opts = { lockfileOnly: false, json: false, lockfile: null, root: null, guard: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--lockfile-only') opts.lockfileOnly = true;
     else if (arg === '--json') opts.json = true;
     else if (arg === '--help' || arg === '-h') opts.help = true;
-    else if (arg === '--lockfile' || arg === '--root') {
+    else if (arg === '--guard') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--')) throw new UsageError(`${arg} needs a value`);
+      opts.guard.push(value);
+      i += 1;
+    } else if (arg === '--lockfile' || arg === '--root') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--'))
         throw new UsageError(`${arg} needs a value`);
@@ -369,7 +385,8 @@ export function run(opts) {
     throw new UsageError(`cannot parse ${lockfilePath}: ${err.message}`);
   }
 
-  const names = guardedNames(rootDir);
+  const extra = opts.guard ?? [];
+  const names = guardedNames(rootDir, extra);
   const lockInstances = collectLockfileInstances(lock, names);
   const duplicates = findLockfileDuplicates(lock, names);
 
@@ -398,8 +415,14 @@ export function run(opts) {
   };
 
   if (!opts.lockfileOnly) {
-    const workspaces = discoverWorkspaces(rootDir);
-    const { resolved, splits } = resolveInstances(rootDir, workspaces, names);
+    // A project with no `workspaces` (a plain consumer app) is its own one
+    // origin.
+    const discovered = discoverWorkspaces(rootDir);
+    const workspaces = discovered.length > 0 ? discovered : ['.'];
+    const { resolved, splits } = resolveInstances(rootDir, workspaces, names, [
+      ...discoverPlatformPackages(rootDir),
+      ...extra,
+    ]);
     const anyResolved = [...resolved.values()].some((instances) => instances.length > 0);
     if (!anyResolved) {
       throw new UsageError(

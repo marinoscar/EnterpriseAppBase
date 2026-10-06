@@ -468,9 +468,61 @@ describe('the CLI', () => {
     expect(report.resolution.splits).toEqual([]);
   });
 
+  // A consumer project outside the monorepo (tests/consumer-smoke, issue #697):
+  // no `workspaces`, no `packages/`, platform packages installed from tarballs
+  // or the registry as plain directories.
+  function consumerProject(nestedReact = false): string {
+    const root = join(TMP, `consumer-${++counter}`);
+    writeJson(join(root, 'package.json'), {
+      name: 'consumer',
+      dependencies: { '@acme/platform-web': '0.1.0', react: '^19.2.8' },
+    });
+    installPackage(root, 'react', '19.2.8');
+    const platformWeb = installPackage(root, '@acme/platform-web', '0.1.0');
+    if (nestedReact) installPackage(platformWeb, 'react', '19.1.0');
+    writeJson(join(root, 'package-lock.json'), {
+      name: 'consumer',
+      lockfileVersion: 3,
+      packages: {
+        '': { name: 'consumer' },
+        'node_modules/react': { version: '19.2.8' },
+        'node_modules/@acme/platform-web': { version: '0.1.0' },
+        ...(nestedReact ? { 'node_modules/@acme/platform-web/node_modules/react': { version: '19.1.0' } } : {}),
+      },
+    });
+    return root;
+  }
+
+  it('guards the --guard names on top of the fixed list', () => {
+    const root = consumerProject();
+    expect(guardedNames(root)).not.toContain('@acme/platform-web');
+    expect(guardedNames(root, ['@acme/platform-web'])).toContain('@acme/platform-web');
+  });
+
+  it('checks a consumer project with no workspaces from its own root', () => {
+    const result = runScript(['--root', consumerProject(), '--guard', '@acme/platform-web', '--json']);
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout) as {
+      ok: boolean;
+      guarded: string[];
+      resolution: { workspaces: string[]; splits: unknown[] };
+    };
+    expect(report.ok).toBe(true);
+    expect(report.guarded).toContain('@acme/platform-web');
+    expect(report.resolution.workspaces).toEqual(['.']);
+  });
+
+  it('exits 1 when an installed platform package in a consumer carries its own react', () => {
+    const result = runScript(['--root', consumerProject(true), '--guard', '@acme/platform-web']);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/react: 2 copies/);
+    expect(result.stderr).toContain('node_modules/@acme/platform-web/node_modules/react');
+  });
+
   it.each([
     [['--nope']],
     [['--lockfile']],
+    [['--guard']],
     [['--root', '--json']],
     [['--root', join(TMP, 'does-not-exist')]],
     [['--root', FIXTURE_REPO, '--lockfile', join(TMP, 'missing.json'), '--lockfile-only']],
