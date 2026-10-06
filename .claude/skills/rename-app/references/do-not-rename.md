@@ -13,7 +13,7 @@ broken, and it is unrecoverable.
 
 ## 1. The HKDF subkey label — destroys data
 
-**`apps/api/src/common/crypto/secret-cipher.ts`**
+**`packages/platform-api/src/core/crypto/secret-cipher.ts`**
 
 ```
 SUBKEY_LABEL_PREFIX = 'enterpriseappbase:secret-cipher:v1:'
@@ -37,9 +37,13 @@ literal verbatim.
 Moving it is only possible alongside a re-encryption migration. That is not part
 of a rebrand.
 
+It lives in the published `@marinoscar/platform-api` package (the `core`
+slice, issue #698), so an app that consumes the package cannot change it by
+accident; editing a vendored copy of the package source still can.
+
 ## 2. The cross-realm Symbol key
 
-**`apps/api/src/common/exceptions/verbatim-error-body.exception.ts`** — a
+**`packages/platform-api/src/core/errors/verbatim-error-body.exception.ts`** — a
 `Symbol.for(...)` call whose key is built from the repository's name. Open the
 file to see the exact literal; it is not quoted here, because this document is
 itself scanned by the identity guard and quoting it would need an allowlist

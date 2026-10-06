@@ -58,8 +58,8 @@ const MANIFEST = join(REPO_ROOT, 'packages', 'shared', 'identity.json');
 // it for an agent.
 // -----------------------------------------------------------------------------
 const DO_NOT_RENAME = [
-  ['apps/api/src/common/crypto/secret-cipher.ts', "the HKDF label 'enterpriseappbase:secret-cipher:v1:' — changing it makes every stored credential permanently undecryptable"],
-  ['apps/api/src/common/exceptions/verbatim-error-body.exception.ts', 'a cross-realm Symbol.for() registry key'],
+  ['packages/platform-api/src/core/crypto/secret-cipher.ts', "the HKDF label 'enterpriseappbase:secret-cipher:v1:' — changing it makes every stored credential permanently undecryptable"],
+  ['packages/platform-api/src/core/errors/verbatim-error-body.exception.ts', 'a cross-realm Symbol.for() registry key'],
   ['apps/cli/src/deploy/proxy.ts', "the '# Managed by appctl deploy' sentinel, which is written AND parsed on live servers"],
   ['apps/cli/src/deploy/state.ts', "the '.appctl-deploy.json' filename, read from live servers"],
 ];
