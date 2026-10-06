@@ -38,9 +38,9 @@
 // Full guide: docs/RENAMING.md
 // =============================================================================
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,6 +55,7 @@ Options:
   --audit                Report what a new project should consider. Default.
   --reset-release        CHANGELOG -> Unreleased + 0.1.0, and all versions -> 0.1.0.
   --license <id>         Write a LICENSE file. One of: mit, proprietary.
+                         The platform's own MIT LICENSE is kept as LICENSE.platform.
   --holder <string>      Copyright holder, for --license. Required with it.
   --dry-run              Show what would change; write nothing.
   --force                Skip the "this is still the template" safety check.
@@ -202,6 +203,35 @@ Unauthorized copying of this file, via any medium, is strictly prohibited.
 `,
 };
 
+// The copyright holder of the platform's own LICENSE, the file this repository
+// ships at its root. A fork that writes its own licence keeps that notice as
+// LICENSE.platform, because MIT requires it to stay with substantial portions
+// of the code.
+export const UPSTREAM_LICENSE_HOLDER = 'marinoscar';
+
+const COPYRIGHT_YEAR = /^Copyright \(c\) (\d{4}) /m;
+
+const normalizeEol = (text) => String(text).replace(/\r\n/g, '\n');
+
+/**
+ * True when `text` is exactly the platform's MIT licence: the `mit` entry of
+ * LICENSES, the upstream holder, and whatever year its copyright line carries.
+ * Pure: it reads nothing and writes nothing.
+ */
+export function isUpstreamLicense(text) {
+  const normalized = normalizeEol(text);
+  const match = COPYRIGHT_YEAR.exec(normalized);
+  if (!match) return false;
+  return normalized === LICENSES.mit(UPSTREAM_LICENSE_HOLDER, match[1]);
+}
+
+function isUpstreamLicenseFile(path) {
+  return existsSync(path) && isUpstreamLicense(readFileSync(path, 'utf8'));
+}
+
+// The README line the platform ships, and the line a fork replaces it with.
+const UPSTREAM_README_LICENSE_LINE = /^MIT — see \[LICENSE\]\(LICENSE\)\.$/m;
+
 function writeLicense(opts) {
   const id = String(opts.license).toLowerCase();
   const build = LICENSES[id];
@@ -215,24 +245,49 @@ function writeLicense(opts) {
   if (!opts.holder) die('--license also needs --holder "Your Name or Company".');
 
   const path = join(REPO_ROOT, 'LICENSE');
-  if (existsSync(path) && !opts.force) {
-    die('a LICENSE file already exists. Remove it first, or pass --force.');
+  const platformPath = join(REPO_ROOT, 'LICENSE.platform');
+  const changed = [];
+  let keptUpstream = false;
+
+  if (existsSync(path)) {
+    if (isUpstreamLicenseFile(path)) {
+      // The inherited platform licence is never deleted or overwritten: it moves
+      // aside so the fork's own LICENSE can take its place.
+      if (existsSync(platformPath) && !isUpstreamLicenseFile(platformPath)) {
+        die('LICENSE.platform already exists and is not the platform\'s MIT licence.\n' +
+            '  Move it away first; it must hold the upstream notice.');
+      }
+      if (!existsSync(platformPath)) {
+        if (!opts.dryRun) renameSync(path, platformPath);
+        changed.push('LICENSE -> LICENSE.platform  (upstream MIT notice kept)');
+      }
+      keptUpstream = true;
+    } else if (!opts.force) {
+      die('a LICENSE file already exists. Remove it first, or pass --force.');
+    }
   }
+
   const text = build(opts.holder, new Date().getFullYear());
   if (!opts.dryRun) writeFileSync(path, text);
+  changed.push(`LICENSE written (${id})`);
 
-  const changed = [`LICENSE  written (${id})`];
-
-  // The README ships a "[Your License Here]" placeholder; leaving it in place
-  // beside a real LICENSE file is worse than having neither.
   const readmePath = join(REPO_ROOT, 'README.md');
   if (existsSync(readmePath)) {
     const before = readFileSync(readmePath, 'utf8');
     const label = id === 'mit' ? 'MIT' : 'Proprietary';
-    const after = before.replace(/\[Your License Here\]/g, `${label} — see [LICENSE](LICENSE).`);
+    const platformNote = ' Platform code is MIT licensed; see [LICENSE.platform](LICENSE.platform).';
+    let after = before;
+    // The platform's own README line, when its licence was kept as LICENSE.platform.
+    if (keptUpstream) {
+      after = after.replace(UPSTREAM_README_LICENSE_LINE,
+        () => `${label} — see [LICENSE](LICENSE).${platformNote}`);
+    }
+    // Older forks still carry the "[Your License Here]" placeholder; leaving it in
+    // place beside a real LICENSE file is worse than having neither.
+    after = after.replace(/\[Your License Here\]/g, () => `${label} — see [LICENSE](LICENSE).`);
     if (after !== before) {
       if (!opts.dryRun) writeFileSync(readmePath, after);
-      changed.push('README.md  licence placeholder replaced');
+      changed.push('README.md  licence line replaced');
     }
   }
   return changed;
@@ -287,12 +342,21 @@ function audit() {
     });
   }
 
-  if (!existsSync(join(REPO_ROOT, 'LICENSE'))) {
+  const licensePath = join(REPO_ROOT, 'LICENSE');
+  if (!existsSync(licensePath)) {
     items.push({
       title: 'No LICENSE file',
       recommendation: 'decide, then --license',
       detail: ['The README carries a "[Your License Here]" placeholder.',
                'Run with --license mit --holder "..." (or proprietary), or add your own.'],
+    });
+  } else if (isUpstreamLicenseFile(licensePath)) {
+    items.push({
+      title: 'LICENSE is the platform\'s MIT licence',
+      recommendation: 'keep it as LICENSE.platform; run --license to add your own',
+      detail: ['MIT requires the upstream copyright notice to stay with substantial portions',
+               'of the code, so --license moves this file to LICENSE.platform instead of',
+               'overwriting it, then writes your own LICENSE.'],
     });
   }
 
@@ -374,4 +438,11 @@ function main() {
   console.log(`\nSee docs/RENAMING.md for the full guide.${opts.dryRun ? '\n(--dry-run: nothing was written.)' : ''}\n`);
 }
 
-main();
+// Importing this file (the tests do) runs no CLI code; it only exposes
+// `isUpstreamLicense` and `UPSTREAM_LICENSE_HOLDER`. `pathToFileURL` keeps the
+// check robust to Windows paths.
+const isDirectExecution =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectExecution) {
+  main();
+}
