@@ -518,9 +518,16 @@ const BASELINE_APP_METRIC_NAMES = {
 };
 
 describe('AppMetricsService baseline (#680)', () => {
-  it('keeps APP_METRIC_NAMES (31 names, same keys)', () => {
-    expect(APP_METRIC_NAMES).toEqual(BASELINE_APP_METRIC_NAMES);
-    expect(Object.keys(APP_METRIC_NAMES)).toHaveLength(31);
+  it('keeps APP_METRIC_NAMES (the 31 baseline names, same keys), plus the event bus counters', () => {
+    // The event bus's three (`app.event_bus.*`) were added through the registry
+    // after the baseline was pinned (PP-1.11 follow-up); every baseline entry is unchanged.
+    expect(APP_METRIC_NAMES).toEqual({
+      ...BASELINE_APP_METRIC_NAMES,
+      eventBusPublished: 'app.event_bus.published',
+      eventBusDelivered: 'app.event_bus.delivered',
+      eventBusReconnects: 'app.event_bus.reconnects',
+    });
+    expect(Object.keys(APP_METRIC_NAMES).slice(0, 31)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });
 
   it('creates every counter, histogram and gauge with its exact name, unit, description and buckets', () => {
@@ -580,6 +587,18 @@ describe('AppMetricsService baseline (#680)', () => {
         },
       },
       { kind: 'counter', name: 'app.notifications.deliveries', options: { description: 'Notification delivery attempts, by channel, event and outcome.', unit: '{delivery}' } },
+      // Added after the baseline (the event bus, PP-1.11 follow-up).
+      { kind: 'counter', name: 'app.event_bus.published', options: { description: 'Messages published on the event bus, by adapter, channel and outcome.', unit: '{message}' } },
+      {
+        kind: 'counter',
+        name: 'app.event_bus.delivered',
+        options: {
+          description:
+            "Messages handed to this process's subscribers, by adapter, channel and origin (local: published here; remote: another replica).",
+          unit: '{message}',
+        },
+      },
+      { kind: 'counter', name: 'app.event_bus.reconnects', options: { description: 'Listener reconnects the event bus scheduled after losing its session, by adapter.', unit: '{reconnect}' } },
       { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
       { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },
       { kind: 'gauge', name: 'app.backup.last_success.timestamp', options: { description: 'When the most recent completed database backup finished (unix seconds).', unit: 's' } },

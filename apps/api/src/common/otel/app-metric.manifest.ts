@@ -10,10 +10,12 @@
 // =============================================================================
 
 import { APP_METRICS } from '../../app-registrations/telemetry';
+import { EVENT_BUS_APP_METRICS } from '../event-bus/event-bus.metrics';
 import { registerAppMetrics } from './app-metric.registry';
 import { PLATFORM_APP_METRICS } from './platform-app-metrics';
 
 registerAppMetrics(PLATFORM_APP_METRICS);
+registerAppMetrics(EVENT_BUS_APP_METRICS);
 
 // App-owned metrics last.
 registerAppMetrics(APP_METRICS);

@@ -5,6 +5,7 @@ import {
   registerAppMetrics,
   type AppMetricDef,
 } from './app-metrics.service';
+import { EVENT_BUS_APP_METRICS } from '../event-bus/event-bus.metrics';
 import { PLATFORM_APP_METRICS } from './platform-app-metrics';
 
 // =============================================================================
@@ -42,9 +43,10 @@ function rejection(fn: () => void): RegistryError {
 }
 
 describe('app-metric registry', () => {
-  it('holds the 31 platform metrics, in declaration order', () => {
-    expect(appMetricRegistry.ids()).toEqual(PLATFORM_APP_METRICS.map((d) => d.key));
-    expect(appMetricRegistry.size).toBe(31);
+  it('holds the 31 platform metrics, then the three event bus metrics, in declaration order', () => {
+    expect(appMetricRegistry.ids()).toEqual([...PLATFORM_APP_METRICS, ...EVENT_BUS_APP_METRICS].map((d) => d.key));
+    expect(PLATFORM_APP_METRICS).toHaveLength(31);
+    expect(appMetricRegistry.size).toBe(34);
   });
 
   it('derives APP_METRIC_NAMES from the registry', () => {

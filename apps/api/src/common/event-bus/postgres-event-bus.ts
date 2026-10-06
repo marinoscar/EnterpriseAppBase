@@ -10,6 +10,7 @@ import {
   newEventBusOrigin,
 } from './event-bus-core';
 import type { EventBus, EventBusHandler, EventBusHealth } from './event-bus.interface';
+import { NOOP_EVENT_BUS_METRICS, type EventBusMetrics } from './event-bus.metrics';
 
 // =============================================================================
 // PostgresEventBus — LISTEN/NOTIFY across replicas (PP-1.11, issue #682)
@@ -106,6 +107,8 @@ export interface PostgresEventBusOptions {
   /** `Math.random` in production; fixed in tests. */
   random?: () => number;
   createClient?: (config: ClientConfig) => EventBusListenerClient;
+  /** Where publish, delivery and reconnect counts go (`app.event_bus.*`, #680). Default: nowhere. */
+  metrics?: EventBusMetrics;
 }
 
 /**
@@ -134,6 +137,7 @@ export class PostgresEventBus implements EventBus, OnModuleInit, OnModuleDestroy
   private readonly maxBackoffMs: number;
   private readonly random: () => number;
   private readonly createClient: (config: ClientConfig) => EventBusListenerClient;
+  private readonly metrics: EventBusMetrics;
 
   private client: EventBusListenerClient | null = null;
   private connected = false;
@@ -158,6 +162,7 @@ export class PostgresEventBus implements EventBus, OnModuleInit, OnModuleDestroy
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
     this.random = options.random ?? Math.random;
     this.createClient = options.createClient ?? ((config) => new Client(config) as unknown as EventBusListenerClient);
+    this.metrics = options.metrics ?? NOOP_EVENT_BUS_METRICS;
   }
 
   // ---------------------------------------------------------------------------
@@ -207,6 +212,7 @@ export class PostgresEventBus implements EventBus, OnModuleInit, OnModuleDestroy
   async publish<T>(channel: string, payload: T): Promise<void> {
     if (!isValidEventBusChannel(channel)) {
       this.recordPublishFailure(`Refusing to publish on invalid event bus channel "${String(channel)}".`);
+      this.metrics.published(String(channel), 'rejected');
       return;
     }
 
@@ -215,19 +221,23 @@ export class PostgresEventBus implements EventBus, OnModuleInit, OnModuleDestroy
       encoded = encodeEventBusEnvelope(channel, this.origin, payload);
     } catch (error) {
       this.recordPublishFailure(`Event bus publish on "${channel}" rejected: ${describeEventBusError(error)}`);
+      this.metrics.published(channel, 'rejected');
       return;
     }
 
     // LOCAL FIRST, and independently of the database: this process's own
     // subscribers must not depend on a round trip, or on the listener being up.
     this.dispatcher.dispatch(channel, encoded, { origin: this.origin, local: true });
+    this.metrics.delivered(channel, 'local');
 
     try {
       await this.sql.$executeRaw`SELECT pg_notify('platform_bus', ${encoded})`;
+      this.metrics.published(channel, 'published');
     } catch (error) {
       this.recordPublishFailure(
         `Event bus NOTIFY on "${channel}" failed; other replicas will not see it: ${describeEventBusError(error)}`,
       );
+      this.metrics.published(channel, 'notify_failed');
     }
   }
 
@@ -330,6 +340,7 @@ export class PostgresEventBus implements EventBus, OnModuleInit, OnModuleDestroy
     const delay = eventBusBackoffMs(this.consecutiveFailures, this.initialBackoffMs, this.maxBackoffMs, this.random);
     this.consecutiveFailures += 1;
     this.reconnects += 1;
+    this.metrics.reconnect();
 
     this.logger.warn(
       `Event bus listener is disconnected${this.lastError ? ` (${this.lastError})` : ''}; ` +
@@ -356,6 +367,7 @@ export class PostgresEventBus implements EventBus, OnModuleInit, OnModuleDestroy
     if (envelope.o === this.origin) return;
 
     this.dispatcher.dispatch(envelope.c, message.payload as string, { origin: envelope.o, local: false });
+    this.metrics.delivered(envelope.c, 'remote');
   }
 
   private recordPublishFailure(message: string): void {

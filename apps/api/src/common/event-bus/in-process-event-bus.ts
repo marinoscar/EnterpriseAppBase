@@ -8,6 +8,7 @@ import {
   newEventBusOrigin,
 } from './event-bus-core';
 import type { EventBus, EventBusHandler, EventBusHealth } from './event-bus.interface';
+import { NOOP_EVENT_BUS_METRICS, type EventBusMetrics } from './event-bus.metrics';
 
 // =============================================================================
 // InProcessEventBus — the default adapter (PP-1.11, issue #682)
@@ -35,13 +36,17 @@ export class InProcessEventBus implements EventBus {
   private publishFailures = 0;
   private lastError: string | null = null;
 
-  constructor(origin: string = newEventBusOrigin()) {
+  constructor(
+    origin: string = newEventBusOrigin(),
+    private readonly metrics: EventBusMetrics = NOOP_EVENT_BUS_METRICS,
+  ) {
     this.origin = origin;
   }
 
   async publish<T>(channel: string, payload: T): Promise<void> {
     if (!isValidEventBusChannel(channel)) {
       this.recordFailure(`Refusing to publish on invalid event bus channel "${String(channel)}".`);
+      this.metrics.published(String(channel), 'rejected');
       return;
     }
 
@@ -50,10 +55,13 @@ export class InProcessEventBus implements EventBus {
       encoded = encodeEventBusEnvelope(channel, this.origin, payload);
     } catch (error) {
       this.recordFailure(`Event bus publish on "${channel}" rejected: ${describeEventBusError(error)}`);
+      this.metrics.published(channel, 'rejected');
       return;
     }
 
     this.dispatcher.dispatch(channel, encoded, { origin: this.origin, local: true });
+    this.metrics.published(channel, 'published');
+    this.metrics.delivered(channel, 'local');
   }
 
   subscribe<T>(channel: string, handler: EventBusHandler<T>): () => void {
