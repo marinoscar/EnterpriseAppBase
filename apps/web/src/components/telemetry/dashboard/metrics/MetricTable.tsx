@@ -41,6 +41,7 @@ import type {
 } from '../../../../services/telemetryDashboard';
 import { formatMetricValue, formatTimestamp } from '../format';
 import { readTopN, writeTopN, type TopNOption } from './topNPreference';
+import { useTelemetryTokens } from '../../../../theme/telemetryTokens';
 
 type Row = Record<string, DashboardMetricCell>;
 
@@ -140,6 +141,7 @@ export function UtilizationBar({
  * false → `badText`, null → "—".
  */
 export function StatusCell({ ok, okText, badText }: { ok: DashboardMetricCell; okText: string; badText: string }) {
+  const tokens = useTelemetryTokens();
   if (typeof ok !== 'boolean') return <>—</>;
   const Icon = ok ? CheckCircleOutlineIcon : ErrorOutlineIcon;
   return (
@@ -149,7 +151,7 @@ export function StatusCell({ ok, okText, badText }: { ok: DashboardMetricCell; o
         display: 'inline-flex',
         alignItems: 'center',
         gap: 0.5,
-        color: ok ? 'success.main' : 'error.main',
+        color: ok ? tokens.status.ok : tokens.status.crit,
         fontWeight: ok ? 400 : 600,
         whiteSpace: 'nowrap',
       }}
