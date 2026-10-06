@@ -27,6 +27,11 @@
 //     those declares a JSON schema, so skipping schemaless responses is exactly
 //     the right filter and needs no allowlist.
 //   * Schemas that already carry a `data` property, resolved through `$ref`.
+//   * Attachments: a response that declares a `Content-Disposition` header is
+//     a file the handler writes itself with `@Res()` (bypassing the
+//     interceptor), even when the file is JSON. The Doctor's support bundle
+//     (#772) is the first JSON one; the telemetry export declares the header
+//     too.
 // =============================================================================
 
 import { MutableDocument, forEachOperation } from './types';
@@ -61,6 +66,7 @@ export function applyDataEnvelope(document: MutableDocument): MutableDocument {
       if (!media || !schema) continue;
 
       if (declaresDataProperty(schema, schemas)) continue;
+      if (isAttachment(response as SchemaLike)) continue;
 
       media.schema = {
         type: 'object',
@@ -71,6 +77,16 @@ export function applyDataEnvelope(document: MutableDocument): MutableDocument {
   });
 
   return document;
+}
+
+/** Whether a response declares `Content-Disposition`: a file written with `@Res()`, never enveloped. */
+function isAttachment(response: SchemaLike): boolean {
+  const headers = response['headers'];
+  return (
+    !!headers &&
+    typeof headers === 'object' &&
+    Object.keys(headers as Record<string, unknown>).some((name) => name.toLowerCase() === 'content-disposition')
+  );
 }
 
 /**
