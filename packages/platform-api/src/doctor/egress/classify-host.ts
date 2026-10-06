@@ -132,6 +132,7 @@ export function hostnameOf(value: string | null | undefined): string | null {
  * classifyHost('');                             // 'unknown'
  * ```
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export function classifyHost(host: string | null | undefined): EgressScope {
@@ -183,6 +184,7 @@ export function scopeOfHosts(hosts: readonly string[]): EgressScope {
  *   enabled: true, required: false, hosts: ['smtp.corp.internal'], degradation: 'No email is sent' });
  * ```
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export function egressDependency(input: EgressDependencyInput): EgressDependency {

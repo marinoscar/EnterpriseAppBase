@@ -62,8 +62,11 @@ export type DeploymentNetwork = (typeof DEPLOYMENT_NETWORKS)[number];
 export const EGRESS_MAX_HOSTS = 20;
 
 /**
- * One outbound dependency of the running deployment.
+ * One outbound dependency of the running deployment: what an
+ * {@link EgressContributor} returns. Build it with `egressDependency()`, which
+ * reduces hosts to hostnames and computes `scope`.
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export interface EgressDependency {

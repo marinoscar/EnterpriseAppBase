@@ -208,6 +208,7 @@ export class NetworkEgressDoctorCheck implements DoctorCheck, OnModuleInit {
     @Optional() @Inject(DEPLOYMENT_NETWORK_SOURCE) private readonly source?: DeploymentNetworkSource,
   ) {}
 
+  /** Registers the check with the Doctor once the app's module initialises. */
   onModuleInit(): void {
     this.registry.register(this);
   }

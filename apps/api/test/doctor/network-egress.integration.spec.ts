@@ -24,7 +24,13 @@ import net from 'node:net';
 
 import request from 'supertest';
 
-import { DoctorCheckRegistry, DoctorService, EgressRegistry, describeEgress } from '@marinoscar/platform-api/doctor';
+import {
+  DoctorCheckRegistry,
+  DoctorService,
+  EgressRegistry,
+  classifyHost,
+  describeEgress,
+} from '@marinoscar/platform-api/doctor';
 
 import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
 import { AuthService } from '../../src/auth/auth.service';
@@ -307,6 +313,14 @@ describe('network.egress (Integration, #773)', () => {
 
       for (const secret of Object.values(SECRETS)) expect(text).not.toContain(secret);
       expect(text).not.toMatch(/\/v1|fcm\/send|\?key=|:\/\/|:9000|:11434/);
+      // Every entry carries bare hostnames, each classified by shape alone.
+      for (const dep of deps) {
+        for (const host of dep.hosts) expect(classifyHost(host)).not.toBe('unknown');
+        if (dep.hosts.length > 0) {
+          const scopes = dep.hosts.map((host) => classifyHost(host));
+          expect(dep.scope).toBe(scopes.includes('public') ? 'public' : 'private');
+        }
+      }
     });
   });
 
