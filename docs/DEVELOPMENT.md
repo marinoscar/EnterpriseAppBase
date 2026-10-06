@@ -492,6 +492,81 @@ migration SQL, never as `@@unique` in a fragment ([CLAUDE.md](../CLAUDE.md),
 The project configures the database with individual `POSTGRES_*` variables,
 never a single `DATABASE_URL`. The `prisma:*` scripts build the URL for you.
 
+Three commands guard the migration history; CI's `smoke` job runs them after
+`prisma:migrate`:
+
+```bash
+cd apps/api
+npm run db:check            # platform.lock vs the files and the package (offline)
+npm run db:check:database   # _prisma_migrations checksums vs the files (needs the database)
+npm run db:drift            # migrations replayed in a shadow database must equal the schema
+```
+
+`db:drift` fails when the schema was edited without a migration and prints the
+missing SQL. It needs a role that may create databases (it makes and drops
+`<database>_drift_shadow_<pid>`), or `SHADOW_DATABASE_URL` pointing at an empty
+one.
+
+### Authoring a platform migration
+
+A migration that belongs to the platform (a table or column of a package-owned
+model) is authored in the app, then **promoted** into `@marinoscar/platform-db`.
+An app's own migration is not promoted: it is an ordinary
+`prisma migrate dev` migration and stays in the app. Design:
+[ADR 0002 D3](adr/0002-database-packaging-and-rls.md#d3-migration-install-naming-and-platformlock-the-contract-for-710).
+
+1. Edit the schema fragment of the owning slice in `packages/platform-db/schema/`
+   and recompose the app schema (`npm run db:compose` once the composer
+   lands; until then edit `apps/api/prisma/schema.prisma`).
+2. Generate the SQL without applying it, from `apps/api`:
+   ```bash
+   npm run prisma:migrate:dev -- --create-only --name add_orgs
+   ```
+   Review the SQL. Prisma writes it into `prisma/migrations/<timestamp>_add_orgs/`.
+   For a partial or expression index, hand-write it here and add it to
+   `packages/platform-db/raw-sql-indexes.json` (name, definition, reason, the
+   migration that creates it).
+3. Promote it (from `apps/api`; `--id` is the package slug, the sequence
+   number is assigned):
+   ```bash
+   npm run db:promote -- 20261107120000_add_orgs --id add_orgs --slice identity
+   ```
+   This copies the bytes into `packages/platform-db/migrations/NNNN_add_orgs/`,
+   appends the manifest entry (sha256, `since` = the next minor version unless
+   `--since` is given) and records it in `apps/api/prisma/platform.lock`
+   against the **same** local directory. The app keeps the directory Prisma
+   created and never re-applies it. Running `promote` again is a no-op.
+4. Apply it (`npm run prisma:migrate:dev` or `prisma:migrate`), then run
+   `npm run db:check` and `npm run db:drift`.
+5. Commit **both** trees together: `packages/platform-db/migrations/**` and
+   `apps/api/prisma/**` (including `platform.lock`). Add a changeset for
+   `@marinoscar/platform-db`.
+
+Other apps receive it with `npm run db:sync` after a version bump: the command
+byte-copies every package migration missing from `platform.lock` into
+`prisma/migrations` under a new timestamp that sorts after everything already
+there, then you run `npm run prisma:migrate` as usual. The API still does not
+migrate on startup.
+
+**Rules** the tooling enforces or relies on:
+
+- **Forward-only**: no down migrations.
+- **Immutable once released**: `npm run db:check` fails on any byte change, a
+  comment or a line ending included. Fix a mistake with a new migration.
+  `migration.sql` files are marked `-text` in `.gitattributes` so Git never
+  rewrites them.
+- **Expand/contract** for breaking changes: add, move readers and writers, then
+  remove in a later release.
+- **Big-table index changes use `CREATE INDEX CONCURRENTLY`, in a migration of
+  their own.** Prisma wraps a migration in a transaction unless it holds only
+  statements that cannot run in one, and `CONCURRENTLY` cannot. Keep that
+  migration to the single `CREATE INDEX CONCURRENTLY IF NOT EXISTS` statement.
+- **One open pull request labelled `pp:migration` at a time.** A second one
+  waits, then rebases onto the first, deletes its local directory, and re-runs
+  `migrate dev --create-only` and `promote`, so its directory gets a newer
+  timestamp than the first one's. Two migrations promoted in parallel would
+  otherwise claim the same package sequence number.
+
 ### Adding New API Endpoints
 
 1. Define request and response DTOs with Zod (`createZodDto`).

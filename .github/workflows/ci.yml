@@ -347,8 +347,8 @@ jobs:
       # seed writes real rows and fails on a schema that does not match.
       - run: npm run prisma:migrate --workspace=api
 
-      # Migration drift tripwires (issue #710). Both need the database that
-      # `prisma:migrate` just built; neither writes to it.
+      # Migration drift tripwires (issue #710). All three need the database that
+      # `prisma:migrate` just built; none writes to it.
       #
       #   db:check   `platform.lock` proves every installed platform migration
       #              is byte-identical to the package's and was not edited

@@ -209,6 +209,7 @@ Each is enforced by tests and explained in the linked doc. Read it before touchi
 - **A backup archive is never buffered.** `pg_dump` streams straight into object storage, and both the upload and the dump's exit code are awaited. See [database-backup.md](docs/specs/database-backup.md).
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).
+- **An installed migration is never edited; `platform.lock` proves it.** `prisma/platform.lock` records the sha256 of every platform migration installed by `platform db sync`, and `npm run db:check` fails on any byte change (a comment or a line ending included). Prisma does not catch an edited, already-applied migration. The `smoke` job also runs `npm run db:drift` (the history must equal the schema and the raw-SQL indexes must exist) and `db:check:database`. See [DEVELOPMENT.md](docs/DEVELOPMENT.md#authoring-a-platform-migration) and [the platform-db README](packages/platform-db/README.md).
 - **A job `type` string is permanent** once jobs of that type exist. See [the job handlers README](apps/api/src/jobs/handlers/README.md).
 
 ## Architecture principles
@@ -255,6 +256,8 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec 
 cd apps/api && npm run db:compose                                   # after editing a fragment (packages/platform-db/schema/ or apps/api/prisma/fragments/); before prisma:generate
 cd apps/api && npm run prisma:generate                              # after schema changes
 cd apps/api && npm run prisma:migrate:dev -- --name <migration_name> # new migration
+cd apps/api && npm run db:sync                                       # install package migrations missing from prisma/platform.lock
+cd apps/api && npm run db:check                                      # platform.lock vs the migration files and the package (offline)
 
 # Tests (there is no root npm test)
 npm test --workspace=api                    # unit + mocked integration
