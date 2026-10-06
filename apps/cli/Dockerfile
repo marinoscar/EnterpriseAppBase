@@ -56,6 +56,9 @@ COPY packages/shared ./packages/shared/
 # telemetry compose file list from its manifest. The CLI's `prebuild` builds
 # its dist/ in the build stage.
 COPY packages/platform-infra ./packages/platform-infra/
+# And @marinoscar/platform-cli (issue #706): the node span relay and the CLI
+# registries. Built by the same `prebuild`.
+COPY packages/platform-cli ./packages/platform-cli/
 RUN npm ci --workspace=cli --include-workspace-root --ignore-scripts
 
 # -----------------------------------------------------------------------------
@@ -66,7 +69,7 @@ COPY --from=deps /app ./
 COPY tsconfig.base.json ./
 COPY apps/cli ./apps/cli
 WORKDIR /app/apps/cli
-# `prebuild` builds @marinoscar/platform-infra's dist/ first.
+# `prebuild` builds the platform-infra and platform-cli dist/ first.
 RUN npm run build
 
 # -----------------------------------------------------------------------------
@@ -75,6 +78,7 @@ RUN npm run build
 FROM base AS production
 COPY --from=deps /app ./
 COPY --from=build /app/packages/platform-infra/dist ./packages/platform-infra/dist
+COPY --from=build /app/packages/platform-cli/dist ./packages/platform-cli/dist
 COPY --from=build /app/apps/cli/dist ./apps/cli/dist
 
 # The worker's state directory. Mounted as a volume in the compose bundle so a

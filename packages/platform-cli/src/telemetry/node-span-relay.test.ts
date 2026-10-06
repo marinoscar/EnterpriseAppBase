@@ -1,39 +1,51 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { NodeApi, NodeSpan } from './node-api.js';
-import { JobSpanRecorder, MAX_SPANS_PER_BATCH, NodeSpanRelay, errorTypeOf } from '@marinoscar/platform-cli/telemetry';
-import { MissingJobInputError } from './node-errors.js';
-import { ApiError } from '../errors.js';
+import type { NodeSpan, NodeSpanSink } from './node-span.js';
+import { JobSpanRecorder, MAX_SPANS_PER_BATCH, NodeSpanRelay, errorTypeOf } from './node-span-relay.js';
 
 // =============================================================================
-// Job phase spans and their best-effort relay  (issue #608)
+// Job phase spans and their best-effort relay  (issue #608; moved by #706)
 // =============================================================================
 //
-// The relay lives in `@marinoscar/platform-cli/telemetry` now (PP-4.5, #706)
-// and reads an HTTP status structurally instead of `instanceof ApiError`. These
-// cases stay here, unchanged, with this CLI's REAL `ApiError` and
-// `MissingJobInputError`: they prove the app's errors classify exactly as
-// before. The package runs the same cases against look-alikes.
+// Every case of the reference CLI's `node/node-span-relay.test.ts`, against
+// the package and with no app type: the two app errors it used are replaced by
+// look-alikes with the same shape. That file still runs the same cases with
+// the app's real `ApiError`, which proves the structural status reading
+// classifies it exactly as `instanceof ApiError` did.
+// =============================================================================
+
+/** Shaped like the reference CLI's `ApiError`: a numeric status, a server message. */
+class ApiError extends Error {
+  readonly status: number;
+  readonly serverMessage: string;
+  readonly code: string | undefined = undefined;
+
+  constructor(status: number, serverMessage: string) {
+    super(`${status}: ${serverMessage}`);
+    this.name = new.target.name;
+    this.status = status;
+    this.serverMessage = serverMessage;
+  }
+}
+
+/** Shaped like the reference CLI's `MissingJobInputError`: a message carrying a URL. */
+class MissingJobInputError extends Error {
+  constructor(jobId: string, type: string, detail: string) {
+    super(`job ${jobId} (${type}): ${detail}`);
+    this.name = new.target.name;
+  }
+}
 
 function apiError(status: number): ApiError {
-  return new ApiError({
-    status,
-    serverMessage: `status ${status}`,
-    code: undefined,
-    details: undefined,
-    method: 'POST',
-    url: 'http://h/api/nodes/node-1/telemetry',
-    structured: true,
-    rawBody: undefined,
-  });
+  return new ApiError(status, `status ${status}`);
 }
 
 function span(jobId = 'job-1', startTimeUnixMs = 1_000): NodeSpan {
   return { jobId, name: 'job.execute', startTimeUnixMs, durationMs: 1, status: 'ok' };
 }
 
-function relayWith(telemetry: NodeApi['telemetry'], options: { maxQueuedSpans?: number; onDisabled?: (r: string) => void } = {}) {
-  const api = { telemetry } as unknown as NodeApi;
+function relayWith(telemetry: NodeSpanSink['telemetry'], options: { maxQueuedSpans?: number; onDisabled?: (r: string) => void } = {}) {
+  const api = { telemetry } as NodeSpanSink;
   return new NodeSpanRelay({ api, nodeId: 'node-1', ...options });
 }
 
@@ -111,7 +123,7 @@ describe('JobSpanRecorder', () => {
 
 describe('NodeSpanRelay', () => {
   it('is off when the API has no telemetry method', () => {
-    const relay = new NodeSpanRelay({ api: {} as NodeApi, nodeId: 'node-1' });
+    const relay = new NodeSpanRelay({ api: {}, nodeId: 'node-1' });
     relay.enqueue([span()]);
     expect(relay.enabled).toBe(false);
     expect(relay.queued).toBe(0);
@@ -176,7 +188,7 @@ describe('NodeSpanRelay', () => {
       .fn()
       .mockRejectedValueOnce(apiError(status))
       .mockResolvedValue({ accepted: 1, dropped: 0 });
-    const relay = relayWith(telemetry as unknown as NodeApi['telemetry']);
+    const relay = relayWith(telemetry as unknown as NodeSpanSink['telemetry']);
 
     relay.enqueue([span('x')]);
     await relay.flush();
@@ -194,5 +206,40 @@ describe('NodeSpanRelay', () => {
     relay.enqueue([span()]);
     await expect(relay.flush()).resolves.toBeUndefined();
     expect(relay.enabled).toBe(true);
+  });
+});
+
+describe('structural status reading', () => {
+  it('prefers a numeric status over a code, and ignores a non-numeric one', () => {
+    const both = Object.assign(new Error('x'), { status: 502, code: 'ECONNRESET' });
+    expect(errorTypeOf(both)).toBe('Error.502');
+    const stringStatus = Object.assign(new Error('x'), { status: '404', code: 'E1' });
+    expect(errorTypeOf(stringStatus)).toBe('Error.E1');
+  });
+
+  it('classifies a plain thrown object by its type, as before', () => {
+    expect(errorTypeOf({ status: 404 })).toBe('object');
+  });
+
+  it('disables on any 404-shaped failure, not only one class', async () => {
+    const onDisabled = vi.fn();
+    const relay = relayWith(
+      async () => {
+        throw Object.assign(new Error('gone'), { status: 404 });
+      },
+      { onDisabled },
+    );
+    relay.enqueue([span()]);
+    await relay.flush();
+    expect(relay.enabled).toBe(false);
+    expect(onDisabled).toHaveBeenCalledWith('404: Not Found');
+  });
+
+  it('reports the server message of a 404 when there is one', async () => {
+    const onDisabled = vi.fn();
+    const relay = relayWith(async () => Promise.reject(apiError(404)), { onDisabled });
+    relay.enqueue([span()]);
+    await relay.flush();
+    expect(onDisabled).toHaveBeenCalledWith('404: status 404');
   });
 });
