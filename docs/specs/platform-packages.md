@@ -740,6 +740,8 @@ erDiagram
 
 **Principal.** The principal carries the user id, the active org, org memberships, group memberships, roles and permissions, and the token kind. The access token carries the active org; switching org re-issues it. Personal access tokens and device tokens are bound to one org.
 
+The contract (types, credential mapping, scope derivation, `SystemActor`) is decided in [ADR 0001: Org-aware principal and scope](../adr/0001-org-aware-principal-and-scope.md).
+
 **Today isolation is convention.** There are about 46 `where: { userId }` sites and about 153 `@CurrentUser` uses, and no central scoping.
 
 **Proposed enforcement**, in layers:
