@@ -1,43 +1,79 @@
 # @marinoscar/platform-api/core
 
-`@marinoscar/platform-api/core`: framework-free primitives every other slice of `@marinoscar/platform-api` builds on. So far it holds one thing, the typed **registry primitive** (issue #675, moved here by #694). Principal and scope, errors and crypto join in #698.
-
-It also holds the **host ports** (issue #696): how any packaged slice reaches app-owned capabilities (authentication and authorization, audit, system settings, the Prisma client) without importing app code. The Doctor is the first slice to use them; every later slice reuses them unchanged. See [Host ports](#host-ports) below.
+`@marinoscar/platform-api/core`: the bottom of the slice graph. Code only, no tables: the typed **registry primitive**, the org-aware **principal and scope contract**, the application-wide **exception filter** with its exceptions and error DTO, the **secret cipher** under every runtime-configured credential with its bootstrap check, the **OpenAPI tag registry**, and the **host ports** (issue #696) through which a packaged slice reaches app-owned capabilities without importing app code. Every other slice imports it; it imports no other slice (`packages/platform-slices.json`: `"core": []`).
 
 ## Purpose and scope
 
-Closed lists (permissions, settings namespaces, doctor checks, conformance suites) become **registries with string ids**: additive, typed, ordered, validated and frozen once the application has bootstrapped. One primitive gives all of them the same rules, so an app extends the platform by registering an entry, never by editing a platform file.
+Each primitive used to live in the app (`apps/api/src/common/`) and every fork carried its own copy. Moved here by issue #698 (the registry by #694) with no behaviour change; the reference app imports them from this subpath and has no local copies (`apps/api/test/platform/no-local-core-copies.spec.ts` fails if one comes back).
 
-Does: id validation, a duplicate policy (`throw` or `replace` in place), atomic `registerAll`, deterministic order, freeze, introspection, typed `RegistryError` codes, a test helper (`withTemporaryEntries`).
-Does not: know any domain (permissions, jobs, settings), touch Nest at import time, or discover entries by itself (the app imports its manifest).
+| Part | Source | What it is |
+|---|---|---|
+| Registry | `registry/` | Closed lists (permissions, settings namespaces, doctor checks, conformance suites, OpenAPI tags) become registries with string ids: additive, typed, ordered, validated and frozen once the application has bootstrapped. Recipe: [registry/README.md](./registry/README.md). |
+| Principal and scope | `principal/` | Types only (ADR 0001): who is calling (`Principal`), the data boundary one operation runs in (`Scope`), and the named escape from scoping (`SystemActor`). No runtime code. |
+| Errors | `errors/` | `HttpExceptionFilter`, which turns every thrown value into the one error envelope, the `ErrorDto` that documents that envelope in OpenAPI, the verbatim-body opt-out for externally specified bodies, and `DatabaseSeedException`. |
+| Crypto | `crypto/` | AES-256-GCM with a per-purpose sub-key (HMAC-SHA256 over a fixed, versioned label), the owner-bound domain builder for per-user secrets, and `verifyEncryptionKeyAtStartup`. |
+| Host ports | `host/` | `definePlatformHost` (decorator-time access), the `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE` and `PLATFORM_PRISMA` tokens and `PlatformHostModule`, which binds them once in the app (`apps/api/src/platform/`). See [Host ports](#host-ports). |
+| OpenAPI tags | `openapi/` | `openApiTags`: every `@ApiTags` name with its description and sidebar group, registered by the app and by slices; the app's document builder publishes `tags` and `x-tagGroups` from it. |
+
+Does: hold primitives with no domain and no database. Does not: own tables, import a Prisma client or model types, read settings, or register anything with Nest by itself (there is no `CoreModule`: the app provides `RegistryFreezeService` and registers `HttpExceptionFilter` itself). Scoped data access joins this slice later (issue #699); the HTTP response envelope (`TransformInterceptor`), request-id middleware and the OpenAPI document passes stay in the app until their own slice.
 
 ## Install and peer dependencies
 
-```bash
-npm install @marinoscar/platform-api
+Ships inside `@marinoscar/platform-api`; import it by its subpath:
+
+```ts
+import { HttpExceptionFilter, defineRegistry, encryptSecret } from '@marinoscar/platform-api/core';
 ```
 
-Peers are those of the package ([README](../../README.md#peer-dependencies)). Only `RegistryFreezeService` needs `@nestjs/common`; the rest of the slice imports nothing at all (a test enforces it).
+Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, and `ErrorDto` needs `@nestjs/swagger`. `test/core/core-imports.spec.ts` pins that set (no `@prisma/client`, no other slice).
 
 ## Quick start
 
+The reference app wires the slice in three places.
+
 ```ts
-import { defineRegistry } from '@marinoscar/platform-api/core';
+// apps/api/src/app.module.ts: the one exception filter
+import { APP_FILTER } from '@nestjs/core';
+import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
 
-export const colours = defineRegistry<{ id: string; hex: string }>({
-  name: 'colours',
-  idOf: (c) => c.id,
-});
-
-colours.register({ id: 'brand', hex: '#3366ff' });
-colours.require('brand').hex; // '#3366ff'
+@Module({ providers: [{ provide: APP_FILTER, useClass: HttpExceptionFilter }] })
+export class AppModule {}
 ```
 
-Provide `RegistryFreezeService` in a module of the app (the base does it in `CommonModule`) so every `defineRegistry` registry freezes on application bootstrap.
+```ts
+// apps/api/src/common/common.module.ts: freeze every registry on bootstrap
+import { RegistryFreezeService } from '@marinoscar/platform-api/core';
+
+@Module({ providers: [RegistryFreezeService] })
+export class CommonModule {}
+```
+
+```ts
+// apps/api/src/main.ts: validate SECRETS_ENCRYPTION_KEY before the port is bound
+import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
+
+await verifyEncryptionKeyAtStartup(() => app.get(PrismaService).credential.count(), logger);
+```
+
+A packaged slice's routes and ports are bound through the host (see [Host ports](#host-ports)). A credential store then encrypts with a purpose of its own:
+
+```ts
+import { decryptSecret, encryptSecret } from '@marinoscar/platform-api/core';
+
+const stored = encryptSecret(password, 'smtp'); // apps/api/src/credentials/credentials.service.ts
+const password = decryptSecret(stored, 'smtp');
+```
 
 ## Configuration
 
-There is no `forRoot()`. A registry is configured by `RegistryOptions<T>`:
+There is no `forRoot()`. Two things are configured:
+
+| Setting | Type | Default | Meaning |
+|---|---|---|---|
+| `SECRETS_ENCRYPTION_KEY` (environment) | base64 of 32 bytes | unset | The cipher's master key. A deployment secret, not a runtime setting: read from `process.env` by the cipher only (never through `ConfigService`), once, then cached. Generate with `openssl rand -base64 32`. Unset: the startup check warns and boots while nothing is stored, and refuses to boot once encrypted secrets exist. |
+| `RegistryOptions<T>` | object | see below | How one registry behaves. |
+
+`RegistryOptions<T>`:
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
@@ -49,7 +85,7 @@ There is no `forRoot()`. A registry is configured by `RegistryOptions<T>`:
 | `describeDuplicate` | `(existing, incoming) => string` | none | Extra text for the `DUPLICATE_ID` message. |
 | `order` | `'registration' \| 'id' \| comparator` | `'registration'` | The order of `list()` and `ids()`. |
 
-The full option reference, with TSDoc, is on `RegistryOptions`.
+`HttpExceptionFilter` reads `NODE_ENV` only to leave a non-HTTP error's stack out of the response body in `production`.
 
 ### Host ports
 
@@ -118,21 +154,24 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 `@marinoscar/platform-api/testing` exports `createTestPlatformHost()` (access decorators that read an `x-test-permissions` header: no header is 401, a missing permission 403; **for package tests only, never for apps**), `InMemoryAuditSink` and `InMemorySystemSettingsStore` (one document version, 409 on a stale `ifMatchVersion`).
 
+
 ## Extension-point catalog
 
-Seven symbols are extension points; the other exports are the types, errors and constants that go with them (listed below the table). The full recipe (declaring entries, writing a manifest, instance versus static registries) is [registry/README.md](./registry/README.md).
+Nine symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `defineRegistry` | registry | `defineRegistry<T>(options: RegistryOptions<T>): Registry<T>` | Declare a module-level registry that `RegistryFreezeService` freezes on bootstrap (permissions, settings namespaces, suites) | stable | [example](../../../../apps/api/src/common/permissions/permission.registry.ts) |
 | `Registry` | registry | `new Registry<T>(options: RegistryOptions<T>)` | Hold an instance registry inside a provider, frozen by its owner (the packaged `DoctorCheckRegistry` is one; the reference app's own use is the storage key-prefix registry) | stable | [example](../../../../apps/api/src/storage/storage-key-prefix.registry.ts) |
+| `HttpExceptionFilter` | component | `@Catch() class HttpExceptionFilter implements ExceptionFilter` | Register once as the app's `APP_FILTER`, so every error leaves as the one envelope | stable | [example](../../../../apps/api/src/app.module.ts) |
+| `openApiTags` | registry | `Registry<OpenApiTag>` (`{ name, description, group }`) | Register the `@ApiTags` names a slice's or the app's controllers use, with a description and a sidebar group | experimental | [example](../../../../apps/api/src/openapi/tags.ts) |
 | `definePlatformHost` | option | `definePlatformHost(host: PlatformHost): PlatformHost` | Bind the app's access decorators once, for every packaged controller | experimental | [example](../../../../apps/api/src/platform/platform-host.ts) |
 | `PlatformHostModule.forRoot` | option | `forRoot(ports: { audit?; settings?; prisma?; imports? }): DynamicModule` | Bind the DI-time ports to the app's adapters, once, in the root module | experimental | [example](../../../../apps/api/src/platform/platform-host.module.ts) |
 | `AUDIT_SINK` | token | `unique symbol` -> `AuditSink` | Record an audit event from a packaged slice | experimental | [example](../../../../apps/api/src/platform/audit-sink.adapter.ts) |
 | `SYSTEM_SETTINGS_STORE` | token | `unique symbol` -> `SystemSettingsStore` | Read or patch a settings namespace from a packaged slice | experimental | [example](../../../../apps/api/src/platform/system-settings-store.adapter.ts) |
 | `PLATFORM_PRISMA` | token | `unique symbol` -> `PrismaClientLike` | Reach the app's Prisma client from a packaged slice | experimental | [example](../../../../apps/api/src/platform/platform-host.module.ts) |
 
-Supporting exports, all `@stability stable`:
+Registry, all `@stability stable`:
 
 | Export | Kind | Use it to |
 |---|---|---|
@@ -143,56 +182,114 @@ Supporting exports, all `@stability stable`:
 | `DEFAULT_REGISTRY_ID_PATTERN`, `REGISTRY_ID_MAX_LENGTH` | constants | Reuse the id rules in a schema or message. |
 | `withTemporaryEntries(registry, entries, fn)` | function (tests only) | Add entries for one test and restore the registry exactly; refused outside Jest and Vitest. |
 
+Principal and scope contract (ADR 0001), all types, all `@stability experimental` (the org fields narrow when organisations land):
+
+| Export | Use it to |
+|---|---|
+| `Principal` (`UserPrincipal` \| `NodePrincipal`), `PrincipalKind` | Type who is calling; narrow on `kind`. A readonly snapshot per request; no `isActive`. |
+| `CredentialKind` | `'session' \| 'device' \| 'pat' \| 'node'`: how the request authenticated. |
+| `OrgMembership`, `GroupMembership` | An organisation or group the principal belongs to. |
+| `Scope` | `{ userId, orgId?, groupIds? }`: the data boundary of one operation, derived from the principal, never from request input. |
+| `SystemActor` | `{ kind: 'system', reason }`: the only way to run unscoped. |
+| `TenancyMode` | `'single' \| 'multi'`. |
+
+Errors, all `@stability stable`:
+
+| Export | Kind | Use it to |
+|---|---|---|
+| `ErrorDto` | OpenAPI DTO | Declare the error response of an operation (`@ApiResponse({ type: ErrorDto })`). The schema name `ErrorDto` is published. |
+| `withVerbatimErrorBody(exception)` | function | Send a body an external standard dictates (RFC 8628's `{ error, error_description }`) exactly as thrown, outside the envelope. |
+| `hasVerbatimErrorBody(exception)` | function | Ask whether an exception carries that brand (the filter's check). |
+| `DatabaseSeedException` | exception | Fail with a 500 whose `details` tells the operator to run the seed. |
+
+Crypto, all `@stability stable`:
+
+| Export | Use it to |
+|---|---|
+| `encryptSecret(plaintext, purpose)`, `decryptSecret(payload, purpose)` | Encrypt or decrypt one secret under the sub-key for `purpose`. The payload is base64 of `[iv 12][tag 16][ciphertext]`, safe for one `text` column. |
+| `userCredentialPurpose(userId, purpose)`, `USER_CREDENTIAL_DOMAIN_PREFIX` | Build the owner-bound domain `user:<userId>:<purpose>` for a per-user secret. |
+| `isCanonicalUuid(value)` | Check the lowercase hyphenated UUID spelling the owner-bound domain requires. |
+| `assertEncryptionKeyConfigured()` | Throw unless the key is present and well formed (warms the cache). |
+| `verifyEncryptionKeyAtStartup(countStoredSecrets, logger)` | Run the bootstrap check (see Quick start). |
+
 Host-port types, all `@stability experimental` (#696): `PlatformHost`, `PlatformAccessPort`, `AuditSink`, `AuditEventInput`, `SystemSettingsStore`, `SystemSettingsSnapshot`, `PrismaClientLike`, `PortBinding<T>`, `PlatformHostPorts`.
+
+OpenAPI tags, all `@stability experimental`:
+
+| Export | Use it to |
+|---|---|
+| `openApiTagGroups(tags?)` | Group tags into `x-tagGroups` sections, in first-appearance order. |
+| `OpenApiTag`, `OpenApiTagGroup` | Types of a registered tag and of an emitted group. |
+| `OPENAPI_TAG_NAME_PATTERN` | What a tag or group name looks like (words, spaces, `&`). |
 
 ## Data
 
-None. No models, migrations or seeds.
+None. The slice owns no models, migrations or seeds; the startup check counts stored secrets through a callback the app supplies.
 
 ## Permissions and settings
 
-None declared. The permission and settings registries are built on this primitive by the app (and by later slices).
+None declared. The permission and settings registries are built on this slice's registry primitive by the app (and by later slices); `SECRETS_ENCRYPTION_KEY` is an environment variable (see Configuration), not a setting.
 
 ## UI
 
-None.
+None. The slice is API-side code only.
 
 ## Infra
 
-None. No environment variables.
+`SECRETS_ENCRYPTION_KEY` must be set in the API container's environment once the deployment stores credentials (`infra/compose/.env.example` declares it). No other variable, port or service.
 
 ## Observability
 
-`RegistryFreezeService` logs one `debug` line on bootstrap: how many static registries it froze, with each name and size. Nothing else logs.
+- `RegistryFreezeService` logs one `debug` line on bootstrap: how many static registries it froze, with each name and size.
+- `HttpExceptionFilter` logs one line per handled failure: `warn` with `METHOD url - status: message` below 500, `error` with the stack from 500 up; a verbatim body logs its `error` field, never the body.
+- `verifyEncryptionKeyAtStartup` logs exactly one of: `SECRETS_ENCRYPTION_KEY is configured; encrypted credential storage is available.` (`log`), the key-absent warning, or the could-not-count warning, and otherwise throws. The texts are unchanged from the app; operators and the CI smoke job read them.
+- The cipher never logs.
 
 ## Security notes
 
-A frozen registry refuses writes with `FROZEN`, which is what stops a late registration from changing a permission or settings list after something has read it. `withTemporaryEntries` throws unless `JEST_WORKER_ID` or `VITEST` is set, so no production path can unfreeze a registry.
-
-The host's access port fails closed: `definePlatformHost` refuses missing or non-decorator access functions and an empty permission list, and every packaged `forRoot` refuses a missing `host`, so a packaged route is never public. The audit port never receives secret material (`meta` is scalars only), and the settings port patches only through the app's own validated, versioned, audited path. `createTestPlatformHost` trusts a request header and is for package tests only.
+- **Key handling.** The cipher reads `SECRETS_ENCRYPTION_KEY` from `process.env` on first use, validates it (strict base64, exactly 32 bytes after trimming whitespace) and caches it for the life of the process. A later change to the environment has no effect until restart; the rotation runbook reloads the module on purpose (`docs/runbooks/rotate-secrets-encryption-key.md`).
+- **One instance per process.** The master key and the derived sub-keys are cached at module scope. Two copies of `@marinoscar/platform-api` in one process would mean two caches (and two registry sets, and two verbatim brands that only agree because the brand uses `Symbol.for`): install exactly one copy (the platform single-instance check, issue #695, guards the package name).
+- **Purposes.** Every secret is encrypted under a sub-key derived from its purpose, so a ciphertext copied into another column or another user's row fails authentication instead of decrypting. Per-user secrets use `userCredentialPurpose`, which binds the owner. Owner-bound sub-keys are not cached.
+- **No key material leaves the module.** Errors carry the variable name, a byte count and the generation command; decryption failures are one flat message. Nothing in the slice logs a key, a derived key or a plaintext.
+- **Byte compatibility.** The env var name, the sub-key label prefix, the IV and tag lengths, the payload layout and the error texts are fixed: changing the label makes every stored credential undecryptable. `apps/api/test/platform/secret-cipher-compat.spec.ts` decrypts ciphertexts written before the move.
+- **Error bodies.** The filter rebuilds every body from a fixed key set, so a thrown exception cannot leak extra fields; stacks are omitted from responses in `production`.
+- **Host ports.** The host's access port fails closed: `definePlatformHost` refuses missing or non-decorator access functions and an empty permission list, and every packaged `forRoot` refuses a missing `host`, so a packaged route is never public. The audit port never receives secret material (`meta` is scalars only), and the settings port patches only through the app's own validated, versioned, audited path. `createTestPlatformHost` trusts a request header and is for package tests only.
+- **Principal and scope.** A `Scope` is derived from the principal, never from request input; `SystemActor` is the only unscoped path and always carries a reason.
 
 ## Conformance suite
 
-None of its own: the primitive is pinned by `test/core/registry.spec.ts` in the package. Apps run the platform conformance suites from the [`testing` slice](../testing/README.md).
+None of its own: the slice is pinned by its specs in the package (`test/core/`: registry, principal types, filter, verbatim brand, cipher, startup check, OpenAPI tags, import boundary). Apps run the platform conformance suites from the [`testing` slice](../testing/README.md).
 
 ## Upgrade notes
 
-None (first release).
+First release of the full slice (the registry primitive shipped first, issue #694; the host ports with #696). For anyone who copied the app's files before the move:
+
+- `verifyEncryptionKeyAtStartup(prisma, logger)` is now `verifyEncryptionKeyAtStartup(countStoredSecrets, logger)`: pass `() => prisma.credential.count()`. Messages and decisions are unchanged.
+- Delete the local copies under `src/common/{registry,principal,filters/http-exception.filter.ts,exceptions,dto/error.dto.ts,crypto}` and import from `@marinoscar/platform-api/core`. Stored ciphertexts stay readable.
+- `apps/api/src/openapi/tags.ts` no longer exports `OPENAPI_TAGS`, `OPENAPI_TAG_GROUPS` or `TAG_GROUPS`: it registers into `openApiTags`; read `openApiTags.list()` and `openApiTagGroups()` instead.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
 | `FROZEN` on `register()` | The application already bootstrapped. Register from a module-scope manifest imported before bootstrap, not from a request or a later hook. |
-| `DUPLICATE_REGISTRY` at import | Two `defineRegistry` calls share a `name`, or a module was loaded twice (two copies of the package). |
+| `DUPLICATE_REGISTRY` at import | Two `defineRegistry` calls share a `name`, or the package was loaded twice (two copies installed). |
 | `DUPLICATE_ID` | The id is already registered. Use `onDuplicate: 'replace'` only where replacing is the documented behaviour. |
 | A registry that never freezes | `RegistryFreezeService` is not provided in any module of the app. |
+| Boot fails with `SECRETS_ENCRYPTION_KEY is not set, but N encrypted credential(s) are stored` | The key that wrote them is gone. Restore it; see the rotation runbook if it is lost. |
+| `SECRETS_ENCRYPTION_KEY is not valid base64` or `decoded to N bytes` | The key is malformed. Generate one with `openssl rand -base64 32`. |
+| `Failed to decrypt secret: ...` | Wrong key, wrong purpose (a per-user secret decrypted with the bare purpose), or a tampered payload. |
+| An error body without `message` (only `error`, `error_description`) | The exception was branded with `withVerbatimErrorBody`; that is the RFC 8628 device token endpoint's contract. |
+| A tag renders with no description or outside every sidebar group | No one registered it in `openApiTags`. |
 | `Nest can't resolve dependencies ... Symbol(@marinoscar/platform/AUDIT_SINK)` (or another port) | A slice injects a port the app did not bind. Add it to `PlatformHostModule.forRoot({...})` in `apps/api/src/platform/platform-host.module.ts`. |
 | `definePlatformHost: ... never public` at import | The host's `access` functions are missing or return something that is not a decorator. |
 | A packaged route's `operationId` changed | The controller class or handler was renamed, or decorators were reordered; see the controller-factory recipe. |
 
 ## Links
 
-- Spec: [platform-packages.md](../../../../docs/specs/platform-packages.md), "The Extension Contract" (rung 2, registries).
-- Recipe and behaviour rules: [registry/README.md](./registry/README.md).
+- Spec: [platform-packages.md](../../../../docs/specs/platform-packages.md), "Dependency graph", "The Extension Contract" (rung 2, registries) and "Tenancy and access model".
+- ADR: [0001, org-aware principal and scope](../../../../docs/adr/0001-org-aware-principal-and-scope.md).
+- Registry recipe and behaviour rules: [registry/README.md](./registry/README.md).
+- Encrypted credential storage: [SECURITY-ARCHITECTURE.md](../../../../docs/SECURITY-ARCHITECTURE.md) and the [key rotation runbook](../../../../docs/runbooks/rotate-secrets-encryption-key.md).
+- Error envelope: [API.md](../../../../docs/API.md).
 - Package README: [platform-api](../../README.md).

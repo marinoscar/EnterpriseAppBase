@@ -225,8 +225,11 @@ export type Principal = UserPrincipal | NodePrincipal;
  * ```
  */
 export interface Scope {
+  /** The user the operation acts for: always `principal.userId`. */
   readonly userId: string;
+  /** The organisation: `principal.activeOrgId`. Required once organisations exist. */
   readonly orgId?: string;
+  /** Groups to narrow to, each one the principal belongs to; never widened. */
   readonly groupIds?: readonly string[];
 }
 
@@ -241,6 +244,7 @@ export interface Scope {
  * ```
  */
 export interface SystemActor {
+  /** Discriminant: always `'system'`. */
   readonly kind: 'system';
   /**
    * Short, greppable reason, e.g. `'retention.purge'`, `'db.backup.run'`.

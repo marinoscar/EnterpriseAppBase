@@ -75,8 +75,8 @@ const VERBATIM_ERROR_BODY = Symbol.for('EnterpriseAppBase.verbatimErrorBody');
 
 /**
  * Mark an exception so `HttpExceptionFilter` sends its payload to the client
- * exactly as given, instead of rebuilding it as `{ statusCode, code, message,
- * … }`.
+ * exactly as given, instead of rebuilding it as
+ * `{ statusCode, code, message, … }`.
  *
  * Returns the same exception instance, so the class identity is untouched:
  * `withVerbatimErrorBody(new BadRequestException(…))` is still a
