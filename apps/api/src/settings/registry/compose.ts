@@ -18,12 +18,18 @@
 // =============================================================================
 
 import { z } from 'zod';
+import { userProfileSettingsPatchSchema, userProfileSettingsSchema } from '../../common/schemas/settings.schema';
 import {
   systemSettingsNamespaceRegistry,
   type SystemSettingsNamespace,
   type SystemSettingsNamespaceDeclarations,
   type SystemSettingsValue,
 } from './system-settings-namespace';
+import {
+  userSettingsNamespaceRegistry,
+  type UserSettingsNamespace,
+  type UserSettingsNamespaceDeclarations,
+} from './user-settings-namespace';
 
 // -----------------------------------------------------------------------------
 // Static types: the composed shapes, per platform declaration
@@ -51,6 +57,40 @@ export type ComposedPatchSystemSettingsShape = {
 /** The namespace branches of `systemSettingsResponseSchema`; `null` responses are left out. */
 export type ComposedSystemSettingsResponseShape = {
   [K in keyof SysDecls as [SysField<K, 'responseSchema'>] extends [never] ? never : K]: SysField<K, 'responseSchema'>;
+};
+
+type UserDecls = UserSettingsNamespaceDeclarations;
+type UserField<K extends keyof UserDecls, F extends string> = UserDecls[K] extends Record<F, infer S>
+  ? Extract<S, z.ZodType>
+  : never;
+/** `putSchema ?? schema`, `wirePatchSchema ?? patchSchema`, `responseSchema ?? schema`, statically. */
+type UserFieldOr<K extends keyof UserDecls, F extends string, Fallback extends string> = [UserField<K, F>] extends [
+  never,
+]
+  ? UserDecls[K] extends Record<F, null>
+    ? never
+    : UserField<K, Fallback>
+  : UserField<K, F>;
+
+/** The optional user namespaces of `userSettingsSchema` (`.optional()`). */
+export type ComposedUserSettingsShape = { [K in keyof UserDecls]: z.ZodOptional<UserField<K, 'schema'>> };
+/** The optional user namespaces of `userSettingsPatchSchema` (`.nullable().optional()`). */
+export type ComposedUserSettingsPatchShape = {
+  [K in keyof UserDecls]: z.ZodOptional<z.ZodNullable<UserField<K, 'patchSchema'>>>;
+};
+/** The optional user namespaces of `updateUserSettingsSchema`, the PUT body. */
+export type ComposedUpdateUserSettingsShape = {
+  [K in keyof UserDecls]: z.ZodOptional<UserFieldOr<K, 'putSchema', 'schema'>>;
+};
+/** The optional user namespaces of `patchUserSettingsSchema`, the PATCH body. */
+export type ComposedPatchUserSettingsShape = {
+  [K in keyof UserDecls]: z.ZodOptional<z.ZodNullable<UserFieldOr<K, 'wirePatchSchema', 'patchSchema'>>>;
+};
+/** The optional user namespaces of `userSettingsResponseSchema`; `null` responses are left out. */
+export type ComposedUserSettingsResponseShape = {
+  [K in keyof UserDecls as [UserFieldOr<K, 'responseSchema', 'schema'>] extends [never] ? never : K]: z.ZodOptional<
+    UserFieldOr<K, 'responseSchema', 'schema'>
+  >;
 };
 
 // -----------------------------------------------------------------------------
@@ -121,6 +161,74 @@ export function composeDefaultSystemSettings(namespaces?: readonly SystemSetting
 }
 
 // -----------------------------------------------------------------------------
+// User settings (the OPTIONAL namespaces; `theme` and `profile` are core fields
+// the DTO files and `composed.ts` place ahead of them)
+// -----------------------------------------------------------------------------
+
+/** The five composed user-settings shapes, namespaces only, in registration order. */
+export interface ComposedUserSettingsShapes {
+  /** `schema.optional()`: the stored namespaces (`userSettingsSchema`). */
+  stored: ComposedUserSettingsShape;
+  /** `patchSchema.nullable().optional()`: `null` clears the namespace (`userSettingsPatchSchema`). */
+  patch: ComposedUserSettingsPatchShape;
+  /** `(putSchema ?? schema).optional()`: the PUT body (`updateUserSettingsSchema`). */
+  put: ComposedUpdateUserSettingsShape;
+  /** `(wirePatchSchema ?? patchSchema).nullable().optional()`: the PATCH body (`patchUserSettingsSchema`). */
+  wirePatch: ComposedPatchUserSettingsShape;
+  /** `(responseSchema ?? schema).optional()`, `null` left out: the response (`userSettingsResponseSchema`). */
+  response: ComposedUserSettingsResponseShape;
+}
+
+/**
+ * The namespace shapes of the five user-settings objects. Shapes rather than
+ * objects because each of the five puts its own core fields (`theme`,
+ * `profile`, and in the response `updatedAt`, `version`) around them.
+ */
+export function composeUserSettingsSchemas(namespaces?: readonly UserSettingsNamespace[]): ComposedUserSettingsShapes {
+  const list = namespaces ?? userSettingsNamespaceRegistry.list();
+  const key = (ns: UserSettingsNamespace) => ns.key;
+  return {
+    stored: shapeOf(list, key, (ns) => ns.schema.optional()) as unknown as ComposedUserSettingsShape,
+    patch: shapeOf(list, key, (ns) => ns.patchSchema.nullable().optional()) as unknown as ComposedUserSettingsPatchShape,
+    put: shapeOf(list, key, (ns) => (ns.putSchema ?? ns.schema).optional()) as unknown as ComposedUpdateUserSettingsShape,
+    wirePatch: shapeOf(list, key, (ns) =>
+      (ns.wirePatchSchema ?? ns.patchSchema).nullable().optional(),
+    ) as unknown as ComposedPatchUserSettingsShape,
+    response: shapeOf(list, key, (ns) =>
+      ns.responseSchema === null ? null : (ns.responseSchema ?? ns.schema).optional(),
+    ) as unknown as ComposedUserSettingsResponseShape,
+  };
+}
+
+/**
+ * `userSettingsSchema`: the stored user settings, core fields (`theme`,
+ * `profile`) first, then every namespace `.optional()`.
+ */
+export function composeUserSettingsSchema(namespaces?: readonly UserSettingsNamespace[]) {
+  return z.object({
+    theme: z.enum(['light', 'dark', 'system']),
+    profile: userProfileSettingsSchema,
+    // Optional namespaces. Absent means "use built-in defaults" — see
+    // user-settings-namespaces.schema.ts for why these must never get `.default()`.
+    ...composeUserSettingsSchemas(namespaces).stored,
+  });
+}
+
+/**
+ * `userSettingsPatchSchema`: the canonical partial (zod v4 has no
+ * `deepPartial`), core fields first, then every namespace
+ * `.nullable().optional()` — the outer `.nullable()` is what lets
+ * `{ "dataTables": null }` clear a whole namespace.
+ */
+export function composeUserSettingsPatchSchema(namespaces?: readonly UserSettingsNamespace[]) {
+  return z.object({
+    theme: z.enum(['light', 'dark', 'system']).optional(),
+    profile: userProfileSettingsPatchSchema.optional(),
+    ...composeUserSettingsSchemas(namespaces).patch,
+  });
+}
+
+// -----------------------------------------------------------------------------
 // Per-request composition for the services
 // -----------------------------------------------------------------------------
 
@@ -156,4 +264,10 @@ export const currentSystemSettingsSchema = memoOnEntries(
 export const currentUpdateSystemSettingsSchema = memoOnEntries(
   () => systemSettingsNamespaceRegistry.list(),
   (entries) => composeUpdateSystemSettingsSchema(entries),
+);
+
+/** `composeUserSettingsSchema()` over the registry as it is now. */
+export const currentUserSettingsSchema = memoOnEntries(
+  () => userSettingsNamespaceRegistry.list(),
+  (entries) => composeUserSettingsSchema(entries),
 );

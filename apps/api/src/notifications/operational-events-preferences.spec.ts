@@ -1,4 +1,4 @@
-import { userSettingsSchema } from '../common/schemas/settings.schema';
+import { userSettingsSchema } from '../settings/registry/composed';
 import { findEvent, isMandatory } from './notification-events';
 import {
   readNotificationPreferences,

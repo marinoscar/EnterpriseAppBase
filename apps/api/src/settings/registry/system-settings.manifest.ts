@@ -13,7 +13,10 @@
 // never by a declaration file (that would close an import cycle).
 // =============================================================================
 
-import { APP_SYSTEM_SETTINGS_NAMESPACES } from '../../app-registrations/settings';
+import {
+  APP_SYSTEM_SETTINGS_EXTENSIONS,
+  APP_SYSTEM_SETTINGS_NAMESPACES,
+} from '../../app-registrations/settings';
 import { AI_SYSTEM_SETTINGS } from '../../ai/ai.system-settings';
 import { MAINTENANCE_SYSTEM_SETTINGS } from '../../common/maintenance/maintenance.system-settings';
 import { RETENTION_SYSTEM_SETTINGS } from '../../common/retention/retention.system-settings';
@@ -23,9 +26,10 @@ import { NODES_SYSTEM_SETTINGS } from '../../nodes/nodes.system-settings';
 import { NOTIFICATIONS_SYSTEM_SETTINGS } from '../../notifications/notifications.system-settings';
 import { STORAGE_SYSTEM_SETTINGS } from '../../storage/config/storage.system-settings';
 import { TELEMETRY_SYSTEM_SETTINGS } from '../../telemetry/telemetry.system-settings';
-import { registerSystemSettingsNamespaces } from './system-settings-namespace';
+import { extendSystemSettingsNamespace, foldSettingsExtensions } from './extend';
+import { registerSystemSettingsNamespaces, type SystemSettingsNamespace } from './system-settings-namespace';
 
-registerSystemSettingsNamespaces([
+const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
   NOTIFICATIONS_SYSTEM_SETTINGS,
   JOBS_SYSTEM_SETTINGS,
   NODES_SYSTEM_SETTINGS,
@@ -35,7 +39,18 @@ registerSystemSettingsNamespaces([
   AI_SYSTEM_SETTINGS,
   TELEMETRY_SYSTEM_SETTINGS,
   RETENTION_SYSTEM_SETTINGS,
-]);
+];
+
+// The app's extensions fold into the namespaces they name (platform or app)
+// before anything is registered.
+const { platform, app } = foldSettingsExtensions(
+  { platform: PLATFORM_NAMESPACES, app: APP_SYSTEM_SETTINGS_NAMESPACES },
+  APP_SYSTEM_SETTINGS_EXTENSIONS,
+  extendSystemSettingsNamespace,
+  'system settings',
+);
+
+registerSystemSettingsNamespaces(platform);
 
 // App-owned namespaces last, so a collision with a platform key names the app.
-registerSystemSettingsNamespaces(APP_SYSTEM_SETTINGS_NAMESPACES);
+registerSystemSettingsNamespaces(app);

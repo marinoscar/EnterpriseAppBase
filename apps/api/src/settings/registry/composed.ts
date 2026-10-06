@@ -26,6 +26,7 @@
 
 import type { z } from 'zod';
 import './system-settings.manifest';
+import './user-settings.manifest';
 import {
   composeDefaultSystemSettings,
   composePatchSystemSettingsSchema,
@@ -33,6 +34,9 @@ import {
   composeSystemSettingsResponseValue,
   composeSystemSettingsSchema,
   composeUpdateSystemSettingsSchema,
+  composeUserSettingsPatchSchema,
+  composeUserSettingsSchema,
+  composeUserSettingsSchemas,
 } from './compose';
 import type { SystemSettingsValue } from './system-settings-namespace';
 
@@ -55,3 +59,14 @@ export const composedSystemSettingsResponseValue = composeSystemSettingsResponse
 
 /** The defaults (place 5), re-exported by `common/types/settings.types.ts`. */
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValue = composeDefaultSystemSettings();
+
+/** The stored user settings document: `theme`, `profile`, then every optional namespace. */
+export const userSettingsSchema = composeUserSettingsSchema();
+
+export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
+
+/** The canonical user settings partial. */
+export const userSettingsPatchSchema = composeUserSettingsPatchSchema();
+
+/** The namespace shapes of the user-settings request bodies and response (see the user DTO files). */
+export const composedUserSettingsShapes = composeUserSettingsSchemas();

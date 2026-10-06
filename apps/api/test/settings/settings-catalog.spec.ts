@@ -16,8 +16,12 @@
 // =============================================================================
 
 import { DEFAULT_SYSTEM_SETTINGS, DEFAULT_USER_SETTINGS } from '../../src/common/types/settings.types';
-import { systemSettingsSchema, systemSettingsPatchSchema } from '../../src/settings/registry/composed';
-import { userSettingsSchema, userSettingsPatchSchema } from '../../src/common/schemas/settings.schema';
+import {
+  systemSettingsSchema,
+  systemSettingsPatchSchema,
+  userSettingsSchema,
+  userSettingsPatchSchema,
+} from '../../src/settings/registry/composed';
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,

@@ -1,12 +1,5 @@
-import type {
-  DataTablesValue,
-  NavigationValue,
-  NotificationsValue,
-} from '../schemas/user-settings-namespaces.schema';
-import type {
-  UserProfileSettingsValue,
-  UserAiSettingsValue,
-} from '../schemas/settings.schema';
+import type { UserProfileSettingsValue } from '../schemas/settings.schema';
+import type { UserSettingsNamespacesValue } from '../../settings/registry/user-settings-namespace';
 
 // =============================================================================
 // Settings Type Definitions
@@ -14,8 +7,15 @@ import type {
 
 /**
  * User settings schema - stored in user_settings.value JSONB
+ *
+ * `theme` and `profile` are core fields. Every other key is an OPTIONAL
+ * namespace from the user settings namespace registry (#677): `dataTables`,
+ * `navigation`, `notifications`, `ai`, and any an app registers. Each is typed
+ * where it is declared (`*.user-settings.ts`, augmenting
+ * `UserSettingsNamespaces`), and absent means "use the built-in defaults" —
+ * NOT "empty preferences". See user-settings-namespaces.schema.ts.
  */
-export interface UserSettingsValue {
+export interface UserSettingsValue extends UserSettingsNamespacesValue {
   theme: 'light' | 'dark' | 'system';
   /**
    * Profile preferences (#367). `imageSource` chooses which picture represents
@@ -29,40 +29,6 @@ export interface UserSettingsValue {
    * (common/profile-image/profile-image.ts), never migrated.
    */
   profile: UserProfileSettingsValue;
-  /**
-   * Per-table view preferences, keyed by table id.
-   *
-   * Optional on purpose, and derived from the zod schema so the two can never
-   * drift. Absent means "the user has expressed no table preferences yet" —
-   * NOT "empty preferences". See user-settings-namespaces.schema.ts.
-   */
-  dataTables?: DataTablesValue;
-  /**
-   * Navigation chrome preferences. Absent means "use built-in defaults".
-   */
-  navigation?: NavigationValue;
-  /**
-   * Per-channel, per-event notification preferences (#126), channel-outer:
-   * `{ email: { 'user.welcome': false } }`.
-   *
-   * SPARSE AND OPTIONAL AT EVERY LEVEL. Absent namespace, absent channel and
-   * absent event key all mean the same thing — "use the event's
-   * `defaultEnabled` from the registry" — which is what lets this feature ship
-   * with no migration and no backfill, and is why an untouched account is not
-   * muted. The dispatcher resolves it; see
-   * notifications/notification-preferences.ts.
-   */
-  notifications?: NotificationsValue;
-  /**
-   * AI preferences (#423, epic #419, umbrella #418): which (provider, model)
-   * an AI surface should pre-select. Absent means "no default model chosen"
-   * — the same sparse-optional contract every namespace above follows, so an
-   * untouched account is not materialised with a preference nobody set.
-   *
-   * NON-SECRET ONLY: a user's own provider key is `UserAiKey.secret`, in its
-   * own table, never here. See `userAiSettingsSchema` for the full argument.
-   */
-  ai?: UserAiSettingsValue;
 }
 
 /**

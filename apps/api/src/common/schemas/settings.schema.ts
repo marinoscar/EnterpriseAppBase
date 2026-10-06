@@ -1,11 +1,5 @@
 import { z } from 'zod';
 import {
-  dataTablesSchema,
-  dataTablesPatchSchema,
-  navigationSchema,
-  navigationPatchSchema,
-  notificationsSchema,
-  notificationsPatchSchema,
   notificationEventKeySchema,
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
 } from './user-settings-namespaces.schema';
@@ -106,47 +100,10 @@ export const userAiSettingsPatchSchema = z.object({
 
 export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>;
 
-export const userSettingsSchema = z.object({
-  theme: z.enum(['light', 'dark', 'system']),
-  profile: userProfileSettingsSchema,
-  // Optional namespaces. Absent means "use built-in defaults" — see
-  // user-settings-namespaces.schema.ts for why these must never get `.default()`.
-  dataTables: dataTablesSchema.optional(),
-  navigation: navigationSchema.optional(),
-  // `notifications` (#126) is optional for the reason the other two are, only
-  // more so: absent means "use each event's registry default", and every
-  // existing account is absent. Making it required — or defaulting it — would
-  // materialise a preference blob for the whole user base at the first PUT
-  // and freeze them at today's defaults. See notification-preferences.ts.
-  notifications: notificationsSchema.optional(),
-  // AI preferences (#423, epic #419). Optional for the same reason as the
-  // three namespaces above: absent means "no default model chosen", and
-  // every existing account is absent until this ships an AI settings UI.
-  ai: userAiSettingsSchema.optional(),
-});
-
-export type UserSettingsDto = z.infer<typeof userSettingsSchema>;
-
-// Partial schema for PATCH operations (zod v4: deepPartial removed, use manual deep partial)
-export const userSettingsPatchSchema = z.object({
-  theme: z.enum(['light', 'dark', 'system']).optional(),
-  profile: userProfileSettingsPatchSchema.optional(),
-  // The outer `.nullable()` is what lets `{ "dataTables": null }` clear the
-  // whole namespace; the inner nullability (in dataTablesPatchSchema) is what
-  // lets `{ "dataTables": { "jobs": null } }` delete a single entry.
-  dataTables: dataTablesPatchSchema.nullable().optional(),
-  navigation: navigationPatchSchema.nullable().optional(),
-  // Three nullable levels, three different deletes: the namespace, one
-  // channel, one event key. See notificationsPatchSchema.
-  notifications: notificationsPatchSchema.nullable().optional(),
-  // The outer `.nullable()` clears the whole `ai` namespace (back to "no
-  // default model, no other AI preference set"); the inner nullability on
-  // `defaultModel` (see `userAiSettingsPatchSchema`) is what lets
-  // `{ "ai": { "defaultModel": null } }` clear just the selection while
-  // leaving the namespace itself present. Same two-level shape
-  // `dataTablesPatchSchema` uses.
-  ai: userAiSettingsPatchSchema.nullable().optional(),
-});
+// `userSettingsSchema`, `userSettingsPatchSchema` and `UserSettingsDto` are
+// COMPOSED from the user settings namespace registry (#677) and live in
+// `settings/registry/composed.ts`: `theme` and `profile` (core fields, above),
+// then every registered optional namespace.
 
 // =============================================================================
 // System Settings Schema
