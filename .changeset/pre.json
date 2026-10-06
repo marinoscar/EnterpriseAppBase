@@ -14,5 +14,11 @@
     "@marinoscar/platform-web": "0.0.0",
     "@app/shared": "1.0.0"
   },
-  "changesets": []
+  "changesets": [
+    "db-schema-fragments",
+    "doctor-slice",
+    "fastify-optional-peer",
+    "initial-platform-scaffold",
+    "platform-db-migration-sync"
+  ]
 }

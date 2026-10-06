@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-contract",
-  "version": "0.0.0",
+  "version": "0.1.0-next.0",
   "description": "Zod DTOs and types shared by the platform API and web packages. Dual CommonJS + ESM.",
   "license": "MIT",
   "type": "module",
