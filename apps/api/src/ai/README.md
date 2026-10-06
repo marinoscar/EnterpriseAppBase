@@ -473,6 +473,9 @@ Two things never leave the facade, both handled by
    `` event: <type>\ndata: <json>\n\n ``, and a `: ping\n\n` heartbeat
    comment every 15 seconds (`AI_SSE_HEARTBEAT_MS`) so no proxy reaps a
    quiet connection while a reasoning model is still thinking.
+   `pipeAiSse<E extends SseFrame>` is generic: a feature route can stream its
+   own `{ type, ... }` frames through the same pipe and wire rules (the type
+   defaults to `AiStreamEvent`).
 4. Response headers include `X-Accel-Buffering: no` (`AI_SSE_HEADERS`, the
    header nginx respects to disable buffering for this one response),
    following the precedent
