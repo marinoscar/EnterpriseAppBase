@@ -4,7 +4,8 @@
 - **Date:** 2026-10-06
 - **Deciders:** platform owner
 - **Tracking:** issue #687 (PP-1.16), epic #660, program #659
-- **Contract:** [`apps/api/src/common/principal/principal.types.ts`](../../apps/api/src/common/principal/principal.types.ts)
+- **Contract:** [`packages/platform-api/src/core/principal/principal.types.ts`](../../packages/platform-api/src/core/principal/principal.types.ts)
+- **Implemented in `@marinoscar/platform-api/core`** (issue #698): the types moved there unchanged from `apps/api/src/common/principal/`, where #687 created them.
 
 ## Context
 
@@ -75,7 +76,7 @@ Prisma, Nest or any app module, so the file moves unchanged into
 `@marinoscar/platform-api/core` (#698). Nothing imports it in this change; no
 guard, decorator, strategy or service changes behaviour.
 
-The contract is marked `@stability experimental` until #698 publishes it: the
+The contract is marked `@stability experimental`, and stays so after #698 published it: the
 org fields narrow later (see [Tenancy modes](#tenancy-modes)).
 
 ### The types, field by field
@@ -115,9 +116,11 @@ Three shape rules:
 - **No `isActive`.** An inactive user never becomes a principal: every
   validation path already returns `null` (or throws) for an inactive user, so
   the field could only ever be `true`.
-- **No runtime mapper yet.** `toPrincipal()` arrives with #698. The mapping
+- **No runtime mapper yet.** `toPrincipal()` arrives with #724. The mapping
   below is the specification it implements, and the type-level spec
-  ([`principal.types.spec.ts`](../../apps/api/src/common/principal/principal.types.spec.ts))
+  ([`test/core/principal.spec.ts`](../../packages/platform-api/test/core/principal.spec.ts)
+  in the package, and the `RequestUser` half in
+  [`principal-request-user.spec.ts`](../../apps/api/test/platform/principal-request-user.spec.ts))
   proves today's `RequestUser` plus a `CredentialKind` is enough to build a
   `UserPrincipal`.
 
@@ -209,12 +212,12 @@ A `SystemActor` runs on the separate bypass connection and sets nothing.
 | Later work | What it does with this contract |
 |---|---|
 | #688 (scoped data access) | `forScope(scope: Scope)`, `forUser(userId)` and `asSystem(actor: SystemActor)` import these types with `import type`. `orgId` and `groupIds` are accepted and ignored until #725 and #729. |
-| #698 (`platform-api/core`) | Moves `principal.types.ts`, `index.ts` and the spec into the package unchanged, adds the runtime `toPrincipal()`, attaches a `Principal` to the request and adds `@CurrentPrincipal()`. |
+| #698 (`platform-api/core`) | Moved `principal.types.ts`, `index.ts` and the spec into the package unchanged (done). Types only: the runtime `toPrincipal()`, a `Principal` on the request and `@CurrentPrincipal()` moved to #724, which builds the principal with its org fields. |
 | #724 (active org) | Fills `activeOrgId` and `memberships`, binds PATs and device tokens to an org, and introduces the multi-mode narrowing. |
 | #725 (RLS) | Carries `Scope.orgId` into `set_config('app.org_id', …, true)`; gives `SystemActor` its bypass connection. |
 | #729 (grants and groups) | Fills `groups` and honours `Scope.groupIds`. |
 
-**`@CurrentUser()` callers do not change** until #698. It adds
+**`@CurrentUser()` callers do not change** until #724. It adds
 `@CurrentPrincipal()` beside `@CurrentUser()`, and call sites migrate
 deliberately, module by module, rather than all 120 at once.
 
@@ -248,7 +251,7 @@ access needs a written reason. Both are the point.
   (Decisions, The model, Tenancy mode is a deployment setting, Enforcement,
   Per-slice impact, Phasing) and [Wave 0](../specs/platform-packages.md#wave-0-no-regret-moves).
 - Security: [SECURITY-ARCHITECTURE §1 and §2](../SECURITY-ARCHITECTURE.md#2-credential-kinds).
-- Contract: [`apps/api/src/common/principal/`](../../apps/api/src/common/principal/index.ts).
+- Contract: [`@marinoscar/platform-api/core`](../../packages/platform-api/src/core/principal/index.ts) (`packages/platform-api/src/core/principal/`).
 - Code: `apps/api/src/auth/interfaces/authenticated-user.interface.ts`,
   `apps/api/src/auth/decorators/current-user.decorator.ts`,
   `apps/api/src/auth/guards/jwt-auth.guard.ts`,
