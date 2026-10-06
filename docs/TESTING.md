@@ -760,6 +760,14 @@ Conventions:
 `test:db` runs after migration and before seeding, so the suites see a
 freshly migrated, unseeded database. The Playwright e2e suite is not in CI.
 
+`.github/workflows/packages.yml` runs the platform-package jobs on the same
+triggers:
+
+| Job | Does |
+|---|---|
+| `packages` (Build, lint & test packages) | `npm ci`, build, typecheck, boundary lint and tests of the six `packages/platform-*`, pack check, smoke imports |
+| `single-instance` | `npm ci`, then `npm run check:single-instance`: one copy of each single-instance library in `package-lock.json` and as resolved from every workspace (see [DEVELOPMENT.md](DEVELOPMENT.md#single-instance-dependencies)) |
+
 ## Common issues
 
 | Symptom | Fix |

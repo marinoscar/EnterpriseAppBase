@@ -15,6 +15,7 @@ the usual workflow for schema and endpoint changes.
 7. [Debugging Tips](#debugging-tips)
 8. [Development Workflow](#development-workflow)
 9. [Platform packages](#platform-packages)
+10. [Single-instance dependencies](#single-instance-dependencies)
 
 ---
 
@@ -549,7 +550,9 @@ imports.
   product name takes it as an option.
 - Single-instance libraries (`@nestjs/*`, `fastify`, `@prisma/client`, `zod`,
   `react`, `@mui/*`, `@emotion/*`) are `peerDependencies`, never
-  `dependencies`. `package-lock.json` must keep exactly one copy of each.
+  `dependencies`. `package-lock.json` must keep exactly one copy of each;
+  `npm run check:single-instance` enforces it (see
+  [Single-instance dependencies](#single-instance-dependencies)).
 - Every folder under `packages/platform-<pkg>/src/` is a slice. A slice
   imports another slice only when
   [`packages/platform-slices.json`](../packages/platform-slices.json) lists
@@ -560,6 +563,76 @@ imports.
 - Do not add a platform package to `WORKSPACE_MANIFESTS` in
   `scripts/new-project.mjs`: a fork resetting its release must not renumber
   platform versions.
+
+---
+
+## Single-instance dependencies
+
+Some libraries keep module-level state that every importer must share: Nest's
+DI container and decorator metadata, React's hooks dispatcher, MUI and Emotion
+theme context and style caches, Zod's classes, the OpenTelemetry global API,
+and the platform packages' own module-level singletons. A second copy on disk
+does not fail the install. It fails at run time, confusingly: "Nest can't
+resolve dependencies", "Invalid hook call", a theme that silently does not
+apply, a `ZodError` that fails `instanceof`. Declaring these libraries as
+`peerDependencies` is necessary but not enough: a range mismatch between a
+package and an app, an `overrides` entry, or `npm link` still installs a
+second copy.
+
+`scripts/check-single-instance.mjs` fails the build instead:
+
+```bash
+npm run check:single-instance                                 # lockfile + resolution (after npm ci)
+node scripts/check-single-instance.mjs --lockfile-only        # no node_modules needed
+node scripts/check-single-instance.mjs --lockfile-only --json # machine-readable report
+```
+
+1. **Lockfile check.** Every `package-lock.json` key `node_modules/<name>` or
+   `.../node_modules/<name>` is an installed copy; more than one copy of a
+   guarded name fails. A workspace link (`"link": true`) and the workspace it
+   points at count as one copy.
+2. **Resolution check.** From every workspace (the root `workspaces` globs),
+   resolve `<name>/package.json` as Node does and `realpath` it; two
+   workspaces resolving one name to different real directories fail. A
+   workspace that does not use a library is skipped for it. A platform
+   package resolved outside the repository (an `npm link`ed checkout) is
+   checked as well, since it resolves its peers from its own `node_modules`.
+
+Exit codes: 0 clean, 1 duplicates, 2 usage error (unknown flag, missing
+lockfile, or no `node_modules` without `--lockfile-only`). The
+`single-instance` job in `.github/workflows/packages.yml` runs it after
+`npm ci` on every pull request.
+
+**Guarded names** (`SINGLE_INSTANCE_PACKAGES` in the script):
+`@nestjs/common`, `@nestjs/core`, `@nestjs/swagger`, `@nestjs/config`,
+`fastify`, `@prisma/client`, `zod`, `nestjs-zod`, `reflect-metadata`,
+`@opentelemetry/api`, `react`, `react-dom`, `react-router-dom`,
+`@mui/material`, `@mui/system`, `@mui/icons-material`, `@mui/x-charts`,
+`@emotion/react`, `@emotion/styled`, `ink`, plus every
+`@marinoscar/platform-*` package, discovered from
+`packages/platform-*/package.json`. A new platform package is guarded without
+editing the script. A new library with module-level state goes in that
+constant.
+
+**Fixing a failure.** The report names each copy's location and version. For
+a copy nested under a workspace (`apps/cli/node_modules/react`), align that
+library's range in that workspace's `package.json` (for a platform package,
+its `peerDependencies` and `devDependencies`) with the root copy, then run
+`npm dedupe` (or `npm install`) and commit the regenerated
+`package-lock.json`. For a copy nested under another dependency
+(`node_modules/<dep>/node_modules/react`), that dependency asks for an
+incompatible range: upgrade it or align the workspace range it conflicts
+with. Do not silence the check with an `overrides` entry unless every
+consumer genuinely works with the forced version.
+
+**Why not `npm link`.** `npm link` symlinks a package's own checkout into the
+app, and that checkout resolves its peers from its own `node_modules`, which
+is exactly the second copy this check catches. To try unreleased platform
+changes in an app from another repository, use `yalc` (publishes into a local
+store and copies, so the app installs one tree), a `next` pre-release from
+npm, or keep the platform and the app side by side as workspaces of one
+checkout (see the cross-repo development loop in the
+[platform packages spec](specs/platform-packages.md)).
 
 ---
 

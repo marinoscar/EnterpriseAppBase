@@ -932,7 +932,7 @@ flowchart LR
 |---|---|
 | The API is **CommonJS** compiled by `tsc` with `emitDecoratorMetadata` (Nest dependency injection needs it) | API packages are built with `tsc` (or SWC with decorator metadata), **never** plain esbuild or tsup |
 | Web and CLI are **ESM** | Ship ESM with `sideEffects: false` |
-| Single instances | `@nestjs/*`, `fastify`, `@prisma/client`, `zod`, `react`, `@mui/*` and `@emotion/*` are `peerDependencies`. Two copies break DI, hooks and theme context. |
+| Single instances | `@nestjs/*`, `fastify`, `@prisma/client`, `zod`, `react`, `@mui/*` and `@emotion/*` are `peerDependencies`. Two copies break DI, hooks and theme context. `scripts/check-single-instance.mjs` (CI job `single-instance`) fails the build on a second copy, in `package-lock.json` or as resolved from any workspace. |
 | Cross-repo development loop | `yalc`, a `next` pre-release, or the platform and an app side by side. Not `npm link`, which breaks single-instance. |
 | Preventing local edits | Each app's `CLAUDE.md` gains: never edit platform code here; change it in the platform repository |
 
