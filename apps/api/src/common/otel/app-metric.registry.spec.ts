@@ -1,4 +1,4 @@
-import { RegistryError, withTemporaryEntries } from '../registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   APP_METRIC_NAMES,
   appMetricRegistry,

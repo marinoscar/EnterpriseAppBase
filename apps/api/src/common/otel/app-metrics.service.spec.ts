@@ -7,7 +7,7 @@ import {
 } from '@opentelemetry/sdk-metrics';
 
 import type { PrismaService } from '../../prisma/prisma.service';
-import { withTemporaryEntries } from '../registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   APP_METRIC_NAMES,
   appMetricRegistry,

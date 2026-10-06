@@ -1,4 +1,4 @@
-import { defineRegistry, RegistryError, type Registry } from '../../common/registry';
+import { defineRegistry, RegistryError, type Registry } from '@marinoscar/platform-api/core';
 import type { MetricFamily, MetricFilterKey, MetricRatio, MetricTableSpec } from './metric-catalog';
 import { METRIC_FILTER_COLUMNS, METRIC_UNITS } from './metric-catalog.helpers';
 
@@ -19,7 +19,7 @@ import { METRIC_FILTER_COLUMNS, METRIC_UNITS } from './metric-catalog.helpers';
 // `metric-catalog.ts`, which imports the manifest, never from this file: a
 // read through this file alone may see an empty registry.
 //
-// ⚠ FRAMEWORK-FREE. A static registry (common/registry/README.md): the DTOs
+// ⚠ FRAMEWORK-FREE. A static registry (packages/platform-api/src/core/registry/README.md): the DTOs
 // build their `group` enum from it while their module is evaluated, and
 // `npm run openapi:dump` reads them in preview mode. Its only runtime imports
 // are the registry primitive and the catalog's leaf helpers.

@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // Registers every declared `app.*` metric at import time
-// (common/registry/README.md, "Recipe: a static registry"): the platform's
+// (packages/platform-api/src/core/registry/README.md, "Recipe: a static registry"): the platform's
 // first, then the app's own (`app-registrations/telemetry.ts`), so a key or
 // name collision names the app. Imported by `app-metrics.service.ts`; nothing
 // else imports this file.

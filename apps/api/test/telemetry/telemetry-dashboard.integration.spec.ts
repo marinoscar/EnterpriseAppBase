@@ -14,7 +14,7 @@ import {
   REQUIRED_TRACE_COLUMNS,
 } from '../../src/telemetry/dashboard/telemetry-dashboard.sql';
 import { TelemetryDashboardService } from '../../src/telemetry/dashboard/telemetry-dashboard.service';
-import { withTemporaryEntries } from '../../src/common/registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   METRIC_GROUPS,
   metricGroupRegistry,

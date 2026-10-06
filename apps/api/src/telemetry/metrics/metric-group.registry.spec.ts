@@ -1,4 +1,4 @@
-import { RegistryError, withTemporaryEntries } from '../../common/registry';
+import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   familiesOf,
   familyByKey,

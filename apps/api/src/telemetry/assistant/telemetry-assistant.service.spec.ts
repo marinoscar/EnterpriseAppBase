@@ -4,7 +4,7 @@
 // FakeAiProvider), with the telemetry side faked.
 // =============================================================================
 
-import { withTemporaryEntries } from '../../common/registry';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import type { SystemTelemetryValue } from '../../common/schemas/settings.schema';
 import { AiError } from '../../ai/core/ai-error';
 import type { AiInputItem, AiResponseRequest } from '../../ai/core/types/responses.types';
