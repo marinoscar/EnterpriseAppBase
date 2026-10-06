@@ -245,4 +245,13 @@ export const DEFAULT_SYSTEM_SETTINGS = {
       maxSteps: 15,
     },
   },
+  // #681. Retention: three policies on, audit off (a compliance record).
+  // Must stay byte-identical to the API's `DEFAULT_SYSTEM_SETTINGS`, which
+  // `test/prisma/seed-data.spec.ts` pins.
+  retention: {
+    notifications: { enabled: true, days: 180 },
+    notificationDeliveries: { enabled: true, days: 90 },
+    auditEvents: { enabled: false, days: 365 },
+    aiRuns: { enabled: true, days: 90 },
+  },
 };
