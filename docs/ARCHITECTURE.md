@@ -624,6 +624,8 @@ docker compose -f base.compose.yml -f prod.compose.yml up
 | `/` | web | The React app |
 | `/nginx-health` | nginx | Proxy health probe |
 
+Connection limits are sized for long-lived SSE, where each stream holds two nginx connections (client and upstream): `worker_connections 16384` and `worker_rlimit_nofile 65536`, with a matching `nofile` ulimit on the `nginx` and `api` services in `base.compose.yml` (pinned by `apps/api/test/nginx-connection-limits.spec.ts`; a CLI-bootstrapped shared proxy gets the same, see [specs/vps-deploy.md](specs/vps-deploy.md#shared-proxy-and-tls)).
+
 Security headers are set at server level: `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security` and a Content-Security-Policy. nginx's `add_header` replaces rather than merges, so a location that adds its own header must repeat the security headers.
 
 ### 10.4 Environment variables

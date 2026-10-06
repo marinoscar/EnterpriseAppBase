@@ -845,7 +845,7 @@ Ranked from the code. Each is a known limit, not a defect.
 
 **Smaller items**
 
-- `infra/nginx/nginx.conf` sets `worker_connections 1024`, which caps long-lived SSE connections (each takes two).
+- `infra/nginx/nginx.conf` set `worker_connections 1024`, which capped long-lived SSE connections (each takes two). Done in PP-1.13 (#684): `worker_connections 16384`, `worker_rlimit_nofile 65536` and `nofile` ulimits on `nginx` and `api`, and the same limits on a CLI-bootstrapped shared proxy.
 - 38 offset (`skip`) paginations against 7 cursor paginations.
 - Idle workers poll every 5 s (`DEFAULT_POLL_MS` in `apps/api/src/jobs/job.worker.ts`); a `LISTEN/NOTIFY` wake-up replaces the poll.
 - Telemetry needs trace sampling, and GreptimeDB on its own host.

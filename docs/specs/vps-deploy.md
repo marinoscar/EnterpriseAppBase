@@ -201,6 +201,20 @@ TLS checks run when `--domain` is given.
   reloads** the proxy. In container mode, a host mechanism that does not touch
   the proxy's `letsencrypt/` mount is reported but not counted as the owner.
 - `certs --renew` renews within 30 days of expiry (`RENEW_WITHIN_DAYS`).
+- **Bootstrapped proxy main config** (`proxy-bootstrap.ts`,
+  `renderProxyMainConfig`, #684). A proxy that `install` creates gets a
+  managed `nginx/nginx.conf`, mounted read-only over the image's
+  `/etc/nginx/nginx.conf`, and a `nofile` ulimit of 65536 in its
+  `compose.yml`. It is the stock `nginx:alpine` file (user, log paths, `pid`,
+  `mime.types`, the `conf.d/*.conf` include every vhost relies on) with
+  `worker_rlimit_nofile 65536` and `worker_connections 16384`, the same
+  limits as the application's own `infra/nginx/nginx.conf`. Why: the shared
+  proxy is the first hop for every application's SSE streams on the host,
+  each stream holds two connections for its lifetime, and the stock 1024
+  saturates a worker at about 500 streams. The post-start `nginx -t` check
+  validates it with everything else. Only new proxies get it; an existing
+  proxy is never rewritten, and the runbook gives the manual steps
+  ([deploy-to-vps.md §9.1](../runbooks/deploy-to-vps.md#91-connection-limits-for-streaming-sse)).
 
 ### Database creation
 
@@ -415,7 +429,8 @@ GreptimeDB's PostgreSQL wire port is published on
 | `apps/cli/src/deploy/testing/fake-vps.test.ts` | Pipelines against a simulated server |
 | `apps/cli/src/deploy/install.test.ts`, `install-hardening.test.ts`, `update.test.ts`, `update-publish.test.ts`, `version-step.test.ts` | Step order, resume, adoption, version push rules |
 | `apps/cli/src/deploy/layout.test.ts`, `deployment-evidence.test.ts`, `adopt.test.ts`, `compose-project.test.ts` | Five ranks, the evidence predicate, adoption, recorded project names |
-| `apps/cli/src/deploy/proxy.test.ts`, `proxy-certs.test.ts`, `proxy-bootstrap.test.ts`, `renewal.test.ts`, `checks/tls.test.ts` | Container vs host paths, validate-then-reload, rollback, renewal ownership |
+| `apps/cli/src/deploy/proxy.test.ts`, `proxy-certs.test.ts`, `proxy-bootstrap.test.ts`, `renewal.test.ts`, `checks/tls.test.ts` | Container vs host paths, validate-then-reload, rollback, renewal ownership, the bootstrapped proxy's main config and ulimit |
+| `apps/api/test/nginx-connection-limits.spec.ts` | The application nginx's `worker_connections`, `worker_rlimit_nofile` and the `nofile` ulimits on `nginx` and `api` move together |
 | `apps/cli/src/deploy/env-spec.test.ts`, `env-wizard.test.ts`, `journal.test.ts`, `journal-hook.test.ts` | `.env.example` parsing, wizard behaviour, redaction |
 | `apps/cli/src/deploy/database.test.ts`, `oauth-check.test.ts`, `uninstall.test.ts`, `state.test.ts`, `deploy-info.test.ts` | Database creation rules, OAuth classification, uninstall confirmations, state upgrade, document shape |
 | `apps/api/src/about/deploy-info.spec.ts`, `apps/api/test/about/deploy-info-contract.spec.ts`, `apps/api/test/about/about.integration.spec.ts` | Lenient reader, CLI/API contract, the endpoint and its permission |
@@ -459,6 +474,10 @@ GreptimeDB's PostgreSQL wire port is published on
   CI built (bounded to version fields), and the server can push. Push last,
   never force, never retry.
 - **No automatic rollback.** Reverting a migration needs a human.
+- **Proxy connection limits at creation only.** A bootstrapped proxy ships
+  raised limits; an existing one is left alone, because it serves other
+  applications and a rewrite plus recreate would drop their connections. The
+  runbook documents the manual change for container and host mode.
 
 ## 7. Verification
 
