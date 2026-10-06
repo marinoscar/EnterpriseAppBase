@@ -39,3 +39,35 @@ export const DOCTOR_STATUS_RANK: Readonly<Record<DoctorStatus, number>> = {
   warn: 2,
   fail: 3,
 };
+
+/**
+ * The version of the support bundle format (`GET /api/admin/doctor/support-bundle`,
+ * issue #772). Bumped only by a breaking change to `supportBundleSchema`.
+ *
+ * @stability experimental
+ */
+export const SUPPORT_BUNDLE_VERSION = 1 as const;
+
+/**
+ * The redaction rule set applied to every support bundle. `v1` is documented
+ * in docs/specs/doctor.md ("Support bundle").
+ *
+ * @stability experimental
+ */
+export const SUPPORT_BUNDLE_REDACTION_RULES = 'v1' as const;
+
+/**
+ * The statuses of one support-bundle section: `ok` (collected), `omitted` (not
+ * collected: a permission is missing or the capability is off) and `error`
+ * (the section threw, timed out or broke its schema; its data is dropped).
+ *
+ * @stability experimental
+ */
+export const SUPPORT_BUNDLE_SECTION_STATUSES = ['ok', 'omitted', 'error'] as const;
+
+/**
+ * One support-bundle section's status.
+ *
+ * @stability experimental
+ */
+export type SupportBundleSectionStatus = (typeof SUPPORT_BUNDLE_SECTION_STATUSES)[number];
