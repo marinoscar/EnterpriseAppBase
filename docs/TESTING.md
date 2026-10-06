@@ -415,6 +415,8 @@ no edit to the suite.
 | `apps/api/test/ai/ai-jobs-server-only.spec.ts` | No `ai.*` job type is node-eligible |
 | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` | No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src` |
 | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` | Every AI settings card's `permission` equals the string its API controller enforces, read from the controller source |
+| `apps/api/test/prisma/user-owned-models.spec.ts` | Every `User` foreign key in `prisma/schema.prisma` is in the user-owned data registry, every registered model and field exists, and every purge policy matches the relation's `onDelete` (read from the schema file; the rules are proven on synthetic datamodels) |
+| `apps/api/test/prisma/raw-sql-allowlist.spec.ts` | Only the files in `raw-sql-allowlist.ts` use `$queryRaw`/`$executeRaw` (or their `Unsafe` variants) under `apps/api/src`, comments and strings ignored, and every listed file still does |
 
 ### Conformance suites in packages
 
@@ -438,7 +440,8 @@ Further suites (the AI invariants, the settings registry) join the same entry po
 Related guards in the same spirit: `apps/api/src/ai/core/no-provider-sdk.spec.ts`
 (no SDK in `ai/core`), the per-provider `*-sdk-boundary.spec.ts` files,
 `apps/api/test/prisma/seed-data.spec.ts` (seed self-consistency without a
-database), `apps/api/test/openapi/openapi-document.spec.ts` (the generated
+database), `apps/api/test/prisma/scoped-access.db.spec.ts` (a user-scoped
+client never reaches another user's rows, on a real database), `apps/api/test/openapi/openapi-document.spec.ts` (the generated
 document) and `apps/api/test/production-image.spec.ts` (every script an npm
 script runs is copied into the production image).
 

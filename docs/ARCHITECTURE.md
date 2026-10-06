@@ -393,6 +393,8 @@ The schema is `apps/api/prisma/schema.prisma`. Its block comments carry per-colu
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
+Ownership is declared, not implied. Every model with a foreign key to `User` (23 models, 25 fields) is registered in the user-owned data registry with the key's role (owner: the row belongs to the user; actor: the row only names who acted), a purge policy that must match the relation's `onDelete`, an export policy and a rationale. A tripwire test fails when a `User` relation is unregistered or a policy contradicts the schema. `ScopedPrismaService.forUser(userId)` returns a Prisma client confined to one user's rows in owner models; `asSystem(actor)` is the named escape for system work. See [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md) and [SECURITY-ARCHITECTURE.md §17](SECURITY-ARCHITECTURE.md#17-user-owned-data-and-scoped-access).
+
 Two indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`) and `database_backup_runs_active_uniq_idx` (at most one active backup run). This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it.
 
 The retention sweeps read "oldest rows older than the cutoff" across every user, so `notifications`, `notification_deliveries` and `ai_runs` each carry a plain `created_at` index (migration `add_retention_created_at_indexes`); `audit_events` already had one. See [runbooks/data-retention.md](runbooks/data-retention.md).
@@ -729,6 +731,7 @@ Health endpoints (public, reachable during maintenance):
 | A registry entry (permission, setting, …) | [registry/README.md](../apps/api/src/common/registry/README.md) |
 | A permission or role (platform module or app) | [permissions/README.md](../apps/api/src/common/permissions/README.md) |
 | An object-storage key prefix | [specs/storage-providers.md §4](specs/storage-providers.md#4-extending-it-in-a-fork) |
+| A user-owned model (any model with a `User` relation) | [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md) |
 
 ---
 

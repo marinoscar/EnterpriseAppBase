@@ -41,6 +41,7 @@ contract lives in the generated OpenAPI document (`/api/docs`).
 14. [Fastify and Passport](#14-fastify-and-passport)
 15. [File reference](#15-file-reference)
 16. [Developer checklist](#16-developer-checklist)
+17. [User-owned data and scoped access](#17-user-owned-data-and-scoped-access)
 
 ---
 
@@ -1166,7 +1167,10 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 - Put `@Auth()` on every new controller; use `@Public()` only deliberately.
 - Gate on permissions, and use the exact permission string the seed defines.
 - Validate every input with a Zod DTO (`createZodDto`).
-- Check ownership in the service for any user-owned resource.
+- Check ownership in the service for any user-owned resource, and read it
+  through `ScopedPrismaService.forUser(userId)` ([§17](#17-user-owned-data-and-scoped-access)).
+- Register every new model with a `User` relation in the user-owned data
+  registry, with a purge and export policy.
 - Use Prisma; never build SQL from strings.
 - Never log or return tokens, keys or passwords. Store secrets through the
   encrypted stores, never in plain settings.
@@ -1192,3 +1196,65 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 - Role changes, allowlist changes and credential changes in `audit_events`
 - Sign-in denials (`Login denied - email not in allowlist`)
 - Node credential `lastUsedAt` for machines that should be idle
+
+---
+
+## 17. User-owned data and scoped access
+
+Authorization decides **whether** a caller may act and **for which user**.
+Until #688, keeping each query on that user's rows was a convention: a
+`where: { userId }` in every service. Three mechanisms now back it up. They
+are defence in depth, not a replacement for `@Auth(...)` and the service's
+own ownership checks.
+
+**The user-owned data registry.** Every model with a foreign key to `User`
+is registered (`apps/api/src/prisma/ownership/platform-user-owned-models.ts`,
+and `apps/api/src/app-registrations/user-owned-models.ts` for a fork), with
+each key's role and the row's policies:
+
+| Role | Meaning | Models today |
+|---|---|---|
+| Owner | The row belongs to the user | `UserIdentity`, `UserRole`, `UserSettings`, `RefreshToken`, `PersonalAccessToken`, `DeviceCode`, `UserCredential`, `Notification`, `PushSubscription`, `NodeCredential`, `UserAiKey`, `WorkerNode`, `StorageObject`, `NotificationDelivery`, `AiRun`, `AiUsageEvent` |
+| Actor | The row only names who acted | `SystemSettings`, `AuditEvent`, `AllowedEmail`, `Credential`, `NotificationBroadcast`, `DatabaseBackupRun`, `AiModel` |
+
+The purge policy (`delete`, `detach`, `retain`) must match the relation's
+`onDelete` (`Cascade`, `SetNull`, `Restrict`/`NoAction`); the export policy
+says whether a user's data export includes the row, and `exportOmit` names
+columns that never leave the server (`PersonalAccessToken.tokenHash`,
+`UserCredential.secret`, `UserAiKey.secret`). Tokens, push subscriptions and
+node credentials are excluded from export outright.
+`apps/api/test/prisma/user-owned-models.spec.ts` fails when a `User`
+relation is unregistered or a policy contradicts the schema.
+
+**The user-scoped client.** `ScopedPrismaService.forUser(userId)` (or
+`forScope(scope)`, with the `Scope` from
+[ADR 0001](adr/0001-org-aware-principal-and-scope.md)) returns a Prisma
+client extension that:
+
+- adds `ownerField = userId` to every read, update and delete on an owner
+  model, so another user's row is "not found" (never a 403 that confirms it
+  exists);
+- sets the owner on create, and throws `ScopedAccessError` for a create or
+  update naming another owner;
+- throws for actor-only and unregistered models (including `User`) and for
+  raw SQL, also inside `$transaction`.
+
+Nested writes and relation `include`s are not rewritten; a nested write into
+another user-owned model goes through that model's own scoped call.
+`Scope.orgId` and `Scope.groupIds` are accepted and ignored until row-level
+security on `org_id` (#725) and group grants (#729).
+
+**`asSystem(actor)`** returns the unscoped client for system work and needs a
+`SystemActor` (`{ kind: 'system', reason }`). The reason is logged at debug
+and set on the active span (`db.access.scope = 'system'`,
+`db.access.reason`), never as a metric label.
+
+**Raw SQL** bypasses all of the above, so the files allowed to issue it are
+listed with a reason in `apps/api/test/prisma/raw-sql-allowlist.ts`;
+`raw-sql-allowlist.spec.ts` fails for a new file and for a stale entry. A raw
+statement must never take a request-derived id without scoping it to the
+caller.
+
+Adoption is incremental: `UserCredentialsService` is the reference, and the
+other user-facing services move slice by slice. Recipe and full rules:
+[prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md).

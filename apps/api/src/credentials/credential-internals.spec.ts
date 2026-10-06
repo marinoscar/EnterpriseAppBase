@@ -110,7 +110,11 @@ describe('credential-internals', () => {
         update: jest.fn().mockResolvedValue({}),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       };
-      return { credential: model, userCredential: model } as unknown as PrismaService;
+      const prisma: Record<string, unknown> = { credential: model, userCredential: model };
+      // UserCredentialsService reads through the user-scoped client
+      // (`$extends`); the stand-in hands back itself, unscoped.
+      prisma.$extends = () => prisma;
+      return prisma as unknown as PrismaService;
     }
 
     const ORIGINAL_KEY = process.env.SECRETS_ENCRYPTION_KEY;

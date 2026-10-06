@@ -97,7 +97,10 @@ same user, fails GCM authentication instead of decrypting (§6).
 ### 2.3 `UserCredentialsService`
 
 `userId` is the first parameter of every method, and every query is scoped by
-it. The address is always the full `(userId, purpose, name)` triple.
+it. The address is always the full `(userId, purpose, name)` triple. Every
+query goes through the user-scoped client, `ScopedPrismaService.forUser(userId)`
+([prisma/ownership/README.md](../../apps/api/src/prisma/ownership/README.md)),
+so the database client itself confines it to that user (#688).
 
 | Method | Returns | Behaviour |
 |---|---|---|
@@ -251,6 +254,7 @@ Nothing in the table, the cipher, the service or the resolver changes.
 | `userCredentialPurpose` requires a canonical UUID and a colon-free purpose | `apps/api/src/common/crypto/secret-cipher.spec.ts` |
 | A system purpose containing `:` (including a `user:` spelling) is rejected | `apps/api/src/credentials/credential-internals.spec.ts` |
 | `UserCredentialInfo` cannot hold a secret | compile-time proofs in `apps/api/src/user-credentials/interfaces/user-credential-info.interface.ts` |
+| A user-scoped client never reads or changes another user's `user_credentials` rows | `apps/api/test/prisma/scoped-access.db.spec.ts` |
 
 ## 6. Design decisions
 
@@ -303,3 +307,5 @@ until a feature declares a purpose and adds its own routes.
   `UserCredentialsService`, the purpose registry and the resolver, and
   extended the colon ban to system purposes.
 - #431 (epic #419) kept AI provider keys in their own `user_ai_keys` table.
+- #688 moved `UserCredentialsService` onto the user-scoped Prisma client, with
+  unchanged behaviour.
