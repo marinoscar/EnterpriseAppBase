@@ -96,25 +96,30 @@ function runCheck(ctx: DbCommandContext, options: CommonOptions & { database?: b
   const l = layout(ctx, options);
   const manifest = loadManifest(l);
   const lock = loadLock(l);
+  const readLocal = (dir: string) => readBytes(join(l.migrationsDir, dir, 'migration.sql'));
+  const readPackage = (dir: string) => readBytes(join(l.packageDir, 'migrations', dir, 'migration.sql'));
+
+  let offlineOk = true;
   if (!lock) {
     if (manifest.length === 0) {
       ctx.out('platform db check: no platform.lock and no package migrations; nothing to check');
-      return 0;
+    } else {
+      ctx.err(`platform db check: ${l.lockFile} not found; run \`platform db sync\``);
+      offlineOk = false;
     }
-    ctx.err(`platform db check: ${l.lockFile} not found; run \`platform db sync\``);
-    return 1;
+  } else {
+    const result = checkLock(manifest, lock, readLocal, readPackage);
+    for (const problem of result.problems) ctx.err(`${problem.code}  ${problem.message}`);
+    if (result.ok) {
+      ctx.out(`platform db check: ok (${lock.migrations.length} installed platform migration(s))`);
+    } else {
+      ctx.err(`platform db check: ${result.problems.length} problem(s)`);
+      offlineOk = false;
+    }
   }
-  const readLocal = (dir: string) => readBytes(join(l.migrationsDir, dir, 'migration.sql'));
-  const readPackage = (dir: string) => readBytes(join(l.packageDir, 'migrations', dir, 'migration.sql'));
-  const result = checkLock(manifest, lock, readLocal, readPackage);
-  for (const problem of result.problems) ctx.err(`${problem.code}  ${problem.message}`);
-  if (!result.ok) {
-    ctx.err(`platform db check: ${result.problems.length} problem(s)`);
-    return 1;
-  }
-  ctx.out(`platform db check: ok (${lock.migrations.length} installed platform migration(s))`);
-  if (!options.database) return 0;
+  if (!options.database) return offlineOk ? 0 : 1;
 
+  // The ledger comparison runs even when the offline half failed, so one run reports everything.
   return (async () => {
     const url = ctx.env.DATABASE_URL;
     if (!url) {
@@ -130,7 +135,7 @@ function runCheck(ctx: DbCommandContext, options: CommonOptions & { database?: b
       return 1;
     }
     ctx.out(`platform db check --database: ok (${rows.length} ledger row(s) match the files)`);
-    return 0;
+    return offlineOk ? 0 : 1;
   })();
 }
 
