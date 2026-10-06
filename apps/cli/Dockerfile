@@ -52,6 +52,9 @@ COPY apps/cli/package.json ./apps/cli/
 # inherits this directory, and a symlink pointing at an empty one produces an
 # image that builds clean and dies at boot with ERR_MODULE_NOT_FOUND.
 COPY packages/shared ./packages/shared/
+# Same for @marinoscar/platform-infra (issue #705): the CLI reads the
+# telemetry compose file list from its manifest. Its dist/ is built below.
+COPY packages/platform-infra ./packages/platform-infra/
 RUN npm ci --workspace=cli --include-workspace-root --ignore-scripts
 
 # -----------------------------------------------------------------------------
@@ -61,6 +64,8 @@ FROM base AS build
 COPY --from=deps /app ./
 COPY tsconfig.base.json ./
 COPY apps/cli ./apps/cli
+# Platform packages the CLI imports resolve to their compiled dist/.
+RUN npm run build --workspace=@marinoscar/platform-infra
 WORKDIR /app/apps/cli
 RUN npm run build
 
@@ -69,6 +74,7 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 FROM base AS production
 COPY --from=deps /app ./
+COPY --from=build /app/packages/platform-infra/dist ./packages/platform-infra/dist
 COPY --from=build /app/apps/cli/dist ./apps/cli/dist
 
 # The worker's state directory. Mounted as a volume in the compose bundle so a

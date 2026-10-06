@@ -388,6 +388,34 @@ info "Installing CLI workspace dependencies …"
 }
 ok "Dependencies installed"
 
+# The CLI imports @marinoscar/platform-* workspace packages (the telemetry
+# compose file list comes from @marinoscar/platform-infra, issue #705). They
+# resolve to each package's compiled dist/, so build them first. The list is
+# read from apps/cli/package.json, so a new platform dependency needs no edit
+# here.
+PLATFORM_WORKSPACES="$(cd "$TMP_DIR" && node -e '
+  const pkg = require("./apps/cli/package.json");
+  const deps = { ...(pkg.dependencies || {}), ...(pkg.optionalDependencies || {}) };
+  const names = Object.keys(deps).filter((name) => name.startsWith("@marinoscar/platform-"));
+  process.stdout.write(names.map((name) => "--workspace=" + name).join(" "));
+')" || {
+  err "Could not read the CLI's platform package dependencies"
+  exit 1
+}
+if [[ -n "$PLATFORM_WORKSPACES" ]]; then
+  info "Compiling platform packages …"
+  (
+    cd "$TMP_DIR"
+    # shellcheck disable=SC2086  # one --workspace=<name> word per package
+    npm run build $PLATFORM_WORKSPACES --no-audit --no-fund 2>&1 \
+      | grep -v "^$" | while IFS= read -r line; do dim "$line"; done
+  ) || {
+    err "Platform package build failed"
+    exit 1
+  }
+  ok "Platform packages built"
+fi
+
 info "Compiling TypeScript …"
 (
   cd "$TMP_DIR"
@@ -420,7 +448,10 @@ mkdir -p "$APP_DIR"
 # So vendor it next to the app and rewrite the dependency to a `file:`
 # specifier npm can resolve locally. The whole packages/ tree is copied rather
 # than the one directory by name, so adding a second shared package later
-# cannot silently reintroduce this failure.
+# cannot silently reintroduce this failure. The @marinoscar/platform-*
+# packages get the same treatment (vendor/platform-<name>, built above): the
+# CLI must install from this checkout's packages, whether or not a matching
+# version was ever published to npm.
 cp -r "$TMP_DIR/apps/cli/dist"        "$APP_DIR/dist"
 cp    "$TMP_DIR/apps/cli/package.json" "$APP_DIR/package.json"
 if [[ -f "$TMP_DIR/apps/cli/README.md" ]]; then
@@ -440,13 +471,22 @@ if [[ -d "$TMP_DIR/packages" ]]; then
     let count = 0;
     for (const field of ["dependencies", "optionalDependencies"]) {
       for (const name of Object.keys(pkg[field] || {})) {
-        if (!name.startsWith("@app/")) continue;
-        const dir = name.slice("@app/".length);
+        let dir;
+        if (name.startsWith("@app/")) dir = name.slice("@app/".length);
+        else if (name.startsWith("@marinoscar/platform-")) dir = name.slice("@marinoscar/".length);
+        else continue;
         if (!fs.existsSync(path.join(vendor, dir))) {
           console.error("no vendored copy of " + name + " at vendor/" + dir);
           process.exit(1);
         }
         pkg[field][name] = "file:./vendor/" + dir;
+        // npm resolves the devDependencies of a linked `file:` package even
+        // under --omit=dev (and the vitest peer set crashes its tree builder),
+        // and the built copy needs none of them at run time.
+        const vendored = path.join(vendor, dir, "package.json");
+        const vendoredPkg = JSON.parse(fs.readFileSync(vendored, "utf8"));
+        delete vendoredPkg.devDependencies;
+        fs.writeFileSync(vendored, JSON.stringify(vendoredPkg, null, 2) + "\n");
         count++;
       }
     }
