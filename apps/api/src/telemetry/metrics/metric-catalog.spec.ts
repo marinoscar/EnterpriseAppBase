@@ -314,3 +314,54 @@ describe('metric catalog baseline (#680)', () => {
     expect({ families: METRIC_FAMILIES, ratios: METRIC_RATIOS, tables: METRIC_TABLES }).toMatchSnapshot();
   });
 });
+
+// =============================================================================
+// Leaf rule (issue #680): the group declarations and the registry never load
+// `metric-catalog.ts` at runtime (it imports the manifest that imports them, so
+// a runtime import back would read its derived views half-built).
+// =============================================================================
+
+describe('metric catalog load order (#680)', () => {
+  const LEAVES = [
+    './metric-catalog.helpers',
+    './metric-group.registry',
+    './groups/host.metric-group',
+    './groups/database.metric-group',
+    './groups/queue.metric-group',
+    './groups/nodes.metric-group',
+    './groups/uptime.metric-group',
+    './groups/pipeline.metric-group',
+    '../../app-registrations/telemetry',
+  ];
+
+  it.each(LEAVES)('%s loads without metric-catalog.ts', (path) => {
+    jest.isolateModules(() => {
+      jest.doMock('./metric-catalog', () => {
+        throw new Error(`${path} loaded metric-catalog.ts at runtime`);
+      });
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      expect(() => require(path)).not.toThrow();
+    });
+    jest.dontMock('./metric-catalog');
+  });
+
+  it('a fresh module graph builds the same derived views', () => {
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fresh = require('./metric-catalog') as typeof import('./metric-catalog');
+      expect(fresh.METRIC_GROUPS).toEqual(METRIC_GROUPS);
+      expect(fresh.METRIC_GROUP_LABELS).toEqual(METRIC_GROUP_LABELS);
+      expect(fresh.METRIC_FAMILIES).toEqual(METRIC_FAMILIES);
+      expect(fresh.METRIC_RATIOS).toEqual(METRIC_RATIOS);
+      expect(fresh.METRIC_TABLES).toEqual(METRIC_TABLES);
+    });
+  });
+
+  it('derived views are frozen and equal the registry read in group order', () => {
+    expect(Object.isFrozen(METRIC_GROUPS)).toBe(true);
+    expect(Object.isFrozen(METRIC_FAMILIES)).toBe(true);
+    expect(METRIC_FAMILIES).toEqual(METRIC_GROUPS.flatMap((g) => familiesOf(g)));
+    expect(METRIC_RATIOS).toEqual(METRIC_GROUPS.flatMap((g) => ratiosOf(g)));
+    expect(METRIC_TABLES).toEqual(METRIC_GROUPS.flatMap((g) => tablesOf(g)));
+  });
+});

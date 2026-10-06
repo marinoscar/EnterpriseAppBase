@@ -1,5 +1,7 @@
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
-import { DASHBOARD_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.verdict';
+import './metric-group.manifest';
+import { HOST_TABLES, METRIC_UNITS } from './metric-catalog.helpers';
+import { metricGroupRegistry, type MetricGroup, type MetricGroupDef } from './metric-group.registry';
 
 // =============================================================================
 // The metric catalog (issue #601, epic #576)
@@ -7,7 +9,8 @@ import { DASHBOARD_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.v
 //
 // A DECLARATIVE list of the metric families the Telemetry Dashboard reads from
 // the Prometheus-style metric tables the collector and the API write
-// (docs/specs/telemetry.md §11.3 and §11.13), grouped into six groups:
+// (docs/specs/telemetry.md §11.3 and §11.13), grouped into the platform's six
+// groups (an app may register more):
 //
 //   host      hostmetrics: CPU, memory, load, filesystems, disk and network IO
 //   database  the postgresql receiver: connections, size, commits, cache hits
@@ -40,52 +43,39 @@ import { DASHBOARD_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.v
 // API gauges are reported identically by every replica (docs §11.13), so
 // they are never summed across replicas on purpose; replicas export at
 // different instants, so per-timestamp rows rarely mix two replicas.
+//
+// THE GROUPS ARE A REGISTRY (issue #680). Each group is declared in
+// `groups/<id>.metric-group.ts` with its families, ratios and tables, and
+// registered by `metric-group.manifest.ts` (imported above, so any consumer of
+// this file sees the registry filled): the platform's six in the order above,
+// then the app's own `APP_METRIC_GROUPS` (`app-registrations/telemetry.ts`).
+// This file keeps the shapes, the units, the filter columns, table discovery
+// and the derived views every consumer already imports (`METRIC_GROUPS`,
+// `METRIC_FAMILIES`, `familiesOf`, …).
 // =============================================================================
 
-export const METRIC_GROUPS = ['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline'] as const;
-export type MetricGroup = (typeof METRIC_GROUPS)[number];
+export {
+  APP_FILTERS,
+  eq,
+  HOST_FILTERS,
+  HOST_TABLES,
+  LARGEST_TABLES_MAX_ROWS,
+  METRIC_FILTER_COLUMNS,
+  METRIC_UNITS,
+} from './metric-catalog.helpers';
+export {
+  METRIC_GROUP_ID_PATTERN,
+  metricGroupRegistry,
+  registerMetricGroups,
+  type MetricGroup,
+  type MetricGroupDef,
+  type MetricGroupIds,
+} from './metric-group.registry';
 
-export const METRIC_GROUP_LABELS: Record<MetricGroup, string> = {
-  host: 'Host',
-  database: 'Database',
-  queue: 'Job queue',
-  nodes: 'Worker nodes',
-  uptime: 'Uptime and edge',
-  pipeline: 'Telemetry pipeline',
-};
-
-/** Display units of tiles, series and table columns. */
-export const METRIC_UNITS = [
-  '%',
-  'bytes',
-  'bytes/s',
-  'count',
-  'per_s',
-  'per_min',
-  'ms',
-  'seconds',
-  'hours',
-  'days',
-  'cores',
-  'load',
-  'timestamp',
-  'text',
-  'boolean',
-] as const;
 export type MetricUnit = (typeof METRIC_UNITS)[number];
 
-/** The request filters a family may honour, and the column each one matches. */
+/** The request filters a family may honour (`METRIC_FILTER_COLUMNS` maps each to its column). */
 export type MetricFilterKey = 'service' | 'instance' | 'host';
-export const METRIC_FILTER_COLUMNS: Record<MetricFilterKey, string> = {
-  service: 'service_name',
-  instance: 'app_instance_id',
-  host: 'host_name',
-};
-
-/** API tables (`app_*`): the service and the instance id. Their `host_name` is the API container, not a host. */
-const APP_FILTERS: readonly MetricFilterKey[] = ['service', 'instance'];
-/** Tables the collector scraped itself: `host_name` is the real host. */
-const HOST_FILTERS: readonly MetricFilterKey[] = ['host'];
 
 export const METRIC_TIME_COLUMN = 'greptime_timestamp';
 export const METRIC_VALUE_COLUMN = 'greptime_value';
@@ -233,820 +223,74 @@ export interface MetricTableSpec {
   maxRows?: number;
 }
 
-// ---- tables ------------------------------------------------------------------
-
-export const HOST_TABLES = {
-  cpuUtilization: 'system_cpu_utilization_ratio',
-  memoryUtilization: 'system_memory_utilization_ratio',
-  load1m: 'system_cpu_load_average_1m',
-  filesystemUtilization: 'system_filesystem_utilization_ratio',
-  filesystemUsage: 'system_filesystem_usage_bytes',
-  diskIo: 'system_disk_io_bytes_total',
-  networkIo: 'system_network_io_bytes_total',
-} as const;
-
 /** Where `/filters` reads the distinct host names from: small, always written by hostmetrics. */
 export const HOST_DISTINCT_TABLE = HOST_TABLES.load1m;
 
 export const HTTPCHECK_STATUS_TABLE = 'httpcheck_status';
 export const HTTPCHECK_ERROR_TABLE = 'httpcheck_error';
 
-const T = DASHBOARD_VERDICT_THRESHOLDS;
-const eq = (column: string, value: string): MetricPredicate => ({ column, op: '=', value });
+// ---- derived views ---------------------------------------------------------------
+//
+// Snapshots of the registry taken when this module is evaluated, which is
+// after the manifest has registered every platform and app group. The
+// registry is frozen once the application has bootstrapped, so in a running
+// API they never go stale. The lookups below read the registry itself, so a
+// group a test adds with `withTemporaryEntries` is served too.
 
-// ---- families ------------------------------------------------------------------
+function frozen<T>(items: T[]): readonly T[] {
+  return Object.freeze(items);
+}
 
-export const METRIC_FAMILIES: readonly MetricFamily[] = [
-  // ---- host ----
-  {
-    key: 'cpuUtilization',
-    group: 'host',
-    label: 'CPU utilization',
-    table: HOST_TABLES.cpuUtilization,
-    kind: 'gauge',
-    unit: '%',
-    // Busy = 1 - idle, averaged over every CPU (and host, unless filtered).
-    valueSql: '1 - "greptime_value"',
-    where: [eq('state', 'idle')],
-    requiredColumns: ['state', 'cpu', 'host_name'],
-    seriesAggregate: 'avg',
-    bucketAggregate: 'avg',
-    scale: 100,
-    filters: HOST_FILTERS,
-    tileAggregate: 'max',
-  },
-  {
-    key: 'memoryUtilization',
-    group: 'host',
-    label: 'Memory utilization',
-    table: HOST_TABLES.memoryUtilization,
-    kind: 'gauge',
-    unit: '%',
-    where: [eq('state', 'used')],
-    requiredColumns: ['state', 'host_name'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    scale: 100,
-    filters: HOST_FILTERS,
-    tileAggregate: 'max',
-    verdict: { ...T.memoryUtilizationPct, direction: 'above' },
-  },
-  {
-    key: 'load1m',
-    group: 'host',
-    label: 'Load (1 min)',
-    table: HOST_TABLES.load1m,
-    kind: 'gauge',
-    unit: 'load',
-    requiredColumns: ['host_name'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-    tileAggregate: 'max',
-  },
-  {
-    key: 'filesystemUtilization',
-    group: 'host',
-    label: 'Filesystem utilization',
-    table: HOST_TABLES.filesystemUtilization,
-    kind: 'gauge',
-    unit: '%',
-    groupBy: 'mountpoint',
-    requiredColumns: ['mountpoint', 'host_name'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    scale: 100,
-    filters: HOST_FILTERS,
-    tileAggregate: 'max',
-    verdict: { ...T.diskUtilizationPct, direction: 'above' },
-  },
-  {
-    key: 'diskIo',
-    group: 'host',
-    label: 'Disk IO',
-    table: HOST_TABLES.diskIo,
-    kind: 'counter',
-    unit: 'bytes/s',
-    rate: 'per_s',
-    groupBy: 'direction',
-    requiredColumns: ['device', 'direction', 'host_name'],
-    filters: HOST_FILTERS,
-  },
-  {
-    // The collector container's network namespace, not the host's NICs (§11.2).
-    key: 'networkIo',
-    group: 'host',
-    label: 'Network IO (collector)',
-    table: HOST_TABLES.networkIo,
-    kind: 'counter',
-    unit: 'bytes/s',
-    rate: 'per_s',
-    groupBy: 'direction',
-    requiredColumns: ['device', 'direction', 'host_name'],
-    filters: HOST_FILTERS,
-  },
-
-  // ---- database ----
-  {
-    key: 'dbConnections',
-    group: 'database',
-    label: 'Connections',
-    table: 'postgresql_backends',
-    kind: 'gauge',
-    unit: 'count',
-    requiredColumns: ['instance'],
-    seriesAggregate: 'sum',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'dbConnectionMax',
-    group: 'database',
-    label: 'Max connections',
-    table: 'postgresql_connection_max',
-    kind: 'gauge',
-    unit: 'count',
-    requiredColumns: ['instance'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-    series: false,
-  },
-  {
-    key: 'dbSize',
-    group: 'database',
-    label: 'Database size',
-    table: 'postgresql_db_size_bytes',
-    kind: 'gauge',
-    unit: 'bytes',
-    groupBy: 'postgresql_database_name',
-    requiredColumns: ['postgresql_database_name'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'dbCommits',
-    group: 'database',
-    label: 'Commits',
-    table: 'postgresql_commits_total',
-    kind: 'counter',
-    unit: 'per_s',
-    rate: 'per_s',
-    requiredColumns: ['postgresql_database_name'],
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'dbRollbacks',
-    group: 'database',
-    label: 'Rollbacks',
-    table: 'postgresql_rollbacks_total',
-    kind: 'counter',
-    unit: 'per_s',
-    rate: 'per_s',
-    requiredColumns: ['postgresql_database_name'],
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'dbDeadlocks',
-    group: 'database',
-    label: 'Deadlocks',
-    table: 'postgresql_deadlocks_total',
-    kind: 'counter',
-    unit: 'count',
-    rate: 'count',
-    requiredColumns: ['postgresql_database_name'],
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'dbBlocksHit',
-    group: 'database',
-    label: 'Blocks hit',
-    table: 'postgresql_blks_hit_total',
-    kind: 'counter',
-    unit: 'count',
-    rate: 'count',
-    requiredColumns: ['postgresql_database_name'],
-    filters: HOST_FILTERS,
-    tile: false,
-    series: false,
-  },
-  {
-    key: 'dbBlocksRead',
-    group: 'database',
-    label: 'Blocks read',
-    table: 'postgresql_blks_read_total',
-    kind: 'counter',
-    unit: 'count',
-    rate: 'count',
-    requiredColumns: ['postgresql_database_name'],
-    filters: HOST_FILTERS,
-    tile: false,
-    series: false,
-  },
-
-  // ---- queue ----
-  {
-    key: 'queueDepth',
-    group: 'queue',
-    label: 'Queue depth',
-    table: 'app_jobs_queue_depth',
-    kind: 'gauge',
-    unit: 'count',
-    groupBy: 'status',
-    requiredColumns: ['status', 'job_type'],
-    seriesAggregate: 'sum',
-    bucketAggregate: 'max',
-    filters: APP_FILTERS,
-    tileGroups: ['pending', 'running'],
-  },
-  {
-    key: 'oldestPendingAge',
-    group: 'queue',
-    label: 'Oldest pending job',
-    table: 'app_jobs_oldest_pending_age_seconds',
-    kind: 'gauge',
-    unit: 'seconds',
-    groupBy: 'job_type',
-    requiredColumns: ['job_type'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    filters: APP_FILTERS,
-    tileAggregate: 'max',
-    verdict: {
-      degraded: T.oldestPendingJobMinutes.degraded * 60,
-      critical: T.oldestPendingJobMinutes.critical * 60,
-      direction: 'above',
-    },
-  },
-  {
-    key: 'jobsSettled',
-    group: 'queue',
-    label: 'Jobs settled',
-    table: 'app_jobs_settled_total',
-    kind: 'counter',
-    unit: 'per_min',
-    rate: 'per_min',
-    groupBy: 'outcome',
-    requiredColumns: ['outcome', 'job_type'],
-    filters: APP_FILTERS,
-  },
-  {
-    key: 'jobDurationP95',
-    group: 'queue',
-    label: 'Job duration p95',
-    table: 'app_jobs_duration_seconds_bucket',
-    kind: 'histogram',
-    unit: 'seconds',
-    quantile: 0.95,
-    groupBy: 'job_type',
-    requiredColumns: ['le', 'job_type'],
-    filters: APP_FILTERS,
-    series: false,
-  },
-  {
-    key: 'backupAge',
-    group: 'queue',
-    label: 'Last successful backup',
-    table: 'app_backup_last_success_timestamp_seconds',
-    kind: 'gauge',
-    unit: 'hours',
-    requiredColumns: [],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    transform: 'ageHours',
-    filters: APP_FILTERS,
-    verdict: { ...T.backupAgeHours, direction: 'above' },
-  },
-
-  // ---- nodes ----
-  {
-    key: 'nodesByHealth',
-    group: 'nodes',
-    label: 'Worker nodes',
-    table: 'app_nodes_count',
-    kind: 'gauge',
-    unit: 'count',
-    groupBy: 'health',
-    requiredColumns: ['health', 'status'],
-    seriesAggregate: 'sum',
-    bucketAggregate: 'max',
-    filters: APP_FILTERS,
-    tileGroups: ['healthy', 'stale', 'offline'],
-  },
-  {
-    key: 'noEligibleNode',
-    group: 'nodes',
-    label: 'Job types without an eligible node',
-    table: 'app_nodes_types_no_eligible_node',
-    kind: 'gauge',
-    unit: 'count',
-    groupBy: 'job_type',
-    requiredColumns: ['job_type'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    filters: APP_FILTERS,
-    tileAggregate: 'countPositive',
-    series: false,
-  },
-
-  // ---- uptime ----
-  {
-    key: 'httpDuration',
-    group: 'uptime',
-    label: 'Check duration',
-    table: 'httpcheck_duration_milliseconds',
-    kind: 'gauge',
-    unit: 'ms',
-    groupBy: 'http_url',
-    requiredColumns: ['http_url'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'avg',
-    filters: HOST_FILTERS,
-    tileAggregate: 'max',
-  },
-  {
-    key: 'tlsDaysLeft',
-    group: 'uptime',
-    label: 'TLS certificate days left',
-    table: 'httpcheck_tls_cert_remaining_seconds',
-    kind: 'gauge',
-    unit: 'days',
-    groupBy: 'http_url',
-    requiredColumns: ['http_url'],
-    seriesAggregate: 'min',
-    bucketAggregate: 'min',
-    scale: 1 / 86_400,
-    filters: HOST_FILTERS,
-    tileAggregate: 'min',
-    verdict: { ...T.tlsDaysLeft, direction: 'below' },
-  },
-  {
-    key: 'nginxRequests',
-    group: 'uptime',
-    label: 'nginx requests',
-    table: 'nginx_requests_total',
-    kind: 'counter',
-    unit: 'per_s',
-    rate: 'per_s',
-    requiredColumns: ['host_name'],
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'nginxConnections',
-    group: 'uptime',
-    label: 'nginx connections',
-    table: 'nginx_connections_current',
-    kind: 'gauge',
-    unit: 'count',
-    groupBy: 'state',
-    requiredColumns: ['state', 'host_name'],
-    seriesAggregate: 'sum',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-    tileGroups: ['active'],
-  },
-
-  // ---- pipeline ----
-  {
-    key: 'exporterSent',
-    group: 'pipeline',
-    label: 'Metric points sent',
-    table: 'otelcol_exporter_sent_metric_points_total',
-    kind: 'counter',
-    unit: 'per_s',
-    rate: 'per_s',
-    groupBy: 'exporter',
-    requiredColumns: ['exporter'],
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'exporterFailed',
-    group: 'pipeline',
-    label: 'Metric points failed',
-    table: 'otelcol_exporter_send_failed_metric_points_total',
-    kind: 'counter',
-    unit: 'count',
-    rate: 'count',
-    groupBy: 'exporter',
-    requiredColumns: ['exporter'],
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'exporterQueueSize',
-    group: 'pipeline',
-    label: 'Exporter queue size',
-    table: 'otelcol_exporter_queue_size',
-    kind: 'gauge',
-    unit: 'count',
-    groupBy: 'exporter',
-    requiredColumns: ['exporter'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-    tileAggregate: 'max',
-  },
-  {
-    key: 'exporterQueueCapacity',
-    group: 'pipeline',
-    label: 'Exporter queue capacity',
-    table: 'otelcol_exporter_queue_capacity',
-    kind: 'gauge',
-    unit: 'count',
-    groupBy: 'exporter',
-    requiredColumns: ['exporter'],
-    seriesAggregate: 'max',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-    tileAggregate: 'max',
-    tile: false,
-    series: false,
-  },
-  {
-    key: 'receiverRefused',
-    group: 'pipeline',
-    label: 'Metric points refused',
-    table: 'otelcol_receiver_refused_metric_points_total',
-    kind: 'counter',
-    unit: 'count',
-    rate: 'count',
-    groupBy: 'receiver',
-    requiredColumns: ['receiver'],
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'greptimeWriteStalls',
-    group: 'pipeline',
-    label: 'GreptimeDB write stalls',
-    table: 'greptime_mito_write_stalling_count',
-    kind: 'gauge',
-    unit: 'count',
-    requiredColumns: [],
-    seriesAggregate: 'sum',
-    bucketAggregate: 'max',
-    filters: HOST_FILTERS,
-  },
-  {
-    key: 'scrapeTargetsDown',
-    group: 'pipeline',
-    label: 'Scrape targets down',
-    table: 'up',
-    kind: 'gauge',
-    unit: 'count',
-    // `job` names the scrape target readably (`greptimedb`, `otelcol-contrib`);
-    // the collector's own `instance` is its random service instance id.
-    groupBy: 'job',
-    requiredColumns: ['job'],
-    seriesAggregate: 'min',
-    bucketAggregate: 'min',
-    filters: HOST_FILTERS,
-    tileAggregate: 'countZero',
-    series: false,
-  },
+/** Every registered group id, in dashboard order. Non-empty (the platform registers six). */
+export const METRIC_GROUPS = Object.freeze(metricGroupRegistry.ids()) as unknown as readonly [
+  MetricGroup,
+  ...MetricGroup[],
 ];
 
-// ---- ratios ------------------------------------------------------------------
+/** The API label of every group (the dashboard section title is `MetricGroupDef.title`). */
+export const METRIC_GROUP_LABELS: Readonly<Record<MetricGroup, string>> = Object.freeze(
+  Object.fromEntries(metricGroupRegistry.list().map((g) => [g.id, g.label])) as Record<MetricGroup, string>
+);
 
-export const METRIC_RATIOS: readonly MetricRatio[] = [
-  {
-    key: 'dbConnectionUtilization',
-    group: 'database',
-    label: 'Connections used',
-    unit: '%',
-    numerator: [{ family: 'dbConnections' }],
-    denominator: [{ family: 'dbConnectionMax' }],
-    scale: 100,
-    verdict: { ...T.dbConnectionsPct, direction: 'above' },
-  },
-  {
-    key: 'dbCacheHitRatio',
-    group: 'database',
-    label: 'Cache hit ratio',
-    unit: '%',
-    numerator: [{ family: 'dbBlocksHit' }],
-    denominator: [{ family: 'dbBlocksRead' }],
-    addNumerator: true,
-    scale: 100,
-  },
-  {
-    key: 'jobFailureRatio',
-    group: 'queue',
-    label: 'Job failure ratio',
-    unit: '%',
-    numerator: [{ family: 'jobsSettled', groups: ['failed'] }],
-    denominator: [{ family: 'jobsSettled', groups: ['succeeded'] }],
-    addNumerator: true,
-    scale: 100,
-  },
-  {
-    key: 'exporterQueueUtilization',
-    group: 'pipeline',
-    label: 'Exporter queue used',
-    unit: '%',
-    numerator: [{ family: 'exporterQueueSize' }],
-    denominator: [{ family: 'exporterQueueCapacity' }],
-    scale: 100,
-  },
-];
+export const METRIC_FAMILIES: readonly MetricFamily[] = frozen(metricGroupRegistry.list().flatMap((g) => [...g.families]));
+export const METRIC_RATIOS: readonly MetricRatio[] = frozen(metricGroupRegistry.list().flatMap((g) => [...(g.ratios ?? [])]));
+export const METRIC_TABLES: readonly MetricTableSpec[] = frozen(metricGroupRegistry.list().flatMap((g) => [...(g.tables ?? [])]));
 
-// ---- tables ------------------------------------------------------------------
+// ---- lookups (live) ----------------------------------------------------------------
 
-/** Rows of `largestTables`: every table of a realistic schema; bounded so a runaway schema can't blow the payload (#632). */
-export const LARGEST_TABLES_MAX_ROWS = 500;
+/** Every registered group, in dashboard order, read live from the registry. */
+export function metricGroups(): MetricGroupDef[] {
+  return metricGroupRegistry.list();
+}
 
-export const METRIC_TABLES: readonly MetricTableSpec[] = [
-  {
-    key: 'filesystems',
-    group: 'host',
-    label: 'Filesystems',
-    keyColumn: 'mountpoint',
-    keyLabel: 'Mountpoint',
-    filters: HOST_FILTERS,
-    parts: [
-      {
-        column: 'utilizationPct',
-        label: 'Used',
-        unit: '%',
-        table: HOST_TABLES.filesystemUtilization,
-        seriesAggregate: 'max',
-        over: 'last',
-        scale: 100,
-      },
-      {
-        column: 'usedBytes',
-        label: 'Used bytes',
-        unit: 'bytes',
-        table: HOST_TABLES.filesystemUsage,
-        requiredColumns: ['state'],
-        where: [eq('state', 'used')],
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'freeBytes',
-        label: 'Free bytes',
-        unit: 'bytes',
-        table: HOST_TABLES.filesystemUsage,
-        requiredColumns: ['state'],
-        where: [eq('state', 'free')],
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-    ],
-  },
-  {
-    key: 'largestTables',
-    group: 'database',
-    label: 'Largest tables',
-    keyColumn: 'postgresql_table_name',
-    keyLabel: 'Table',
-    filters: HOST_FILTERS,
-    orderByValue: true,
-    maxRows: LARGEST_TABLES_MAX_ROWS,
-    parts: [
-      {
-        column: 'sizeBytes',
-        label: 'Size',
-        unit: 'bytes',
-        table: 'postgresql_table_size_bytes',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-    ],
-  },
-  {
-    key: 'jobTypes',
-    group: 'queue',
-    label: 'Job types',
-    keyColumn: 'job_type',
-    keyLabel: 'Job type',
-    filters: APP_FILTERS,
-    parts: [
-      {
-        column: 'pending',
-        label: 'Pending',
-        unit: 'count',
-        table: 'app_jobs_queue_depth',
-        requiredColumns: ['status'],
-        where: [eq('status', 'pending')],
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'running',
-        label: 'Running',
-        unit: 'count',
-        table: 'app_jobs_queue_depth',
-        requiredColumns: ['status'],
-        where: [eq('status', 'running')],
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'oldestPendingSeconds',
-        label: 'Oldest pending',
-        unit: 'seconds',
-        table: 'app_jobs_oldest_pending_age_seconds',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'succeeded',
-        label: 'Succeeded',
-        unit: 'count',
-        table: 'app_jobs_settled_total',
-        requiredColumns: ['outcome'],
-        where: [eq('outcome', 'succeeded')],
-        seriesAggregate: 'sum',
-        over: 'increase',
-      },
-      {
-        column: 'failed',
-        label: 'Failed',
-        unit: 'count',
-        table: 'app_jobs_settled_total',
-        requiredColumns: ['outcome'],
-        where: [eq('outcome', 'failed')],
-        seriesAggregate: 'sum',
-        over: 'increase',
-      },
-    ],
-    histogram: { column: 'durationP95Seconds', label: 'Duration p95', family: 'jobDurationP95' },
-  },
-  {
-    key: 'nodes',
-    group: 'nodes',
-    label: 'Nodes',
-    keyColumn: 'node_name',
-    keyLabel: 'Node',
-    filters: APP_FILTERS,
-    parts: [
-      {
-        column: 'cpuCores',
-        label: 'CPU',
-        unit: 'cores',
-        table: 'app_nodes_cpu_utilization',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'rssBytes',
-        label: 'RSS',
-        unit: 'bytes',
-        table: 'app_nodes_memory_rss_bytes',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'heapUsedBytes',
-        label: 'Heap used',
-        unit: 'bytes',
-        table: 'app_nodes_heap_used_bytes',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'heapLimitBytes',
-        label: 'Heap limit',
-        unit: 'bytes',
-        table: 'app_nodes_heap_limit_bytes',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'stateDirFreeBytes',
-        label: 'Disk free',
-        unit: 'bytes',
-        table: 'app_nodes_state_dir_free_bytes',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'stateDirTotalBytes',
-        label: 'Disk size',
-        unit: 'bytes',
-        table: 'app_nodes_state_dir_total_bytes',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'slotsUsed',
-        label: 'Slots used',
-        unit: 'count',
-        table: 'app_nodes_slots_used',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'slotsTotal',
-        label: 'Slots',
-        unit: 'count',
-        table: 'app_nodes_slots_total',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-    ],
-    derived: [
-      {
-        column: 'heapPct',
-        label: 'Heap used',
-        unit: '%',
-        numerator: 'heapUsedBytes',
-        denominator: 'heapLimitBytes',
-        scale: 100,
-      },
-      {
-        column: 'stateDirFreePct',
-        label: 'Disk free',
-        unit: '%',
-        numerator: 'stateDirFreeBytes',
-        denominator: 'stateDirTotalBytes',
-        scale: 100,
-      },
-    ],
-  },
-  {
-    key: 'noEligibleNodeTypes',
-    group: 'nodes',
-    label: 'Node-offered job types',
-    keyColumn: 'job_type',
-    keyLabel: 'Job type',
-    filters: APP_FILTERS,
-    parts: [
-      {
-        column: 'noEligibleNode',
-        label: 'No eligible node',
-        unit: 'boolean',
-        table: 'app_nodes_types_no_eligible_node',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-    ],
-  },
-  {
-    key: 'uptimeTargets',
-    group: 'uptime',
-    label: 'Uptime targets',
-    keyColumn: 'http_url',
-    keyLabel: 'URL',
-    filters: HOST_FILTERS,
-    httpcheck: true,
-    parts: [
-      {
-        column: 'durationMs',
-        label: 'Duration',
-        unit: 'ms',
-        table: 'httpcheck_duration_milliseconds',
-        seriesAggregate: 'max',
-        over: 'last',
-      },
-      {
-        column: 'tlsDaysLeft',
-        label: 'TLS days left',
-        unit: 'days',
-        table: 'httpcheck_tls_cert_remaining_seconds',
-        seriesAggregate: 'min',
-        over: 'last',
-        scale: 1 / 86_400,
-      },
-    ],
-  },
-  {
-    key: 'scrapeTargets',
-    group: 'pipeline',
-    label: 'Scrape targets',
-    keyColumn: 'job',
-    keyLabel: 'Scrape job',
-    filters: HOST_FILTERS,
-    parts: [
-      {
-        column: 'up',
-        label: 'Up',
-        unit: 'boolean',
-        table: 'up',
-        seriesAggregate: 'min',
-        over: 'last',
-      },
-    ],
-  },
-];
+/** Every registered group id, in dashboard order, read live from the registry. */
+export function metricGroupIds(): MetricGroup[] {
+  return metricGroupRegistry.ids() as MetricGroup[];
+}
 
-// ---- lookups -----------------------------------------------------------------
+/** Whether `id` names a registered group. */
+export function isMetricGroup(id: unknown): id is MetricGroup {
+  return typeof id === 'string' && metricGroupRegistry.has(id);
+}
 
 export function familiesOf(group: MetricGroup): MetricFamily[] {
-  return METRIC_FAMILIES.filter((f) => f.group === group);
+  return [...(metricGroupRegistry.get(group)?.families ?? [])];
 }
 
 export function ratiosOf(group: MetricGroup): MetricRatio[] {
-  return METRIC_RATIOS.filter((r) => r.group === group);
+  return [...(metricGroupRegistry.get(group)?.ratios ?? [])];
 }
 
 export function tablesOf(group: MetricGroup): MetricTableSpec[] {
-  return METRIC_TABLES.filter((t) => t.group === group);
+  return [...(metricGroupRegistry.get(group)?.tables ?? [])];
 }
 
 export function familyByKey(key: string): MetricFamily | undefined {
-  return METRIC_FAMILIES.find((f) => f.key === key);
+  for (const group of metricGroupRegistry.list()) {
+    const family = group.families.find((f) => f.key === key);
+    if (family) return family;
+  }
+  return undefined;
 }
 
 // ---- what the store has ----------------------------------------------------------
