@@ -64,9 +64,6 @@ export type {
 // registry, the redaction pass and the built-in sections.
 export {
   COMMIT_SHA_ALLOWED_PATHS,
-  DoctorSupportBundleSection,
-  MetaSupportBundleSection,
-  PLATFORM_PACKAGE_NAMES,
   REDACTED,
   SENSITIVE_KEY_PATTERN,
   SUPPORT_BUNDLE_AUDIT_ACTION,
@@ -86,8 +83,7 @@ export {
   redactValue,
 } from './support-bundle/index';
 export type {
-  DoctorSupportBundleData,
-  MetaSupportBundleData,
+  RedactValueOptions,
   RedactionResult,
   ResolvedSupportBundleOptions,
   SupportBundleBuild,

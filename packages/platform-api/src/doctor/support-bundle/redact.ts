@@ -215,8 +215,12 @@ export function redactString(input: string): RedactionResult<string> {
   return { value, replacements };
 }
 
-/** Options of {@link redactValue}. */
-interface RedactValueOptions {
+/**
+ * Options of {@link redactValue}.
+ *
+ * @stability experimental
+ */
+export interface RedactValueOptions {
   /** The path of `value` from the bundle root (for the commit-SHA allowlist). Default `[]`. */
   path?: readonly string[];
   /** Dotted paths where an exact 40-hex commit SHA is kept. Default {@link COMMIT_SHA_ALLOWED_PATHS}. */

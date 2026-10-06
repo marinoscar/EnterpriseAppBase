@@ -40,7 +40,10 @@ export interface PlatformBlobResponse {
   /** The response body. */
   blob: Blob;
   /** The response headers (only `get` is needed). */
-  headers: { get(name: string): string | null };
+  headers: {
+    /** One header's value (case-insensitive name), or `null`. */
+    get(name: string): string | null;
+  };
 }
 
 /**

@@ -30,8 +30,6 @@ export {
   redactString,
   redactValue,
 } from './redact';
-export type { RedactionResult } from './redact';
-export { MetaSupportBundleSection, PLATFORM_PACKAGE_NAMES } from './sections/meta.section';
-export type { MetaSupportBundleData } from './sections/meta.section';
-export { DoctorSupportBundleSection } from './sections/doctor.section';
-export type { DoctorSupportBundleData } from './sections/doctor.section';
+export type { RedactValueOptions, RedactionResult } from './redact';
+// The built-in `meta` and `doctor` sections are registered by
+// `DoctorModule.forRoot()` and are not part of the public surface.
