@@ -1,4 +1,4 @@
-import { DoctorCheckRegistry } from '../../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import type { SystemSettingsService } from '../../../settings/system-settings/system-settings.service';
 import type { DeploymentModeService } from '../deployment-mode.service';
 import { DeploymentModeDoctorCheck, decideDeploymentMode } from './deployment-mode.doctor-check';

@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EVENT_BUS_SELECTION } from './event-bus.config';
 import { EVENT_BUS, type EventBus } from './event-bus.interface';
