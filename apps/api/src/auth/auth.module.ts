@@ -14,6 +14,7 @@ import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { TokenCleanupHandler } from './handlers/token-cleanup.handler';
 import { JobsModule } from '../jobs/jobs.module';
 import { AuthProvidersDoctorCheck } from './doctor/auth-providers.doctor-check';
+import { GoogleAuthEgressContributor } from './doctor/egress/google-auth.egress.contributor';
 import { InitialAdminDoctorCheck } from './doctor/initial-admin.doctor-check';
 import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
 import { PrincipalCacheModule } from './principal-cache/principal-cache.module';
@@ -70,6 +71,8 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
     InitialAdminDoctorCheck,
     // PP-1.12 (#683): `auth.principal-cache`.
     PrincipalCacheDoctorCheck,
+    // Egress inventory (#773): Google sign-in's outbound hosts.
+    GoogleAuthEgressContributor,
   ],
   exports: [AuthService, JwtModule],
 })
