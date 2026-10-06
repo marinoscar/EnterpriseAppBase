@@ -17,6 +17,9 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "platform": "./bin/platform.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -26,6 +29,7 @@
   },
   "files": [
     "dist",
+    "bin",
     "schema",
     "migrations",
     "README.md",
@@ -41,6 +45,9 @@
     "docs": "typedoc --options typedoc.json",
     "test": "vitest",
     "test:run": "vitest run"
+  },
+  "dependencies": {
+    "commander": "^14.0.2"
   },
   "peerDependencies": {
     "@prisma/client": "^7.8.0",

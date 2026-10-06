@@ -3,7 +3,7 @@
   "platform-api": { "core": [], "testing": ["core"], "doctor": ["core"] },
   "platform-web": { "core": [], "testing": ["core"], "doctor": ["core"] },
   "platform-contract": {},
-  "platform-db": {},
+  "platform-db": { "compose": [], "bin": ["compose"] },
   "platform-cli": { "core": [], "telemetry": ["core"] },
   "platform-infra": { "telemetry": [] }
 }
