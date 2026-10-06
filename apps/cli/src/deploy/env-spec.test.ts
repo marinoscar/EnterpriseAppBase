@@ -7,6 +7,7 @@ import {
   ENV_METADATA,
   generateBase64Key,
   metadataFor,
+  oneOf,
   validateBase64Key32,
   validateEmail,
   validatePort,
@@ -329,6 +330,38 @@ describe('env metadata', () => {
     // An entry for a key the template no longer has is dead weight that will
     // quietly stop applying; this catches a rename.
     expect(Object.keys(ENV_METADATA).filter((key) => !known.has(key))).toEqual([]);
+  });
+
+  it('declares DEPLOYMENT_MODE as a required key defaulting to self-hosted (#685)', () => {
+    const specs = parseEnvExample(readFileSync(REAL_TEMPLATE, 'utf8'));
+    const declarations = specs.filter((spec) => spec.key === 'DEPLOYMENT_MODE');
+
+    // Exactly one declaration, uncommented: prose about the values must not
+    // read as a second (optional) one.
+    expect(declarations).toHaveLength(1);
+    expect(declarations[0]).toMatchObject({
+      section: 'Deployment mode',
+      defaultValue: 'self-hosted',
+      optional: false,
+    });
+    expect(declarations[0]?.help).toMatch(/saas/);
+  });
+
+  it('validates DEPLOYMENT_MODE exactly as the API parses it (#685)', () => {
+    const validate = metadataFor('DEPLOYMENT_MODE').validate;
+
+    expect(validate?.('self-hosted')).toBeUndefined();
+    expect(validate?.('saas')).toBeUndefined();
+    for (const bad of ['SaaS', 'cloud', '', ' saas', 'self_hosted']) {
+      expect(validate?.(bad)).toBe('must be one of: self-hosted, saas');
+    }
+  });
+
+  it('builds a oneOf validator that compares verbatim', () => {
+    const validate = oneOf('a', 'b');
+
+    expect(validate('a')).toBeUndefined();
+    expect(validate('A')).toBe('must be one of: a, b');
   });
 
   it('forces NODE_ENV to production and never writes TEST_AUTH_ENABLED', () => {

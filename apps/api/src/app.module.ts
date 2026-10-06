@@ -33,6 +33,7 @@ import { AppMetricsModule } from './common/otel/app-metrics.module';
 import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
+import { DeploymentModule } from './common/deployment/deployment.module';
 import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { DoctorModule } from './doctor/doctor.module';
@@ -190,6 +191,12 @@ import configuration from './config/configuration';
     // provides runs in front of every route in this application, and that
     // belongs in the module that owns the application.
     MaintenanceModule,
+
+    // Deployment mode (#685): the parsed `DEPLOYMENT_MODE` and its capability
+    // predicates (`DeploymentModeService`), plus the `core.deployment-mode`
+    // doctor check. `@Global()`, so the restore path and the about report
+    // inject the service without importing this module.
+    DeploymentModule,
 
     // `GET /api/admin/about` (#401, epic #397): what is deployed here — the
     // API's resolved version, the deploy document `appctl deploy` bind-mounts

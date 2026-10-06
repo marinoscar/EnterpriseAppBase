@@ -20,6 +20,7 @@ import type {
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupStorageProviderError,
+  DatabaseRestoreDisabledError,
   DatabaseRestoreNotAllowedError,
   DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
@@ -28,6 +29,8 @@ import type { JobRolePreflightResult } from './pg-job-role.broker';
 import type { PgJobRoleBroker } from './pg-job-role.broker';
 import type { RestorePreflightResult } from './restore-preflight.service';
 import { ACTIVE_BACKUP_STATUSES, toRunDto } from './dto/db-backup-run.dto';
+import type { DeploymentMode } from '../common/deployment/deployment-mode';
+import { deploymentModeFor } from '../../test/helpers/deployment-mode.helper';
 
 // =============================================================================
 // The admin surface's acceptance criteria (issue #283, epic #254)
@@ -169,6 +172,8 @@ function run(overrides: Partial<DatabaseBackupRun> = {}): DatabaseBackupRun {
 }
 
 interface HarnessOptions {
+  /** #685: the deployment mode. Unset means `self-hosted`, every existing case. */
+  deploymentMode?: DeploymentMode;
   policy?: Partial<SystemDatabaseBackupValue>;
   rows?: DatabaseBackupRun[];
   storageDelete?: (key: string) => Promise<void>;
@@ -341,7 +346,8 @@ function harness(options: HarnessOptions = {}) {
     runner,
     restore,
     storage,
-    jobRoles
+    jobRoles,
+    deploymentModeFor(options.deploymentMode)
   );
 
   return {
@@ -446,6 +452,27 @@ describe('DatabaseBackupAdminService', () => {
       // A second implementation of "can we CREATE ROLE?" is how a screen starts
       // saying yes while the claim path says no.
       expect(jobRoles.preflight).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('getConfig reports restore availability (#685)', () => {
+    it('says restore is available on a self-hosted deployment', async () => {
+      const { service } = harness();
+
+      await expect(service.getConfig()).resolves.toMatchObject({
+        restore: { available: true, reason: null },
+      });
+    });
+
+    it('says restore is unavailable, and why, in saas mode — and keeps the policy intact', async () => {
+      const { service } = harness({ deploymentMode: 'saas' });
+
+      const config = await service.getConfig();
+
+      expect(config.restore).toEqual({ available: false, reason: 'deployment_mode_saas' });
+      // Backups are untouched by the mode: the policy is reported as stored.
+      expect(config.enabled).toBe(POLICY.enabled);
+      expect(config.retentionCount).toBe(POLICY.retentionCount);
     });
   });
 
@@ -1166,5 +1193,45 @@ describe('DatabaseBackupAdminService', () => {
     // does not import a service. This assertion is what stops that convenience
     // from becoming two different answers to "is this run active".
     expect([...ACTIVE_BACKUP_STATUSES]).toEqual([...ACTIVE_RUN_STATUSES]);
+  });
+
+  describe('in DEPLOYMENT_MODE=saas (#685)', () => {
+    it('startRestore refuses before the run lookup and never reaches the engine', async () => {
+      const { service, restore, prisma } = harness({ deploymentMode: 'saas' });
+
+      await expect(
+        service.startRestore(RUN_ID, { overrideSchemaCheck: false, actorUserId: USER_ID })
+      ).rejects.toBeInstanceOf(DatabaseRestoreDisabledError);
+
+      expect(prisma.databaseBackupRun.findUnique).not.toHaveBeenCalled();
+      expect(restore.startRestore).not.toHaveBeenCalled();
+    });
+
+    it('rollbackRestore refuses before the run lookup and never reaches the engine', async () => {
+      const { service, restore, prisma } = harness({ deploymentMode: 'saas' });
+
+      await expect(service.rollbackRestore(RUN_ID, USER_ID)).rejects.toBeInstanceOf(
+        DatabaseRestoreDisabledError
+      );
+
+      expect(prisma.databaseBackupRun.findUnique).not.toHaveBeenCalled();
+      expect(restore.rollback).not.toHaveBeenCalled();
+    });
+
+    it('refuses the same way for an id that does not exist — the answer is about the deployment', async () => {
+      const { service } = harness({ deploymentMode: 'saas', rows: [] });
+
+      await expect(
+        service.startRestore(RUN_ID, { overrideSchemaCheck: false, actorUserId: USER_ID })
+      ).rejects.toBeInstanceOf(DatabaseRestoreDisabledError);
+    });
+
+    it('still queues a backup: in-app backups work in both modes', async () => {
+      const { service, runner } = harness({ deploymentMode: 'saas', rows: [] });
+
+      await service.startRun(USER_ID);
+
+      expect(runner.queueBackup).toHaveBeenCalled();
+    });
   });
 });

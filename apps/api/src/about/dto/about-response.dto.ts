@@ -56,6 +56,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+import { DEPLOYMENT_MODES } from '../../common/deployment/deployment-mode';
 import { DEPLOY_INFO_STATUSES } from '../deploy-info.constants';
 
 /** The API process's own version — always known, never read from disk. */
@@ -66,6 +67,12 @@ export const aboutApiSchema = z.object({
    * and never throws.
    */
   version: z.string(),
+  /**
+   * `DEPLOYMENT_MODE`, as this process parsed it at startup (#685). Always
+   * known: an invalid value never boots. `saas` means in-app database restore
+   * is disabled and recovery is the database provider's point-in-time recovery.
+   */
+  deploymentMode: z.enum(DEPLOYMENT_MODES),
 });
 
 export const aboutAppSchema = z.object({

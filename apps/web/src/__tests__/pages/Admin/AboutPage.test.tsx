@@ -41,7 +41,7 @@ import { setViewportWidth } from '../../setup';
 /** A complete, successful document — the baseline every state overrides. */
 function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
   const base: AboutResponse = {
-    api: { version: '2.4.1' },
+    api: { version: '2.4.1', deploymentMode: 'self-hosted' },
     deployInfoStatus: 'ok',
     deployInfoPath: '/srv/app/deploy/info.json',
     deployInfoError: null,
@@ -237,6 +237,15 @@ describe('AboutPage — state 2: no usable deployment record', () => {
 
     const apiFacts = await screen.findByTestId('about-api-facts');
     expect(within(apiFacts).getByText('2.4.1')).toBeInTheDocument();
+  });
+
+  it('reports the deployment mode the API parsed at startup (#685)', async () => {
+    serveAbout(aboutResponse({ api: { version: '2.4.1', deploymentMode: 'saas' } }));
+    render(<AboutPage />, { wrapperOptions: { user: mockAdminUser } });
+
+    const apiFacts = await screen.findByTestId('about-api-facts');
+    expect(within(apiFacts).getByText('Deployment mode')).toBeInTheDocument();
+    expect(within(apiFacts).getByText('saas')).toBeInTheDocument();
   });
 
   it('renders no deployment-facts block, because there are none to render', async () => {

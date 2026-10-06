@@ -291,6 +291,13 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
     validate: combine(validateEmail, rejectPlaceholder),
   },
 
+  // --- Deployment mode (#685) ----------------------------------------------
+  // Not asked (the template's `self-hosted` is right for every VPS install
+  // this wizard performs), but validated: the API refuses to start on any
+  // other value, so a hand-edited typo is caught here first. Same list as
+  // DEPLOYMENT_MODES in apps/api/src/common/deployment/deployment-mode.ts.
+  DEPLOYMENT_MODE: { validate: oneOf('self-hosted', 'saas') },
+
   // --- Test authentication -------------------------------------------------
   // NEVER offered and never written. Setting it true in production fails
   // startup by design, and there is no reason a deployment should carry it.

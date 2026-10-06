@@ -90,6 +90,7 @@ const config: DbBackupConfig = {
   oldDatabaseRetentionHours: 48,
   nextRunAt: '2026-01-02T02:30:00.000Z',
   activeRunId: null,
+  restore: { available: true, reason: null },
 };
 
 const run: DbBackupRun = {

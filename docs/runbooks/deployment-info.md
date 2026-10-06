@@ -47,7 +47,7 @@ Source of truth for every claim below:
 | This deployment | Name, version, commit, ref, domain, last command, bind port, proxy, certificate expiry, install/update times, `appctl` version, and "Record read from" (`deployInfoPath`). |
 | Deploy run | Steps completed; for a failed run, `run.failedStep`. |
 | Host | Hostname, OS, kernel, CPUs, memory, Docker/Compose versions **as observed at deploy time**. |
-| This API process | `runtime`: process start, Node version, `NODE_ENV`. The one live section. |
+| This API process | `api.version`, `api.deploymentMode` (`DEPLOYMENT_MODE` as parsed at startup: `self-hosted` or `saas`; `saas` means in-app database restore is disabled, see [database-restore.md](database-restore.md#11-saas-mode-use-the-providers-point-in-time-recovery)), and `runtime`: process start, Node version, `NODE_ENV`. The one live section. |
 | Database | Live liveness probe (`up`/`down`, response time). A failure degrades only this section. |
 | Deployment history | The last 20 successful `install`/`update` runs, newest first. |
 | `deployInfoStatus: "ok"` | Document read. With `run.outcome: "failure"` the run failed after the health gate; every fact still renders, plus a warning naming the failed step. |

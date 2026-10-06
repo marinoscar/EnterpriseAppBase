@@ -346,3 +346,34 @@ export class DatabaseRestoreNotAllowedError extends Error {
     Object.setPrototypeOf(this, DatabaseRestoreNotAllowedError.prototype);
   }
 }
+
+/**
+ * In-app restore is switched off for this DEPLOYMENT (#685).
+ *
+ * → `403`, with `details.reason = 'deployment_mode_saas'`. Not a 400 (the
+ * request is well formed and names a real run) and not a 409 (nothing is in
+ * conflict, and no amount of waiting changes it): this deployment does not
+ * offer the operation at all, whatever permission the caller holds.
+ *
+ * ⚠ RAISED BEFORE ANYTHING ELSE. `DeploymentModeService.assertInAppRestoreEnabled`
+ * is the first statement of every restore entry point — before the run lookup,
+ * before the pre-flight, before any download, pre-restore dump or cluster admin
+ * connection — and of the `db.restore.run` handler, so a job queued before the
+ * mode changed fails without touching a database. A SaaS deployment recovers
+ * through its managed database provider's point-in-time recovery instead; see
+ * `docs/runbooks/database-restore.md`.
+ */
+export class DatabaseRestoreDisabledError extends Error {
+  /** Stable, machine-readable. The config response's `restore.reason` uses the same token. */
+  readonly reason = 'deployment_mode_saas' as const;
+
+  constructor() {
+    super(
+      'In-app database restore is disabled on this deployment (DEPLOYMENT_MODE=saas). ' +
+        "Recover with your database provider's point-in-time recovery instead; in-app " +
+        'backups are unaffected. See docs/runbooks/database-restore.md.'
+    );
+    this.name = 'DatabaseRestoreDisabledError';
+    Object.setPrototypeOf(this, DatabaseRestoreDisabledError.prototype);
+  }
+}

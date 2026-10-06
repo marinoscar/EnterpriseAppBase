@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import type { DatabaseBackupRun, Job, Prisma } from '@prisma/client';
 
 import { PERMISSIONS } from '../common/constants/roles.constants';
+import { DeploymentModeService } from '../common/deployment/deployment-mode.service';
 import { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import type { RestoreCompletedEmailData } from '../email';
@@ -1038,6 +1039,9 @@ export class DatabaseRestoreService {
     // writes a `db.restore.run` row and returns, and
     // `handlers/db-restore-run.handler.ts` executes it on a worker slot.
     private readonly jobs: JobsService,
+    // #685. The deployment-mode gate: in `saas` every restore entry point
+    // refuses before it does anything at all. See `startRestore`.
+    private readonly deployment: DeploymentModeService,
     @Optional() @Inject(DATABASE_RESTORE_SEAM) seam?: DatabaseRestoreSeam
   ) {
     this.seam = seam ?? defaultDatabaseRestoreSeam;
@@ -1065,6 +1069,15 @@ export class DatabaseRestoreService {
     run: DatabaseBackupRun,
     options: StartRestoreOptions = {}
   ): Promise<StartRestoreResult> {
+    // ⚠ FIRST, BEFORE EVERY GATE (#685). In `DEPLOYMENT_MODE=saas` in-app
+    // restore does not exist: no queue read, no pre-flight (which opens a
+    // cluster admin connection), no download, no pre-restore dump, no job. The
+    // refusal is a thrown `DatabaseRestoreDisabledError` rather than a result
+    // variant because it is not a verdict about THIS run — nothing about the
+    // archive could change it — and because the rollback delegation below
+    // re-enters here and must refuse the same way.
+    this.deployment.assertInAppRestoreEnabled();
+
     if (this.activeRestoreRunId !== null) {
       return { outcome: 'already_running', runId: this.activeRestoreRunId };
     }
@@ -1225,6 +1238,12 @@ export class DatabaseRestoreService {
    * because there was no caller left to tell; now there is one.
    */
   async executeRestoreJob(job: Job): Promise<void> {
+    // #685. The handler refuses first; this is the same gate one layer down,
+    // so no caller of the executor can reach the swap in `saas` mode either.
+    // Before the payload is parsed and before the run row is read: a refused
+    // job touches no database at all.
+    this.deployment.assertInAppRestoreEnabled();
+
     const payload = parseRestoreJobPayload(job.payload);
 
     const run = await this.prisma.databaseBackupRun.findUnique({
@@ -2190,6 +2209,10 @@ export class DatabaseRestoreService {
    * exact moment an operator needs the way back.
    */
   async rollback(run: DatabaseBackupRun, actorUserId: string | null): Promise<RestoreRollbackResult> {
+    // #685. First, before the existence probe opens a cluster admin
+    // connection. A rename back is as much a database swap as a restore is.
+    this.deployment.assertInAppRestoreEnabled();
+
     const connection = this.seam.resolveConnection();
     const oldDatabase = run.restoreOldDb;
 

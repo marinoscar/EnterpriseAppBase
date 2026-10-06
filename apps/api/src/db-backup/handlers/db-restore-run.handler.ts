@@ -112,6 +112,7 @@ import type { Job } from '@prisma/client';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import type { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { DeploymentModeService } from '../../common/deployment/deployment-mode.service';
 import { DatabaseRestoreService, DB_RESTORE_RUN_TYPE } from '../database-restore.service';
 
 /**
@@ -148,7 +149,10 @@ export class DatabaseRestoreRunHandler implements JobHandler, OnModuleInit {
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly restore: DatabaseRestoreService
+    private readonly restore: DatabaseRestoreService,
+    // #685. Read on every `process()`, so a job queued before the deployment
+    // switched to `saas` is refused when it is claimed.
+    private readonly deployment: DeploymentModeService
   ) {}
 
   /** Self-registration — the only wiring a handler needs. */
@@ -168,6 +172,21 @@ export class DatabaseRestoreRunHandler implements JobHandler, OnModuleInit {
    * a terminal `failed` and never a retry.
    */
   async process(job: Job): Promise<void> {
+    // ⚠ FIRST (#685). In `DEPLOYMENT_MODE=saas` there is no in-app restore, and
+    // that includes a job queued while the deployment was still self-hosted:
+    // it fails here, with the same `DatabaseRestoreDisabledError` the routes
+    // map to 403, before the payload is read and before any database is
+    // touched. `maxAttempts: 1` makes that terminal. The retention drop job
+    // (`db.restore.old_db.drop`) is deliberately NOT gated — it only cleans up
+    // a database a past restore retained.
+    if (!this.deployment.inAppRestoreEnabled) {
+      this.logger.warn(
+        `Refusing database restore job ${job.id}: in-app restore is disabled ` +
+          `(DEPLOYMENT_MODE=${this.deployment.mode}). No database was touched.`
+      );
+      this.deployment.assertInAppRestoreEnabled();
+    }
+
     this.logger.warn(
       `Executing database restore job ${job.id}. This replaces the live database; the ` +
         'process will exit when the swap completes so a supervisor can restart it.'

@@ -22,6 +22,7 @@ import { join } from 'path';
 import { AboutService } from './about.service';
 import { aboutResponseSchema } from './dto/about-response.dto';
 import type { DatabaseHealthIndicator } from '../health/indicators/database.indicator';
+import { deploymentModeFor } from '../../test/helpers/deployment-mode.helper';
 
 const GOOD_DOCUMENT = {
   schema: 1,
@@ -53,9 +54,10 @@ describe('AboutService', () => {
       database: { status: 'up', responseTime: '3ms' },
     });
 
-    service = new AboutService({
-      isHealthy,
-    } as unknown as DatabaseHealthIndicator);
+    service = new AboutService(
+      { isHealthy } as unknown as DatabaseHealthIndicator,
+      deploymentModeFor('self-hosted'),
+    );
   });
 
   afterEach(async () => {
@@ -78,6 +80,25 @@ describe('AboutService', () => {
     const report = await service.describe();
 
     expect(report.api.version).toBe('9.9.9');
+  });
+
+  it('reports the deployment mode beside the API version (#685)', async () => {
+    expect((await service.describe()).api.deploymentMode).toBe('self-hosted');
+
+    const saas = new AboutService(
+      { isHealthy } as unknown as DatabaseHealthIndicator,
+      deploymentModeFor('saas'),
+    );
+    expect((await saas.describe()).api).toEqual({ version: '9.9.9', deploymentMode: 'saas' });
+  });
+
+  it('still reports the deployment mode with no document and no database (#685)', async () => {
+    isHealthy.mockRejectedValue(new Error('down'));
+
+    const report = await service.describe();
+
+    expect(report.api.deploymentMode).toBe('self-hosted');
+    expect(report.database).toBeNull();
   });
 
   it('still reports the API version with no document and no database', async () => {

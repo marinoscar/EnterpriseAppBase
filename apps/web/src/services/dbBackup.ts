@@ -216,14 +216,31 @@ export interface DbBackupConfig {
   nextRunAt: string | null;
   /** The run currently holding the single active slot, or `null`. */
   activeRunId: string | null;
+  /**
+   * Whether this deployment offers in-app restore and rollback at all (#685).
+   * A deployment fact from `DEPLOYMENT_MODE`, not a setting: `available: false`
+   * means the restore and rollback routes answer 403 for everyone. Backups are
+   * unaffected.
+   */
+  restore: DbBackupRestoreAvailability;
+}
+
+/** Why in-app restore is unavailable. One reason today. */
+export type DbBackupRestoreUnavailableReason = 'deployment_mode_saas';
+
+/** `DbBackupConfig.restore`. */
+export interface DbBackupRestoreAvailability {
+  available: boolean;
+  /** `null` when `available` is true. */
+  reason: DbBackupRestoreUnavailableReason | null;
 }
 
 /**
  * The body `PUT config` accepts (`UpdateDatabaseBackupConfigDto`) — every field
- * optional, and the two computed ones absent because they are not settable.
+ * optional, and the computed ones absent because they are not settable.
  */
 export type UpdateDbBackupConfigInput = Partial<
-  Omit<DbBackupConfig, 'nextRunAt' | 'activeRunId'>
+  Omit<DbBackupConfig, 'nextRunAt' | 'activeRunId' | 'restore'>
 >;
 
 /**

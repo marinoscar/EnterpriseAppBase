@@ -122,6 +122,23 @@ describe('Doctor API (Integration)', () => {
       for (const check of body.data.checks) expect(check.category).toBe('core');
     }, 30000);
 
+    it('includes core.deployment-mode, passing for the default self-hosted mode (#685)', async () => {
+      const { body } = await request(server())
+        .get(`${ROUTE}?category=core&refresh=true`)
+        .set(await adminAuth())
+        .expect(200);
+
+      const check = (body.data.checks as Array<Record<string, any>>).find(
+        (entry) => entry.id === 'core.deployment-mode',
+      );
+
+      expect(check).toMatchObject({
+        status: 'pass',
+        detail: 'Self-hosted: in-app backup and restore available',
+        data: { mode: 'self-hosted', inAppRestore: true },
+      });
+    }, 30000);
+
     it('rejects a malformed category with 400', async () => {
       await request(server()).get(`${ROUTE}?category=${encodeURIComponent('DROP TABLE')}`).set(await adminAuth()).expect(400);
     });

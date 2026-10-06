@@ -269,7 +269,7 @@ An administrator composes a message for every active user, sends it now or sched
 
 A backup is the `db.backup.run` job: `pg_dump` streams straight into object storage (never buffered), and the server reads the archive back to verify it. Backups run on a schedule (`databaseBackup` settings) or on demand. Each attempt is a `database_backup_runs` row with its own heartbeat and stale window; a partial unique index allows at most one active run. With the offload switches on, a worker node can take the dump using a brokered, SELECT-only PostgreSQL role.
 
-A restore (`db.restore.run`) replaces the live database from a chosen backup, opening a maintenance window around the rename. A rollback undoes it; the displaced database is retained for `databaseBackup.oldDatabaseRetentionHours`, then dropped by `db.restore.old-db-drop`. Restore is a separate permission from backup. When the database role lacks a needed privilege (common on managed PostgreSQL), the API answers `guided` with paste-ready SQL instead of an error.
+A restore (`db.restore.run`) replaces the live database from a chosen backup, opening a maintenance window around the rename. A rollback undoes it; the displaced database is retained for `databaseBackup.oldDatabaseRetentionHours`, then dropped by `db.restore.old-db-drop`. Restore is a separate permission from backup. When the database role lacks a needed privilege (common on managed PostgreSQL), the API answers `guided` with paste-ready SQL instead of an error. With `DEPLOYMENT_MODE=saas` in-app restore and rollback are disabled entirely, and recovery is the provider's point-in-time recovery.
 
 - **Code:** `apps/api/src/db-backup/`
 - **UI:** `/admin/settings/db-backup`
@@ -661,6 +661,7 @@ The reference for every variable is [`infra/compose/.env.example`](../infra/comp
 - **Process tuning** (`JOBS_*`, `NODE_*`, `DB_BACKUP_SCHEDULE_ENABLED`) controls what this process runs, not deployment policy. Deployment policy is a system setting.
 - **`EVENT_BUS_ADAPTER`** is deployment topology: `postgres` once more than one API replica shares the database, `in-process` (or unset) for exactly one. It is the same on every replica; see [§5.21](#521-event-bus).
 - **`MAINTENANCE_MODE`** is a break-glass override; see [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md).
+- **`DEPLOYMENT_MODE`** (`self-hosted`, the default, or `saas`) is a deployment-level fact read once at startup; an invalid value stops the API. `saas` disables in-app database restore and rollback (routes `403`, queued `db.restore.run` jobs refused) in favour of the provider's point-in-time recovery; backups are unchanged. It is reported by `GET /api/admin/about` and the `core.deployment-mode` doctor check. See [specs/database-restore.md](specs/database-restore.md#deployment-mode) and, for the deployment modes themselves, [specs/platform-packages.md](specs/platform-packages.md#deployment-modes).
 
 The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run prisma:seed` inside the `api` container after the first start and after each upgrade.
 

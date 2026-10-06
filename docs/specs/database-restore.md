@@ -390,6 +390,9 @@ POST /api/admin/db-backup/runs/{id}/rollback   { "confirmation": "ROLLBACK" }
 - **`409`** for a concurrent restore, with the active id at
   `details.activeRunId` (top-level fields are dropped by
   `HttpExceptionFilter`).
+- **`403` with `details.reason = "deployment_mode_saas"`** on both routes when
+  `DEPLOYMENT_MODE=saas`; nothing is read or started. See
+  [Deployment mode](#deployment-mode).
 - **Error mapping in the controller.** The admin service throws domain errors
   (`DatabaseRestoreRunNotFoundError` → `404`, `DatabaseRestoreNotAllowedError`
   → `400`) because the restore path is also re-entered from inside a running
@@ -397,6 +400,62 @@ POST /api/admin/db-backup/runs/{id}/rollback   { "confirmation": "ROLLBACK" }
   rolling back a run that was never restored.
 - The run DTO publishes the `restore*` columns; an unrecognised stored
   `restoreStatus` narrows to `null`.
+
+### Deployment mode
+
+`DEPLOYMENT_MODE` (`self-hosted`, the default, or `saas`) is a deployment-level
+environment variable, parsed once at startup by
+`apps/api/src/common/deployment/deployment-mode.ts`. An invalid value stops the
+API before it connects to anything, with a message naming the variable and the
+allowed values. `saas` disables in-app restore and rollback; it changes nothing
+else on this page and nothing about backups.
+
+**Why.** A SaaS deployment runs on a managed database (RDS with point-in-time
+recovery). There, recovery belongs to the provider: restore to a point in time
+into a new instance and repoint `POSTGRES_HOST`. An application that renames
+and swaps its own database is the wrong tool, and least privilege says its role
+should hold neither `CREATEDB` nor ownership of other databases. A rename and
+swap also cannot recover to an arbitrary second, which PITR can. See
+[platform-packages.md](platform-packages.md), "Deployment modes" and red flag 7.
+
+**Three layers, each refusing first**, through
+`DeploymentModeService.assertInAppRestoreEnabled()`, which throws
+`DatabaseRestoreDisabledError` (`reason: 'deployment_mode_saas'`):
+
+1. **Domain.** `DatabaseBackupAdminService.startRestore` and `rollbackRestore`
+   refuse before the run lookup and log a `warn` with the actor and run id.
+   `DatabaseRestoreService.startRestore`, `rollback` and `executeRestoreJob`
+   refuse before the queue guard, the pre-flight, any download, pre-restore
+   dump or cluster admin connection. The `pre_restore_dump` rollback re-enters
+   `startRestore` and refuses the same way. The refusal comes before
+   pre-flight, so the pre-flight rule (create, drop and rename nothing) holds
+   trivially.
+2. **HTTP.** The controller maps the error to `403` with
+   `details: { reason: "deployment_mode_saas" }` and a message naming the
+   provider's point-in-time recovery. The `Zod` confirmation literal is still
+   checked first, so a bad body is still a `400`.
+3. **Queue.** `db.restore.run` refuses any job in `saas`, including one queued
+   while the deployment was self-hosted: it fails, logged at `warn`, before its
+   payload is read and without touching a database. `maxAttempts: 1` makes that
+   terminal. `db.restore.old-db-drop` is **not** gated: it only cleans up a
+   database a past restore retained.
+
+**What clients see.** `GET /api/admin/db-backup/config` carries
+`restore: { available: boolean, reason: "deployment_mode_saas" | null }`; the
+page hides the restore and rollback actions when `available` is false and shows
+an info notice (`data-testid="db-backup-restore-disabled"`) pointing at the
+provider's point-in-time recovery and the runbook. `GET /api/admin/about`
+reports `api.deploymentMode`. The doctor check `core.deployment-mode` reports
+the mode and warns when SaaS runs with in-app backups off
+([doctor.md](doctor.md)).
+
+**Backups are unchanged in both modes**, per the spec: an operator may still
+want logical dumps beside the provider's snapshots.
+
+**Not a setting, and not a permission.** A system setting would let an
+administrator (or a compromised admin account) switch a SaaS deployment back
+and run a swap. Revoking `db_backup:restore` from every role is editable by
+seed and per role; the mode is a property of the deployment.
 
 ### Operator UI
 
@@ -418,6 +477,11 @@ POST /api/admin/db-backup/runs/{id}/rollback   { "confirmation": "ROLLBACK" }
   `isBackupDownloadable`, `isBackupRestorable`, `isBackupCancelable`,
   `isBackupDeletable`, `isRollbackAvailable`. A `stale` run is neither
   downloadable nor restorable.
+- **The deployment mode hides, it does not disable.** When
+  `config.restore.available` is false (`DEPLOYMENT_MODE=saas`), restore and
+  rollback are not offered at all and an info notice says why: no role and no
+  run can make them work on that deployment, so a disabled control would
+  suggest a precondition that does not exist.
 - **The mid-swap outage is expected.** While a restore is in flight, an
   unreachable API renders at `info` ("This is the expected last step"). The flag
   stays set until a successful read shows nothing in flight. The following
@@ -444,13 +508,19 @@ restored `users`, plus the actor if they exist there. See
 | `oldDatabaseRetentionHours` | How long a retained database, and a `pre_restore` backup, are kept (default 48) |
 
 Full namespace: [database-backup.md](database-backup.md#settings-databasebackup-namespace).
-No environment variables are specific to restore.
+
+### Environment
+
+| Variable | Effect on restore |
+|---|---|
+| `DEPLOYMENT_MODE` | `self-hosted` (default): restore and rollback available. `saas`: both refused with `403`, queued restore jobs refused. Read at startup; an invalid value stops the API. See [Deployment mode](#deployment-mode) |
 
 ### Permissions
 
 `db_backup:restore` gates both routes, and nothing else does. Both routes also
 require the Admin role. It is seeded Admin-only. See §6 for why it is separate
-from `db_backup:write`.
+from `db_backup:write`. On top of the permission, `DEPLOYMENT_MODE=saas`
+refuses both routes for every caller ([Deployment mode](#deployment-mode)).
 
 ### API surface
 
@@ -546,6 +616,11 @@ rehearsal is for.
 - **One dialog for restore and rollback**, and warnings visible before the
   decision, not after a failure.
 
+- **The deployment mode is an environment variable that fails fast**
+  (#685). A system setting is switchable from the UI; an unknown value that
+  silently picked a mode would either re-enable a destructive capability in
+  SaaS or remove recovery from an on-prem install.
+
 ## 7. Verification
 
 1. Take a backup and wait for `completed` (see
@@ -569,6 +644,10 @@ rehearsal is for.
    `database-restore.db.spec.ts`.
 7. Follow the manual procedure in the
    [runbook](../runbooks/database-restore.md) once in staging.
+8. With `DEPLOYMENT_MODE=saas`, send `{"confirmation":"RESTORE"}`: expect `403`
+   with `details.reason: "deployment_mode_saas"`, no new `db.restore.run`, and
+   `restore.available: false` on `GET /api/admin/db-backup/config`. Tests:
+   `test/db-backup/db-backup-restore-saas-mode.integration.spec.ts`.
 
 ## History
 
@@ -579,3 +658,5 @@ rehearsal is for.
 - #288: `db_backup.restore_completed` notification.
 - Epic #345, #353: restore became the `db.restore.run` queue job and the
   retained-database drop became `db.restore.old-db-drop`.
+- #685 (platform-packages PP-1.14): `DEPLOYMENT_MODE=saas` disables in-app
+  restore and rollback at the service, HTTP and queue layers.

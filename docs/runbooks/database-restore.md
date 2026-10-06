@@ -50,6 +50,12 @@ archives come from is [`docs/specs/database-backup.md`](../specs/database-backup
 - **The API is not serving, or the pre-flight came back `guided`.** Section 4 is
   the procedure, by hand, from a shell. It is the same sequence, with you
   issuing the statements.
+- **The deployment runs with `DEPLOYMENT_MODE=saas`.** In-app restore and
+  rollback are disabled (both routes answer `403` with
+  `details.reason: "deployment_mode_saas"`, and the Database Backup page shows
+  a notice instead of the actions). Recover with the database provider's
+  point-in-time recovery: **section 11**. Sections 2-9 are for self-hosted
+  deployments only, the manual `pg_restore` path included.
 
 Sections 1-3 (what to know first, what the pre-flight tells you, disk space)
 apply to both. So do the two prerequisites in **section 7**: get those wrong
@@ -606,6 +612,52 @@ never touched — which also means it is never cleaned up. Drop it yourself.
 - [ ] Real data checked after logging in
 - [ ] Displaced database kept until you are satisfied, then dropped by hand if
       you created it by hand
+
+**SaaS mode (section 11)**
+
+- [ ] Point-in-time target chosen (UTC), before the incident
+- [ ] Restored into a NEW instance; the original left untouched
+- [ ] `POSTGRES_HOST` (and port, credentials if changed) repointed; API
+      restarted; migrations run if the schemas differ
+- [ ] `/api/health/ready` answers `200`; real data checked
+
+## 11. SaaS mode: use the provider's point-in-time recovery
+
+With `DEPLOYMENT_MODE=saas` the application does not restore its own database.
+That is deliberate ([spec](../specs/database-restore.md#deployment-mode)): on a
+managed database, recovery belongs to the provider, and the application's role
+should not be able to create, rename or drop databases. In-app **backups** keep
+working, and their archives are still useful for a logical copy or an
+inspection; they are just not restored by the application.
+
+On Amazon RDS (other providers have the same shape):
+
+1. **Pick the point in time**, in UTC: the last moment before the damage. The
+   console shows the latest restorable time; you cannot go past it.
+2. **Restore to a point in time into a NEW instance**
+   (`aws rds restore-db-instance-to-point-in-time --source-db-instance-identifier
+   <live> --target-db-instance-identifier <live>-pitr-<date> --restore-time
+   <UTC time>`, or the console's "Restore to point in time"). Use the same
+   parameter group, subnet group and security groups as the live instance. The
+   original instance is untouched, and stays your way back.
+3. **Wait until the new instance is `available`**, then connect to it with
+   `psql` and check the data you care about.
+4. **Open maintenance mode** (`/admin/settings/maintenance`, or
+   `MAINTENANCE_MODE` set to `true` and a restart) so nothing writes to the old
+   instance while you switch.
+5. **Repoint the application**: set `POSTGRES_HOST` (and `POSTGRES_PORT`,
+   `POSTGRES_USER`, `POSTGRES_PASSWORD` if they differ) in the deployment's
+   `.env` to the new instance's endpoint, and restart the API. The application
+   does not migrate on startup; if the restored point predates a migration the
+   running code needs, run `npm run prisma:migrate` (see section 6 for the
+   trade-off).
+6. **Close maintenance mode**, check `/api/health/ready` and real data, then
+   decide how long to keep the old instance before deleting it.
+
+**Least privilege.** In SaaS mode the application's database role needs no
+`CREATEDB` and should not own any database other than its own. The in-app
+restore that would need those rights is off, so grant them to nobody the
+application runs as.
 
 Related runbooks: [`postgres-client-version.md`](postgres-client-version.md)
 (client/server major mismatch) and [`maintenance-mode.md`](maintenance-mode.md)
