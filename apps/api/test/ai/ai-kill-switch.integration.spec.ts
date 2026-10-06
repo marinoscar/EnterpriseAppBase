@@ -198,6 +198,7 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       'ai.catalog.refresh': { providerId: 'openai' },
       'ai.keys.recheck': { provider: 'openai' },
       'ai.usage.purge': {},
+      'ai.runs.purge': {},
     };
 
     let registry: JobHandlerRegistry;
@@ -414,6 +415,35 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       expect(app.harness.fake.calls).toEqual([]);
       expect(app.context.prismaMock.aiUsageEvent.deleteMany).toHaveBeenCalledWith({
         where: { id: { in: ['old-1'] } },
+      });
+      getSpy.mockRestore();
+    });
+
+    it('ai.runs.purge: makes no provider call, and still purges while AI is off (retention is not AI use)', async () => {
+      app.harness.setPolicy({ enabled: false });
+
+      const settings = app.context.app.get(SystemSettingsService);
+      jest.spyOn(settings, 'getRetentionPolicy').mockResolvedValueOnce({
+        ...DEFAULT_SYSTEM_SETTINGS.retention,
+        aiRuns: { enabled: true, days: 90 },
+      });
+      (app.context.prismaMock.aiRun.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'old-run-1' }]);
+      (app.context.prismaMock.aiRun.deleteMany as jest.Mock).mockResolvedValueOnce({ count: 1 });
+
+      const handler = registry.get('ai.runs.purge');
+      expect(handler).toBeDefined();
+
+      const providerRegistry = app.context.app.get(AiProviderRegistry);
+      const getSpy = jest.spyOn(providerRegistry, 'get');
+
+      await expect(
+        handler!.process({ id: 'job-kill-switch', payload: {} } as never),
+      ).resolves.toBeUndefined();
+
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(app.harness.fake.calls).toEqual([]);
+      expect(app.context.prismaMock.aiRun.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['old-run-1'] } },
       });
       getSpy.mockRestore();
     });
