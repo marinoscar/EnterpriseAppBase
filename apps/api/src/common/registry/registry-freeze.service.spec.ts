@@ -2,8 +2,8 @@ import { Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
 import { CommonModule } from '../common.module';
-import { Registry, defineRegistry, listDefinedRegistries } from './registry';
-import { RegistryFreezeService } from './registry-freeze.service';
+import { Registry, defineRegistry, listDefinedRegistries } from './index';
+import { RegistryFreezeService } from '@marinoscar/platform-api/core';
 
 interface Entry {
   id: string;

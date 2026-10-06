@@ -11,7 +11,7 @@ import {
   freezeDefinedRegistries,
   listDefinedRegistries,
   withTemporaryEntries,
-} from './index';
+} from '../../src/core';
 
 interface Entry {
   id: string;
@@ -38,7 +38,7 @@ function thrown(fn: () => unknown): RegistryError {
 /** Every module specifier a TypeScript source imports, re-exports or requires. */
 function specifiersOf(file: string): string[] {
   // Comments are stripped first, so a TSDoc example never counts as an import.
-  const source = readFileSync(join(__dirname, file), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+  const source = readFileSync(join(__dirname, '..', '..', 'src', 'core', 'registry', file), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
   const patterns = [
     /\bimport\s+(?:type\s+)?[^'";]*?from\s*['"]([^'"]+)['"]/g,
     /\bimport\s*['"]([^'"]+)['"]/g,

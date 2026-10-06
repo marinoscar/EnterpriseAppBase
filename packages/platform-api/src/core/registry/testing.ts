@@ -41,6 +41,8 @@ function insideTestRunner(): boolean {
  * await withTemporaryEntries(permissionRegistry, [{ id: 'test:read' }], async () => {
  *   expect(permissionRegistry.has('test:read')).toBe(true);
  * });
+ *
+ * @stability stable
  */
 export async function withTemporaryEntries<T, R>(
   registry: Registry<T>,
