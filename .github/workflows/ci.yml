@@ -76,6 +76,7 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+      - run: npm run build:packages
 
       - run: npx prisma generate
         working-directory: apps/api
@@ -146,6 +147,7 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+      - run: npm run build:packages
 
       - run: npx prisma generate
         working-directory: apps/api
@@ -190,6 +192,7 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+      - run: npm run build:packages
 
       - run: npm run test:run --workspace=web -- --shard=${{ matrix.shard }}/6
 
@@ -207,6 +210,7 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+      - run: npm run build:packages
 
       # The dump imports AppModule, which imports @prisma/client. Preview mode
       # never instantiates PrismaService, but the generated client still has to
@@ -311,6 +315,7 @@ jobs:
       # remove @nestjs/cli (the build), the Prisma CLI (migrations) and ts-node
       # (the seed). Only the final step runs as production.
       - run: npm ci
+      - run: npm run build:packages
 
       - run: npx prisma generate
         working-directory: apps/api
@@ -399,6 +404,7 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+      - run: npm run build:packages
 
       # The spec imports PrismaService transitively (TelemetryQueryService ->
       # PrismaService), so the generated client must exist even though this
@@ -482,6 +488,7 @@ jobs:
       # test-runner packages, not application code), so its own
       # `@playwright/test` install is separate.
       - run: npm ci
+      - run: npm run build:packages
       - run: npm ci
         working-directory: tests/visual
 
