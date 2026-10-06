@@ -10,6 +10,9 @@ import {
   DEFAULT_USER_SETTINGS,
   UserSettingsValue,
 } from '../../common/types/settings.types';
+import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
+
+const principalCacheStub = { invalidate: jest.fn() };
 
 describe('UserSettingsService', () => {
   let service: UserSettingsService;
@@ -31,6 +34,8 @@ describe('UserSettingsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UserSettingsService,
+        // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
+        { provide: PrincipalCache, useValue: principalCacheStub },
         { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();

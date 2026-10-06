@@ -1,5 +1,6 @@
 import { buildDatabaseUrl } from '../common/database-url';
 import { resolveServiceName } from '../common/otel/service-name';
+import { parsePrincipalCacheTtlSeconds } from '../auth/principal-cache/principal-cache.config';
 
 export default () => {
   const host = process.env.POSTGRES_HOST || 'localhost';
@@ -47,6 +48,18 @@ export default () => {
     secret: process.env.JWT_SECRET,
     accessTtlMinutes: parseInt(process.env.JWT_ACCESS_TTL_MINUTES || '15', 10),
     refreshTtlDays: parseInt(process.env.JWT_REFRESH_TTL_DAYS || '14', 10),
+  },
+
+  // JWT principal cache (PP-1.12, #683). A deployment-level performance knob,
+  // not a runtime setting: seconds a validated access token's user, roles and
+  // permissions may be reused (default 30; `0` disables the cache). A
+  // non-numeric or negative value means 30, with one warning. Invalidation on
+  // every user/role write keeps changes immediate; the TTL only bounds
+  // staleness while the event bus is down. See auth/principal-cache/.
+  auth: {
+    principalCacheTtlSeconds: parsePrincipalCacheTtlSeconds(
+      process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS,
+    ),
   },
 
   // SECRETS_ENCRYPTION_KEY is DELIBERATELY ABSENT from this object (#116,

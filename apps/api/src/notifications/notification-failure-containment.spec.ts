@@ -23,6 +23,9 @@ import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
 } from './notification.types';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+
+const principalCacheStub = { invalidate: jest.fn() };
 
 // =============================================================================
 // A send failure does not fail or roll back its trigger (issue #128, epic #109)
@@ -156,6 +159,8 @@ describe('a notification send failure never fails or rolls back its trigger', ()
       providers: [
         UsersService,
         NotificationsService,
+        // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
+        { provide: PrincipalCache, useValue: principalCacheStub },
         NotificationDeliveryService,
         EmailNotificationChannel,
         { provide: PrismaService, useValue: prisma },

@@ -8,6 +8,9 @@ import { createMockPrismaService, MockPrismaService } from '../../test/mocks/pri
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import { ROLES } from '../common/constants/roles.constants';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+
+const principalCacheStub = { invalidate: jest.fn() };
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -85,6 +88,8 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
+        // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
+        { provide: PrincipalCache, useValue: principalCacheStub },
         // #128 wired real notification triggers into this service. The
         // dispatcher is mocked here because these tests are about the
         // service's own behaviour, not about delivery — and because `notify`
@@ -1017,6 +1022,67 @@ describe('UsersService', () => {
           service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id)
         ).rejects.toThrow('Invalid roles: invalid-role, another-invalid');
       });
+    });
+  });
+  describe('principal cache invalidation (PP-1.12, #683)', () => {
+    it('updateUser invalidates the user after the write committed', async () => {
+      const order: string[] = [];
+      mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+      mockPrisma.user.update.mockImplementation((async () => {
+        order.push('user.update');
+        return { ...mockOtherUser, isActive: false, userRoles: [] };
+      }) as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      principalCacheStub.invalidate.mockImplementation(() => order.push('invalidate'));
+
+      await service.updateUser(mockOtherUser.id, { isActive: false }, mockAdminUser.id);
+
+      expect(principalCacheStub.invalidate).toHaveBeenCalledWith({ userId: mockOtherUser.id });
+      expect(order).toEqual(['user.update', 'invalidate']);
+    });
+
+    it('updateUser invalidates even for a profile-only change', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+      mockPrisma.user.update.mockResolvedValue({ ...mockOtherUser, userRoles: [] } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.updateUser(mockOtherUser.id, { displayName: 'New' }, mockAdminUser.id);
+
+      expect(principalCacheStub.invalidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('updateUserRoles invalidates AFTER the transaction resolved, never inside it', async () => {
+      const order: string[] = [];
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...mockOtherUser,
+        userRoles: [{ role: mockRoles.admin }],
+        identities: [],
+      } as any);
+      mockPrisma.role.findMany.mockResolvedValue([mockRoles.viewer] as any);
+      mockPrisma.$transaction.mockImplementation((async (callback: any) => {
+        order.push('transaction:start');
+        const result = await callback(mockPrisma);
+        order.push('transaction:committed');
+        return result;
+      }) as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      principalCacheStub.invalidate.mockImplementation(() => order.push('invalidate'));
+
+      await service.updateUserRoles(mockOtherUser.id, { roleNames: ['viewer'] }, mockAdminUser.id);
+
+      expect(principalCacheStub.invalidate).toHaveBeenCalledWith({ userId: mockOtherUser.id });
+      expect(order).toEqual(['transaction:start', 'transaction:committed', 'invalidate']);
+    });
+
+    it('updateUserRoles does not invalidate when the change is rejected before any write', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+      mockPrisma.role.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.updateUserRoles(mockOtherUser.id, { roleNames: ['invalid-role'] }, mockAdminUser.id),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(principalCacheStub.invalidate).not.toHaveBeenCalled();
     });
   });
 });

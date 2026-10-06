@@ -29,6 +29,7 @@ import { TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { UserWelcomeEmailData } from '../email';
+import { PrincipalCache } from './principal-cache/principal-cache.service';
 
 export interface FullTokenResponse {
   accessToken: string;
@@ -47,6 +48,8 @@ export class AuthService {
     private readonly adminBootstrapService: AdminBootstrapService,
     private readonly allowlistService: AllowlistService,
     private readonly notifications: NotificationsService,
+    // PP-1.12 (#683): JWT principals are read through this short-TTL cache.
+    private readonly principalCache: PrincipalCache,
     // #600. Optional: see `fallbackAppMetrics`.
     @Optional()
     private readonly metrics: AppMetricsService = fallbackAppMetrics(),
@@ -166,6 +169,8 @@ export class AuthService {
         providerProfileImageUrl: profile.picture || null,
       },
     });
+    // Principal cache (PP-1.12, #683): the cached row carries these columns.
+    this.principalCache.invalidate({ userId: user.id });
 
     // Check if user is disabled
     if (!user.isActive) {
@@ -368,6 +373,11 @@ export class AuthService {
 
       return newUser;
     });
+
+    // Principal cache (PP-1.12, #683): after the transaction (which may have
+    // upserted the admin role) committed. The user is new, so nothing should
+    // be cached for it — belt and braces.
+    this.principalCache.invalidate({ userId: user.id });
 
     this.logger.log(`User created successfully: ${user.email}`);
     return user;
@@ -751,6 +761,15 @@ export class AuthService {
    * passed its `credentialExpiresAt` — which is what makes
    * `DELETE /api/auth/device/sessions/{id}` revoke a 7-day access token
    * immediately. A token without `did` is validated exactly as before.
+   *
+   * PRINCIPAL CACHE (PP-1.12, #683). The user/role/permission join below is
+   * read through `PrincipalCache` for at most AUTH_PRINCIPAL_CACHE_TTL_SECONDS.
+   * The `did` check above it is NEVER cached: it runs first, on every request.
+   * Every write that changes what a principal resolves to calls
+   * `principalCache.invalidate` after it commits, so a deactivation or role
+   * change still reaches the next request on this replica, and other replicas
+   * within event-bus latency. An inactive user may be cached; the `isActive`
+   * check still rejects it.
    */
   async validateJwtPayload(payload: JwtPayload): Promise<AuthenticatedUser | null> {
     if (payload.did !== undefined) {
@@ -773,6 +792,15 @@ export class AuthService {
       }
     }
 
+    const cached = this.principalCache.get(payload.sub);
+    if (cached) {
+      return cached.isActive ? cached : null;
+    }
+
+    // Captured BEFORE the read: if an invalidation lands while the query is in
+    // flight, `set` refuses to store what may be the pre-change principal.
+    const generation = this.principalCache.generation(payload.sub);
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
@@ -792,11 +820,19 @@ export class AuthService {
       },
     });
 
-    if (!user || !user.isActive) {
+    if (!user) {
       return null;
     }
 
-    return user;
+    // The frozen copy when it was stored; the fresh row when the cache is
+    // disabled or the generation moved (exactly the behaviour before #683).
+    const principal = this.principalCache.set(user.id, user, generation) ?? user;
+
+    if (!principal.isActive) {
+      return null;
+    }
+
+    return principal;
   }
 
   /**

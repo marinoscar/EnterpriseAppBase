@@ -426,6 +426,26 @@ describe('env metadata', () => {
     expect(spec?.defaultValue).toBe('postgres');
     expect(spec?.optional).toBe(false);
   });
+
+  it('accepts only a non-negative whole number for AUTH_PRINCIPAL_CACHE_TTL_SECONDS (PP-1.12)', () => {
+    const validate = metadataFor('AUTH_PRINCIPAL_CACHE_TTL_SECONDS').validate;
+
+    for (const good of ['0', '30', '300']) {
+      expect(validate?.(good)).toBeUndefined();
+    }
+    for (const bad of ['-1', '1.5', '30s', 'abc', '']) {
+      expect(validate?.(bad)).toContain('whole number');
+    }
+  });
+
+  it('ships AUTH_PRINCIPAL_CACHE_TTL_SECONDS=30, uncommented, in the template', () => {
+    const spec = parseEnvExample(readFileSync(REAL_TEMPLATE, 'utf8')).find(
+      (entry) => entry.key === 'AUTH_PRINCIPAL_CACHE_TTL_SECONDS',
+    );
+
+    expect(spec?.defaultValue).toBe('30');
+    expect(spec?.optional).toBe(false);
+  });
 });
 
 describe('validateBase64Key32', () => {

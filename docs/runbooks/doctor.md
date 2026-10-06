@@ -78,6 +78,7 @@ Each entry is the meaning of a `warn` or `fail` and where to go. The remedy in t
 | `auth.jwt-secret` | `JWT_SECRET` is unset (fail) or under 32 characters (warn). | Set a random value of 32 or more characters and restart the API. Everyone signs in again. |
 | `auth.providers` | No sign-in provider is configured. | Set the `GOOGLE_*` variables in `.env` and restart the API. |
 | `auth.initial-admin` | No active Admin (fail), or `INITIAL_ADMIN_EMAIL` unset (warn). | Set `INITIAL_ADMIN_EMAIL` and sign in with that account; or `/admin/settings/users`. |
+| `auth.principal-cache` | Principals are cached but invalidations cannot cross replicas: the bus is `in-process` or its listener is down. A role change or deactivation made on one replica takes up to `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` to reach the others. Harmless with exactly one replica. | Set `EVENT_BUS_ADAPTER=postgres` and restart every replica (see `core.event-bus` if the listener is down), or set `AUTH_PRINCIPAL_CACHE_TTL_SECONDS=0` to turn the cache off. |
 | `maintenance.mode` | A window is open (warn), or the saved setting could not be read. | `/admin/settings/maintenance`. If `MAINTENANCE_MODE` holds it open, unset it and restart; see [maintenance runbook](maintenance-mode.md). |
 
 ### Storage, email and Web Push

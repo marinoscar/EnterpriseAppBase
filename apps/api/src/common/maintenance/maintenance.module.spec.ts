@@ -85,6 +85,10 @@ describe('MaintenanceModule', () => {
       'ConfigModule',
       'JwtModule',
       'MaintenanceModule',
+      // PP-1.12 (#683): imported by SettingsModule for the display-name sync's
+      // principal invalidation. A leaf with no imports of its own (one
+      // in-memory map), so it does not widen the graph.
+      'PrincipalCacheModule',
       'SettingsModule',
     ]);
   });

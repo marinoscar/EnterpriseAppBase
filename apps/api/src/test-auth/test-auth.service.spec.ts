@@ -5,6 +5,9 @@ import { TestAuthService } from './test-auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService, mockPrismaTransaction } from '../../test/mocks/prisma.mock';
 import { TestLoginDto } from './dto/test-login.dto';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+
+const principalCacheStub = { invalidate: jest.fn() };
 
 describe('TestAuthService', () => {
   let service: TestAuthService;
@@ -71,6 +74,8 @@ describe('TestAuthService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TestAuthService,
+        // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
+        { provide: PrincipalCache, useValue: principalCacheStub },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
@@ -499,6 +504,35 @@ describe('TestAuthService', () => {
         },
       });
       expect(result.user.roles).toContain('admin');
+    });
+
+    it('invalidates the cached principal after the role swap committed (PP-1.12, #683)', async () => {
+      const user = {
+        id: 'swap-user',
+        email: 'swap@example.com',
+        displayName: null,
+        isActive: true,
+        userRoles: [{ role: mockAdminRole }],
+      };
+      const order: string[] = [];
+      mockPrisma.user.findUnique.mockResolvedValue(user as any);
+      mockPrisma.role.findUnique.mockResolvedValue(mockAdminRole as any);
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 1 });
+      mockPrisma.userRole.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+      const transaction = mockPrisma.$transaction as jest.Mock;
+      const original = transaction.getMockImplementation();
+      transaction.mockImplementationOnce(async (arg: any) => {
+        const result = await original!(arg);
+        order.push('transaction:committed');
+        return result;
+      });
+      principalCacheStub.invalidate.mockImplementationOnce(() => order.push('invalidate'));
+
+      await service.loginAsTestUser({ email: user.email, role: 'admin' });
+
+      expect(principalCacheStub.invalidate).toHaveBeenCalledWith({ userId: 'swap-user' });
+      expect(order).toEqual(['transaction:committed', 'invalidate']);
     });
 
     it('should create user settings for new users', async () => {

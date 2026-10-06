@@ -11,6 +11,9 @@ import { resetPrismaMock, prismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.factory';
 import { GoogleProfile } from '../../src/auth/strategies/google.strategy';
+import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
+import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
+import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 
 describe('Auth Service - Allowlist Enforcement', () => {
   let authService: AuthService;
@@ -45,6 +48,9 @@ describe('Auth Service - Allowlist Enforcement', () => {
         AuthService,
         AllowlistService,
         AdminBootstrapService,
+        // PP-1.12 (#683): the JWT principal cache and the bus it invalidates on.
+        PrincipalCache,
+        { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: { sign: jest.fn(() => 'mock-jwt-token'), signAsync: jest.fn(() => 'mock-jwt-token') } },
         { provide: ConfigService, useValue: mockConfigService },

@@ -151,3 +151,35 @@ describe('configuration() — deployment.mode (#685)', () => {
     expect(configuration().deployment.mode).toBe(' bogus ');
   });
 });
+
+describe('configuration() — auth.principalCacheTtlSeconds (PP-1.12, #683)', () => {
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS;
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS;
+    else process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS = saved;
+  });
+
+  it('defaults to 30 seconds when unset or blank', () => {
+    delete process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS;
+    expect(configuration().auth.principalCacheTtlSeconds).toBe(30);
+    process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS = '  ';
+    expect(configuration().auth.principalCacheTtlSeconds).toBe(30);
+  });
+
+  it('honours a whole number, including 0 (disabled)', () => {
+    process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS = '5';
+    expect(configuration().auth.principalCacheTtlSeconds).toBe(5);
+    process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS = '0';
+    expect(configuration().auth.principalCacheTtlSeconds).toBe(0);
+  });
+
+  it.each(['abc', '-1', '1.5', '30s'])('falls back to 30 for %p', (raw) => {
+    process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS = raw;
+    expect(configuration().auth.principalCacheTtlSeconds).toBe(30);
+  });
+});

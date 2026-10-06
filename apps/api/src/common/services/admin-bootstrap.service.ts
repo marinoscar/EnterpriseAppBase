@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
 
 @Injectable()
 export class AdminBootstrapService implements OnModuleInit {
@@ -9,6 +10,8 @@ export class AdminBootstrapService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    // PP-1.12 (#683): `assignAdminRole` changes what the user's JWT resolves to.
+    private readonly principalCache: PrincipalCache,
   ) {}
 
   async onModuleInit() {
@@ -104,6 +107,9 @@ export class AdminBootstrapService implements OnModuleInit {
         roleId: adminRole.id,
       },
     });
+
+    // Principal cache (PP-1.12, #683): the grant reaches the next request.
+    this.principalCache.invalidate({ userId });
 
     this.logger.log(`Admin role assigned to user: ${userId}`);
   }
