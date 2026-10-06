@@ -7,12 +7,13 @@
 
 import {
   API_ROOT, begin, check, cpSync, finish, freshWorkdir, join, main, pgEnv, prisma, read, recreateDb, rows,
-  run, say, scalar, show, write, existsSync, dropDb, dbUrl,
+  run, say, scalar, show, write, existsSync, dropDb, dbUrl, realMigrationDirs,
 } from './lib/env.mjs';
 import { splitBySlice } from './lib/split-schema.mjs';
 import { readdirSync, readFileSync } from 'node:fs';
 
 const DB = 'pp_5_1_q1';
+const N = realMigrationDirs().length; // the history keeps growing as other stories land; nothing here hard-codes it
 
 /** A copy of what `apps/api` ships to the Prisma CLI: prisma/, prisma.config.ts, scripts/prisma-env.js, package.json scripts. */
 function makeApp(dir, { folder }) {
@@ -124,7 +125,7 @@ await main(async () => {
   await recreateDb(DB);
   r = prisma(['migrate', 'status'], { cwd: folder, database: DB });
   show("migrate status, schema: 'prisma/schema', migrations at prisma/migrations (NOT inside the folder), no migrations.path", `exit ${r.status}\n${r.stdout}${r.stderr}`);
-  const foundSibling = /21 migrations found/.test(r.stdout + r.stderr);
+  const foundSibling = new RegExp(`${N} migrations found`).test(r.stdout + r.stderr);
   const foundInsideNothing = /No migration found/.test(r.stdout + r.stderr);
   check('DEFAULT migrations location with a schema FOLDER is <folder>/migrations, not the sibling prisma/migrations (the CLI label still says "prisma/migrations")', !foundSibling && foundInsideNothing);
 
@@ -135,12 +136,12 @@ await main(async () => {
   run('rm', ['-rf', join(inner, 'prisma', 'migrations')]);
   r = prisma(['migrate', 'status'], { cwd: inner, database: DB });
   show('migrate status, migrations moved to prisma/schema/migrations (inside the folder), no migrations.path', `exit ${r.status}\n${r.stdout}${r.stderr}`);
-  check('...and migrations moved INSIDE the folder are found with no migrations.path', /21 migrations found/.test(r.stdout + r.stderr));
+  check('...and migrations moved INSIDE the folder are found with no migrations.path', new RegExp(`${N} migrations found`).test(r.stdout + r.stderr));
 
   // Explicit path always works:
   configFor(folder, "  schema: 'prisma/schema',\n  migrations: { path: 'prisma/migrations' },");
   r = prisma(['migrate', 'status'], { cwd: folder, database: DB });
-  check('explicit `migrations.path` finds the history at prisma/migrations', /21 migrations found/.test(r.stdout + r.stderr), `exit ${r.status}`);
+  check('explicit `migrations.path` finds the history at prisma/migrations', new RegExp(`${N} migrations found`).test(r.stdout + r.stderr), `exit ${r.status}`);
 
   // ---- 5. npm run prisma:* unchanged -----------------------------------------------------
   say('\n## 5. the existing `npm run prisma:*` scripts, unchanged');
@@ -153,8 +154,8 @@ await main(async () => {
   check('npm run prisma:generate works on the folder', n.status === 0);
   n = run('npm', ['run', 'prisma:migrate', '--silent'], { cwd: folder, env });
   show('npm run prisma:migrate (migrate deploy) on an empty database', `exit ${n.status}\n${n.stdout.split('\n').slice(0, 8).join('\n')}\n...\n${n.stdout.split('\n').slice(-6).join('\n')}${n.stderr}`);
-  check('npm run prisma:migrate applies all 21 migrations', n.status === 0 && /21 migrations found/.test(n.stdout + n.stderr) && /All migrations have been successfully applied/.test(n.stdout));
-  check('_prisma_migrations holds 21 rows', Number(await scalar(DB, 'select count(*) from _prisma_migrations')) === 21);
+  check(`npm run prisma:migrate applies all ${N} migrations`, n.status === 0 && new RegExp(`${N} migrations found`).test(n.stdout + n.stderr) && /All migrations have been successfully applied/.test(n.stdout));
+  check(`_prisma_migrations holds ${N} rows`, Number(await scalar(DB, 'select count(*) from _prisma_migrations')) === N);
 
   // migrate dev against a folder with no changes: must say "in sync" and create nothing.
   n = run('npm', ['run', 'prisma:migrate:dev', '--silent', '--', '--name', 'should_not_exist'], { cwd: folder, env });

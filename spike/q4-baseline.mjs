@@ -15,6 +15,7 @@ import { readdirSync, renameSync } from 'node:fs';
 
 const P = 'pp_5_1_q4';
 const SHADOW = `${P}_shadow`;
+const N = realMigrationDirs().length; // the history keeps growing as other stories land; nothing here hard-codes it
 const RAW_INDEXES = ['database_backup_runs_active_uniq_idx', 'jobs_active_dedup_uniq_idx', 'jobs_attempts_gt1_idx', 'jobs_succeeded_duration_idx'];
 
 const root = freshWorkdir('q4');
@@ -128,7 +129,7 @@ await main(async () => {
   await recreateDb(SHADOW);
   const ref = makeFork('ref');
   let r = sh(ref, `${P}_ref`, ['migrate', 'deploy']);
-  chk('reference database (the 21 package migrations) deploys', r.status === 0);
+  chk(`reference database (the ${N} package migrations) deploys`, r.status === 0);
   r = sh(ref, `${P}_ref`, ['migrate', 'diff', '--from-config-datasource', '--to-schema', composed, '--script', '--exit-code']);
   show('migrate diff reference DB -> composed schema (--script --exit-code)', `exit ${r.status}\n${r.stdout}${r.stderr}`);
   chk('Prisma 7.9 reports NO drift for the four raw-SQL indexes (diff is empty, exit 0)', r.status === 0);
@@ -167,7 +168,7 @@ await main(async () => {
   const LIVE = `${P}_fork`;
   await recreateDb(LIVE);
   r = sh(fork, LIVE, ['migrate', 'deploy']);
-  chk('the fork history deploys (20 package migrations + 1 of its own)', r.status === 0 && /21 migrations found/.test(r.stdout), r.stdout.split('\n').find((l) => /found/.test(l)));
+  chk(`the fork history deploys (${N - 1} package migrations + 1 of its own)`, r.status === 0 && new RegExp(`${N} migrations found`).test(r.stdout), r.stdout.split('\n').find((l) => /found/.test(l)));
   await withClient(LIVE, (c) => c.query('ALTER TABLE "push_subscriptions" ADD COLUMN "platform" TEXT'));
   await withClient(LIVE, (c) => c.query("INSERT INTO users (id, email, updated_at) VALUES (gen_random_uuid(), 'baseline@example.test', now())"));
   chk('live fork has real data to protect', Number(await scalar(LIVE, 'select count(*) from users')) === 1);
@@ -180,37 +181,37 @@ await main(async () => {
   await recreateDb(REH);
   const restR = run('pg_restore', ['-h', PG.host, '-p', PG.port, '-U', PG.user, '-d', REH, '--no-owner', '--no-acl', dump], { env: pgenv });
   chk('rehearsal copy: pg_dump | pg_restore of the live database succeeds', dumpR.status === 0 && restR.status === 0, restR.stderr.slice(0, 200));
-  chk('the restored copy carries _prisma_migrations and the data', Number(await scalar(REH, 'select count(*) from _prisma_migrations')) === 21 && Number(await scalar(REH, 'select count(*) from users')) === 1);
+  chk('the restored copy carries _prisma_migrations and the data', Number(await scalar(REH, 'select count(*) from _prisma_migrations')) === N && Number(await scalar(REH, 'select count(*) from users')) === 1);
   const rehApp = join(root, 'fork-rehearsal');
   cpSync(fork, rehApp, { recursive: true });
 
   // dry run
-  let rep = await baseline({ app: fork, database: LIVE, through: 21, dryRun: true });
+  let rep = await baseline({ app: fork, database: LIVE, through: N, dryRun: true });
   show('B1 mapping', rep.entries.map((e) => `${e.originId.padEnd(52)} -> ${(e.localDir ?? '(none)').padEnd(46)} ${e.how}${e.renamed ? ', RENAMED' : ''}${e.localSha256 ? ', localSha256 recorded' : ''}`).join('\n'));
   const idc = rep.entries.filter((e) => e.how === 'identical bytes').length;
-  chk('B1: 19 identical (one of them under a renamed directory), 1 comment-only, 1 unmapped',
-    idc === 19 && rep.entries.filter((e) => e.how === 'comment-only difference').length === 1 && rep.entries.filter((e) => !e.localDir).length === 1 && rep.entries.filter((e) => e.renamed).length === 1);
+  chk(`B1: ${N - 2} identical (one of them under a renamed directory), 1 comment-only, 1 unmapped`,
+    idc === N - 2 && rep.entries.filter((e) => e.how === 'comment-only difference').length === 1 && rep.entries.filter((e) => !e.localDir).length === 1 && rep.entries.filter((e) => e.renamed).length === 1);
   chk('B1: the fork-only migration is reported as app history', rep.appOnly.join() === '20260930200000_fork_trace_context');
   chk('B2: the ledger agrees with every mapped local file', rep.ledger.managed && rep.ledger.problems.length === 0, rep.ledger.problems.join('; '));
-  show('B3 diff: package history (21) -> LIVE database', rep.diff.raw ?? JSON.stringify(rep.diff));
+  show(`B3 diff: package history (${N}) -> LIVE database`, rep.diff.raw ?? JSON.stringify(rep.diff));
   chk('B3: the only difference is the column deviation', rep.diff.statements.length === 1 && /ADD COLUMN\s+"platform"/.test(rep.diff.statements[0]));
   chk('without a declared deviation the baseline REFUSES', rep.refused.length === 1 && /differs from package history/.test(rep.refused[0]));
   chk('B4: the four raw-SQL indexes are intact', rep.indexProblems.length === 0);
 
   const deviation = { id: 'fork:push_subscriptions.platform', expectDiff: ['ALTER TABLE "push_subscriptions" ADD COLUMN "platform" TEXT;'] };
-  rep = await baseline({ app: fork, database: LIVE, through: 21, deviations: [deviation], dryRun: true });
+  rep = await baseline({ app: fork, database: LIVE, through: N, deviations: [deviation], dryRun: true });
   chk('with the deviation declared (as in platform.lock) the dry run is clean', rep.refused.length === 0 && rep.toResolve.length === 1, rep.refused.join('; '));
   say(`dry-run plan: resolve ${rep.toResolve.join(', ')}; install ${rep.toInstall.join(', ') || '(nothing)'}`);
 
   // rehearsal first
-  const rehRep = await baseline({ app: rehApp, database: REH, through: 21, deviations: [deviation], dryRun: false });
+  const rehRep = await baseline({ app: rehApp, database: REH, through: N, deviations: [deviation], dryRun: false });
   show('rehearsal on the restored copy: actions', rehRep.actions.join('\n'));
   chk('REHEARSAL on the restored backup succeeds', rehRep.refused.length === 0 && rehRep.actions.length === 1);
   let st = sh(rehApp, REH, ['migrate', 'status']);
   chk('rehearsal: `migrate status` says up to date', st.status === 0 && /Database schema is up to date/.test(st.stdout), st.stdout.split('\n').slice(-4).join(' '));
 
   // the real thing
-  const real = await baseline({ app: fork, database: LIVE, through: 21, deviations: [deviation], dryRun: false });
+  const real = await baseline({ app: fork, database: LIVE, through: N, deviations: [deviation], dryRun: false });
   show('real run: actions', real.actions.join('\n'));
   chk('real run: identical plan and result as the rehearsal', JSON.stringify(real.actions.map((a) => a.replace(/^(resolve --applied )\d+/, '$1<ts>'))) === JSON.stringify(rehRep.actions.map((a) => a.replace(/^(resolve --applied )\d+/, '$1<ts>'))));
   const newDir = real.lock.migrations.find((m) => m.originId.endsWith('add_job_trace_context')).localDir;
@@ -225,8 +226,8 @@ await main(async () => {
   chk('data untouched by the baseline', Number(await scalar(LIVE, 'select count(*) from users')) === 1);
   chk('offline `check` of the lock passes (comment-only entry carries localSha256)', lockCheck({ pkgDir, appDir: fork }).length === 0, lockCheck({ pkgDir, appDir: fork }).join('; '));
   show('platform.lock (excerpt)', JSON.stringify({ ...readLock(fork), migrations: readLock(fork).migrations.filter((m) => /revoke_viewer|vitals|trace/.test(m.localDir)) }, null, 2));
-  rep = await baseline({ app: fork, database: LIVE, through: 21, deviations: [deviation], dryRun: true });
-  chk('a second dry run is a clean no-op (all 21 mapped)', rep.refused.length === 0 && rep.toResolve.length === 0 && rep.entries.every((e) => e.localDir));
+  rep = await baseline({ app: fork, database: LIVE, through: N, deviations: [deviation], dryRun: true });
+  chk('a second dry run is a clean no-op (every migration mapped)', rep.refused.length === 0 && rep.toResolve.length === 0 && rep.entries.every((e) => e.localDir));
 
   // fresh-database replay of the adopted history
   const FRESH = `${P}_fresh`;
@@ -250,7 +251,7 @@ await main(async () => {
   // ---- S4: index drift invisible to Prisma ------------------------------------------------------------------------------------------
   say('\n## S4. a raw-SQL index is dropped by hand on the live database');
   await withClient(LIVE, (c) => c.query('DROP INDEX "jobs_attempts_gt1_idx"'));
-  rep = await baseline({ app: fork, database: LIVE, through: 21, deviations: [deviation], dryRun: true });
+  rep = await baseline({ app: fork, database: LIVE, through: N, deviations: [deviation], dryRun: true });
   chk('Prisma `migrate diff` (B3) stays SILENT about the missing partial index', rep.diff.unexpected.length === 0);
   chk('the catalogue comparison (B4) catches it', rep.indexProblems.length === 1 && /jobs_attempts_gt1_idx is MISSING/.test(rep.indexProblems[0]), rep.indexProblems.join('; '));
   chk('and the baseline refuses', rep.refused.length === 1);
@@ -258,24 +259,24 @@ await main(async () => {
   await withClient(LIVE, (c) => c.query(wasDef));
   await withClient(LIVE, (c) => c.query('DROP INDEX "jobs_active_dedup_uniq_idx"'));
   await withClient(LIVE, (c) => c.query('CREATE UNIQUE INDEX "jobs_active_dedup_uniq_idx" ON "jobs"("dedup_key")'));
-  rep = await baseline({ app: fork, database: LIVE, through: 21, deviations: [deviation], dryRun: true });
+  rep = await baseline({ app: fork, database: LIVE, through: N, deviations: [deviation], dryRun: true });
   chk('a raw-SQL index re-created WITHOUT its WHERE clause is caught by the definition compare', rep.indexProblems.some((p) => /jobs_active_dedup_uniq_idx differs/.test(p)));
 
   // ---- S2: partial mode ------------------------------------------------------------------------------------------------------------------
-  say('\n## S2. partial mode (kvox-shaped): the app lacks the last 6 platform migrations');
+  say('\n## S2. partial mode (kvox-shaped): the app lacks the last platform migrations (16 onwards)');
   const P15 = base.slice(0, 15);
   const part = makeFork('partial', { migrations: P15 });
   const PART = `${P}_partial`;
   await recreateDb(PART);
   r = sh(part, PART, ['migrate', 'deploy']);
   chk('partial fork deploys its 15 migrations', r.status === 0);
-  rep = await baseline({ app: part, database: PART, through: 21, dryRun: true });
-  chk('claiming "through 21" is REFUSED: the live schema lacks what 16..21 add', rep.refused.length > 0 && rep.diff.statements.length > 0, `${rep.diff.statements.length} differing statements, e.g. ${rep.diff.statements[0]?.split('\n')[0]}`);
+  rep = await baseline({ app: part, database: PART, through: N, dryRun: true });
+  chk(`claiming "through ${N}" is REFUSED: the live schema lacks what 16..${N} add`, rep.refused.length > 0 && rep.diff.statements.length > 0, `${rep.diff.statements.length} differing statements, e.g. ${rep.diff.statements[0]?.split('\n')[0]}`);
   rep = await baseline({ app: part, database: PART, through: 15, dryRun: false });
   chk('"through 15" passes: live == package history replayed to 0015', rep.refused.length === 0 && rep.diff.statements.length === 0);
-  chk('16..21 are installed (not resolved)', rep.toInstall.length === 6 && rep.toResolve.length === 0, rep.actions.join('; '));
+  chk(`16..${N} are installed (not resolved)`, rep.toInstall.length === N - 15 && rep.toResolve.length === 0, rep.actions.join('; '));
   r = sh(part, PART, ['migrate', 'deploy']);
-  chk('migrate deploy applies the six new package migrations for real', r.status === 0 && (r.stdout.match(/Applying migration/g) ?? []).length === 6);
+  chk(`migrate deploy applies the ${N - 15} new package migrations for real`, r.status === 0 && (r.stdout.match(/Applying migration/g) ?? []).length === N - 15);
   r = sh(part, PART, ['migrate', 'diff', '--from-config-datasource', '--to-schema', composed, '--exit-code', '--script']);
   chk('afterwards the database equals the composed schema', r.status === 0);
   await dropDb(PART);
@@ -286,7 +287,7 @@ await main(async () => {
   await recreateDb(UNM);
   for (const m of pk) await withClient(UNM, (c) => c.query(readFileSync(m.file, 'utf8')));
   const un = makeFork('unmanaged', { migrations: [] });
-  // install all 21 under local timestamps from a fixed base, as `sync` would
+  // install all of them under local timestamps from a fixed base, as `sync` would
   let ts = parseTs('20261006100000');
   for (const m of pk) {
     const localDir = `${fmtTs(new Date(ts))}_${m.slug}`; ts += 1000;
@@ -296,15 +297,15 @@ await main(async () => {
   r = sh(un, UNM, ['migrate', 'deploy']);
   show('migrate deploy on the unmanaged database', `exit ${r.status}\n${r.stderr}${r.stdout}`);
   chk('Prisma refuses to deploy onto a non-empty unmanaged database (P3005)', r.status !== 0 && /P3005/.test(r.stdout + r.stderr));
-  rep = await baseline({ app: un, database: UNM, through: 21, dryRun: false });
-  say(`B1: ${rep.entries.filter((e) => e.localDir).length} of 21 mapped`);
+  rep = await baseline({ app: un, database: UNM, through: N, dryRun: false });
+  say(`B1: ${rep.entries.filter((e) => e.localDir).length} of ${N} mapped`);
   // nothing is unmapped (all installed), so nothing was resolved by the procedure: resolve explicitly, in order.
   let allOk = true;
   for (const m of localMigrations(un)) {
     const rr = sh(un, UNM, ['migrate', 'resolve', '--applied', m.dir]);
     if (rr.status !== 0) { allOk = false; say(rr.stderr); break; }
   }
-  chk('`migrate resolve --applied` creates _prisma_migrations on an unmanaged database and records all 21', allOk && Number(await scalar(UNM, 'select count(*) from _prisma_migrations')) === 21);
+  chk('`migrate resolve --applied` creates _prisma_migrations on an unmanaged database and records all of them', allOk && Number(await scalar(UNM, 'select count(*) from _prisma_migrations')) === N);
   r = sh(un, UNM, ['migrate', 'status']);
   chk('migrate status: up to date', r.status === 0 && /up to date/.test(r.stdout));
   r = sh(un, UNM, ['migrate', 'resolve', '--applied', localMigrations(un)[0].dir]);

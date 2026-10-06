@@ -76,15 +76,15 @@ PgBouncer 1.22.0; pool_mode=transaction; default_pool_size=1; clients connect to
 PASS  PgBouncer is up and proxies the scratch database
 PASS  through PgBouncer (transaction mode, 1 server connection, 10 client connections): 200 interleaved requests, ZERO cross-org rows  (cross-org 0, short reads 0)
 PASS  through PgBouncer an unscoped client is still fail-closed
-PASS  NEGATIVE CONTROL through PgBouncer: session-level set_config LEAKS across clients  (20 cross-org rows)
+PASS  NEGATIVE CONTROL through PgBouncer: session-level set_config LEAKS across clients  (40 cross-org rows)
 (a single client that sets a session value and queries immediately saw 20 rows: a session value only appears to work until the pooler re-assigns the connection)
 --- probe: a client startup option (PGOPTIONS="-c app.rls_bypass=on") sent THROUGH PgBouncer 1.22
     exit 2
     psql: error: connection to server at "127.0.0.1", port 6543 failed: FATAL:  unsupported startup parameter in options: app.rls_bypass
   => dump and restore connect straight to the database endpoint (as POSTGRES_HOST does today), never through a pooler: they are session-level, long-lived and need the startup option.
 --- pgbouncer warnings
-    2026-10-06 20:59:29.401 UTC [5111] WARNING C-0x55a0d49370a0: (nodb)/(nouser)@127.0.0.1:33624 unsupported startup parameter in options: app.rls_bypass=on
-    2026-10-06 20:59:29.401 UTC [5111] WARNING C-0x55a0d49370a0: (nodb)/(nouser)@127.0.0.1:33624 pooler error: unsupported startup parameter in options: app.rls_bypass
+    2026-10-06 21:21:11.878 UTC [2176] WARNING C-0x563b219660a0: (nodb)/(nouser)@127.0.0.1:50324 unsupported startup parameter in options: app.rls_bypass=on
+    2026-10-06 21:21:11.878 UTC [2176] WARNING C-0x563b219660a0: (nodb)/(nouser)@127.0.0.1:50324 pooler error: unsupported startup parameter in options: app.rls_bypass
 
 ## 5. system work: a SEPARATE connection pool with the bypass flag
 PASS  the system client counts rows of every org (purge / doctor / backup shape)  (count=40)
@@ -147,14 +147,14 @@ PASS  D4: the minted SELECT-only role also FAILS with today's arguments (policie
 PASS  D4: the minted role with --enable-row-security + PGOPTIONS bypass captures every row: option A needs NO change to the broker's role, grants or attributes  (rows 60)
 PASS  D4: that role, WITHOUT the flag, sees nothing (its SELECT grant alone no longer exposes tenant rows)
 --- D5: archive TOC entries for the RLS table
-    218; 1259 150802 TABLE public spike_tenant_rows pp_5_1_owner
-    3424; 0 150802 TABLE DATA public spike_tenant_rows pp_5_1_owner
-    3420; 3256 150823 POLICY public spike_leaves org_isolation pp_5_1_owner
-    3419; 3256 150822 POLICY public spike_parents org_isolation pp_5_1_owner
-    3418; 3256 150821 POLICY public spike_tenant_rows org_isolation pp_5_1_owner
-    3416; 0 150797 ROW SECURITY public spike_leaves pp_5_1_owner
-    3415; 0 150790 ROW SECURITY public spike_parents pp_5_1_owner
-    3417; 0 150802 ROW SECURITY public spike_tenant_rows pp_5_1_owner
+    218; 1259 183967 TABLE public spike_tenant_rows pp_5_1_owner
+    3424; 0 183967 TABLE DATA public spike_tenant_rows pp_5_1_owner
+    3420; 3256 183988 POLICY public spike_leaves org_isolation pp_5_1_owner
+    3419; 3256 183987 POLICY public spike_parents org_isolation pp_5_1_owner
+    3418; 3256 183986 POLICY public spike_tenant_rows org_isolation pp_5_1_owner
+    3416; 0 183962 ROW SECURITY public spike_leaves pp_5_1_owner
+    3415; 0 183955 ROW SECURITY public spike_parents pp_5_1_owner
+    3417; 0 183967 ROW SECURITY public spike_tenant_rows pp_5_1_owner
 PASS  D5: the archive carries ROW SECURITY and POLICY entries (so a restore re-creates the protection)
 PASS  D5: FORCE is preserved in the archive
    TOC order: TABLE DATA at 23, ROW SECURITY at 37, i.e. data is loaded BEFORE RLS is switched on
@@ -197,10 +197,10 @@ PASS  M4: a SESSION-level `SELECT set_config(..., false)` (the schema engine's o
 
 ## 11. overhead of per-operation scoping (indicative: localhost, shared 4-CPU machine, pool of 5)
 --- mean ms per call
-    bare findFirst (unscoped, returns nothing):         1.43
-    extension findFirst (BEGIN, set_config, query, COMMIT): 3.42
-    3 bare operations:                                     2.60
-    3 operations inside one runInScope:                   4.40
-PASS  scoping adds a bounded constant per operation (extension < 10x bare on localhost; runInScope amortises it over a unit of work)  (1.98 ms extra per extension call)
+    bare findFirst (unscoped, returns nothing):         0.71
+    extension findFirst (BEGIN, set_config, query, COMMIT): 3.16
+    3 bare operations:                                     1.80
+    3 operations inside one runInScope:                   3.56
+PASS  scoping adds a bounded constant per operation (extension < 10x bare on localhost; runInScope amortises it over a unit of work)  (2.45 ms extra per extension call)
 
 69/69 checks passed

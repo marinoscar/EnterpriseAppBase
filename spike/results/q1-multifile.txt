@@ -29,7 +29,7 @@ PASS  schema path resolves relative to the config file, not the cwd  (exit 0)
 ## 2. generate: old single file vs folder
 --- single-file generate
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 2.03s
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.54s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     
@@ -37,7 +37,7 @@ PASS  schema path resolves relative to the config file, not the cwd  (exit 0)
     Prisma schema loaded from prisma/schema.prisma.
 --- folder generate
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.94s
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.43s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     
@@ -79,7 +79,7 @@ PASS  DEFAULT migrations location with a schema FOLDER is <folder>/migrations, n
     exit 1
     Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
     
-    21 migrations found in prisma/migrations
+    22 migrations found in prisma/migrations
     Following migrations have not yet been applied:
     20260124223146_initial
     20260329151231_add_personal_access_tokens
@@ -102,6 +102,7 @@ PASS  DEFAULT migrations location with a schema FOLDER is <folder>/migrations, n
     20260927130000_add_device_session_credential_link
     20260928100000_add_worker_node_vitals
     20260930120000_add_job_trace_context
+    20261006120000_add_retention_created_at_indexes
     
     To apply migrations in development run prisma migrate dev.
     To apply migrations in production run prisma migrate deploy.
@@ -129,7 +130,7 @@ scripts copied verbatim from apps/api/package.json:
 --- npm run prisma:generate
     exit 0
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.90s
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.09s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     
@@ -140,7 +141,7 @@ PASS  npm run prisma:generate works on the folder
     exit 0
     Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
     
-    21 migrations found in prisma/migrations
+    22 migrations found in prisma/migrations
     
     Applying migration `20260124223146_initial`
     Applying migration `20260329151231_add_personal_access_tokens`
@@ -148,13 +149,13 @@ PASS  npm run prisma:generate works on the folder
     Applying migration `20260831010356_add_notification_deliveries`
     ...
         └─ migration.sql
-      └─ 20260930120000_add_job_trace_context/
+      └─ 20261006120000_add_retention_created_at_indexes/
         └─ migration.sql
     
     All migrations have been successfully applied.
     Prisma schema loaded from prisma/schema.
-PASS  npm run prisma:migrate applies all 21 migrations
-PASS  _prisma_migrations holds 21 rows
+PASS  npm run prisma:migrate applies all 22 migrations
+PASS  _prisma_migrations holds 22 rows
 --- npm run prisma:migrate:dev -- --name should_not_exist (no schema change)
     exit 0
     Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
@@ -167,18 +168,18 @@ PASS  migrate dev reports no drift and creates no migration  (stray dirs: 0)
     exit 0
     Datasource "db": PostgreSQL database "pp_5_1_q1", schema "public" at "127.0.0.1:5433"
     
-    Applying migration `20261006205410_add_spike_probe`
+    Applying migration `20261006211252_add_spike_probe`
     
     The following migration(s) have been created and applied from new schema changes:
     
     prisma/migrations/
-      └─ 20261006205410_add_spike_probe/
+      └─ 20261006211252_add_spike_probe/
         └─ migration.sql
     
     Your database is now in sync with your schema.
     
     Prisma schema loaded from prisma/schema.
-PASS  migrate dev (shadow database) works against the folder and writes into prisma/migrations  (20261006205410_add_spike_probe)
+PASS  migrate dev (shadow database) works against the folder and writes into prisma/migrations  (20261006211252_add_spike_probe)
 --- generated migration.sql
     -- CreateTable
     CREATE TABLE "spike_probes" (
@@ -194,7 +195,7 @@ Dockerfile lines (apps/api/Dockerfile): COPY apps/api/prisma ./apps/api/prisma/ 
 --- generate in the Docker-shaped copy (no scripts/, no package.json, dummy URL)
     exit 0
     
-    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.72s
+    ✔ Generated Prisma Client (v7.9.1) to ./prisma/generated-client in 1.10s
     
     Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
     

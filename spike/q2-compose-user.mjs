@@ -185,7 +185,7 @@ export const x = () => prisma.user.findFirstOrThrow({ include: { notAField: true
   // runtime: migrate the base, add the app tables by diff, then run the include for real
   await recreateDb(DB);
   r = prisma(['migrate', 'deploy'], { cwd: appB, database: DB });
-  check('the 21 base migrations apply to the scratch database', r.status === 0 && /successfully applied/.test(r.stdout));
+  check('the base migrations apply to the scratch database', r.status === 0 && /successfully applied/.test(r.stdout));
   r = prisma(['migrate', 'diff', '--from-config-datasource', '--to-schema', join(appB, 'prisma', 'schema'), '--script'], { cwd: appB, database: DB });
   show('migrate diff live DB -> composed schema (what an app migration would contain)', r.stdout);
   check('the diff is ONLY the app tables (no change to a package table)', /CREATE TABLE "workouts"/.test(r.stdout) && /CREATE TABLE "workout_exports"/.test(r.stdout) && !/ALTER TABLE "(users|jobs|storage_objects)"/.test(r.stdout) && !/DROP/.test(r.stdout));

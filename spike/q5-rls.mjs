@@ -21,6 +21,9 @@ const ORG_A = '11111111-1111-4111-8111-111111111111';
 const ORG_B = '22222222-2222-4222-8222-222222222222';
 const as = (role, database = DB, extra = {}) => dbUrl(database, { user: ROLES[role] ?? role, password: PW, ...extra });
 const PGBOUNCER_PORT = '6543';
+// Prisma's interactive transactions wait at most `maxWait` (2 s by default) for a pooled connection. 200 interleaved requests
+// over a pool of ONE connection queue far longer than that on a busy machine, so the stress phases widen it.
+const QUEUED_TX = { maxWait: 120000, timeout: 120000 };
 
 const cleanSql = (s) => s.trim();
 const t0 = () => process.hrtime.bigint();
@@ -271,7 +274,7 @@ async function concurrency(label, url, clientModule, max) {
     await jitter();
     const found = await scoped.spikeTenantRow.findMany();
     await jitter();
-    const viaTx = await runInScope(base, { orgId }, async (tx) => { await jitter(); return tx.spikeTenantRow.findMany(); });
+    const viaTx = await runInScope(base, { orgId }, async (tx) => { await jitter(); return tx.spikeTenantRow.findMany(); }, QUEUED_TX);
     crossOrg += [...found, ...viaTx].filter((x) => x.orgId !== orgId).length;
     if (found.length < 20 || viaTx.length < 20) wrongCount++;
   }));
@@ -343,7 +346,7 @@ admin_users = ${ROLES.owner}
       const scoped = forScope(base, { orgId });
       await jitter();
       const found = await scoped.spikeTenantRow.findMany();
-      const viaTx = await runInScope(base, { orgId }, async (tx) => { await jitter(); return tx.spikeTenantRow.findMany(); });
+      const viaTx = await runInScope(base, { orgId }, async (tx) => { await jitter(); return tx.spikeTenantRow.findMany(); }, QUEUED_TX);
       cross += [...found, ...viaTx].filter((x) => x.orgId !== orgId).length;
       if (found.length < 20 || viaTx.length < 20) short++;
     }));
