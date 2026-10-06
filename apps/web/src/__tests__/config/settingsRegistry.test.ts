@@ -1229,7 +1229,8 @@ describe('the Observability group (#537)', () => {
         'utf8',
       );
       const guards = controller.match(/@Auth\(\{[^)]*\}\)/g) ?? [];
-      expect(guards).toHaveLength(6);
+      // summary, timeseries, top, events, filters, metrics and metric-groups (#680).
+      expect(guards).toHaveLength(7);
       for (const guard of guards) expect(guard).toBe('@Auth({ permissions: [PERMISSIONS.TELEMETRY_QUERY] })');
     });
 

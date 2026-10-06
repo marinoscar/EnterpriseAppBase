@@ -68,6 +68,12 @@ function recordRequests(): URL[] {
   return urls;
 }
 
+/**
+ * The last section's table appears after two round trips (`/metric-groups`,
+ * then its `/metrics`, #680) and six section renders: allow for a loaded runner.
+ */
+const SECTIONS_LOADED = { timeout: 5_000 };
+
 const SECTION_TITLES = ['Infrastructure', 'Database', 'Job queue', 'Worker nodes', 'Uptime & dependencies'];
 
 describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
@@ -86,7 +92,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
       expect(await screen.findByRole('region', { name: title })).toBeInTheDocument();
     }
     // Wait for every section's data, then check order against the events feed.
-    await screen.findByRole('table', { name: 'Uptime targets' });
+    await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
     const regions = screen.getAllByRole('region').map((region) => region.getAttribute('data-testid'));
     const events = regions.indexOf('panel-events');
     expect(regions.slice(events + 1)).toEqual([
@@ -106,7 +112,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
   it('fetches each group separately, with the window and filters', async () => {
     const urls = recordRequests();
     renderPage({ search: '?range=6h&service=my-app-api' });
-    await screen.findByRole('table', { name: 'Uptime targets' });
+    await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
     const metrics = urls.filter((url) => url.pathname.endsWith('/metrics'));
     expect(new Set(metrics.map((url) => url.searchParams.get('group')))).toEqual(
       new Set(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline']),
@@ -146,7 +152,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
       const urls = recordRequests();
       const user = userEvent.setup();
       renderPage();
-      await screen.findByRole('table', { name: 'Uptime targets' });
+      await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
 
       await user.click(screen.getByRole('combobox', { name: 'Host' }));
       await user.click(await screen.findByRole('option', { name: 'vps-2' }));
@@ -163,7 +169,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
     it('reads the host from the URL', async () => {
       const urls = recordRequests();
       renderPage({ search: '?host=vps-1' });
-      await screen.findByRole('table', { name: 'Uptime targets' });
+      await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
       const metrics = urls.filter((url) => url.pathname.endsWith('/metrics'));
       expect(metrics.every((url) => url.searchParams.get('host') === 'vps-1')).toBe(true);
       expect(screen.getByRole('combobox', { name: 'Host' })).toHaveTextContent('vps-1');
@@ -188,7 +194,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
       renderPage();
       await screen.findByTestId('phone-filter-bar');
       // Wait for /filters to answer before opening the dialog.
-      await screen.findByRole('table', { name: 'Uptime targets' });
+      await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
       await user.click(screen.getByRole('button', { name: 'Filters' }));
       const dialog = await screen.findByRole('dialog', { name: 'Filters' });
       await user.click(within(dialog).getByRole('combobox', { name: 'Host' }));
@@ -264,7 +270,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
     it('asks for the section list once, with the initial requests', async () => {
       const urls = recordRequests();
       renderPage();
-      await screen.findByRole('table', { name: 'Uptime targets' });
+      await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
       expect(urls.filter((url) => url.pathname.endsWith('/metric-groups'))).toHaveLength(1);
     });
 
@@ -294,7 +300,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
       const coach = await screen.findByRole('region', { name: 'Coaching' });
       expect(coach).toHaveAttribute('id', 'telemetry-section-coach');
       expect(await within(coach).findByRole('table', { name: 'Personas' })).toBeInTheDocument();
-      await screen.findByRole('table', { name: 'Uptime targets' });
+      await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
 
       const regions = screen.getAllByRole('region').map((region) => region.getAttribute('data-testid'));
       expect(regions.slice(regions.indexOf('panel-events') + 1)).toEqual([
@@ -313,7 +319,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
         http.get(`${API}/metric-groups`, () => HttpResponse.json({ data: [...mockDashboardMetricGroups].reverse() })),
       );
       renderPage();
-      await screen.findByRole('table', { name: 'Uptime targets' });
+      await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED);
       const regions = screen.getAllByRole('region').map((region) => region.getAttribute('data-testid'));
       expect(regions.slice(regions.indexOf('panel-events') + 1)).toEqual([
         'panel-metrics-host',
@@ -357,7 +363,7 @@ describe('TelemetryDashboardPage infrastructure sections (#602)', () => {
       fail = false;
       await user.click(within(panel).getByRole('button', { name: 'Retry' }));
       expect(await screen.findByRole('region', { name: 'Infrastructure' })).toBeInTheDocument();
-      expect(await screen.findByRole('table', { name: 'Uptime targets' })).toBeInTheDocument();
+      expect(await screen.findByRole('table', { name: 'Uptime targets' }, SECTIONS_LOADED)).toBeInTheDocument();
     });
   });
 });
