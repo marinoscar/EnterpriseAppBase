@@ -34,7 +34,7 @@
  * then letters, digits and `. _ : / @ -`.
  *
  * It admits every id shape the codebase already uses (`db.connection`,
- * `jobs:read`, `auth.initial-admin`, `@scope/name`) and rejects whitespace and a
+ * `jobs:read`, `auth.initial-admin`, `coach/weekly-review`) and rejects whitespace and a
  * leading separator. Override it per registry with {@link RegistryOptions.idPattern}.
  */
 export const DEFAULT_REGISTRY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/;
