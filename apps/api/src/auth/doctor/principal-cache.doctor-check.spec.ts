@@ -1,5 +1,5 @@
 import type { EventBus, EventBusHealth } from '../../common/event-bus/event-bus.interface';
-import { DoctorCheckRegistry } from '../../doctor/doctor-check.registry';
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import { ConfigService } from '@nestjs/config';
 
 import { PrincipalCache, type PrincipalCacheStats } from '../principal-cache/principal-cache.service';
