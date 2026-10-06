@@ -28,6 +28,20 @@ import {
   patchUserSettingsSchema,
 } from '../../src/settings/dto/update-user-settings.dto';
 import { userSettingsResponseSchema } from '../../src/settings/dto/user-settings-response.dto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { z } from 'zod';
+import { withTemporaryEntries } from '../../src/common/registry';
+import {
+  SETTINGS_CATALOG_STALE_MESSAGE,
+  checkSystemSettingsCatalog,
+  renderSystemSettingsCatalog,
+} from '../../src/settings/registry/settings-catalog';
+import {
+  systemSettingsNamespaceRegistry,
+  type SystemSettingsNamespace,
+} from '../../src/settings/registry/system-settings-namespace';
+import { DEFAULT_SYSTEM_SETTINGS as SEEDED_SYSTEM_SETTINGS } from '../../prisma/seed-data';
 
 /** DEFAULT_SYSTEM_SETTINGS on main before #677 (including #681's `retention`), key order included. */
 const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
@@ -291,5 +305,43 @@ describe('settings defaults and shapes baseline (#677)', () => {
     ['userSettingsResponseSchema', userSettingsResponseSchema],
   ] as const)('%s keeps its top-level keys in the pre-registry order', (name, schema) => {
     expect(keysOf(schema as unknown as { shape: Record<string, unknown> })).toEqual(BASELINE_SHAPE_KEYS[name]);
+  });
+});
+
+describe('the generated system settings catalog (#677)', () => {
+  const catalogPath = join(__dirname, '..', '..', 'prisma', 'catalog', 'system-settings-defaults.json');
+  const committed = (): string => readFileSync(catalogPath, 'utf8');
+
+  it('is current: the committed JSON is exactly what the registry renders', () => {
+    // On failure, the message is the fix.
+    expect(checkSystemSettingsCatalog(committed())).toBeNull();
+  });
+
+  it('equals DEFAULT_SYSTEM_SETTINGS, key order included, and is what the seed writes', () => {
+    expect(committed()).toBe(`${JSON.stringify(DEFAULT_SYSTEM_SETTINGS, null, 2)}\n`);
+    expect(JSON.parse(committed())).toEqual(BASELINE_DEFAULT_SYSTEM_SETTINGS);
+    expect(SEEDED_SYSTEM_SETTINGS).toEqual(DEFAULT_SYSTEM_SETTINGS);
+  });
+
+  it('reports a namespace added without regenerating as stale, naming the command', async () => {
+    const probe: SystemSettingsNamespace = {
+      key: 'catalogProbe',
+      description: 'Test-only namespace proving the staleness check.',
+      storedSchema: z.object({ enabled: z.boolean() }),
+      patchSchema: z.object({ enabled: z.boolean().optional() }),
+      putSchema: z.object({ enabled: z.boolean() }),
+      wirePatchSchema: z.object({ enabled: z.boolean().optional() }),
+      responseSchema: z.object({ enabled: z.boolean() }),
+      defaults: { enabled: false },
+      requiredOnPut: false,
+      merge: (current, patch) => ({ ...(current as object), ...(patch as object) }),
+    };
+
+    await withTemporaryEntries(systemSettingsNamespaceRegistry, [probe], () => {
+      expect(renderSystemSettingsCatalog()).toContain('"catalogProbe"');
+      expect(checkSystemSettingsCatalog(committed())).toBe(SETTINGS_CATALOG_STALE_MESSAGE);
+    });
+    expect(SETTINGS_CATALOG_STALE_MESSAGE).toContain('run npm run catalog:settings --workspace=api');
+    expect(checkSystemSettingsCatalog(undefined)).toBe(SETTINGS_CATALOG_STALE_MESSAGE);
   });
 });
