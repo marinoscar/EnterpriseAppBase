@@ -980,6 +980,11 @@ export interface UpdateMaintenanceInput {
 /** The API process's own version. Always known; never read from disk. */
 export interface AboutApi {
   version: string;
+  /**
+   * `DEPLOYMENT_MODE` as the API parsed it at startup (#685). `saas` means
+   * in-app database restore is disabled. Optional: an older API omits it.
+   */
+  deploymentMode?: 'self-hosted' | 'saas';
 }
 
 export interface AboutApp {

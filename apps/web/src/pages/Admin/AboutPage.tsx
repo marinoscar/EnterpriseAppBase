@@ -833,6 +833,10 @@ export default function AboutPage() {
                 <Fact label="Environment">
                   <Value value={data.runtime?.environment ?? null} mono />
                 </Fact>
+                {/* #685. `DEPLOYMENT_MODE`; `saas` turns in-app restore off. */}
+                <Fact label="Deployment mode">
+                  <Value value={data.api.deploymentMode ?? null} mono />
+                </Fact>
               </FactList>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
                 The version the running process resolved for itself, independently of any
