@@ -4,6 +4,7 @@ import {
   familiesOf,
   familyByKey,
   METRIC_FAMILIES,
+  METRIC_GROUP_LABELS,
   METRIC_GROUPS,
   METRIC_RATIOS,
   METRIC_TABLES,
@@ -222,5 +223,145 @@ describe('metric catalog', () => {
       expect(tableWith(tables, 'up', ['nope'])).toBeNull();
       expect(tableWith(tables, 'absent', [])).toBeNull();
     });
+  });
+});
+
+// =============================================================================
+// Baseline pinned on `main` before the metric-group registry (issue #680)
+// =============================================================================
+//
+// The registry must reproduce today's catalog ELEMENT FOR ELEMENT: the same
+// groups in the same order, the same labels, and the same families, ratios and
+// tables in the same order with the same content. The literal lists are the
+// readable half; the snapshot pins every field of every entry.
+// =============================================================================
+
+describe('metric catalog baseline (#680)', () => {
+  it('keeps the six platform groups in order', () => {
+    expect([...METRIC_GROUPS]).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline']);
+  });
+
+  it('keeps the group labels', () => {
+    expect(METRIC_GROUP_LABELS).toEqual({
+      host: 'Host',
+      database: 'Database',
+      queue: 'Job queue',
+      nodes: 'Worker nodes',
+      uptime: 'Uptime and edge',
+      pipeline: 'Telemetry pipeline',
+    });
+  });
+
+  it('keeps the family keys, in order, with their groups', () => {
+    expect(METRIC_FAMILIES.map((f) => `${f.group}:${f.key}`)).toEqual([
+      'host:cpuUtilization',
+      'host:memoryUtilization',
+      'host:load1m',
+      'host:filesystemUtilization',
+      'host:diskIo',
+      'host:networkIo',
+      'database:dbConnections',
+      'database:dbConnectionMax',
+      'database:dbSize',
+      'database:dbCommits',
+      'database:dbRollbacks',
+      'database:dbDeadlocks',
+      'database:dbBlocksHit',
+      'database:dbBlocksRead',
+      'queue:queueDepth',
+      'queue:oldestPendingAge',
+      'queue:jobsSettled',
+      'queue:jobDurationP95',
+      'queue:backupAge',
+      'nodes:nodesByHealth',
+      'nodes:noEligibleNode',
+      'uptime:httpDuration',
+      'uptime:tlsDaysLeft',
+      'uptime:nginxRequests',
+      'uptime:nginxConnections',
+      'pipeline:exporterSent',
+      'pipeline:exporterFailed',
+      'pipeline:exporterQueueSize',
+      'pipeline:exporterQueueCapacity',
+      'pipeline:receiverRefused',
+      'pipeline:greptimeWriteStalls',
+      'pipeline:scrapeTargetsDown',
+    ]);
+  });
+
+  it('keeps the ratio keys, in order, with their groups', () => {
+    expect(METRIC_RATIOS.map((r) => `${r.group}:${r.key}`)).toEqual([
+      'database:dbConnectionUtilization',
+      'database:dbCacheHitRatio',
+      'queue:jobFailureRatio',
+      'pipeline:exporterQueueUtilization',
+    ]);
+  });
+
+  it('keeps the table keys, in order, with their groups', () => {
+    expect(METRIC_TABLES.map((t) => `${t.group}:${t.key}`)).toEqual([
+      'host:filesystems',
+      'database:largestTables',
+      'queue:jobTypes',
+      'nodes:nodes',
+      'nodes:noEligibleNodeTypes',
+      'uptime:uptimeTargets',
+      'pipeline:scrapeTargets',
+    ]);
+  });
+
+  it('keeps every field of every family, ratio and table', () => {
+    expect({ families: METRIC_FAMILIES, ratios: METRIC_RATIOS, tables: METRIC_TABLES }).toMatchSnapshot();
+  });
+});
+
+// =============================================================================
+// Leaf rule (issue #680): the group declarations and the registry never load
+// `metric-catalog.ts` at runtime (it imports the manifest that imports them, so
+// a runtime import back would read its derived views half-built).
+// =============================================================================
+
+describe('metric catalog load order (#680)', () => {
+  const LEAVES = [
+    './metric-catalog.helpers',
+    './metric-group.registry',
+    './groups/host.metric-group',
+    './groups/database.metric-group',
+    './groups/queue.metric-group',
+    './groups/nodes.metric-group',
+    './groups/uptime.metric-group',
+    './groups/pipeline.metric-group',
+    '../../app-registrations/telemetry',
+  ];
+
+  it.each(LEAVES)('%s loads without metric-catalog.ts', (path) => {
+    jest.isolateModules(() => {
+      jest.doMock('./metric-catalog', () => {
+        throw new Error(`${path} loaded metric-catalog.ts at runtime`);
+      });
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      expect(() => require(path)).not.toThrow();
+    });
+    jest.dontMock('./metric-catalog');
+  });
+
+  it('a fresh module graph builds the same derived views', () => {
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fresh = require('./metric-catalog') as typeof import('./metric-catalog');
+      expect(fresh.METRIC_GROUPS).toEqual(METRIC_GROUPS);
+      expect(fresh.METRIC_GROUP_LABELS).toEqual(METRIC_GROUP_LABELS);
+      expect(fresh.METRIC_FAMILIES).toEqual(METRIC_FAMILIES);
+      expect(fresh.METRIC_RATIOS).toEqual(METRIC_RATIOS);
+      expect(fresh.METRIC_TABLES).toEqual(METRIC_TABLES);
+    });
+  });
+
+  it('derived views are frozen and equal the registry read in group order', () => {
+    expect(Object.isFrozen(METRIC_GROUPS)).toBe(true);
+    expect(Object.isFrozen(METRIC_FAMILIES)).toBe(true);
+    expect(METRIC_FAMILIES).toEqual(METRIC_GROUPS.flatMap((g) => familiesOf(g)));
+    expect(METRIC_RATIOS).toEqual(METRIC_GROUPS.flatMap((g) => ratiosOf(g)));
+    expect(METRIC_TABLES).toEqual(METRIC_GROUPS.flatMap((g) => tablesOf(g)));
   });
 });

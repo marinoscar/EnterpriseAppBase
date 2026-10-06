@@ -3,7 +3,7 @@ import { DASHBOARD_VERDICT_THRESHOLDS, type VerdictInput } from '../dashboard/te
 import type { TelemetryQueryResult } from '../greptime/greptime.client';
 import {
   familiesOf,
-  METRIC_GROUPS,
+  metricGroupIds,
   METRIC_TABLES,
   tablesOf,
   tableWith,
@@ -128,7 +128,7 @@ export interface MetricGroupPresence {
 /** Per catalog group: what exists in the store. Counts, booleans and catalog keys only. */
 export function metricFamilyPresence(tables: MetricTables): Record<MetricGroup, MetricGroupPresence> {
   return Object.fromEntries(
-    METRIC_GROUPS.map((group) => {
+    metricGroupIds().map((group) => {
       const families = familiesOf(group);
       const present = families.filter((family) => familyPresent(family, tables)).map((family) => family.key);
       const specs = tablesOf(group);

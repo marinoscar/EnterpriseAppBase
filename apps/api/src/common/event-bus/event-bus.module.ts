@@ -2,10 +2,12 @@ import { Global, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { buildDatabaseUrl } from '../database-url';
+import { AppMetricsService, fallbackAppMetrics } from '../otel/app-metrics.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EventBusDoctorCheck } from './doctor/event-bus.doctor-check';
 import { EVENT_BUS_SELECTION, EventBusSelection, parseEventBusAdapter } from './event-bus.config';
 import { EVENT_BUS, type EventBus } from './event-bus.interface';
+import { eventBusMetricsVia } from './event-bus.metrics';
 import { InProcessEventBus } from './in-process-event-bus';
 import { PostgresEventBus } from './postgres-event-bus';
 
@@ -28,9 +30,17 @@ import { PostgresEventBus } from './postgres-event-bus';
 
 const logger = new Logger('EventBusModule');
 
-export function createEventBus(selection: EventBusSelection, prisma: PrismaService): EventBus {
+export function createEventBus(
+  selection: EventBusSelection,
+  prisma: PrismaService,
+  appMetrics: AppMetricsService = fallbackAppMetrics(),
+): EventBus {
+  // `app.event_bus.*` (#680): declared in the app-metric registry, emitted
+  // through the generic `add`.
+  const metrics = eventBusMetricsVia((key, value, attributes) => appMetrics.add(key, value, attributes), selection.adapter);
+
   if (selection.adapter === 'postgres') {
-    return new PostgresEventBus(prisma, { connectionString: buildDatabaseUrl() });
+    return new PostgresEventBus(prisma, { connectionString: buildDatabaseUrl(), metrics });
   }
 
   logger.log(
@@ -38,7 +48,7 @@ export function createEventBus(selection: EventBusSelection, prisma: PrismaServi
       'Set EVENT_BUS_ADAPTER=postgres before running more than one API replica.',
   );
 
-  return new InProcessEventBus();
+  return new InProcessEventBus(undefined, metrics);
 }
 
 @Global()
@@ -62,8 +72,10 @@ export function createEventBus(selection: EventBusSelection, prisma: PrismaServi
     },
     {
       provide: EVENT_BUS,
-      inject: [EVENT_BUS_SELECTION, PrismaService],
-      useFactory: createEventBus,
+      // `AppMetricsModule` is global; optional so a test module without it still builds.
+      inject: [EVENT_BUS_SELECTION, PrismaService, { token: AppMetricsService, optional: true }],
+      useFactory: (selection: EventBusSelection, prisma: PrismaService, appMetrics?: AppMetricsService) =>
+        createEventBus(selection, prisma, appMetrics ?? undefined),
     },
     // `core.event-bus`. Injects the @Global doctor registry, so it adds no
     // import edge to this module.

@@ -33,7 +33,7 @@ import {
 import type { TelemetryQueryRunResult, TelemetrySchema } from '../dto/telemetry-query.dto';
 import { TELEMETRY_SQL_MAX_LENGTH } from '../dto/telemetry-query.dto';
 import { GreptimeClient, type TelemetryQueryResult } from '../greptime/greptime.client';
-import { METRIC_GROUPS, metricTablesOf, type MetricTables } from '../metrics/metric-catalog';
+import { metricGroupIds, metricGroups, metricTablesOf, type MetricGroup, type MetricTables } from '../metrics/metric-catalog';
 import { buildTable, computeMetricGroup, tableParts, type MetricRunner } from '../metrics/metric-group';
 import { latestByKeySql } from '../metrics/metric-sql';
 import { VERDICT_PROBES, verdictInputsFrom, verdictProbeSql, type VerdictProbe } from '../metrics/metric-verdict';
@@ -144,6 +144,12 @@ export const THOUGHT_MAX_CHARS = 1_000;
 export const REPORT_MAX_FINDINGS = 10;
 export const REPORT_MAX_RECOMMENDATIONS = 10;
 export const REPORT_MAX_QUERIES = 5;
+
+/** `a`, `a or b`, `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
 const REPORT_SUMMARY_MAX = 4_000;
 const REPORT_TITLE_MAX = 200;
 const REPORT_TEXT_MAX = 2_000;
@@ -675,17 +681,19 @@ export class TelemetryAssistantService {
 
     const metricsOverview = defineTool({
       name: 'metrics_overview',
+      // The groups are read from the metric-group registry (#680) when the
+      // tools are built, so an app's own group is offered too, with its own
+      // one-line description; for the platform's six the text is unchanged.
       description:
-        'One metric group over a time window, computed from the metric tables: host (CPU, memory, load, ' +
-        'filesystems, disk/network IO), database (connections, size, commits, rollbacks, deadlocks, cache hit ' +
-        'ratio, largest tables), queue (depth, oldest pending job, settle rate, failure ratio, duration p95, last ' +
-        'backup, per job type), nodes (fleet health, per-node vitals, job types without an eligible node), uptime ' +
-        '(checks per URL, TLS days left, nginx) or pipeline (collector export and queues, GreptimeDB write stalls, ' +
-        'scrape targets). Tiles give the current and previous window value and the window maximum with its time; ' +
+        'One metric group over a time window, computed from the metric tables: ' +
+        orList(metricGroups().map((g) => `${g.id} (${g.description})`)) +
+        '. Tiles give the current and previous window value and the window maximum with its time; ' +
         `tables give their first rows (at most ${Math.min(rowsToModel, 20)}); skipped lists what does not exist.`,
       parameters: z
         .object({
-          group: z.enum(METRIC_GROUPS).describe('host, database, queue, nodes, uptime or pipeline.'),
+          group: z
+            .enum(metricGroupIds() as [MetricGroup, ...MetricGroup[]])
+            .describe(metricGroups().map((g) => `${g.id}: ${g.description}`).join('; ') + '.'),
           window: z.enum(HEALTH_WINDOWS).default('1h').describe('How far back to look: 15m, 1h, 6h, 24h or 7d.'),
         })
         .strict(),

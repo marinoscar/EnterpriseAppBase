@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getDashboardEvents,
   getDashboardFilters,
+  getDashboardMetricGroups,
   getDashboardMetrics,
   getDashboardSummary,
   getDashboardTimeseries,
@@ -29,6 +30,7 @@ import {
   type DashboardEventsQuery,
   type DashboardFilters,
   type DashboardMetricGroup,
+  type DashboardMetricGroupMeta,
   type DashboardMetrics,
   type DashboardMetricsQuery,
   type DashboardQuery,
@@ -147,8 +149,8 @@ export function useDashboardTop<K extends DashboardTopKind>(kind: K, query: Dash
 
 /**
  * `GET …/metrics?group=…` (#601) — one metric group per call, so each of the
- * page's six infrastructure sections loads, fails and retries on its own,
- * on the page's shared refresh tick.
+ * page's infrastructure sections (one per `/metric-groups` entry, #680) loads,
+ * fails and retries on its own, on the page's shared refresh tick.
  */
 export function useDashboardMetrics(group: DashboardMetricGroup, query: DashboardMetricsQuery, tick: number) {
   return useDashboardResource<DashboardMetrics>(
@@ -156,6 +158,23 @@ export function useDashboardMetrics(group: DashboardMetricGroup, query: Dashboar
     (signal) => getDashboardMetrics(group, query, { signal }),
     tick,
     'Failed to load the metrics',
+  );
+}
+
+/**
+ * `GET …/metric-groups` (#680) — the sections the page renders, sorted by
+ * `order` then id. Fetched once with the page's initial requests (the list
+ * only changes with a deploy), not on the refresh tick; Retry refetches it.
+ */
+export function useDashboardMetricGroups() {
+  return useDashboardResource<DashboardMetricGroupMeta[]>(
+    'metric-groups',
+    async (signal) =>
+      [...(await getDashboardMetricGroups({ signal }))].sort(
+        (a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      ),
+    0,
+    'Failed to load the metric sections',
   );
 }
 

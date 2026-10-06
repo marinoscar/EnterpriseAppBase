@@ -14,7 +14,13 @@ import {
   REQUIRED_TRACE_COLUMNS,
 } from '../../src/telemetry/dashboard/telemetry-dashboard.sql';
 import { TelemetryDashboardService } from '../../src/telemetry/dashboard/telemetry-dashboard.service';
-import { METRIC_GROUPS } from '../../src/telemetry/metrics/metric-catalog';
+import { withTemporaryEntries } from '../../src/common/registry';
+import {
+  METRIC_GROUPS,
+  metricGroupRegistry,
+  type MetricGroup,
+  type MetricGroupDef,
+} from '../../src/telemetry/metrics/metric-catalog';
 import { metricCatalogSchema } from '../../src/telemetry/testing/metric-schema.fixture';
 
 // =============================================================================
@@ -309,6 +315,131 @@ describe('Telemetry dashboard integration', () => {
         .set(authHeader(admin.accessToken))
         .expect(400);
       expect(res.body.details).toEqual({ field: 'host', reason: 'TELEMETRY_DASHBOARD_BAD_FILTER' });
+    });
+  });
+
+  describe('metric groups (#680)', () => {
+    const GROUPS_ROUTE = `${BASE}/metric-groups`;
+
+    /** An app group whose one family reads a table the catalog fixture has. */
+    const APP_GROUP: MetricGroupDef = {
+      id: 'test_app',
+      label: 'Test app',
+      title: 'Test app section',
+      order: 70,
+      description: 'test widgets',
+      families: [
+        {
+          key: 'testAppQueueDepth',
+          group: 'test_app' as MetricGroup,
+          label: 'Test depth',
+          table: 'app_jobs_queue_depth',
+          kind: 'gauge',
+          unit: 'count',
+          groupBy: 'status',
+          requiredColumns: ['status', 'job_type'],
+          seriesAggregate: 'sum',
+          bucketAggregate: 'max',
+          filters: ['service', 'instance'],
+        },
+      ],
+    };
+
+    const PLATFORM = [
+      { id: 'host', label: 'Host', title: 'Infrastructure', order: 10 },
+      { id: 'database', label: 'Database', title: 'Database', order: 20 },
+      { id: 'queue', label: 'Job queue', title: 'Job queue', order: 30 },
+      { id: 'nodes', label: 'Worker nodes', title: 'Worker nodes', order: 40 },
+      { id: 'uptime', label: 'Uptime and edge', title: 'Uptime & dependencies', order: 50 },
+      { id: 'pipeline', label: 'Telemetry pipeline', title: 'Telemetry pipeline', order: 60 },
+    ];
+
+    it('is 401 without a token', async () => {
+      await request(context.app.getHttpServer()).get(GROUPS_ROUTE).expect(401);
+    });
+
+    it('is 403 with only telemetry:read', async () => {
+      const token = telemetryReadOnlyUser();
+      await request(context.app.getHttpServer()).get(GROUPS_ROUTE).set(authHeader(token)).expect(403);
+    });
+
+    it('is 403 for a viewer', async () => {
+      const viewer = await createMockViewerUser(context);
+      await request(context.app.getHttpServer()).get(GROUPS_ROUTE).set(authHeader(viewer.accessToken)).expect(403);
+    });
+
+    it('lists the six platform groups with their API labels and dashboard titles, in order', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(GROUPS_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      // The handler returns `{ data }`, so the envelope passes it through as is.
+      expect(res.body).toEqual({ data: PLATFORM });
+    });
+
+    it('reads only the in-memory registry: no store query, no audit, even with no store and telemetry off', async () => {
+      const admin = await createMockAdminUser(context);
+      isConfigured.mockReturnValue(false);
+      getPolicy.mockResolvedValue({ ...POLICY, enabled: false });
+
+      const res = await request(context.app.getHttpServer())
+        .get(GROUPS_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(res.body.data).toEqual(PLATFORM);
+      expect(queryReader).not.toHaveBeenCalled();
+      expect(context.prismaMock.auditEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('lists and serves an app group registered with withTemporaryEntries', async () => {
+      const admin = await createMockAdminUser(context);
+      const dashboard = context.module.get(TelemetryDashboardService) as unknown as {
+        results: { clear(): void };
+        distinct: { clear(): void };
+      };
+      dashboard.results.clear();
+      dashboard.distinct.clear();
+      jest.spyOn(schema, 'getSchema').mockResolvedValue({ tables: [...SCHEMA.tables, ...metricCatalogSchema().tables] });
+
+      // The registry is frozen once the app has bootstrapped; the helper
+      // unfreezes it for the callback and restores it afterwards.
+      expect(metricGroupRegistry.frozen).toBe(true);
+
+      await withTemporaryEntries(metricGroupRegistry, [APP_GROUP], async () => {
+        const groups = await request(context.app.getHttpServer())
+          .get(GROUPS_ROUTE)
+          .set(authHeader(admin.accessToken))
+          .expect(200);
+        expect(groups.body.data).toEqual([
+          ...PLATFORM,
+          { id: 'test_app', label: 'Test app', title: 'Test app section', order: 70 },
+        ]);
+
+        const metrics = await request(context.app.getHttpServer())
+          .get(`${BASE}/metrics?group=test_app&range=6h`)
+          .set(authHeader(admin.accessToken))
+          .expect(200);
+        expect(metrics.body.data).toEqual(
+          expect.objectContaining({ group: 'test_app', available: true, skipped: [] }),
+        );
+        expect(metrics.body.data.tiles.map((t: { key: string }) => t.key)).toEqual(
+          expect.arrayContaining([expect.stringMatching(/^testAppQueueDepth/)]),
+        );
+      });
+
+      expect(metricGroupRegistry.frozen).toBe(true);
+      const after = await request(context.app.getHttpServer())
+        .get(GROUPS_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+      expect(after.body.data).toEqual(PLATFORM);
+      await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=test_app`)
+        .set(authHeader(admin.accessToken))
+        .expect(400);
     });
   });
 });

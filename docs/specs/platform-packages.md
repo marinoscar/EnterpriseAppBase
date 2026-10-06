@@ -374,15 +374,17 @@ Doctor checks and job handlers are already registry-driven in the base ([doctor 
 
 #### Worked example: a new metric group
 
-Today an app edits the closed tuple and the inline name map. With the contract:
+Today an app edits the closed tuple and the inline name map. With the contract
+(implemented in #680), the app lists its group and its metrics in its own
+registration file, which the platform's manifests register after the platform
+entries:
 
 ```ts
-// app code, not platform code
-registerMetricGroup({
-  id: 'coach',
-  label: 'Coach',
-  metrics: coachMetricNames,
-});
+// apps/api/src/app-registrations/telemetry.ts: app code, not platform code
+export const APP_METRICS: readonly AppMetricDef[] = [coachNudgesSent /* … */];
+export const APP_METRIC_GROUPS: readonly MetricGroupDef[] = [
+  { id: 'coach', label: 'Coach', title: 'Coach', order: 70, description: '…', families: coachFamilies },
+];
 ```
 
 The platform owns the dashboard that renders any registered group. The app owns the names and meaning of its metrics.

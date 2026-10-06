@@ -189,3 +189,28 @@ describe('event bus envelope helpers', () => {
     expect(decodeEventBusEnvelope(text)).toBeNull();
   });
 });
+
+describe('InProcessEventBus metrics (#680)', () => {
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('counts a publish as published and delivered locally, and a refused one as rejected', async () => {
+    const metrics = { published: jest.fn(), delivered: jest.fn(), reconnect: jest.fn() };
+    const bus = new InProcessEventBus('origin-a', metrics);
+
+    await bus.publish('test.channel', { n: 1 });
+    await bus.publish('test.channel', { blob: 'x'.repeat(EVENT_BUS_MAX_PAYLOAD_BYTES) });
+    await bus.publish('Not A Channel', {});
+
+    expect(metrics.published.mock.calls).toEqual([
+      ['test.channel', 'published'],
+      ['test.channel', 'rejected'],
+      ['Not A Channel', 'rejected'],
+    ]);
+    expect(metrics.delivered.mock.calls).toEqual([['test.channel', 'local']]);
+    expect(metrics.reconnect).not.toHaveBeenCalled();
+  });
+});

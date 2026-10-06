@@ -5,6 +5,7 @@ import type { Notification } from 'pg';
 
 import { encodeEventBusEnvelope } from './event-bus-core';
 import { EVENT_BUS_MAX_PAYLOAD_BYTES } from './event-bus.interface';
+import type { EventBusMetrics } from './event-bus.metrics';
 import {
   EVENT_BUS_PG_CHANNEL,
   EventBusListenerClient,
@@ -57,7 +58,12 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
 }
 
-function makeBus(clients: FakeClient[], executeRaw = jest.fn().mockResolvedValue(1), initialBackoffMs = 5) {
+function makeBus(
+  clients: FakeClient[],
+  executeRaw = jest.fn().mockResolvedValue(1),
+  initialBackoffMs = 5,
+  metrics?: EventBusMetrics,
+) {
   let index = 0;
   const created: FakeClient[] = [];
   const bus = new PostgresEventBus(
@@ -68,6 +74,7 @@ function makeBus(clients: FakeClient[], executeRaw = jest.fn().mockResolvedValue
       initialBackoffMs,
       maxBackoffMs: Math.max(20, initialBackoffMs),
       random: () => 0,
+      metrics,
       createClient: () => {
         const client = clients[Math.min(index, clients.length - 1)];
         index += 1;
@@ -216,6 +223,73 @@ describe('PostgresEventBus (fake listener)', () => {
     await new Promise((resolve) => setTimeout(resolve, 260));
 
     expect(created).toHaveLength(1);
+  });
+});
+
+describe('PostgresEventBus metrics (#680)', () => {
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  function sink() {
+    return { published: jest.fn(), delivered: jest.fn(), reconnect: jest.fn() } satisfies EventBusMetrics;
+  }
+
+  it('counts a NOTIFY as published and the local delivery as local', async () => {
+    const metrics = sink();
+    const { bus } = makeBus([new FakeClient()], undefined, 5, metrics);
+
+    await bus.publish('test.channel', { n: 1 });
+
+    expect(metrics.delivered).toHaveBeenCalledWith('test.channel', 'local');
+    expect(metrics.published).toHaveBeenCalledWith('test.channel', 'published');
+  });
+
+  it('counts a failed NOTIFY as notify_failed, and a refused payload as rejected', async () => {
+    const metrics = sink();
+    const { bus } = makeBus([new FakeClient()], jest.fn().mockRejectedValue(new Error('db down')), 5, metrics);
+
+    await bus.publish('test.channel', {});
+    await bus.publish('test.channel', { blob: 'x'.repeat(EVENT_BUS_MAX_PAYLOAD_BYTES) });
+    await bus.publish('Not A Channel', {});
+
+    expect(metrics.published.mock.calls).toEqual([
+      ['test.channel', 'notify_failed'],
+      ['test.channel', 'rejected'],
+      ['Not A Channel', 'rejected'],
+    ]);
+  });
+
+  it('counts a remote message as remote, never its own echo', async () => {
+    const client = new FakeClient();
+    const metrics = sink();
+    const { bus } = makeBus([client], undefined, 5, metrics);
+    bus.start();
+    await flush();
+
+    client.notify(encodeEventBusEnvelope('test.channel', 'me', { echo: true }));
+    client.notify(encodeEventBusEnvelope('test.channel', 'other-replica', { remote: true }));
+
+    expect(metrics.delivered.mock.calls).toEqual([['test.channel', 'remote']]);
+    await bus.close();
+  });
+
+  it('counts each scheduled reconnect', async () => {
+    const first = new FakeClient();
+    const metrics = sink();
+    const { bus } = makeBus([first, new FakeClient()], undefined, 5, metrics);
+    bus.start();
+    await flush();
+
+    first.emit('error', new Error('terminating connection due to administrator command'));
+    first.emit('end');
+
+    expect(metrics.reconnect).toHaveBeenCalledTimes(1);
+    await waitFor(() => bus.health().connected);
+    await bus.close();
   });
 });
 

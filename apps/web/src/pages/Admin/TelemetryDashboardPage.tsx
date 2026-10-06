@@ -20,9 +20,11 @@
  *
  * State lives in the URL (`dashboardState.ts`), so a link reproduces the view.
  *
- * Infrastructure (#602): below the application panels, six sections over
- * `/metrics` (#601) — Infrastructure, Database, Job queue, Worker nodes,
- * Uptime & dependencies, Telemetry pipeline — each its own request and panel,
+ * Infrastructure (#602): below the application panels, one section per metric
+ * group `GET …/metric-groups` lists (#680) — the platform's Infrastructure,
+ * Database, Job queue, Worker nodes, Uptime & dependencies and Telemetry
+ * pipeline, then any group the application registers — in the API's order and
+ * with the API's titles, each over its own `/metrics` request (#601) and panel,
  * hidden when the store has nothing of its group. The Host filter applies to
  * these sections only (the API applies it to the collector's tables), and a
  * verdict reason about one of them links to it.
@@ -31,7 +33,7 @@
  * (`lg`), decided HERE only — none of the shell's five coupled breakpoint
  * gates is touched.
  */
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AlertTitle,
@@ -53,6 +55,7 @@ import { useVisiblePolling } from '../../hooks/useVisiblePolling';
 import {
   useDashboardEvents,
   useDashboardFilters,
+  useDashboardMetricGroups,
   useDashboardMetrics,
   useDashboardSummary,
   useDashboardTimeseries,
@@ -117,11 +120,11 @@ import {
   metricsAssistantContext,
 } from '../../components/telemetry/dashboard/metrics/MetricSections';
 import {
-  METRIC_SECTIONS,
   metricPanelId,
   metricSectionTitle,
   scrollToMetricSection,
   verdictReasonGroup,
+  type MetricSectionMeta,
 } from '../../components/telemetry/dashboard/metrics/metricSections';
 import { sqlList } from '../../services/telemetryDashboard';
 import type {
@@ -129,6 +132,7 @@ import type {
   DashboardLogsBucket,
   DashboardMetricGroup,
   DashboardMetrics,
+  DashboardMetricsQuery,
   DashboardSeverity,
 } from '../../services/telemetryDashboard';
 import type { DashboardResource } from '../../hooks/useTelemetryDashboard';
@@ -215,6 +219,44 @@ function hasSelectedLogs(buckets: DashboardLogsBucket[], sev: DashboardSeverity[
   );
 }
 
+/**
+ * One infrastructure section with its own `/metrics` request (#601, #680), so
+ * any number of groups loads, fails and retries independently. It reports the
+ * group's `available` flag up, for the "not collected" line and the verdict
+ * reason links.
+ */
+function MetricGroupSection({
+  meta,
+  query,
+  tick,
+  layout,
+  spanMs,
+  actions,
+  onAvailability,
+}: {
+  meta: MetricSectionMeta;
+  query: DashboardMetricsQuery;
+  tick: number;
+  layout: DashboardLayout;
+  spanMs: number;
+  actions: (resource: DashboardResource<DashboardMetrics>) => PanelAction[];
+  onAvailability: (group: DashboardMetricGroup, available: boolean | undefined) => void;
+}) {
+  const resource = useDashboardMetrics(meta.id, query, tick);
+  const available = resource.data?.available;
+  useEffect(() => onAvailability(meta.id, available), [meta.id, available, onAvailability]);
+  return (
+    <MetricSection
+      group={meta.id}
+      title={meta.title}
+      resource={resource}
+      layout={layout}
+      spanMs={spanMs}
+      actions={actions(resource)}
+    />
+  );
+}
+
 /** Zoom gestures per layout: drag on desktop, drag or tap on tablet, tap on phones. */
 const ZOOM_MODES: Record<DashboardLayout, { drag: boolean; tap: boolean }> = {
   desktop: { drag: true, tap: false },
@@ -263,25 +305,20 @@ export default function TelemetryDashboardPage() {
   );
   const events = useDashboardEvents(eventsQuery, tick);
 
-  // Infrastructure sections (#602): one request per group, on the shared tick.
+  // Infrastructure sections (#602): which ones, their titles and order come
+  // from `/metric-groups` (#680), loaded with the other initial requests; each
+  // section then makes its own `/metrics` request on the shared tick.
+  const metricGroups = useDashboardMetricGroups();
+  const sections = metricGroups.data ?? [];
   const metricQuery = useMemo(() => {
     const base = metricsQuery(state);
     return buckets ? { ...base, buckets } : base;
   }, [state, buckets]);
-  const hostMetrics = useDashboardMetrics('host', metricQuery, tick);
-  const databaseMetrics = useDashboardMetrics('database', metricQuery, tick);
-  const queueMetrics = useDashboardMetrics('queue', metricQuery, tick);
-  const nodesMetrics = useDashboardMetrics('nodes', metricQuery, tick);
-  const uptimeMetrics = useDashboardMetrics('uptime', metricQuery, tick);
-  const pipelineMetrics = useDashboardMetrics('pipeline', metricQuery, tick);
-  const metrics: Record<DashboardMetricGroup, DashboardResource<DashboardMetrics>> = {
-    host: hostMetrics,
-    database: databaseMetrics,
-    queue: queueMetrics,
-    nodes: nodesMetrics,
-    uptime: uptimeMetrics,
-    pipeline: pipelineMetrics,
-  };
+  // Each section's `available` flag, as it reports it (undefined until its first answer).
+  const [availability, setAvailability] = useState<Record<DashboardMetricGroup, boolean | undefined>>({});
+  const reportAvailability = useCallback((group: DashboardMetricGroup, available: boolean | undefined) => {
+    setAvailability((prev) => (prev[group] === available ? prev : { ...prev, [group]: available }));
+  }, []);
 
   const openSql = useCallback(
     (sql: string) => {
@@ -345,9 +382,7 @@ export default function TelemetryDashboardPage() {
   if (!hasPermission('telemetry:query')) return <Navigate to="/" replace />;
 
   // Groups the store has nothing of: their sections hide, and one line says so.
-  const notCollected = METRIC_SECTIONS.map(({ group }) => group).filter(
-    (group) => metrics[group].data?.available === false,
-  );
+  const notCollected = sections.filter((section) => availability[section.id] === false);
   // Unknown API routes (#650): its panel shows only when the summary counted one.
   const unknownRoutes = hasUnknownRoutes(summary.data?.unknownRoutes) ? summary.data.unknownRoutes : null;
   const unknownSql = unknownRoutesSql(unknownRoutes);
@@ -358,8 +393,8 @@ export default function TelemetryDashboardPage() {
       return unknownRoutes ? { label: 'Show unknown routes', onClick: scrollToUnknownRoutes } : null;
     }
     const group = verdictReasonGroup(reason);
-    if (!group || !metrics[group].data?.available) return null;
-    return { label: `Show ${metricSectionTitle(group)}`, onClick: () => scrollToMetricSection(group) };
+    if (!group || availability[group] !== true) return null;
+    return { label: `Show ${metricSectionTitle(group, sections)}`, onClick: () => scrollToMetricSection(group) };
   };
 
   const unavailable = summary.error && UNAVAILABLE_REASONS.has(summary.error.reason ?? '') ? summary.error : null;
@@ -572,23 +607,37 @@ export default function TelemetryDashboardPage() {
               )}
             />
 
-            {METRIC_SECTIONS.map(({ group }) => {
-              const resource = metrics[group];
-              return (
-                <MetricSection
-                  key={group}
-                  group={group}
-                  resource={resource}
+            {metricGroups.data ? (
+              sections.map((meta) => (
+                <MetricGroupSection
+                  key={meta.id}
+                  meta={meta}
+                  query={metricQuery}
+                  tick={tick}
                   layout={layout}
                   spanMs={spanMs}
-                  actions={panelActions(
-                    metricPanelId(group),
-                    resource.data?.sql,
-                    resource.data ? metricsAssistantContext(group, resource.data) : null,
-                  )}
+                  onAvailability={reportAvailability}
+                  actions={(resource) =>
+                    panelActions(
+                      metricPanelId(meta.id),
+                      resource.data?.sql,
+                      resource.data ? metricsAssistantContext(meta.id, resource.data, meta.title) : null,
+                    )
+                  }
                 />
-              );
-            })}
+              ))
+            ) : (
+              // Until the section list arrives: the panels' own skeleton; if it
+              // fails, a panel error with Retry, never the rest of the page.
+              <DashboardPanel
+                id="panel-metric-groups"
+                title="Infrastructure metrics"
+                isLoading={metricGroups.isLoading}
+                error={metricGroups.error}
+                onRetry={metricGroups.reload}
+                skeletonHeight={200}
+              />
+            )}
             <MetricsNotCollected groups={notCollected} />
           </Stack>
         )}

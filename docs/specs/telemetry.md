@@ -1498,7 +1498,7 @@ columns.
 
 ### 11.4 Routes
 
-Six routes, all under `TelemetryDashboardController`, all gated by
+Seven routes, all under `TelemetryDashboardController`, all gated by
 `telemetry:query` — the same permission as the Explorer, because the
 dashboard reads telemetry DATA, not policy (`telemetry:read`/`write` gate the
 deployment-wide policy instead; see [§7](#7-security-model)):
@@ -1510,9 +1510,10 @@ deployment-wide policy instead; see [§7](#7-security-model)):
 | `GET /api/admin/telemetry/dashboard/top` | `kind=routes` (problem routes: by 5xx, then 4xx except 401, then p95; with `clientErrors`, `unknownRequests` and `unknown` per route, §11.15) or `kind=errors` (top error messages) |
 | `GET /api/admin/telemetry/dashboard/events` | Log events, newest first, keyset-paginated |
 | `GET /api/admin/telemetry/dashboard/filters` | Distinct `service`/`instance` values seen in the window, and the `hosts` the host metrics report (`host_name` of `system_cpu_load_average_1m`) |
-| `GET /api/admin/telemetry/dashboard/metrics` | `group=host\|database\|queue\|nodes\|uptime\|pipeline`: one group of the metric catalog — tiles, series and per-key tables (§11.14). Also takes `host` |
+| `GET /api/admin/telemetry/dashboard/metrics` | `group=host\|database\|queue\|nodes\|uptime\|pipeline` (or any group the application registers, §11.14): one group of the metric catalog — tiles, series and per-key tables. Also takes `host` |
+| `GET /api/admin/telemetry/dashboard/metric-groups` | `{ data: [{ id, label, title, order }] }`: every registered metric group in dashboard order (#680). Reads only the in-memory registry: no store query, no audit row, so it answers while the store is off or unreachable |
 
-Every response carries `range`, `generatedAt`, `truncated` and `sql` (the
+Every response but `/metric-groups` carries `range`, `generatedAt`, `truncated` and `sql` (the
 exact statement(s) run, primary first) — the same seam each panel's
 "Open in Explorer" action uses (§11.1), and useful on its own for anyone
 who wants to paste the statement into a BI tool. A shared window query
@@ -1681,10 +1682,16 @@ page checks it again as defence, not the gate.
 - **Zoom**: dragging (or, on touch, tapping) across the API or log timeline
   sets `from`/`to` to that span (`ZoomBrush.tsx`, `bucketWindow`); a "Reset
   zoom" chip in the filter bar drops back to the preset range.
-- **Infrastructure sections** (#602): below the Recent events feed, six
-  first-class panels over `GET …/metrics` (§11.14), one request per group
-  (`useDashboardMetrics`, on the same per-panel engine and refresh tick), in
-  this order:
+- **Infrastructure sections** (#602): below the Recent events feed, one
+  first-class panel per metric group over `GET …/metrics` (§11.14), one
+  request per group (`useDashboardMetrics`, on the same per-panel engine and
+  refresh tick). WHICH sections, their titles and their order come from
+  `GET …/metric-groups` (#680, `useDashboardMetricGroups`), fetched once with
+  the page's initial requests: until it answers, one panel skeleton stands in
+  for the sections; if it fails, that panel shows the error and a Retry, and
+  the rest of the dashboard is unaffected. Each section component makes its
+  own `/metrics` request, so any number of groups loads, fails and retries
+  independently. The six platform sections, in their order:
 
   | Section | `group` | Tiles | Chart | Table(s) |
   |---|---|---|---|---|
@@ -1695,8 +1702,13 @@ page checks it again as defence, not the gate.
   | Uptime & dependencies | `uptime` | nginx active connections, nginx requests/s, TLS days left, check duration | nginx connections by state | Uptime targets: Up/Down, status, latency, TLS days left, failed checks, last error — failing URLs first |
   | Telemetry pipeline | `pipeline` | Points failed, exporter queue used %, points refused, scrape targets down | — | Scrape targets: Up/Down per job |
 
-  Which tiles, series and tables a section draws is declared as data
-  (`SECTION_SPECS` in `components/telemetry/dashboard/metrics/MetricSections.tsx`)
+  A group the application registers renders after them, in its `order`,
+  under its API `title`.
+
+  Which tiles, series and tables a platform section draws is declared as data
+  (`SECTION_SPECS` in `components/telemetry/dashboard/metrics/MetricSections.tsx`);
+  a group without an entry (an app group) draws every tile, one chart per
+  series key and every table, in the response's order. All of it renders
   over three generic renderers: the headline `KpiTiles` (reused as is),
   `MetricSeriesChart` (one line per series and `groupBy` value, one unit per
   chart, `null` a gap) and `MetricTable` (every cell formatted by its
@@ -1947,9 +1959,31 @@ controls instead, just not by selecting a span on the chart itself.
 
 ### 11.13 Application metrics
 
-> **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`
+> **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`,
+> `app-metric.registry.ts` (the registry), `platform-app-metrics.ts` (the platform's declarations),
+> `app-metric.manifest.ts`; an app's own in `apps/api/src/app-registrations/telemetry.ts` (`APP_METRICS`)
 
-`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are defined: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed `record*` methods. The only other code that creates `app.*` instruments is the node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below), and it takes its names from the same `APP_METRIC_NAMES` table. With `OTEL_ENABLED` unset the service is a no-op.
+`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are created: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed methods (`jobEnqueued`, `aiUsage`, …). The only other code that creates `app.*` instruments is the node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below). With `OTEL_ENABLED` unset the service is a no-op.
+
+#### The app-metric registry (#680)
+
+Every `app.*` metric is **declared** in a static registry (`appMetricRegistry`, built on the registry primitive, `apps/api/src/common/registry/README.md`), one `AppMetricDef` each:
+
+| Field | Rule |
+|---|---|
+| `key` | Stable code key, lowerCamelCase (`jobsEnqueued`); what `add`/`record` and `APP_METRIC_NAMES` use. Unique. |
+| `name` | The OTLP name, `/^app(\.[a-z][a-z0-9_]*)+$/`, unique. Permanent: it is the GreptimeDB table name (table naming below). |
+| `kind` | `counter`, `histogram` or `gauge`. |
+| `unit` | The OTel unit (`s`, `By`, `{job}`, `1`); it picks the table suffix. |
+| `description` | Required. |
+| `buckets` | Histograms only; strictly ascending, in `unit`. |
+| `attributes` | The label keys the metric may carry (snake_case, no dots): `{ kind: 'enum', values }` (anything else becomes `other`) or `{ kind: 'free' }` (bounded by `boundLabel`, Labels below). |
+
+The manifest registers the platform's 31 (`platform-app-metrics.ts`), then the event bus's three (`common/event-bus/event-bus.metrics.ts`), then the app's `APP_METRICS`; a rule breach fails at import time. `APP_METRIC_NAMES` is derived from the registry (`{ [key]: name }`).
+
+- The constructor creates **every registered counter and histogram** from its declaration (name, unit, description, buckets as `advice.explicitBucketBoundaries`). The typed methods use those instruments and keep their own label logic.
+- `add(key, value = 1, attributes?)` (counters) and `record(key, value, attributes?)` (histograms) emit any registered metric, and are how an app emits its own. Only declared attribute keys are kept; each is bounded (`enum`: the value or `other`; `free`: `boundLabel`; numbers and booleans are stringified first). An unknown key, or one that names another kind, is a no-op logged once at `debug`; a negative or non-finite value is ignored. Neither throws.
+- A **gauge** is declared for its descriptor only: its provider creates it with `createRegisteredGauge(meter, key)` (from `gaugeContext()`) and keeps its callback. The service's four gauges and the node fleet gauges do exactly that.
 
 #### Table naming (verified live, GreptimeDB v1.2.1)
 
@@ -1999,12 +2033,15 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.nodes.uptime` | `app_nodes_uptime_seconds` | gauge | `s` | `node_id`, `node_name` | Node process uptime. |
 | `app.nodes.counter` | `app_nodes_counter` | gauge | `{event}` | `node_id`, `node_name`, `counter` (`claims`, `empty_polls`, `claim_failures`, `succeeded`, `failed`, `rate_limited`, `lease_renewals`, `lease_renew_failures`, `heartbeat_failures`, `watchdog_trips`) | The node's cumulative counters. They reset when the node process restarts, so read them with a reset-aware rate. |
 | `app.nodes.types.no_eligible_node` | `app_nodes_types_no_eligible_node` | gauge | `{type}` | `job_type` | For each node-offered type with due pending jobs: `1` when no `online`, `healthy` node lists the type as eligible, else `0`. See [worker-nodes.md](worker-nodes.md#fleet-metrics). |
+| `app.event_bus.published` | `app_event_bus_published_total` | counter | `{message}` | `adapter` (`in-process`, `postgres`), `channel`, `outcome` (`published`, `rejected`, `notify_failed`) | A `publish` call ends: delivered (and NOTIFYed); refused (invalid channel, oversize or unserialisable payload); or delivered locally while the NOTIFY failed. |
+| `app.event_bus.delivered` | `app_event_bus_delivered_total` | counter | `{message}` | `adapter`, `channel`, `origin` (`local`, `remote`) | A message is handed to this process's subscribers: published here, or received from another replica (its own echo is not counted). |
+| `app.event_bus.reconnects` | `app_event_bus_reconnects_total` | counter | `{reconnect}` | `adapter` (`postgres`) | The Postgres adapter schedules a listener reconnect after losing its session. |
 
 Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{bucket,sum,count}`, `app_backup_size_bytes_{bucket,sum,count}`, `app_jobs_oldest_pending_age_seconds`, `app_jobs_queue_depth`, `app_backup_last_success_timestamp_seconds`, `app_backup_last_success_size_bytes`. The remaining tables follow the same rules.
 
 #### Gauges
 
-- The gauges are registered only when `OTEL_ENABLED` is set. The four queue and backup gauges live in `AppMetricsService`. The `app.nodes.*` gauges live in `apps/api/src/nodes/node-fleet-metrics.service.ts`, the one sanctioned sibling: it needs `NodeOffloadService` and the fleet policy, which the global module cannot import without a cycle. It takes its meter, clock and gate from `AppMetricsService.gaugeContext()` and its names from `APP_METRIC_NAMES`.
+- The gauges are registered only when `OTEL_ENABLED` is set. The four queue and backup gauges live in `AppMetricsService`. The `app.nodes.*` gauges live in `apps/api/src/nodes/node-fleet-metrics.service.ts`, the one sanctioned sibling: it needs `NodeOffloadService` and the fleet policy, which the global module cannot import without a cycle. It takes its meter, clock and gate from `AppMetricsService.gaugeContext()` and its names, units and descriptions from the app-metric registry (`createRegisteredGauge`).
 - Their callbacks read PostgreSQL only while the telemetry gate is open (see [§2](#2-the-two-switches)). A closed gate costs no query.
 - Readings are cached for 30 seconds (`GAUGE_CACHE_TTL_MS`) with one read in flight.
 - Every API replica reports the same database-wide values. Take the maximum per timestamp, never the sum.
@@ -2013,7 +2050,7 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 
 #### Labels
 
-- Attribute keys are snake_case (`job_type`), so they are plain column names.
+- Attribute keys are snake_case (`job_type`), so they are plain column names; the registry refuses any other key at import time, and `add`/`record` drop an undeclared one.
 - A value is at most 64 characters of `[A-Za-z0-9_.:/@+-]`; an email-shaped value is rejected.
 - Each key admits at most 100 distinct values per process (`MAX_DISTINCT_VALUES`); later values become `other`.
 - Never a user id, email or URL.
@@ -2023,7 +2060,7 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 - Backup settlements made by the stale-sweep.
 - Controller-level auth cases (missing profile, missing cookie).
 
-Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, the gauge-temporality case in `apps/api/src/common/otel/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
+Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` (including the pinned descriptor baseline and `add`/`record`), `app-metric.registry.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, `apps/api/src/common/event-bus/event-bus.metrics.spec.ts`, the gauge-temporality case in `apps/api/src/common/otel/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
 
 - **PostgreSQL is scraped by the collector, not instrumented in the API.**
   The `postgresql` receiver reads the statistics views from outside the
@@ -2058,10 +2095,42 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts`, `apps/api/src/nod
 
 ### 11.14 Metric catalog and the `/metrics` route
 
-> **Code:** `apps/api/src/telemetry/metrics/` — `metric-catalog.ts` (the
-> declarations), `metric-sql.ts` (the builders), `metric-group.ts` (rows to
-> tiles, series and tables), `metric-verdict.ts` (the summary's probes),
-> `metric-values.ts` (parsing, histogram quantile).
+> **Code:** `apps/api/src/telemetry/metrics/` — `metric-group.registry.ts`
+> (the group registry), `groups/<id>.metric-group.ts` (the six platform
+> groups), `metric-group.manifest.ts`, `metric-catalog.ts` (the shapes and
+> the derived views), `metric-catalog.helpers.ts` (shared constants),
+> `metric-sql.ts` (the builders), `metric-group.ts` (rows to tiles, series
+> and tables), `metric-verdict.ts` (the summary's probes), `metric-values.ts`
+> (parsing, histogram quantile). An app's own groups:
+> `apps/api/src/app-registrations/telemetry.ts` (`APP_METRIC_GROUPS`).
+
+**Groups are registered (#680).** A metric group is one `MetricGroupDef` in
+the static `metricGroupRegistry`:
+
+| Field | Meaning |
+|---|---|
+| `id` | `/^[a-z][a-z0-9_]*$/`; the `/metrics` `group` value and the section anchor. Permanent. |
+| `label` | The API label (`METRIC_GROUP_LABELS`), e.g. `Host`. |
+| `title` | The dashboard section title, e.g. `Infrastructure`. |
+| `order` | Dashboard order, ascending, ties by id; the platform uses 10 to 60. |
+| `description` | One line; the assistant's `metrics_overview` tool describes the group with it. |
+| `families`, `ratios`, `tables` | The group's own entries (shapes below). Each entry's `group` equals the group `id`. |
+
+The manifest registers the six platform groups in their historic order, then
+the app's `APP_METRIC_GROUPS`. Registration refuses, at import time: an entry
+whose `group` differs from its group's id; a family, ratio or table key used
+by any other group (one key namespace across all three kinds); a unit outside
+`METRIC_UNITS`; a filter outside `service`/`instance`/`host`; a ratio
+reference or table histogram that names no registered family (of this group
+or an earlier one); a group with neither family nor table. `METRIC_GROUPS`,
+`METRIC_GROUP_LABELS`, `METRIC_FAMILIES`, `METRIC_RATIOS` and `METRIC_TABLES`
+are derived from the registry in group order (for the platform they equal the
+previous closed arrays element for element; a test pins them); `familiesOf`,
+`ratiosOf`, `tablesOf` and `familyByKey` read it live. The `/metrics` `group`
+query value is checked against the live registry and documented as the enum
+of the registered ids. `GET …/metric-groups` (§11.4) serves the metadata, and
+the web renders one section per listed group (§11.9); the assistant's tool
+builds its `group` enum and description from the registry.
 
 `METRIC_FAMILIES`, `METRIC_RATIOS` and `METRIC_TABLES` declare, as data, what
 the dashboard reads from the metric tables of §11.3 and §11.13. Each family
@@ -2158,6 +2227,14 @@ on the reader pool.
   nothing but undercounts a restart to zero and hides the post-restart
   increase; `lag` partitioned by every tag column counts both, and is
   verified on GreptimeDB v1.2.1.
+- **Groups carry their families (#680).** A group is the unit an app adds,
+  so the "a family belongs to its group" rule is structural. Rejected: one
+  registry of families, where nothing stops a family naming a group nobody
+  registered; and `z.string()` for `group`, which loses the OpenAPI enum.
+- **The web renders what the API lists.** Rejected: a section list kept in
+  the web, which would make a fork edit platform web files for every group.
+  Verdict rules and the web's reason-to-section patterns stay platform code;
+  a reason no pattern matches gets no link.
 - **Skipped, never failed.** A table appears only once its source has
   written; a fresh or partial deployment shows what it has and names the
   rest in `skipped`.

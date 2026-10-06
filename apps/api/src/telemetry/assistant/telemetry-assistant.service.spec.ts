@@ -4,6 +4,7 @@
 // FakeAiProvider), with the telemetry side faked.
 // =============================================================================
 
+import { withTemporaryEntries } from '../../common/registry';
 import type { SystemTelemetryValue } from '../../common/schemas/settings.schema';
 import { AiError } from '../../ai/core/ai-error';
 import type { AiInputItem, AiResponseRequest } from '../../ai/core/types/responses.types';
@@ -19,6 +20,7 @@ import type { TelemetryAssistantEventMap, TelemetryAssistantEventName, Telemetry
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
 import { analyzeStatement } from '../query/sql-guard';
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from '../query/telemetry-query.errors';
+import { metricGroupRegistry, type MetricGroup, type MetricGroupDef } from '../metrics/metric-catalog';
 import { metricCatalogSchema, metricTableSchema } from '../testing/metric-schema.fixture';
 import { assistantMetricWindow, NODE_FLAGS } from './telemetry-assistant.metrics';
 import { LOGS_TABLE, TRACES_TABLE } from './telemetry-assistant.sql';
@@ -1065,6 +1067,77 @@ describe('TelemetryAssistantService', () => {
 
       expect(t.events.map((e) => e.event)).toEqual(['error', 'done']);
       expect(t.of('error')).toEqual([{ code: 'TELEMETRY_UNREACHABLE', message: 'store is down' }]);
+    });
+
+    it('describes the six platform groups from the registry, in the historic wording (#680)', async () => {
+      const t = setup({ run: metricRun(() => undefined), script: [answer(null, 'ok')] });
+
+      await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+      const tool = t.requests()[0]!.tools?.find((x) => (x as { name: string }).name === 'metrics_overview') as unknown as {
+        description: string;
+        parameters: { shape: { group: { options: string[]; description: string } } };
+      };
+      const historic =
+        'One metric group over a time window, computed from the metric tables: host (CPU, memory, load, ' +
+        'filesystems, disk/network IO), database (connections, size, commits, rollbacks, deadlocks, cache hit ' +
+        'ratio, largest tables), queue (depth, oldest pending job, settle rate, failure ratio, duration p95, last ' +
+        'backup, per job type), nodes (fleet health, per-node vitals, job types without an eligible node), uptime ' +
+        '(checks per URL, TLS days left, nginx) or pipeline (collector export and queues, GreptimeDB write stalls, ' +
+        'scrape targets). Tiles give the current and previous window value';
+      expect(tool.description.startsWith(historic)).toBe(true);
+      expect(tool.parameters.shape.group.options).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline']);
+      expect(tool.parameters.shape.group.description).toBe(
+        'host: CPU, memory, load, filesystems, disk/network IO; ' +
+          'database: connections, size, commits, rollbacks, deadlocks, cache hit ratio, largest tables; ' +
+          'queue: depth, oldest pending job, settle rate, failure ratio, duration p95, last backup, per job type; ' +
+          'nodes: fleet health, per-node vitals, job types without an eligible node; ' +
+          'uptime: checks per URL, TLS days left, nginx; ' +
+          'pipeline: collector export and queues, GreptimeDB write stalls, scrape targets.',
+      );
+    });
+
+    it('offers an app group registered with withTemporaryEntries (#680)', async () => {
+      const appGroup: MetricGroupDef = {
+        id: 'test_app',
+        label: 'Test app',
+        title: 'Test app section',
+        order: 70,
+        description: 'test widgets per job type',
+        families: [
+          {
+            key: 'testAppQueueDepth',
+            group: 'test_app' as MetricGroup,
+            label: 'Test depth',
+            table: 'app_jobs_queue_depth',
+            kind: 'gauge',
+            unit: 'count',
+            requiredColumns: ['status', 'job_type'],
+            seriesAggregate: 'sum',
+            bucketAggregate: 'max',
+            filters: ['service', 'instance'],
+          },
+        ],
+      };
+
+      await withTemporaryEntries(metricGroupRegistry, [appGroup], async () => {
+        const run = metricRun(() => undefined);
+        const t = setup({ run, script: [call('c1', 'metrics_overview', { group: 'test_app' }), answer(null, 'ok')] });
+
+        await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
+
+        const tool = t.requests()[0]!.tools?.find((x) => (x as { name: string }).name === 'metrics_overview') as unknown as {
+          description: string;
+          parameters: { shape: { group: { options: string[]; description: string } } };
+        };
+        expect(tool.description).toContain('pipeline (collector export and queues, GreptimeDB write stalls, scrape targets) or test_app (test widgets per job type).');
+        expect(tool.parameters.shape.group.options).toContain('test_app');
+        expect(tool.parameters.shape.group.description).toContain('test_app: test widgets per job type.');
+
+        expect(t.of('step')[0].error).toBeUndefined();
+        const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
+        expect(output).toEqual(expect.objectContaining({ group: 'test_app', available: false, skipped: ['testAppQueueDepth'] }));
+      });
     });
 
     it('refuses a group outside the catalog before running anything', async () => {

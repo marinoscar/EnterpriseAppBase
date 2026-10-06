@@ -34,6 +34,7 @@ import {
   mockTelemetryStackRunning,
   mockTelemetryStatus,
 } from './fixtures/telemetry';
+import { mockDashboardMetricGroups } from './fixtures/telemetryDashboard';
 import type {
   AiAdminConfig,
   AiAdminConfigInput,
@@ -433,6 +434,11 @@ export const handlers = [
 
   http.post(`${API_BASE}/admin/telemetry/stack/deploy`, () => {
     return HttpResponse.json({ data: { jobId: 'job-deploy-1' } }, { status: 202 });
+  }),
+
+  // Telemetry Dashboard metric sections (#680): the six platform groups.
+  http.get(`${API_BASE}/admin/telemetry/dashboard/metric-groups`, () => {
+    return HttpResponse.json({ data: mockDashboardMetricGroups });
   }),
 
   http.get(`${API_BASE}/admin/telemetry/schema`, () => {
