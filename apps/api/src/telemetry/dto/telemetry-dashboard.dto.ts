@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { EVENT_SEVERITIES, SEARCH_MAX_LENGTH } from '../dashboard/telemetry-dashboard.sql';
 import { VERDICT_LEVELS } from '../dashboard/telemetry-dashboard.verdict';
-import { METRIC_GROUPS, METRIC_UNITS } from '../metrics/metric-catalog';
+import { isMetricGroup, METRIC_GROUPS, METRIC_UNITS, metricGroupIds, type MetricGroup } from '../metrics/metric-catalog';
 
 // =============================================================================
 // Telemetry dashboard — request and response shapes (issue #577, epic #576)
@@ -15,6 +15,7 @@ import { METRIC_GROUPS, METRIC_UNITS } from '../metrics/metric-catalog';
 //   GET /api/admin/telemetry/dashboard/events      → TelemetryDashboardEventsDto
 //   GET /api/admin/telemetry/dashboard/filters     → TelemetryDashboardFiltersDto
 //   GET /api/admin/telemetry/dashboard/metrics     → TelemetryDashboardMetricsDto (#601)
+//   GET /api/admin/telemetry/dashboard/metric-groups → TelemetryDashboardMetricGroupsDto (#680)
 //
 // Common query: `range` (15m|1h|6h|24h|7d, default 1h) OR `from`+`to` (ISO,
 // from < to, to <= now + 1 min, span <= 30 days); `service`, `instance`
@@ -141,12 +142,37 @@ export const telemetryDashboardEventsQuerySchema = z
 export class TelemetryDashboardEventsQueryDto extends createZodDto(telemetryDashboardEventsQuerySchema) {}
 export type TelemetryDashboardEventsQuery = z.infer<typeof telemetryDashboardEventsQuerySchema>;
 
+/** `a`, `a or b`, `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+}
+
+/**
+ * The `/metrics` `group` query value (#680). Checked against the LIVE
+ * metric-group registry, so a group registered after this module was evaluated
+ * (a test's `withTemporaryEntries`) is accepted, and DOCUMENTED as the enum of
+ * the ids registered at import time: exactly the `z.enum(METRIC_GROUPS)` it
+ * replaces, so the OpenAPI document is unchanged. In a running API the two
+ * agree: every group registers at import time and the registry is frozen at
+ * bootstrap.
+ */
+function metricGroupQuerySchema(): z.ZodType<MetricGroup, string> {
+  return z
+    .string()
+    .refine(isMetricGroup, {
+      error: () => `Invalid option: expected one of ${metricGroupIds().map((id) => `"${id}"`).join('|')}`,
+    })
+    .meta({ enum: [...METRIC_GROUPS] })
+    .describe(`The metric group: ${orList(METRIC_GROUPS.map((id) => `\`${id}\``))}.`) as unknown as z.ZodType<
+    MetricGroup,
+    string
+  >;
+}
+
 export const telemetryDashboardMetricsQuerySchema = z
   .object({
     ...commonShape,
-    group: z
-      .enum(METRIC_GROUPS)
-      .describe('The metric group: `host`, `database`, `queue`, `nodes`, `uptime` or `pipeline`.'),
+    group: metricGroupQuerySchema(),
     host: z
       .string()
       .min(1)
@@ -372,3 +398,21 @@ export const telemetryDashboardMetricsSchema = z.object({
 });
 export class TelemetryDashboardMetricsDto extends createZodDto(telemetryDashboardMetricsSchema) {}
 export type TelemetryDashboardMetrics = z.infer<typeof telemetryDashboardMetricsSchema>;
+
+// ---- metric groups (#680) ------------------------------------------------------
+
+export const telemetryDashboardMetricGroupSchema = z.object({
+  id: z.string().describe('The group id: the `/metrics` `group` value and the section anchor.'),
+  label: z.string().describe('The API label (e.g. `Host`).'),
+  title: z.string().describe('The dashboard section title (e.g. `Infrastructure`).'),
+  order: z.number().describe('Dashboard order, ascending; `data` is already sorted by it (ties by id).'),
+});
+export type TelemetryDashboardMetricGroup = z.infer<typeof telemetryDashboardMetricGroupSchema>;
+
+export const telemetryDashboardMetricGroupsSchema = z.object({
+  data: z
+    .array(telemetryDashboardMetricGroupSchema)
+    .describe('Every registered metric group (the platform\'s and the app\'s), in dashboard order.'),
+});
+export class TelemetryDashboardMetricGroupsDto extends createZodDto(telemetryDashboardMetricGroupsSchema) {}
+export type TelemetryDashboardMetricGroups = z.infer<typeof telemetryDashboardMetricGroupsSchema>;

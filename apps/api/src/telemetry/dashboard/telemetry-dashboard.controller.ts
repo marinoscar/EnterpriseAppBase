@@ -13,6 +13,7 @@ import {
   TelemetryDashboardEventsDto,
   TelemetryDashboardEventsQueryDto,
   TelemetryDashboardFiltersDto,
+  TelemetryDashboardMetricGroupsDto,
   TelemetryDashboardMetricsDto,
   TelemetryDashboardMetricsQueryDto,
   TelemetryDashboardQueryDto,
@@ -21,8 +22,9 @@ import {
   TelemetryDashboardTimeseriesQueryDto,
   TelemetryDashboardTopDto,
   TelemetryDashboardTopQueryDto,
+  type TelemetryDashboardMetricGroups,
 } from '../dto/telemetry-dashboard.dto';
-import { METRIC_GROUPS } from '../metrics/metric-catalog';
+import { METRIC_GROUPS, metricGroups } from '../metrics/metric-catalog';
 import { TelemetryDashboardService } from './telemetry-dashboard.service';
 
 // =============================================================================
@@ -35,10 +37,14 @@ import { TelemetryDashboardService } from './telemetry-dashboard.service';
 //   GET /api/admin/telemetry/dashboard/events       telemetry:query
 //   GET /api/admin/telemetry/dashboard/filters      telemetry:query
 //   GET /api/admin/telemetry/dashboard/metrics      telemetry:query   (#601)
+//   GET /api/admin/telemetry/dashboard/metric-groups telemetry:query  (#680)
 //
 // Same permission as the explorer: these read telemetry DATA. Every statement
 // is a server-authored template (`telemetry-dashboard.sql.ts`); the exact SQL
 // run is returned in `sql` so the UI can offer "open in explorer".
+// `metric-groups` is the exception: it reads only the in-memory metric-group
+// registry (no store query, no audit row), so the dashboard can render one
+// section per registered group, the app's included.
 // =============================================================================
 
 const COMMON_DOC =
@@ -194,5 +200,22 @@ export class TelemetryDashboardController {
   @ApiResponse({ status: 200, description: 'The metric group', type: TelemetryDashboardMetricsDto })
   async metrics(@Query() query: TelemetryDashboardMetricsQueryDto, @CurrentUser('id') userId: string) {
     return this.dashboard.metrics(userId, query);
+  }
+
+  @Get('metric-groups')
+  @Auth({ permissions: [PERMISSIONS.TELEMETRY_QUERY] })
+  @ApiOperation({
+    summary: 'The metric groups the dashboard renders (Admin only)',
+    description:
+      'Every registered metric group (the six platform groups and any the application registers), in ' +
+      'dashboard order: `id` (the `/metrics` `group` value), `label`, the dashboard section `title` and ' +
+      '`order`. Read from the in-memory metric-group registry: no telemetry store query, so it answers ' +
+      'even while the store is unconfigured or unreachable, and it is not audited.',
+  })
+  @ApiResponse({ status: 200, description: 'The metric groups', type: TelemetryDashboardMetricGroupsDto })
+  metricGroups(): TelemetryDashboardMetricGroups {
+    return {
+      data: metricGroups().map(({ id, label, title, order }) => ({ id, label, title, order })),
+    };
   }
 }
