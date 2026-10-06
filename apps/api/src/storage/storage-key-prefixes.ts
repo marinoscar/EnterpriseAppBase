@@ -12,10 +12,16 @@
 // falsehood about their own data.
 //
 // So the rule is structural, not procedural: purge targets are built ONLY from
-// `STORAGE_KEY_PREFIXES`, and `storage-key-prefixes.spec.ts` asserts each entry
-// is the prefix its writer actually uses. A new writer that invents a prefix
-// trips that test; a purge that filters a full bucket listing instead of using
-// this list would not, which is why it must not.
+// `STORAGE_KEY_PREFIXES`, the frozen view of the storage key-prefix registry
+// (`storage-key-prefix.view.ts`; registry in `storage-key-prefix.registry.ts`,
+// issue #679). The constants below are the platform's entries
+// (`platform-storage-prefixes.ts` registers them); an app registers its own in
+// `app-registrations/storage-prefixes.ts`, never here.
+// `storage-key-prefixes.spec.ts` asserts each entry is the prefix its writer
+// actually uses, and scans `apps/api/src` for every `*_KEY_PREFIX` constant: a
+// new writer that invents a prefix nobody registered trips that test. A purge
+// that filtered a full bucket listing instead of using the list would not,
+// which is why it must not.
 //
 // WHY IT LIVES HERE AND NOT IN `packages/shared`. That package is committed as
 // plain CommonJS with a hand-written `index.d.ts` and no build step, so a
@@ -29,6 +35,9 @@
 // and for the reason its header gives: several modules on both sides of the
 // storage boundary need this, and a file that imports nothing is safe to
 // import from either without inviting a cycle under `emitDecoratorMetadata`.
+// That is also why `STORAGE_KEY_PREFIXES` is NOT here: the view loads the
+// manifest, which imports this file through `platform-storage-prefixes.ts`. A
+// load test in the spec proves this file still requires nothing.
 //
 // ⚠ TRAILING SLASHES ARE NORMALISED HERE, AND THAT IS NOT COSMETIC. The
 // writers disagree: `BACKUP_KEY_PREFIX` carries one, `NODE_OUTPUT_KEY_PREFIX`
@@ -67,18 +76,3 @@ export const AI_OUTPUTS_KEY_PREFIX = 'ai-outputs/';
  * operator never knew they had.
  */
 export const STORAGE_TEST_KEY_PREFIX = 'storage-config-test/';
-
-/**
- * The complete set, and the only thing a destructive path may enumerate.
- *
- * Frozen so a caller cannot narrow it in place and then believe it purged
- * everything.
- */
-export const STORAGE_KEY_PREFIXES: readonly string[] = Object.freeze([
-  UPLOADS_KEY_PREFIX,
-  AVATARS_KEY_PREFIX,
-  DATABASE_BACKUPS_KEY_PREFIX,
-  NODE_OUTPUTS_KEY_PREFIX,
-  AI_OUTPUTS_KEY_PREFIX,
-  STORAGE_TEST_KEY_PREFIX,
-]);

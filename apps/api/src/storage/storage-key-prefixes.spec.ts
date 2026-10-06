@@ -11,10 +11,10 @@ import {
   AVATARS_KEY_PREFIX,
   DATABASE_BACKUPS_KEY_PREFIX,
   NODE_OUTPUTS_KEY_PREFIX,
-  STORAGE_KEY_PREFIXES,
   STORAGE_TEST_KEY_PREFIX,
   UPLOADS_KEY_PREFIX,
 } from './storage-key-prefixes';
+import { STORAGE_KEY_PREFIXES } from './storage-key-prefix.view';
 
 /**
  * These assertions exist because of one concrete failure, recorded in the

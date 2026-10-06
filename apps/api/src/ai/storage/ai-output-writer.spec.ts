@@ -4,7 +4,8 @@
 import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 
 import { StorageNotConfiguredError } from '../../storage/config/storage-not-configured.error';
-import { AI_OUTPUTS_KEY_PREFIX, STORAGE_KEY_PREFIXES } from '../../storage/storage-key-prefixes';
+import { STORAGE_KEY_PREFIXES } from '../../storage/storage-key-prefix.view';
+import { AI_OUTPUTS_KEY_PREFIX } from '../../storage/storage-key-prefixes';
 import { createInMemoryAiStorage } from '../testing/in-memory-ai-storage';
 import { AiOutputWriter, aiOutputKeyPrefix, extensionForMime } from './ai-output-writer';
 import { aiErrorFromStorage } from './ai-storage-errors';
