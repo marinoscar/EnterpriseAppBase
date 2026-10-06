@@ -51,6 +51,17 @@ export interface TestAppOptions {
    * overrides only that spec knows about.
    */
   overrideProviders?: Array<{ provide: unknown; useValue: unknown }>;
+
+  /**
+   * Extra modules compiled next to `AppModule`, the way a fork's own feature
+   * modules sit next to the platform's.
+   *
+   * Exists for the extension seams that a module joins by itself at
+   * `onModuleInit` (issue #678's app notification channel sender is the first
+   * user): the spec declares a small module that registers into a platform
+   * registry, and the real `AppModule` wiring around it stays untouched.
+   */
+  imports?: unknown[];
 }
 
 /**
@@ -68,7 +79,7 @@ export async function createTestApp(
   if (shouldUseMock) {
     // Create test module with mocked PrismaService
     let builder = Test.createTestingModule({
-      imports: [AppModule],
+      imports: [AppModule, ...((options.imports ?? []) as never[])],
     })
       .overrideProvider(PrismaService)
       .useValue(prismaMock)
@@ -91,7 +102,7 @@ export async function createTestApp(
   } else {
     // Create test module with real database (for true E2E tests)
     moduleFixture = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [AppModule, ...((options.imports ?? []) as never[])],
     }).compile();
   }
 
