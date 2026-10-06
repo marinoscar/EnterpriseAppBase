@@ -20,259 +20,45 @@
 // updates the same rows instead of inserting duplicates. What this file
 // contributes is that the data itself contains no duplicates to insert, which
 // the spec checks.
+//
+// WHERE THE RBAC DATA COMES FROM (#676, PP-1.4). Roles, permissions and their
+// default grants are no longer written here. Each is declared once, beside the
+// module that enforces it (`src/<module>/<module>.permissions.ts`,
+// `src/common/permissions/platform-roles.ts`, and the app-owned
+// `src/app-registrations/permissions.ts`), and registered into the role and
+// permission registries (`src/common/permissions`). The seed cannot import
+// those: the production image that runs `npm run prisma:seed` carries `dist/`
+// and `prisma/` but no `src/`. So `npm run catalog:permissions --workspace=api`
+// writes the registries out to `prisma/catalog/permissions.json`, committed,
+// and this file reads that. `test/prisma/permission-catalog.spec.ts` fails when
+// the JSON is stale, and pins the seeded data to a literal baseline. To change
+// a permission or a grant, edit its declaration file and regenerate; never edit
+// the JSON by hand. The rationale for each split and each grant lives in the
+// declaration file now, next to the entry.
 
-export const ROLES = [
-  {
-    name: 'admin',
-    description: 'Full system access - manage users, roles, and all settings',
-  },
-  {
-    name: 'contributor',
-    description: 'Standard user - can manage own settings and future features',
-  },
-  {
-    name: 'viewer',
-    description: 'Read-only access - can view content and manage own settings',
-  },
-] as const;
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
-export const PERMISSIONS = [
-  // System settings
-  { name: 'system_settings:read', description: 'Read system settings' },
-  { name: 'system_settings:write', description: 'Modify system settings' },
+interface PermissionCatalogFile {
+  roles: Array<{ name: string; description: string }>;
+  permissions: Array<{ name: string; description: string }>;
+  rolePermissions: Record<string, string[]>;
+}
 
-  // User settings
-  { name: 'user_settings:read', description: 'Read own user settings' },
-  { name: 'user_settings:write', description: 'Modify own user settings' },
+const catalog = JSON.parse(
+  readFileSync(join(__dirname, 'catalog', 'permissions.json'), 'utf8'),
+) as PermissionCatalogFile;
 
-  // Users management
-  { name: 'users:read', description: 'View user list and details' },
-  { name: 'users:write', description: 'Modify user accounts' },
+/** Every role, in registration order (platform roles, then the app's). */
+export const ROLES: ReadonlyArray<{ readonly name: string; readonly description: string }> =
+  catalog.roles;
 
-  // RBAC management
-  { name: 'rbac:manage', description: 'Manage roles and permissions' },
-
-  // Allowlist management
-  { name: 'allowlist:read', description: 'View allowlisted emails' },
-  { name: 'allowlist:write', description: 'Manage allowlisted emails' },
-
-  // Storage management
-  { name: 'storage:read', description: 'Read object metadata, get download URLs' },
-  { name: 'storage:write', description: 'Upload, update metadata' },
-  { name: 'storage:delete_any', description: 'Admin: delete any object' },
-
-  // Jobs — the background queue (#256, epic #254)
-  { name: 'jobs:read', description: 'View queued, running and completed jobs' },
-  { name: 'jobs:write', description: 'Enqueue, retry and cancel jobs' },
-
-  // Worker nodes — the fleet that executes those jobs (#256, epic #254).
-  //
-  // A SEPARATE PAIR FROM `jobs:*` on purpose. A settings card's `permission`
-  // must be the exact string its controller enforces (CLAUDE.md, Settings UI
-  // Pattern rule 3), so a Workers card gated on `jobs:read` would mirror a
-  // permission the nodes controller never checks — the hub would decide
-  // reachability on evidence unrelated to whether the request will be
-  // authorized. They are also different questions: what work is queued, versus
-  // which machines are attached to this deployment.
-  { name: 'nodes:read', description: 'View worker nodes and their health' },
-  { name: 'nodes:write', description: 'Register, drain and remove worker nodes' },
-
-  // Database backup (#256, epic #254).
-  //
-  // `db_backup:restore` is a THIRD permission rather than part of `:write`
-  // because the two acts are not comparable. Writing is routine scheduling and
-  // is undone by writing again; restoring renames the live database and
-  // restarts the process, interrupting every session. Folding restore into
-  // write would mean anyone trusted to move a backup window is also trusted to
-  // roll production back over the top of itself.
-  { name: 'db_backup:read', description: 'View backup schedule, history and status' },
-  { name: 'db_backup:write', description: 'Configure the backup schedule and run a backup' },
-  { name: 'db_backup:restore', description: 'Restore the database from a backup' },
-
-  // Notification broadcasts — admin messages fanned out to every user
-  // (#320, epic #319). A separate pair from `system_settings:*`: broadcasting
-  // is not editing the settings document, it's a one-way message to every
-  // account in the deployment, so it gets its own controller-enforced
-  // permission rather than mirroring one nothing in that controller checks.
-  // Plural, matching `jobs:*`/`nodes:*`/`users:*` for a collection resource.
-  {
-    name: 'broadcasts:read',
-    description: 'View notification broadcasts and their delivery history',
-  },
-  {
-    name: 'broadcasts:write',
-    description: 'Compose, schedule, cancel and send notification broadcasts',
-  },
-
-  // Web Push (VAPID) configuration (#355). A separate pair from
-  // `system_settings:*`: generating or rotating the VAPID key pair knocks
-  // every existing push subscriber offline until they resubscribe, which is
-  // a materially different act from an ordinary settings edit and gets its
-  // own controller-enforced permission rather than mirroring one nothing in
-  // that controller checks.
-  { name: 'push:read', description: 'View Web Push (VAPID) configuration' },
-  {
-    name: 'push:write',
-    description: 'Generate, rotate, enable/disable and remove Web Push VAPID keys',
-  },
-
-  // Object-storage configuration (#375, epic #372). A separate pair from
-  // BOTH `system_settings:*` and `storage:*`: the first understates the blast
-  // radius (a wrong bucket or a rotated-out key breaks every upload, avatar,
-  // job artifact and backup at once, with no restart in between), and the
-  // second is held by every Viewer in the deployment because it gates ordinary
-  // object access. See `src/common/constants/roles.constants.ts`.
-  {
-    name: 'storage_config:read',
-    description:
-      'View the object-storage configuration and the masked status of its stored secret key',
-  },
-  {
-    name: 'storage_config:write',
-    description:
-      'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket',
-  },
-
-  // AI platform (#423, epic #419, umbrella #418). THREE permissions, not two
-  // — see `src/common/constants/roles.constants.ts` for the full argument.
-  // `ai_config:*` gates the DEPLOYMENT-WIDE policy (whether AI is on, the key
-  // policy, per-provider config) and reaches every user at once, the same
-  // "distinct blast radius" reasoning `storage_config:*`/`push:*`/
-  // `broadcasts:*`/`nodes:*` above each make. `ai:use` is the opposite axis —
-  // may THIS caller invoke AI at all, with THEIR OWN saved key — and changes
-  // nothing about anyone else's access or the deployment's configuration.
-  {
-    name: 'ai_config:read',
-    description: 'View the deployment-wide AI platform policy',
-  },
-  {
-    name: 'ai_config:write',
-    description:
-      'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults',
-  },
-  {
-    name: 'ai:use',
-    description: 'Call AI models using a saved key',
-  },
-
-  // Telemetry (epic #528, story #533). THREE permissions, mirroring the shape
-  // of `ai_config:*`/`ai:use` and `db_backup:*`: `telemetry:read` and
-  // `telemetry:write` gate the DEPLOYMENT-WIDE policy (whether telemetry is
-  // collected, how long it is retained, the query and assistant bounds) and
-  // are seeded Admin-only, same "narrow, operational surface" posture as
-  // `storage_config:*`/`push:*`/`broadcasts:*`/`nodes:*`/`ai_config:*` above.
-  // `telemetry:query` is the separate, comparably sensitive act of actually
-  // running SQL, exporting results or invoking the AI assistant against
-  // telemetry data — closer to `db_backup:restore` than to a settings edit —
-  // and is seeded Admin-only as well, since nobody but an administrator has a
-  // vetted need to run ad-hoc queries against this deployment's observability
-  // data yet.
-  {
-    name: 'telemetry:read',
-    description: 'View telemetry settings and status',
-  },
-  {
-    name: 'telemetry:write',
-    description: 'Change telemetry settings',
-  },
-  {
-    name: 'telemetry:query',
-    description: 'Run SQL, export and use the AI assistant against telemetry',
-  },
-] as const;
+/** Every permission, in registration order (platform permissions, then the app's). */
+export const PERMISSIONS: ReadonlyArray<{ readonly name: string; readonly description: string }> =
+  catalog.permissions;
 
 // Role to permissions mapping
-export const ROLE_PERMISSIONS: Record<string, string[]> = {
-  admin: [
-    'system_settings:read',
-    'system_settings:write',
-    'user_settings:read',
-    'user_settings:write',
-    'users:read',
-    'users:write',
-    'rbac:manage',
-    'allowlist:read',
-    'allowlist:write',
-    'storage:read',
-    'storage:write',
-    'storage:delete_any',
-    // #256, epic #254 — ADMIN ONLY, including the read halves. Contributor and
-    // Viewer are deliberately left off: the queue, the fleet and the backup
-    // history are operational surfaces, and a read there exposes job payload
-    // metadata, host names and the shape of the deployment's schedule. A later
-    // issue can widen a specific read to Contributor with an argument for that
-    // one surface; starting narrow is the direction that can be relaxed
-    // without a migration, since these are rows.
-    'jobs:read',
-    'jobs:write',
-    'nodes:read',
-    'nodes:write',
-    'db_backup:read',
-    'db_backup:write',
-    'db_backup:restore',
-    // #320, epic #319 — ADMIN ONLY, same reasoning as the jobs/nodes/backup
-    // trio just above: broadcasting reaches every user in the deployment, so
-    // it starts as narrow as the other operational surfaces here and can be
-    // widened later without a migration, since these are rows.
-    'broadcasts:read',
-    'broadcasts:write',
-    // #355 — ADMIN ONLY, same reasoning: rotating VAPID keys knocks every
-    // push subscriber offline, so it starts as narrow as the surfaces above
-    // and can be widened later without a migration, since these are rows.
-    'push:read',
-    'push:write',
-    // #375, epic #372 — ADMIN ONLY, same reasoning: this pair decides which
-    // object store the whole deployment writes to and under whose key, so it
-    // starts as narrow as the surfaces above and can be widened later without
-    // a migration, since these are rows. Note that Contributor and Viewer keep
-    // `storage:*` (object ACCESS) below and gain nothing here — that split is
-    // the entire point of a separate pair.
-    'storage_config:read',
-    'storage_config:write',
-    // #423, epic #419 — ADMIN gets all three AI permissions: the two
-    // deployment-wide config ones (same "narrow, operational surface" posture
-    // as `storage_config:*`/`push:*`/`broadcasts:*`/`nodes:*` above) AND
-    // `ai:use`, since an administrator should not need a second grant to use
-    // a capability they can also configure.
-    'ai_config:read',
-    'ai_config:write',
-    'ai:use',
-    // Epic #528, story #533 — ADMIN ONLY, same reasoning as the operational
-    // surfaces above: telemetry settings and ad-hoc queries against
-    // observability data start as narrow as `db_backup:*`/`ai_config:*` and
-    // can be widened later without a migration, since these are rows.
-    'telemetry:read',
-    'telemetry:write',
-    'telemetry:query',
-  ],
-  contributor: [
-    'user_settings:read',
-    'user_settings:write',
-    'storage:read',
-    'storage:write',
-    // #423, epic #419 — `ai:use` only, never `ai_config:*`: a Contributor may
-    // call AI with their own saved key, and has no say over whether AI is
-    // enabled for anyone else or under which policy.
-    'ai:use',
-  ],
-  viewer: [
-    'user_settings:read',
-    'user_settings:write',
-    'storage:read',
-    // #499 — deliberately NO `ai:use` here, unlike Contributor above. Viewer
-    // is the DEFAULT role every new user lands in (see `ROLES` above and
-    // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto
-    // it meant every fresh signup could call AI with no explicit grant. That
-    // is fine under `byok` (no key, no calls succeed) but wrong under
-    // `byok_with_org_fallback`: a brand-new Viewer would silently spend the
-    // deployment's own org key the first time they touched an AI surface,
-    // with no administrator having decided that person should be able to.
-    // An administrator who wants a specific Viewer (or all of them) to use
-    // AI grants it back explicitly — a `role_permissions` row for
-    // `('viewer', 'ai:use')` — or promotes the account to Contributor, which
-    // already carries the grant.
-  ],
-};
+export const ROLE_PERMISSIONS: Record<string, string[]> = catalog.rolePermissions;
 
 // Default system settings
 // Must stay in step with `DEFAULT_SYSTEM_SETTINGS` in

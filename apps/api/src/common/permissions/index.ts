@@ -14,7 +14,12 @@ export {
   roleIds,
   roleRegistry,
 } from './permission.registry';
-export { buildPermissionCatalog } from './permission-catalog';
+export {
+  PERMISSION_CATALOG_COMMAND,
+  PERMISSION_CATALOG_PATH,
+  buildPermissionCatalog,
+  renderPermissionCatalog,
+} from './permission-catalog';
 export type { PermissionCatalog } from './permission-catalog';
 export { PLATFORM_ROLES } from './platform-roles';
 export type {
