@@ -28,3 +28,10 @@ export type {
   TenancyMode,
   UserPrincipal,
 } from './principal/index';
+
+// Errors: the application-wide exception filter, the error envelope's
+// OpenAPI DTO and the two exceptions that go with it (issue #698).
+export { HttpExceptionFilter } from './errors/http-exception.filter';
+export { withVerbatimErrorBody, hasVerbatimErrorBody } from './errors/verbatim-error-body.exception';
+export { DatabaseSeedException } from './errors/database-seed.exception';
+export { ErrorDto } from './errors/error.dto';

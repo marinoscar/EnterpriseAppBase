@@ -1,7 +1,7 @@
 import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
-import { HttpExceptionFilter } from './http-exception.filter';
-import { withVerbatimErrorBody } from '../exceptions/verbatim-error-body.exception';
-import { DatabaseSeedException } from '../exceptions/database-seed.exception';
+import { HttpExceptionFilter } from '../../src/core/errors/http-exception.filter';
+import { withVerbatimErrorBody } from '../../src/core/errors/verbatim-error-body.exception';
+import { DatabaseSeedException } from '../../src/core/errors/database-seed.exception';
 import { ZodValidationException } from 'nestjs-zod';
 import { z } from 'zod';
 
