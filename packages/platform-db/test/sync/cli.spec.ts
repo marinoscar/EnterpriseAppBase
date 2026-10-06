@@ -15,14 +15,11 @@ interface Run {
 async function platform(ws: Workspace, args: string[], env: NodeJS.ProcessEnv = {}, now = '2026-10-06T10:00:00Z'): Promise<Run> {
   const out: string[] = [];
   const err: string[] = [];
-  const code = await main(['db', ...args], {
-    out: (l) => out.push(l),
-    err: (l) => err.push(l),
-    cwd: ws.appDir,
-    env,
-    now: () => new Date(now),
-    packageRoot: ws.packageDir,
-  });
+  const code = await main(
+    ['db', ...args],
+    { out: (l) => out.push(l), err: (l) => err.push(l) },
+    { cwd: ws.appDir, env, now: () => new Date(now), packageRoot: ws.packageDir },
+  );
   return { code, out, err };
 }
 
