@@ -23,14 +23,17 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import type { DashboardTile, DashboardUnknownRoutes } from '../../../services/telemetryDashboard';
 import { formatTimestamp, formatTileValue, tileChange, tileDirection, type TileChange } from './format';
+import { useTelemetryTokens, type TelemetryTokens } from '../../../theme/telemetryTokens';
 
-const TONE_COLOR: Record<TileChange['tone'], string> = {
-  good: 'success.main',
-  bad: 'error.main',
-  neutral: 'text.secondary',
-};
+/** The change line's colour per tone: status tokens for good/bad, neutral chrome otherwise. */
+function toneColor(tone: TileChange['tone'], tokens: TelemetryTokens): string {
+  if (tone === 'good') return tokens.status.ok;
+  if (tone === 'bad') return tokens.status.crit;
+  return 'text.secondary';
+}
 
 function ChangeLine({ change, compact }: { change: TileChange; compact: boolean }) {
+  const tokens = useTelemetryTokens();
   if (change.pct === null && change.trend === 'flat') {
     return (
       <Typography variant="caption" color="text.secondary">
@@ -46,7 +49,7 @@ function ChangeLine({ change, compact }: { change: TileChange; compact: boolean 
     <Typography
       variant="caption"
       aria-label={`${words} ${pctText} vs previous window`}
-      sx={{ color: TONE_COLOR[change.tone], display: 'inline-flex', alignItems: 'center', gap: 0.25, fontWeight: 500 }}
+      sx={{ color: toneColor(change.tone, tokens), display: 'inline-flex', alignItems: 'center', gap: 0.25, fontWeight: 500 }}
     >
       {compact && Icon ? <Icon aria-hidden sx={{ fontSize: 14 }} /> : <span aria-hidden>{glyph}</span>}
       <span aria-hidden>{pctText}</span>
@@ -60,7 +63,7 @@ function ChangeLine({ change, compact }: { change: TileChange; compact: boolean 
 }
 
 function Sparkline({ data, height }: { data: (number | null)[]; height: number }) {
-  const theme = useTheme();
+  const tokens = useTelemetryTokens();
   if (data.length < 2 || data.every((value) => value === null)) return <Box sx={{ height }} />;
   return (
     <Box aria-hidden sx={{ height, mt: 0.5 }}>
@@ -70,7 +73,7 @@ function Sparkline({ data, height }: { data: (number | null)[]; height: number }
       <SparkLineChart
         data={data as number[]}
         height={height}
-        color={theme.palette.primary.main}
+        color={tokens.chart.series[0]}
         curve="linear"
       />
     </Box>
@@ -105,6 +108,7 @@ function Tile({
   const formatted = formatTileValue(tile.value, tile.unit, now);
   const isTimestamp = tile.unit === 'timestamp';
   const change = tileChange(tile.value, tile.previous, tileDirection(tile.key));
+  const tokens = useTelemetryTokens();
   return (
     <Paper
       variant="outlined"
@@ -116,7 +120,7 @@ function Tile({
         minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
-        ...(highlight ? { borderColor: 'warning.main' } : {}),
+        ...(highlight ? { borderColor: tokens.status.warn } : {}),
       }}
     >
       <Typography variant="caption" color="text.secondary" noWrap title={tile.label} component="h3">
@@ -128,7 +132,7 @@ function Tile({
           component="p"
           noWrap
           title={isTimestamp && typeof tile.value === 'string' ? formatTimestamp(tile.value) : undefined}
-          sx={{ fontWeight: 600, minWidth: 0, ...(highlight ? { color: 'warning.main' } : {}) }}
+          sx={{ fontWeight: 600, minWidth: 0, ...(highlight ? { color: tokens.status.warn } : {}) }}
         >
           {formatted.value}
         </Typography>
