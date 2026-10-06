@@ -122,6 +122,12 @@ export const JOB_TYPE_LABELS: Readonly<Record<string, string>> = {
   // Starts GreptimeDB and the OTel collector through the VPS stack-agent (#567),
   // from "Deploy GreptimeDB" on the telemetry settings page.
   'telemetry.stack.deploy': 'Telemetry services deploy',
+  // The four `retention.*` purges (#681), enqueued nightly by
+  // `common/retention/retention-purge.task.ts`.
+  'notifications.inbox.purge': 'Notification inbox purge',
+  'notifications.deliveries.purge': 'Delivery log purge',
+  'audit.events.purge': 'Audit log purge',
+  'ai.runs.purge': 'AI run purge',
 };
 
 /**
