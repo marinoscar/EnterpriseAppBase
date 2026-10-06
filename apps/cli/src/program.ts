@@ -1,3 +1,4 @@
+import { applyRegisteredCommands } from '@marinoscar/platform-cli/core';
 import { Command, CommanderError } from 'commander';
 
 import { CLI_DISPLAY_NAME, CLI_NAME } from './branding.js';
@@ -9,6 +10,7 @@ import { registerLoginCommand } from './commands/login.js';
 import { registerNodeCommand } from './commands/node.js';
 import { EXIT, exitCodeFor, formatError } from './errors.js';
 import { CLI_VERSION } from './package-info.js';
+import { ensurePlatformRegistrations } from './platform-host/register.js';
 import { evaluateTuiGate, type TtyContext } from './tui/tty.js';
 
 // =============================================================================
@@ -77,9 +79,19 @@ export function buildProgram(): Command {
   // which puts it with `login`/`config` rather than with the group that acts on
   // a remote server.
   registerNodeCommand(program);
-  // `deploy` last: it is the only group that acts on a SERVER rather than on
-  // this machine's session, and it reads as a separate concern in --help.
+  // `deploy` last of the built-ins: it is the only group that acts on a SERVER
+  // rather than on this machine's session, and it reads as a separate concern
+  // in --help.
   registerDeployCommand(program);
+
+  // App commands (`registerCliCommand`, PP-4.5 #706) AFTER every built-in, in
+  // registration order, so `--help` keeps the order above. They hang off this
+  // same `program`, so they inherit `exitOverride` and the exit-code mapping in
+  // `run()`. A name that collides with a built-in throws here.
+  // `ensurePlatformRegistrations` is lazy and idempotent: this file still
+  // runs nothing on import.
+  ensurePlatformRegistrations();
+  applyRegisteredCommands(program);
 
   return program;
 }
@@ -104,7 +116,16 @@ export interface RunOptions {
  * the exit code the process should use.
  */
 export async function run(argv: string[], options?: RunOptions): Promise<number> {
-  const program = buildProgram();
+  // Building can fail now that apps register into it (a command name or an
+  // env key owned twice). That is a broken CLI, and it gets the same one-line
+  // message and non-zero exit as any other failure, not an unhandled rejection.
+  let program: Command;
+  try {
+    program = buildProgram();
+  } catch (error) {
+    process.stderr.write(`${formatError(error)}\n`);
+    return exitCodeFor(error);
+  }
 
   // ---------------------------------------------------------------------------
   // NO ARGUMENTS: the ONLY invocation that can open the ink TUI (#145).
