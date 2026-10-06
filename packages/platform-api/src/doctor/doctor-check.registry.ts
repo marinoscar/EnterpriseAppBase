@@ -1,5 +1,5 @@
 // =============================================================================
-// Doctor check registry (issue #634)
+// Doctor check registry (issue #634; packaged by #696)
 // =============================================================================
 //
 // The one place that knows which checks `GET /api/admin/doctor` runs.
@@ -7,7 +7,7 @@
 // and no reason to change when a capability adds one.
 //
 // EXPLICIT SELF-REGISTRATION, the same mechanism and for the same reasons as
-// `jobs/job-handler.registry.ts` (read its header): each check is an
+// the app's `jobs/job-handler.registry.ts` (read its header): each check is an
 // `@Injectable()` in its OWNING feature module, injects this registry, and calls
 // `this.registry.register(this)` from its own `onModuleInit`. "Why does the
 // doctor run this check?" has a grep-able answer — one `register(this)` line —
@@ -25,7 +25,7 @@
 // of them while silently dropping the other would hide exactly the check its
 // author thought they had added. Failing at boot is loud and trivially fixed.
 //
-// Built on the generic registry primitive (`common/registry/`, issue #675): an
+// Built on the generic registry primitive (the `core` slice, issue #675): an
 // INSTANCE registry with the primitive's default duplicate policy (throw), kept
 // in registration order, and frozen in `onApplicationBootstrap`, after every
 // check's `onModuleInit` has registered it. A check that registers any later is
@@ -34,9 +34,16 @@
 
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 
-import { Registry } from '../common/registry';
+import { Registry } from '../core/index';
 import { DoctorCheck } from './doctor-check.interface';
 
+/**
+ * The checks `GET /api/admin/doctor` runs. Provided (globally) by
+ * `DoctorModule.forRoot()`; a feature module's check injects it and registers
+ * itself from `onModuleInit`.
+ *
+ * @stability stable
+ */
 @Injectable()
 export class DoctorCheckRegistry implements OnApplicationBootstrap {
   private readonly checks = new Registry<DoctorCheck>({
@@ -47,7 +54,23 @@ export class DoctorCheckRegistry implements OnApplicationBootstrap {
       `${incoming.constructor.name} both register it. Check ids must be unique.`,
   });
 
-  /** Adds `check`. Throws when another check already uses its id, or after bootstrap. */
+  /**
+   * Adds `check`. Call it from the check's own `onModuleInit`.
+   *
+   * @param check - the check; its `id` must be unique across the application.
+   * @throws RegistryError `DUPLICATE_ID` when another check already uses its id
+   *   (`Duplicate doctor check id "<id>": <A> and <B> both register it. Check ids must be unique.`),
+   *   `FROZEN` after the application has bootstrapped.
+   *
+   * @example
+   * ```ts
+   * onModuleInit(): void {
+   *   this.registry.register(this);
+   * }
+   * ```
+   *
+   * @extensionPoint registry
+   */
   register(check: DoctorCheck): void {
     this.checks.register(check);
   }

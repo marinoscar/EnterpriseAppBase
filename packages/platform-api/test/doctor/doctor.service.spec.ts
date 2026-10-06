@@ -1,6 +1,6 @@
-import { DoctorCheck, DoctorCheckOutcome } from './doctor-check.interface';
-import { DoctorCheckRegistry } from './doctor-check.registry';
-import { DOCTOR_CACHE_TTL_MS, DOCTOR_FALLBACK_REMEDY, DoctorService, worstStatus } from './doctor.service';
+import { DoctorCheck, DoctorCheckOutcome } from '../../src/doctor';
+import { DoctorCheckRegistry } from '../../src/doctor';
+import { DOCTOR_CACHE_TTL_MS, DOCTOR_FALLBACK_REMEDY, DoctorService, worstStatus } from '../../src/doctor';
 
 type Partial = Omit<DoctorCheck, 'run' | 'category' | 'label'> & {
   category?: string;

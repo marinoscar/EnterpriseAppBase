@@ -1,6 +1,6 @@
-import { DoctorCheck } from './doctor-check.interface';
-import { DoctorCheckRegistry } from './doctor-check.registry';
-import { RegistryError } from '../common/registry';
+import { DoctorCheck } from '../../src/doctor';
+import { DoctorCheckRegistry } from '../../src/doctor';
+import { RegistryError } from '../../src/core';
 
 function check(id: string): DoctorCheck {
   return {

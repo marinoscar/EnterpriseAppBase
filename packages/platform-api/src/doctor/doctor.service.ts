@@ -1,5 +1,5 @@
 // =============================================================================
-// DoctorService — runs the registered checks into one report (issue #634)
+// DoctorService — runs the registered checks into one report (issue #634; packaged by #696)
 // =============================================================================
 //
 // WHAT THIS OWNS, so no check has to:
@@ -12,11 +12,11 @@
 //     reported as `skip` and never run: "bucket unreachable" beneath "storage
 //     not configured" is noise, and running it would only time out.
 //   - FAILURE CONTAINMENT. A throw becomes `fail` with the error's message; a
-//     hang becomes `fail` after `timeoutMs` (default 5000). One broken check
+//     hang becomes `fail` after `timeoutMs` (default `defaultTimeoutMs`, 5000). One broken check
 //     never costs the operator the rest of the list.
 //   - NORMALISATION. `detail` is forced to one line; a `warn`/`fail` with no
 //     remedy gets a generic one naming its settings page.
-//   - CACHING. The report is cached for 15 s per filter, so a page that polls,
+//   - CACHING. The report is cached for `cacheTtlMs` (15 s) per filter, so a page that polls,
 //     or two admins opening it together, do not multiply the probes. In-flight
 //     runs are shared too. `refresh: true` bypasses (and replaces) the cache.
 //
@@ -24,33 +24,53 @@
 // are bound by the same rule (see `doctor-check.interface.ts`).
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import {
-  DOCTOR_CATEGORIES,
   DOCTOR_STATUSES,
+  PLATFORM_DOCTOR_CATEGORIES,
   DOCTOR_STATUS_RANK,
   DoctorCheck,
   DoctorCheckOutcome,
   DoctorStatus,
 } from './doctor-check.interface';
 import { DoctorCheckRegistry } from './doctor-check.registry';
+import { DOCTOR_MODULE_OPTIONS, ResolvedDoctorModuleOptions } from './doctor.options';
 import { DoctorCheckReport, DoctorReport } from './dto/doctor-report.dto';
 
-/** Per-check ceiling when a check declares none. */
+/**
+ * Per-check ceiling when a check declares none: the default of `defaultTimeoutMs`.
+ *
+ * @stability stable
+ */
 export const DOCTOR_DEFAULT_TIMEOUT_MS = 5_000;
 
-/** How long a report is served from memory. */
+/**
+ * How long a report is served from memory: the default of `cacheTtlMs`.
+ *
+ * @stability stable
+ */
 export const DOCTOR_CACHE_TTL_MS = 15_000;
 
 /** A `detail` longer than this is cut: it is one line in a table. */
 const MAX_DETAIL_LENGTH = 500;
 
-/** Remedy for a warn/fail with no settings page and no remedy of its own. */
+/**
+ * Remedy for a warn/fail with no settings page and no remedy of its own.
+ *
+ * @stability stable
+ */
 export const DOCTOR_FALLBACK_REMEDY = 'See the API logs for details.';
 
+/**
+ * What {@link DoctorService.run} takes.
+ *
+ * @stability stable
+ */
 export interface DoctorRunOptions {
+  /** Only the checks in this category (plus, unreported, whatever they depend on). */
   category?: string;
+  /** Bypass (and replace) the cached report. */
   refresh?: boolean;
 }
 
@@ -59,7 +79,14 @@ interface CacheEntry {
   report: Promise<DoctorReport>;
 }
 
-/** The worst of `statuses`; `skip` when there are none (nothing was proven). */
+/**
+ * The worst of `statuses`; `skip` when there are none (nothing was proven).
+ *
+ * @param statuses - the statuses to fold.
+ * @returns the worst, ordered `pass < skip < warn < fail`.
+ *
+ * @stability stable
+ */
 export function worstStatus(statuses: DoctorStatus[]): DoctorStatus {
   if (statuses.length === 0) return 'skip';
 
@@ -80,35 +107,57 @@ function errorMessage(error: unknown): string {
   return oneLine(String(error));
 }
 
-function categoryRank(category: string): number {
-  const index = (DOCTOR_CATEGORIES as readonly string[]).indexOf(category);
-
-  return index === -1 ? DOCTOR_CATEGORIES.length : index;
-}
-
+/**
+ * Runs the registered checks into one report: parallel, dependency-aware,
+ * time-boxed, normalised and briefly cached. Provided by `DoctorModule.forRoot()`.
+ *
+ * @stability stable
+ */
 @Injectable()
 export class DoctorService {
   private readonly logger = new Logger(DoctorService.name);
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly categoryOrder: readonly string[];
+  private readonly defaultTimeoutMs: number;
+  private readonly cacheTtlMs: number;
 
   /** Overridable in tests. */
   protected now: () => number = () => Date.now();
 
-  constructor(private readonly registry: DoctorCheckRegistry) {}
+  /**
+   * @param registry - the checks to run.
+   * @param options - the module's resolved options; the defaults when absent
+   *   (`PLATFORM_DOCTOR_CATEGORIES`, 5000 ms, 15000 ms).
+   */
+  constructor(
+    @Inject(DoctorCheckRegistry) private readonly registry: DoctorCheckRegistry,
+    @Optional()
+    @Inject(DOCTOR_MODULE_OPTIONS)
+    options?: Pick<ResolvedDoctorModuleOptions, 'categoryOrder' | 'defaultTimeoutMs' | 'cacheTtlMs'>,
+  ) {
+    this.categoryOrder = options?.categoryOrder ?? PLATFORM_DOCTOR_CATEGORIES;
+    this.defaultTimeoutMs = options?.defaultTimeoutMs ?? DOCTOR_DEFAULT_TIMEOUT_MS;
+    this.cacheTtlMs = options?.cacheTtlMs ?? DOCTOR_CACHE_TTL_MS;
+  }
 
-  /** The report for every check, or for one `category`. Never throws for a check's sake. */
+  /**
+   * The report for every check, or for one `category`. Never throws for a check's sake.
+   *
+   * @param options - the category filter and the cache bypass.
+   * @returns the report; served from the cache for `cacheTtlMs` unless `refresh`.
+   */
   async run(options: DoctorRunOptions = {}): Promise<DoctorReport> {
     const key = options.category ?? '*';
     const cached = this.cache.get(key);
 
-    if (!options.refresh && cached && this.now() - cached.at < DOCTOR_CACHE_TTL_MS) {
+    if (!options.refresh && cached && this.now() - cached.at < this.cacheTtlMs) {
       return cached.report;
     }
 
     // Expired entries are dropped here, so arbitrary `category` values cannot
-    // grow the map past what 15 seconds of requests can put in it.
+    // grow the map past what one TTL of requests can put in it.
     for (const [k, e] of this.cache) {
-      if (this.now() - e.at >= DOCTOR_CACHE_TTL_MS) this.cache.delete(k);
+      if (this.now() - e.at >= this.cacheTtlMs) this.cache.delete(k);
     }
 
     const report = this.execute(options.category);
@@ -151,6 +200,12 @@ export class DoctorService {
     };
 
     const checks = await Promise.all(reported.map((check) => resultFor(check)));
+
+    const categoryRank = (category: string): number => {
+      const index = this.categoryOrder.indexOf(category);
+
+      return index === -1 ? this.categoryOrder.length : index;
+    };
 
     checks.sort(
       (a, b) =>
@@ -208,7 +263,7 @@ export class DoctorService {
   }
 
   private async runGuarded(check: DoctorCheck): Promise<DoctorCheckOutcome> {
-    const timeoutMs = check.timeoutMs ?? DOCTOR_DEFAULT_TIMEOUT_MS;
+    const timeoutMs = check.timeoutMs ?? this.defaultTimeoutMs;
     let timer: NodeJS.Timeout | undefined;
 
     const timeout = new Promise<DoctorCheckOutcome>((resolve) => {

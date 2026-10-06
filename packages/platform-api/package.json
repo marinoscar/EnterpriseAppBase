@@ -30,6 +30,10 @@
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     },
+    "./doctor": {
+      "types": "./dist/doctor/index.d.ts",
+      "default": "./dist/doctor/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

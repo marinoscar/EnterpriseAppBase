@@ -1,5 +1,5 @@
 // =============================================================================
-// The admin doctor check contract (issue #634)
+// The admin doctor check contract (issue #634; packaged by #696)
 // =============================================================================
 //
 // `GET /api/admin/doctor` answers one question for an administrator: "is every
@@ -53,13 +53,30 @@
 //          A `skip` needs no remedy.
 //
 // Registration: see `doctor-check.registry.ts`. Each check is an
-// `@Injectable()` in its OWNING feature module, under `<module>/doctor/`, that
-// calls `registry.register(this)` from its own `onModuleInit`.
+// `@Injectable()` in its OWNING feature module of the app, under
+// `<module>/doctor/`, that calls `registry.register(this)` from its own
+// `onModuleInit`. Checks never live in this package: they are registry
+// entries the app contributes (the Extension Contract, rung 2).
 // =============================================================================
 
-/** The four outcomes, identical to the CLI doctor's `CheckStatus`. */
+/**
+ * The four outcomes of a check, identical to the CLI doctor's `CheckStatus`.
+ *
+ * - `pass`: verified healthy.
+ * - `warn`: works, but needs attention.
+ * - `fail`: broken.
+ * - `skip`: not evaluated (a dependency did not pass, or the capability is
+ *   intentionally switched off).
+ *
+ * @stability stable
+ */
 export type DoctorStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
+/**
+ * Every status, in severity order (`pass < skip < warn < fail`).
+ *
+ * @stability stable
+ */
 export const DOCTOR_STATUSES: readonly DoctorStatus[] = ['pass', 'skip', 'warn', 'fail'];
 
 /**
@@ -68,6 +85,8 @@ export const DOCTOR_STATUSES: readonly DoctorStatus[] = ['pass', 'skip', 'warn',
  * `skip` ranks just above `pass` — a report whose only non-pass entries are
  * intentional skips (AI off, telemetry off) is healthy, but it proved less than
  * an all-pass one, and a report where NOTHING ran must not read as "pass".
+ *
+ * @stability stable
  */
 export const DOCTOR_STATUS_RANK: Readonly<Record<DoctorStatus, number>> = {
   pass: 0,
@@ -76,8 +95,14 @@ export const DOCTOR_STATUS_RANK: Readonly<Record<DoctorStatus, number>> = {
   fail: 3,
 };
 
-/** The categories this template ships, in display order. */
-export const DOCTOR_CATEGORIES = [
+/**
+ * The categories the platform ships, in display order. The default of
+ * `DoctorModuleOptions.categoryOrder`; an app adds its own simply by using a
+ * new string (or reorders them with that option), never by editing this list.
+ *
+ * @stability stable
+ */
+export const PLATFORM_DOCTOR_CATEGORIES = [
   'core',
   'auth',
   'maintenance',
@@ -91,19 +116,44 @@ export const DOCTOR_CATEGORIES = [
   'telemetry',
 ] as const;
 
-export type CoreDoctorCategory = (typeof DOCTOR_CATEGORIES)[number];
+/**
+ * The shipped categories under their pre-package name.
+ *
+ * @deprecated Use {@link PLATFORM_DOCTOR_CATEGORIES}; same values, same order.
+ * @stability stable
+ */
+export const DOCTOR_CATEGORIES = PLATFORM_DOCTOR_CATEGORIES;
 
 /**
- * A check's category. The shipped ones autocomplete; a fork adds its own simply
- * by using a new string (it sorts after the shipped ones, in registration
- * order) — no edit to this file needed.
+ * One of the shipped categories.
+ *
+ * @stability stable
+ */
+export type CoreDoctorCategory = (typeof PLATFORM_DOCTOR_CATEGORIES)[number];
+
+/**
+ * A check's category. The shipped ones autocomplete; an app adds its own simply
+ * by using a new string (it sorts after the configured ones, in registration
+ * order) — no edit to this package needed.
+ *
+ * @stability stable
  */
 export type DoctorCategory = CoreDoctorCategory | (string & {});
 
-/** A scalar fact a check wants to show beside its detail. Never secret material. */
+/**
+ * A scalar fact a check wants to show beside its detail. Never secret material.
+ *
+ * @stability stable
+ */
 export type DoctorDataValue = string | number | boolean | null;
 
+/**
+ * What one run of a check found.
+ *
+ * @stability stable
+ */
 export interface DoctorCheckOutcome {
+  /** The verdict. */
   status: DoctorStatus;
   /** One line: what was found. "Connected in 12 ms", "No provider is enabled". */
   detail: string;
@@ -115,15 +165,41 @@ export interface DoctorCheckOutcome {
   data?: Record<string, DoctorDataValue>;
 }
 
+/**
+ * One read-only check of the running deployment, contributed by the app's
+ * feature module that owns the capability: an `@Injectable()` that injects
+ * `DoctorCheckRegistry` and calls `register(this)` in its `onModuleInit`.
+ *
+ * The five rules: it never throws; it gives a `remedy` on `warn`/`fail`; it is
+ * READ-ONLY (no write, no audit event, no job, no model call, no "test" service);
+ * its results never carry secret material; `skip` means "not evaluated".
+ *
+ * @example
+ * ```ts
+ * @Injectable()
+ * export class DbConnectionDoctorCheck implements DoctorCheck, OnModuleInit {
+ *   readonly id = 'core.database';
+ *   readonly category = 'core';
+ *   readonly label = 'Database connection';
+ *   constructor(private readonly registry: DoctorCheckRegistry, private readonly prisma: PrismaService) {}
+ *   onModuleInit() { this.registry.register(this); }
+ *   async run(): Promise<DoctorCheckOutcome> { ... }
+ * }
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability stable
+ */
 export interface DoctorCheck {
   /** Stable, dotted, unique across the application: `storage.bucket`. */
   readonly id: string;
+  /** Where the report groups it. */
   readonly category: DoctorCategory;
   /** Short human label: "Object storage bucket". */
   readonly label: string;
   /** The web route that fixes this, e.g. `/admin/settings/storage`. */
   readonly settingsPath?: string;
-  /** Per-check ceiling; the service's default is 5000 ms. */
+  /** Per-check ceiling; the module's `defaultTimeoutMs` (5000 ms) otherwise. */
   readonly timeoutMs?: number;
   /**
    * Ids of checks that must not `fail` or `skip` for this one to run. When one
