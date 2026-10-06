@@ -13,6 +13,8 @@ import { AiProviderTestService } from './ai-provider-test.service';
 import { AiPublicController } from './ai-public.controller';
 import { AiEnabledDoctorCheck } from './doctor/ai-enabled.doctor-check';
 import { AiProvidersDoctorCheck } from './doctor/ai-providers.doctor-check';
+import { AiProvidersEgressContributor } from './doctor/egress/ai-providers.egress.contributor';
+import { AiRealtimeEgressContributor } from './doctor/egress/ai-realtime.egress.contributor';
 
 // =============================================================================
 // AiConfigModule (issue #428, epic #419)
@@ -39,6 +41,9 @@ import { AiProvidersDoctorCheck } from './doctor/ai-providers.doctor-check';
     // Doctor checks (#634): policy and key STATUS only — no model call.
     AiEnabledDoctorCheck,
     AiProvidersDoctorCheck,
+    // Egress inventory (#773): provider endpoints and realtime voice hosts.
+    AiProvidersEgressContributor,
+    AiRealtimeEgressContributor,
   ],
   exports: [AiConfigService, AiEnabledGuard],
 })

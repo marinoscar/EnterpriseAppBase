@@ -10,7 +10,7 @@ import type { AiResolvedStorageInput } from '../../core/types/file-inputs.types'
 import { AI_PROVIDER_STATE, AiInputItem, AiStreamEvent } from '../../core/types/responses.types';
 import { defineTool } from '../../core/tools';
 import { z } from 'zod';
-import { AnthropicClientFactory } from './anthropic-client.factory';
+import { AnthropicClientFactory, ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-client.factory';
 import { ANTHROPIC_PROVIDER_CALL_SPAN, AnthropicProviderAdapter } from './anthropic.adapter';
 import { AnthropicProviderModule } from './anthropic.module';
 import { messageFixture, textBlock, thinkingBlock, toolUseBlock } from './testing/anthropic-fixtures';
@@ -155,6 +155,8 @@ describe('AnthropicProviderAdapter', () => {
 
       expect(adapter.id).toBe('anthropic');
       expect(adapter.displayName).toBe('Anthropic');
+      // #773: the egress inventory reads the endpoint off the adapter.
+      expect(adapter.defaultBaseUrl).toBe(ANTHROPIC_DEFAULT_BASE_URL);
       expect(adapter.supportsPreviousResponseId).toBe(false);
       expect(adapter.responses).toBeDefined();
       expect(adapter).not.toHaveProperty('embeddings');
