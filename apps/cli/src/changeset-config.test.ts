@@ -89,8 +89,9 @@ describe('.changeset/config.json', () => {
       return manifest.name;
     });
     expect(expected.length).toBe(6);
-    expect([...config.fixed[0]].sort()).toEqual([...expected].sort());
-    expect(new Set(config.fixed[0]).size).toBe(config.fixed[0].length);
+    const group = config.fixed[0] ?? [];
+    expect([...group].sort()).toEqual([...expected].sort());
+    expect(new Set(group).size).toBe(group.length);
   });
 
   it('ignores every non-platform workspace, and every one of them is private', () => {
