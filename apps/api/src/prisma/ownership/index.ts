@@ -11,3 +11,6 @@ export {
 } from './user-owned-model.registry';
 export type { ExportPolicy, PurgePolicy, UserOwnedModelDef } from './user-owned-model.registry';
 export { PLATFORM_USER_OWNED_MODELS } from './platform-user-owned-models';
+export { ScopedAccessError } from './scoped-access.error';
+export { ScopedPrismaService, buildUserScopedClient } from './scoped-prisma.service';
+export type { UserScopedClient } from './scoped-prisma.service';
