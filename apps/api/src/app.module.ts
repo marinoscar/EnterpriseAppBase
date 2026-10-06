@@ -7,6 +7,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { EventBusModule } from './common/event-bus/event-bus.module';
+import { PrincipalCacheModule } from './auth/principal-cache/principal-cache.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -67,6 +68,12 @@ import configuration from './config/configuration';
     // SSE stream and the job worker inject `EVENT_BUS` without an import edge.
     // `EVENT_BUS_ADAPTER` picks the adapter; see common/event-bus/.
     EventBusModule,
+
+    // Short-TTL JWT principal cache (PP-1.12, #683). Global: written from
+    // modules `AuthModule` depends on (CommonModule's admin bootstrap), so it
+    // cannot live inside `AuthModule` without a cycle. Invalidated across
+    // replicas on the bus above; see auth/principal-cache/.
+    PrincipalCacheModule,
 
     // Logger
     LoggerModule,
