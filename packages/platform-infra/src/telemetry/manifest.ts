@@ -59,7 +59,12 @@ export interface InfraFragment {
   /** App-owned files created from a package template only when absent, and never overwritten afterwards. */
   readonly appOwnedFiles: readonly InfraFile[];
   /** Collector configs (app paths) in `--config` order: the platform base first, then the app-owned overlay. */
-  readonly collectorConfigs: { readonly platform: string; readonly app: string };
+  readonly collectorConfigs: {
+    /** App path of the generated platform config, the first `--config`. */
+    readonly platform: string;
+    /** App path of the app-owned overlay, the second `--config`; sync never overwrites it. */
+    readonly app: string;
+  };
   /** Images an app overlay may use instead of building from source. */
   readonly images: {
     /**
