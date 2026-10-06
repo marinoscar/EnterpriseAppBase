@@ -5,7 +5,7 @@
 // The explicit, grep-able list: platform declarations first, then the
 // app-owned file, so a collision with a platform entry names the app. Imported
 // for its side effect by ./index.ts only. Recipe:
-// common/registry/README.md "Recipe: a static registry".
+// packages/platform-api/src/core/registry/README.md "Recipe: a static registry".
 // =============================================================================
 
 import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models';

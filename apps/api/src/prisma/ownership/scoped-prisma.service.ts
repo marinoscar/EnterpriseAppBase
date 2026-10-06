@@ -42,8 +42,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { trace } from '@opentelemetry/api';
 import type { PrismaClient } from '@prisma/client';
 
-import type { Scope, SystemActor } from '../../common/principal';
-import type { Registry } from '../../common/registry';
+import type { Registry, Scope, SystemActor } from '@marinoscar/platform-api/core';
 import { PrismaService } from '../prisma.service';
 import { ScopedAccessError } from './scoped-access.error';
 // Fills the registry this file reads, whichever path imported it.
