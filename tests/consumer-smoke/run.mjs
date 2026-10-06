@@ -255,6 +255,12 @@ async function main() {
     throw err;
   }
 
+  // npm 10 (Node 22) crashes resolving vitest's peer set ("Cannot read
+  // properties of null (reading 'edgesOut')"); the packages need Node 24,
+  // which ships npm 11.
+  const npmVersion = spawnSync(NPM, ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' }).stdout?.trim() ?? '';
+  if (Number.parseInt(npmVersion, 10) < 11) log(`warning: npm ${npmVersion} found; the smoke expects npm 11 or later (Node 24)`);
+
   const projects = opts.project === 'all' ? PROJECTS : [opts.project];
   let packed = null;
   try {
