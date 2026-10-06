@@ -246,3 +246,141 @@ jobs:
         with:
           name: platform-tarballs
           path: tarballs/
+
+  # After a real publish (issue #697): install the published version from the
+  # registry into the consumer smoke projects (tests/consumer-smoke/run.mjs,
+  # temp directory outside the repository, install retried for up to two
+  # minutes while the registry propagates), build, boot and render them, and
+  # verify registry signatures and provenance attestations with
+  # `npm audit signatures`. Read-only: it holds no publish credential.
+  registry-smoke:
+    name: Registry smoke
+    needs: publish
+    if: vars.NPM_PUBLISH_ENABLED == 'true' && needs.publish.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Consumer smoke from the registry
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          node tests/consumer-smoke/run.mjs --from registry "$VERSION" --audit-signatures
+          echo "Registry smoke passed for $VERSION (npm audit signatures verified)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Interim distribution channel (issue #697), independent of npm: once a
+  # version is final (no changesets pending on main), the six `npm pack`
+  # tarballs are attached to the GitHub release `platform-v<version>`
+  # (a prerelease for `-next` versions, never marked latest), after the same
+  # build, tests and consumer smoke. A consumer installs them by URL
+  # (docs/runbooks/release-platform-packages.md, "Install from a GitHub
+  # release"). Runs once per version; a manual run re-uploads the assets of
+  # an existing release. Needs only GITHUB_TOKEN (write access to repository
+  # contents): no npm credential, no protected deployment, no OIDC token.
+  github-release:
+    name: GitHub release (tarballs)
+    needs: [version, gate]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      needs.version.outputs.pending == 'false' &&
+      needs.gate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the release and its platform-v<version> tag
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      EVENT: ${{ github.event_name }}
+    steps:
+      - id: d
+        name: Decide
+        run: |
+          tag="platform-v$VERSION"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          go=false
+          if [ "$VERSION" = "0.0.0" ]; then
+            reason="version 0.0.0 is the unreleased scaffold"
+          elif gh release view "$tag" >/dev/null 2>&1; then
+            if [ "$EVENT" = "workflow_dispatch" ]; then go=true; reason="updating the assets of $tag (manual run)"; else reason="release $tag already exists"; fi
+          else
+            go=true; reason="creating release $tag"
+          fi
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+          echo "GitHub release: $reason" >> "$GITHUB_STEP_SUMMARY"
+
+      - if: steps.d.outputs.go == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.d.outputs.go == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - if: steps.d.outputs.go == 'true'
+        run: npm ci
+
+      - if: steps.d.outputs.go == 'true'
+        run: npm run build:packages
+
+      - if: steps.d.outputs.go == 'true'
+        run: npm run test:packages
+
+      - if: steps.d.outputs.go == 'true'
+        name: Pack the six packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/tarballs"
+          for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
+
+      - if: steps.d.outputs.go == 'true'
+        name: Consumer smoke on the tarballs
+        run: node tests/consumer-smoke/run.mjs --from tarballs "$RUNNER_TEMP/tarballs"
+
+      - if: steps.d.outputs.go == 'true'
+        name: Create or update the release
+        env:
+          TAG: ${{ steps.d.outputs.tag }}
+        run: |
+          base="https://github.com/$GH_REPO/releases/download/$TAG"
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "The six \`@marinoscar/platform-*\` packages at \`$VERSION\`, as \`npm pack\` tarballs."
+            echo
+            echo "Install by URL in an app's \`package.json\` (same version for all six):"
+            echo
+            echo '```json'
+            echo "\"@marinoscar/platform-api\": \"$base/marinoscar-platform-api-$VERSION.tgz\","
+            echo "\"@marinoscar/platform-web\": \"$base/marinoscar-platform-web-$VERSION.tgz\""
+            echo '```'
+            echo
+            echo "See docs/runbooks/release-platform-packages.md (Install from a GitHub release)."
+            for p in contract api web db cli infra; do
+              echo
+              echo "## @marinoscar/platform-$p"
+              awk -v v="$VERSION" '$0 == "## " v {f=1; next} f && /^## / {exit} f' "packages/platform-$p/CHANGELOG.md" 2>/dev/null || true
+            done
+          } > "$notes"
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$RUNNER_TEMP"/tarballs/*.tgz --clobber
+            gh release edit "$TAG" --notes-file "$notes" $prerelease
+          else
+            gh release create "$TAG" "$RUNNER_TEMP"/tarballs/*.tgz --target "$GITHUB_SHA" \
+              --title "Platform packages $VERSION" --notes-file "$notes" --latest=false $prerelease
+          fi
+          echo "Release $TAG: $(ls "$RUNNER_TEMP"/tarballs | tr '\n' ' ')" >> "$GITHUB_STEP_SUMMARY"
+
+      # Proves the release URLs a consumer pins actually install.
+      - if: steps.d.outputs.go == 'true'
+        name: Consumer smoke from the release
+        run: node tests/consumer-smoke/run.mjs --project api --from release "$VERSION" --repo "$GH_REPO"
