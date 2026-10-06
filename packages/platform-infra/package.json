@@ -27,9 +27,11 @@
   },
   "files": [
     "dist",
+    "bin",
     "compose",
     "nginx",
     "otel",
+    "telemetry",
     "README.md"
   ],
   "scripts": {
