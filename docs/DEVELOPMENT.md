@@ -642,6 +642,34 @@ npm, or keep the platform and the app side by side as workspaces of one
 checkout (see the cross-repo development loop in the
 [platform packages spec](specs/platform-packages.md)).
 
+### Adding a changeset
+
+The six packages are versioned together with Changesets (one "fixed" group)
+and released by `.github/workflows/release.yml`; the procedure is
+[runbooks/release-platform-packages.md](runbooks/release-platform-packages.md).
+
+- **When.** Every pull request that changes a file under
+  `packages/platform-*/` adds a changeset. The `changeset-check` job in
+  `.github/workflows/packages.yml` fails it otherwise. App-only, docs-only and
+  infrastructure-only pull requests need none.
+- **How.** `npx changeset` from the repository root: pick the packages, the
+  bump and a one-line summary written for the people upgrading an app. Commit
+  the generated `.changeset/*.md` with the change.
+- **No release impact.** For tests or an internal refactor that changes no
+  behaviour, record that with `npx changeset --empty`.
+- **Choosing the bump.** The extension surface (everything a package exports:
+  `forRoot()` options, registries, injection tokens, events, slots, theme
+  tokens, models, migrations, CLI commands) is the contract. `patch` fixes
+  behaviour without changing it; `minor` adds to it; `major` is anything an
+  app built on the previous version would have to change for: a removed or
+  renamed export, a narrowed type, a changed default, a migration an app must
+  act on. A `major` changeset carries a migration note in its body (what
+  breaks, what to change, an example), which becomes the upgrade notes in each
+  package's `CHANGELOG.md`.
+- **Versions are never edited by hand.** The Version Packages pull request
+  sets them, in lockstep. While `.changeset/pre.json` exists every release is
+  `x.y.z-next.N` on the `next` dist-tag.
+
 ---
 
 ## Performance Considerations

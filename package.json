@@ -26,7 +26,10 @@
     "docs:packages": "npm run docs -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-cli -w @marinoscar/platform-infra",
     "check:package-docs": "npm run docs:packages && node scripts/check-package-docs.mjs",
     "check:single-instance": "node scripts/check-single-instance.mjs",
-    "platform:infra:sync": "platform-infra sync"
+    "platform:infra:sync": "platform-infra sync",
+    "changeset": "changeset",
+    "version-packages": "changeset version && npm install --package-lock-only",
+    "release": "npm run build:packages && changeset publish"
   },
   "overrides": {
     "@nestjs/common": "^11.1.12",
@@ -36,6 +39,7 @@
     "magic-string": "^1.2.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.1",
     "@stoplight/spectral-cli": "^6.16.3",
     "eslint": "^10.12.0",
     "eslint-import-resolver-typescript": "^4.4.5",

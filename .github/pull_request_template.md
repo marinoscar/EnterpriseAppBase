@@ -48,6 +48,7 @@
 - [ ] I have performed a self-review of my own code
 - [ ] My changes generate no new warnings
 - [ ] Any dependent changes have been merged and published
+- [ ] Changeset added for platform package changes (`npx changeset`, or `npx changeset --empty`)
 
 ## Additional Notes
 

@@ -156,6 +156,10 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   'packages/platform-db/package.json',
   'packages/platform-infra/package.json',
   'packages/platform-web/package.json',
+  // The platform release runbook gives the owner the exact npm trusted-publisher
+  // values and GitHub settings URLs of the platform repository that publishes
+  // the packages. A fork never publishes them, so these are not rebrand targets.
+  'docs/runbooks/release-platform-packages.md',
 ]);
 
 // Deliberately NOT allowlisted, on purpose, spelled out so nobody "fixes" this

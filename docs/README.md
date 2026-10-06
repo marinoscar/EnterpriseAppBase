@@ -75,6 +75,7 @@ In this order:
 | [runbooks/data-retention.md](runbooks/data-retention.md) | Seeing and changing how long each kind of data is kept, and turning audit-log retention on |
 | [runbooks/container-images.md](runbooks/container-images.md) | Finding, verifying (cosign, SBOM) and pinning the published api, web, worker and stack-agent images; making the GHCR packages public |
 | [runbooks/rds-proxy-rls-check.md](runbooks/rds-proxy-rls-check.md) | Measuring whether RDS Proxy pins connections under transaction-local row-level security, and whether RDS allows `BYPASSRLS` (manual, AWS account) |
+| [runbooks/release-platform-packages.md](runbooks/release-platform-packages.md) | Releasing the `@marinoscar/platform-*` packages: owner prerequisites, changesets, the version PR, `next` vs `latest`, provenance, deprecating a bad version (maintainers) |
 
 ## Developer recipes in the code
 

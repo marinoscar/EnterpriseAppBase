@@ -906,6 +906,8 @@ ECS, not EKS. In the spike, verify whether RDS Proxy pins connections when `set_
 
 **PROPOSED.**
 
+Implemented by `.changeset/` and `.github/workflows/release.yml`; the operator procedure, including the owner's npm and GitHub prerequisites, is [runbooks/release-platform-packages.md](../runbooks/release-platform-packages.md).
+
 | Topic | Choice |
 |---|---|
 | Registry | Public npm under `@marinoscar/platform-*`. Not GitHub Packages, which requires authentication even for public npm installs. |

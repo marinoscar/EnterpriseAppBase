@@ -10,6 +10,12 @@
 // always adds), in particular no src/, test/, *.spec.*, *.test.* or
 // tsconfig*.json.
 //
+// Release metadata (issue #691): the tarball must also contain LICENSE (copied
+// from the root by each package's `prepack`, scripts/copy-license.mjs, so the
+// pack runs lifecycle scripts), and every manifest must declare
+// `license: MIT`, `publishConfig.access: public`, `repository.directory` equal
+// to its own folder, and must not be `private`.
+//
 // Usage: node scripts/check-package-pack.mjs [<package name> ...]
 //        (defaults to every workspace in the root `build:packages` script)
 import { execFileSync } from 'node:child_process';
@@ -26,6 +32,7 @@ const names =
 
 const FORBIDDEN = [/^src\//, /^test\//, /\.spec\.[cm]?[jt]sx?$/, /\.test\.[cm]?[jt]sx?$/, /(^|\/)tsconfig[^/]*\.json$/];
 const ALWAYS = new Set(['package.json', 'README.md']);
+const REQUIRED_IN_TARBALL = ['LICENSE'];
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 /** Every file path an exports map (any nesting of conditions) points at. */
@@ -39,16 +46,28 @@ const strip = (p) => p.replace(/^\.\//, '');
 let failed = false;
 
 for (const name of names) {
-  const out = execFileSync(npm, ['pack', '--dry-run', '--json', '--ignore-scripts', '-w', name], {
+  // Lifecycle scripts run (no --ignore-scripts): `prepack` is what puts
+  // LICENSE into the package. `--silent` keeps their banners off stdout so it
+  // stays parseable JSON.
+  const out = execFileSync(npm, ['pack', '--dry-run', '--json', '--silent', '-w', name], {
     cwd: root,
     encoding: 'utf8',
     shell: process.platform === 'win32',
   });
-  const [report] = JSON.parse(out);
+  const [report] = JSON.parse(out.slice(out.indexOf('[')));
   const files = report.files.map((f) => f.path);
   const present = new Set(files);
-  const manifest = JSON.parse(readFileSync(join(root, 'packages', name.replace('@marinoscar/', ''), 'package.json'), 'utf8'));
+  const folder = `packages/${name.replace('@marinoscar/', '')}`;
+  const manifest = JSON.parse(readFileSync(join(root, folder, 'package.json'), 'utf8'));
   const problems = [];
+
+  for (const file of REQUIRED_IN_TARBALL) if (!present.has(file)) problems.push(`missing ${file}`);
+  if (manifest.license !== 'MIT') problems.push(`license must be "MIT", is ${JSON.stringify(manifest.license)}`);
+  if (manifest.publishConfig?.access !== 'public') problems.push('publishConfig.access must be "public"');
+  if (manifest.repository?.directory !== folder) {
+    problems.push(`repository.directory must be "${folder}", is ${JSON.stringify(manifest.repository?.directory)}`);
+  }
+  if (manifest.private === true) problems.push('must not be "private": true');
 
   const required = new Set([...ALWAYS, ...exportTargets(manifest.exports).map(strip)]);
   for (const field of ['main', 'module', 'types']) if (manifest[field]) required.add(strip(manifest[field]));
