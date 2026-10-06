@@ -1,6 +1,6 @@
 # Seed catalog
 
-Generated, committed JSON that `prisma/seed-data.ts` reads. The seed runs under
+Generated, committed JSON that `prisma/seed-data.ts` reads (through `readSeedSnapshot` of `@marinoscar/platform-db/seed`) and `prisma/seed.ts` hands to `seedPlatform`. The seed runs under
 ts-node outside the Nest build, and the production image carries `prisma/` but
 not `src/`, so the seed cannot import the API's registries; it reads these files
 instead. Never edit them by hand. Each is rendered from a registry in `src/`

@@ -1,14 +1,12 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-// The declarative half of this script. Split out (#256) so a Jest test can
-// import it: this file instantiates a PrismaClient and calls `main()` at import
-// time, so nothing can import IT to check the data. See seed-data.ts.
-import {
-  ROLES,
-  PERMISSIONS,
-  ROLE_PERMISSIONS,
-  DEFAULT_SYSTEM_SETTINGS,
-} from './seed-data';
+import { platformSeedInputFrom, seedPlatform } from '@marinoscar/platform-db/seed';
+// The registries' snapshot, split out (#256) so a Jest test can import it: this
+// file instantiates a PrismaClient and calls `main()` at import time, so nothing
+// can import IT to check the data. See seed-data.ts.
+import { SEED_SNAPSHOT } from './seed-data';
+// The app's own seed rows, run after the platform's. See seed-app.ts.
+import { seedApp } from './seed-app';
 
 // Prisma 7 requires a driver adapter — PrismaClient can no longer be
 // instantiated with no options. The seed script is invoked as a standalone
@@ -31,119 +29,27 @@ const adapter = new PrismaPg(databaseUrl);
 const prisma = new PrismaClient({ adapter });
 
 // =============================================================================
-// Seed Functions
-// =============================================================================
-
-async function seedRoles() {
-  console.log('Seeding roles...');
-
-  for (const role of ROLES) {
-    await prisma.role.upsert({
-      where: { name: role.name },
-      update: { description: role.description },
-      create: role,
-    });
-  }
-
-  console.log(`✓ Seeded ${ROLES.length} roles`);
-}
-
-async function seedPermissions() {
-  console.log('Seeding permissions...');
-
-  for (const permission of PERMISSIONS) {
-    await prisma.permission.upsert({
-      where: { name: permission.name },
-      update: { description: permission.description },
-      create: permission,
-    });
-  }
-
-  console.log(`✓ Seeded ${PERMISSIONS.length} permissions`);
-}
-
-async function seedRolePermissions() {
-  console.log('Seeding role-permission mappings...');
-
-  let count = 0;
-
-  for (const [roleName, permissionNames] of Object.entries(ROLE_PERMISSIONS)) {
-    const role = await prisma.role.findUnique({ where: { name: roleName } });
-    if (!role) continue;
-
-    for (const permissionName of permissionNames) {
-      const permission = await prisma.permission.findUnique({
-        where: { name: permissionName },
-      });
-      if (!permission) continue;
-
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: role.id,
-            permissionId: permission.id,
-          },
-        },
-        update: {},
-        create: {
-          roleId: role.id,
-          permissionId: permission.id,
-        },
-      });
-      count++;
-    }
-  }
-
-  console.log(`✓ Seeded ${count} role-permission mappings`);
-}
-
-async function seedSystemSettings() {
-  console.log('Seeding system settings...');
-
-  await prisma.systemSettings.upsert({
-    where: { key: 'global' },
-    update: {}, // Don't overwrite existing settings
-    create: {
-      key: 'global',
-      value: DEFAULT_SYSTEM_SETTINGS,
-      version: 1,
-    },
-  });
-
-  console.log('✓ Seeded default system settings');
-}
-
-async function seedInitialAdminAllowlist() {
-  console.log('Seeding initial admin allowlist...');
-
-  const initialAdminEmail = process.env.INITIAL_ADMIN_EMAIL;
-  if (initialAdminEmail) {
-    await prisma.allowedEmail.upsert({
-      where: { email: initialAdminEmail.toLowerCase() },
-      update: {},
-      create: {
-        email: initialAdminEmail.toLowerCase(),
-        notes: 'Initial admin (auto-seeded)',
-      },
-    });
-    console.log(`✓ Added ${initialAdminEmail} to allowlist`);
-  } else {
-    console.log('⊘ INITIAL_ADMIN_EMAIL not set, skipping allowlist seed');
-  }
-}
-
-// =============================================================================
 // Main Seed Function
 // =============================================================================
+//
+// The platform half (roles, permissions, default grants, the `global` system
+// settings row, the initial administrator's allowlist entry) is
+// `seedPlatform` from `@marinoscar/platform-db/seed`: upserts only, never a
+// delete, never an overwrite of an admin-edited value, so this script can run
+// on every deploy. The input is built from the registries' snapshot
+// (`prisma/catalog/`). The app's own rows follow, in `seed-app.ts`. Both halves
+// log through the console, which is what operators read during `appctl deploy`.
+//
+// This script must stay standalone and Nest-free: it runs under
+// `ts-node --transpile-only` (prisma.config.ts) in an image without `src/`.
 
 async function main() {
   console.log('Starting database seed...\n');
 
-  await seedRoles();
-  await seedPermissions();
-  await seedRolePermissions();
-  await seedSystemSettings();
-  await seedInitialAdminAllowlist();
+  const log = { info: (msg: string) => console.log(msg) };
+
+  await seedPlatform(prisma, platformSeedInputFrom(SEED_SNAPSHOT, process.env), log);
+  await seedApp(prisma);
 
   console.log('\n✓ Database seeding completed successfully');
 }

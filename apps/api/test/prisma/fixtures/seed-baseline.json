@@ -1,0 +1,322 @@
+{
+  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review.",
+  "counts": {
+    "roles": 3,
+    "permissions": 31,
+    "allowedEmails": 1,
+    "systemSettings": 1,
+    "rolePermissions": 39
+  },
+  "roles": [
+    {
+      "name": "admin",
+      "description": "Full system access - manage users, roles, and all settings"
+    },
+    {
+      "name": "contributor",
+      "description": "Standard user - can manage own settings and future features"
+    },
+    {
+      "name": "viewer",
+      "description": "Read-only access - can view content and manage own settings"
+    }
+  ],
+  "permissions": [
+    {
+      "name": "ai:use",
+      "description": "Call AI models using a saved key"
+    },
+    {
+      "name": "ai_config:read",
+      "description": "View the deployment-wide AI platform policy"
+    },
+    {
+      "name": "ai_config:write",
+      "description": "Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults"
+    },
+    {
+      "name": "allowlist:read",
+      "description": "View allowlisted emails"
+    },
+    {
+      "name": "allowlist:write",
+      "description": "Manage allowlisted emails"
+    },
+    {
+      "name": "broadcasts:read",
+      "description": "View notification broadcasts and their delivery history"
+    },
+    {
+      "name": "broadcasts:write",
+      "description": "Compose, schedule, cancel and send notification broadcasts"
+    },
+    {
+      "name": "db_backup:read",
+      "description": "View backup schedule, history and status"
+    },
+    {
+      "name": "db_backup:restore",
+      "description": "Restore the database from a backup"
+    },
+    {
+      "name": "db_backup:write",
+      "description": "Configure the backup schedule and run a backup"
+    },
+    {
+      "name": "jobs:read",
+      "description": "View queued, running and completed jobs"
+    },
+    {
+      "name": "jobs:write",
+      "description": "Enqueue, retry and cancel jobs"
+    },
+    {
+      "name": "nodes:read",
+      "description": "View worker nodes and their health"
+    },
+    {
+      "name": "nodes:write",
+      "description": "Register, drain and remove worker nodes"
+    },
+    {
+      "name": "push:read",
+      "description": "View Web Push (VAPID) configuration"
+    },
+    {
+      "name": "push:write",
+      "description": "Generate, rotate, enable/disable and remove Web Push VAPID keys"
+    },
+    {
+      "name": "rbac:manage",
+      "description": "Manage roles and permissions"
+    },
+    {
+      "name": "storage:delete_any",
+      "description": "Admin: delete any object"
+    },
+    {
+      "name": "storage:read",
+      "description": "Read object metadata, get download URLs"
+    },
+    {
+      "name": "storage:write",
+      "description": "Upload, update metadata"
+    },
+    {
+      "name": "storage_config:read",
+      "description": "View the object-storage configuration and the masked status of its stored secret key"
+    },
+    {
+      "name": "storage_config:write",
+      "description": "Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket"
+    },
+    {
+      "name": "system_settings:read",
+      "description": "Read system settings"
+    },
+    {
+      "name": "system_settings:write",
+      "description": "Modify system settings"
+    },
+    {
+      "name": "telemetry:query",
+      "description": "Run SQL, export and use the AI assistant against telemetry"
+    },
+    {
+      "name": "telemetry:read",
+      "description": "View telemetry settings and status"
+    },
+    {
+      "name": "telemetry:write",
+      "description": "Change telemetry settings"
+    },
+    {
+      "name": "user_settings:read",
+      "description": "Read own user settings"
+    },
+    {
+      "name": "user_settings:write",
+      "description": "Modify own user settings"
+    },
+    {
+      "name": "users:read",
+      "description": "View user list and details"
+    },
+    {
+      "name": "users:write",
+      "description": "Modify user accounts"
+    }
+  ],
+  "rolePermissions": {
+    "admin": [
+      "ai:use",
+      "ai_config:read",
+      "ai_config:write",
+      "allowlist:read",
+      "allowlist:write",
+      "broadcasts:read",
+      "broadcasts:write",
+      "db_backup:read",
+      "db_backup:restore",
+      "db_backup:write",
+      "jobs:read",
+      "jobs:write",
+      "nodes:read",
+      "nodes:write",
+      "push:read",
+      "push:write",
+      "rbac:manage",
+      "storage:delete_any",
+      "storage:read",
+      "storage:write",
+      "storage_config:read",
+      "storage_config:write",
+      "system_settings:read",
+      "system_settings:write",
+      "telemetry:query",
+      "telemetry:read",
+      "telemetry:write",
+      "user_settings:read",
+      "user_settings:write",
+      "users:read",
+      "users:write"
+    ],
+    "contributor": [
+      "ai:use",
+      "storage:read",
+      "storage:write",
+      "user_settings:read",
+      "user_settings:write"
+    ],
+    "viewer": [
+      "storage:read",
+      "user_settings:read",
+      "user_settings:write"
+    ]
+  },
+  "systemSettings": {
+    "key": "global",
+    "value": {
+      "ai": {
+        "limits": {},
+        "enabled": false,
+        "defaults": {
+          "allowRealtime": false,
+          "allowBackgroundRuns": true
+        },
+        "keyPolicy": "byok",
+        "providers": {
+          "gemini": {
+            "enabled": false
+          },
+          "openai": {
+            "enabled": false
+          },
+          "anthropic": {
+            "enabled": false
+          },
+          "azure-openai": {
+            "enabled": false
+          },
+          "openai-compatible": {
+            "enabled": false
+          }
+        },
+        "hostedTools": {
+          "mcp": false,
+          "web_search": false,
+          "file_search": false,
+          "mcpAllowedHosts": [],
+          "code_interpreter": false,
+          "image_generation": false
+        },
+        "logPromptContent": false,
+        "usageRetentionDays": 180
+      },
+      "jobs": {
+        "history": {
+          "purgeEnabled": true,
+          "retentionDays": 30
+        },
+        "stuckThresholdMinutes": 30
+      },
+      "nodes": {
+        "offlineRetentionDays": 30,
+        "staleHeartbeatSeconds": 90,
+        "jobSecretBrokerEnabled": false,
+        "offlineStaleMultiplier": 4
+      },
+      "storage": {
+        "bucket": "",
+        "region": "",
+        "endpoint": "",
+        "provider": "s3",
+        "accountId": "",
+        "accessKeyId": "",
+        "forcePathStyle": null
+      },
+      "retention": {
+        "aiRuns": {
+          "days": 90,
+          "enabled": true
+        },
+        "auditEvents": {
+          "days": 365,
+          "enabled": false
+        },
+        "notifications": {
+          "days": 180,
+          "enabled": true
+        },
+        "notificationDeliveries": {
+          "days": 90,
+          "enabled": true
+        }
+      },
+      "telemetry": {
+        "query": {
+          "maxRows": 10000,
+          "timeoutSeconds": 30
+        },
+        "enabled": false,
+        "assistant": {
+          "enabled": false,
+          "modelId": null,
+          "maxSteps": 15,
+          "provider": null,
+          "shareResults": true,
+          "maxResultRowsToModel": 100
+        },
+        "instanceId": null,
+        "retentionDays": 30
+      },
+      "maintenance": {
+        "enabled": false,
+        "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+        "startedAt": null,
+        "allowAdmins": true,
+        "startedById": null
+      },
+      "notifications": {
+        "browserEnabled": true,
+        "disabledEvents": []
+      },
+      "databaseBackup": {
+        "enabled": false,
+        "timezone": "UTC",
+        "dayOfWeek": 0,
+        "frequency": "daily",
+        "timeOfDay": "02:00",
+        "dayOfMonth": 1,
+        "retentionCount": 7,
+        "runStaleMinutes": 120,
+        "storageProvider": "",
+        "compressionLevel": 6,
+        "nodeOffloadEnabled": false,
+        "restoreRollbackMode": "retain_database",
+        "oldDatabaseRetentionHours": 48
+      }
+    },
+    "version": 1
+  }
+}
