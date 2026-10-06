@@ -23,6 +23,7 @@ import {
   systemAiSchema,
   systemAiProviderSchema,
   systemTelemetrySchema,
+  systemRetentionSchema,
   AI_PROVIDER_IDS,
   MAX_DISABLED_NOTIFICATION_EVENTS,
   type SystemNotificationsValue,
@@ -33,6 +34,7 @@ import {
   type SystemStorageValue,
   type SystemAiValue,
   type SystemTelemetryValue,
+  type SystemRetentionValue,
 } from '../../common/schemas/settings.schema';
 
 const SETTINGS_KEY = 'global';
@@ -403,6 +405,16 @@ export class SystemSettingsService {
         systemTelemetrySchema,
         DEFAULT_SYSTEM_SETTINGS.telemetry,
       ),
+      // Retention policy (#681), read through the same helper: each table's
+      // `{ enabled, days }` is salvaged on its own, so one damaged policy
+      // degrading to its default leaves the other three as the operator set
+      // them. A row written before the namespace existed reads as the
+      // defaults, and nothing is written on read.
+      retention: this.readNamespace(
+        root?.retention,
+        systemRetentionSchema,
+        DEFAULT_SYSTEM_SETTINGS.retention,
+      ),
     };
   }
 
@@ -738,6 +750,10 @@ export class SystemSettingsService {
       // client cannot GET is a block it cannot echo back in a PUT" reason as
       // `jobs` above.
       telemetry: value.telemetry,
+      // #681. Published from the day the namespace exists, for the same "a
+      // block a client cannot GET is a block it cannot echo back in a PUT"
+      // reason as `jobs` above.
+      retention: value.retention,
       security: this.readSecurityPolicy(),
       updatedAt: row.updatedAt,
       updatedBy: row.updatedByUser,
@@ -1060,6 +1076,29 @@ export class SystemSettingsService {
     });
 
     return this.readKnownSettings(row?.value).telemetry;
+  }
+
+  /**
+   * The retention policy (#681): one `{ enabled, days }` per governed table —
+   * the in-app inbox, the delivery log, the audit trail and AI runs.
+   *
+   * A NARROW ACCESSOR RATHER THAN `getSettings()`, for the reasons
+   * `getJobsPolicy` gives: its callers are the 01:00 retention cron and the
+   * four purge handlers, so it never creates the row (a cron tick must not
+   * materialise a settings row), it returns only this block, and it is the one
+   * read path for these values.
+   *
+   * Degrades exactly as every other read here does: a missing row, a `null`
+   * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.retention`
+   * through `readKnownSettings`.
+   */
+  async getRetentionPolicy(): Promise<SystemRetentionValue> {
+    const row = await this.prisma.systemSettings.findUnique({
+      where: { key: SETTINGS_KEY },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value).retention;
   }
 
   /**
@@ -1507,6 +1546,41 @@ export class SystemSettingsService {
           maxSteps:
             dto.telemetry?.assistant?.maxSteps ??
             currentValue.telemetry.assistant.maxSteps,
+        },
+      },
+      // Retention policy (#681), leaf by leaf: `{ "retention": { "auditEvents":
+      // { "enabled": true } } }` changes that one switch and nothing else.
+      retention: {
+        notifications: {
+          enabled:
+            dto.retention?.notifications?.enabled ??
+            currentValue.retention.notifications.enabled,
+          days:
+            dto.retention?.notifications?.days ??
+            currentValue.retention.notifications.days,
+        },
+        notificationDeliveries: {
+          enabled:
+            dto.retention?.notificationDeliveries?.enabled ??
+            currentValue.retention.notificationDeliveries.enabled,
+          days:
+            dto.retention?.notificationDeliveries?.days ??
+            currentValue.retention.notificationDeliveries.days,
+        },
+        auditEvents: {
+          enabled:
+            dto.retention?.auditEvents?.enabled ??
+            currentValue.retention.auditEvents.enabled,
+          days:
+            dto.retention?.auditEvents?.days ??
+            currentValue.retention.auditEvents.days,
+        },
+        aiRuns: {
+          enabled:
+            dto.retention?.aiRuns?.enabled ??
+            currentValue.retention.aiRuns.enabled,
+          days:
+            dto.retention?.aiRuns?.days ?? currentValue.retention.aiRuns.days,
         },
       },
     };

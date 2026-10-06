@@ -780,4 +780,89 @@ describe('System Settings Integration', () => {
       ).not.toThrow();
     });
   });
+
+  describe('retention namespace (#681)', () => {
+    const row = (value: unknown, version = 1, user: { id: string; email: string } | null = null) => ({
+      id: 'settings-1',
+      key: 'global',
+      value: value as any,
+      version,
+      updatedAt: new Date(),
+      updatedByUserId: user?.id ?? null,
+      updatedByUser: user,
+    });
+
+    it('GET reads a row that predates the namespace as the defaults, and writes nothing', async () => {
+      const admin = await createMockAdminUser(context);
+      const { retention: _absent, ...legacy } = DEFAULT_SYSTEM_SETTINGS;
+      context.prismaMock.systemSettings.findUnique.mockResolvedValue(row(legacy));
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      // Literals, not the constant: the acceptance criterion is these numbers.
+      expect(response.body.data.retention).toEqual({
+        notifications: { enabled: true, days: 180 },
+        notificationDeliveries: { enabled: true, days: 90 },
+        auditEvents: { enabled: false, days: 365 },
+        aiRuns: { enabled: true, days: 90 },
+      });
+      expect(() => systemSettingsResponseSchema.parse(response.body.data)).not.toThrow();
+      expect(context.prismaMock.systemSettings.create).not.toHaveBeenCalled();
+      expect(context.prismaMock.systemSettings.update).not.toHaveBeenCalled();
+      expect(context.prismaMock.systemSettings.upsert).not.toHaveBeenCalled();
+    });
+
+    it('PATCH changes only the one leaf it names, and the change round-trips', async () => {
+      const admin = await createMockAdminUser(context);
+      const stored = {
+        ...DEFAULT_SYSTEM_SETTINGS,
+        retention: {
+          notifications: { enabled: true, days: 30 },
+          notificationDeliveries: { enabled: false, days: 45 },
+          auditEvents: { enabled: false, days: 730 },
+          aiRuns: { enabled: true, days: 14 },
+        },
+      };
+      context.prismaMock.systemSettings.findUnique.mockResolvedValue(row(stored));
+      context.prismaMock.systemSettings.update.mockImplementation(async ({ data }: any) =>
+        row(data.value, 2, { id: admin.id, email: admin.email }),
+      );
+      context.prismaMock.auditEvent.create.mockResolvedValue({} as any);
+
+      const patched = await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ retention: { auditEvents: { enabled: true } } })
+        .expect(200);
+
+      const expected = {
+        ...stored.retention,
+        auditEvents: { enabled: true, days: 730 },
+      };
+      const updateArgs = context.prismaMock.systemSettings.update.mock.calls[0][0] as any;
+      expect(updateArgs.data.value.retention).toEqual(expected);
+      expect(updateArgs.data.value.jobs).toEqual(DEFAULT_SYSTEM_SETTINGS.jobs);
+      expect(patched.body.data.retention).toEqual(expected);
+    });
+
+    it.each([
+      ['days below 1', { notifications: { days: 0 } }],
+      ['days above 3650', { aiRuns: { days: 3651 } }],
+      ['fractional days', { auditEvents: { days: 1.5 } }],
+      ['non-boolean enabled', { notificationDeliveries: { enabled: 'yes' } }],
+    ])('PATCH rejects %s with a 400 and stores nothing', async (_label, retention) => {
+      const admin = await createMockAdminUser(context);
+
+      await request(context.app.getHttpServer())
+        .patch('/api/system-settings')
+        .set(authHeader(admin.accessToken))
+        .send({ retention })
+        .expect(400);
+
+      expect(context.prismaMock.systemSettings.update).not.toHaveBeenCalled();
+    });
+  });
 });
