@@ -70,6 +70,7 @@ In this order:
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
 | [runbooks/telemetry.md](runbooks/telemetry.md) | Enabling the GreptimeDB telemetry overlay, setting retention, configuring the AI assistant, connecting a BI tool |
 | [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor |
+| [runbooks/platform-drift-report.md](runbooks/platform-drift-report.md) | Measuring how far a fork has drifted from the base with `scripts/platform-drift.mjs` (maintainers) |
 
 ## Developer recipes in the code
 

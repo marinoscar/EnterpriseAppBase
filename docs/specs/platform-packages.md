@@ -1184,6 +1184,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 ## Appendix A: measurement method and caveats
 
 - **Method.** A per-file byte comparison (`cmp`) of `apps/{api,web,cli}/src` in each app against the base, at the 2026-10-03 and 2026-10-04 heads.
+- **Repeatable method.** The measurement is now `scripts/platform-drift.mjs`, which ignores comments, whitespace, issue references and identity renames and also matches migrations and Prisma models; see the [platform drift report runbook](../runbooks/platform-drift-report.md).
 - **Noise.** Comment noise (issue numbers renumbered per repository) and renames (`appctl` to `evopathcli`) inflate the "modified" counts. Real EvoPath code divergence is about 4.2k changed lines, mostly additive.
 - **Correction.** An earlier directory-level diff overstated the number of identical files. The per-file figures in [Measured drift](#measured-drift) replace it.
 - **Scaling numbers.** The user counts in [Scaling posture](#scaling-posture) are rules of thumb, not load tests.
