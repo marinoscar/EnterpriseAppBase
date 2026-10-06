@@ -148,8 +148,35 @@ To build the image from a checkout instead of pulling it:
 docker compose -f worker.compose.yml -f worker.build.compose.yml up --build
 ```
 
-CI publishes `ghcr.io/<owner>/<repo>-worker` beside the api and web images on
-every tag, using the same tag conventions.
+### 4.1 The published worker image
+
+CI publishes `ghcr.io/<owner>/<repo>-worker` (owner and repository name
+lower-cased) beside the api, web and stack-agent images, from
+`.github/workflows/images.yml`: on every app release tag (`v*`, the same tag
+conventions as the api and web images) and on every platform release
+(`<version>`, `next`, `sha-<short sha>`). `worker.compose.yml` defaults to the
+placeholder `ghcr.io/OWNER/REPO-worker:latest` on purpose, so a fork never
+silently runs another repository's image: set `WORKER_IMAGE` in `.env.worker`.
+
+```bash
+# .env.worker: a release, or for production the digest you verified
+WORKER_IMAGE=ghcr.io/<owner>/<repo>-worker:<version>
+WORKER_IMAGE=ghcr.io/<owner>/<repo>-worker@sha256:<digest>
+```
+
+Every pushed digest is signed keyless with cosign and carries an SBOM and
+provenance. Verify before you scale a fleet onto it (`REPO` is `<owner>/<repo>`
+as GitHub spells it, case included):
+
+```bash
+cosign verify ghcr.io/<owner>/<repo>-worker@sha256:<digest> \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/images\.yml@"
+```
+
+An app built on the `@marinoscar/platform-*` packages pins the worker to the
+same version as its packages. Tags, channels, the SBOM and that pinning are in
+[container-images.md](container-images.md).
 
 ## 5. Capabilities and the startup self-test
 
@@ -432,6 +459,8 @@ server (`OTEL_ENABLED`); see [telemetry.md](telemetry.md).
 - [ ] `restart: unless-stopped` and `stop_grace_period` kept in
       `worker.compose.yml`
 - [ ] Nodes appear at `/admin/settings/workers`
+- [ ] `WORKER_IMAGE` pinned to a release or a verified digest, not the
+      placeholder default
 
 **Database backups on a node (optional)**
 
