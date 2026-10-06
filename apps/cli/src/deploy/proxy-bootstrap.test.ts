@@ -9,12 +9,14 @@ import { CommandFailedError, type CommandResult, type RunCommandOptions, type ru
 import { proxyRuntimeFor } from './proxy.js';
 import {
   DEFAULT_SERVER_CONF,
+  PROXY_MAIN_CONF,
   bootstrapProxy,
   ensureExternalNetworks,
   externalNetworks,
   inspectProxy,
   renderDefaultServer,
   renderProxyCompose,
+  renderProxyMainConfig,
 } from './proxy-bootstrap.js';
 
 const RUNTIME = proxyRuntimeFor('container', '/unused', 'proxy-nginx');
@@ -65,12 +67,49 @@ describe('renderProxyCompose', () => {
     expect(compose).not.toMatch(/^\s*ports:/m);
   });
 
+  it('mounts the managed main config read-only and raises the open-file limit (#684)', () => {
+    const compose = renderProxyCompose(RUNTIME);
+    expect(compose).toContain('./nginx/nginx.conf:/etc/nginx/nginx.conf:ro');
+    expect(compose).toMatch(/ulimits:\n\s+nofile:\n\s+soft: 65536\n\s+hard: 65536\n/);
+  });
+
   it('serves the ACME challenge from the default server and drops everything else', () => {
     const conf = renderDefaultServer();
     expect(conf).toContain('location /.well-known/acme-challenge/');
     expect(conf).toContain('root /var/www/certbot;');
     expect(conf).toContain('return 444;');
     expect(conf).toContain('default_server');
+  });
+});
+
+describe('renderProxyMainConfig (#684)', () => {
+  const conf = renderProxyMainConfig();
+  const value = (name: string): number => Number(new RegExp(`^\\s*${name}\\s+(\\d+);`, 'm').exec(conf)?.[1]);
+
+  it('raises the connection limits for long-lived SSE, within the descriptor limit', () => {
+    expect(value('worker_connections')).toBe(16384);
+    expect(value('worker_rlimit_nofile')).toBe(65536);
+    expect(value('worker_rlimit_nofile')).toBeGreaterThanOrEqual(value('worker_connections'));
+    expect(conf).toMatch(/^\s*worker_processes\s+auto;/m);
+    expect(conf).toMatch(/^\s*multi_accept\s+on;/m);
+  });
+
+  it('keeps the stock image behaviour every vhost relies on', () => {
+    expect(conf).toContain('include /etc/nginx/conf.d/*.conf;');
+    expect(conf).toMatch(/include\s+\/etc\/nginx\/mime\.types;/);
+    expect(conf).toMatch(/error_log\s+\/var\/log\/nginx\/error\.log/);
+    expect(conf).toMatch(/access_log\s+\/var\/log\/nginx\/access\.log/);
+    expect(conf).toMatch(/^pid\s+\/var\/run\/nginx\.pid;/m);
+    expect(conf).toMatch(/^user\s+nginx;/m);
+  });
+
+  it('keeps the compose ulimit at or above worker_rlimit_nofile', () => {
+    const hard = Number(/hard: (\d+)/.exec(renderProxyCompose(RUNTIME))?.[1]);
+    expect(hard).toBeGreaterThanOrEqual(value('worker_rlimit_nofile'));
+  });
+
+  it('is deterministic', () => {
+    expect(renderProxyMainConfig()).toBe(conf);
   });
 });
 
@@ -141,6 +180,8 @@ describe('bootstrapProxy', () => {
     }
     expect(readFileSync(join(dir, 'compose.yml'), 'utf8')).toBe(renderProxyCompose(RUNTIME));
     expect(readFileSync(join(dir, 'nginx', 'conf.d', DEFAULT_SERVER_CONF), 'utf8')).toBe(renderDefaultServer());
+    expect(readFileSync(join(dir, PROXY_MAIN_CONF), 'utf8')).toBe(renderProxyMainConfig());
+    expect(result.created).toContain(join(dir, PROXY_MAIN_CONF));
     expect(result.networksCreated).toEqual(['devnet']);
 
     const lines = calls.map((call) => call.argv.join(' '));
@@ -163,6 +204,34 @@ describe('bootstrapProxy', () => {
     expect(readFileSync(join(dir, 'compose.yml'), 'utf8')).toBe(theirs);
     expect(existsSync(join(dir, 'nginx'))).toBe(false);
     expect(calls).toEqual([]);
+  });
+
+  it('never writes a main config into an existing proxy root, even one that has its own nginx.conf', async () => {
+    const dir = root();
+    mkdirSync(join(dir, 'nginx'), { recursive: true });
+    writeFileSync(join(dir, 'docker-compose.yml'), 'services: {}\n');
+    writeFileSync(join(dir, PROXY_MAIN_CONF), '# theirs\n');
+    const { run, calls } = fake(() => ({ exitCode: 0 }));
+
+    await expect(bootstrapProxy({ proxyRoot: dir, runtime: RUNTIME, runCommand: run })).rejects.toThrow(
+      PreconditionError,
+    );
+
+    expect(readFileSync(join(dir, PROXY_MAIN_CONF), 'utf8')).toBe('# theirs\n');
+    expect(existsSync(join(dir, 'nginx', 'conf.d'))).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('never overwrites a main config already in a new proxy root', async () => {
+    const dir = root();
+    mkdirSync(join(dir, 'nginx'), { recursive: true });
+    writeFileSync(join(dir, PROXY_MAIN_CONF), '# mine\n');
+    const { run } = fake(() => ({ exitCode: 0 }));
+
+    const result = await bootstrapProxy({ proxyRoot: dir, runtime: RUNTIME, runCommand: run });
+
+    expect(readFileSync(join(dir, PROXY_MAIN_CONF), 'utf8')).toBe('# mine\n');
+    expect(result.created).not.toContain(join(dir, PROXY_MAIN_CONF));
   });
 
   it('never overwrites an existing default server', async () => {
