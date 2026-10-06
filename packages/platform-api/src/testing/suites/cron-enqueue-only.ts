@@ -37,10 +37,12 @@ import type {
  * How an app configures the cron suite.
  *
  * @example
+ * ```ts
  * const options: CronEnqueueOnlyOptions = {
  *   exempt: [{ file: 'jobs/tasks/job-stuck-reset.task.ts', why: 'The lease reaper recovers abandoned jobs; recovery cannot depend on the queue it recovers.' }],
  *   minCronFiles: 8,
  * };
+ * ```
  *
  * @extensionPoint option
  * @stability experimental
@@ -51,11 +53,21 @@ export interface CronEnqueueOnlyOptions {
    * contains them (`/` separators). Each needs a written reason of more than 40
    * characters; the suite fails when an exempt file holds no `@Cron`.
    */
-  exempt: ReadonlyArray<{ file: string; why: string }>;
+  exempt: ReadonlyArray<{
+    /** The exempt file, relative to its source root, with `/` separators. */
+    file: string;
+    /** Why the work must not be a job; more than 40 characters. */
+    why: string;
+  }>;
   /** Vacuity guard: at least this many files with a `@Cron` must be found. */
   minCronFiles: number;
   /** Extra markers an app adds for its own work helpers. Additive only; the platform markers always apply. */
-  extraWorkMarkers?: ReadonlyArray<{ pattern: RegExp; what: string }>;
+  extraWorkMarkers?: ReadonlyArray<{
+    /** Matches a cron body that does the work itself. */
+    pattern: RegExp;
+    /** What the match is, completing `a @Cron body containing ...`. */
+    what: string;
+  }>;
 }
 
 /**

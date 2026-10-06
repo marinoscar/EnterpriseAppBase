@@ -1,4 +1,4 @@
-# testing
+# @marinoscar/platform-api/testing
 
 `@marinoscar/platform-api/testing`: the conformance harness. An app runs the platform's invariants through one call, `runPlatformConformance()`, and supplies only its own data. First suite: `cron-enqueue-only`.
 
@@ -52,16 +52,16 @@ runPlatformConformance({
 
 ## Extension-point catalog
 
-| Export | Kind | Stability | Use it to |
-|---|---|---|---|
-| `runPlatformConformance(options)` | option (`@extensionPoint option`) | experimental | Register the enabled suites at the top level of a spec file. |
-| `PlatformConformanceOptions`, `CronEnqueueOnlyOptions` | option types | experimental | Configure the run and the cron suite. |
-| `conformanceSuites` | registry (`@extensionPoint registry`) | experimental | The suites the runner can run, frozen on the first run. A later suite is one `register()` in `conformance-suites.ts`; the runner is not edited. |
-| `ConformanceSuite<TOptions>` | registry entry type | experimental | Write a suite: `id`, `title`, `description`, a pure `check()` and its `cases()`. |
-| `ConformanceTestApi`, `ConformanceReport`, `ConformanceFinding`, `ConformanceCase`, `ConformanceContext` | types | experimental | The contract between harness and suite. |
-| `cronEnqueueOnlySuite` | suite | experimental | The registered cron suite, for direct `check()` calls in tests. |
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `runPlatformConformance` | option | `runPlatformConformance(options: PlatformConformanceOptions): void` | Register the enabled suites at the top level of a spec file | experimental | [example](../../../../apps/api/test/jobs/cron-enqueue-only.spec.ts) |
+| `PlatformConformanceOptions` | option | `{ sourceRoots; suites; testApi? }` | Configure the run: where to scan, which suites, which test runner | experimental | [example](../../../../apps/api/test/jobs/cron-enqueue-only.spec.ts) |
+| `CronEnqueueOnlyOptions` | option | `{ exempt; minCronFiles; extraWorkMarkers? }` | Give the cron suite the app's argued exemptions and vacuity minimum | experimental | [example](../../../../apps/api/test/jobs/cron-enqueue-only.spec.ts) |
+| `conformanceSuites` | registry | `Registry<ConformanceSuite<any>>` | The suites the runner can run, frozen on the first run; a new suite registers in `conformance-suites.ts` | experimental | [example](../../../../apps/api/test/jobs/cron-enqueue-only.spec.ts) |
+| `ConformanceSuite` | registry | `interface ConformanceSuite<TOptions>` | Write a suite: `id`, `title`, `description`, a pure `check()` and its `cases()` | experimental | [example](../../../../apps/api/test/jobs/cron-enqueue-only.spec.ts) |
+| `cronEnqueueOnlySuite` | registry | `ConformanceSuite<CronEnqueueOnlyOptions>` | Call the cron suite's `check()` directly in a test | experimental | [example](../../../../apps/api/test/jobs/cron-enqueue-only.spec.ts) |
 
-Working example: [`apps/api/test/jobs/cron-enqueue-only.spec.ts`](../../../../apps/api/test/jobs/cron-enqueue-only.spec.ts).
+Supporting types, all `@stability experimental`: `ConformanceTestApi` (the injected runner), `ConformanceReport`, `ConformanceFinding`, `ConformanceCase`, `ConformanceContext`.
 
 ## Data
 

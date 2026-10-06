@@ -1,4 +1,4 @@
-# core
+# @marinoscar/platform-api/core
 
 `@marinoscar/platform-api/core`: framework-free primitives every other slice of `@marinoscar/platform-api` builds on. So far it holds one thing, the typed **registry primitive** (issue #675, moved here by #694). Principal and scope, errors and crypto join in #698.
 
@@ -51,19 +51,23 @@ The full option reference, with TSDoc, is on `RegistryOptions`.
 
 ## Extension-point catalog
 
-Every exported symbol is `@stability stable`. The full recipe (declaring entries, writing a manifest, instance versus static registries) is [the app's registry README](../../../../apps/api/src/common/registry/README.md); the reference-app example is [`apps/api/src/doctor/doctor-check.registry.ts`](../../../../apps/api/src/doctor/doctor-check.registry.ts).
+Two symbols are extension points; the other exports are the types, errors and constants that go with them (listed below the table). The full recipe (declaring entries, writing a manifest, instance versus static registries) is [the app's registry README](../../../../apps/api/src/common/registry/README.md).
+
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `defineRegistry` | registry | `defineRegistry<T>(options: RegistryOptions<T>): Registry<T>` | Declare a module-level registry that `RegistryFreezeService` freezes on bootstrap (permissions, settings namespaces, suites) | stable | [example](../../../../apps/api/src/common/permissions/permission.registry.ts) |
+| `Registry` | registry | `new Registry<T>(options: RegistryOptions<T>)` | Hold an instance registry inside a provider, frozen by its owner | stable | [example](../../../../apps/api/src/doctor/doctor-check.registry.ts) |
+
+Supporting exports, all `@stability stable`:
 
 | Export | Kind | Use it to |
 |---|---|---|
-| `defineRegistry(options)` | function (registry) | Declare a module-level registry that the freeze service freezes on bootstrap. |
-| `new Registry(options)` | class | Hold an instance registry inside a provider; the owner freezes it. |
-| `listDefinedRegistries()` | function | Introspect every `defineRegistry` registry (Doctor, diagnostics, snapshot tests). |
-| `freezeDefinedRegistries()` | function | Freeze them all; idempotent. Called by the freeze service and by the conformance harness. |
-| `RegistryFreezeService` | Nest provider | Freeze on `onApplicationBootstrap`. |
+| `listDefinedRegistries()`, `freezeDefinedRegistries()` | functions | Introspect every `defineRegistry` registry; freeze them all (idempotent). |
+| `RegistryFreezeService` | Nest provider | Freeze on `onApplicationBootstrap`; provide it in a module of the app. |
 | `RegistryError`, `RegistryErrorCode` | error | Switch on `code`: `INVALID_ID`, `INVALID_ENTRY`, `DUPLICATE_ID`, `FROZEN`, `UNKNOWN_ID`, `DUPLICATE_REGISTRY`. |
 | `RegistryOptions`, `RegistrySnapshot` | types | Configure and introspect. |
-| `DEFAULT_REGISTRY_ID_PATTERN`, `REGISTRY_ID_MAX_LENGTH` | constants | Reuse the id rules in a schema or a message. |
-| `withTemporaryEntries(registry, entries, fn)` | function (tests only) | Add entries for one test and restore the registry exactly. Refused outside Jest and Vitest. |
+| `DEFAULT_REGISTRY_ID_PATTERN`, `REGISTRY_ID_MAX_LENGTH` | constants | Reuse the id rules in a schema or message. |
+| `withTemporaryEntries(registry, entries, fn)` | function (tests only) | Add entries for one test and restore the registry exactly; refused outside Jest and Vitest. |
 
 ## Data
 

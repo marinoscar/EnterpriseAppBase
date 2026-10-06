@@ -9,6 +9,7 @@
  * Vitest (`globals: true`) without depending on either.
  *
  * @example
+ * ```ts
  * // A recording fake, for testing a suite without a runner.
  * const calls: string[] = [];
  * const fake: ConformanceTestApi = {
@@ -16,6 +17,7 @@
  *   it: (name) => { calls.push(name); },
  *   expect: () => ({ toEqual() {}, toBeGreaterThanOrEqual() {}, toContain() {} }),
  * };
+ * ```
  *
  * @stability experimental
  */
@@ -26,8 +28,11 @@ export interface ConformanceTestApi {
   it(name: string, fn: () => void | Promise<void>): void;
   /** The assertion entry point; only the matchers below are ever used. */
   expect: (actual: unknown) => {
+    /** Deep equality with `expected`. */
     toEqual(expected: unknown): void;
+    /** The actual number is at least `n`. */
     toBeGreaterThanOrEqual(n: number): void;
+    /** The actual array contains `item`. */
     toContain(item: unknown): void;
   };
 }

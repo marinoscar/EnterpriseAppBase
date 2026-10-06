@@ -73,11 +73,13 @@ export type RegistryErrorCode =
  * The single error type every registry operation throws.
  *
  * @example
+ * ```ts
  * try {
  *   permissions.register(entry);
  * } catch (err) {
  *   if (err instanceof RegistryError && err.code === 'DUPLICATE_ID') { ... }
  * }
+ * ```
  *
  * @stability stable
  */
@@ -202,6 +204,7 @@ function messageOf(err: unknown): string {
  * @typeParam T - the entry type.
  *
  * @example
+ * ```ts
  * const colours = new Registry<{ id: string; hex: string }>({
  *   name: 'colours',
  *   idOf: (c) => c.id,
@@ -211,7 +214,9 @@ function messageOf(err: unknown): string {
  * });
  * colours.register({ id: 'brand', hex: '#3366ff' });
  * colours.require('brand').hex; // '#3366ff'
+ * ```
  *
+ * @extensionPoint registry
  * @stability stable
  */
 export class Registry<T> {
@@ -440,12 +445,15 @@ const definedRegistries = new Map<string, Registry<unknown>>();
  * @throws RegistryError `DUPLICATE_REGISTRY` when a defined registry already has that name.
  *
  * @example
+ * ```ts
  * // apps/api/src/common/permissions/permission.registry.ts
  * export const permissionRegistry = defineRegistry<PermissionDefinition>({
  *   name: 'permissions',
  *   idOf: (p) => p.id,
  * });
+ * ```
  *
+ * @extensionPoint registry
  * @stability stable
  */
 export function defineRegistry<T>(options: RegistryOptions<T>): Registry<T> {

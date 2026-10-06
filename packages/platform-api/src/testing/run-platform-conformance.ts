@@ -17,6 +17,7 @@ export interface PlatformConformanceOptions {
    * does not run; an unknown key throws, so a typo cannot disable a check.
    */
   suites: {
+    /** The `cron-enqueue-only` suite: its options, or `false` to opt out. */
     cronEnqueueOnly?: CronEnqueueOnlyOptions | false;
   };
   /** Defaults to the globals `describe`/`it`/`expect` (Jest, or Vitest with `globals: true`). */
@@ -49,11 +50,13 @@ function globalTestApi(): ConformanceTestApi {
  * @throws Error when no test API is available, or `sourceRoots` is empty.
  *
  * @example
+ * ```ts
  * // apps/api/test/jobs/cron-enqueue-only.spec.ts
  * runPlatformConformance({
  *   sourceRoots: [join(__dirname, '..', '..', 'src')],
  *   suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
  * });
+ * ```
  *
  * @extensionPoint option
  * @stability experimental
