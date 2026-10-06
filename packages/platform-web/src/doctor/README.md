@@ -1,12 +1,12 @@
 # @marinoscar/platform-web/doctor
 
-`@marinoscar/platform-web/doctor`: the admin Doctor page (issue #696), in two entry points of one slice. `/doctor/headless` holds the wire types, the client, the `useDoctor` hook and the category labels, with no component; `/doctor/ui` holds `DoctorPage`, its parts and the `doctorSettingsPage` descriptor the app registers. Depends on the `core` slice only (`packages/platform-slices.json`): it reads the app through `usePlatformHost()`.
+`@marinoscar/platform-web/doctor`: the admin Doctor page (issue #696), in two entry points of one slice. `/doctor/headless` holds the client, the `useDoctor` hook and the category labels, with no component; `/doctor/ui` holds `DoctorPage`, its parts and the `doctorSettingsPage` descriptor the app registers. Depends on the `core` slice only (`packages/platform-slices.json`): it reads the app through `usePlatformHost()`.
 
 ## Purpose and scope
 
 Does: render the report of `GET /api/admin/doctor` (`@marinoscar/platform-api/doctor`): the verdict, counts by status, one accordion per category (problems expanded), a "Problems only" filter, each check's detail, remedy, verbatim error and "Open settings" link, and "Run again" (`refresh=true`). A failing check is data, never a page error; the error alert is reserved for a request that failed.
 
-Does not: check permissions (the app's route gate does), import app context, layout or navigation, own the registry card or the route (the app appends both from the descriptor), or define the wire contract (the zod schemas live in `@marinoscar/platform-api/doctor` until #701 moves them to `@marinoscar/platform-contract`; the types here mirror them by hand).
+Does not: check permissions (the app's route gate does), import app context, layout or navigation, own the registry card or the route (the app appends both from the descriptor), or define the wire contract: the report types and status constants come from `@marinoscar/platform-contract/doctor` (#701), imported as types and from the zod-free constants module, so zod never reaches the browser bundle ([contract slice README](../../../platform-contract/src/doctor/README.md)).
 
 ## Install and peer dependencies
 
@@ -17,7 +17,7 @@ import { useDoctor, createDoctorClient } from '@marinoscar/platform-web/doctor/h
 import { DoctorPage, doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 ```
 
-`/doctor/ui` needs the package peers `@mui/material`, `@mui/icons-material`, `@emotion/*` and `react-router-dom` (links); `/doctor/headless` needs only `react`.
+`/doctor/ui` needs the package peers `@mui/material`, `@mui/icons-material`, `@emotion/*` and `react-router-dom` (links); `/doctor/headless` needs only `react`. Both depend on `@marinoscar/platform-contract` (installed with this package), whose peer `zod` the app installs; it is a type-level dependency here and is not bundled.
 
 ## Quick start
 
@@ -70,7 +70,7 @@ Status colours come from the theme-token contract `palette.status.{ok,warn,crit,
 | `useDoctor` | hook | `useDoctor(client?: DoctorClient): { report; isLoading; error; rerun }` | Build a different Doctor view on the same data | stable | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 | `createDoctorClient` | hook | `createDoctorClient(api: PlatformApiClient, path?: string): DoctorClient` | Call the Doctor API outside the page, or at a moved path | stable | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 
-Supporting exports. `/doctor/headless`: `DoctorStatus`, `DoctorCheckReport`, `DoctorReport`, `DoctorReportQuery`, `DoctorClient`, `UseDoctorReturn`, `DOCTOR_STATUS_ORDER`, `PLATFORM_DOCTOR_CATEGORY_LABELS`, `DoctorCategoryLabel`, `categoryLabel(key, labels?)`. `/doctor/ui`: `CheckRow`, `CheckRowProps`, `StatusIcon`, `STATUS_LABELS`, `STATUS_CHIP_COLORS` (the palette role each status's token defaults to), `DoctorPageHeaderProps`.
+Supporting exports. `/doctor/headless`: `DoctorStatus`, `DoctorCheckReport`, `DoctorReport` (re-exported from the contract), `DoctorReportQuery` and `DOCTOR_STATUS_ORDER` (deprecated aliases of the contract's `DoctorReportQueryInput` and `DOCTOR_STATUSES`), `DoctorClient`, `UseDoctorReturn`, `PLATFORM_DOCTOR_CATEGORY_LABELS`, `DoctorCategoryLabel`, `categoryLabel(key, labels?)`. `/doctor/ui`: `CheckRow`, `CheckRowProps`, `StatusIcon`, `STATUS_LABELS`, `STATUS_CHIP_COLORS` (the palette role each status's token defaults to), `DoctorPageHeaderProps`.
 
 ## Data
 
@@ -103,6 +103,8 @@ None yet. The reference app's `apps/web/src/__tests__/config/platformPages.test.
 ## Upgrade notes
 
 First packaged release (#696). Moving from the app's own Doctor page: delete `components/doctor/CheckRow.tsx`, `hooks/useDoctor.ts` and `services/doctor.ts`; build the card from `doctorSettingsPage.card`; mount `PlatformHostProvider` (`/core`); render `doctorSettingsPage.Page` from the route. Behaviour, texts and test ids are unchanged.
+
+Since #701 the wire types come from `@marinoscar/platform-contract/doctor`; the hand-written mirrors are gone. The headless entry still exports `DoctorStatus`, `DoctorCheckReport` and `DoctorReport`, and keeps `DOCTOR_STATUS_ORDER` and `DoctorReportQuery` as deprecated aliases, so no import has to change. New code imports the types from the contract. The app adds `zod` to its dependencies for the contract's peer; it is not bundled.
 
 ## Troubleshooting
 

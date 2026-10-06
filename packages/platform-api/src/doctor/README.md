@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: the check contract (`DoctorCheck`, the five rules), the check registry, the service that runs the checks (parallel, dependency-aware, time-boxed, normalised, cached), the query and report DTOs, and the controller, created per app by `DoctorModule.forRoot({ host })` with the app's own access decorators. Since #773 also the egress inventory: `EgressRegistry`, where each module describes its outbound (internet) dependencies, a pure host classifier, and `NetworkEgressDoctorCheck` (`network.egress`), which grades that inventory when the deployment declares itself air-gapped.
+Does: the check contract (`DoctorCheck`, the five rules), the check registry, the service that runs the checks (parallel, dependency-aware, time-boxed, normalised, cached), the query and report DTOs (nestjs-zod wrappers of the schemas in `@marinoscar/platform-contract/doctor`, #701), and the controller, created per app by `DoctorModule.forRoot({ host })` with the app's own access decorators. Since #773 also the egress inventory: `EgressRegistry`, where each module describes its outbound (internet) dependencies, a pure host classifier, and `NetworkEgressDoctorCheck` (`network.egress`), which grades that inventory when the deployment declares itself air-gapped.
 
 Does not: register any check by itself. Checks are registry entries the app contributes from its own feature modules, under `<module>/doctor/`, and they move with their slices later; the one check class this slice ships, `NetworkEgressDoctorCheck`, is generic over the app's contributors and is still the app's to provide. It does not own the permission system (the app's host does), the web page (`@marinoscar/platform-web/doctor/ui`) or a queue job (a Doctor run is a bounded request, never a job; see [docs/specs/doctor.md §2.5](../../../../docs/specs/doctor.md)).
 
@@ -16,7 +16,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { DoctorCheck, DoctorCheckRegistry, DoctorModule } from '@marinoscar/platform-api/doctor';
 ```
 
-No peer beyond the package's own ([README](../../README.md#install-and-peer-dependencies)); it uses `@nestjs/common`, `@nestjs/swagger`, `nestjs-zod` and `zod`.
+No peer beyond the package's own ([README](../../README.md#install-and-peer-dependencies)); it uses `@nestjs/common`, `@nestjs/swagger`, `nestjs-zod` and `zod`, and takes its schemas from `@marinoscar/platform-contract/doctor`, a dependency of this package installed with it ([contract slice README](../../../platform-contract/src/doctor/README.md)).
 
 ## Quick start
 
@@ -163,6 +163,8 @@ First packaged release (#696). Moving from the app's own `apps/api/src/doctor/`:
 - Import `DoctorCheck`, `DoctorCheckOutcome` and `DoctorCheckRegistry` from `@marinoscar/platform-api/doctor` instead of `../doctor/doctor-check.interface` / `doctor-check.registry`.
 - Replace the app's `DoctorModule` with `DoctorModule.forRoot({ host })` and delete the app's controller, service, registry and DTOs. The route, the permission, the OpenAPI operation (`doctor_getReport`) and the response are unchanged.
 - `DOCTOR_CATEGORIES` is now `PLATFORM_DOCTOR_CATEGORIES`; the old name remains as a deprecated alias.
+
+Since #701 the schemas live in `@marinoscar/platform-contract/doctor`. `DoctorReportDto` and `DoctorQueryDto` are unchanged, and `DoctorStatus`, `DOCTOR_STATUSES`, `DOCTOR_STATUS_RANK`, `DoctorReport`, `DoctorCheckReport` and `DoctorQuery` are still exported here (re-exported from the contract), so no import has to change; `DOCTOR_STATUSES` is now a readonly tuple rather than `readonly DoctorStatus[]`. To validate or extend a payload, import the schema from the contract. The OpenAPI document is byte-identical.
 
 ## Troubleshooting
 
