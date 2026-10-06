@@ -1091,8 +1091,10 @@ The work is tracked as a GitHub program. Issue numbers appear only as links.
 
 | Scope | Rollback point |
 |---|---|
-| EnterpriseAppBase | Git tag `pre-platform-packages`, which marks `main` at commit `dfe69f4`. **The owner must push this tag**; agent sessions cannot push tags. |
-| Each app | A per-app rollback tag, created by the first story of that app's retrofit, before any change |
+| EnterpriseAppBase | The single program rollback point: the annotated git tag `MonoRepo` on `main` at commit `e872eb6` (full SHA `e872eb69db4c6bd419e531a1d5b5b74cf1a80c82`), which is `main` right after this spec was merged and before any program code change. **The owner must push this tag**; agent sessions cannot push tags. |
+| Each app | A rollback tag, also named `MonoRepo` (one name in every repository), created by the first story of that app's retrofit, before any change |
+
+A full copy of the same state (all 834 commits of `main`) also exists in the separate repository [`marinoscar/appbase`](https://github.com/marinoscar/appbase), created as a safety copy before the program's changes start.
 
 ### Migration rule
 
@@ -1214,3 +1216,4 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 - 2026-10-04: proposed after an architecture discussion covering drift measurement across the four code bases, package granularity, the Extension Contract, migrations, tenancy, deployment modes and scaling. No implementation has started.
 - 2026-10-04 (rev 2): extensibility and documentation standard made explicit; adoption order and first SaaS left to the owner.
 - 2026-10-04 (rev 3): adoption order decided (EnterpriseAppBase, EvoPath, kvox, MemoriaHub); the existing apps are the reference app; program tracking and rollback added; corrections to the migration, telemetry and RLS facts.
+- 2026-10-06 (rev 4): single rollback tag `MonoRepo` at e872eb6; safety copy in marinoscar/appbase.
