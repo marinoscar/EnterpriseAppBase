@@ -17,3 +17,13 @@ export type {
 } from './conformance-suite';
 export { cronEnqueueOnlySuite } from './suites/cron-enqueue-only';
 export type { CronEnqueueOnlyOptions } from './suites/cron-enqueue-only';
+
+// Test doubles for the host ports (issue #696): a header-driven platform host
+// and in-memory audit and settings ports, for PACKAGE tests only.
+export {
+  createTestPlatformHost,
+  InMemoryAuditSink,
+  InMemorySystemSettingsStore,
+  TEST_PERMISSIONS_HEADER,
+  TEST_REQUIRED_PERMISSIONS_KEY,
+} from './host/index';
