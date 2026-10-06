@@ -27,13 +27,25 @@ export interface ComposeOptions {
 }
 
 /**
+ * One generated schema file.
+ *
+ * @stability experimental
+ */
+export interface ComposedFile {
+  /** Where the file belongs: inside `outDir`, named `platform.<slice>.prisma` or `app.<fragment>.prisma`. */
+  path: string;
+  /** The full text, starting with the do-not-edit header. */
+  contents: string;
+}
+
+/**
  * The generated schema files and anything worth telling the developer.
  *
  * @stability experimental
  */
 export interface ComposeResult {
-  /** One entry per generated file: `path` is inside `outDir`, `contents` is the full text. */
-  files: Array<{ path: string; contents: string }>;
+  /** One entry per generated file. */
+  files: ComposedFile[];
   /** Non-fatal observations (for example an app `base.prisma` replacing the package's). */
   warnings: string[];
 }

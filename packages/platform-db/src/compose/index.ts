@@ -5,6 +5,7 @@ export {
   composeSchema,
   writeComposedSchema,
   type ComposeCheck,
+  type ComposedFile,
   type ComposeOptions,
   type ComposeResult,
 } from './api.js';
