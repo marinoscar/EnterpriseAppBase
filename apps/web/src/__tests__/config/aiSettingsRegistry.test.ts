@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 
 import { ADMIN_SECTIONS, visibleSettingsSections } from '../../config/adminSections';
 import { USER_SETTINGS_SECTIONS } from '../../config/userSettingsSections';
+import { readApiPermissionConstants } from '../utils/apiPermissions';
 
 /**
  * Cross-cutting AI registry parity (issue #435, epic #419).
@@ -27,7 +28,9 @@ function readApiSource(relPath: string): string {
   return readFileSync(resolve(API_SRC, relPath), 'utf8');
 }
 
-const rolesConstants = readApiSource('common/constants/roles.constants.ts');
+// The API's `PERMISSIONS` constants as `KEY: 'id'` lines, followed through
+// roles.constants.ts to each module's declaration file (#676).
+const rolesConstants = readApiPermissionConstants();
 const aiAdminController = readApiSource('ai/config/ai-admin.controller.ts');
 const userAiKeysController = readApiSource('ai/keys/user-ai-keys.controller.ts');
 
@@ -44,9 +47,9 @@ function allAiTaggedCards() {
 }
 
 describe('AI settings registry — literal permission parity with the API (#435)', () => {
-  it('roles.constants.ts declares exactly the three literal AI permission strings this file checks against', () => {
+  it('the API permission declarations behind roles.constants.ts declare exactly the three literal AI permission strings this file checks against', () => {
     // Anchors the comparison itself: if these three literals ever drifted in
-    // roles.constants.ts, every check below would quietly compare the
+    // ai/ai.permissions.ts (which roles.constants.ts derives from), every check below would quietly compare the
     // registry against a stale string instead of the real one.
     expect(rolesConstants).toContain("AI_CONFIG_READ: 'ai_config:read'");
     expect(rolesConstants).toContain("AI_CONFIG_WRITE: 'ai_config:write'");

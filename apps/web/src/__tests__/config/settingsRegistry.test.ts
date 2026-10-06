@@ -11,6 +11,7 @@ import {
   settingsPageTitle,
 } from '../../config/adminSections';
 import type { SettingsSectionDef } from '../../config/adminSections';
+import { readApiPermissionConstants } from '../utils/apiPermissions';
 import {
   USER_SETTINGS_SECTIONS,
   USER_HUB_PATH,
@@ -426,10 +427,7 @@ describe('the Storage card (#376)', () => {
     // side fails here instead of in production. This is the mechanical half of
     // CLAUDE.md Settings UI Pattern rule 3.
     const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
-    const rolesConstants = readFileSync(
-      resolve(API_SRC, 'common/constants/roles.constants.ts'),
-      'utf8',
-    );
+    const rolesConstants = readApiPermissionConstants();
     const storageConfigController = readFileSync(
       resolve(API_SRC, 'storage/config/storage-config.controller.ts'),
       'utf8',
@@ -551,10 +549,7 @@ describe('the About card (#401)', () => {
     // CLAUDE.md Settings UI Pattern rule 3, and the controller's own header
     // names this test's sibling as the other half of the contract.
     const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
-    const rolesConstants = readFileSync(
-      resolve(API_SRC, 'common/constants/roles.constants.ts'),
-      'utf8',
-    );
+    const rolesConstants = readApiPermissionConstants();
     const aboutController = readFileSync(resolve(API_SRC, 'about/about.controller.ts'), 'utf8');
 
     expect(card?.permission).toBe('system_settings:read');
@@ -789,10 +784,7 @@ describe('the Operations group (#266)', () => {
       dirname(fileURLToPath(import.meta.url)),
       '../../../../api/src',
     );
-    const rolesConstants = readFileSync(
-      resolve(API_SRC, 'common/constants/roles.constants.ts'),
-      'utf8',
-    );
+    const rolesConstants = readApiPermissionConstants();
     const jobsController = readFileSync(
       resolve(API_SRC, 'jobs/job-admin.controller.ts'),
       'utf8',
@@ -1143,7 +1135,7 @@ describe('the AI group (#425)', () => {
  */
 describe('the Observability group (#537)', () => {
   const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
-  const rolesConstants = readFileSync(resolve(API_SRC, 'common/constants/roles.constants.ts'), 'utf8');
+  const rolesConstants = readApiPermissionConstants();
   const observability = ADMIN_SECTIONS.find((section) => section.label === 'Observability');
   const cards = new Map((observability?.cards ?? []).map((card) => [card.title, card]));
   const telemetry = cards.get('Telemetry');
