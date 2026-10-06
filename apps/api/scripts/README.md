@@ -2,6 +2,14 @@
 
 This folder contains utility scripts for database and development operations.
 
+## Scripts at a glance
+
+| Script | npm script | What it does |
+|---|---|---|
+| `prisma-env.js` | `prisma:*` | Builds `DATABASE_URL` from `POSTGRES_*` and runs the Prisma CLI (below) |
+| `dump-openapi.ts` | `openapi:dump` | Writes the OpenAPI document without a database |
+| `generate-permission-catalog.ts` | `catalog:permissions` | Writes the role and permission registries to `prisma/catalog/permissions.json`, which the seed reads; `-- --check` exits 1 when the committed file is stale. See [common/permissions/README.md](../src/common/permissions/README.md) |
+
 ## prisma-env.js
 
 A helper script that constructs `DATABASE_URL` from individual PostgreSQL environment variables before executing Prisma CLI commands.

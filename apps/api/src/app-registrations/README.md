@@ -30,7 +30,11 @@ app-registrations/<registry>.ts (this folder, owned by the app)
   conflict on merge.
 
 Each registry story adds its own file to this folder when it creates the
-registry; until then the folder holds only this README.
+registry.
+
+| File | Registry | Recipe |
+|---|---|---|
+| `permissions.ts` | Roles and permissions (`APP_ROLES`, `APP_PERMISSIONS`) | [common/permissions/README.md](../common/permissions/README.md) |
 
 ## What goes here, and what does not
 
@@ -42,28 +46,21 @@ registry; until then the folder holds only this README.
 
 ## Minimal example
 
-The base ships:
-
-```typescript
-// apps/api/src/app-registrations/permissions.ts
-import type { PermissionDefinition } from '../common/permissions/permission.registry';
-
-/** This app's own permissions. Upstream keeps this array empty forever. */
-export const APP_PERMISSIONS: readonly PermissionDefinition[] = [];
-```
-
-A fork fills it in, and widens the typed ids by module augmentation:
+The permissions file (issue #676) is the first one. The base ships both arrays
+empty; a fork fills them in and widens the typed ids by module augmentation:
 
 ```typescript
 // apps/api/src/app-registrations/permissions.ts (in the fork)
-import type { PermissionDefinition } from '../common/permissions/permission.registry';
+import type { PermissionDeclaration, RoleDeclaration } from '../common/permissions/permission.types';
 
-export const APP_PERMISSIONS: readonly PermissionDefinition[] = [
-  { id: 'workouts:read', description: 'Read own workouts' },
-  { id: 'workouts:write', description: 'Log and edit own workouts' },
+export const APP_ROLES: readonly RoleDeclaration[] = [];
+
+export const APP_PERMISSIONS: readonly PermissionDeclaration[] = [
+  { id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'contributor', 'viewer'] },
+  { id: 'workouts:write', description: 'Log and edit own workouts', defaultGrants: ['admin', 'contributor'] },
 ];
 
-declare module '../common/permissions/permission.registry' {
+declare module '../common/permissions/permission.types' {
   interface AppPermissionIds {
     'workouts:read': true;
     'workouts:write': true;
@@ -71,11 +68,14 @@ declare module '../common/permissions/permission.registry' {
 }
 ```
 
+Then `npm run catalog:permissions --workspace=api`, commit the regenerated
+`prisma/catalog/permissions.json`, and re-seed. Full recipe:
+[common/permissions/README.md](../common/permissions/README.md).
+
 The manifest registers app entries after platform entries, so an id that
 collides with a platform entry fails at import time with `DUPLICATE_ID`,
 naming the registry and the id (unless that registry is documented as
 `onDuplicate: 'replace'`, in which case the app entry deliberately shadows the
 platform one in its original position).
 
-(The names in these examples are illustrative; each registry's own README
-names its file and entry type.)
+Each registry's own README names its file and entry type.
