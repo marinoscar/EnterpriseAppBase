@@ -136,6 +136,19 @@ await main(async () => {
   chk('...although all four exist in the catalogue', present.length === 4, present.join(', '));
   const discovered = (await rows(`${P}_ref`, "select indexname from pg_indexes where schemaname='public' and (indexdef ~ ' WHERE ' or indexdef ~ 'ON public\\.\\w+ \\(\\(') order by 1")).map((x) => x.indexname);
   chk('catalogue discovery (partial or expression indexes) finds EXACTLY the four the spec lists', JSON.stringify(discovered) === JSON.stringify(RAW_INDEXES), discovered.join(', '));
+  // The CI drift test form: package migrations replayed in the shadow database vs the composed schema.
+  const replayAll = join(root, 'replay-all');
+  mkdirSync(join(replayAll, 'migrations'), { recursive: true });
+  writeFileSync(join(replayAll, 'migrations', 'migration_lock.toml'), 'provider = "postgresql"\n');
+  for (const m of packageMigrations(pkgDir)) cpSync(m.file, join(replayAll, 'migrations', m.dir, 'migration.sql'));
+  r = sh(ref, `${P}_ref`, ['migrate', 'diff', '--from-migrations', join(replayAll, 'migrations'), '--to-schema', composed, '--exit-code', '--script']);
+  show('migrate diff --from-migrations <package history> --to-schema <composed folder> --exit-code  (the CI drift test)', `exit ${r.status}\n${r.stdout}${r.stderr}`);
+  chk('CI drift test: package migrations replayed in a shadow database equal the composed schema (exit 0, no allow-list needed)', r.status === 0);
+  const edited = join(root, 'composed-edited');
+  cpSync(composed, edited, { recursive: true });
+  writeFileSync(join(edited, 'platform.jobs.prisma'), `${read(join(edited, 'platform.jobs.prisma'))}\nmodel DriftProbe {\n  id String @id\n}\n`);
+  r = sh(ref, `${P}_ref`, ['migrate', 'diff', '--from-migrations', join(replayAll, 'migrations'), '--to-schema', edited, '--exit-code', '--script']);
+  chk('...and a schema edit WITHOUT a migration makes the same command exit 2 (the drift test has teeth)', r.status === 2, `exit ${r.status}`);
   expectedIndexes = await rawIndexSnapshot(`${P}_ref`, RAW_INDEXES);
   show('the allowed raw-SQL index list shipped with the package (name + definition)', expectedIndexes.map((i) => `${i.name}\n    ${i.definition}`).join('\n'));
 

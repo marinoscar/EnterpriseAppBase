@@ -158,7 +158,7 @@ option 2 also gives up: relation filters (where: { user: { is... } }), nested cr
 ## E. Can `prisma format` auto-add the back-relations instead (no `extend` syntax)?
 --- prisma format on package + app files WITHOUT extend blocks
     exit 0
-    Formatted prisma/schema in 403ms 🚀
+    Formatted prisma/schema in 267ms 🚀
     Prisma schema loaded from prisma/schema.
 PASS  `prisma format` DOES add the missing back-relation, but by rewriting the package-owned file in place
   => rejected as the mechanism: the edit lands in a platform file (and would be lost/uncommitted on the next sync), names are chosen by Prisma, and ordering is not deterministic across formats. Kept only as a convenience idea for a "suggest the extend block" command.

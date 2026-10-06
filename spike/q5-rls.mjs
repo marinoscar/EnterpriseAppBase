@@ -166,6 +166,9 @@ const body = async () => {
   const cnt = await a.spikeTenantRow.findMany({ include: { parent: true } });
   check('relation includes keep working under the extension', cnt.length === 20);
 
+  const asSuper = await rows(DB, 'select count(*)::int as n from spike_tenant_rows');
+  check('a SUPERUSER (this compose Postgres\'s POSTGRES_USER) sees ALL rows despite FORCE: RLS is inert for superusers and BYPASSRLS roles, so the app role must be neither', asSuper[0].n === 40, `n=${asSuper[0].n}`);
+
   // After a transaction-local set_config the GUC reads '' (empty), not NULL.
   const after = await base.$queryRaw`SELECT current_setting('app.org_id', true) AS v`;
   say(`current_setting('app.org_id', true) on a connection that previously had a transaction-local value: ${JSON.stringify(after[0].v)}`);

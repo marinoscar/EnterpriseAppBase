@@ -10,6 +10,11 @@ PASS  reference database (the 21 package migrations) deploys
 PASS  Prisma 7.9 reports NO drift for the four raw-SQL indexes (diff is empty, exit 0)
 PASS  ...although all four exist in the catalogue  (database_backup_runs_active_uniq_idx, jobs_active_dedup_uniq_idx, jobs_attempts_gt1_idx, jobs_succeeded_duration_idx)
 PASS  catalogue discovery (partial or expression indexes) finds EXACTLY the four the spec lists  (database_backup_runs_active_uniq_idx, jobs_active_dedup_uniq_idx, jobs_attempts_gt1_idx, jobs_succeeded_duration_idx)
+--- migrate diff --from-migrations <package history> --to-schema <composed folder> --exit-code  (the CI drift test)
+    exit 0
+    -- This is an empty migration.
+PASS  CI drift test: package migrations replayed in a shadow database equal the composed schema (exit 0, no allow-list needed)
+PASS  ...and a schema edit WITHOUT a migration makes the same command exit 2 (the drift test has teeth)  (exit 2)
 --- the allowed raw-SQL index list shipped with the package (name + definition)
     database_backup_runs_active_uniq_idx
         CREATE UNIQUE INDEX database_backup_runs_active_uniq_idx ON public.database_backup_runs USING btree ((true)) WHERE (status = ANY (ARRAY['pending'::"DatabaseBackupStatus", 'running'::"DatabaseBackupStatus"]))
@@ -134,7 +139,7 @@ PASS  a raw-SQL index re-created WITHOUT its WHERE clause is caught by the defin
 PASS  partial fork deploys its 15 migrations
 PASS  claiming "through 21" is REFUSED: the live schema lacks what 16..21 add  (18 differing statements, e.g. ALTER TABLE "public"."ai_models" DROP CONSTRAINT "ai_models_updated_by_user_id_fkey";)
 PASS  "through 15" passes: live == package history replayed to 0015
-PASS  16..21 are installed (not resolved)  (install 20261006202454_add_ai_platform (to be applied by migrate deploy); install 20261006202455_revoke_viewer_ai_use (to be applied by migrate deploy); install 20261006202456_add_user_credentials (to be applied by migrate deploy); install 20261006202457_add_device_session_credential_link (to be applied by migrate deploy); install 20261006202458_add_worker_node_vitals (to be applied by migrate deploy); install 20261006202459_add_job_trace_context (to be applied by migrate deploy))
+PASS  16..21 are installed (not resolved)  (install 20261006205717_add_ai_platform (to be applied by migrate deploy); install 20261006205718_revoke_viewer_ai_use (to be applied by migrate deploy); install 20261006205719_add_user_credentials (to be applied by migrate deploy); install 20261006205720_add_device_session_credential_link (to be applied by migrate deploy); install 20261006205721_add_worker_node_vitals (to be applied by migrate deploy); install 20261006205722_add_job_trace_context (to be applied by migrate deploy))
 PASS  migrate deploy applies the six new package migrations for real
 PASS  afterwards the database equals the composed schema
 
@@ -163,4 +168,4 @@ PASS  migrate status: up to date
     Datasource "db": PostgreSQL database "pp_5_1_q4_unmanaged", schema "public" at "127.0.0.1:5433"
 PASS  resolving twice is refused by Prisma (P3008), so the tool must skip recorded dirs
 
-41/41 checks passed
+43/43 checks passed
