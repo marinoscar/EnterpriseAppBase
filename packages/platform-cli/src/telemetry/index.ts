@@ -1,5 +1,5 @@
 // `@marinoscar/platform-cli/telemetry`: the worker node's job-phase span relay
-// (PP-4.5, #706). #707 completes
+// and the telemetry stack's env-key metadata (PP-4.5, #706). #707 completes
 // the slice.
 
 export {
@@ -11,3 +11,4 @@ export {
 } from './node-span-relay.js';
 export type { NodeSpanRelayOptions } from './node-span-relay.js';
 export type { NodeSpan, NodeSpanAttributes, NodeSpanName, NodeSpanSink } from './node-span.js';
+export { telemetryEnvSpecFragment } from './env-fragment.js';
