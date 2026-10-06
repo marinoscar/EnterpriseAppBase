@@ -199,6 +199,17 @@ export function oneOf(...values: readonly string[]) {
     values.includes(value) ? undefined : `must be one of: ${values.join(', ')}`;
 }
 
+/**
+ * A whole number that may be zero (e.g. a TTL where `0` means "off"). Digits
+ * only, so `1.5`, `-1` and `30s` are refused before they reach the API, which
+ * would otherwise fall back to its default with a warning.
+ */
+export function validateNonNegativeInteger(value: string): string | undefined {
+  return /^\d+$/.test(value.trim()) && Number.isSafeInteger(Number(value.trim()))
+    ? undefined
+    : 'must be a whole number of seconds (0 or more)';
+}
+
 export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // --- Application ---------------------------------------------------------
   NODE_ENV: { fixed: 'production' },
@@ -374,6 +385,11 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // on anything unrecognised, so the wizard refuses a typo before it is
   // written rather than leaving a deployment silently single-replica.
   EVENT_BUS_ADAPTER: { validate: oneOf('postgres', 'in-process') },
+
+  // --- JWT principal cache (PP-1.12, #683) ----------------------------------
+  // A performance knob with a safe default (30 s); `0` disables the cache.
+  // Not asked: the template value is right for almost every deployment.
+  AUTH_PRINCIPAL_CACHE_TTL_SECONDS: { validate: validateNonNegativeInteger },
 };
 
 export function metadataFor(key: string): EnvVarMetadata {
