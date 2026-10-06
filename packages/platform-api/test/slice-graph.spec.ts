@@ -21,14 +21,12 @@ const PACKAGES_DIR = join(__dirname, '..', '..');
 const GRAPH_FILE = join(PACKAGES_DIR, 'platform-slices.json');
 
 /**
- * Slices the graph declares ahead of their code. `core` and `testing` are
- * seeded here by #690 so the edge `testing -> core` exists before #694 moves
- * the registry primitive and the conformance harness into them. Remove an
- * entry when its directory lands; the "exists" check then covers it.
+ * Slices the graph declares ahead of their code. Empty now that `core` and
+ * `testing` exist (#694); keep the mechanism for the next slice declared ahead
+ * of its code, and remove an entry when its directory lands (the "exists"
+ * check then covers it).
  */
-const PENDING_SLICES: Record<string, string[]> = {
-  'platform-api': ['core', 'testing'],
-};
+const PENDING_SLICES: Record<string, string[]> = {};
 
 function readGraph(file: string): SliceGraph {
   const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;

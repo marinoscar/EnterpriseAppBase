@@ -1,0 +1,8 @@
+import { Cron } from '@nestjs/schedule';
+
+export class QueuesNothingTask {
+  @Cron('0 5 * * *')
+  async tick(): Promise<void> {
+    console.log('did nothing useful');
+  }
+}
