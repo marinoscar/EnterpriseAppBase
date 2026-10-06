@@ -132,11 +132,16 @@ ran.
 ### Update pipeline
 
 `preflight`, `fetch`, `environment-drift`, `ensure-database`, `version`,
-`build`, `migrate`, `seed`, `restart`, `health`, `deploy-info`, `publish`,
-`renewal`, `verify`, `publish-version`.
+`build`, `migrate`, `seed`, `restart`, `edge-config`, `health`, `deploy-info`,
+`publish`, `renewal`, `verify`, `publish-version`.
 
 - `fetch` compares the ref's SHA with the recorded `commitSha`. Unchanged and
-  no `--force`: report "up to date" and do nothing.
+  no `--force`: report "up to date" and do nothing, except `edge-config`.
+- `edge-config` runs on every update, changed or not: it compares the
+  `sha256sum` of `nginx.conf` and `csp.conf` inside the running nginx with the
+  checkout's and recreates only nginx on a mismatch (single-file bind mounts
+  pin the old inode after `git` replaces the file). `restart` recreates nginx
+  rather than restarting it for the same reason.
 - `environment-drift` finds `.env.example` keys missing from `.env`. It prompts
   for just those keys, or fails under `--non-interactive`.
 - The seed re-runs by default, so new permissions and roles reach existing
