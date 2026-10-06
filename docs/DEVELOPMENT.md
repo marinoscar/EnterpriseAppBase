@@ -563,6 +563,14 @@ imports.
 - Do not add a platform package to `WORKSPACE_MANIFESTS` in
   `scripts/new-project.mjs`: a fork resetting its release must not renumber
   platform versions.
+- A file under `infra/` that starts with `# GENERATED from
+  @marinoscar/platform-infra` is sync output (today the two telemetry compose
+  files and `infra/otel/otel-collector-config.yaml`). Edit the canonical copy
+  in `packages/platform-infra/<slice>/`, then run `npm run build:packages &&
+  npm run platform:infra:sync` and commit both; CI's `npm run
+  platform:infra:sync -- --check` fails otherwise. App changes go into an
+  app-owned overlay instead (`infra/otel/app-collector.yaml`, see
+  [the telemetry runbook §2.4](runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)).
 
 ---
 

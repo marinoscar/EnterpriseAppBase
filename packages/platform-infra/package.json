@@ -18,18 +18,27 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "platform-infra": "./bin/platform-infra.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "default": "./dist/telemetry/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
+    "bin",
     "compose",
     "nginx",
     "otel",
+    "telemetry",
     "README.md"
   ],
   "scripts": {
@@ -44,6 +53,7 @@
   "devDependencies": {
     "@types/node": "^22.15.32",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "yaml": "^2.9.1"
   }
 }

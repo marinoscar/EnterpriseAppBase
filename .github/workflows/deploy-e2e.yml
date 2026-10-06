@@ -95,6 +95,8 @@ jobs:
       - name: Gate — typecheck and the unit suites
         run: |
           npx prisma generate --schema apps/api/prisma/schema.prisma
+          # The CLI imports @marinoscar/platform-infra, which resolves to its dist/.
+          npm run build:packages
           npm run typecheck --workspace=cli
           npm run test:run --workspace=cli
           npm run build --workspace=cli

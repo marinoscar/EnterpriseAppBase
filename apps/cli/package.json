@@ -22,7 +22,7 @@
     "dist"
   ],
   "scripts": {
-    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prebuild": "npm run build --workspace=@marinoscar/platform-infra && node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc -p tsconfig.build.json",
     "postbuild": "node -e \"require('node:fs').chmodSync('dist/cli.js', 0o755)\"",
     "dev": "tsx src/cli.ts",
@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@app/shared": "*",
+    "@marinoscar/platform-infra": "*",
     "commander": "^14.0.2",
     "ink": "^7.1.1",
     "ink-select-input": "^6.2.0",

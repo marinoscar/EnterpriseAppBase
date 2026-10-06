@@ -1,5 +1,3 @@
-# GENERATED from @marinoscar/platform-infra@0.0.0 (telemetry) — do not edit; extend through infra/otel/app-collector.yaml or a compose overlay
-# Source of truth: @marinoscar/platform-infra/telemetry/compose/telemetry.compose.yml; re-materialise with `npx platform-infra sync`
 # =============================================================================
 # Docker Compose - Telemetry Stack (OpenTelemetry Collector + GreptimeDB)
 # =============================================================================
