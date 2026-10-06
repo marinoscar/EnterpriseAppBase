@@ -336,10 +336,11 @@ const CODE_EXTS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs',
  * kept) rather than a bare scanner pass: a bare scanner cannot tell a
  * regular-expression literal from a division, or where a template literal's
  * `${...}` ends, or JSX text from code, without the parse context; the parser
- * knows all three. The comments are then the leading comment ranges of each
- * token, exactly what the scanner reports as `SingleLineCommentTrivia` and
- * `MultiLineCommentTrivia`. A `//` inside a string, a template literal or JSX
- * text is never touched. A JSX comment `{/* x *\/}` becomes `{}`.
+ * knows all three. The comments are then the trailing and leading comment
+ * ranges in front of each token, exactly what the scanner reports as
+ * `SingleLineCommentTrivia` and `MultiLineCommentTrivia`. A `//` inside a
+ * string, a template literal or JSX text is never touched. A JSX comment
+ * `{/* x *\/}` becomes `{}`.
  */
 export function stripCodeComments(text, ext = '.ts') {
   const ts = loadTypeScript();
@@ -353,8 +354,11 @@ export function stripCodeComments(text, ext = '.ts') {
   const sf = ts.createSourceFile(`file${ext}`, text, ts.ScriptTarget.Latest, false, scriptKind);
   const starts = new Set();
   const ranges = [];
+  // Trailing ranges are the comments on the same line as the previous token
+  // (`x; // why`); leading ranges are the ones after the first newline.
   const collect = (pos) => {
-    for (const range of ts.getLeadingCommentRanges(text, pos) ?? []) {
+    const found = [...(ts.getTrailingCommentRanges(text, pos) ?? []), ...(ts.getLeadingCommentRanges(text, pos) ?? [])];
+    for (const range of found) {
       if (!starts.has(range.pos)) {
         starts.add(range.pos);
         ranges.push(range);
