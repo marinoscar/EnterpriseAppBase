@@ -1,0 +1,9 @@
+# Seam requests and changes to the platform extension surface are reviewed through
+# this file (docs/specs/platform-packages.md, "Seam requests as governance").
+# Default owner for everything.
+*                                   @marinoscar
+# The platform contract: package code, its docs and the spec.
+/packages/                          @marinoscar
+/docs/specs/platform-packages.md    @marinoscar
+/.github/                           @marinoscar
+/apps/api/src/common/registry/      @marinoscar

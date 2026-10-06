@@ -97,6 +97,10 @@ and it is not a technical one. Built-in options are `mit` and `proprietary`; for
 anything else they add `./LICENSE` themselves and the script's audit stops
 mentioning it.
 
+The template's own MIT `LICENSE` is kept as `LICENSE.platform` (MIT requires the
+upstream notice to stay with the code) and the user's licence is written as
+`LICENSE`. Do not delete `LICENSE.platform`.
+
 This also resets `CHANGELOG.md` to `[Unreleased]` + `[0.1.0]` and sets all four
 workspace versions to `0.1.0`.
 

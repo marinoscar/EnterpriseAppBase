@@ -91,6 +91,7 @@ Every feature and bug fix is tracked by a GitHub issue, filed **before** impleme
 - **New feature**: create (or confirm) an issue with `gh issue create --template feature_request.yml`. Fill in the real problem, proposed solution, affected component and priority, not placeholder text.
 - **Larger initiative** spanning several features or sessions: file an epic with `gh issue create --template epic.yml`. Child feature issues reference the epic in their body or task list.
 - **Bug fix**: create (or confirm) an issue with `gh issue create --template bug_report.yml`: description, reproduction steps, expected vs. actual, component, environment/logs if known. Reuse an existing issue rather than filing a duplicate.
+- **Platform gap seen from an app**: file a seam request with `gh issue create --template seam_request.yml` instead of editing platform code.
 - **Link the work**: reference the issue in commit messages and/or the PR description (`Fixes #<n>` / `Relates to #<n>`), per `.github/pull_request_template.md`.
 - **Keep it current**: update or close the issue as the PR resolves it.
 - **Scope**: feature and bug work only. Routine `chore`/`docs`/`refactor` commits need no issue of their own.

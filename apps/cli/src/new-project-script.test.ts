@@ -1,10 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
+
+// `scripts/new-project.mjs` is real ESM with no build step and runs no CLI code
+// on import (see its `isDirectExecution` guard), so the pure licence helpers can
+// be imported directly.
+import { UPSTREAM_LICENSE_HOLDER, isUpstreamLicense } from '../../../scripts/new-project.mjs';
 
 // =============================================================================
 // Guards scripts/new-project.mjs's safety check and its non-destructive paths
@@ -63,6 +68,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, 'scripts', 'new-project.mjs');
 const CHANGELOG_PATH = join(REPO_ROOT, 'CHANGELOG.md');
+const LICENSE_PATH = join(REPO_ROOT, 'LICENSE');
 const WORKSPACE_MANIFEST_RELATIVE_PATHS = [
   'apps/api/package.json',
   'apps/web/package.json',
@@ -339,5 +345,81 @@ describe('scripts/new-project.mjs unknown arguments', () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/Unknown argument: --not-a-real-flag/);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// 7. The platform's own licence is kept when a fork writes its own. MIT requires
+//    the upstream notice to stay with substantial portions of the code, so
+//    `--license` moves an upstream LICENSE to LICENSE.platform instead of
+//    overwriting it, and still refuses to overwrite any other LICENSE without
+//    --force. Everything here is --dry-run, or runs in a throwaway clone.
+// -----------------------------------------------------------------------------
+
+describe('scripts/new-project.mjs upstream licence', () => {
+  const proprietary = 'Copyright (c) 2026 Fork Co. All rights reserved.\n\nProprietary.\n';
+
+  it('isUpstreamLicense is true for the committed root LICENSE', () => {
+    expect(UPSTREAM_LICENSE_HOLDER).toBe('marinoscar');
+    expect(isUpstreamLicense(readFileSync(LICENSE_PATH, 'utf8'))).toBe(true);
+  });
+
+  it('isUpstreamLicense ignores line-ending differences', () => {
+    const text = readFileSync(LICENSE_PATH, 'utf8').replace(/\n/g, '\r\n');
+    expect(isUpstreamLicense(text)).toBe(true);
+  });
+
+  it('isUpstreamLicense is false for a proprietary text', () => {
+    expect(isUpstreamLicense(proprietary)).toBe(false);
+  });
+
+  it('isUpstreamLicense is false for the MIT text under another holder', () => {
+    const text = readFileSync(LICENSE_PATH, 'utf8').replace(UPSTREAM_LICENSE_HOLDER, 'Fork Co');
+    expect(isUpstreamLicense(text)).toBe(false);
+  });
+
+  it('isUpstreamLicense is false for the upstream text with an edited body', () => {
+    const text = readFileSync(LICENSE_PATH, 'utf8').replace('AS IS', 'AS-IS');
+    expect(isUpstreamLicense(text)).toBe(false);
+  });
+
+  it('a dry run reports the rename to LICENSE.platform and the new licence, and writes nothing', () => {
+    const statusBefore = gitPorcelainStatus();
+
+    const result = run(['--dry-run', '--license', 'mit', '--holder', 'Fork Co']);
+
+    const statusAfter = gitPorcelainStatus();
+
+    expect(result.status, `expected exit 0, got ${result.status}. stderr:\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toMatch(/Would change/);
+    expect(result.stdout).toContain('LICENSE -> LICENSE.platform');
+    expect(result.stdout).toContain('LICENSE written (mit)');
+    expect(result.stdout).toMatch(/README\.md\s+licence line replaced/);
+    expect(statusAfter).toBe(statusBefore);
+  });
+
+  it('the audit reports the inherited platform licence', () => {
+    const result = run(['--audit']);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('LICENSE is the platform\'s MIT licence');
+    expect(result.stdout).toContain('keep it as LICENSE.platform; run --license to add your own');
+  });
+
+  it('refuses to replace a LICENSE that is not the upstream text, unless --force', () => {
+    withTemplateClone((cloneDir) => {
+      writeFileSync(join(cloneDir, 'LICENSE'), proprietary);
+      const clonedScript = join(cloneDir, 'scripts', 'new-project.mjs');
+      const args = ['--dry-run', '--license', 'mit', '--holder', 'Fork Co'];
+
+      const refused = runScript(clonedScript, args, cloneDir);
+      expect(refused.status).not.toBe(0);
+      expect(refused.stderr).toMatch(/a LICENSE file already exists/);
+
+      const forced = runScript(clonedScript, [...args, '--force'], cloneDir);
+      expect(forced.status, `stderr:\n${forced.stderr}`).toBe(0);
+      expect(forced.stdout).toContain('LICENSE written (mit)');
+      expect(forced.stdout).not.toContain('LICENSE.platform');
+    });
   });
 });
