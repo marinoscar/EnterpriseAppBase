@@ -120,3 +120,34 @@ describe('configuration() — eventBus.adapter (PP-1.11, #682)', () => {
     expect(configuration().eventBus.adapter).toBe('redis');
   });
 });
+
+// =============================================================================
+// `DEPLOYMENT_MODE` (#685) — published RAW, parsed by common/deployment
+// =============================================================================
+
+describe('configuration() — deployment.mode (#685)', () => {
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env.DEPLOYMENT_MODE;
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.DEPLOYMENT_MODE;
+    else process.env.DEPLOYMENT_MODE = saved;
+  });
+
+  it('is undefined when unset (the parser supplies the default)', () => {
+    delete process.env.DEPLOYMENT_MODE;
+
+    expect(configuration().deployment.mode).toBeUndefined();
+  });
+
+  it('passes the value through unparsed, even an invalid one', () => {
+    // The factory must not throw or rewrite: `parseDeploymentMode` is the
+    // single source of truth, and `main.ts` already refused this at bootstrap.
+    process.env.DEPLOYMENT_MODE = ' bogus ';
+
+    expect(configuration().deployment.mode).toBe(' bogus ');
+  });
+});

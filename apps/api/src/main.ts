@@ -13,6 +13,7 @@ import multipart from '@fastify/multipart';
 import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from './common/crypto/encryption-key-startup-check';
+import { verifyDeploymentModeAtStartup } from './common/deployment/deployment-mode';
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
 import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
@@ -30,6 +31,15 @@ async function bootstrap() {
   // connection exists, so a wildcard or malformed CORS_ORIGIN fails the boot
   // immediately with its own message. Applied further down, after the prefix.
   const corsOptions = buildCorsOptions(process.env.CORS_ORIGIN);
+
+  // DEPLOYMENT_MODE (#685). Parsed HERE, beside CORS_ORIGIN and for the same
+  // reason: it needs nothing but the environment, so a typo stops the boot
+  // before a database connection exists, with a message naming the variable
+  // and its allowed values. FAIL-FAST rather than a default, unlike
+  // JOBS_WORKER_MODE: either guess would change whether in-app database
+  // restore is available. Logs the mode once. `DeploymentModeService` parses
+  // the same value again through the same function, so the two cannot differ.
+  verifyDeploymentModeAtStartup(process.env, logger);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,

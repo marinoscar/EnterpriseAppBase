@@ -237,6 +237,18 @@ export default () => {
     scheduleEnabled: process.env.DB_BACKUP_SCHEDULE_ENABLED !== 'false',
   },
 
+  // Deployment mode (#685). DEPLOYMENT-LEVEL, like `jobs.workerMode`: decided
+  // by whoever runs the infrastructure, never by an administrator at runtime.
+  //
+  // ⚠ THE RAW STRING, NOT A PARSED UNION. `common/deployment/deployment-mode.ts`
+  // is the single parser: `main.ts` runs it at bootstrap (an invalid value
+  // stops the API before it connects to anything) and `DeploymentModeService`
+  // runs it again on this value. Parsing here as well would be a second source
+  // of truth with its own idea of what "invalid" means.
+  deployment: {
+    mode: process.env.DEPLOYMENT_MODE,
+  },
+
   // Observability
   otel: {
     enabled: process.env.OTEL_ENABLED === 'true',
