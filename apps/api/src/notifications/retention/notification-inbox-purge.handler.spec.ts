@@ -83,13 +83,13 @@ describe('NotificationInboxPurgeHandler', () => {
   });
 
   it('ignores the other three policies', async () => {
-    getRetentionPolicy.mockResolvedValue({
+    const allOff = {
       notifications: { enabled: false, days: 1 },
       notificationDeliveries: { enabled: false, days: 1 },
       auditEvents: { enabled: false, days: 1 },
       aiRuns: { enabled: false, days: 1 },
-      notifications: { enabled: true, days: 30 },
-    });
+    };
+    getRetentionPolicy.mockResolvedValue({ ...allOff, notifications: { enabled: true, days: 30 } });
 
     await handler.process(JOB);
 
