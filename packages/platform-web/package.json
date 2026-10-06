@@ -31,6 +31,14 @@
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     },
+    "./doctor/headless": {
+      "types": "./dist/doctor/headless/index.d.ts",
+      "default": "./dist/doctor/headless/index.js"
+    },
+    "./doctor/ui": {
+      "types": "./dist/doctor/ui/index.d.ts",
+      "default": "./dist/doctor/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
