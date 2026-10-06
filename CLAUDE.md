@@ -38,7 +38,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
       .env.example            # environment variable reference
     nginx/                    # nginx.conf, CSP headers
     otel/                     # collector and GreptimeDB config
-  scripts/                    # rename.mjs, new-project.mjs (plus dev.ps1, worktree.ps1)
+  scripts/                    # rename.mjs, new-project.mjs, platform-drift.mjs (plus dev.ps1, worktree.ps1)
   tests/
     e2e/                      # Playwright end-to-end tests
     visual/                   # visual regression baselines
@@ -78,6 +78,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
 | Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
+| Runbook: cross-repo drift report (`scripts/platform-drift.mjs`) | [docs/runbooks/platform-drift-report.md](docs/runbooks/platform-drift-report.md) |
 | `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [apps/api/src/jobs/handlers/README.md](apps/api/src/jobs/handlers/README.md) |
 | Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
