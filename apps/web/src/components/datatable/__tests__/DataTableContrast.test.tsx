@@ -41,6 +41,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { alpha } from '@mui/material/styles';
 import { lightPalette } from '../../../theme/light';
 import { darkPalette } from '../../../theme/dark';
 import {
@@ -55,11 +56,13 @@ import {
 // `.MuiDataGrid-row.Mui-selected` equivalent styling, `DataCard.tsx`'s
 // selected background) and the bulk-action-bar tint (`BulkActionBar.tsx`).
 //
-// These are literals in the components themselves (`BulkActionBar.tsx:63-64`,
-// `DataCard.tsx:160-161`), not palette lookups, so they are mirrored here
-// verbatim rather than derived — verified to match those two files.
-const SELECTED_ROW_TINT_LIGHT = 'rgba(25, 118, 210, 0.06)';
-const SELECTED_ROW_TINT_DARK = 'rgba(144, 202, 249, 0.10)';
+// Both components paint `alpha(theme.palette.primary.main, 0.06)` in the light
+// scheme and `alpha(theme.palette.primary.main, 0.10)` in the dark scheme, so
+// the tints are derived here the same way, from the same palette objects —
+// a palette change to `primary.main` flows into these ratios automatically.
+// The alpha values are mirrored from the components; keep them in step.
+const SELECTED_ROW_TINT_LIGHT = alpha(lightPalette.primary!.main!, 0.06);
+const SELECTED_ROW_TINT_DARK = alpha(darkPalette.primary!.main!, 0.1);
 
 // The collapsed "More details" region's own backing wash (`DataCard.tsx:279-280`),
 // painted over the card's `background.paper`.
