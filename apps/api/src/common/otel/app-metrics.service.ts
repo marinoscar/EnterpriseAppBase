@@ -297,7 +297,7 @@ export class AppMetricsService implements OnModuleInit {
 
   /** Every registered counter and histogram, by code key, created from its declaration. */
   private readonly instruments = new Map<string, RegisteredInstrument>();
-  /** Keys `add`/`record` were called with that name no counter/histogram; logged once each. */
+  /** Keys `add`/`record` were given that name no counter (or histogram) of that kind; each logged once. */
   private readonly unknownKeys = new Set<string>();
 
   /** Distinct free-form values admitted so far, per attribute key. */
