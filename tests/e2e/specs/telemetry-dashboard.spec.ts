@@ -165,6 +165,8 @@ test.describe('Telemetry Dashboard on a desktop', () => {
 
   test('infrastructure sections render or are named as not collected (#602)', async ({ adminPage: page }) => {
     await openDashboard(page);
+    // The section list (`/metric-groups`, #680) arrives first; then each section loads.
+    await expect(page.getByTestId('panel-metric-groups')).toHaveCount(0, { timeout: 15_000 });
     await expect(page.locator('[data-testid^="panel-metrics-"][data-testid$="-skeleton"]')).toHaveCount(0, {
       timeout: 15_000,
     });
