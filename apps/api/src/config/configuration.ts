@@ -261,6 +261,10 @@ export default () => {
   // of truth with its own idea of what "invalid" means.
   deployment: {
     mode: process.env.DEPLOYMENT_MODE,
+    // Deployment network (#773): `online` (default) or `air-gapped`. Same
+    // raw-string rule as `mode`: `common/deployment/deployment-network.ts` is
+    // the single parser (bootstrap in `main.ts`, then `DeploymentNetworkService`).
+    network: process.env.DEPLOYMENT_NETWORK,
   },
 
   // Observability

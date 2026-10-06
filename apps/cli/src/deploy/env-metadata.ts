@@ -258,6 +258,13 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // A performance knob with a safe default (30 s); `0` disables the cache.
   // Not asked: the template value is right for almost every deployment.
   AUTH_PRINCIPAL_CACHE_TTL_SECONDS: { validate: validateNonNegativeInteger },
+
+  // --- Deployment network (PP-13.2, #773) -----------------------------------
+  // Not asked (the template's `online` is right for every VPS install this
+  // wizard performs), but validated: the API refuses to start on any other
+  // value. Same list as DEPLOYMENT_NETWORKS in
+  // apps/api/src/common/deployment/deployment-network.ts.
+  DEPLOYMENT_NETWORK: { validate: oneOf('online', 'air-gapped') },
 };
 
 function isEnvGroup(group: string): group is EnvGroup {

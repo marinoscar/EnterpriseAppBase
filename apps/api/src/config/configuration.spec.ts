@@ -152,6 +152,37 @@ describe('configuration() — deployment.mode (#685)', () => {
   });
 });
 
+describe('configuration() — deployment.network (#773)', () => {
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env.DEPLOYMENT_NETWORK;
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.DEPLOYMENT_NETWORK;
+    else process.env.DEPLOYMENT_NETWORK = saved;
+  });
+
+  it('is undefined when unset (the parser supplies online)', () => {
+    delete process.env.DEPLOYMENT_NETWORK;
+
+    expect(configuration().deployment.network).toBeUndefined();
+  });
+
+  it('passes a valid value through', () => {
+    process.env.DEPLOYMENT_NETWORK = 'air-gapped';
+
+    expect(configuration().deployment.network).toBe('air-gapped');
+  });
+
+  it('passes an invalid value through unparsed: parseDeploymentNetwork refuses it at startup', () => {
+    process.env.DEPLOYMENT_NETWORK = 'offline';
+
+    expect(configuration().deployment.network).toBe('offline');
+  });
+});
+
 describe('configuration() — auth.principalCacheTtlSeconds (PP-1.12, #683)', () => {
   let saved: string | undefined;
 
