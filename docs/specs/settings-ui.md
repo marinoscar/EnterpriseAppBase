@@ -33,7 +33,7 @@ Each registry is an ordered list of groups, each group an ordered list of cards.
 
 `ADMIN_SECTIONS` has four groups, appended in this order: **General**, **Access**, **Operations**, **AI**. Groups and cards are append-only because the hub, the rail and the drill-down list render the array in declaration order; inserting a card moves every existing card for a reader who has learnt where they are. A packaged slice contributes its cards as data (`doctorSettingsPage.card`, `telemetryAdminCards`), and the app places them in its own registry where they belong; the append-only rule applies to that placement unchanged. The full inventory of pages and their permissions lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-`USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to all three roles. The exception is the `AI Keys` card (`/settings/ai`), which declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (Admin and Contributor, not Viewer).
+`USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to every org role (org admin, contributor, viewer), which every member holds through their membership. The exception is the `AI Keys` card (`/settings/ai`), which declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (org admin and Contributor, not Viewer; a system administrator holds it through their `org_admin` membership).
 
 ### Consumers
 

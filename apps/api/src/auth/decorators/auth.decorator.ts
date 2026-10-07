@@ -14,7 +14,14 @@ import { ErrorDto } from '@marinoscar/platform-api/core';
 import { RoleName, PermissionName } from '../../common/constants/roles.constants';
 
 interface AuthOptions {
+  /**
+   * SYSTEM roles (held in `user_roles`), any of which admits the caller. Today
+   * that is only `ROLES.ADMIN`, the deployment operator: an org role on a
+   * membership (`org_admin`, `contributor`, `viewer`) never satisfies it, so
+   * gate an org surface with an org permission instead (issue #723).
+   */
   roles?: RoleName[];
+  /** Permissions, all of which the caller must hold in their effective set (system ∪ current-org grants). */
   permissions?: PermissionName[];
 }
 

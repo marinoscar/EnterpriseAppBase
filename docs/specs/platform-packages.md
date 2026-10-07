@@ -754,12 +754,14 @@ erDiagram
 
 ### Enforcement
 
-**Roles.** Today there is one global RBAC. It splits along a clear line:
+**Roles.** RBAC splits along a clear line (done in PP-6.3, #723):
 
-| Kind | Operates | Examples |
-|---|---|---|
-| System roles | The deployment | Backups, doctor, telemetry, storage, nodes |
-| Org roles | One organization | Members, invites, org settings, org audit |
+| Kind | Operates | Examples | Held through |
+|---|---|---|---|
+| System roles | The deployment | Backups, doctor, telemetry, storage, nodes | `user_roles` |
+| Org roles | One organization | Members, invites, org settings, org audit | The membership's `role_id` |
+
+Roles stay global rows with a `scope` (`system` or `org`); every permission declares its scope too, and the permission registry refuses a default grant across scopes. The platform seeds `admin` (system) and `org_admin`, `contributor`, `viewer` (org; `viewer` is the default membership role). Effective permissions are the system roles' grants plus the current-org membership role's, computed in one place (`PrincipalFactory`). Migration `0024_split_system_org_roles` moved existing deployments over in data only: `admin` keeps the system role and gains `org_admin` on its memberships, every other user's highest global role becomes their membership role, and the `user_roles` rows of org roles were removed. Per-organization custom roles are a later seam.
 
 **Principal.** The principal carries the user id, the active org, org memberships, group memberships, roles and permissions, and the token kind. The access token carries the active org; switching org re-issues it. Personal access tokens and device tokens are bound to one org.
 

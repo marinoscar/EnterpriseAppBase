@@ -165,6 +165,7 @@ Every settings surface, admin or per-user, is a **registry-driven hub**. Rationa
    - `system_settings:read` / `system_settings:write` → `system-settings.controller.ts`
    - `users:read` → `users.controller.ts`
    - `allowlist:read` → `allowlist.controller.ts` (gates content **inside** the Users page, not the route)
+   - `org_members:read` → the org members controller (an **org** permission, held through the `org_admin` membership role; the controller and its card land with PP-6.8, #726)
    Writes are gated inside the page (disabled controls), not by a second card permission.
 4. **Reuse `apps/web/src/components/settings/SettingsHub.tsx`.** Do not fork or copy it. `/settings` (`apps/web/src/pages/UserSettingsHubPage.tsx`) is a binding (`sections`, `hubKey`, `title`, `subtitle`, `features`) over the same component `/admin/settings` uses, nothing more.
 5. **The five coupled breakpoint gates move together or not at all** ([breakpoint gates](docs/specs/settings-ui.md#breakpoint-gates)):

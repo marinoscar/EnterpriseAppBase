@@ -295,7 +295,7 @@ docker compose exec api npm run prisma:seed
 npm run prisma:seed --workspace=api
 ```
 
-It creates the three roles, every permission, the role-permission grants and
+It creates the four roles (with their scopes), every permission, the role-permission grants and
 the default system settings. Run it before the first login, after resetting
 the database, and after pulling a change that adds permissions.
 
