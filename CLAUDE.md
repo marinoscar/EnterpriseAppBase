@@ -92,6 +92,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Recipe: add a notification | [apps/api/src/notifications/README.md](apps/api/src/notifications/README.md) |
 | Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
+| Package: telemetry (extension points: metric groups, verdict, host ports, conformance, in five packages) | [packages/platform-api/src/telemetry/README.md](packages/platform-api/src/telemetry/README.md) |
 
 ## MANDATORY: Issue-Driven Development
 

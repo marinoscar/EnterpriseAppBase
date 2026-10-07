@@ -611,14 +611,31 @@ ORDER BY state, greptime_timestamp DESC
 
 ### 8.4 Adding an app metric group
 
-**Who:** a developer of an application built on this platform. **Where:**
-only `apps/api/src/app-registrations/telemetry.ts` (and the code that emits
-the metric). No platform file, manifest, web file or collector config
-changes: the dashboard renders any registered group, and the collector
-already exports every `app.*` instrument. Design: [spec §11.13](../specs/telemetry.md#1113-application-metrics)
-and [§11.14](../specs/telemetry.md#1114-metric-catalog-and-the-metrics-route).
+**Who:** a developer of an application built on this platform. **Where:** one
+file that declares the group, and one option, `metricGroups`, in
+`apps/api/src/platform/telemetry/telemetry.config.ts` (plus the code that
+emits the metric, when the app adds one). A fork that prefers the
+registration file lists the group in `APP_METRIC_GROUPS`
+(`apps/api/src/app-registrations/telemetry.ts`, empty upstream), which
+`telemetry.config.ts` appends after the reference app's own. No platform
+file, manifest, web file or collector config changes: the dashboard renders
+any registered group, and the collector already exports every `app.*`
+instrument. Design: [spec §11.13](../specs/telemetry.md#1113-application-metrics),
+[§11.14](../specs/telemetry.md#1114-metric-catalog-and-the-metrics-route) and
+[§12](../specs/telemetry.md#12-packaging-and-extension-points). The
+extension-point catalog: [the API slice README](../../packages/platform-api/src/telemetry/README.md#extension-point-catalog).
 
-The worked example: a `coach` group over one counter the app records.
+**The reference app's own group is the model to copy.** `activity`
+("App activity", `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts`)
+charts counters the API already emits (sign-ins and token refreshes by
+outcome, AI requests and tokens, notification deliveries by outcome). It is
+one file, one `metricGroups` entry and no emitting code, so it is also the
+smallest answer to "how much does an app add for a metric group". The
+section shows **no data yet** (named under "Not collected") until the first
+sign-in reaches the store.
+
+The walk-through below adds a `coach` group over one counter the app records
+(an app that only charts metrics the API already emits skips steps 1 and 2).
 
 1. **Declare the metric** in `APP_METRICS`. Its name picks its GreptimeDB
    table (a counter `app.coach.nudges.sent` with unit `{nudge}` lands in
@@ -661,9 +678,11 @@ The worked example: a `coach` group over one counter the app records.
    The registry, the host and label bounding are packaged in
    `@marinoscar/platform-api/otel-core` ([README](../../packages/platform-api/src/otel-core/README.md)).
 
-3. **Declare the group** in `APP_METRIC_GROUPS`, with its families (and
-   optional ratios and tables) in the catalog shapes of `metric-catalog.ts`.
-   Its `order` places it among the platform's 10 to 60:
+3. **Declare the group** and pass it to `forRoot`
+   (`metricGroups: [ACTIVITY_METRIC_GROUP, COACH_METRIC_GROUP]`), or list it
+   in `APP_METRIC_GROUPS`. Its families (and optional ratios and tables) use
+   the catalog shapes of `MetricGroupDef`. Its `order` places it among the
+   platform's 10 to 60 (the reference app's `activity` is 70):
 
    ```ts
    export const APP_METRIC_GROUPS: readonly MetricGroupDef[] = [
@@ -698,7 +717,9 @@ The worked example: a `coach` group over one counter the app records.
    ```
 
 4. **Check it.** `npm run typecheck --workspace=api` and `npm test
-   --workspace=api`: a malformed group (a key another group uses, a unit
+   --workspace=api` (the telemetry conformance suite, `apps/api/test/telemetry/telemetry-conformance.spec.ts`,
+   checks every registered group: unique id, label, known units and filters,
+   unique keys, and a clean degrade to `skipped` on an empty store): a malformed group (a key another group uses, a unit
    outside `METRIC_UNITS`, a family whose `group` is not `coach`, a ratio
    naming an unknown family) fails at import time, so the API does not
    start. Then:
@@ -710,9 +731,40 @@ The worked example: a `coach` group over one counter the app records.
      tile, one chart per series key, every table), and the assistant's
      `metrics_overview` tool offers `coach`.
 
-**Limits.** A verdict rule is platform code, so an app group adds tiles,
-charts and tables but no verdict reason. `npm run openapi:dump` lists the new
+**Limits.** A group adds tiles, charts and tables but no verdict reason; a
+verdict rule of the app's own is a policy (§8.5). `npm run openapi:dump` lists the new
 id in the `group` enum, which is expected.
+
+### 8.5 Overriding the verdict
+
+**Who:** a developer of an application built on this platform. **Where:**
+`apps/api/src/platform/telemetry/telemetry.config.ts`, with the values in
+`apps/api/src/platform-extensions/telemetry/reference-verdict-thresholds.ts`.
+Two levels, earliest first:
+
+1. **Change a threshold.** Edit the number in `REFERENCE_VERDICT_THRESHOLDS`
+   (it ships spelled out and equal to the platform defaults, so the dashboard
+   verdict is unchanged until you edit it). The object is deep-merged over
+   `DEFAULT_VERDICT_THRESHOLDS` and validated when the API boots: a bad value,
+   or a degraded bound beyond its critical one, stops startup naming the field.
+   The summary, the `telemetry.freshness` Doctor check and the assistant all
+   read the resolved values. Delete a line to fall back to the default.
+2. **Add a rule.** Bind an app policy: a class that injects
+   `DefaultVerdictPolicy`, calls it for the platform's verdict and adds one
+   rule, never lowering a level. The compiled and tested example is
+   `apps/api/src/platform-extensions/telemetry/examples/activity-verdict-policy.ts`
+   (a window with no requests is `degraded`). It is **not wired**, because
+   wiring it would change every fork's verdict. To use one, pass it in
+   `telemetry.config.ts`:
+
+   ```ts
+   dashboard: { verdictThresholds: REFERENCE_VERDICT_THRESHOLDS, verdictPolicy: { useClass: ActivityVerdictPolicy } },
+   ```
+
+Check it: `npm test --workspace=api`
+(`test/telemetry/telemetry-extension-points.integration.spec.ts` pins that the
+reference thresholds equal the defaults and exercises the example policy),
+then `GET /api/admin/telemetry/dashboard/summary` and read `verdict.reasons`.
 
 ## 9. Point a deployment at a GreptimeDB, or rotate credentials, from the UI
 

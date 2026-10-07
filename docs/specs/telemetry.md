@@ -305,7 +305,8 @@ derived from the calls telemetry makes:
 `TelemetryHostModule` exports the six providers; the app binds the slice once,
 in `apps/api/src/platform/telemetry/telemetry.config.ts`:
 `TelemetryModule.forRoot({ host: platformHost, imports: [TelemetryHostModule],
-metricGroups: APP_METRIC_GROUPS })`. Every route is created by a controller
+metricGroups: [ACTIVITY_METRIC_GROUP, ...APP_METRIC_GROUPS], dashboard: {
+verdictThresholds: REFERENCE_VERDICT_THRESHOLDS } })`. Every route is created by a controller
 factory with the app's access decorators (`platformHost`, #696), so the guards,
 the RBAC metadata and the OpenAPI document are what they were before the move.
 The assistant route's AI kill switch is `TelemetryAiEnabledGuard`, which calls
@@ -2177,8 +2178,8 @@ Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` (including the pin
 
 **The group registry is an extension point (#703).** The six platform groups
 are registered by the package; an app adds its own with
-`TelemetryModule.forRoot({ metricGroups })` (the reference app passes
-`APP_METRIC_GROUPS`), or from its own `onModuleInit` through the injectable
+`TelemetryModule.forRoot({ metricGroups })` (the reference app passes its own
+`ACTIVITY_METRIC_GROUP`, then the fork's `APP_METRIC_GROUPS`), or from its own `onModuleInit` through the injectable
 `MetricGroupRegistry` (`registerMetricGroup(registry, definition)`). Groups
 passed to `forRoot` are registered before the controllers are built, so they
 are also in the `/metrics` route's documented `group` enum; validation reads
@@ -2195,7 +2196,9 @@ the platform's `CounterFamily`/`HistogramFamily`, `APP_FILTERS` and
 > the derived views), `metric-catalog.helpers.ts` (shared constants),
 > `metric-sql.ts` (the builders), `metric-group.ts` (rows to tiles, series
 > and tables), `metric-verdict.ts` (the summary's probes), `metric-values.ts`
-> (parsing, histogram quantile). An app's own groups:
+> (parsing, histogram quantile). The reference app's own group:
+> `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts` ("App
+> activity", [§12](#12-packaging-and-extension-points)); a fork's:
 > `apps/api/src/app-registrations/telemetry.ts` (`APP_METRIC_GROUPS`, passed to `TelemetryModule.forRoot({ metricGroups })`).
 
 **Groups are registered (#680).** A metric group is one `MetricGroupDef` in
@@ -2496,6 +2499,87 @@ replaced on both themes (and `apps/web/src/__tests__/theme/telemetryTokens.test.
 `KpiTiles.test.tsx` render under an overriding theme to prove the 5xx bar,
 the error log band, the first metric line and the tile colours follow it.
 
+## 12. Packaging and extension points
+
+The telemetry slice is extracted into five packages. Each has a slice README
+that follows the platform's package documentation standard (fifteen headings,
+an extension-point catalog whose every row links a working use in the
+reference app), so this section holds only what the READMEs do not: where
+each half lives and why the seams have the shape they have.
+
+### 12.1 Where each half lives
+
+| Layer | Package subpath | README |
+|---|---|---|
+| Wire shapes | `@marinoscar/platform-contract/telemetry` | [contract](../../packages/platform-contract/src/telemetry/README.md) |
+| API | `@marinoscar/platform-api/telemetry` (and `/telemetry/testing`) | [api](../../packages/platform-api/src/telemetry/README.md) |
+| Web | `@marinoscar/platform-web/telemetry/headless` and `/ui` | [web](../../packages/platform-web/src/telemetry/README.md) |
+| CLI | `@marinoscar/platform-cli/telemetry` | [cli](../../packages/platform-cli/src/telemetry/README.md) |
+| Infra | `@marinoscar/platform-infra/telemetry` | [infra](../../packages/platform-infra/src/telemetry/README.md) |
+
+The sidecar `apps/stack-agent` stays an app: it holds the Docker socket, and
+its image is a deployment artifact, not a library.
+
+### 12.2 The reference app's examples
+
+Every catalog entry links a use in the reference app (`apps/`, `infra/` or
+`tests/`, never `packages/`). The anchor is the sample metric group
+`activity` ("App activity"): counters the API already emitted and no platform
+group showed (`app.auth.logins`, `app.auth.refreshes`, `app.ai.requests`,
+`app.ai.tokens`, `app.notifications.deliveries`), added by one file
+(`apps/api/src/platform-extensions/telemetry/activity.metric-group.ts`) and
+one `forRoot` option, with no web, collector or platform edit. Three examples
+are compiled and tested but deliberately not wired, because wiring them would
+change every fork: the example verdict policy
+(`platform-extensions/telemetry/examples/activity-verdict-policy.ts`), the
+`MetricGroupRegistry.register` call from `onModuleInit` (shown in
+`apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts`) and
+the `registerCliCommand` example (`apps/cli/src/platform-host/examples/hello.command.ts`).
+
+### 12.3 Decisions
+
+**Host ports, not imports of the app.** The slice needs audit, settings,
+credentials, jobs, AI and app identity from the application. Each is an
+injection token with an interface derived from the calls telemetry makes, not
+a copy of the app's service. Rejected: importing the app's services (a package
+cannot import its consumer) and one wide "app" port (it hides which capability
+a change touches). The ports are `experimental`: they are replaced when jobs,
+settings and AI are packaged.
+
+**One static registry, two doors.** Metric groups live in one static registry
+the DTOs, the route documentation, the assistant and the support bundle all
+read. `forRoot({ metricGroups })` is the door that also documents the group in
+the route's `group` enum; `MetricGroupRegistry.register` from `onModuleInit`
+is the door for a provider that owns its group, and serves it undocumented.
+Rejected: a second, injectable registry (two sources of truth). Both doors
+fail boot on a duplicate and freeze at bootstrap.
+
+**A verdict policy that delegates.** `VERDICT_POLICY` is a token bound to
+`DefaultVerdictPolicy`; an app policy injects the default, calls it and adds a
+rule, so a platform rule that changes reaches the app and the app can only
+add. Rejected: a list of rule callbacks (order and weakening become the app's
+problem) and editing the thresholds table alone (it cannot add a rule).
+
+**Files are copied into the app.** A VPS deploy runs `docker compose` from the
+cloned repository, where no `node_modules` exists, so `platform-infra sync`
+copies the compose files and the collector configuration into the app, stamps
+them with a header and a lock, and CI's `--check` fails on a hand edit.
+Rejected: resolving the files from the package at deploy time.
+
+**The collector overlay is a second `--config`.** The app's
+`infra/otel/app-collector.yaml` merges over the generated platform file: maps
+merge, lists are replaced. An app therefore adds a new named pipeline instead
+of restating an existing list. Rejected: patching the generated file (the next
+sync overwrites it).
+
+**Conformance travels with the slice.** The invariants (metric groups, route
+permissions, read-only Doctor checks, no secrets in responses, cron coverage,
+boot without a store) are a registered suite of `runPlatformConformance()`,
+discovered from registries and Nest metadata, and each is proved against a
+deliberately broken fixture. Web permission parity runs in the app's web
+tests and infra drift in CI. Rejected: leaving the tests in the platform
+repository (an adopting app would silently stop being checked).
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -2576,3 +2660,5 @@ the error log band, the first metric line and the tile colours follow it.
 - #654: copy and download of the assistant conversation (§6) — a per-reply Copy, and header Copy conversation and Download (`.md`), all client-side Markdown from `assistantExport.ts`.
 - #686: the telemetry theme-token contract (§11.16) — `palette.status.{ok,warn,crit,info,neutral}` and `palette.chart.series` by MUI augmentation, `withTelemetryTokens` on both app themes with defaults equal to the palette reads they replace, every status and series colour in the telemetry UI read through `useTelemetryTokens()`, and a tripwire against raw palette reads and colour literals.
 - #704: the telemetry UI becomes the `telemetry` slice of `@marinoscar/platform-web` (`/telemetry/headless`, `/telemetry/ui` and a subpath per page): the client over the app's `PlatformApiClient` (which gains request options, `postBlob` and `postSse`), `TelemetryWebAdapters` for AI on/off and the model catalogue, `telemetryAdminCards` placed in the app registry where its literals were, and the token contract with its augmentation. Behaviour, texts, colours and test ids unchanged.
+- #702 to #706: the telemetry slice is extracted into `@marinoscar/platform-contract`, `-api`, `-web`, `-infra` and `-cli`; the API reaches the app through six host ports (§1).
+- #707: packaging documented (§12): slice READMEs per the documentation standard, a reference-app example for every extension point (the "App activity" group, an example verdict policy, an example CLI command), the telemetry conformance suite and a coach-shaped readiness test.
