@@ -36,11 +36,23 @@ describe('DeviceAuthService', () => {
         },
       },
     ],
+    // #724: an active default-org membership, the org the session binds to.
+    memberships: [
+      {
+        orgId: 'org-default',
+        status: 'active',
+        lastActiveAt: null,
+        org: { id: 'org-default', isDefault: true },
+        role: { name: 'viewer', rolePermissions: [] },
+      },
+    ],
   };
 
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
     mockAuthService = {
+      // #724: the org a session approved without one is bound to.
+      chooseSignInOrg: jest.fn().mockResolvedValue('org-default'),
       generateFullTokens: jest.fn().mockResolvedValue({
         accessToken: 'mock-access-token',
         refreshToken: 'mock-refresh-token',
@@ -244,6 +256,7 @@ describe('DeviceAuthService', () => {
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         userId: 'user-1',
         user: mockUser,
+        orgId: 'org-default', // #724: approved in the default org
       } as any);
       mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
 
@@ -290,6 +303,7 @@ describe('DeviceAuthService', () => {
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         userId: 'user-1',
         user: mockUser,
+        orgId: 'org-default', // #724: approved in the default org
       } as any);
       mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 1 } as any);
 
@@ -310,6 +324,7 @@ describe('DeviceAuthService', () => {
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         userId: 'user-1',
         user: mockUser,
+        orgId: 'org-default', // #724: approved in the default org
       } as any);
       mockPrisma.deviceCode.updateMany.mockResolvedValue({ count: 0 } as any);
 
@@ -418,6 +433,7 @@ describe('DeviceAuthService', () => {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       userId: 'user-1',
       user: mockUser,
+      orgId: 'org-default', // #724: approved in the default org
       clientInfo,
     } as any;
   }

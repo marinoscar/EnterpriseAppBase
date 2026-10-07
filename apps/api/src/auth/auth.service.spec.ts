@@ -900,8 +900,9 @@ describe('AuthService', () => {
       });
 
       expect(result.expiresIn).toBe(7 * 24 * 60 * 60);
+      // #724: every token carries `org`, every refresh row its `orgId`.
       expect(mockJwtService.sign).toHaveBeenCalledWith(
-        { sub: 'user-1', email: 'test@example.com', roles: ['viewer'], did: 'device-code-1' },
+        { sub: 'user-1', email: 'test@example.com', roles: ['viewer'], org: 'org-default', did: 'device-code-1' },
         { expiresIn: `${7 * 24 * 60}m` },
       );
       expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith({
@@ -909,6 +910,7 @@ describe('AuthService', () => {
           userId: 'user-1',
           tokenHash: expect.any(String),
           expiresAt: expect.any(Date),
+          orgId: 'org-default',
           deviceCodeId: 'device-code-1',
         },
       });
@@ -924,6 +926,8 @@ describe('AuthService', () => {
         sub: 'user-1',
         email: 'test@example.com',
         roles: ['viewer'],
+        // #724: the active org (the default org in single mode).
+        org: 'org-default',
       });
       const { data } = mockPrisma.refreshToken.create.mock.calls[0][0] as any;
       expect(data).not.toHaveProperty('deviceCodeId');
@@ -1147,6 +1151,8 @@ describe('AuthService', () => {
       email: 'test@example.com',
       isActive: true,
       userRoles: [{ role: { name: 'viewer' } }],
+      // #724: the refresh token's org must be an active membership.
+      memberships: [{ orgId: 'org-default', status: 'active', lastActiveAt: null, org: { id: 'org-default', isDefault: true }, role: { name: 'viewer' } }],
     };
 
     const mockRefreshToken = {
@@ -1266,6 +1272,8 @@ describe('AuthService', () => {
           userId: mockUser.id,
           tokenHash: expect.any(String),
           expiresAt: expect.any(Date),
+          // #724: rotation is org-preserving.
+          orgId: 'org-default',
         },
       });
     });
@@ -1294,6 +1302,8 @@ describe('AuthService', () => {
       email: 'test@example.com',
       isActive: true,
       userRoles: [{ role: { name: 'viewer' } }],
+      // #724: the refresh token's org must be an active membership.
+      memberships: [{ orgId: 'org-default', status: 'active', lastActiveAt: null, org: { id: 'org-default', isDefault: true }, role: { name: 'viewer' } }],
     };
 
     function deviceToken(
@@ -1349,6 +1359,8 @@ describe('AuthService', () => {
           userId: 'user-1',
           tokenHash: expect.any(String),
           expiresAt: expect.any(Date),
+          // #724: rotation is org-preserving.
+          orgId: 'org-default',
           deviceCodeId: 'device-code-1',
         },
       });
@@ -1601,7 +1613,14 @@ describe('AuthService', () => {
     });
 
     it('labels each refresh outcome', async () => {
-      const user = { id: 'user-1', email: 'x@example.com', isActive: true, userRoles: [] };
+      const user = {
+        id: 'user-1',
+        email: 'x@example.com',
+        isActive: true,
+        userRoles: [],
+        // #724: the refresh token's org must be an active membership.
+        memberships: [{ orgId: 'org-default', status: 'active', lastActiveAt: null, org: { id: 'org-default', isDefault: true }, role: { name: 'viewer' } }],
+      };
       const token = {
         id: 't',
         userId: 'user-1',

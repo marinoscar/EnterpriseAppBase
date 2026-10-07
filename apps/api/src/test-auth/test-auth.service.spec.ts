@@ -9,7 +9,7 @@ import { PrincipalCache } from '../auth/principal-cache/principal-cache.service'
 import { OrganizationsService } from '../organizations/organizations.service';
 import { TenancyService } from '../organizations/tenancy.service';
 
-const principalCacheStub = { invalidate: jest.fn() };
+const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
 describe('TestAuthService', () => {
   let service: TestAuthService;
@@ -354,6 +354,8 @@ describe('TestAuthService', () => {
         sub: mockUser.id,
         email: mockUser.email,
         roles: ['viewer'],
+        // #724: every issued access token carries the active org.
+        org: 'org-default',
       });
       expect(result.accessToken).toBe('mock-jwt-token');
     });
@@ -393,6 +395,8 @@ describe('TestAuthService', () => {
           userId: mockUser.id,
           tokenHash: expect.any(String),
           expiresAt: expect.any(Date),
+          // #724: the refresh token is bound to the session's org.
+          orgId: 'org-default',
         },
       });
       expect(result.refreshToken).toBeDefined();
@@ -772,6 +776,8 @@ describe('TestAuthService', () => {
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.userRole.create.mockResolvedValue({} as any);
       mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+      // #724: the active membership a multi-mode login is bound to.
+      mockPrisma.membership.findMany.mockResolvedValue([{ orgId: 'org-default' }] as any);
     });
 
     it('creates a new non-admin user without a membership and refuses it with no_organization', async () => {

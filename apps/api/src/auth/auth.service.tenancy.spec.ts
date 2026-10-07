@@ -79,6 +79,8 @@ async function build(mode: 'single' | 'multi' | undefined): Promise<Harness> {
   prisma.role.findUnique.mockResolvedValue(role as never);
   prisma.$transaction.mockImplementation((async (callback: (tx: unknown) => unknown) => callback(prisma)) as never);
   prisma.refreshToken.create.mockResolvedValue({} as never);
+  // #724: the active membership a multi-mode sign-in is bound to.
+  prisma.membership.findMany.mockResolvedValue([{ orgId: DEFAULT_ORG.id }] as never);
 
   const module = await Test.createTestingModule({
     providers: [

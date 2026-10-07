@@ -6,11 +6,14 @@ import {
   MockPrismaService,
 } from '../../test/mocks/prisma.mock';
 import { OrganizationsService } from './organizations.service';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import { NotFoundException } from '@nestjs/common';
 import { DefaultOrganizationMissingException } from './organizations.errors';
 
 describe('OrganizationsService', () => {
   let service: OrganizationsService;
   let prisma: MockPrismaService;
+  let principalCache: { invalidateUser: jest.Mock; invalidate: jest.Mock };
 
   const defaultOrg = {
     id: 'org-default',
@@ -21,10 +24,13 @@ describe('OrganizationsService', () => {
 
   beforeEach(async () => {
     prisma = createMockPrismaService();
+    principalCache = { invalidateUser: jest.fn(), invalidate: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrganizationsService,
         { provide: PrismaService, useValue: prisma },
+        // #724: membership mutations invalidate the principal cache.
+        { provide: PrincipalCache, useValue: principalCache },
       ],
     }).compile();
     service = module.get(OrganizationsService);
@@ -137,6 +143,11 @@ describe('OrganizationsService', () => {
           create: expect.objectContaining({ roleId: 'role-viewer' }),
         }),
       );
+      // #724: after the (untransacted) write.
+      expect(principalCache.invalidateUser).toHaveBeenCalledWith('user-1');
+      expect(principalCache.invalidateUser.mock.invocationCallOrder[0]).toBeGreaterThan(
+        prisma.membership.upsert.mock.invocationCallOrder[0],
+      );
     });
 
     it('restores a membership with the org role it is given (an administrator: org_admin, #723)', async () => {
@@ -178,6 +189,107 @@ describe('OrganizationsService', () => {
       expect(prisma.membership.count).toHaveBeenCalledWith({
         where: { userId: 'user-1', status: 'active' },
       });
+    });
+  });
+  // PP-6.4 (#724): the membership mutations the member admin API will call.
+  // Each invalidates the user's principals AFTER its write.
+  describe('membership mutations invalidate the principal cache', () => {
+    const after = (write: jest.Mock) => {
+      expect(principalCache.invalidateUser).toHaveBeenCalledWith('user-1');
+      expect(principalCache.invalidateUser.mock.invocationCallOrder[0]).toBeGreaterThan(
+        write.mock.invocationCallOrder[0],
+      );
+    };
+
+    it('removeMembership deletes, then invalidates', async () => {
+      prisma.membership.deleteMany.mockResolvedValue({ count: 1 } as any);
+      await service.removeMembership('org-a', 'user-1');
+      expect(prisma.membership.deleteMany).toHaveBeenCalledWith({ where: { orgId: 'org-a', userId: 'user-1' } });
+      after(prisma.membership.deleteMany as unknown as jest.Mock);
+    });
+
+    it('removeMembership 404s, invalidating nothing, when there is no membership', async () => {
+      prisma.membership.deleteMany.mockResolvedValue({ count: 0 } as any);
+      await expect(service.removeMembership('org-a', 'user-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(principalCache.invalidateUser).not.toHaveBeenCalled();
+    });
+
+    it('setMembershipStatus updates, then invalidates', async () => {
+      prisma.membership.findUnique.mockResolvedValue({ id: 'm-1' } as any);
+      prisma.membership.update.mockResolvedValue({ id: 'm-1', status: 'suspended' } as any);
+      await service.setMembershipStatus('org-a', 'user-1', 'suspended');
+      expect(prisma.membership.update).toHaveBeenCalledWith({ where: { id: 'm-1' }, data: { status: 'suspended' } });
+      after(prisma.membership.update as unknown as jest.Mock);
+    });
+
+    it('setMembershipRole updates the role, then invalidates', async () => {
+      prisma.role.findUnique.mockResolvedValue({ id: 'role-contributor' } as any);
+      prisma.membership.findUnique.mockResolvedValue({ id: 'm-1' } as any);
+      prisma.membership.update.mockResolvedValue({ id: 'm-1' } as any);
+      await service.setMembershipRole('org-a', 'user-1', 'contributor');
+      expect(prisma.membership.update).toHaveBeenCalledWith({ where: { id: 'm-1' }, data: { roleId: 'role-contributor' } });
+      after(prisma.membership.update as unknown as jest.Mock);
+    });
+
+    it('setMembershipStatus and setMembershipRole 404 on a missing membership, invalidating nothing', async () => {
+      prisma.membership.findUnique.mockResolvedValue(null);
+      prisma.role.findUnique.mockResolvedValue({ id: 'role-viewer' } as any);
+      await expect(service.setMembershipStatus('org-a', 'user-1', 'active')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.setMembershipRole('org-a', 'user-1', 'viewer')).rejects.toBeInstanceOf(NotFoundException);
+      expect(principalCache.invalidateUser).not.toHaveBeenCalled();
+    });
+
+    it('touchMembership moves lastActiveAt and does not invalidate', async () => {
+      prisma.membership.updateMany.mockResolvedValue({ count: 1 } as any);
+      await service.touchMembership('org-a', 'user-1');
+      expect(prisma.membership.updateMany).toHaveBeenCalledWith({
+        where: { orgId: 'org-a', userId: 'user-1' },
+        data: { lastActiveAt: expect.any(Date) },
+      });
+      expect(principalCache.invalidateUser).not.toHaveBeenCalled();
+    });
+  });
+
+  // PP-6.4 (#724): the org a new sign-in is bound to.
+  describe('signInOrgId', () => {
+    const member = (orgId: string, status: 'active' | 'suspended', lastActiveAt: Date | null) => ({
+      orgId,
+      status,
+      lastActiveAt,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    });
+
+    it('single mode: the default org, unless that membership is suspended', async () => {
+      prisma.organization.findFirst.mockResolvedValue(defaultOrg as any);
+      await expect(service.signInOrgId({ id: 'user-1' }, 'single')).resolves.toBe('org-default');
+      await expect(
+        service.signInOrgId({ id: 'user-1', memberships: [member('org-default', 'active', null)] }, 'single'),
+      ).resolves.toBe('org-default');
+      await expect(
+        service.signInOrgId({ id: 'user-1', memberships: [member('org-default', 'suspended', null)] }, 'single'),
+      ).resolves.toBeNull();
+    });
+
+    it('single mode: null when the default org is missing (fail closed)', async () => {
+      prisma.organization.findFirst.mockResolvedValue(null);
+      await expect(service.signInOrgId({ id: 'user-1' }, 'single')).resolves.toBeNull();
+    });
+
+    it('multi mode: the active membership used most recently, from the graph', async () => {
+      const memberships = [
+        member('org-a', 'active', new Date('2026-10-01T00:00:00Z')),
+        member('org-b', 'active', new Date('2026-10-05T00:00:00Z')),
+        member('org-c', 'suspended', new Date('2026-10-06T00:00:00Z')),
+      ];
+      await expect(service.signInOrgId({ id: 'user-1', memberships }, 'multi')).resolves.toBe('org-b');
+      expect(prisma.membership.findMany).not.toHaveBeenCalled();
+    });
+
+    it('multi mode: falls back to the database, and null with no active membership', async () => {
+      prisma.membership.findMany.mockResolvedValueOnce([{ orgId: 'org-z', org: {} }] as any);
+      await expect(service.signInOrgId({ id: 'user-1' }, 'multi')).resolves.toBe('org-z');
+      prisma.membership.findMany.mockResolvedValueOnce([] as any);
+      await expect(service.signInOrgId({ id: 'user-1', memberships: [] }, 'multi')).resolves.toBeNull();
     });
   });
 });

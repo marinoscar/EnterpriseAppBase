@@ -53,6 +53,10 @@ describe('PatService', () => {
 
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
+    // #724: a token is bound to an org. Without a caller context the default
+    // org (single mode) is used, and the caller must be an active member.
+    mockPrisma.organization.findFirst.mockResolvedValue({ id: 'org-default' } as any);
+    mockPrisma.membership.findUnique.mockResolvedValue({ status: 'active' } as any);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -260,6 +264,8 @@ describe('PatService', () => {
           lastUsedAt: true,
           createdAt: true,
           revokedAt: true,
+          // #724: every token names the org it is bound to.
+          orgId: true,
         },
       });
 
