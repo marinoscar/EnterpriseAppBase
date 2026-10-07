@@ -207,6 +207,21 @@
       "name": "organizations:write",
       "description": "Create organizations (with a first administrator invitation) and rename them",
       "scope": "system"
+    },
+    {
+      "name": "groups:read",
+      "description": "View the groups you belong to, answer your group invitations and leave a group",
+      "scope": "org"
+    },
+    {
+      "name": "groups:write",
+      "description": "Create groups and manage the members and invitations of groups you administer",
+      "scope": "org"
+    },
+    {
+      "name": "groups:admin",
+      "description": "View and administer every group of the organization, including groups you do not belong to",
+      "scope": "org"
     }
   ],
   "rolePermissions": {
@@ -245,12 +260,15 @@
       "user_settings:write",
       "storage:read",
       "storage:write",
-      "ai:use"
+      "ai:use",
+      "groups:read",
+      "groups:write"
     ],
     "viewer": [
       "user_settings:read",
       "user_settings:write",
-      "storage:read"
+      "storage:read",
+      "groups:read"
     ],
     "org_admin": [
       "user_settings:read",
@@ -261,7 +279,10 @@
       "org_members:read",
       "org_members:write",
       "org_invites:read",
-      "org_invites:write"
+      "org_invites:write",
+      "groups:read",
+      "groups:write",
+      "groups:admin"
     ]
   }
 }

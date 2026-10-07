@@ -128,6 +128,15 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     invitedBy: '"><img src=x onerror=alert(1)>',
     signInUrl: 'https://app.example.com/login',
   },
+  // #728 (PP-7.1): the group name is user-typed, so it gets a hostile fragment too.
+  'group-invitation': {
+    recipientEmail: '<script>alert(document.cookie)</script>@example.com',
+    groupName: '"><img src=x onerror=alert(1)>',
+    role: 'editor',
+    invitedBy: '"><img src=x onerror=alert(1)>',
+    expiresAt: '2026-01-15T00:00:00.000Z',
+    signInUrl: 'https://app.example.com/login',
+  },
 };
 
 function render(name: EmailTemplateName): RenderedEmail {

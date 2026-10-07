@@ -34,6 +34,8 @@ const ALLOWLIST: Record<string, string> = {
   'ai/catalog/ai-catalog.service.ts': 'admin-aggregate: the catalogue sync\'s organization-less usage row',
   'organizations/doctor/rls-role.doctor-check.ts': 'doctor: read-only catalogue reads',
   'db-backup/doctor/backup-rls.doctor-check.ts': 'doctor: read-only row counts',
+  'platform/sharing/sharing-data.adapter.ts':
+    'purge and doctor: the sharing slice\'s user purge (GroupMembershipPurge) and its read-only orphaned-groups check',
 };
 
 function sources(dir: string): string[] {

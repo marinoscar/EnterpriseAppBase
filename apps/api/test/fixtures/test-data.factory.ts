@@ -252,6 +252,23 @@ export const mockPermissions = {
     name: 'organizations:write',
     description: 'Create organizations (with a first administrator invitation) and rename them',
   },
+  // The sharing slice (#728, PP-7.1). ORG scope: read for every org role,
+  // write for org_admin and contributor, admin for org_admin.
+  groupsRead: {
+    id: randomUUID(),
+    name: 'groups:read',
+    description: 'View the groups you belong to, answer your group invitations and leave a group',
+  },
+  groupsWrite: {
+    id: randomUUID(),
+    name: 'groups:write',
+    description: 'Create groups and manage the members and invitations of groups you administer',
+  },
+  groupsAdmin: {
+    id: randomUUID(),
+    name: 'groups:admin',
+    description: 'View and administer every group of the organization, including groups you do not belong to',
+  },
 };
 
 // `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
@@ -606,6 +623,9 @@ export const rolePermissionsMap = {
     mockPermissions.telemetryQuery,
     mockPermissions.organizationsRead,
     mockPermissions.organizationsWrite,
+    mockPermissions.groupsRead,
+    mockPermissions.groupsWrite,
+    mockPermissions.groupsAdmin,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -614,6 +634,8 @@ export const rolePermissionsMap = {
     // #516 — read + write, mirroring `prisma/seed-data.ts`; never `delete_any`.
     mockPermissions.storageRead,
     mockPermissions.storageWrite,
+    mockPermissions.groupsRead,
+    mockPermissions.groupsWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -629,6 +651,7 @@ export const rolePermissionsMap = {
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
     mockPermissions.storageRead,
+    mockPermissions.groupsRead,
   ],
 };
 
@@ -643,6 +666,9 @@ const ORG_SCOPED_PERMISSIONS = new Set([
   'org_members:write',
   'org_invites:read',
   'org_invites:write',
+  'groups:read',
+  'groups:write',
+  'groups:admin',
 ]);
 
 /**

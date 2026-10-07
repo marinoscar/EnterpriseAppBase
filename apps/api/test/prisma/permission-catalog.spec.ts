@@ -80,6 +80,10 @@ const BASELINE_PERMISSIONS = [
   { name: 'org_invites:write', description: 'Invite people to the organization and revoke invitations', scope: 'org' },
   { name: 'organizations:read', description: "List the deployment's organizations and their member counts", scope: 'system' },
   { name: 'organizations:write', description: 'Create organizations (with a first administrator invitation) and rename them', scope: 'system' },
+  // The sharing slice (#728, PP-7.1): groups inside an organization.
+  { name: 'groups:read', description: 'View the groups you belong to, answer your group invitations and leave a group', scope: 'org' },
+  { name: 'groups:write', description: 'Create groups and manage the members and invitations of groups you administer', scope: 'org' },
+  { name: 'groups:admin', description: 'View and administer every group of the organization, including groups you do not belong to', scope: 'org' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -119,11 +123,14 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'storage:read',
     'storage:write',
     'ai:use',
+    'groups:read',
+    'groups:write',
   ],
   viewer: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
+    'groups:read',
   ],
   org_admin: [
     'user_settings:read',
@@ -135,6 +142,9 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'org_members:write',
     'org_invites:read',
     'org_invites:write',
+    'groups:read',
+    'groups:write',
+    'groups:admin',
   ],
 };
 

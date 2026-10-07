@@ -284,6 +284,17 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'whether administrators keep access. Gated on `system_settings:write`.',
       },
     ],
+  },  {
+    name: 'Sharing',
+    tags: [
+      {
+        name: 'Groups',
+        description:
+          'Groups inside the caller\'s active organization: their members (roles `admin`, `editor`, `viewer`) and ' +
+          'their invitations. Org permissions `groups:read`, `groups:write` and `groups:admin`; a group you may ' +
+          'not see is always 404, never 403. Invitees answer from `/api/groups/invites/mine`.',
+      },
+    ],
   },
 ];
 

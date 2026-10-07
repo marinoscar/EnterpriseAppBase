@@ -1,3 +1,4 @@
+import { groupInvitationBrowserTemplate } from '@marinoscar/platform-api/sharing';
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../common/schemas/user-settings-namespaces.schema';
 import {
@@ -63,6 +64,8 @@ const PLATFORM_EVENT_KEYS = [
   'db_backup.restore_completed',
   // #726 (PP-6.7), appended after the events `main` declared before #678.
   'org.invitation',
+  // #728 (PP-7.1), the sharing slice's group invitation.
+  'groups.invitation',
 ];
 
 /** A valid app event; tests spread it and break one field. */
@@ -113,11 +116,11 @@ describe('notification registries (#678)', () => {
       expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
     });
 
-    it('registers the nine platform events in the old array order, then org.invitation (#726)', () => {
+    it('registers the nine platform events in the old array order, then org.invitation (#726) and groups.invitation (#728)', () => {
       expect(notificationEventRegistry.ids()).toEqual(PLATFORM_EVENT_KEYS);
     });
 
-    it('registers the nine platform email templates in the old literal order, then org-invitation (#726)', () => {
+    it('registers the nine platform email templates in the old literal order, then org-invitation (#726) and group-invitation (#728)', () => {
       expect(emailTemplateRegistry.ids()).toEqual([
         'test-email',
         'user-welcome',
@@ -129,6 +132,7 @@ describe('notification registries (#678)', () => {
         'backup-failed',
         'restore-completed',
         'org-invitation',
+        'group-invitation',
       ]);
       for (const [name, render] of Object.entries(PLATFORM_EMAIL_TEMPLATES)) {
         expect(emailTemplateRegistry.require(name).render).toBe(render);
@@ -147,10 +151,11 @@ describe('notification registries (#678)', () => {
         'db_backup.backup_failed': 'backup-failed',
         'db_backup.restore_completed': 'restore-completed',
         'org.invitation': 'org-invitation',
+        'groups.invitation': 'group-invitation',
       });
     });
 
-    it('binds a browser renderer exactly where main had one (six keys)', () => {
+    it('binds a browser renderer exactly where main had one (six keys), plus groups.invitation (#728)', () => {
       expect(Object.fromEntries(eventBrowserTemplateRegistry.list().map((b) => [b.eventKey, b.render]))).toEqual({
         'security.role_changed': roleChangedBrowserTemplate,
         'admin.broadcast': broadcastBrowserTemplate,
@@ -158,6 +163,7 @@ describe('notification registries (#678)', () => {
         'nodes.node_offline': nodeOfflineBrowserTemplate,
         'db_backup.backup_failed': backupFailedBrowserTemplate,
         'db_backup.restore_completed': restoreCompletedBrowserTemplate,
+        'groups.invitation': groupInvitationBrowserTemplate,
       });
     });
 
