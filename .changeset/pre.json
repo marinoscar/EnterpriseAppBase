@@ -19,6 +19,9 @@
     "doctor-slice",
     "fastify-optional-peer",
     "initial-platform-scaffold",
-    "platform-db-migration-sync"
+    "platform-api-core-slice",
+    "platform-db-cipher-comments",
+    "platform-db-migration-sync",
+    "platform-history-v1"
   ]
 }
