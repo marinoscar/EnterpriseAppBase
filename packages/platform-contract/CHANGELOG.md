@@ -1,5 +1,16 @@
 # @marinoscar/platform-contract
 
+## 0.1.0-next.3
+
+### Minor Changes
+
+- 738d71c: Add `@marinoscar/platform-contract/telemetry` (#702): the telemetry wire shapes (config, status, explorer, connection, stack, dashboard, assistant) and the `telemetry` settings namespace as zod schemas with their inferred types, plus the zod-free limits and enums they are built from, the `/metrics` schema builders for a server with its own metric-group registry, and the settings and connection no-secret proofs. Moved from the reference app's API DTOs and web mirrors without changing a field, a limit or a rule; the generated OpenAPI document is byte-identical.
+- 55a3402: Add the support bundle: `@marinoscar/platform-contract/doctor` (`supportBundleSchema`), `GET <doctor path>/support-bundle` with `SupportBundleRegistry`, `SupportBundleService`, redaction rules v1 and the built-in `meta`, `doctor` and `egress` sections in `@marinoscar/platform-api/doctor`, and the "Download support bundle" button and `useSupportBundleDownload` hook in `@marinoscar/platform-web/doctor` (plus the optional `PlatformApiClient.getBlob`).
+
+### Patch Changes
+
+- bd9ad6f: Add the telemetry slice (`@marinoscar/platform-web/telemetry/headless`, `/telemetry/ui` and a subpath per page): the telemetry settings page, explorer and dashboard with their client, hooks, config provider, route guard, `TelemetryWebAdapters`, `telemetryAdminCards` and the `withTelemetryTokens` theme-token contract. `PlatformApiClient` gains optional request options (`signal`, `ifMatch`), `postBlob` and `postSse`, and `PlatformApiError` an optional `details`; the test host answers all of them. The contract's telemetry README points at the web client's new home.
+
 ## 0.1.0-next.2
 
 ### Minor Changes

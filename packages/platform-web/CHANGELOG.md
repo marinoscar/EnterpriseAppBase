@@ -1,5 +1,19 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.3
+
+### Minor Changes
+
+- 55a3402: Add the support bundle: `@marinoscar/platform-contract/doctor` (`supportBundleSchema`), `GET <doctor path>/support-bundle` with `SupportBundleRegistry`, `SupportBundleService`, redaction rules v1 and the built-in `meta`, `doctor` and `egress` sections in `@marinoscar/platform-api/doctor`, and the "Download support bundle" button and `useSupportBundleDownload` hook in `@marinoscar/platform-web/doctor` (plus the optional `PlatformApiClient.getBlob`).
+- bd9ad6f: Add the telemetry slice (`@marinoscar/platform-web/telemetry/headless`, `/telemetry/ui` and a subpath per page): the telemetry settings page, explorer and dashboard with their client, hooks, config provider, route guard, `TelemetryWebAdapters`, `telemetryAdminCards` and the `withTelemetryTokens` theme-token contract. `PlatformApiClient` gains optional request options (`signal`, `ifMatch`), `postBlob` and `postSse`, and `PlatformApiError` an optional `details`; the test host answers all of them. The contract's telemetry README points at the web client's new home.
+
+### Patch Changes
+
+- Updated dependencies [738d71c]
+- Updated dependencies [55a3402]
+- Updated dependencies [bd9ad6f]
+  - @marinoscar/platform-contract@0.1.0-next.3
+
 ## 0.1.0-next.2
 
 ### Minor Changes

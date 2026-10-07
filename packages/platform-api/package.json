@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-api",
-  "version": "0.1.0-next.2",
+  "version": "0.1.0-next.3",
   "description": "NestJS dynamic modules of the platform (CommonJS, built with tsc for decorator metadata).",
   "license": "MIT",
   "type": "commonjs",
@@ -70,7 +70,7 @@
     "test:greptime": "jest --config ./test/jest.config.js --testRegex '\\.greptime\\.spec\\.ts$' --runInBand"
   },
   "dependencies": {
-    "@marinoscar/platform-contract": "0.1.0-next.2",
+    "@marinoscar/platform-contract": "0.1.0-next.3",
     "@opentelemetry/auto-instrumentations-node": "^0.79.0",
     "@opentelemetry/core": "^2.10.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
