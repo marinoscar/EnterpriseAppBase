@@ -77,6 +77,7 @@ In this order:
 | [runbooks/rds-proxy-rls-check.md](runbooks/rds-proxy-rls-check.md) | Measuring whether RDS Proxy pins connections under transaction-local row-level security, and whether RDS allows `BYPASSRLS` (manual, AWS account) |
 | [runbooks/release-platform-packages.md](runbooks/release-platform-packages.md) | Releasing the `@marinoscar/platform-*` packages: owner prerequisites, changesets, the version PR, `next` vs `latest`, provenance, deprecating a bad version (maintainers) |
 | [runbooks/air-gapped.md](runbooks/air-gapped.md) | Running a deployment with no internet egress: `DEPLOYMENT_NETWORK=air-gapped`, the Doctor's `network.egress` row, and how to make each outbound dependency internal |
+| [runbooks/database-baseline.md](runbooks/database-baseline.md) | Adopting the platform migration history in an app that already has a production database: rehearse on a restored backup, `platform db baseline`, verify, roll back (operators, once per app) |
 
 ## Developer recipes in the code
 

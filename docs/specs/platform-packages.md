@@ -658,7 +658,7 @@ An app that already has data must adopt the package history without re-running i
 3. Only if the diff is empty, mark the mapped migrations as applied (`prisma migrate resolve --applied`). Otherwise fix the differences first.
 4. Rehearse the whole procedure on a restored backup before touching production.
 
-The baseline tool needs a **partial mode**: an app that lacks some platform migrations (kvox and MemoriaHub) baselines the ones it has and installs the rest as new. It also accepts **app-contributed raw-SQL allow-list entries**.
+The tool is `platform db baseline` (a dry run unless `--apply`), specified by [ADR 0002](../adr/0002-database-packaging-and-rls.md) D4 and operated by [the baseline runbook](../runbooks/database-baseline.md). **Partial mode** is `--through <NNNN>`: an app that lacks some platform migrations (kvox and MemoriaHub) baselines the ones up to that migration and installs the rest as new, and `prisma migrate deploy` applies them. **App-contributed raw-SQL allow-list entries** are `rawSqlIndexes` in the app's `platform.lock`, asserted against `pg_indexes` like the package's own. The tool refuses on any live difference no declared deviation explains; there is no `--force`. A baseline is never part of `appctl deploy update`.
 
 | App | Baseline outlook |
 |---|---|
