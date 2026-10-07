@@ -32,7 +32,7 @@ here.
 | API unit | `apps/api/src/**/*.spec.ts` | Jest, `@nestjs/testing`, mocked dependencies | `npm test --workspace=api` | `api-test` (2 shards) |
 | API integration | `apps/api/test/**/*.integration.spec.ts` (60 files) | Full `AppModule` on Fastify, Supertest, **mocked** Prisma | `npm test --workspace=api` | `api-test` |
 | API real-Postgres | `**/*.db.spec.ts` (26 files) | A real, migrated PostgreSQL 16; `pg_dump`/`pg_restore` for backup suites | `npm run test:db --workspace=api` | `smoke` |
-| API real-GreptimeDB | `apps/api/src/telemetry/telemetry.greptime.spec.ts` | A real, disposable GreptimeDB standalone | `npm run test:greptime --workspace=api` | `greptime-test` |
+| API real-GreptimeDB | `packages/platform-api/src/telemetry/telemetry.greptime.spec.ts` | A real, disposable GreptimeDB standalone | `npm run test:greptime --workspace=@marinoscar/platform-api` | `greptime-test` |
 | Web | `apps/web/src/**/*.test.{ts,tsx}` | Vitest, jsdom, React Testing Library, MSW | `npm run test:run --workspace=web` | `web-test` (6 shards) |
 | CLI | `apps/cli/src/**/*.test.{ts,tsx}` | Vitest, Node environment | `npm run test:run --workspace=cli` | `build` |
 | End-to-end | `tests/e2e/specs/*.spec.ts` | Playwright against the running Compose stack, `/testing/login` bypass | `cd tests/e2e && npm test` | none (run locally) |
@@ -352,14 +352,14 @@ server. See [runbooks/postgres-client-version.md](runbooks/postgres-client-versi
 
 ## API real-GreptimeDB tests
 
-`apps/api/src/telemetry/telemetry.greptime.spec.ts` observes a real
+`packages/platform-api/src/telemetry/telemetry.greptime.spec.ts` observes a real
 GreptimeDB standalone: the reader/admin user split enforced by the server
 itself (not the app's SQL guard), `TelemetryQueryService` end to end (SELECT
 wrapping, truncation, multi-statement rejection, server-side SQL errors),
 retention (`ALTER DATABASE ... SET 'ttl'`, `SHOW CREATE DATABASE`,
 `TelemetryStatusService`), schema discovery and every export format,
 including a real Parquet round trip through the child-process helper
-(`apps/api/src/telemetry/testing/parquet-child.ts`).
+(`packages/platform-api/src/telemetry/testing/parquet-child.ts`).
 
 It is excluded from every other Jest script (`test`, `test:db`, `test:all`
 all skip it via `testPathIgnorePatterns`/their own `testRegex`) and only runs
@@ -380,11 +380,11 @@ docker compose -f infra/compose/test.compose.yml up -d greptime-test
 # 2. Run the tier
 GREPTIME_TEST_URL="postgres://reader:test-reader@localhost:14013/public" \
 GREPTIME_TEST_ADMIN_URL="postgres://admin:test-admin@localhost:14013/public" \
-  npm run test:greptime --workspace=api
+  npm run test:greptime --workspace=@marinoscar/platform-api
 ```
 
 Without `GREPTIME_TEST_URL` every test in the file is skipped — a plain
-`npm run test:greptime --workspace=api` on a machine with no GreptimeDB
+`npm run test:greptime --workspace=@marinoscar/platform-api` on a machine with no GreptimeDB
 running exits cleanly. `GREPTIME_TEST_ADMIN_URL` is optional: without it, the
 suite still runs everything that only needs the reader connection (queries,
 schema, exports) but skips fixture seeding and the retention test, which need
@@ -799,7 +799,7 @@ Conventions:
 | `web-test` | `npm run test:run --workspace=web -- --shard=N/6`, six shards |
 | `openapi` | Typecheck the dump script, `npm run openapi:dump`, Spectral lint |
 | `smoke` | PostgreSQL 16 service; build the API; `prisma:migrate`; `test:db` (with `NODE_ENV=test`); seed twice (proves idempotency); boot `dist/main.js` and check health and `/api/openapi.json` |
-| `greptime-test` | `docker run` a GreptimeDB standalone (not a `services:` container — see [above](#api-real-greptimedb-tests)), wait for `/health`, then `test:greptime` |
+| `greptime-test` | `docker run` a GreptimeDB standalone (not a `services:` container — see [above](#api-real-greptimedb-tests)), wait for `/health`, then `test:greptime` in the api workspace and in `@marinoscar/platform-api` (the telemetry slice's specs, since #703) |
 | `visual` | The visual suite in the pinned Playwright container |
 
 `test:db` runs after migration and before seeding, so the suites see a
