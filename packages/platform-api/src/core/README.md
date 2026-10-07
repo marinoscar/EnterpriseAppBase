@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/core
 
-`@marinoscar/platform-api/core`: the bottom of the slice graph. Code only, no tables: the typed **registry primitive**, the org-aware **principal and scope contract**, the application-wide **exception filter** with its exceptions and error DTO, the **secret cipher** under every runtime-configured credential with its bootstrap check, the **OpenAPI tag registry**, and the **host ports** (issue #696) through which a packaged slice reaches app-owned capabilities without importing app code. Every other slice imports it; it imports no other slice (`packages/platform-slices.json`: `"core": []`).
+`@marinoscar/platform-api/core`: the bottom of the slice graph. Code only, no tables: the typed **registry primitive**, the org-aware **principal and scope contract**, the application-wide **exception filter** with its exceptions and error DTO, the **secret cipher** under every runtime-configured credential with its bootstrap check, the **OpenAPI tag registry**, **scoped data access** (the user-owned data registry, `forUser()` and `asSystem()`, issue #699), and the **host ports** (issue #696) through which a packaged slice reaches app-owned capabilities without importing app code. Every other slice imports it; it imports no other slice (`packages/platform-slices.json`: `"core": []`).
 
 ## Purpose and scope
 
@@ -13,9 +13,10 @@ Each primitive used to live in the app (`apps/api/src/common/`) and every fork c
 | Errors | `errors/` | `HttpExceptionFilter`, which turns every thrown value into the one error envelope, the `ErrorDto` that documents that envelope in OpenAPI, the verbatim-body opt-out for externally specified bodies, and `DatabaseSeedException`. |
 | Crypto | `crypto/` | AES-256-GCM with a per-purpose sub-key (HMAC-SHA256 over a fixed, versioned label), the owner-bound domain builder for per-user secrets, and `verifyEncryptionKeyAtStartup`. |
 | Host ports | `host/` | `definePlatformHost` (decorator-time access), the `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE` and `PLATFORM_PRISMA` tokens and `PlatformHostModule`, which binds them once in the app (`apps/api/src/platform/`). See [Host ports](#host-ports). |
+| Scoped data access | `data-access/` | The user-owned data registry (every model with a foreign key to `User`, with its role, purge and export policy), the user-scoped Prisma client extension (`forUser`, `userScopeExtension`) and the explicit unscoped escape (`asSystem`). Schema-independent: model names are strings and the app passes its own client in. See [Scoped data access](#scoped-data-access). Moved from the app by #699 (origin #688). |
 | OpenAPI tags | `openapi/` | `openApiTags`: every `@ApiTags` name with its description and sidebar group, registered by the app and by slices; the app's document builder publishes `tags` and `x-tagGroups` from it. |
 
-Does: hold primitives with no domain and no database. Does not: own tables, import a Prisma client or model types, read settings, or register anything with Nest by itself (there is no `CoreModule`: the app provides `RegistryFreezeService` and registers `HttpExceptionFilter` itself). Scoped data access joins this slice later (issue #699); the HTTP response envelope (`TransformInterceptor`), request-id middleware and the OpenAPI document passes stay in the app until their own slice.
+Does: hold primitives with no domain and no tables. Does not: own tables, import a generated Prisma client or model types (scoped data access imports only the schema-independent `@prisma/client/extension` and receives the app's client at call time), read settings, or register anything with Nest by itself (there is no `CoreModule`: the app provides `RegistryFreezeService` and registers `HttpExceptionFilter` itself). Org scoping and row-level security join scoped data access later (#725); the HTTP response envelope (`TransformInterceptor`), request-id middleware and the OpenAPI document passes stay in the app until their own slice.
 
 ## Install and peer dependencies
 
@@ -25,7 +26,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { HttpExceptionFilter, defineRegistry, encryptSecret } from '@marinoscar/platform-api/core';
 ```
 
-Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, `ErrorDto` needs `@nestjs/swagger`, and `HttpExceptionFilter` needs `nestjs-zod` (it names the failing fields of a `ZodValidationException`). `test/core/core-imports.spec.ts` pins that set (no `@prisma/client`, no other slice).
+Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, `ErrorDto` needs `@nestjs/swagger`, `HttpExceptionFilter` needs `nestjs-zod` (it names the failing fields of a `ZodValidationException`), and `data-access/` needs `@prisma/client` (its `@prisma/client/extension` entry only, which does not depend on a generated client) and `@opentelemetry/api` (the `asSystem` span attributes). `test/core/core-imports.spec.ts` pins that set (no `from '@prisma/client'`, `@prisma/client/extension` only from `data-access/`, no other slice).
 
 ## Quick start
 
@@ -62,6 +63,19 @@ import { decryptSecret, encryptSecret } from '@marinoscar/platform-api/core';
 
 const stored = encryptSecret(password, 'smtp'); // apps/api/src/credentials/credentials.service.ts
 const password = decryptSecret(stored, 'smtp');
+```
+
+Scoped data access: the app fills the registry once, then scopes a client per call (see [Scoped data access](#scoped-data-access)):
+
+```ts
+// apps/api/src/prisma/ownership/user-owned-model.manifest.ts
+registerUserOwnedModels(PLATFORM_USER_OWNED_MODELS);
+registerUserOwnedModels(APP_USER_OWNED_MODELS);
+
+// apps/api/src/prisma/prisma.service.ts: a typed helper, so call sites keep the generated model types
+forUser(scope: Scope) {
+  return this.$extends(userScopeExtension(scope));
+}
 ```
 
 ## Configuration
@@ -146,6 +160,37 @@ export function createWidgetController(options: ResolvedWidgetOptions): Type<unk
 
 Rules: name the class as the app's controller was named and keep decorator order, so the app's OpenAPI `operationId` and document do not change; inject with an explicit `@Inject(Token)` (no reliance on the metadata of a class declared in a closure); throw from `forRoot` when `host` is missing. The Doctor's [`doctor.controller.factory.ts`](../doctor/doctor.controller.factory.ts) is the reference.
 
+### Scoped data access
+
+Three parts, all `@stability experimental` until organisations and row-level security (#725) add `orgId` scoping.
+
+**The registry.** `userOwnedModelRegistry` is a static `defineRegistry` registry (frozen on bootstrap with the others) holding one `UserOwnedModelDef` per model with a foreign key to `User`. An app registers its models once, from a manifest imported before bootstrap, with `registerUserOwnedModels(defs)`; a packaged slice registers its own models when it is extracted. The `userOwnedData` conformance suite ([testing](../testing/README.md#conformance-suite)) fails when a `User` relation has no entry or an entry contradicts the schema.
+
+| Field | Required | Meaning |
+|---|---|---|
+| `model` | yes | The Prisma model name. `UserOwnedModelDef<Prisma.ModelName>` narrows it to the app's generated names, so a typo fails to compile. One entry per model. |
+| `ownerField` | one of the two | The scalar foreign key naming the row's owner (`userId`, `uploadedById`). A scoped client may read and write the model. |
+| `actorFields` | one of the two | Scalar foreign keys that record who acted (`actorUserId`). A scoped client refuses an actor-only model. |
+| `ownerRelation` | no | The relation behind `ownerField`, for `{ connect: { id } }` creates; defaults to the owner field without `Id`. |
+| `purge` | yes | `'delete'` (the row goes with the user; `onDelete: Cascade`), `'detach'` (the row stays, the reference is nulled; `SetNull`), `'retain'` (actor-only rows another owner controls; `Restrict`/`NoAction`). Applies to the owner field, or to every actor field when there is none. |
+| `export` | yes | `'include'` or `'exclude'`: whether the user's data export carries the row. `exportOmit` lists columns never exported (ciphertexts, hashes). |
+| `rationale` | yes | One or two sentences, for reviewers. |
+
+Purge and export are declarations today; the user-data reset and the export framework (#743, #744) will read them instead of a hand-written table list.
+
+**`forUser` / `userScopeExtension`.** Use for every query made on behalf of one user. `userScopeExtension(scope)` is a `Prisma.defineExtension` extension; `forUser(client, scope)` applies it to any client with `$extends` (the app's `PrismaClient`, or the `PLATFORM_PRISMA` port's `PrismaClientLike`). An app that wants its generated model types back calls `this.$extends(userScopeExtension(scope))` on its own client (the reference app's `PrismaService.forUser`). For owner field `O` and user `U`:
+
+| Operation | What the client does |
+|---|---|
+| `findFirst(OrThrow)`, `findMany`, `count`, `aggregate`, `groupBy`, `updateMany(AndReturn)`, `deleteMany` | `where` becomes `{ AND: [where, { O: U }] }` |
+| `findUnique(OrThrow)`, `update`, `delete`, `upsert` | `{ O: U }` joins the unique `where`'s `AND`; another user's row is "not found" (`null` or `P2025`), never a 403 |
+| `create`, `createMany(AndReturn)`, `upsert`'s `create` | `O` is set to `U` when absent; another value, or a relation connect to another user, throws `ScopedAccessError` |
+| `update`, `updateMany(AndReturn)`, `upsert`'s `update` | Moving the row to another owner throws |
+
+Everything else throws `ScopedAccessError` before reaching the database: an actor-only or unregistered model (including `User`), raw SQL (`$queryRaw`, `$executeRaw` and the `Unsafe` variants, also inside `$transaction`), and an operation it cannot scope. Interactive transactions stay scoped. Only `scope.userId` is applied; `orgId` and `groupIds` are accepted and ignored until #725 and #729. Nested writes and relation `include`/`select` are not rewritten: a nested write into another user-owned model goes through that model's own scoped call.
+
+**`asSystem(client, actor)`.** The explicit, greppable marker for work that is not on behalf of one user: backups, purges, the Doctor, cross-user admin reads, actor-only tables, migrations. It refuses an actor without `{ kind: 'system', reason }` and a non-empty reason, sets `db.access.scope = 'system'` and `db.access.reason` on the active span, and returns the client unchanged. Never derive the reason from request input.
+
 ### Logging, metrics and spans
 
 No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, which the app routes to its pino logger through `app.useLogger` (`apps/api/src/common/logger/`). Metrics and spans use `@opentelemetry/api` (a peer) until `otel-core` (#700) ships.
@@ -157,7 +202,7 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 ## Extension-point catalog
 
-Nine symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
+Ten symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
@@ -170,6 +215,7 @@ Nine symbols are extension points; the other exports are the contracts, function
 | `AUDIT_SINK` | token | `unique symbol` -> `AuditSink` | Record an audit event from a packaged slice | experimental | [example](../../../../apps/api/src/platform/audit-sink.adapter.ts) |
 | `SYSTEM_SETTINGS_STORE` | token | `unique symbol` -> `SystemSettingsStore` | Read or patch a settings namespace from a packaged slice | experimental | [example](../../../../apps/api/src/platform/system-settings-store.adapter.ts) |
 | `PLATFORM_PRISMA` | token | `unique symbol` -> `PrismaClientLike` | Reach the app's Prisma client from a packaged slice | experimental | [example](../../../../apps/api/src/platform/platform-host.module.ts) |
+| `userOwnedModelRegistry` | registry | `Registry<UserOwnedModelDef>` | Register every model with a foreign key to `User`, with its role, purge and export policy (`registerUserOwnedModels(defs)`) | experimental | [example](../../../../apps/api/src/prisma/ownership/user-owned-model.manifest.ts) |
 
 Registry, all `@stability stable`:
 
@@ -214,6 +260,19 @@ Crypto, all `@stability stable`:
 
 Host-port types, all `@stability experimental` (#696): `PlatformHost`, `PlatformAccessPort`, `AuditSink`, `AuditEventInput`, `SystemSettingsStore`, `SystemSettingsSnapshot`, `PrismaClientLike`, `PortBinding<T>`, `PlatformHostPorts`.
 
+Scoped data access, all `@stability experimental` (#699; org scope with #725):
+
+| Export | Kind | Use it to |
+|---|---|---|
+| `registerUserOwnedModels(defs)` | function | Register a batch in `userOwnedModelRegistry`, all or nothing (`INVALID_ENTRY`, `DUPLICATE_ID`, `FROZEN`). |
+| `ownerFieldOf(model)`, `ownerRelationOf(def)` | functions | Look up a registered model's owner field; derive the relation behind an owner field. |
+| `UserOwnedModelDef<TModel>`, `PurgePolicy`, `ExportPolicy`, `UserOwnedModelLookup` | types | Type a registration (narrow `TModel` to the app's model names); pass a fixture lookup in tests. |
+| `forUser(client, scope, registry?)` | function | A client confined to `scope.userId` on registered owner models. Returns whatever the client's `$extends` returns. |
+| `userScopeExtension(scope, registry?)`, `UserScopeExtension` | function, type | The extension behind `forUser`, for `this.$extends(...)` on an app's own typed client. |
+| `ExtendableClient` | type | What `forUser` needs from a client: `$extends`. |
+| `asSystem(client, actor)` | function | Mark deliberately unscoped work; checks the actor and tags the active span. |
+| `ScopedAccessError` | error | Thrown when a scoped call would leave its scope; carries `model` and `operation`. A programming error (a 500), not an `HttpException`. |
+
 OpenAPI tags, all `@stability experimental`:
 
 | Export | Use it to |
@@ -224,7 +283,7 @@ OpenAPI tags, all `@stability experimental`:
 
 ## Data
 
-None. The slice owns no models, migrations or seeds; the startup check counts stored secrets through a callback the app supplies.
+None. The slice owns no models, migrations or seeds; the startup check counts stored secrets through a callback the app supplies. Scoped data access reads only what the app registers in `userOwnedModelRegistry` and queries through the client the app passes in; it never imports a generated model type.
 
 ## Permissions and settings
 
@@ -244,6 +303,8 @@ None. The slice is API-side code only.
 - `HttpExceptionFilter` logs one line per handled failure: `warn` with `METHOD url - status: message` below 500, `error` with the stack from 500 up; a verbatim body logs its `error` field, never the body.
 - `verifyEncryptionKeyAtStartup` logs exactly one of: `SECRETS_ENCRYPTION_KEY is configured; encrypted credential storage is available.` (`log`), the key-absent warning, or the could-not-count warning, and otherwise throws. The texts are unchanged from the app; operators and the CI smoke job read them.
 - The cipher never logs.
+- `asSystem` sets `db.access.scope = 'system'` and `db.access.reason` on the active span (nothing when no span is active). The reason is never a metric label (cardinality). The reference app's `ScopedPrismaService.asSystem` also logs it at `debug`.
+- A `ScopedAccessError` reaches the exception filter as a 500, logged at `error` with the model and operation in its message.
 
 ## Security notes
 
@@ -255,10 +316,13 @@ None. The slice is API-side code only.
 - **Error bodies.** The filter rebuilds every body from a fixed key set, so a thrown exception cannot leak extra fields; a validation failure names the failing fields (`details.issues`) but never echoes the submitted value; stacks are omitted from responses in `production`.
 - **Host ports.** The host's access port fails closed: `definePlatformHost` refuses missing or non-decorator access functions and an empty permission list, and every packaged `forRoot` refuses a missing `host`, so a packaged route is never public. The audit port never receives secret material (`meta` is scalars only), and the settings port patches only through the app's own validated, versioned, audited path. `createTestPlatformHost` trusts a request header and is for package tests only.
 - **Principal and scope.** A `Scope` is derived from the principal, never from request input; `SystemActor` is the only unscoped path and always carries a reason.
+- **Scoped data access is defence in depth.** Every route still declares its access, and a service still decides which user it acts for; the scoped client guarantees that, once it has, a forgotten `where: { userId }` cannot reach another user's rows. It is application-level only until row-level security arrives with organisations (#725). Another user's row is "not found", never a 403 that leaks its existence.
+- **Raw SQL bypasses scoping.** A scoped client refuses it outright; unscoped raw SQL is allowed only in files on the app's raw-SQL allowlist, each with a reason, enforced by the `userOwnedData` conformance suite. A raw statement must never take a request-derived id without scoping it to the caller.
+- **Not rewritten:** nested writes and relation `include`/`select`. Scope the nested model with its own call.
 
 ## Conformance suite
 
-None of its own: the slice is pinned by its specs in the package (`test/core/`: registry, principal types, filter, verbatim brand, cipher, startup check, OpenAPI tags, import boundary). Apps run the platform conformance suites from the [`testing` slice](../testing/README.md).
+None of its own: the slice is pinned by its specs in the package (`test/core/`: registry, principal types, filter, verbatim brand, cipher, startup check, OpenAPI tags, import boundary, and `data-access/`: the registry rules and the scoped extension run against a fake client implementing `$extends`). Apps run the platform conformance suites from the [`testing` slice](../testing/README.md); `userOwnedData` is the one that checks an app's user-owned registrations against its schema and its raw SQL against its allowlist. The real-database isolation proof stays in the reference app (`apps/api/test/prisma/scoped-access.db.spec.ts`), because it needs the app's schema.
 
 ## Upgrade notes
 
@@ -266,6 +330,7 @@ First release of the full slice (the registry primitive shipped first, issue #69
 
 - `verifyEncryptionKeyAtStartup(prisma, logger)` is now `verifyEncryptionKeyAtStartup(countStoredSecrets, logger)`: pass `() => prisma.credential.count()`. Messages and decisions are unchanged.
 - Delete the local copies under `src/common/{registry,principal,filters/http-exception.filter.ts,exceptions,dto/error.dto.ts,crypto}` and import from `@marinoscar/platform-api/core`. Stored ciphertexts stay readable.
+- Scoped data access (#699): delete the local `user-owned-model.registry.ts`, `scoped-access.error.ts` and the extension inside `scoped-prisma.service.ts`; import `userOwnedModelRegistry`, `registerUserOwnedModels`, `ownerFieldOf`, `ownerRelationOf`, `ScopedAccessError`, `userScopeExtension` and `asSystem` from this subpath, type registrations as `UserOwnedModelDef<Prisma.ModelName>`, and keep `ScopedPrismaService` as a thin wrapper. `buildUserScopedClient(prisma, scope)` is now `prisma.$extends(userScopeExtension(scope))` (typed) or `forUser(prisma, scope)` (schema-independent). `asSystem(actor)` on the service is unchanged; the package form is `asSystem(client, actor)`. Semantics are unchanged.
 - `apps/api/src/openapi/tags.ts` no longer exports `OPENAPI_TAGS`, `OPENAPI_TAG_GROUPS` or `TAG_GROUPS`: it registers into `openApiTags`; read `openApiTags.list()` and `openApiTagGroups()` instead.
 
 ## Troubleshooting
@@ -283,12 +348,17 @@ First release of the full slice (the registry primitive shipped first, issue #69
 | A tag renders with no description or outside every sidebar group | No one registered it in `openApiTags`. |
 | `Nest can't resolve dependencies ... Symbol(@marinoscar/platform/AUDIT_SINK)` (or another port) | A slice injects a port the app did not bind. Add it to `PlatformHostModule.forRoot({...})` in `apps/api/src/platform/platform-host.module.ts`. |
 | `definePlatformHost: ... never public` at import | The host's `access` functions are missing or return something that is not a decorator. |
+| `ScopedAccessError: <Model> is not user-owned; use asSystem() with a reason.` | The model is actor-only or unregistered (or the registry was never filled: the app's manifest was not imported before the call). Register it, or use `asSystem` for system work. |
+| `ScopedAccessError: ... raw SQL is system-only` | Raw SQL on a scoped client. Use `asSystem` (and the raw-SQL allowlist). |
+| `ScopedAccessError: ... names another user` / `cannot move a row to another owner` | A scoped write set the owner field to someone else. |
+| A scoped client returns rows of every user | The call went through the unscoped client, or the model's `ownerField` is wrong (the `userOwnedData` suite catches a wrong field). |
 | A packaged route's `operationId` changed | The controller class or handler was renamed, or decorators were reordered; see the controller-factory recipe. |
 
 ## Links
 
 - Spec: [platform-packages.md](../../../../docs/specs/platform-packages.md), "Dependency graph", "The Extension Contract" (rung 2, registries) and "Tenancy and access model".
 - ADR: [0001, org-aware principal and scope](../../../../docs/adr/0001-org-aware-principal-and-scope.md).
+- Scoped data access in the reference app: [prisma/ownership/README.md](../../../../apps/api/src/prisma/ownership/README.md); security view: [SECURITY-ARCHITECTURE.md §17](../../../../docs/SECURITY-ARCHITECTURE.md#17-user-owned-data-and-scoped-access).
 - Registry recipe and behaviour rules: [registry/README.md](./registry/README.md).
 - Encrypted credential storage: [SECURITY-ARCHITECTURE.md](../../../../docs/SECURITY-ARCHITECTURE.md) and the [key rotation runbook](../../../../docs/runbooks/rotate-secrets-encryption-key.md).
 - Error envelope: [API.md](../../../../docs/API.md).
