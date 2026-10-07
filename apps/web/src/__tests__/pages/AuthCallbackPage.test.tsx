@@ -155,6 +155,7 @@ describe('AuthCallbackPage', () => {
       ['access_denied', /sign-in was cancelled/i],
       ['authentication_failed', /we couldn't sign you in/i],
       ['server_misconfigured', /this app isn't ready for sign-in/i],
+      ['no_organization', /you're not part of an organization yet/i],
     ];
 
     it.each(headlines)('renders the purpose-built headline for %s', async (code, headline) => {
@@ -186,6 +187,17 @@ describe('AuthCallbackPage', () => {
       await screen.findByRole('heading', { level: 1 });
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       expect(screen.getByRole('status')).toBeInTheDocument();
+    });
+
+    it('explains the no_organization case (multi-org tenancy, #722) calmly, with both next steps', async () => {
+      mockSearchParams.set('error', 'no_organization');
+
+      render(<AuthCallbackPage />, { wrapperOptions: { authenticated: false } });
+
+      expect(await screen.findByText(/isn't a member of any organization/i)).toBeInTheDocument();
+      expect(screen.getByText(/ask an administrator of your organization to invite you/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /sign in with a different account/i })).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('announces real faults as an alert', async () => {
