@@ -1,6 +1,41 @@
 {
-  "version": "0.0.0",
+  "version": "0.1.0-next.3",
+  "identity": {
+    "cliName": "appctl",
+    "envPrefix": "APPCTL_",
+    "serviceName": "my-app-api",
+    "workerImage": "ghcr.io/OWNER/REPO-worker:latest",
+    "testDatabase": "my_app_test",
+    "testContainer": "my-app-db-test"
+  },
   "fragments": {
+    "compose": {
+      "files": {
+        "infra/compose/base.compose.yml": "4597fec843223e8bda6f0506880172e0f6e3bb060daa6fa826d52b8ae41bd0c2",
+        "infra/compose/dev.compose.yml": "5c289ee8d21b816550c677b3dc35de37c7a8a7033bbd3a2b0c7c2b477825d07c",
+        "infra/compose/devdb.compose.yml": "7e10457842ab0cb026e277263d4bc71a054645fc2f3681d464eb38655db7f65b",
+        "infra/compose/prod.compose.yml": "027ca7b6c38af5c056a465d849af205528f78a3c2ebc6a57b7a8534877125e6a",
+        "infra/compose/vps.compose.yml": "bbf434f023f1c60f166722ad248e14ddd5e5f8976c1f2b51baed43d8617876fc",
+        "infra/compose/worker.compose.yml": "313ba4bc510d35b388463a6d61533116e751f8a4f1780391bf190a372b9f6a9a",
+        "infra/compose/worker.build.compose.yml": "8675ce8b0dfb5e8de057d9fed224bea918abfebf6c856d8c643156baf28c27d8",
+        "infra/compose/test.compose.yml": "bc126a8cbd7db8bb4cd0b43ad072bfeae4a1fd2e6999439e67d43a9d5f9452bb"
+      }
+    },
+    "nginx": {
+      "files": {
+        "infra/nginx/nginx.conf": "e9543d3d1e83781be09f4d3a7e2bb2e9340a10aef55d429edcd6a658e82bb119",
+        "infra/nginx/csp.conf": "e470f258feb62e44afb00f0deda04ea0046a9faa0310aa4a74090773ac429a58",
+        "infra/nginx/csp.dev.conf": "7b4f5c022e0f9c1bfe665b47730f035611ca72b114c053482b4d7d103e48f6b9",
+        "infra/nginx/platform/security-headers.conf": "1a390bbd1562e92f7a73b3c8b55387a3a73de3fa1a35907b3bd1f6bda88011ca",
+        "infra/nginx/platform/sse-proxy.conf": "09d146b21acf14a29c8b5b4341b764d23c9be8319ff5d02359bd2c6d0d1cabe0"
+      }
+    },
+    "env": {
+      "files": {
+        "infra/compose/.env.example": "8a9aaa6cdf75c642c0f876a9d8b59440f9f10a48a424dc56b0dc8627ba36d092",
+        "infra/compose/.env.worker.example": "fcd72cfc171509675e72ef6f18c9e2d44cfd088e177159ed46d5acd99a17fdf6"
+      }
+    },
     "telemetry": {
       "files": {
         "infra/compose/telemetry.compose.yml": "4b24874db3bc359cad2e0dc0176400a46842f0b21faee7190e1c83a7f11c8f31",
