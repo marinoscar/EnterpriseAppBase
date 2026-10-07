@@ -32,6 +32,7 @@ describe('ObjectsService', () => {
   let mockJobs: { enqueueWithin: jest.Mock };
 
   const testUserId = 'user-123';
+  const testOrgId = 'org-123';
   const otherUserId = 'user-456';
 
   const mockStorageObject = {
@@ -117,7 +118,7 @@ describe('ObjectsService', () => {
         s3UploadId: 'upload-123',
       } as any);
 
-      const result = await service.initUpload(dto, testUserId);
+      const result = await service.initUpload(dto, testUserId, testOrgId);
 
       expect(result.objectId).toBe('new-obj-id');
       expect(result.uploadId).toBe('upload-123');
@@ -157,7 +158,7 @@ describe('ObjectsService', () => {
         id: 'new-obj-id',
       } as any);
 
-      const result = await service.initUpload(dto, testUserId);
+      const result = await service.initUpload(dto, testUserId, testOrgId);
 
       expect(result.totalParts).toBe(10); // 100MB / 10MB
       expect(result.presignedUrls).toHaveLength(10); // First batch of 10
@@ -180,7 +181,7 @@ describe('ObjectsService', () => {
         ...mockStorageObject,
       } as any);
 
-      await service.initUpload(dto, testUserId);
+      await service.initUpload(dto, testUserId, testOrgId);
 
       expect(mockPrisma.storageObject.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -202,10 +203,10 @@ describe('ObjectsService', () => {
       mockConfigValues({ 'storage.partSize': 10485760, 'storage.maxFileSize': 1024 ** 4 });
       // 500GB / 10MB = 50,000 parts > 10,000 limit
 
-      await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+      await expect(service.initUpload(dto, testUserId, testOrgId)).rejects.toThrow(
         BadRequestException,
       );
-      await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+      await expect(service.initUpload(dto, testUserId, testOrgId)).rejects.toThrow(
         'File too large for multipart upload',
       );
     });
@@ -227,7 +228,7 @@ describe('ObjectsService', () => {
         ...mockStorageObject,
       } as any);
 
-      await service.initUpload(dto, testUserId);
+      await service.initUpload(dto, testUserId, testOrgId);
 
       expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalledWith(
         expect.stringMatching(/^uploads\//),
@@ -254,10 +255,10 @@ describe('ObjectsService', () => {
 
         const dto = { name: 'too-big.bin', size: 1001, mimeType: 'application/octet-stream' };
 
-        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+        await expect(service.initUpload(dto, testUserId, testOrgId)).rejects.toThrow(
           PayloadTooLargeException,
         );
-        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(/1000/);
+        await expect(service.initUpload(dto, testUserId, testOrgId)).rejects.toThrow(/1000/);
         expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
       });
 
@@ -267,7 +268,7 @@ describe('ObjectsService', () => {
 
         const dto = { name: 'exact.bin', size: 1000, mimeType: 'application/octet-stream' };
 
-        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        await expect(service.initUpload(dto, testUserId, testOrgId)).resolves.toBeDefined();
         expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
       });
 
@@ -279,7 +280,7 @@ describe('ObjectsService', () => {
 
         const dto = { name: 'image.png', size: 1024, mimeType: 'image/png' };
 
-        await expect(service.initUpload(dto, testUserId)).rejects.toThrow(
+        await expect(service.initUpload(dto, testUserId, testOrgId)).rejects.toThrow(
           UnsupportedMediaTypeException,
         );
         expect(mockStorageProvider.initMultipartUpload).not.toHaveBeenCalled();
@@ -294,7 +295,7 @@ describe('ObjectsService', () => {
 
         const dto = { name: 'photo.png', size: 1024, mimeType: 'image/png' };
 
-        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        await expect(service.initUpload(dto, testUserId, testOrgId)).resolves.toBeDefined();
         expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
       });
 
@@ -307,7 +308,7 @@ describe('ObjectsService', () => {
 
         const dto = { name: 'whatever.xyz', size: 1024, mimeType: 'application/x-whatever' };
 
-        await expect(service.initUpload(dto, testUserId)).resolves.toBeDefined();
+        await expect(service.initUpload(dto, testUserId, testOrgId)).resolves.toBeDefined();
         expect(mockStorageProvider.initMultipartUpload).toHaveBeenCalled();
       });
     });
@@ -329,7 +330,7 @@ describe('ObjectsService', () => {
       } as any);
       mockConfig.get.mockReturnValue(10485760); // 10MB part size
 
-      const result = await service.getUploadStatus(mockStorageObject.id, testUserId);
+      const result = await service.getUploadStatus(mockStorageObject.id, testUserId, testOrgId);
 
       expect(result.objectId).toBe(mockStorageObject.id);
       expect(result.status).toBe('pending');
@@ -343,10 +344,10 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.getUploadStatus('non-existent', testUserId),
+        service.getUploadStatus('non-existent', testUserId, testOrgId),
       ).rejects.toThrow(NotFoundException);
       await expect(
-        service.getUploadStatus('non-existent', testUserId),
+        service.getUploadStatus('non-existent', testUserId, testOrgId),
       ).rejects.toThrow('Upload not found');
     });
 
@@ -358,10 +359,10 @@ describe('ObjectsService', () => {
       } as any);
 
       await expect(
-        service.getUploadStatus(mockStorageObject.id, testUserId),
+        service.getUploadStatus(mockStorageObject.id, testUserId, testOrgId),
       ).rejects.toThrow(ForbiddenException);
       await expect(
-        service.getUploadStatus(mockStorageObject.id, testUserId),
+        service.getUploadStatus(mockStorageObject.id, testUserId, testOrgId),
       ).rejects.toThrow('You do not own this upload');
     });
   });
@@ -398,6 +399,7 @@ describe('ObjectsService', () => {
         mockStorageObject.id,
         dto,
         testUserId,
+        testOrgId,
       );
 
       expect(result.status).toBe('processing');
@@ -436,7 +438,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.update.mockResolvedValue(updatedObject as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId);
+      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId);
 
       expect(result.status).toBe('processing');
       expect(mockProcessing.appliesTo).toHaveBeenCalledWith(updatedObject);
@@ -473,7 +475,7 @@ describe('ObjectsService', () => {
         .mockResolvedValueOnce({ ...mockStorageObject, status: 'ready' } as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId);
+      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId);
 
       expect(result.status).toBe('ready');
       expect(mockJobs.enqueueWithin).not.toHaveBeenCalled();
@@ -523,7 +525,7 @@ describe('ObjectsService', () => {
       } as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId);
+      const result = await service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId);
 
       expect(result.status).toBe('processing');
       expect(mockPrisma.storageObject.findUniqueOrThrow).toHaveBeenCalledWith({
@@ -554,7 +556,7 @@ describe('ObjectsService', () => {
       mockJobs.enqueueWithin.mockRejectedValue(new Error('db down'));
 
       await expect(
-        service.completeUpload(mockStorageObject.id, dto, testUserId),
+        service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId),
       ).rejects.toThrow('db down');
     });
 
@@ -580,7 +582,7 @@ describe('ObjectsService', () => {
       } as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.completeUpload(mockStorageObject.id, dto, testUserId);
+      await service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId);
 
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -603,7 +605,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.completeUpload('non-existent', dto, testUserId),
+        service.completeUpload('non-existent', dto, testUserId, testOrgId),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -620,7 +622,7 @@ describe('ObjectsService', () => {
       } as any);
 
       await expect(
-        service.completeUpload(mockStorageObject.id, dto, testUserId),
+        service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -636,10 +638,10 @@ describe('ObjectsService', () => {
       } as any);
 
       await expect(
-        service.completeUpload(mockStorageObject.id, dto, testUserId),
+        service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId),
       ).rejects.toThrow(BadRequestException);
       await expect(
-        service.completeUpload(mockStorageObject.id, dto, testUserId),
+        service.completeUpload(mockStorageObject.id, dto, testUserId, testOrgId),
       ).rejects.toThrow('Upload ID not found');
     });
   });
@@ -654,7 +656,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.abortUpload(mockStorageObject.id, testUserId);
+      await service.abortUpload(mockStorageObject.id, testUserId, testOrgId);
 
       expect(mockStorageProvider.abortMultipartUpload).toHaveBeenCalledWith(
         mockStorageObject.storageKey,
@@ -674,7 +676,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.abortUpload(mockStorageObject.id, testUserId);
+      await service.abortUpload(mockStorageObject.id, testUserId, testOrgId);
 
       expect(mockStorageProvider.abortMultipartUpload).toHaveBeenCalledWith(
         mockStorageObject.storageKey,
@@ -691,7 +693,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.abortUpload(mockStorageObject.id, testUserId);
+      await service.abortUpload(mockStorageObject.id, testUserId, testOrgId);
 
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -707,7 +709,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.abortUpload('non-existent', testUserId),
+        service.abortUpload('non-existent', testUserId, testOrgId),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -719,7 +721,7 @@ describe('ObjectsService', () => {
       } as any);
 
       await expect(
-        service.abortUpload(mockStorageObject.id, testUserId),
+        service.abortUpload(mockStorageObject.id, testUserId, testOrgId),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -746,7 +748,7 @@ describe('ObjectsService', () => {
       } as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      const result = await service.simpleUpload(file, testUserId);
+      const result = await service.simpleUpload(file, testUserId, testOrgId);
 
       expect(result.name).toBe(file.filename);
       expect(result.mimeType).toBe(file.mimetype);
@@ -774,7 +776,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.create.mockResolvedValue(createdObject as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      const result = await service.simpleUpload(file, testUserId);
+      const result = await service.simpleUpload(file, testUserId, testOrgId);
 
       expect(result.status).toBe('processing');
       expect(mockPrisma.$transaction).toHaveBeenCalled();
@@ -811,7 +813,7 @@ describe('ObjectsService', () => {
       } as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      const result = await service.simpleUpload(file, testUserId);
+      const result = await service.simpleUpload(file, testUserId, testOrgId);
 
       expect(result.status).toBe('ready');
       expect(mockJobs.enqueueWithin).not.toHaveBeenCalled();
@@ -845,7 +847,7 @@ describe('ObjectsService', () => {
       } as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.simpleUpload(file, testUserId);
+      await service.simpleUpload(file, testUserId, testOrgId);
 
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -872,7 +874,7 @@ describe('ObjectsService', () => {
           file: stream,
         };
 
-        await expect(service.simpleUpload(file, testUserId)).rejects.toThrow(
+        await expect(service.simpleUpload(file, testUserId, testOrgId)).rejects.toThrow(
           UnsupportedMediaTypeException,
         );
 
@@ -900,7 +902,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.findMany.mockResolvedValue(mockObjects as any);
       mockPrisma.storageObject.count.mockResolvedValue(2);
 
-      const result = await service.list(query, testUserId);
+      const result = await service.list(query, testUserId, testOrgId);
 
       expect(result.items).toHaveLength(2);
       expect(result.meta.page).toBe(1);
@@ -921,7 +923,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.findMany.mockResolvedValue([mockStorageObject] as any);
       mockPrisma.storageObject.count.mockResolvedValue(1);
 
-      await service.list(query, testUserId);
+      await service.list(query, testUserId, testOrgId);
 
       expect(mockPrisma.storageObject.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -943,7 +945,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.findMany.mockResolvedValue([]);
       mockPrisma.storageObject.count.mockResolvedValue(0);
 
-      await service.list(query, testUserId);
+      await service.list(query, testUserId, testOrgId);
 
       expect(mockPrisma.storageObject.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -957,7 +959,7 @@ describe('ObjectsService', () => {
     it('should return object metadata', async () => {
       mockPrisma.storageObject.findUnique.mockResolvedValue(mockStorageObject as any);
 
-      const result = await service.getById(mockStorageObject.id, testUserId);
+      const result = await service.getById(mockStorageObject.id, testUserId, testOrgId);
 
       expect(result.id).toBe(mockStorageObject.id);
       expect(result.name).toBe(mockStorageObject.name);
@@ -966,7 +968,7 @@ describe('ObjectsService', () => {
     it('should throw NotFoundException for non-existent object', async () => {
       mockPrisma.storageObject.findUnique.mockResolvedValue(null);
 
-      await expect(service.getById('non-existent', testUserId)).rejects.toThrow(
+      await expect(service.getById('non-existent', testUserId, testOrgId)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -978,7 +980,7 @@ describe('ObjectsService', () => {
       } as any);
 
       await expect(
-        service.getById(mockStorageObject.id, testUserId),
+        service.getById(mockStorageObject.id, testUserId, testOrgId),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -994,7 +996,7 @@ describe('ObjectsService', () => {
         'https://signed-url.com/download',
       );
 
-      const result = await service.getDownloadUrl(mockStorageObject.id, testUserId);
+      const result = await service.getDownloadUrl(mockStorageObject.id, testUserId, testOrgId);
 
       expect(result.url).toBe('https://signed-url.com/download');
       expect(result.expiresIn).toBe(3600);
@@ -1011,10 +1013,10 @@ describe('ObjectsService', () => {
       } as any);
 
       await expect(
-        service.getDownloadUrl(mockStorageObject.id, testUserId),
+        service.getDownloadUrl(mockStorageObject.id, testUserId, testOrgId),
       ).rejects.toThrow(BadRequestException);
       await expect(
-        service.getDownloadUrl(mockStorageObject.id, testUserId),
+        service.getDownloadUrl(mockStorageObject.id, testUserId, testOrgId),
       ).rejects.toThrow('Object is not ready for download');
     });
   });
@@ -1026,7 +1028,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.delete(mockStorageObject.id, testUserId);
+      await service.delete(mockStorageObject.id, testUserId, testOrgId);
 
       expect(mockStorageProvider.delete).toHaveBeenCalledWith(
         mockStorageObject.storageKey,
@@ -1042,7 +1044,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.delete(mockStorageObject.id, testUserId);
+      await service.delete(mockStorageObject.id, testUserId, testOrgId);
 
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -1065,7 +1067,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.delete(mockStorageObject.id, testUserId, { canDeleteAny: true });
+      await service.delete(mockStorageObject.id, testUserId, testOrgId, { canDeleteAny: true });
 
       expect(mockStorageProvider.delete).toHaveBeenCalledWith(mockStorageObject.storageKey);
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
@@ -1087,7 +1089,7 @@ describe('ObjectsService', () => {
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
 
-      await service.delete(foreignObject.id, testUserId, { canDeleteAny: true });
+      await service.delete(foreignObject.id, testUserId, testOrgId, { canDeleteAny: true });
 
       expect(mockStorageProvider.delete).toHaveBeenCalledWith(foreignObject.storageKey);
       expect(mockPrisma.storageObject.delete).toHaveBeenCalledWith({ where: { id: foreignObject.id } });
@@ -1104,7 +1106,7 @@ describe('ObjectsService', () => {
       const foreignObject = { ...mockStorageObject, uploadedById: otherUserId };
       mockPrisma.storageObject.findUnique.mockResolvedValue(foreignObject as any);
 
-      await expect(service.delete(foreignObject.id, testUserId)).rejects.toThrow(ForbiddenException);
+      await expect(service.delete(foreignObject.id, testUserId, testOrgId)).rejects.toThrow(ForbiddenException);
       expect(mockStorageProvider.delete).not.toHaveBeenCalled();
       expect(mockPrisma.storageObject.delete).not.toHaveBeenCalled();
     });
@@ -1119,7 +1121,7 @@ describe('ObjectsService', () => {
         mockPrisma.storageObject.findUnique.mockResolvedValue(avatarObject as any);
 
         await expect(
-          service.delete(avatarObject.id, testUserId, { canDeleteAny: true }),
+          service.delete(avatarObject.id, testUserId, testOrgId, { canDeleteAny: true }),
         ).rejects.toThrow(ForbiddenException);
         expect(mockStorageProvider.delete).not.toHaveBeenCalled();
         expect(mockPrisma.storageObject.delete).not.toHaveBeenCalled();
@@ -1146,6 +1148,7 @@ describe('ObjectsService', () => {
         mockStorageObject.id,
         { metadata: newMetadata },
         testUserId,
+        testOrgId,
       );
 
       expect(mockPrisma.storageObject.update).toHaveBeenCalledWith({
@@ -1170,6 +1173,7 @@ describe('ObjectsService', () => {
         mockStorageObject.id,
         { metadata: newMetadata },
         testUserId,
+        testOrgId,
       );
 
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({

@@ -306,6 +306,14 @@ Because a missing flag produces a plausible, empty, successful backup, #725 must
 
 **Pooler.** Transaction-mode pooling is supported. Through PgBouncer in `pool_mode=transaction` with **one** server connection shared by ten client connections, 200 interleaved requests for two orgs returned **zero** cross-org rows, an unscoped client was still fail-closed, and interactive transactions worked. `LISTEN` (the event bus adapter) and the dump/restore startup option need a **direct or session-mode** connection, as the spec already notes for the event bus.
 
+**Implementation notes (#725).** D5 was implemented as written. What implementing it added:
+
+- **The bypass flag and the dump flag are both mandatory, and the broker needed three changes the spike could not see** because it ran as a superuser or a role the spike created. On PostgreSQL 16 a non-superuser `CREATEROLE` role is given `ADMIN` but neither `INHERIT` nor `SET` on a role it creates, so it could mint a job role and then not `DROP OWNED BY` it; `ALTER ROLE app SET createrole_self_grant = 'inherit, set'` fixes that and is part of the paste-ready `guided` SQL and the dev/test init script. An `ALTER ROLE` that names `SUPERUSER`, `REPLICATION`, `CREATEDB` or `BYPASSRLS` needs that attribute itself even to switch it off, so a re-issue by a non-superuser re-asserts only `NOCREATEROLE NOINHERIT CONNECTION LIMIT`. And the minted role is now created with an explicit `NOBYPASSRLS`. None of this widens the role: it stays `SELECT`-only.
+- **The application role in each environment.** The postgres image makes its `POSTGRES_USER` a superuser, so `devdb.compose.yml` and `test.compose.yml` keep the image's bootstrap login as `postgres` and create `POSTGRES_USER` (default `app`) with `infra/compose/postgres-init/10-application-role.sh`; the CI `smoke` and `deploy-e2e` jobs run the same script against their service container. The Doctor check is `db.rls_role`.
+- **The db tier runs as that ordinary role.** `createDbClient()` (fixtures) carries the `app.rls_bypass` startup option, so it is the system view; the application's own `PrismaService` is built by `createDbServices()` and is subject to the policies. Isolation suites build their own database and role (`test/helpers/rls-database.helper.ts`).
+- **Only four tables are isolated by RLS**: `storage_objects`, `storage_object_chunks`, `ai_runs`, `ai_usage_events`. `audit_events` has a nullable `org_id` and no policy; identity tables that reference an organization declare `orgReference` and are guarded by service code.
+- **Measured cost** on 1,000 rows per organization: about one extra millisecond at p50 and 2 to 4 ms at p95 per scoped query (`test/tenancy/rls-overhead.db.spec.ts`).
+
 ### D6. Spike posture
 
 The prototype lives under `spike/` and is never imported by the application. It is a reference, not a template: #709 to #713 and #725 implement the contracts above in `packages/platform-db`, `packages/platform-api` and the CLI.

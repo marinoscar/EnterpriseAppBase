@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } f
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -83,8 +84,8 @@ export class AiRunsController {
     type: ErrorDto,
   })
   @ApiResponse({ status: 404, description: 'A `storageObjectId` input that does not exist', type: ErrorDto })
-  async start(@Body() dto: AiResponseRequestDto, @CurrentUser('id') userId: string): Promise<AiRunHandle> {
-    return this.ai.forUser(userId).startRun(toAiRequest(dto));
+  async start(@Body() dto: AiResponseRequestDto, @CurrentUser('id') userId: string, @CurrentOrg() orgId: string): Promise<AiRunHandle> {
+    return this.ai.forUser(userId, { orgId }).startRun(toAiRequest(dto));
   }
 
   @Get(':runId')
@@ -106,8 +107,12 @@ export class AiRunsController {
   @ApiDataResponse(AiRunDto, { description: 'The run' })
   @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
   @ApiResponse({ status: 404, description: 'No such run of yours', type: ErrorDto })
-  async get(@Param('runId') runId: string, @CurrentUser('id') userId: string): Promise<AiRunHttpView> {
-    return toHttpView(await this.runs.get(userId, runId));
+  async get(
+    @Param('runId') runId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
+  ): Promise<AiRunHttpView> {
+    return toHttpView(await this.runs.forOrg(orgId).get(userId, runId));
   }
 
   @Post(':runId/cancel')
@@ -124,8 +129,12 @@ export class AiRunsController {
   @ApiDataResponse(AiRunDto, { description: 'The run, after cancellation' })
   @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
   @ApiResponse({ status: 404, description: 'No such run of yours', type: ErrorDto })
-  async cancel(@Param('runId') runId: string, @CurrentUser('id') userId: string): Promise<AiRunHttpView> {
-    return toHttpView(await this.runs.cancel(userId, runId));
+  async cancel(
+    @Param('runId') runId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
+  ): Promise<AiRunHttpView> {
+    return toHttpView(await this.runs.forOrg(orgId).cancel(userId, runId));
   }
 }
 

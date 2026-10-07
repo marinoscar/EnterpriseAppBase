@@ -75,7 +75,18 @@
 
 import { Job, StorageObject } from '@prisma/client';
 
-import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * What {@link resolveStorageObjectInput} reads: a client with a `storageObject`
+ * delegate. Pass an ORGANIZATION-SCOPED client (`prisma.forOrg(orgId)`):
+ * `storage_objects` is under row-level security (issue #725), so an unscoped
+ * client finds nothing.
+ */
+export interface StorageObjectReader {
+  storageObject: {
+    findUnique(args: { where: { id: string } }): PromiseLike<StorageObject | null>;
+  };
+}
 
 /**
  * The `Job.subjectType` a job carries when its subject is a stored object.
@@ -131,7 +142,7 @@ export class JobInputResolutionError extends Error {
  * label. What it checks is what it actually needs: an id, a row, and a key.
  */
 export async function resolveStorageObjectInput(
-  prisma: PrismaService,
+  prisma: StorageObjectReader,
   job: Job
 ): Promise<StorageObject> {
   if (!job.subjectId) {

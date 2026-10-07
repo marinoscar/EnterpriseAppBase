@@ -6,16 +6,19 @@ import { Logger } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
+import { recordTenancyMode } from '../../auth/tenancy-mode';
 import { JobSettledEvent } from '../../jobs/events/job-settled.event';
 import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { RateLimitError } from '../../jobs/rate-limit.error';
+import { MissingOrgScopeError } from '../../organizations/org-scope';
 import { AiError } from '../core/ai-error';
 import { defineTool } from '../core/tools';
 import type { AiResponse } from '../core/types/responses.types';
 import {
   createAiRuntimeHarness,
   HARNESS_MODEL,
+  HARNESS_ORG,
   HARNESS_ORG_KEY,
   HARNESS_USER,
   HARNESS_USER_KEY,
@@ -121,6 +124,46 @@ describe('AiResponseRunHandler', () => {
   });
 
   describe('process', () => {
+    describe('a job enqueued before organization scoping (no orgId in the payload)', () => {
+      afterEach(() => recordTenancyMode('single'));
+
+      it('single mode: runs in the default organization and completes the run', async () => {
+        recordTenancyMode('single');
+        const { h, handler, jobFor, row } = setup({ fake: { responses: [{ outputText: 'legacy ok' }] } });
+        const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
+        const orgOfJob = jest.spyOn(h.runs, 'orgOfJob');
+
+        await handler.process(jobFor(handle));
+
+        await expect(orgOfJob.mock.results[0].value).resolves.toBe(HARNESS_ORG);
+        expect(row(handle.runId).status).toBe('succeeded');
+      });
+
+      it('multi mode: fails with MissingOrgScopeError before any provider call', async () => {
+        recordTenancyMode('single');
+        const { h, handler, jobFor, row } = setup();
+        const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
+        recordTenancyMode('multi');
+
+        await expect(handler.process(jobFor(handle))).rejects.toBeInstanceOf(MissingOrgScopeError);
+
+        expect(h.fake.calls).toHaveLength(0);
+        expect(row(handle.runId).status).toBe('pending');
+      });
+
+      it('multi mode: a payload that names its organization runs normally', async () => {
+        recordTenancyMode('single');
+        const { h, handler, row } = setup({ fake: { responses: [{ outputText: 'scoped ok' }] } });
+        const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
+        recordTenancyMode('multi');
+        const job = { id: handle.jobId, type: AI_RESPONSE_RUN_TYPE, payload: { runId: handle.runId, orgId: HARNESS_ORG } } as unknown as Job;
+
+        await handler.process(job);
+
+        expect(row(handle.runId).status).toBe('succeeded');
+      });
+    });
+
     it('pending -> running -> succeeded with the output, usage row naming the job', async () => {
       const { h, handler, jobFor, row } = setup({
         fake: { responses: [{ outputText: 'the summary' }] },
@@ -144,7 +187,7 @@ describe('AiResponseRunHandler', () => {
       expect(h.fake.apiKeys).toEqual([HARNESS_USER_KEY]);
       expect(h.usageEvents).toEqual([expect.objectContaining({ jobId: handle.jobId, status: 'succeeded' })]);
 
-      const view = await h.runs.get(HARNESS_USER, handle.runId);
+      const view = await h.orgRuns.get(HARNESS_USER, handle.runId);
       expect((view.output as AiResponse | null)?.outputText).toBe('the summary');
     });
 
@@ -171,7 +214,7 @@ describe('AiResponseRunHandler', () => {
       const { h, handler, jobFor, row } = setup();
       const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
 
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await handler.process(jobFor(handle));
 
       expect(h.fake.calls).toHaveLength(0);
@@ -185,7 +228,7 @@ describe('AiResponseRunHandler', () => {
 
       const processing = handler.process(jobFor(handle));
       await new Promise((resolve) => setTimeout(resolve, 20));
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await expect(processing).resolves.toBeUndefined();
 
       expect(h.fake.calls[0].aborted).toBe(true);
@@ -245,7 +288,7 @@ describe('AiResponseRunHandler', () => {
         const create = h.fake.responses!.create;
         h.fake.responses!.create = async (req, ctx) => {
           const response = await create(req, ctx);
-          await h.runs.cancel(HARNESS_USER, handle.runId);
+          await h.orgRuns.cancel(HARNESS_USER, handle.runId);
           return response;
         };
 
@@ -396,7 +439,7 @@ describe('AiResponseRunHandler', () => {
     it('leaves finished runs and other job types alone', async () => {
       const { h, handler, row } = setup();
       const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
 
       await handler.onJobSettled(settled(handle.jobId, handle.runId, 'failed'));
       await handler.onJobSettled(settled(handle.jobId, handle.runId, 'succeeded'));

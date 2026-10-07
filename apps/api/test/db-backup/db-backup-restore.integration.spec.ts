@@ -939,6 +939,15 @@ function stripPermission(prisma: any, userId: string, permission: string): void 
           ),
         },
       })),
+      memberships: (user.memberships ?? []).map((membership: any) => ({
+        ...membership,
+        role: {
+          ...membership.role,
+          rolePermissions: (membership.role.rolePermissions ?? []).filter(
+            (rp: any) => rp.permission.name !== permission
+          ),
+        },
+      })),
     };
   });
 }

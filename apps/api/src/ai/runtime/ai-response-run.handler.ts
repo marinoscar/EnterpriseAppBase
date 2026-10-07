@@ -58,10 +58,12 @@ import { AiOutputWriter } from '../storage/ai-output-writer';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiService } from './ai.service';
 import { fromStoredRunRequest } from './ai-run-request';
-import { AI_RESPONSE_RUN_TYPE, AI_RUN_SUBJECT_TYPE, AiRunsService } from './ai-runs.service';
+import { AI_RESPONSE_RUN_TYPE, AI_RUN_SUBJECT_TYPE, AiRunsService, type AiRunsInOrg } from './ai-runs.service';
 
 export const aiResponseRunPayloadSchema = z.object({
   runId: z.string().uuid(),
+  /** The run's organization (#725). Absent on a job enqueued before it existed. */
+  orgId: z.string().uuid().optional(),
 });
 
 /** How often a running run re-reads its row for a cancel made on another replica. */
@@ -121,7 +123,9 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     }
 
     const { runId } = parsed.data;
-    const run = await this.runs.load(runId);
+    const orgId = await this.runs.orgOfJob(job);
+    const runs = this.runs.forOrg(orgId);
+    const run = await runs.load(runId);
 
     if (!run) {
       this.logger.warn(`AI run ${runId} no longer exists; job ${job.id} is a no-op`);
@@ -136,11 +140,11 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
 
     if (!run.userId) {
       // The owner was deleted (`SetNull`): there is no key to call with.
-      await this.runs.fail(runId, 'AI_KEY_REQUIRED', 'The user who started this run no longer exists.');
+      await runs.fail(runId, 'AI_KEY_REQUIRED', 'The user who started this run no longer exists.');
       return;
     }
 
-    if (!(await this.runs.claim(runId, job.id))) {
+    if (!(await runs.claim(runId, job.id))) {
       this.logger.log(`AI run ${runId} changed state before it could start; job ${job.id} is a no-op`);
       return;
     }
@@ -153,7 +157,7 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
       controller.abort(new Error('AI run timed out'));
     }, RUN_DEADLINE_MS);
     const poll = setInterval(() => {
-      void this.runs
+      void runs
         .isCancelled(runId)
         .then((cancelled) => {
           if (cancelled) controller.abort(new Error('AI run cancelled'));
@@ -167,16 +171,16 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     try {
       const request = fromStoredRunRequest(run.request);
       const response = await this.ai
-        .forUser(run.userId, { jobId: job.id, runId })
+        .forUser(run.userId, { orgId, jobId: job.id, runId })
         .respond(request, { signal: controller.signal });
 
-      if (!(await this.runs.complete(runId, response))) {
+      if (!(await runs.complete(runId, response))) {
         this.logger.log(`AI run ${runId} was cancelled while it ran; its result is discarded`);
         // Hosted images (#442) were already stored as the user's objects.
-        await this.outputs.discard(hostedImageObjectIds(response));
+        await this.outputs.discard(hostedImageObjectIds(response), orgId);
       }
     } catch (err) {
-      await this.settleFailure(runId, job.id, err, controller.signal.aborted, timedOut);
+      await this.settleFailure(runs, runId, job.id, err, controller.signal.aborted, timedOut);
     } finally {
       clearTimeout(deadline);
       clearInterval(poll);
@@ -196,11 +200,9 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     if (event.subjectType !== AI_RUN_SUBJECT_TYPE || !event.subjectId) return;
 
     try {
-      await this.runs.fail(
-        event.subjectId,
-        'AI_PROVIDER_UNAVAILABLE',
-        'The background job ended before the run completed.',
-      );
+      await this.runs
+        .forOrg(await this.runs.orgOfEvent(event))
+        .fail(event.subjectId, 'AI_PROVIDER_UNAVAILABLE', 'The background job ended before the run completed.');
     } catch (error) {
       this.logger.warn(
         `Could not mark AI run ${event.subjectId} failed after job ${event.jobId} settled: ` +
@@ -210,19 +212,20 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
   }
 
   private async settleFailure(
+    runs: AiRunsInOrg,
     runId: string,
     jobId: string,
     err: unknown,
     aborted: boolean,
     timedOut: boolean,
   ): Promise<void> {
-    if (aborted && !timedOut && (await this.runs.isCancelled(runId))) {
+    if (aborted && !timedOut && (await runs.isCancelled(runId))) {
       this.logger.log(`AI run ${runId} cancelled by its owner (job ${jobId})`);
       return;
     }
 
     if (timedOut) {
-      await this.runs.fail(runId, 'AI_PROVIDER_UNAVAILABLE', 'The AI run timed out.');
+      await runs.fail(runId, 'AI_PROVIDER_UNAVAILABLE', 'The AI run timed out.');
       throw new Error(`AI run ${runId} exceeded its ${RUN_DEADLINE_MS}ms deadline`);
     }
 
@@ -233,11 +236,11 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     const rateLimit = error.toRateLimitError();
 
     if (rateLimit) {
-      await this.runs.release(runId);
+      await runs.release(runId);
       throw rateLimit;
     }
 
-    await this.runs.fail(runId, error.code, error.message);
+    await runs.fail(runId, error.code, error.message);
 
     if (AI_RUN_TERMINAL_CODES.has(error.code)) {
       // The provider's safe metadata (status, code, request id) says WHY a

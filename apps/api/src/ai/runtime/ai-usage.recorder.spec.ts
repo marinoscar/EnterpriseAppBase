@@ -13,12 +13,29 @@ import {
 } from '../testing/ai-runtime-harness';
 import { AiUsageRecorder } from './ai-usage.recorder';
 
+const ORG = '33333333-3333-4333-8333-333333333333';
+
+/**
+ * A database whose usage table is `create`, scoped like `PrismaService`: a
+ * scoped client is the client itself, and a record that names no organization
+ * gets the single-mode default (#725).
+ */
+function prismaOf(create: jest.Mock) {
+  const prisma = {
+    aiUsageEvent: { create },
+    forOrg: () => prisma,
+    organization: { findFirst: jest.fn().mockResolvedValue({ id: ORG }) },
+  };
+
+  return prisma;
+}
+
 describe('AiUsageRecorder', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('writes every accounted field', async () => {
     const create = jest.fn().mockResolvedValue({});
-    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never);
+    const recorder = new AiUsageRecorder(prismaOf(create) as never);
 
     await recorder.record({
       userId: 'u1',
@@ -35,6 +52,7 @@ describe('AiUsageRecorder', () => {
 
     expect(create).toHaveBeenCalledWith({
       data: {
+        orgId: ORG,
         userId: 'u1',
         provider: 'openai',
         modelId: 'gpt-x',
@@ -57,7 +75,7 @@ describe('AiUsageRecorder', () => {
     const create = jest.fn().mockRejectedValue(new Error('db down'));
     jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const aiUsage = jest.fn();
-    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never, { aiUsage } as never);
+    const recorder = new AiUsageRecorder(prismaOf(create) as never, { aiUsage } as never);
 
     await recorder.record({
       userId: 'u1',
@@ -88,7 +106,7 @@ describe('AiUsageRecorder', () => {
 
   it('stores missing or nonsensical token counts as null', async () => {
     const create = jest.fn().mockResolvedValue({});
-    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never);
+    const recorder = new AiUsageRecorder(prismaOf(create) as never);
 
     await recorder.record({
       userId: null,
@@ -116,7 +134,7 @@ describe('AiUsageRecorder', () => {
 
   it('writes units for a non-token-metered operation (#437), generic over the unit names', async () => {
     const create = jest.fn().mockResolvedValue({});
-    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never);
+    const recorder = new AiUsageRecorder(prismaOf(create) as never);
     const base = {
       userId: 'u',
       provider: 'openai',
@@ -139,7 +157,7 @@ describe('AiUsageRecorder', () => {
 
   it('drops unusable unit values, and stores no units at all when none are left', async () => {
     const create = jest.fn().mockResolvedValue({});
-    const recorder = new AiUsageRecorder({ aiUsageEvent: { create } } as never);
+    const recorder = new AiUsageRecorder(prismaOf(create) as never);
     const base = {
       userId: 'u',
       provider: 'openai',
@@ -161,9 +179,7 @@ describe('AiUsageRecorder', () => {
 
   it('never throws: a failed insert is logged, not propagated', async () => {
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    const recorder = new AiUsageRecorder({
-      aiUsageEvent: { create: jest.fn().mockRejectedValue(new Error('db down')) },
-    } as never);
+    const recorder = new AiUsageRecorder(prismaOf(jest.fn().mockRejectedValue(new Error('db down'))) as never);
 
     await expect(
       recorder.record({

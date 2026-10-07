@@ -88,7 +88,12 @@ describe('AiUsageService.report', () => {
     findUsers = jest.fn().mockResolvedValue([]);
     const registry = new AiProviderRegistry();
     registry.register(new FakeAiProvider({ id: 'openai' }));
-    service = new AiUsageService({ $queryRaw: queryRaw, user: { findMany: findUsers } } as never, registry);
+    service = new AiUsageService(
+      { $queryRaw: queryRaw, user: { findMany: findUsers } } as never,
+      registry,
+      // The report is a deployment-wide aggregate: it reads through the system client (#725).
+      { asSystem: () => ({ $queryRaw: queryRaw }) } as never,
+    );
   });
 
   it('splits the GROUPING SETS rows into totals and groups, attaching units to each', async () => {

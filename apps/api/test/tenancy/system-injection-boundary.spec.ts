@@ -1,0 +1,94 @@
+// =============================================================================
+// Tripwire: only allowlisted files inject PrismaSystemService (issue #725)
+// =============================================================================
+//
+// The system client is the ONE way to read or write across organizations: its
+// transactions set `app.rls_bypass`. A file that injects it by accident has
+// quietly opted out of tenant isolation, so every injection is a reviewed
+// decision: this list. The scan reads every source file under src/ (specs
+// excluded) for the class name in a constructor parameter, a property, an
+// `@Inject(...)` or a `moduleRef.get(...)`, and fails for a file that is not on
+// the list AND for an entry that no longer injects it (a stale allowlist).
+// =============================================================================
+
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+
+const SRC = join(__dirname, '..', '..', 'src');
+
+/**
+ * Files that may mention PrismaSystemService, each with why. Relative to
+ * apps/api/src, forward slashes.
+ */
+const ALLOWLIST: Record<string, string> = {
+  'prisma/prisma-system.service.ts': 'defines it',
+  'prisma/prisma.module.ts': 'provides and exports it',
+  'storage/handlers/storage-cleanup.handler.ts': 'purge: reclaims every organization\'s stale uploads',
+  'storage/config/storage-config-admin.service.ts': 'admin-aggregate: counts stranded objects across organizations',
+  'settings/profile-image/avatar.service.ts': 'admin-aggregate: public avatar route has no principal; display only, one row by id',
+  'settings/profile-image/profile-image.service.ts': 'purge: removes the user\'s own previous avatar across an org switch',
+  'settings/user-settings/user-settings.service.ts': 'admin-aggregate: validates the user\'s own avatar row across an org switch',
+  'ai/runtime/ai-runs-purge.handler.ts': 'retention',
+  'ai/usage/ai-usage-purge.handler.ts': 'retention',
+  'ai/usage/ai-usage.service.ts': 'admin-aggregate: deployment-wide usage report',
+  'ai/catalog/ai-catalog.service.ts': 'admin-aggregate: the catalogue sync\'s organization-less usage row',
+  'organizations/doctor/rls-role.doctor-check.ts': 'doctor: read-only catalogue reads',
+  'db-backup/doctor/backup-rls.doctor-check.ts': 'doctor: read-only row counts',
+};
+
+function sources(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) return sources(full);
+    return entry.endsWith('.ts') && !entry.endsWith('.spec.ts') ? [full] : [];
+  });
+}
+
+/** The code of a file with comments removed, so a mention in prose never counts. */
+function code(file: string): string {
+  return readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+}
+
+describe('PrismaSystemService injection boundary', () => {
+  const mentions = sources(SRC)
+    .filter((file) => /\bPrismaSystemService\b/.test(code(file)))
+    .map((file) => relative(SRC, file).split(sep).join('/'))
+    .sort();
+
+  it('finds the injections (guards against a scan that matches nothing)', () => {
+    expect(mentions.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it('is mentioned only by allowlisted files', () => {
+    expect(mentions.filter((file) => !(file in ALLOWLIST))).toEqual([]);
+  });
+
+  it('has no stale allowlist entry', () => {
+    expect(Object.keys(ALLOWLIST).filter((file) => !mentions.includes(file))).toEqual([]);
+  });
+
+  it('is never constructed by hand outside its module (no `new PrismaSystemService`)', () => {
+    const offenders = sources(SRC)
+      .filter((file) => /new\s+PrismaSystemService\s*\(/.test(code(file)))
+      .map((file) => relative(SRC, file).split(sep).join('/'));
+    expect(offenders).toEqual([]);
+  });
+
+  it('is never exported from a package entry point or re-provided by another module', () => {
+    const providers = sources(SRC)
+      .filter((file) => /provide:\s*PrismaSystemService/.test(code(file)))
+      .map((file) => relative(SRC, file).split(sep).join('/'));
+    expect(providers).toEqual([]);
+  });
+
+  it('gives every system acquisition a reason from the closed list', () => {
+    const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling'];
+    const bad: string[] = [];
+    for (const file of sources(SRC)) {
+      for (const match of code(file).matchAll(/\.(?:asSystem|runAsSystem)\(\s*'([^']*)'/g)) {
+        if (!reasons.includes(match[1]!)) bad.push(`${relative(SRC, file)}: ${match[1]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

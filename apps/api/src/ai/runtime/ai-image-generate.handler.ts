@@ -77,6 +77,7 @@ export class AiImageGenerateHandler extends AiMediaRunHandler {
   protected async execute(ctx: AiMediaRunContext): Promise<AiMediaRunResult | null> {
     const stored = parseStoredImageRunRequest(ctx.request);
     const result = await this.ai.executeImageRun(ctx.userId, stored, {
+      orgId: ctx.orgId,
       jobId: ctx.job.id,
       signal: ctx.signal,
       beforeCall: () => this.outputs.assertWritable(),
@@ -84,17 +85,18 @@ export class AiImageGenerateHandler extends AiMediaRunHandler {
 
     if (await ctx.cancelledWhileRunning()) return null;
 
-    const files = await this.store(ctx.userId, ctx.runId, result);
+    const files = await this.store(ctx.userId, ctx.orgId, ctx.runId, result);
     const output = toRunOutput(result, files);
 
-    return { output, discard: () => this.outputs.discard(output.storageObjectIds) };
+    return { output, discard: () => this.outputs.discard(output.storageObjectIds, ctx.orgId) };
   }
 
   /** Every image as a storage object the user owns. Any failure here is a storage outcome. */
-  private async store(userId: string, runId: string, result: AiImageResult): Promise<AiStoredOutput[]> {
+  private async store(userId: string, orgId: string, runId: string, result: AiImageResult): Promise<AiStoredOutput[]> {
     try {
       return await this.outputs.write({
         userId,
+        orgId,
         runId,
         files: result.images.map((image) => ({ data: image.data, mimeType: image.mimeType })),
         namePrefix: 'ai-image',

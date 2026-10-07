@@ -281,6 +281,8 @@ a plain `npm test` never needs a database.
 | `apps/api/test/user-credentials/` | Per-user credential store |
 | `apps/api/test/prisma/platform-*.db.spec.ts` | `platform db sync` installs byte copies whose `_prisma_migrations.checksum` equals the package file's sha256; Prisma's silence about an edited applied migration; the raw-SQL index list equals the catalogue |
 | `apps/api/src/db-backup/` | Cluster primitives for restore, the single-active-run index, the PostgreSQL job-role broker, run/job linkage |
+| `apps/api/test/tenancy/` | Row-level security (#725): `rls-isolation` (two organizations, an ordinary role the suite creates, `FORCE` on: scoped reads, writes and raw SQL never cross, an unscoped client fails closed, the system client sees both, concurrent scoped transactions never mix), `rls-coverage` (every `org` model has RLS forced and a listed policy; no unclassified `org_id`), `storage-org-isolation` (the real storage service answers 404 across organizations for the same user), `rls-overhead` (prints the per-query cost) |
+| `apps/api/test/db-backup/db-backup-rls.db.spec.ts` | A dump and restore with RLS forced carry every row of every organization (exact counts), for the engine's dump, the broker's minted role and the CLI's node-side dump, with both negative controls |
 
 Each file's header comment names what it proves and its measured wall-clock
 time.
@@ -293,7 +295,21 @@ time.
     `POSTGRES_HOST:POSTGRES_PORT`, otherwise `describe.skip` with one warning.
     `npm run test:db` without a database therefore skips cleanly.
   - `createDbClient()` builds a `PrismaClient` from `POSTGRES_*`, ignoring the
-    `DATABASE_URL` that `.env.test` also sets.
+    `DATABASE_URL` that `.env.test` also sets. It carries the `app.rls_bypass`
+    startup option, so a fixture sees and writes every organization's rows even
+    when the role is ordinary (see below).
+  - `createDbServices()` builds the application's real `PrismaService` (tenant
+    client, `forOrg` / `runInOrg`) and `PrismaSystemService` against the same
+    database, for a service under test whose constructor takes them;
+    `defaultOrgId(client)` is the organization to hang fixture rows on.
+- `apps/api/test/helpers/rls-database.helper.ts` builds a migrated database
+  owned by its own **ordinary** role (`NOSUPERUSER NOBYPASSRLS`), because
+  row-level security is inert for a superuser: `createRlsDatabase(label)`
+  returns the tenant and system pools, an administrator session
+  (`admin(fn)`, bypass on, the ground truth), `createSibling` (a restore
+  target) and `destroy()`; `seedTwoOrgs(db)` seeds two organizations;
+  `rlsServices(db)` builds the real Nest providers over it. A suite that
+  proves isolation uses it; it never relies on the shared database's role.
 - `apps/api/test/helpers/scratch-database.helper.ts` builds throwaway
   databases for destructive suites: `envFor(db)`, `prismaClientFor(db)`,
   `pgConnectionFor(db)`, `migrateDeploy(db)` (runs the real
@@ -306,15 +322,21 @@ time.
 ### Running them locally
 
 `infra/compose/test.compose.yml` provides a dedicated PostgreSQL 16 on host
-port **5433** (database `my_app_test`, user/password `postgres`), matching
-`apps/api/.env.test`. It never touches your development database.
+port **5433** (database `my_app_test`), matching `apps/api/.env.test`. It
+never touches your development database. The suites connect as the ordinary
+role **`app`** (password `postgres`), which `postgres-init/10-application-role.sh`
+creates and makes the database owner (`NOSUPERUSER NOBYPASSRLS CREATEDB
+CREATEROLE`), so row-level security applies to the application's own client;
+`postgres` stays the bootstrap superuser for administration. A volume created
+before this change keeps the old setup: `docker compose -f
+infra/compose/test.compose.yml down -v` and start again.
 
 ```bash
 # 1. Start the test database
 docker compose -f infra/compose/test.compose.yml up -d
 
 # 2. Migrate it (explicit variables win over infra/compose/.env)
-POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=postgres \
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=app \
 POSTGRES_PASSWORD=postgres POSTGRES_DB=my_app_test \
   npm run prisma:migrate --workspace=api
 

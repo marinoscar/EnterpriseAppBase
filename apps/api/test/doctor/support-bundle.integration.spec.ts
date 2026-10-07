@@ -102,6 +102,13 @@ describe('Support bundle API (Integration)', () => {
             rolePermissions: userRole.role.rolePermissions.filter((rp: any) => rp.permission.name !== 'telemetry:query'),
           },
         })),
+        memberships: (user.memberships ?? []).map((membership: any) => ({
+          ...membership,
+          role: {
+            ...membership.role,
+            rolePermissions: membership.role.rolePermissions.filter((rp: any) => rp.permission.name !== 'telemetry:query'),
+          },
+        })),
       };
     });
     return admin;

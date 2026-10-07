@@ -46,9 +46,19 @@ services:
       # These deliberately mirror base.compose.yml's own POSTGRES_* defaults, so
       # that `.env` overriding any of them moves the server and the API together
       # rather than leaving the API authenticating against the wrong values.
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      #
+      # The image makes ITS POSTGRES_USER a superuser, and row-level security
+      # (issue #725) is inert for a superuser. So the image's bootstrap login is
+      # the fixed `postgres` (administration only) and the role the API runs as,
+      # `.env`'s POSTGRES_USER, is created ordinary by
+      # postgres-init/10-application-role.sh on the first start of an empty
+      # volume. An existing dev volume keeps its old superuser: recreate it
+      # (docker volume rm) or follow the SECURITY-ARCHITECTURE.md steps.
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-appdb}
+      APP_DB_USER: ${POSTGRES_USER:-app}
+      APP_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
       # Published so that `prisma migrate` and `psql` can be run from the host
       # checkout, which is how migrations are actually created. 5432 is the
@@ -57,13 +67,14 @@ services:
       - "${POSTGRES_BIND_PORT:-5432}:5432"
     volumes:
       - dev-db-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     networks:
       - app-network
     healthcheck:
       # The API's readiness probe checks the database, so without this the API
       # can start, fail to connect, and report unhealthy purely because Postgres
       # had not finished its first-run initialisation yet.
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-appdb}']
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d ${POSTGRES_DB:-appdb}']
       interval: 5s
       timeout: 5s
       retries: 10

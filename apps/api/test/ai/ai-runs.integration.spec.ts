@@ -198,9 +198,9 @@ describe('AI background runs HTTP API Integration', () => {
 
     it('returns the completed response once the run succeeded', async () => {
       const runId = await start();
-      await t.harness.runs.claim(runId, t.harness.enqueued[0].id);
+      await t.harness.orgRuns.claim(runId, t.harness.enqueued[0].id);
       const output = await t.harness.ai.forUser(HARNESS_USER).respond({ model: HARNESS_MODEL, input: 'hi' });
-      await t.harness.runs.complete(runId, output);
+      await t.harness.orgRuns.complete(runId, output);
 
       const res = record(
         await request(server()).get(`/api/ai/runs/${runId}`).set(authHeader(alice.accessToken)).expect(200),

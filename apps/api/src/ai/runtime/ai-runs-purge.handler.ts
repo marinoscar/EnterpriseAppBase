@@ -30,7 +30,7 @@ import { runRetentionPolicyPurge } from '../../common/retention/batched-purge';
 import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import type { AiRunStatus } from './ai-runtime.types';
 
@@ -51,7 +51,9 @@ export class AiRunsPurgeHandler implements JobHandler, OnModuleInit {
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly prisma: PrismaService,
+    // Retention spans every organization (row-level security, #725): the
+    // SYSTEM client, reason `retention`.
+    private readonly prisma: PrismaSystemService,
     private readonly systemSettings: SystemSettingsService,
   ) {}
 
@@ -71,7 +73,7 @@ export class AiRunsPurgeHandler implements JobHandler, OnModuleInit {
       what: 'AI run purge',
       rows: 'AI run(s)',
       selectIds: async (cutoff, take) => {
-        const rows = await this.prisma.aiRun.findMany({
+        const rows = await this.prisma.asSystem('retention').aiRun.findMany({
           where: {
             createdAt: { lt: cutoff },
             status: { in: [...PURGEABLE_AI_RUN_STATUSES] },
@@ -86,7 +88,7 @@ export class AiRunsPurgeHandler implements JobHandler, OnModuleInit {
       // By the exact ids read. A terminal run never returns to `pending` or
       // `running`, so the ids read are still terminal when they are deleted.
       deleteIds: async (ids) =>
-        (await this.prisma.aiRun.deleteMany({ where: { id: { in: ids } } })).count,
+        (await this.prisma.asSystem('retention').aiRun.deleteMany({ where: { id: { in: ids } } })).count,
     });
   }
 }

@@ -127,6 +127,33 @@ await Promise.all([provider.upload(key, meter, opts), dump.done]);
   forever); a dead upload SIGKILLs the dump. Both streams carry no-op `error`
   listeners so a deliberate destroy is never an uncaught exception.
 
+### Row-level security
+
+The tenant tables (`storage_objects`, `storage_object_chunks`, `ai_runs`,
+`ai_usage_events`) `FORCE` row-level security (#725, [SECURITY-ARCHITECTURE.md
+§18](../SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls)), so a dump that does
+not lift it is **silently empty**: `pg_dump --enable-row-security` without the
+bypass option exits 0 and writes a valid archive with the schema and no rows.
+
+- **Both halves, always.** `buildPgDumpArgs` adds `--enable-row-security`; the
+  child's environment gets `PGOPTIONS=-c app.rls_bypass=on`
+  (`RLS_BYPASS_PGOPTIONS`, set by `spawnPgDump`; the API merges it into any
+  `PGOPTIONS` already set, the node's CLI clears every inherited libpq variable
+  and sets exactly this one, and the option never appears in argv). The option without the flag
+  is refused by `pg_dump`. The same pair is in `buildPgRestoreArgs` /
+  `spawnPgRestore` and in the CLI's node-side dump
+  (`apps/cli/src/node/pg-dump.ts`).
+- **The minted role stays SELECT-only.** The role the broker mints for a node
+  is `NOBYPASSRLS` and gains no privilege: it sets the same custom
+  `app.rls_bypass` option, which any role may set. The archive is the same
+  with the API's role or the minted one.
+- **A direct connection.** The startup option is rejected by a transaction-mode
+  pooler (PgBouncer, RDS Proxy). Point `POSTGRES_HOST`/`POSTGRES_PORT` at the
+  database (or a session-mode pooler) for the dump.
+- **Checked before it matters.** The Doctor check `backup.rls-bypass` counts
+  the four tables with the system client and over a connection carrying the
+  option, and fails when the counts differ.
+
 ### Read-back verification
 
 Before a run is `completed`, the uploaded object is streamed back out of
@@ -454,13 +481,15 @@ All three are seeded Admin-only, and every route also requires the Admin role.
 | `apps/api/src/db-backup/db-backup-admin.service.spec.ts` | Timezone refused even while `enabled` is false |
 | `apps/api/src/db-backup/pg-job-role.broker.spec.ts`, `pg-job-role.broker.db.spec.ts` | Role name, grants, `VALID UNTIL`, revocation |
 | `apps/api/src/db-backup/pg-dump.util.spec.ts`, `pg-version.util.spec.ts`, `schedule.util.spec.ts` | `pg_dump` argv, version guard, schedule arithmetic |
+| `apps/api/test/db-backup/db-backup-rls.db.spec.ts` | With row-level security forced and an ordinary role: the dump restores with every row of every organization (exact per-organization counts), the restored database still enforces isolation, the minted role and the CLI's node-side dump carry every row too, and both negative controls (flag without option: empty tables; option without flag: refused) |
 | `apps/api/test/db-backup/db-backup-admin.integration.spec.ts` | Every route through the real router and `HttpExceptionFilter`: `409` details, BigInt as decimal strings, permission split, route order |
 | `apps/api/test/db-backup/db-backup-node-offload.integration.spec.ts` | The three gates and the node result path |
 | `apps/cli/src/node/executors/db-backup-run.test.ts` | The node never persists or logs its credential |
 | `apps/api/test/jobs/cron-enqueue-only.spec.ts` | The scheduler only enqueues |
 
-No test runs a real `pg_dump` against a real database end to end; the engine
-seam stands in for it. The restore suites exercise real archives.
+The runner's unit suite uses the engine seam; `test/integration/db-backup-round-trip.db.spec.ts`,
+`db-backup-rls.db.spec.ts` and the restore suites run real `pg_dump` and
+`pg_restore` against real databases.
 
 ## 6. Design decisions
 
@@ -534,3 +563,8 @@ seam stands in for it. The restore suites exercise real archives.
   (`db.backup.run`, `pending` rows, `(true)` index), #352 (node offload,
   `pg_dump_version`), #353 (cron enqueue-only, `db.backup.sweep`).
 - #373: `storageProvider` default became the empty string.
+- #725 (platform-packages PP-6.5): the tenant tables force row-level security, so
+  every dump and restore carries `--enable-row-security` and the
+  `app.rls_bypass` startup option; the `backup.rls-bypass` Doctor check; the
+  broker creates job roles `NOBYPASSRLS` and re-issues from a non-superuser
+  `CREATEROLE` role.

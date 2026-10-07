@@ -26,12 +26,20 @@
 //
 // Owner-facing reads (`get`, `cancel`) are scoped to the owner: another
 // user's run id is a 404, indistinguishable from one that does not exist.
+//
+// ORGANIZATION SCOPE (issue #725). `ai_runs` is under row-level security, so
+// every read and write goes through a client scoped to ONE organization:
+// `forOrg(orgId)` returns that scoped view (`AiRunsInOrg`) and the methods on
+// it are the ones above. A handler resolves the organization from its job's
+// payload, an HTTP controller from the principal; a run of another
+// organization is simply not found.
 // =============================================================================
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { JobsService } from '../../jobs/jobs.service';
+import { resolveJobOrgId } from '../../organizations/org-scope';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { StoredAiSpeechRunRequest, StoredAiTranscriptionRunRequest } from './ai-audio-run-request';
 import type { StoredAiImageRunRequest } from './ai-image-run-request';
@@ -52,6 +60,9 @@ export const AI_AUDIO_SPEECH_TYPE = 'ai.audio.speech';
 
 /** `Job.subjectType` of an `ai.response.run` job; `subjectId` is the run id. */
 export const AI_RUN_SUBJECT_TYPE = 'ai_run';
+
+/** How many organizations' scoped views are kept. */
+const SCOPED_VIEWS_MAX = 64;
 
 const ACTIVE: AiRunStatus[] = ['pending', 'running'];
 
@@ -87,6 +98,9 @@ export class AiRunsService {
   /** Provider calls this process is executing, by run id — for cancel. */
   private readonly inFlight = new Map<string, AbortController>();
 
+  /** Scoped views by organization, least recently used first. */
+  private readonly scoped = new Map<string, AiRunsInOrg>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jobs: JobsService,
@@ -100,6 +114,8 @@ export class AiRunsService {
    */
   async create(input: {
     userId: string;
+    /** The organization the run belongs to; also the job payload's `orgId`. */
+    orgId: string;
     provider: string;
     modelId: string;
     request:
@@ -110,10 +126,11 @@ export class AiRunsService {
     /** The job type that executes it. Defaults to `ai.response.run`. */
     jobType?: string;
   }): Promise<AiRunHandle> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.runInOrg(input.orgId, async (tx) => {
       const run = await tx.aiRun.create({
         data: {
           userId: input.userId,
+          orgId: input.orgId,
           provider: input.provider,
           modelId: input.modelId,
           status: 'pending',
@@ -127,19 +144,75 @@ export class AiRunsService {
         reason: 'upload',
         subjectType: AI_RUN_SUBJECT_TYPE,
         subjectId: run.id,
-        payload: { runId: run.id },
+        payload: { runId: run.id, orgId: input.orgId },
       });
 
       await tx.aiRun.update({ where: { id: run.id }, data: { jobId: job.id } });
 
       return { runId: run.id, jobId: job.id };
-    });
+    }, { userId: input.userId });
   }
+
+  /**
+   * The organization a run's job belongs to: the payload's `orgId`; a job
+   * enqueued before #725 has none (single mode: the default organization;
+   * multi mode: this throws and the job fails with the reason).
+   */
+  orgOfJob(job: { id: string; type: string; payload: unknown }): Promise<string> {
+    return resolveJobOrgId(this.prisma, job);
+  }
+
+  /**
+   * The organization a settled job's event belongs to (see {@link orgOfJob});
+   * the event carries the job row, whose payload names it.
+   */
+  orgOfEvent(event: { jobId: string; type: string; job?: { payload: unknown } | undefined }): Promise<string> {
+    return resolveJobOrgId(this.prisma, { id: event.jobId, type: event.type, payload: event.job?.payload });
+  }
+
+  /**
+   * The run state machine, scoped to one organization (row-level security,
+   * #725). Memoised for the most recently used organizations, so a handler's
+   * polling timer and its settle listener share one scoped client.
+   */
+  forOrg(orgId: string): AiRunsInOrg {
+    const cached = this.scoped.get(orgId);
+    if (cached) {
+      this.scoped.delete(orgId);
+      this.scoped.set(orgId, cached);
+      return cached;
+    }
+
+    const created = new AiRunsInOrg(this.prisma.forOrg(orgId), this.inFlight);
+    this.scoped.set(orgId, created);
+    if (this.scoped.size > SCOPED_VIEWS_MAX) this.scoped.delete(this.scoped.keys().next().value as string);
+    return created;
+  }
+
+  /** Registers this process's controller for a running run; returns the unregister. */
+  attach(runId: string, controller: AbortController): () => void {
+    this.inFlight.set(runId, controller);
+
+    return () => {
+      if (this.inFlight.get(runId) === controller) this.inFlight.delete(runId);
+    };
+  }
+}
+
+/**
+ * The run state machine bound to one organization's scoped database client.
+ * Obtain it with {@link AiRunsService.forOrg}.
+ */
+export class AiRunsInOrg {
+  constructor(
+    private readonly db: ReturnType<PrismaService['forOrg']>,
+    private readonly inFlight: Map<string, AbortController>,
+  ) {}
 
   /** The owner's run. Anyone else's (or a malformed id) is a 404. */
   async get(userId: string, runId: string): Promise<AiRunView> {
     const row = UUID.test(runId)
-      ? await this.prisma.aiRun.findFirst({ where: { id: runId, userId }, select: VIEW_SELECT })
+      ? await this.db.aiRun.findFirst({ where: { id: runId, userId }, select: VIEW_SELECT })
       : null;
 
     if (!row) {
@@ -157,7 +230,7 @@ export class AiRunsService {
   async cancel(userId: string, runId: string): Promise<AiRunView> {
     await this.get(userId, runId);
 
-    const { count } = await this.prisma.aiRun.updateMany({
+    const { count } = await this.db.aiRun.updateMany({
       where: { id: runId, userId, status: { in: ACTIVE } },
       data: { status: 'cancelled', completedAt: new Date() },
     });
@@ -172,7 +245,7 @@ export class AiRunsService {
   // ---- handler-facing --------------------------------------------------------------
 
   async load(runId: string): Promise<AiRunExecutionRow | null> {
-    return this.prisma.aiRun.findUnique({
+    return this.db.aiRun.findUnique({
       where: { id: runId },
       select: { id: true, userId: true, status: true, jobId: true, request: true },
     });
@@ -180,7 +253,7 @@ export class AiRunsService {
 
   /** pending -> running. `false` when the run is no longer pending (cancelled, done). */
   async claim(runId: string, jobId: string): Promise<boolean> {
-    const { count } = await this.prisma.aiRun.updateMany({
+    const { count } = await this.db.aiRun.updateMany({
       where: { id: runId, status: 'pending' },
       data: { status: 'running', jobId },
     });
@@ -190,7 +263,7 @@ export class AiRunsService {
 
   /** running -> succeeded. `false` when the run was cancelled meanwhile. */
   async complete(runId: string, output: AiRunOutput): Promise<boolean> {
-    const { count } = await this.prisma.aiRun.updateMany({
+    const { count } = await this.db.aiRun.updateMany({
       where: { id: runId, status: 'running' },
       data: {
         status: 'succeeded',
@@ -206,7 +279,7 @@ export class AiRunsService {
 
   /** pending|running -> failed. Messages are the safe, generic `AiError` ones. */
   async fail(runId: string, errorCode: string, errorMessage: string): Promise<boolean> {
-    const { count } = await this.prisma.aiRun.updateMany({
+    const { count } = await this.db.aiRun.updateMany({
       where: { id: runId, status: { in: ACTIVE } },
       data: { status: 'failed', errorCode, errorMessage, completedAt: new Date() },
     });
@@ -216,25 +289,16 @@ export class AiRunsService {
 
   /** running -> pending, for a job the queue will run again (a provider throttle). */
   async release(runId: string): Promise<void> {
-    await this.prisma.aiRun.updateMany({
+    await this.db.aiRun.updateMany({
       where: { id: runId, status: 'running' },
       data: { status: 'pending' },
     });
   }
 
   async isCancelled(runId: string): Promise<boolean> {
-    const row = await this.prisma.aiRun.findUnique({ where: { id: runId }, select: { status: true } });
+    const row = await this.db.aiRun.findUnique({ where: { id: runId }, select: { status: true } });
 
     return row?.status === 'cancelled';
-  }
-
-  /** Registers this process's controller for a running run; returns the unregister. */
-  attach(runId: string, controller: AbortController): () => void {
-    this.inFlight.set(runId, controller);
-
-    return () => {
-      if (this.inFlight.get(runId) === controller) this.inFlight.delete(runId);
-    };
   }
 }
 

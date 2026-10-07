@@ -58,8 +58,8 @@ describe('the shipped platform fragments', () => {
     }
   });
 
-  it('mark exactly User, Job and StorageObject as extensible', () => {
-    expect(composeFragments(inputs).extensible).toEqual(['Job', 'StorageObject', 'User']);
+  it('mark exactly User, Job, StorageObject and Organization as extensible', () => {
+    expect(composeFragments(inputs).extensible).toEqual(['Job', 'Organization', 'StorageObject', 'User']);
   });
 
   it('compose on their own with no warning and no rejection', () => {

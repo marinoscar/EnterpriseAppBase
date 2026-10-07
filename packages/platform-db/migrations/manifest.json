@@ -236,5 +236,21 @@
     "sha256": "11484b30fdabf64abb14ec99e4d218c1897f5692130bd5a04720d08b905e1332",
     "since": "1.0.0",
     "slice": "identity"
+  },
+  {
+    "dir": "0025_org_scoped_rls",
+    "id": "0025_org_scoped_rls",
+    "requires": [
+      "identity",
+      "ai"
+    ],
+    "rls": true,
+    "sha256": "f6a0a61d07e5b91767b9bf18824ae1872e236f566877282c4cb2332f024dd636",
+    "since": "1.0.0",
+    "slice": "storage",
+    "touches": [
+      "ai",
+      "identity"
+    ]
   }
 ]

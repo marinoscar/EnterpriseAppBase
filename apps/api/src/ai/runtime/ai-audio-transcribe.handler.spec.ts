@@ -148,7 +148,7 @@ describe('AiAudioTranscribeHandler', () => {
     it('unconfigured storage (the recording cannot be read) fails the run AI_STORAGE_UNAVAILABLE on attempt 1 of 2; the job returns', async () => {
       const { h, handler, jobFor, row, transcribe } = setup();
       const handle = await transcribe();
-      const release = jest.spyOn(h.runs, 'release');
+      const release = jest.spyOn(h.orgRuns, 'release');
 
       h.storage.setConfigured(false);
 
@@ -227,7 +227,7 @@ describe('AiAudioTranscribeHandler', () => {
       const handle = await transcribe();
 
       // Attempt 1 claimed it, then the process died before it settled.
-      await h.runs.claim(handle.runId, handle.jobId);
+      await h.orgRuns.claim(handle.runId, handle.jobId);
 
       await handler.process(jobFor(handle, 2));
 
@@ -238,7 +238,7 @@ describe('AiAudioTranscribeHandler', () => {
       const { h, handler, jobFor, row, transcribe } = setup();
       const handle = await transcribe();
 
-      await h.runs.claim(handle.runId, '99999999-9999-4999-8999-999999999999');
+      await h.orgRuns.claim(handle.runId, '99999999-9999-4999-8999-999999999999');
       await handler.process(jobFor(handle, 2));
 
       expect(row(handle.runId).status).toBe('running');
@@ -251,7 +251,7 @@ describe('AiAudioTranscribeHandler', () => {
       const { h, handler, jobFor, row, transcribe } = setup();
       const handle = await transcribe();
 
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await handler.process(jobFor(handle, 1));
 
       expect(row(handle.runId).status).toBe('cancelled');
@@ -265,7 +265,7 @@ describe('AiAudioTranscribeHandler', () => {
       const running = handler.process(jobFor(handle, 1));
 
       await new Promise((resolve) => setTimeout(resolve, 20));
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await running;
 
       expect(row(handle.runId)).toMatchObject({ status: 'cancelled', output: null });

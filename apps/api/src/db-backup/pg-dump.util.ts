@@ -409,6 +409,35 @@ export function resolvePgConnection(env: DatabaseEnv = process.env): PgConnectio
 }
 
 /**
+ * The libpq startup option that lifts row-level security for a dump or a
+ * restore session (issue #725, ADR 0002 D5): the policies on the org tables
+ * admit a session whose `app.rls_bypass` is `on`.
+ *
+ * ⚠ BOTH HALVES, EVERYWHERE. The option alone still fails (`row_security`
+ * stays off and `pg_dump` refuses a table it cannot read in full); the
+ * `--enable-row-security` flag alone EXITS 0 AND WRITES AN ARCHIVE WITH ZERO
+ * ROWS. A silent empty backup is the failure this pair exists to prevent, and
+ * the Doctor's `backup.rls-bypass` check compares a bypass-side row count with a
+ * count over a connection carrying this option, to catch the day one half is
+ * lost.
+ */
+export const RLS_BYPASS_PGOPTIONS = '-c app.rls_bypass=on';
+
+/**
+ * `PGOPTIONS` for a dump or restore child: the bypass option, merged with any
+ * `PGOPTIONS` already in the environment (never replacing it). The connection
+ * must go DIRECTLY to the database: a transaction-mode pooler rejects the
+ * option ("unsupported startup parameter").
+ *
+ * @param baseEnv - the environment the child inherits; defaults to this process's.
+ */
+export function rlsBypassEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const existing = baseEnv.PGOPTIONS?.trim();
+  if (existing && existing.includes('app.rls_bypass')) return { PGOPTIONS: existing };
+  return { PGOPTIONS: existing ? `${existing} ${RLS_BYPASS_PGOPTIONS}` : RLS_BYPASS_PGOPTIONS };
+}
+
+/**
  * The NON-SECRET part of a child's environment.
  *
  * `PGPASSWORD` is deliberately NOT here: it is a separate, named option on
@@ -445,6 +474,11 @@ export interface PgDumpArgsOptions {
  *    instead of a prompt. There is no terminal on the other end of a
  *    scheduled backup, and a client waiting for one is a job that hangs until
  *    the timeout rather than failing in a second with a clear message.
+ *  - `--enable-row-security` (issue #725). The org tables FORCE row-level
+ *    security; without this flag `pg_dump` fails ("query would be affected by
+ *    row-level security policy"), and with it but without the
+ *    `app.rls_bypass` option (`rlsBypassEnv`) it exits 0 and writes an
+ *    archive with no rows. `spawnPgDump` adds both.
  *  - NO `-f`. The archive goes to stdout; see the module header.
  *
  * Host, port, user and database are separate flags rather than one URI on
@@ -466,6 +500,10 @@ export function buildPgDumpArgs(options: PgDumpArgsOptions): string[] {
     '-Fc',
     '--no-owner',
     '--no-acl',
+    // With RLS on, the dump needs BOTH this flag and `rlsBypassEnv()` in the
+    // child's environment; see RLS_BYPASS_PGOPTIONS. Without the pair it either
+    // fails or, worse, succeeds with no rows.
+    '--enable-row-security',
     '-Z',
     String(clampCompressionLevel(compressionLevel)),
   ];
@@ -514,7 +552,7 @@ export function spawnPgDump(options: SpawnPgDumpOptions = {}): PgProcess {
     command: options.command ?? PG_DUMP_COMMAND,
     args: buildPgDumpArgs({ connection, compressionLevel: options.compressionLevel }),
     password: connection.password,
-    extraEnv: pgClientEnv(connection),
+    extraEnv: { ...pgClientEnv(connection), ...rlsBypassEnv() },
     timeoutMs: options.timeoutMs,
     spawnFn: options.spawnFn,
   });

@@ -64,6 +64,8 @@ describe('buildPgRestoreArgs', () => {
       '--no-password',
       '--no-owner',
       '--no-acl',
+      // #725: a parallel restore fails on a FORCEd table without this.
+      '--enable-row-security',
       '--exit-on-error',
     ]);
     expect(args.join(' ')).not.toContain(CONNECTION.password);
@@ -123,6 +125,15 @@ describe('spawnPgRestore', () => {
 
     expect(spawn.last().env.PGPASSWORD).toBe(CONNECTION.password);
     expect(spawn.last().args.join(' ')).not.toContain(CONNECTION.password);
+  });
+
+  it('carries BOTH halves of the row-level-security pair: the flag and the app.rls_bypass option (#725)', () => {
+    const spawn = createFakeSpawn();
+
+    spawnPgRestore({ connection: CONNECTION, file: '/var/tmp/db.dump', jobs: 3, spawnFn: spawn.fn });
+
+    expect(spawn.last().args).toContain('--enable-row-security');
+    expect(spawn.last().env.PGOPTIONS).toContain('-c app.rls_bypass=on');
   });
 });
 

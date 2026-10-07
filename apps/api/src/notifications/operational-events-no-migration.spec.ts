@@ -86,6 +86,9 @@ const MIGRATIONS_AT_288 = [
   // role, and the move of org-role assignments onto memberships. About RBAC,
   // not the operational notification events.
   '20261007161956_split_system_org_roles',
+  // #725 (PP-6.5): org_id on the tenant tables and row-level security. About
+  // tenant isolation, not the operational notification events.
+  '20261007202337_org_scoped_rls',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

@@ -15,6 +15,7 @@ import { Job, Prisma } from '@prisma/client';
 import { CredentialsService } from '../../credentials/credentials.service';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import { AiError } from '../core/ai-error';
 import { AiModelCapabilities, aiModelCapabilitiesSchema } from '../core/capabilities';
@@ -94,6 +95,11 @@ export class AiCatalogService {
     private readonly credentials: CredentialsService,
     private readonly registry: AiProviderRegistry,
     private readonly jobs: JobsService,
+    // A catalogue sync is run by the deployment, not by an organization: its
+    // usage row has no `org_id` (NULL), and a NULL-organization row is visible
+    // and writable to the SYSTEM client only (`ai_usage_events` is under
+    // row-level security, #725). Reason `admin-aggregate`.
+    private readonly system: PrismaSystemService,
   ) {}
 
   /**
@@ -374,9 +380,10 @@ export class AiCatalogService {
     errorCode: string | null,
     options: AiCatalogSyncOptions,
   ): Promise<void> {
-    await this.prisma.aiUsageEvent.create({
+    await this.system.asSystem('admin-aggregate').aiUsageEvent.create({
       data: {
         userId: null,
+        orgId: null,
         provider: providerId,
         modelId: '*',
         operation: 'catalog',

@@ -23,7 +23,7 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
   },
   {
     file: 'ai/usage/ai-usage.service.ts',
-    why: 'Admin usage report: GROUPING SETS totals Prisma cannot express; filters are bound parameters from a validated admin query.',
+    why: 'Usage report: GROUPING SETS totals Prisma cannot express; filters are bound parameters from a validated query. The admin report reads through the system client; the per-user view through an organization-scoped one (#725).',
   },
   {
     file: 'jobs/job-insights.service.ts',
@@ -52,6 +52,10 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
   {
     file: 'db-backup/db-backup-runner.service.ts',
     why: "Backup run: reads current_setting('server_version') to record the dump's server version.",
+  },
+  {
+    file: 'organizations/doctor/rls-role.doctor-check.ts',
+    why: 'Doctor check: reads pg_roles and pg_class (the API role and the FORCEd tables). Read-only catalogue reads, no user ids.',
   },
   {
     file: 'db-backup/migration-state.util.ts',

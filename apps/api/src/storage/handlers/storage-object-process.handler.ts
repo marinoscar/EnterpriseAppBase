@@ -54,6 +54,7 @@ import type { Job, StorageObject } from '@prisma/client';
 import { JOB_SETTLED_EVENT, type JobSettledEvent } from '../../jobs/events/job-settled.event';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { resolveJobOrgId } from '../../organizations/org-scope';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ObjectProcessingService } from '../processing/object-processing.service';
 import {
@@ -100,8 +101,13 @@ export class StorageObjectProcessHandler implements JobHandler, OnModuleInit {
   async process(job: Job): Promise<void> {
     let object: StorageObject;
 
+    // The organization the upload belongs to: the payload's `orgId`; a job
+    // enqueued before #725 has none (single mode: the default organization,
+    // multi mode: this throws, and the job fails with the reason).
+    const orgId = await resolveJobOrgId(this.prisma, job);
+
     try {
-      object = await resolveStorageObjectInput(this.prisma, job);
+      object = await resolveStorageObjectInput(this.prisma.forOrg(orgId), job);
     } catch (error) {
       if (error instanceof JobInputResolutionError && error.reason === 'input_object_not_found') {
         this.logger.warn(
@@ -138,7 +144,8 @@ export class StorageObjectProcessHandler implements JobHandler, OnModuleInit {
     try {
       await this.processing.markAbandoned(
         event.subjectId,
-        `Processing job ${event.jobId} failed permanently: ${cause}`
+        `Processing job ${event.jobId} failed permanently: ${cause}`,
+        await resolveJobOrgId(this.prisma, event.job)
       );
     } catch (error) {
       this.logger.error(

@@ -311,6 +311,8 @@ export interface CreateMockUserOptions {
   orgRoleName?: 'org_admin' | 'contributor' | 'viewer' | null;
   /** SPLIT shape (#723): the membership's status (default `active`). */
   membershipStatus?: 'active' | 'suspended';
+  /** Keep the bare pre-split shape (no membership) for specs of the legacy-token path. */
+  withoutMembership?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -746,9 +748,33 @@ export function createMockUserWithRelations(
     userId: user.id,
   });
 
+  // Row-level security scopes tenant data to the caller's active organization
+  // (#725), so a pre-split mock user also holds an active membership in the
+  // default organization, carrying the same role. Effective roles and
+  // permissions are unchanged (the principal unions and de-duplicates them).
+  // `withoutMembership` keeps the bare pre-split shape for the specs that
+  // exercise the legacy-token path.
+  const membership = options.withoutMembership
+    ? []
+    : [
+        {
+          id: randomUUID(),
+          orgId: MOCK_DEFAULT_ORG_ID,
+          userId: user.id,
+          status: 'active',
+          lastActiveAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          roleId: role.id,
+          org: { id: MOCK_DEFAULT_ORG_ID, isDefault: true },
+          role: roleWithPermissions,
+        },
+      ];
+
   return {
     ...user,
     userRoles: [{ ...userRole, role: roleWithPermissions }],
+    memberships: membership,
     identities: [identity],
     userSettings: settings,
   };

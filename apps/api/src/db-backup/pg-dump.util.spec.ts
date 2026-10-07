@@ -5,8 +5,10 @@ import {
   DEFAULT_COMPRESSION_LEVEL,
   buildPgDumpArgs,
   clampCompressionLevel,
+  RLS_BYPASS_PGOPTIONS,
   pgClientEnv,
   resolvePgConnection,
+  rlsBypassEnv,
   spawnPgDump,
   spawnPgProcess,
   type PgConnection,
@@ -256,6 +258,8 @@ describe('buildPgDumpArgs', () => {
       '-Fc',
       '--no-owner',
       '--no-acl',
+      // #725: the org tables FORCE row-level security.
+      '--enable-row-security',
       '-Z',
       '9',
     ]);
@@ -334,5 +338,45 @@ describe('pgClientEnv', () => {
     // The password is deliberately NOT here: it is a named option on
     // spawnPgProcess so it cannot be lost in a spread.
     expect(pgClientEnv(CONNECTION)).toEqual({});
+  });
+});
+
+// =============================================================================
+// Row-level security (issue #725, ADR 0002 D5): BOTH halves, everywhere
+// =============================================================================
+//
+// `--enable-row-security` alone exits 0 and writes an archive with NO ROWS; the
+// `app.rls_bypass` startup option alone still fails. The pair is the contract,
+// so these tests pin each half and that every dump spawn carries both.
+// =============================================================================
+
+describe('row-level security: the bypass startup option', () => {
+  it('is the app.rls_bypass setting, as a libpq option', () => {
+    expect(RLS_BYPASS_PGOPTIONS).toBe('-c app.rls_bypass=on');
+  });
+
+  it('rlsBypassEnv sets PGOPTIONS', () => {
+    expect(rlsBypassEnv({})).toEqual({ PGOPTIONS: '-c app.rls_bypass=on' });
+  });
+
+  it('merges with an existing PGOPTIONS rather than replacing it', () => {
+    expect(rlsBypassEnv({ PGOPTIONS: '-c statement_timeout=0' })).toEqual({
+      PGOPTIONS: '-c statement_timeout=0 -c app.rls_bypass=on',
+    });
+  });
+
+  it('does not repeat itself when the environment already carries the option', () => {
+    expect(rlsBypassEnv({ PGOPTIONS: '-c app.rls_bypass=on' })).toEqual({ PGOPTIONS: '-c app.rls_bypass=on' });
+  });
+
+  it('spawnPgDump passes the flag in argv and the option in the environment (never the password in either)', () => {
+    const spawn = createFakeSpawn();
+
+    spawnPgDump({ connection: CONNECTION, spawnFn: spawn.fn });
+
+    const { args, env } = spawn.last();
+    expect(args).toContain('--enable-row-security');
+    expect(env.PGOPTIONS).toContain('-c app.rls_bypass=on');
+    expect(args.join(' ')).not.toContain('app.rls_bypass');
   });
 });

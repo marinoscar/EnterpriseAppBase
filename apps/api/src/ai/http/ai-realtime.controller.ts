@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -96,8 +97,9 @@ export class AiRealtimeController {
   async createSession(
     @Body() dto: AiRealtimeSessionRequestDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<AiRealtimeSessionHttpResponse> {
-    const session = await this.ai.forUser(userId).createRealtimeSession(toRealtimeRequest(dto));
+    const session = await this.ai.forUser(userId, { orgId }).createRealtimeSession(toRealtimeRequest(dto));
 
     return {
       provider: session.provider,

@@ -3,6 +3,7 @@ import { ApiOkResponse, ApiOperation, ApiProduces, ApiResponse, ApiTags } from '
 import type { FastifyReply } from 'fastify';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -103,13 +104,14 @@ export class AiResponsesController {
   async respond(
     @Body() dto: AiResponseRequestDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<AiResponse> {
     const request = toAiRequest(dto);
     const disconnect = abortOnDisconnect(reply.raw);
 
     try {
-      return await this.ai.forUser(userId).respond(request, { signal: disconnect.signal });
+      return await this.ai.forUser(userId, { orgId }).respond(request, { signal: disconnect.signal });
     } finally {
       disconnect.dispose();
     }
@@ -190,6 +192,7 @@ export class AiResponsesController {
   async stream(
     @Body() dto: AiResponseRequestDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     const request = toAiRequest(dto);
@@ -200,7 +203,7 @@ export class AiResponsesController {
     try {
       // Eager: rejects with the AiError for every pre-stream failure, which
       // the global filter answers as JSON — nothing has been written yet.
-      events = await this.ai.forUser(userId).openStream(request, { signal: disconnect.signal });
+      events = await this.ai.forUser(userId, { orgId }).openStream(request, { signal: disconnect.signal });
     } catch (err) {
       disconnect.dispose();
       throw err;

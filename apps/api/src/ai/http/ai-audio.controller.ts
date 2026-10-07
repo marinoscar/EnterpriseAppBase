@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -94,8 +95,9 @@ export class AiAudioController {
   async transcribe(
     @Body() dto: AiTranscriptionRequestDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<AiRunHandle> {
-    return this.ai.forUser(userId).transcribe(toTranscribeRequest(dto));
+    return this.ai.forUser(userId, { orgId }).transcribe(toTranscribeRequest(dto));
   }
 
   @Post('speech')
@@ -132,8 +134,8 @@ export class AiAudioController {
       '`AI_MODEL_NOT_REACHABLE`, or missing `ai:use`',
     type: ErrorDto,
   })
-  async speech(@Body() dto: AiSpeechRequestDto, @CurrentUser('id') userId: string): Promise<AiRunHandle> {
-    return this.ai.forUser(userId).speak(toSpeakRequest(dto));
+  async speech(@Body() dto: AiSpeechRequestDto, @CurrentUser('id') userId: string, @CurrentOrg() orgId: string): Promise<AiRunHandle> {
+    return this.ai.forUser(userId, { orgId }).speak(toSpeakRequest(dto));
   }
 }
 

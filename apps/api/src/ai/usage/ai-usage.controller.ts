@@ -2,6 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -54,7 +55,11 @@ export class AiUsageController {
   @ApiDataResponse(AiUsageReportDto, { description: 'Your usage report' })
   @ApiResponse({ status: 400, description: 'Invalid query, or `AI_USAGE_RANGE_INVALID`', type: ErrorDto })
   @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
-  async mine(@Query() query: AiUsageMeQueryDto, @CurrentUser('id') userId: string): Promise<AiUsageReport> {
-    return this.usage.report({ from: query.from, to: query.to, groupBy: query.groupBy, userId });
+  async mine(
+    @Query() query: AiUsageMeQueryDto,
+    @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
+  ): Promise<AiUsageReport> {
+    return this.usage.report({ from: query.from, to: query.to, groupBy: query.groupBy, userId }, undefined, orgId);
   }
 }

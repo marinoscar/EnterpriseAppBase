@@ -52,8 +52,13 @@ export interface TripwireProblem {
   message: string;
 }
 
-/** Removes `--` and block comments and splits on top-level semicolons; quotes are respected. */
-function splitStatements(sql: string): string[] {
+/**
+ * Removes `--` and block comments and splits on top-level semicolons; quotes
+ * are respected. Shared with the policy tripwire.
+ *
+ * @internal
+ */
+export function splitSqlStatements(sql: string): string[] {
   const statements: string[] = [];
   let current = '';
   let i = 0;
@@ -180,7 +185,7 @@ export function scanRawSqlIndexes(migrations: ReadonlyArray<readonly [string, st
   const live = new Map<string, Created>();
   const firstCreated = new Map<string, string>();
   for (const [id, sql] of migrations) {
-    for (const statement of splitStatements(sql)) {
+    for (const statement of splitSqlStatements(sql)) {
       const create = CREATE_INDEX.exec(statement);
       if (create) {
         const name = unquote(create[2]!);

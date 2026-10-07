@@ -7,6 +7,7 @@ import { NotFoundException } from '@nestjs/common';
 import {
   createAiRuntimeHarness,
   HARNESS_MODEL,
+  HARNESS_ORG,
   HARNESS_OTHER_USER,
   HARNESS_USER,
 } from '../testing/ai-runtime-harness';
@@ -18,6 +19,7 @@ async function newRun() {
   const h = createAiRuntimeHarness();
   const handle = await h.runs.create({
     userId: HARNESS_USER,
+    orgId: HARNESS_ORG,
     provider: 'openai',
     modelId: HARNESS_MODEL,
     request,
@@ -44,7 +46,7 @@ describe('AiRunsService', () => {
       reason: 'upload',
       subjectType: AI_RUN_SUBJECT_TYPE,
       subjectId: handle.runId,
-      payload: { runId: handle.runId },
+      payload: { runId: handle.runId, orgId: HARNESS_ORG },
     });
   });
 
@@ -52,7 +54,7 @@ describe('AiRunsService', () => {
     it("returns the owner's run view, without its request", async () => {
       const { h, handle } = await newRun();
 
-      const view = await h.runs.get(HARNESS_USER, handle.runId);
+      const view = await h.orgRuns.get(HARNESS_USER, handle.runId);
 
       expect(view).toMatchObject({
         id: handle.runId,
@@ -71,8 +73,8 @@ describe('AiRunsService', () => {
     it("is a 404 for another user's run and for a malformed id", async () => {
       const { h, handle } = await newRun();
 
-      await expect(h.runs.get(HARNESS_OTHER_USER, handle.runId)).rejects.toBeInstanceOf(NotFoundException);
-      await expect(h.runs.get(HARNESS_USER, 'not-a-uuid')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(h.orgRuns.get(HARNESS_OTHER_USER, handle.runId)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(h.orgRuns.get(HARNESS_USER, 'not-a-uuid')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 
@@ -80,7 +82,7 @@ describe('AiRunsService', () => {
     it('cancels a pending run', async () => {
       const { h, handle } = await newRun();
 
-      const view = await h.runs.cancel(HARNESS_USER, handle.runId);
+      const view = await h.orgRuns.cancel(HARNESS_USER, handle.runId);
 
       expect(view.status).toBe('cancelled');
       expect(view.completedAt).toBeInstanceOf(Date);
@@ -89,7 +91,7 @@ describe('AiRunsService', () => {
     it("cannot cancel another user's run", async () => {
       const { h, handle, row } = await newRun();
 
-      await expect(h.runs.cancel(HARNESS_OTHER_USER, handle.runId)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(h.orgRuns.cancel(HARNESS_OTHER_USER, handle.runId)).rejects.toBeInstanceOf(NotFoundException);
       expect(row().status).toBe('pending');
     });
 
@@ -97,9 +99,9 @@ describe('AiRunsService', () => {
       const { h, handle } = await newRun();
       const controller = new AbortController();
 
-      await h.runs.claim(handle.runId, handle.jobId);
+      await h.orgRuns.claim(handle.runId, handle.jobId);
       const detach = h.runs.attach(handle.runId, controller);
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       detach();
 
       expect(controller.signal.aborted).toBe(true);
@@ -107,10 +109,10 @@ describe('AiRunsService', () => {
 
     it('leaves a finished run unchanged (idempotent)', async () => {
       const { h, handle, row } = await newRun();
-      await h.runs.claim(handle.runId, handle.jobId);
-      await h.runs.fail(handle.runId, 'AI_KEY_INVALID', 'rejected');
+      await h.orgRuns.claim(handle.runId, handle.jobId);
+      await h.orgRuns.fail(handle.runId, 'AI_KEY_INVALID', 'rejected');
 
-      const view = await h.runs.cancel(HARNESS_USER, handle.runId);
+      const view = await h.orgRuns.cancel(HARNESS_USER, handle.runId);
 
       expect(view.status).toBe('failed');
       expect(row().errorCode).toBe('AI_KEY_INVALID');
@@ -121,16 +123,16 @@ describe('AiRunsService', () => {
     it('claim only from pending', async () => {
       const { h, handle } = await newRun();
 
-      expect(await h.runs.claim(handle.runId, handle.jobId)).toBe(true);
-      expect(await h.runs.claim(handle.runId, handle.jobId)).toBe(false);
+      expect(await h.orgRuns.claim(handle.runId, handle.jobId)).toBe(true);
+      expect(await h.orgRuns.claim(handle.runId, handle.jobId)).toBe(false);
     });
 
     it('a late completion never overwrites a cancellation', async () => {
       const { h, handle, row } = await newRun();
-      await h.runs.claim(handle.runId, handle.jobId);
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.claim(handle.runId, handle.jobId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
 
-      const completed = await h.runs.complete(handle.runId, {
+      const completed = await h.orgRuns.complete(handle.runId, {
         id: 'r',
         provider: 'openai',
         model: HARNESS_MODEL,
@@ -147,9 +149,9 @@ describe('AiRunsService', () => {
 
     it('release returns a running run to pending', async () => {
       const { h, handle, row } = await newRun();
-      await h.runs.claim(handle.runId, handle.jobId);
+      await h.orgRuns.claim(handle.runId, handle.jobId);
 
-      await h.runs.release(handle.runId);
+      await h.orgRuns.release(handle.runId);
 
       expect(row().status).toBe('pending');
     });
@@ -162,7 +164,7 @@ describe('AiRunsService', () => {
       const detachFirst = h.runs.attach(handle.runId, first);
       h.runs.attach(handle.runId, second);
       detachFirst();
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
 
       expect(first.signal.aborted).toBe(false);
       expect(second.signal.aborted).toBe(true);

@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -83,8 +84,9 @@ export class AiImagesController {
   async generate(
     @Body() dto: AiImageGenerateRequestDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<AiRunHandle> {
-    return this.ai.forUser(userId).generateImage(toGenerateRequest(dto));
+    return this.ai.forUser(userId, { orgId }).generateImage(toGenerateRequest(dto));
   }
 
   @Post('edits')
@@ -118,8 +120,8 @@ export class AiImagesController {
     type: ErrorDto,
   })
   @ApiResponse({ status: 404, description: 'An input storage object does not exist', type: ErrorDto })
-  async edit(@Body() dto: AiImageEditRequestDto, @CurrentUser('id') userId: string): Promise<AiRunHandle> {
-    return this.ai.forUser(userId).editImage(toEditRequest(dto));
+  async edit(@Body() dto: AiImageEditRequestDto, @CurrentUser('id') userId: string, @CurrentOrg() orgId: string): Promise<AiRunHandle> {
+    return this.ai.forUser(userId, { orgId }).editImage(toEditRequest(dto));
   }
 }
 

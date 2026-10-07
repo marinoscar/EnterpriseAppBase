@@ -8,6 +8,8 @@
  * - `LEDGER_CHECKSUM_MISMATCH`: a mapped directory's file differs from the checksum the database recorded.
  * - `DIFF_BLOCKING`: the live database differs from the package history in a statement no deviation declares.
  * - `INDEX_MISSING`, `INDEX_DEFINITION_DIFFERS`: a raw-SQL index is missing or changed in the live database.
+ * - `RLS_OPT_IN_REQUIRED`: a migration above `--through` is flagged `rls` in the manifest and the app has not opted in with `--allow-rls`.
+ * - `POLICY_MISSING`, `POLICY_UNLISTED`, `RLS_NOT_ENABLED`, `RLS_NOT_FORCED`, `RLS_FORCED_WITHOUT_POLICY`: the live row-level security does not match the policies the history up to `--through` creates.
  * - `LOCK_NOT_EMPTY`: `platform.lock` already has entries and `--force-remap` was not given.
  * - `PLACEMENT_IMPOSSIBLE`: a migration to resolve cannot be named so that the history keeps package order.
  * - `PACKAGE_FILE_MISMATCH`: a package file does not match its manifest hash.
@@ -25,6 +27,12 @@ export type BaselineErrorCode =
   | 'DIFF_BLOCKING'
   | 'INDEX_MISSING'
   | 'INDEX_DEFINITION_DIFFERS'
+  | 'RLS_OPT_IN_REQUIRED'
+  | 'POLICY_MISSING'
+  | 'POLICY_UNLISTED'
+  | 'RLS_NOT_ENABLED'
+  | 'RLS_NOT_FORCED'
+  | 'RLS_FORCED_WITHOUT_POLICY'
   | 'LOCK_NOT_EMPTY'
   | 'PLACEMENT_IMPOSSIBLE'
   | 'PACKAGE_FILE_MISMATCH'

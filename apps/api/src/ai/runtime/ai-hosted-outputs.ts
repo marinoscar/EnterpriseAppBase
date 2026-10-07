@@ -42,6 +42,8 @@ import type {
 /** Who an output belongs to — what a storage writer needs to own and key it. */
 export interface AiHostedOutputOwner {
   userId: string;
+  /** The organization the call runs in; absent: resolved from the single-mode default when persisting. */
+  orgId?: string;
   /** The queue job a background run executes under, when there is one. */
   jobId?: string;
   /** The background run, when there is one — its outputs' storage folder. */

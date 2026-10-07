@@ -11,6 +11,7 @@ import { OrganizationsAdminService } from './organizations-admin.service';
 import { OrgMembersController } from './org-members.controller';
 import { OrgInvitesController } from './org-invites.controller';
 import { OrganizationsAdminController } from './organizations-admin.controller';
+import { RlsRoleDoctorCheck } from './doctor/rls-role.doctor-check';
 
 /**
  * Organizations (PP-6.1). Switch-org (PP-6.4) is `POST /api/auth/switch-org`
@@ -32,6 +33,7 @@ import { OrganizationsAdminController } from './organizations-admin.controller';
     OrganizationsService,
     TenancyService,
     TenancyModeDoctorCheck,
+    RlsRoleDoctorCheck,
     OrgMembersService,
     OrgInvitesService,
     OrganizationsAdminService,

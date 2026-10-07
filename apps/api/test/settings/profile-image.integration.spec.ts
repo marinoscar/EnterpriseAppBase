@@ -5,6 +5,7 @@ import {
   createTestApp,
   closeTestApp,
 } from '../helpers/test-app.helper';
+import { MOCK_DEFAULT_ORG_ID } from '../fixtures/test-data.factory';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import {
   setupBaseMocks,
@@ -527,6 +528,15 @@ describe('Profile Image Integration (#367)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         userRoles: [{ role: { name: 'viewer', rolePermissions: [] } }],
+        memberships: [
+          {
+            orgId: MOCK_DEFAULT_ORG_ID,
+            status: 'active',
+            lastActiveAt: new Date(),
+            org: { id: MOCK_DEFAULT_ORG_ID, isDefault: true },
+            role: { name: 'viewer', rolePermissions: [] },
+          },
+        ],
         userSettings: {
           value: {
             theme: 'system',

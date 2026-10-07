@@ -479,6 +479,9 @@ export function buildCreateRoleGrantCommands(databaseRole: string): string {
     '',
     '-- Option A (simplest):',
     `ALTER ROLE ${quoteIdentifier(databaseRole)} CREATEROLE;`,
+    '-- PostgreSQL 16 or later: without this a non-superuser CREATEROLE role can create a job',
+    '-- role but not drop its privileges again (DROP OWNED BY), so revocation would fail.',
+    `ALTER ROLE ${quoteIdentifier(databaseRole)} SET createrole_self_grant = 'inherit, set';`,
     '',
     '-- Option B (least privilege - a dedicated minter the app must SET ROLE into):',
     'CREATE ROLE app_job_minter NOINHERIT CREATEROLE;',
@@ -706,8 +709,13 @@ export class PgJobRoleBroker implements JobSecretBroker {
       // or a future default cannot quietly widen what a job credential can do,
       // and it makes the re-issue path re-assert the same attributes rather
       // than trusting whatever the role currently has.
+      //
+      // NOBYPASSRLS is explicit for a reason of its own (issue #725): a job role
+      // reads tenant tables through the `app.rls_bypass` setting the dump
+      // carries, never through the role attribute, so it must never hold the
+      // attribute that would make every policy moot for it.
       const attributes =
-        'NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION ' +
+        'NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS ' +
         `CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT}`;
 
       if (existing.length === 0) {
@@ -715,8 +723,20 @@ export class PgJobRoleBroker implements JobSecretBroker {
           `CREATE ROLE ${quoted} LOGIN PASSWORD ${secret} VALID UNTIL ${validUntil} ${attributes}`
         );
       } else {
+        // ⚠ PostgreSQL 16: naming SUPERUSER, REPLICATION, CREATEDB or BYPASSRLS
+        // in an ALTER ROLE needs that attribute yourself, even to switch it
+        // OFF ("Only roles with the REPLICATION attribute may change the
+        // REPLICATION attribute"). The application role is an ordinary
+        // CREATEROLE role wherever row-level security is enforced, so it
+        // re-asserts only the attributes it is allowed to name. A role this
+        // broker created was created without the others, and a role that is not
+        // a superuser cannot have raised them since.
+        const restricted = !(await this.currentRoleIsSuperuser(client));
+        const alterAttributes = restricted
+          ? `NOCREATEROLE NOINHERIT CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT}`
+          : attributes;
         await client.query(
-          `ALTER ROLE ${quoted} WITH LOGIN PASSWORD ${secret} VALID UNTIL ${validUntil} ${attributes}`
+          `ALTER ROLE ${quoted} WITH LOGIN PASSWORD ${secret} VALID UNTIL ${validUntil} ${alterAttributes}`
         );
       }
 
@@ -893,6 +913,13 @@ export class PgJobRoleBroker implements JobSecretBroker {
   }
 
   /** Whether a role of this exact name exists. */
+  /** Whether the session's own role is a superuser (decides which attributes an ALTER ROLE may name). */
+  private async currentRoleIsSuperuser(client: AdminQueryClient): Promise<boolean> {
+    const result = await client.query('SELECT rolsuper FROM pg_roles WHERE rolname = current_user');
+
+    return result.rows[0]?.rolsuper === true;
+  }
+
   private async roleExists(client: AdminQueryClient, role: string): Promise<boolean> {
     const result = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1 LIMIT 1', [role]);
 

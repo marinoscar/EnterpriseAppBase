@@ -43,6 +43,7 @@ contract lives in the generated OpenAPI document (`/api/docs`).
 15. [File reference](#15-file-reference)
 16. [Developer checklist](#16-developer-checklist)
 17. [User-owned data and scoped access](#17-user-owned-data-and-scoped-access)
+18. [Tenant isolation (RLS)](#18-tenant-isolation-rls)
 
 ---
 
@@ -1495,8 +1496,9 @@ client extension that:
 
 Nested writes and relation `include`s are not rewritten; a nested write into
 another user-owned model goes through that model's own scoped call.
-`Scope.orgId` and `Scope.groupIds` are accepted and ignored until row-level
-security on `org_id` (#725) and group grants (#729).
+`Scope.orgId` is enforced by the database, not by this extension: see
+[section 18](#18-tenant-isolation-rls). `Scope.groupIds` is accepted and
+ignored until group grants (#729).
 
 **`asSystem(actor)`** returns the unscoped client for system work and needs a
 `SystemActor` (`{ kind: 'system', reason }`). The reason is logged at debug
@@ -1513,3 +1515,187 @@ caller.
 Adoption is incremental: `UserCredentialsService` is the reference, and the
 other user-facing services move slice by slice. Recipe and full rules:
 [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md).
+
+---
+
+## 18. Tenant isolation (RLS)
+
+Authorization says **who may act**; the database says **which organization's
+rows a transaction can see at all**. Since #725 (PP-6.5, [ADR 0002
+D5](adr/0002-database-packaging-and-rls.md)) a cross-organization read is
+refused by PostgreSQL itself, so a missing `where`, a forgotten ownership check
+or a raw query cannot leak another tenant's data. Row-level security (RLS) is a
+second line behind `@Auth(...)` and the service's checks, never a replacement.
+
+**What is isolated.** The models registered `org` in the model ownership
+registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`, a
+`@marinoscar/platform-api/core` registry): `StorageObject`,
+`StorageObjectChunk`, `AiRun`, `AiUsageEvent`. Each carries `org_id`, has
+`ENABLE` and `FORCE ROW LEVEL SECURITY`, and one policy named in
+`packages/platform-db/rls-policies.json` (`RLS_POLICIES`). `AuditEvent` has a
+nullable `org_id` and no policy yet (`org-optional`); `user` and `system`
+models carry no organization. A table that merely **references** an
+organization (`Membership`, `Invite`, org-bound tokens) says so with
+`orgReference` and is not isolated by RLS; its service code guards it.
+
+**The policy.** Every org table uses this template (the ADR's):
+
+```sql
+ALTER TABLE storage_objects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE storage_objects FORCE ROW LEVEL SECURITY;
+CREATE POLICY storage_objects_org_isolation ON storage_objects
+  USING      (org_id = NULLIF(current_setting('app.org_id', true), '')::uuid
+              OR current_setting('app.rls_bypass', true) = 'on')
+  WITH CHECK (org_id = NULLIF(current_setting('app.org_id', true), '')::uuid
+              OR current_setting('app.rls_bypass', true) = 'on');
+```
+
+`FORCE` makes the policy apply to the table owner, which is the application
+role. `NULLIF(..., '')` matters: after a connection has held a setting
+transaction-locally, `current_setting` returns the empty string, not NULL, and
+an unguarded `''::uuid` would raise instead of failing closed.
+
+**The settings are transaction-local, always.** `app.org_id`, `app.user_id` and
+`app.rls_bypass` are written only with `set_config(name, value, true)` (the
+third argument is `is_local`) as the first statement of a transaction, and
+vanish at `COMMIT` or `ROLLBACK`. **Never a session-level `SET`**: it leaks to
+the next request on a pooled connection, and behind a transaction-mode pooler
+(PgBouncer, RDS Proxy) a session setting is not even attached to the client's
+next statement. The transaction-local form is the one that survives both. A
+test runs 200 interleaved scoped operations for two organizations over a pool
+of four connections and asserts none crosses.
+
+**Fail closed.** A client that sets no scope sees **zero rows** and its inserts
+fail the `WITH CHECK`. The same holds on a connection that has previously held a
+scope. Raw SQL is covered the same way.
+
+**Two clients, two pools.**
+
+| Client | For | How it sets the scope |
+|---|---|---|
+| `PrismaService.forOrg(orgId, { userId })` | A single operation in an organization. Every model operation and `$queryRaw` becomes `$transaction([set_config, operation])` on one connection. | Prisma extension (`orgScopeExtension`) |
+| `PrismaService.runInOrg(orgId, fn, { userId })` | A unit of work of more than one statement. `fn` receives the plain **transaction** client. Nested in the same organization it reuses the outer transaction; another organization throws. | Interactive transaction, `set_config` first |
+| `PrismaSystemService.asSystem(reason)` / `.runAsSystem(reason, fn)` | Cross-organization system work. | The same two shapes, setting `app.rls_bypass = 'on'` |
+
+Never use a `forOrg` client inside `$transaction(async tx => ...)`: its
+operations open their own transaction and escape the outer one. Use
+`runInOrg`; the extension refuses when Prisma tells it it is inside one.
+
+`PrismaSystemService` is a **separate `PrismaClient` with its own small pool**
+(`SYSTEM_POOL_MAX = 4`, `application_name = '<app>-system'`, same role and URL as
+the tenant pool, no new variable). Because the two pools share no backend, the
+bypass flag cannot reach a tenant request's connection whatever a bug does. Each
+acquisition names a **closed reason** (`SystemAccessReason`: `backup`, `restore`,
+`purge`, `doctor`, `retention`, `admin-aggregate`, `migration-tooling`), which is
+put on the active span (`db.access.reason`, plus a `db.rls_bypass` event) and
+logged at debug, never used as a metric label. **Only an allowlist of modules
+may inject it**: `apps/api/test/tenancy/system-injection-boundary.spec.ts`
+scans every constructor and `@Inject`, and fails on a file outside its
+`ALLOWLIST` and on a stale entry. Adding a file there is a reviewed decision.
+
+**Where the organization comes from.** An HTTP handler takes it from
+`@CurrentOrg()` (`principal.activeOrgId`: signed into the access token and
+validated against the user's memberships, never read from a header, query or
+body) and passes it to its service; a credential with no active organization
+(a worker-node credential) is refused with 403. A **job** carries `orgId` in its
+payload, put there by whoever enqueued it. A payload without one is a job
+enqueued before #725: in `single` mode it belongs to the default organization,
+in `multi` mode it **fails** with `MissingOrgScopeError` (guessing an
+organization is the leak this exists to prevent). Job `type` strings did not
+change.
+
+**Composite foreign keys.** A foreign-key check is run by PostgreSQL without
+row-level security, so a plain `object_id -> storage_objects(id)` would let one
+organization store a reference to another's row. `storage_object_chunks` links to
+its parent with `(object_id, org_id) -> storage_objects (id, org_id)`; any new
+link between two org-owned tables does the same.
+
+**Migrations that touch an org table** run as system work, in an explicit
+transaction that raises the flag, or the statement silently affects zero rows
+under `FORCE`:
+
+```sql
+BEGIN;
+SELECT set_config('app.rls_bypass', 'on', true);
+-- backfill or data fix here
+COMMIT;
+```
+
+**Backups and restores carry every row.** `pg_dump --enable-row-security`
+**without** the `app.rls_bypass` option exits 0 and writes a valid archive with
+the schema and **no rows**; the option without the flag is refused by
+`pg_dump`. So every dump and restore path (`buildPgDumpArgs`,
+`buildPgRestoreArgs`, the node-side dump in `apps/cli/src/node/pg-dump.ts`)
+carries both: the flag in argv and `PGOPTIONS=-c app.rls_bypass=on` in the
+child's environment (never argv). The API merges the option into any `PGOPTIONS` already set; the node's CLI clears every inherited libpq variable and sets exactly this one. The
+SELECT-only role minted for a worker node stays SELECT-only and is created
+`NOBYPASSRLS`: it reads the rows through the same option, not through a role
+attribute. The restore's cluster-admin connection (outside the Prisma pool) is
+unaffected. `apps/api/test/db-backup/db-backup-rls.db.spec.ts` proves the row
+counts per organization after a restore, for the engine's dump, the broker's
+minted role and the CLI's dump, plus both negative controls. **A dump needs a
+direct (or session-mode) connection to the database**: a transaction-mode
+pooler rejects the startup option. The Doctor check `backup.rls-bypass` counts
+the org tables with the system client and over a connection carrying the option
+and fails when they differ (a warning when the connection cannot be opened).
+
+### The application role
+
+RLS is **inert for a superuser or a `BYPASSRLS` role**, `FORCE` included. The
+API must therefore connect as an ordinary role (`NOSUPERUSER NOBYPASSRLS`) that
+owns its tables (it needs `CREATEDB` for restore and, only when worker nodes
+dump, `CREATEROLE`; on PostgreSQL 16 also
+`ALTER ROLE app SET createrole_self_grant = 'inherit, set'`, or it cannot drop
+the job roles it creates).
+
+- **Development database** (`devdb.compose.yml`) and **test database**
+  (`test.compose.yml`): the image's bootstrap login stays `postgres`
+  (administration only); `postgres-init/10-application-role.sh` creates the
+  role from `POSTGRES_USER` (default `app`) on the first start of an empty
+  volume and makes it the database owner. `.env.example` and the compose
+  defaults say `app`.
+- **An existing development volume** keeps its old superuser, and the Doctor
+  reports it. The clean path: take a backup in the admin UI (or `pg_dump`),
+  remove the volume (`docker volume rm`), start the stack so the init script
+  runs, run `prisma:migrate`, then restore the backup. Do not
+  `REASSIGN OWNED BY postgres`: it also moves the cluster's own databases.
+- **CI** (`smoke`, `deploy-e2e`): a step runs the same script against the
+  service container.
+- **Production**: provision the role the same way, run the migrations as it,
+  and set `POSTGRES_USER` to it. A superuser may remain for the cluster
+  administration connection only.
+
+**The Doctor check `db.rls_role`** fails while any table has `FORCE` and the
+role the API connects as is a superuser or has `BYPASSRLS`, naming the role and
+the remedy. Everything else in this section can be correct and the deployment
+still isolates nothing without it.
+
+### Tests that hold this in place
+
+- `apps/api/test/tenancy/rls-isolation.db.spec.ts`: two organizations, an
+  ordinary role the suite creates itself, `FORCE` on. `forOrg(A)` never reads,
+  updates, deletes or inserts into B (including raw SQL), an unscoped client
+  sees nothing, the system client sees both, concurrent scoped transactions
+  never cross, and the composite key refuses a cross-organization chunk.
+- `apps/api/test/tenancy/rls-coverage.db.spec.ts` (and its pure counterpart): every
+  `org` model has `relrowsecurity`, `relforcerowsecurity` and a policy named in
+  `RLS_POLICIES`; no unregistered table has an `org_id`; it fails for a fixture
+  table with an `org_id` and no policy.
+- `apps/api/test/tenancy/storage-org-isolation.db.spec.ts`: the real storage
+  service answers 404 across organizations even for the same user.
+- `apps/api/test/tenancy/system-injection-boundary.spec.ts` and
+  `rls-overhead.db.spec.ts` (the measured cost: about one extra millisecond at
+  p50 and 2 to 4 ms at p95 per scoped query on 1,000 rows per organization).
+- `platform db drift` allows exactly the policies in `RLS_POLICIES` and fails
+  on a missing one.
+
+### Extending it
+
+A new org-owned table: add the model to the owning fragment with `orgId`
+(NOT NULL, a Restrict foreign key to `organizations`, an index starting with it),
+register it `org` in the ownership manifest, write the migration with the
+policy template and the bypass-flag transaction for any backfill, add the policy
+to `rls-policies.json`, route every caller through `forOrg` / `runInOrg` or a
+named system reason, and put `orgId` in the payload of every job that touches
+it. The coverage tripwire fails until each step is done.
+

@@ -21,8 +21,7 @@ import type { Job, PrismaClient } from '@prisma/client';
 import { AiProviderRegistry } from '../../src/ai/core/provider-registry';
 import { AiUsagePurgeHandler } from '../../src/ai/usage/ai-usage-purge.handler';
 import { AiUsageService } from '../../src/ai/usage/ai-usage.service';
-import type { PrismaService } from '../../src/prisma/prisma.service';
-import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('ai-usage.db.spec');
 
@@ -32,13 +31,17 @@ const at = (iso: string) => new Date(iso);
 describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
   let client: PrismaClient;
   let service: AiUsageService;
+  let services: ReturnType<typeof createDbServices>;
+  let orgId: string;
   const provider = `dbspec-${randomUUID().slice(0, 8)}`;
   let alice: { id: string; email: string };
   let bob: { id: string; email: string };
 
   beforeAll(async () => {
     client = createDbClient();
-    service = new AiUsageService(client as unknown as PrismaService, new AiProviderRegistry());
+    services = createDbServices();
+    orgId = await defaultOrgId(client);
+    service = new AiUsageService(services.prisma, new AiProviderRegistry(), services.system);
 
     alice = await client.user.create({
       data: { email: `alice-${provider}@example.com` },
@@ -49,7 +52,7 @@ describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
       select: { id: true, email: true },
     });
 
-    const base = { provider, operation: 'responses', latencyMs: 10 };
+    const base = { orgId, provider, operation: 'responses', latencyMs: 10 };
 
     await client.aiUsageEvent.createMany({
       data: [
@@ -61,7 +64,7 @@ describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
         // bob, model-a, ORG key, day 3, cancelled, no tokens reported, non-numeric unit ignored
         { ...base, userId: bob.id, modelId: 'model-a', keySource: 'org', status: 'cancelled', units: { images: 1, note: 'x' }, createdAt: at('2026-09-03T10:00:00.000Z') },
         // system catalog sync, no user
-        { ...base, userId: null, modelId: 'model-a', operation: 'catalog', keySource: 'admin_discovery', status: 'succeeded', units: [1, 2], createdAt: at('2026-09-03T11:00:00.000Z') },
+        { ...base, orgId: null, userId: null, modelId: 'model-a', operation: 'catalog', keySource: 'admin_discovery', status: 'succeeded', units: [1, 2], createdAt: at('2026-09-03T11:00:00.000Z') },
         // OUTSIDE the window on both sides
         { ...base, userId: alice.id, modelId: 'model-a', keySource: 'user', status: 'succeeded', inputTokens: 999, createdAt: at('2026-08-31T23:59:59.999Z') },
         { ...base, userId: alice.id, modelId: 'model-a', keySource: 'user', status: 'succeeded', inputTokens: 999, createdAt: at('2026-09-04T00:00:00.000Z') },
@@ -72,6 +75,7 @@ describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
   afterAll(async () => {
     await client.aiUsageEvent.deleteMany({ where: { provider } });
     await client.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await services.close();
     await client.$disconnect();
   });
 
@@ -148,15 +152,15 @@ describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
 
   it('the purge deletes only rows older than the retention window', async () => {
     const old = await client.aiUsageEvent.create({
-      data: { provider, modelId: 'model-a', operation: 'responses', keySource: 'user', status: 'succeeded', latencyMs: 1, createdAt: new Date(Date.now() - 400 * 86_400_000) },
+      data: { orgId, provider, modelId: 'model-a', operation: 'responses', keySource: 'user', status: 'succeeded', latencyMs: 1, createdAt: new Date(Date.now() - 400 * 86_400_000) },
     });
     const recent = await client.aiUsageEvent.create({
-      data: { provider, modelId: 'model-a', operation: 'responses', keySource: 'user', status: 'succeeded', latencyMs: 1, createdAt: new Date(Date.now() - 10 * 86_400_000) },
+      data: { orgId, provider, modelId: 'model-a', operation: 'responses', keySource: 'user', status: 'succeeded', latencyMs: 1, createdAt: new Date(Date.now() - 10 * 86_400_000) },
     });
 
     const handler = new AiUsagePurgeHandler(
       { register: () => undefined } as never,
-      client as unknown as PrismaService,
+      services.system,
       { getAiPolicy: async () => ({ usageRetentionDays: 180 }) } as never,
     );
 

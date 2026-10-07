@@ -3,13 +3,21 @@ services:
     image: postgres:16-alpine
     container_name: my-app-db-test
     environment:
+      # `postgres` is the image's bootstrap superuser (administration only). The
+      # role the suites connect as is the ordinary `app`, created by
+      # postgres-init/10-application-role.sh, so row-level security is enforced
+      # for it (issue #725). The suites that create roles and databases
+      # (CREATEROLE, CREATEDB) do so as `app`.
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: my_app_test
+      APP_DB_USER: app
+      APP_DB_PASSWORD: postgres
     ports:
       - "5433:5432"
     volumes:
       - test-db-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

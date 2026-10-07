@@ -5,6 +5,7 @@ import { DatabaseBackupAdminService } from '../db-backup-admin.service';
 import { PgVersionCheck } from '../pg-version.util';
 import { BackupPgClientDoctorCheck, decidePgClient } from './backup-pg-client.doctor-check';
 import { BackupScheduleDoctorCheck, decideBackupSchedule } from './backup-schedule.doctor-check';
+import { decideBackupRls, type OrgTableCounts } from './backup-rls.doctor-check';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
   expect(['warn', 'fail']).toContain(outcome.status);
@@ -123,5 +124,44 @@ describe('backup doctor checks', () => {
       expect(check.timeoutMs).toBeGreaterThan(10_000);
       expect(registry.get('backup.pg-client')).toBe(check);
     });
+  });
+});
+
+// =============================================================================
+// backup.rls-bypass (issue #725): would a dump carry every organization's rows?
+// =============================================================================
+
+
+describe('decideBackupRls', () => {
+  const counts = (over: Partial<OrgTableCounts> = {}): OrgTableCounts => ({
+    storage_objects: 6,
+    storage_object_chunks: 4,
+    ai_runs: 6,
+    ai_usage_events: 7,
+    ...over,
+  });
+
+  it('passes when the dump connection counts exactly what the system client counts', () => {
+    const outcome = decideBackupRls({ system: counts(), startupOption: counts() });
+
+    expect(outcome.status).toBe('pass');
+    expect(outcome.detail).toMatch(/all 23 row\(s\)/);
+    expect(outcome.data).toMatchObject({ 'system.storage_objects': 6, 'startupOption.storage_objects': 6 });
+  });
+
+  it('fails, naming the tables, when the dump connection sees fewer rows (an empty archive in waiting)', () => {
+    const outcome = decideBackupRls({ system: counts(), startupOption: counts({ ai_runs: 0, storage_objects: 0 }) });
+
+    expect(outcome.status).toBe('fail');
+    expect(outcome.detail).toMatch(/storage_objects, ai_runs/);
+    expect(outcome.remedy).toMatch(/--enable-row-security.*app\.rls_bypass=on/);
+  });
+
+  it('warns, not fails, when the startup-option connection cannot be opened (a pooler)', () => {
+    const outcome = decideBackupRls({ system: counts(), startupOption: { error: 'unsupported startup parameter' } });
+
+    expect(outcome.status).toBe('warn');
+    expect(outcome.detail).toMatch(/unsupported startup parameter/);
+    expect(outcome.remedy).toMatch(/direct/);
   });
 });

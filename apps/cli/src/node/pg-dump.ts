@@ -122,6 +122,7 @@ const defaultSpawn: PgSpawnFn = (command, args, options) => nodeSpawn(command, a
  *    the archive, so a restore onto a fresh machine does not fail on an
  *    `ALTER ... OWNER TO` naming a role that does not exist there. They are
  *    also what makes a SELECT-only minted role a sufficient dumper.
+ *  - `--enable-row-security` (issue #725): see the comment on the flag below.
  *  - `-Z <level>` compresses inside `pg_dump`, before the bytes cross the
  *    network to object storage — which on a node is a real network, not a
  *    loopback.
@@ -144,10 +145,26 @@ export function buildPgDumpArgs(connection: PgConnection, compressionLevel = DEF
     '-Fc',
     '--no-owner',
     '--no-acl',
+    // Row-level security (issue #725, ADR 0002 D5). The org tables FORCE it, so a
+    // dump needs this flag AND the `app.rls_bypass` startup option in the
+    // child's environment (`RLS_BYPASS_PGOPTIONS`, set by `spawnPgDump`). The
+    // flag alone exits 0 with an archive that has no rows. The minted
+    // SELECT-only role may set the option: it is a custom (`app.`) setting.
+    '--enable-row-security',
     '-Z',
     String(clampCompressionLevel(compressionLevel)),
   ];
 }
+
+/**
+ * The libpq startup option that lets a dump read every organization's rows
+ * (`app.rls_bypass`, see `buildPgDumpArgs`). `PGOPTIONS` is cleared with the
+ * rest of the inherited connection environment ({@link CLEARED_PG_ENV}) and
+ * set to exactly this, so a leftover value on the worker cannot widen it. The
+ * dump connects straight to the database: a transaction-mode pooler rejects
+ * the option.
+ */
+export const RLS_BYPASS_PGOPTIONS = '-c app.rls_bypass=on';
 
 /** 0-9, CLAMPED rather than rejected: "dump at level 9" beats "take no backup". */
 export function clampCompressionLevel(level: number): number {
@@ -227,7 +244,7 @@ export function spawnPgDump(options: SpawnPgDumpOptions): PgProcess {
   const args = buildPgDumpArgs(options.connection, options.compressionLevel);
 
   const child = spawnFn(command, args, {
-    env: pgClientEnv(options.connection),
+    env: { ...pgClientEnv(options.connection), PGOPTIONS: RLS_BYPASS_PGOPTIONS },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, BadRequestException } from '@nestjs/common';
 import { UserSettingsService } from './user-settings.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import {
   createMockPrismaService,
   MockPrismaService,
@@ -37,6 +38,8 @@ describe('UserSettingsService', () => {
         // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
         { provide: PrincipalCache, useValue: principalCacheStub },
         { provide: PrismaService, useValue: mockPrisma },
+        // The profile-image check reads the user's own avatar row through the system client (#725).
+        { provide: PrismaSystemService, useValue: { asSystem: () => mockPrisma } },
       ],
     }).compile();
 

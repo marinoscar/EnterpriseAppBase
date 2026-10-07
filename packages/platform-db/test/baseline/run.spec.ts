@@ -335,3 +335,63 @@ describe('resolveThrough', () => {
     expect(() => resolveThrough([], undefined)).toThrow(/no migrations/);
   });
 });
+
+describe('row-level security (the rls flag)', () => {
+  /** Flags a fixture migration as one that enables row-level security. */
+  function flagRls(ws: BaselineWorkspace, id: string): void {
+    const file = join(ws.packageDir, 'migrations', 'manifest.json');
+    const entries = JSON.parse(readFileSync(file, 'utf8')) as Array<{ id: string; rls?: boolean }>;
+    for (const entry of entries) if (entry.id === id) entry.rls = true;
+    writeFileSync(file, `${JSON.stringify(entries, null, 2)}\n`);
+  }
+
+  it('stops before a migration flagged rls that sits above --through, until the app opts in', async () => {
+    const ws = makeBaselineWorkspace({ appCount: 3 });
+    flagRls(ws, '0004_add_org_name');
+    const before = snapshot(ws.root);
+    const report = await runBaseline(options(ws, { through: '3', apply: true }), fakeDeps({ ledger: appLedger(ws) }));
+    expect(codes(report)).toEqual(['RLS_OPT_IN_REQUIRED']);
+    expect(report.applied).toBe(false);
+    expect(report.refusals[0]!.message).toContain('platform:0004_add_org_name');
+    expect(report.refusals[0]!.message).toContain('--allow-rls');
+    expect(snapshot(ws.root)).toEqual(before);
+  });
+
+  it('proceeds with allowRls', async () => {
+    const ws = makeBaselineWorkspace({ appCount: 3 });
+    flagRls(ws, '0004_add_org_name');
+    const report = await runBaseline(options(ws, { through: '3', allowRls: true }), fakeDeps({ ledger: appLedger(ws) }));
+    expect(codes(report)).toEqual([]);
+    expect(report.toInstall.map((i) => i.originId)).toEqual(['platform:0004_add_org_name', 'platform:0005_add_org_active_index']);
+  });
+
+  it('does not stop when the flagged migration is at or below --through (the database already has it)', async () => {
+    const ws = makeBaselineWorkspace();
+    flagRls(ws, '0004_add_org_name');
+    const report = await runBaseline(options(ws, { through: '5' }), fakeDeps({ ledger: appLedger(ws) }));
+    expect(codes(report)).toEqual([]);
+  });
+
+  it('asserts the live policies the history up to --through creates, and that their table forces row-level security', async () => {
+    const ws = makeBaselineWorkspace();
+    writeFileSync(
+      join(ws.packageDir, 'rls-policies.json'),
+      `${JSON.stringify({ policies: [{ name: 'bl_orgs_org_isolation', table: 'bl_orgs', reason: 'test', doc: 'docs/x.md', createdIn: '0004_add_org_name' }] })}\n`,
+    );
+    const deps = fakeDeps({ ledger: appLedger(ws) });
+    const missing = await runBaseline(options(ws), { ...deps, readPolicies: async () => [], readTableRls: async () => [{ table: 'bl_orgs', enabled: false, forced: false }] });
+    expect(codes(missing)).toEqual(['POLICY_MISSING', 'RLS_NOT_ENABLED']);
+    expect(renderReport(missing).join('\n')).toContain('B4 row-level security: 2 problem(s)');
+
+    const ok = await runBaseline(options(ws), {
+      ...deps,
+      readPolicies: async () => [{ table: 'bl_orgs', name: 'bl_orgs_org_isolation' }],
+      readTableRls: async () => [{ table: 'bl_orgs', enabled: true, forced: true }],
+    });
+    expect(codes(ok)).toEqual([]);
+
+    // Below the migration that creates the policy, none is expected.
+    const earlier = await runBaseline(options(ws, { through: '3' }), { ...deps, readPolicies: async () => [], readTableRls: async () => [] });
+    expect(codes(earlier)).toEqual([]);
+  });
+});

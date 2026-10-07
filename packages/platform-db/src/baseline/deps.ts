@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadPg, prismaCli, stripBanner, withShadowDatabase, readIndexRows } from '../drift/index.js';
+import { loadPg, prismaCli, stripBanner, withShadowDatabase, readIndexRows, readPolicyRows, readTableRlsRows } from '../drift/index.js';
 import type { LedgerRow } from '../sync/index.js';
 import type { BaselineDeps, PrismaResult } from './run.js';
 
@@ -74,6 +74,8 @@ export function createBaselineDeps(options: BaselineDepsOptions): BaselineDeps {
       }
     },
     readIndexes: () => readIndexRows(options.databaseUrl, options.root),
+    readPolicies: () => readPolicyRows(options.databaseUrl, options.root),
+    readTableRls: () => readTableRlsRows(options.databaseUrl, options.root),
     diffReplayToLive: (replayMigrationsDir) =>
       withShadowDatabase(
         { cwd: options.root, databaseUrl: options.databaseUrl, shadowDatabaseUrl: options.shadowDatabaseUrl },

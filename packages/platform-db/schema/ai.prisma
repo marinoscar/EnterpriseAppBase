@@ -271,14 +271,23 @@ model AiRun {
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   completedAt DateTime? @map("completed_at") @db.Timestamptz
 
+  // The organization the run belongs to (#725). NOT NULL, row-level security
+  // forced (policy `ai_runs_org_isolation`). `Restrict`, not `SetNull`: the
+  // column is NOT NULL, so history cannot survive an organization's deletion
+  // by nulling it; deleting an organization first purges its runs.
+  orgId String @map("org_id") @db.Uuid
+
   // Relations
   //
   // SetNull — see the block comment above this section.
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  org  Organization  @relation(fields: [orgId], references: [id], onDelete: Restrict)
 
   // "This user's run history, most recent first" — the one query this table
   // is known to need today (a user's own run list).
   @@index([userId, createdAt])
+  // The same query behind the policy filter `org_id = X`.
+  @@index([orgId, userId, createdAt])
   // The retention sweep (`ai.runs.purge`, #681): "oldest first, older than
   // the cutoff" across every user, which `[userId, createdAt]` cannot serve.
   @@index([createdAt])
@@ -353,12 +362,24 @@ model AiUsageEvent {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
+  // The organization that incurred the call (#725). Nullable on purpose: a
+  // deployment-wide event (a catalogue sync) has none, and `SetNull` keeps the
+  // history of a deleted organization. Row-level security forced (policy
+  // `ai_usage_events_org_isolation`): a NULL row is visible to the system
+  // client only.
+  orgId String? @map("org_id") @db.Uuid
+
   // Relations
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  org  Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
   // "This user's usage history, most recent first" — mirrors `AiRun`'s own
   // index for the identical reason.
   @@index([userId, createdAt])
+  // The same query behind the policy filter `org_id = X`, and the per-org
+  // usage window.
+  @@index([orgId, userId, createdAt])
+  @@index([orgId, createdAt])
   // "Usage across all users in a time window" — the deployment-wide
   // accounting/billing query, independent of any one user.
   @@index([createdAt])
@@ -384,4 +405,11 @@ extend model User {
   aiKeys                 UserAiKey[]
   aiRuns                 AiRun[]
   aiUsageEvents          AiUsageEvent[]
+}
+
+extend model Organization {
+  // AI runs and usage events (#725): see `AiRun.orgId` and `AiUsageEvent.orgId`
+  // for why one is `Restrict` and the other `SetNull`.
+  aiRuns        AiRun[]
+  aiUsageEvents AiUsageEvent[]
 }

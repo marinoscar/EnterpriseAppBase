@@ -12,6 +12,7 @@ import { aiErrorFromStorage } from './ai-storage-errors';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const RUN = '99999999-9999-4999-8999-999999999999';
+const ORG = '33333333-3333-4333-8333-333333333333';
 
 function setup() {
   const storage = createInMemoryAiStorage();
@@ -32,6 +33,7 @@ describe('AiOutputWriter', () => {
 
     const stored = await writer.write({
       userId: USER,
+      orgId: ORG,
       runId: RUN,
       files: [
         { data: Buffer.from('first'), mimeType: 'image/png' },
@@ -71,6 +73,7 @@ describe('AiOutputWriter', () => {
 
     const [stored] = await writer.write({
       userId: USER,
+      orgId: ORG,
       runId: RUN,
       files: [{ data: Buffer.from('ID3'), mimeType: 'audio/mpeg', keyName: 'speech.mp3', name: 'ai-speech.mp3' }],
     });
@@ -86,7 +89,7 @@ describe('AiOutputWriter', () => {
       const { storage, writer } = setup();
 
       await expect(
-        writer.write({ userId: USER, runId: RUN, files: [{ data: Buffer.from('x'), mimeType: 'audio/mpeg', keyName }] }),
+        writer.write({ userId: USER, orgId: ORG, runId: RUN, files: [{ data: Buffer.from('x'), mimeType: 'audio/mpeg', keyName }] }),
       ).rejects.toThrow(/Invalid AI output key name/);
       expect(storage.objects).toEqual([]);
       expect(storage.blobs.size).toBe(0);
@@ -110,6 +113,7 @@ describe('AiOutputWriter', () => {
     await expect(
       writer.write({
         userId: USER,
+        orgId: ORG,
         runId: RUN,
         files: [
           { data: Buffer.from('a'), mimeType: 'image/png' },
@@ -128,7 +132,7 @@ describe('AiOutputWriter', () => {
     storage.prisma.storageObject.create.mockRejectedValueOnce(new Error('db down'));
 
     await expect(
-      writer.write({ userId: USER, runId: RUN, files: [{ data: Buffer.from('a'), mimeType: 'image/png' }] }),
+      writer.write({ userId: USER, orgId: ORG, runId: RUN, files: [{ data: Buffer.from('a'), mimeType: 'image/png' }] }),
     ).rejects.toThrow('db down');
 
     expect(storage.blobs.size).toBe(0);
@@ -149,11 +153,12 @@ describe('AiOutputWriter', () => {
     const { storage, writer } = setup();
     const stored = await writer.write({
       userId: USER,
+      orgId: ORG,
       runId: RUN,
       files: [{ data: Buffer.from('a'), mimeType: 'image/png' }],
     });
 
-    await writer.discard(stored.map((s) => s.storageObjectId));
+    await writer.discard(stored.map((s) => s.storageObjectId), ORG);
 
     expect(storage.objects).toEqual([]);
     expect(storage.blobs.size).toBe(0);

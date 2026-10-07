@@ -3,6 +3,7 @@ import { StorageObjectStatus, type Prisma } from '@prisma/client';
 
 import { CredentialsService } from '../../credentials/credentials.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import type { SystemStorageValue } from '../../common/schemas/settings.schema';
 import {
@@ -127,6 +128,10 @@ export class StorageConfigAdminService {
     // For `invalidateCache()` after a write, and for nothing else. This service
     // does not resolve configurations; that is what the other one is for.
     private readonly storageConfig: StorageConfigService,
+    // The usage count spans every organization (row-level security, #725), so
+    // it reads `storage_objects` through the SYSTEM client, reason
+    // `admin-aggregate`. Nothing else in this class uses it.
+    private readonly system: PrismaSystemService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -383,7 +388,7 @@ export class StorageConfigAdminService {
    */
   async countLocationUsage(location: SystemStorageValue): Promise<StorageLocationUsage> {
     const [storageObjects, databaseBackupRuns] = await Promise.all([
-      this.prisma.storageObject.count({
+      this.system.asSystem('admin-aggregate').storageObject.count({
         where: {
           storageProvider: location.provider,
           OR: [{ bucket: location.bucket }, { bucket: null }],

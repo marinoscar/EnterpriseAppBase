@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { AiProviderRegistry } from '../core/provider-registry';
 import {
   DEFAULT_AI_USAGE_RANGE_DAYS,
@@ -109,15 +110,27 @@ export class AiUsageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly registry: AiProviderRegistry,
+    // The ADMINISTRATOR's report is a DEPLOYMENT-WIDE aggregate over every
+    // organization's usage rows (`ai_usage_events` is under row-level
+    // security, #725): the SYSTEM client, reason `admin-aggregate`. A user's
+    // own view reads through `prisma.forOrg(orgId)` instead.
+    private readonly system: PrismaSystemService,
   ) {}
 
-  async report(query: AiUsageQuery, now: Date = new Date()): Promise<AiUsageReport> {
+  /**
+   * The usage report. With `orgId` (a per-user view: `GET /api/ai/usage/me`)
+   * it reads through a client scoped to that organization, so it can only see
+   * that organization's rows; without it (the administrator's report) it reads
+   * every organization's through the system client.
+   */
+  async report(query: AiUsageQuery, now: Date = new Date(), orgId?: string): Promise<AiUsageReport> {
     const range = resolveAiUsageRange(query.from, query.to, now);
     const key = GROUP_KEY_SQL[query.groupBy];
     const where = whereSql(range, query);
 
+    const db = orgId ? this.prisma.forOrg(orgId) : this.system.asSystem('admin-aggregate');
     const [rows, unitRows] = await Promise.all([
-      this.prisma.$queryRaw<AggregateRow[]>(Prisma.sql`
+      db.$queryRaw<AggregateRow[]>(Prisma.sql`
         SELECT
           GROUPING(${key})::int AS is_total,
           ${key} AS key,
@@ -137,7 +150,7 @@ export class AiUsageService {
       // `CASE` rather than a WHERE on `jsonb_typeof`: `jsonb_each` raises on a
       // non-object, and a CASE inside the call is the only placement whose
       // evaluation order Postgres guarantees.
-      this.prisma.$queryRaw<UnitsRow[]>(Prisma.sql`
+      db.$queryRaw<UnitsRow[]>(Prisma.sql`
         SELECT
           GROUPING(${key})::int AS is_total,
           ${key} AS key,

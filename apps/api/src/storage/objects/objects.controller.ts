@@ -27,6 +27,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { RequestUser } from '../../auth/interfaces/authenticated-user.interface';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
@@ -86,8 +87,9 @@ export class ObjectsController {
   async list(
     @Query(new ZodValidationPipe(objectListQuerySchema)) query: ObjectListQueryDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: ObjectListResponseDto }> {
-    const result = await this.objectsService.list(query, userId);
+    const result = await this.objectsService.list(query, userId, orgId);
     return { data: result };
   }
 
@@ -113,8 +115,9 @@ export class ObjectsController {
   async getById(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: ObjectResponseDto }> {
-    const result = await this.objectsService.getById(id, userId);
+    const result = await this.objectsService.getById(id, userId, orgId);
     return { data: result };
   }
 
@@ -148,8 +151,9 @@ export class ObjectsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('expiresIn') expiresIn: number | undefined,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: DownloadUrlResponseDto }> {
-    const result = await this.objectsService.getDownloadUrl(id, userId, expiresIn);
+    const result = await this.objectsService.getDownloadUrl(id, userId, orgId, expiresIn);
     return { data: result };
   }
 
@@ -184,8 +188,9 @@ export class ObjectsController {
   async deleteObject(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUser,
+    @CurrentOrg() orgId: string,
   ): Promise<void> {
-    await this.objectsService.delete(id, user.id, {
+    await this.objectsService.delete(id, user.id, orgId, {
       canDeleteAny: user.permissions.includes(PERMISSIONS.STORAGE_DELETE_ANY),
     });
   }
@@ -214,8 +219,9 @@ export class ObjectsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(updateMetadataSchema)) dto: UpdateMetadataDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: ObjectResponseDto }> {
-    const result = await this.objectsService.updateMetadata(id, dto, userId);
+    const result = await this.objectsService.updateMetadata(id, dto, userId, orgId);
     return { data: result };
   }
 
@@ -244,8 +250,9 @@ export class ObjectsController {
   async initUpload(
     @Body(new ZodValidationPipe(initUploadSchema)) dto: InitUploadDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: InitUploadResponseDto }> {
-    const result = await this.objectsService.initUpload(dto, userId);
+    const result = await this.objectsService.initUpload(dto, userId, orgId);
     return { data: result };
   }
 
@@ -263,8 +270,9 @@ export class ObjectsController {
   async getUploadStatus(
     @Param('id', ParseUUIDPipe) objectId: string,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: UploadStatusResponseDto }> {
-    const result = await this.objectsService.getUploadStatus(objectId, userId);
+    const result = await this.objectsService.getUploadStatus(objectId, userId, orgId);
     return { data: result };
   }
 
@@ -284,11 +292,13 @@ export class ObjectsController {
     @Param('id', ParseUUIDPipe) objectId: string,
     @Body(new ZodValidationPipe(completeUploadSchema)) dto: CompleteUploadDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: ObjectResponseDto }> {
     const result = await this.objectsService.completeUpload(
       objectId,
       dto,
       userId,
+      orgId,
     );
     return { data: result };
   }
@@ -310,8 +320,9 @@ export class ObjectsController {
   async abortUpload(
     @Param('id', ParseUUIDPipe) objectId: string,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<void> {
-    await this.objectsService.abortUpload(objectId, userId);
+    await this.objectsService.abortUpload(objectId, userId, orgId);
   }
 
   /**
@@ -351,6 +362,7 @@ export class ObjectsController {
   async simpleUpload(
     @Req() req: FastifyRequest,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ): Promise<{ data: ObjectResponseDto }> {
     // Get multipart file from request
     const data = await req.file();
@@ -366,6 +378,7 @@ export class ObjectsController {
         file: data.file,
       },
       userId,
+      orgId,
     );
 
     return { data: result };

@@ -35,6 +35,7 @@ const lockSchema = z
       .array(z.object({ id: z.string().min(1), reason: z.string().min(1), expectDiff: z.array(z.string()) }).strict())
       .optional(),
     rawSqlIndexes: z.array(z.object({ name: z.string().min(1), definition: z.string().min(1) }).strict()).optional(),
+    rlsPolicies: z.array(z.object({ name: z.string().min(1), table: z.string().min(1) }).strict()).optional(),
   })
   .strict();
 
@@ -101,6 +102,13 @@ export interface PlatformLock {
   deviations?: LockDeviation[];
   /** The app's own raw-SQL indexes. */
   rawSqlIndexes?: RawSqlIndex[];
+  /** The app's own row-level-security policies (name and table), asserted against `pg_policies` like the package's. */
+  rlsPolicies?: Array<{
+    /** The policy name, as `pg_policies.policyname` reports it. */
+    name: string;
+    /** The table the policy is defined on, as `pg_policies.tablename` reports it. */
+    table: string;
+  }>;
 }
 
 /**

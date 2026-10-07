@@ -2,7 +2,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
-import { checkRawSqlIndexes, readPackageRawSqlIndexes, type IndexRow } from '../drift/index.js';
+import {
+  checkRawSqlIndexes,
+  checkRlsPolicies,
+  readPackageRawSqlIndexes,
+  readPackageRlsPolicies,
+  type IndexRow,
+  type PolicyRow,
+  type TableRlsRow,
+} from '../drift/index.js';
 import {
   emptyLock,
   originIdOf,
@@ -60,6 +68,10 @@ export interface BaselineDeps {
   readLedger(): Promise<LedgerRow[] | undefined>;
   /** Reads `name` and `indexdef` of the `public` indexes. */
   readIndexes(): Promise<IndexRow[]>;
+  /** Reads the `public` policies (`pg_policies`). Optional: a dependency set without it skips the policy check. */
+  readPolicies?(): Promise<PolicyRow[]>;
+  /** Reads the row-level-security flags of the `public` tables. Optional, with `readPolicies`. */
+  readTableRls?(): Promise<TableRlsRow[]>;
   /** `prisma migrate diff --from-migrations <dir> --to-config-datasource --script`: the SQL that turns the replayed history into the live database; `''` when they are equal. */
   diffReplayToLive(replayMigrationsDir: string): Promise<string>;
   /** Runs a Prisma CLI command (`migrate resolve --applied <dir>`, `migrate status`) through the app's `scripts/prisma-env.js`. */
@@ -82,6 +94,13 @@ export interface BaselineOptions {
   apply: boolean;
   /** Allow `--apply` when `platform.lock` already has entries (they are replaced; deviations and raw-SQL indexes are kept). */
   forceRemap?: boolean;
+  /**
+   * Opt in to migrations flagged `rls` in the manifest. Without it the
+   * baseline stops (`RLS_OPT_IN_REQUIRED`) when a migration above `--through`
+   * would enable row-level security: it is inert for a superuser role, so the
+   * application role must be an ordinary one first.
+   */
+  allowRls?: boolean;
   /** The package migration the database claims to equal: `22`, `0022` or `platform:0022_slug`. Default: the newest. Below the newest is partial adoption: the rest is installed and `migrate deploy` applies it. */
   through?: string;
 }
@@ -146,6 +165,7 @@ function emptyReport(through: string): BaselineReport {
     unmatched: [],
     diff: { allowed: [], blocking: [] },
     indexProblems: [],
+    policyProblems: [],
     ledger: { managed: true, problems: [] },
     refusals: [],
     notes: [],
@@ -169,6 +189,7 @@ function buildLock(plan: readonly PlannedEntry[], previous: PlatformLock | undef
     migrations,
     ...(previous?.deviations ? { deviations: previous.deviations } : {}),
     ...(previous?.rawSqlIndexes ? { rawSqlIndexes: previous.rawSqlIndexes } : {}),
+    ...(previous?.rlsPolicies ? { rlsPolicies: previous.rlsPolicies } : {}),
   };
 }
 
@@ -240,6 +261,15 @@ export async function runBaseline(opts: BaselineOptions, deps: BaselineDeps): Pr
       `_prisma_migrations has ${bad.length} failed or rolled-back row(s) (${bad.map((r) => r.migrationName).join(', ')}); resolve them with prisma migrate resolve first. See ${BASELINE_RUNBOOK}, "A failed migration row"`,
     );
     return report;
+  }
+
+  // Stop before a migration that enables row-level security until the app opts in.
+  const rlsAbove = manifest.filter((e) => e.rls === true && sequenceOf(e.id) > through);
+  if (rlsAbove.length > 0 && opts.allowRls !== true) {
+    refuse(
+      'RLS_OPT_IN_REQUIRED',
+      `${rlsAbove.map(originIdOf).join(', ')} enable${rlsAbove.length === 1 ? 's' : ''} row-level security and sit above --through; the baseline stops before ${rlsAbove.length === 1 ? 'it' : 'them'} until you opt in with --allow-rls. First make the application role NOSUPERUSER NOBYPASSRLS (a superuser ignores every policy), add org_id to your own tenant tables, then re-run. See ${BASELINE_RUNBOOK}, "Row-level security"`,
+    );
   }
 
   // B1 map.
@@ -346,6 +376,18 @@ export async function runBaseline(opts: BaselineOptions, deps: BaselineDeps): Pr
   ];
   report.indexProblems = checkRawSqlIndexes(expected, await deps.readIndexes());
   for (const problem of report.indexProblems) refuse(problem.code, problem.message);
+
+  // B4 row-level security: the same positive assertion for the policies the history up to --through creates
+  // (Prisma's diff ignores policies and their enabled/forced flags in both directions).
+  if (deps.readPolicies && deps.readTableRls) {
+    const packagePoliciesFile = join(opts.packageDir, 'rls-policies.json');
+    const expectedPolicies = [
+      ...(existsSync(packagePoliciesFile) ? readPackageRlsPolicies(packagePoliciesFile) : []).filter((p) => sequenceOf(p.createdIn) <= through),
+      ...(existingLock?.rlsPolicies ?? []),
+    ];
+    report.policyProblems = checkRlsPolicies(expectedPolicies, await deps.readPolicies(), await deps.readTableRls());
+    for (const problem of report.policyProblems) refuse(problem.code, problem.message);
+  }
 
   // Output of the dry run; nothing below runs without --apply or with a refusal.
   if (report.refusals.length > 0 || !opts.apply) return report;

@@ -6,6 +6,7 @@ import {
 
 import { ProfileImageService } from './profile-image.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import { UserSettingsService } from '../user-settings/user-settings.service';
 import {
@@ -33,6 +34,7 @@ describe('ProfileImageService (#367)', () => {
   };
 
   const userId = 'user-1';
+  const orgId = '33333333-3333-4333-8333-333333333333';
   const previousObjectId = '11111111-1111-4111-8111-111111111111';
   const newObjectId = '22222222-2222-4222-8222-222222222222';
 
@@ -64,6 +66,8 @@ describe('ProfileImageService (#367)', () => {
         // #373: the avatar's `storage_objects` row records the LIVE provider.
         { provide: StorageConfigService, useValue: mockStorageConfig },
         { provide: UserSettingsService, useValue: mockUserSettings },
+        // Removing the user's own avatar goes through the system client (#725).
+        { provide: PrismaSystemService, useValue: { asSystem: () => mockPrisma } },
       ],
     }).compile();
 
@@ -86,7 +90,7 @@ describe('ProfileImageService (#367)', () => {
     it('rejects a buffer over AVATAR_MAX_BYTES with 413, before touching storage', async () => {
       const bigBuffer = Buffer.alloc(AVATAR_MAX_BYTES + 1, 0xff);
 
-      await expect(service.upload(userId, bigBuffer)).rejects.toBeInstanceOf(
+      await expect(service.upload(userId, bigBuffer, orgId)).rejects.toBeInstanceOf(
         PayloadTooLargeException,
       );
       expect(mockStorageProvider.upload).not.toHaveBeenCalled();
@@ -95,7 +99,7 @@ describe('ProfileImageService (#367)', () => {
     it('rejects an unrecognised image type with 400 (magic-byte sniffing)', async () => {
       const svgBuffer = Buffer.from('<svg></svg>', 'utf8');
 
-      await expect(service.upload(userId, svgBuffer)).rejects.toBeInstanceOf(
+      await expect(service.upload(userId, svgBuffer, orgId)).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(mockStorageProvider.upload).not.toHaveBeenCalled();
@@ -116,7 +120,7 @@ describe('ProfileImageService (#367)', () => {
         baseSettings({ imageSource: 'upload', imageObjectId: newObjectId }),
       );
 
-      const result = await service.upload(userId, PNG_BYTES);
+      const result = await service.upload(userId, PNG_BYTES, orgId);
 
       expect(mockStorageProvider.upload).toHaveBeenCalledWith(
         expect.stringMatching(new RegExp(`^avatars/${userId}/.+\\.png$`)),
@@ -161,7 +165,7 @@ describe('ProfileImageService (#367)', () => {
         baseSettings({ imageSource: 'upload', imageObjectId: newObjectId }),
       );
 
-      await service.upload(userId, PNG_BYTES);
+      await service.upload(userId, PNG_BYTES, orgId);
 
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -202,7 +206,7 @@ describe('ProfileImageService (#367)', () => {
       } as any);
       mockPrisma.storageObject.delete.mockResolvedValue({} as any);
 
-      await service.upload(userId, PNG_BYTES);
+      await service.upload(userId, PNG_BYTES, orgId);
 
       expect(mockStorageProvider.delete).toHaveBeenCalledWith(
         `avatars/${userId}/old.png`,
@@ -239,7 +243,7 @@ describe('ProfileImageService (#367)', () => {
         baseSettings({ imageSource: 'upload', imageObjectId: newObjectId }),
       );
 
-      await service.upload(userId, PNG_BYTES);
+      await service.upload(userId, PNG_BYTES, orgId);
 
       expect(mockPrisma.storageObject.findUnique).not.toHaveBeenCalled();
       expect(mockStorageProvider.delete).not.toHaveBeenCalled();
@@ -272,7 +276,7 @@ describe('ProfileImageService (#367)', () => {
       } as any);
       mockStorageProvider.delete.mockRejectedValue(new Error('storage down'));
 
-      const result = await service.upload(userId, PNG_BYTES);
+      const result = await service.upload(userId, PNG_BYTES, orgId);
 
       // The upload itself still succeeded.
       expect(result.settings.profile.imageObjectId).toBe(newObjectId);
@@ -303,7 +307,7 @@ describe('ProfileImageService (#367)', () => {
       const settingsError = new Error('settings write failed');
       mockUserSettings.patchSettings.mockRejectedValue(settingsError);
 
-      await expect(service.upload(userId, PNG_BYTES)).rejects.toThrow(
+      await expect(service.upload(userId, PNG_BYTES, orgId)).rejects.toThrow(
         settingsError,
       );
 

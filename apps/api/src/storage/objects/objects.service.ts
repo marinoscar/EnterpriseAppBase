@@ -54,6 +54,12 @@ export interface MultipartFile {
   file: Readable;
 }
 
+/**
+ * Longest transaction recording the parts of a completed multipart upload
+ * (Prisma's default is 5 s; an upload can have 10 000 parts).
+ */
+const CHUNK_RECORD_TIMEOUT_MS = 60_000;
+
 /** Default for `storage.maxFileSize` when the config carries no usable value (10 GiB). */
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024;
 
@@ -78,11 +84,21 @@ export class ObjectsService {
   ) {}
 
   /**
+   * The database client scoped to the caller's organization (row-level
+   * security, issue #725): every statement runs with `app.org_id` set, so
+   * another organization's objects are neither visible nor writable.
+   */
+  private db(orgId: string, userId: string) {
+    return this.prisma.forOrg(orgId, { userId });
+  }
+
+  /**
    * Initialize a resumable multipart upload
    */
   async initUpload(
     dto: InitUploadDto,
     userId: string,
+    orgId: string,
   ): Promise<InitUploadResponseDto> {
     const { name, size, mimeType } = dto;
 
@@ -124,7 +140,7 @@ export class ObjectsService {
     );
 
     // Create StorageObject record
-    const storageObject = await this.prisma.storageObject.create({
+    const storageObject = await this.db(orgId, userId).storageObject.create({
       data: {
         name,
         size: BigInt(size),
@@ -139,6 +155,7 @@ export class ObjectsService {
         status: 'pending',
         s3UploadId: uploadId,
         uploadedById: userId,
+        orgId,
       },
     });
 
@@ -176,8 +193,9 @@ export class ObjectsService {
   async getUploadStatus(
     objectId: string,
     userId: string,
+    orgId: string,
   ): Promise<UploadStatusResponseDto> {
-    const storageObject = await this.prisma.storageObject.findUnique({
+    const storageObject = await this.db(orgId, userId).storageObject.findUnique({
       where: { id: objectId },
       include: { chunks: true },
     });
@@ -220,8 +238,9 @@ export class ObjectsService {
     objectId: string,
     dto: CompleteUploadDto,
     userId: string,
+    orgId: string,
   ): Promise<ObjectResponseDto> {
-    const storageObject = await this.prisma.storageObject.findUnique({
+    const storageObject = await this.db(orgId, userId).storageObject.findUnique({
       where: { id: objectId },
       include: { chunks: true },
     });
@@ -243,27 +262,35 @@ export class ObjectsService {
 
     this.logger.log(`Completing upload ${objectId} with ${parts.length} parts`);
 
-    // Record chunks in database
-    await Promise.all(
-      parts.map((part) =>
-        this.prisma.storageObjectChunk.upsert({
-          where: {
-            objectId_partNumber: {
-              objectId,
-              partNumber: part.partNumber,
+    // Record chunks in database: one scoped transaction for all parts (a
+    // scoped client would open one transaction per upsert, and a large upload
+    // has thousands of parts). Each chunk carries its object's org_id, which
+    // the composite foreign key (object_id, org_id) checks.
+    await this.prisma.runInOrg(
+      orgId,
+      async (tx) => {
+        for (const part of parts) {
+          await tx.storageObjectChunk.upsert({
+            where: {
+              objectId_partNumber: {
+                objectId,
+                partNumber: part.partNumber,
+              },
             },
-          },
-          create: {
-            objectId,
-            partNumber: part.partNumber,
-            eTag: part.eTag,
-            size: BigInt(0), // We don't know exact part size from client
-          },
-          update: {
-            eTag: part.eTag,
-          },
-        }),
-      ),
+            create: {
+              objectId,
+              orgId,
+              partNumber: part.partNumber,
+              eTag: part.eTag,
+              size: BigInt(0), // We don't know exact part size from client
+            },
+            update: {
+              eTag: part.eTag,
+            },
+          });
+        }
+      },
+      { userId, timeout: CHUNK_RECORD_TIMEOUT_MS },
     );
 
     // Complete upload with storage provider
@@ -279,14 +306,18 @@ export class ObjectsService {
     let updated: StorageObject;
 
     try {
-      updated = await this.prisma.$transaction(async (tx) => {
-        const row = await tx.storageObject.update({
-          where: { id: objectId },
-          data: { status: 'processing' },
-        });
+      updated = await this.prisma.runInOrg(
+        orgId,
+        async (tx) => {
+          const row = await tx.storageObject.update({
+            where: { id: objectId },
+            data: { status: 'processing' },
+          });
 
-        return this.settleUpload(tx, row);
-      });
+          return this.settleUpload(tx, row);
+        },
+        { userId },
+      );
     } catch (error) {
       // `enqueueWithin` propagates the dedup conflict rather than collapsing
       // onto the job in flight (an aborted transaction can run no re-read).
@@ -299,13 +330,13 @@ export class ObjectsService {
       this.logger.log(
         `Upload ${objectId} already has a processing job in flight; not queueing another`,
       );
-      updated = await this.prisma.storageObject.findUniqueOrThrow({
+      updated = await this.db(orgId, userId).storageObject.findUniqueOrThrow({
         where: { id: objectId },
       });
     }
 
     // Create audit event
-    await this.createAuditEvent(userId, 'storage:upload:complete', objectId, {
+    await this.createAuditEvent(userId, orgId, 'storage:upload:complete', objectId, {
       name: updated.name,
       size: updated.size.toString(),
       mimeType: updated.mimeType,
@@ -320,8 +351,8 @@ export class ObjectsService {
   /**
    * Abort multipart upload
    */
-  async abortUpload(objectId: string, userId: string): Promise<void> {
-    const storageObject = await this.prisma.storageObject.findUnique({
+  async abortUpload(objectId: string, userId: string, orgId: string): Promise<void> {
+    const storageObject = await this.db(orgId, userId).storageObject.findUnique({
       where: { id: objectId },
     });
 
@@ -347,12 +378,12 @@ export class ObjectsService {
     );
 
     // Delete database records
-    await this.prisma.storageObject.delete({
+    await this.db(orgId, userId).storageObject.delete({
       where: { id: objectId },
     });
 
     // Create audit event
-    await this.createAuditEvent(userId, 'storage:upload:abort', objectId, {
+    await this.createAuditEvent(userId, orgId, 'storage:upload:abort', objectId, {
       name: storageObject.name,
       status: storageObject.status,
     });
@@ -366,6 +397,7 @@ export class ObjectsService {
   async simpleUpload(
     file: MultipartFile,
     userId: string,
+    orgId: string,
   ): Promise<ObjectResponseDto> {
     const { filename, mimetype, file: stream } = file;
 
@@ -401,26 +433,31 @@ export class ObjectsService {
     // Created and settled (`ready`, or a queued processing job) in ONE
     // transaction — see `completeUpload`. The object id is new, so no
     // processing job can already hold its dedup key.
-    const storageObject = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.storageObject.create({
-        data: {
-          name: filename,
-          size: BigInt(0), // Will be updated by post-processing
-          mimeType: mimetype,
-          storageKey,
-          // See `initUpload` — the live provider, never a literal.
-          storageProvider,
-          bucket: result.bucket,
-          status: 'processing',
-          uploadedById: userId,
-        },
-      });
+    const storageObject = await this.prisma.runInOrg(
+      orgId,
+      async (tx) => {
+        const created = await tx.storageObject.create({
+          data: {
+            name: filename,
+            size: BigInt(0), // Will be updated by post-processing
+            mimeType: mimetype,
+            storageKey,
+            // See `initUpload` — the live provider, never a literal.
+            storageProvider,
+            bucket: result.bucket,
+            status: 'processing',
+            uploadedById: userId,
+            orgId,
+          },
+        });
 
-      return this.settleUpload(tx, created);
-    });
+        return this.settleUpload(tx, created);
+      },
+      { userId },
+    );
 
     // Create audit event
-    await this.createAuditEvent(userId, 'storage:upload:complete', storageObject.id, {
+    await this.createAuditEvent(userId, orgId, 'storage:upload:complete', storageObject.id, {
       name: storageObject.name,
       mimeType: storageObject.mimeType,
       uploadType: 'simple',
@@ -437,6 +474,7 @@ export class ObjectsService {
   async list(
     query: ObjectListQueryDto,
     userId: string,
+    orgId: string,
   ): Promise<ObjectListResponseDto> {
     const { page, pageSize, status, sortBy, sortOrder } = query;
 
@@ -458,14 +496,15 @@ export class ObjectsService {
       orderBy.size = sortOrder;
     }
 
+    const db = this.db(orgId, userId);
     const [items, totalItems] = await Promise.all([
-      this.prisma.storageObject.findMany({
+      db.storageObject.findMany({
         where,
         orderBy,
         skip,
         take,
       }),
-      this.prisma.storageObject.count({ where }),
+      db.storageObject.count({ where }),
     ]);
 
     const totalPages = Math.ceil(totalItems / pageSize);
@@ -484,8 +523,8 @@ export class ObjectsService {
   /**
    * Get object by ID with ownership check
    */
-  async getById(id: string, userId: string): Promise<ObjectResponseDto> {
-    const object = await this.getObjectWithAuthCheck(id, userId);
+  async getById(id: string, userId: string, orgId: string): Promise<ObjectResponseDto> {
+    const object = await this.getObjectWithAuthCheck(id, userId, orgId);
     return this.mapToResponseDto(object);
   }
 
@@ -495,9 +534,10 @@ export class ObjectsService {
   async getDownloadUrl(
     id: string,
     userId: string,
+    orgId: string,
     expiresIn?: number,
   ): Promise<DownloadUrlResponseDto> {
-    const object = await this.getObjectWithAuthCheck(id, userId);
+    const object = await this.getObjectWithAuthCheck(id, userId, orgId);
 
     // Verify status is ready
     if (object.status !== 'ready') {
@@ -543,11 +583,12 @@ export class ObjectsService {
   async delete(
     id: string,
     userId: string,
+    orgId: string,
     options: { canDeleteAny?: boolean } = {},
   ): Promise<void> {
     const object = options.canDeleteAny
-      ? await this.getObjectForDeleteAny(id, userId)
-      : await this.getObjectWithAuthCheck(id, userId);
+      ? await this.getObjectForDeleteAny(id, userId, orgId)
+      : await this.getObjectWithAuthCheck(id, userId, orgId);
 
     this.logger.log(`Deleting object ${id} from storage and database`);
 
@@ -555,12 +596,12 @@ export class ObjectsService {
     await this.storageProvider.delete(object.storageKey);
 
     // Delete from database (cascade deletes chunks)
-    await this.prisma.storageObject.delete({
+    await this.db(orgId, userId).storageObject.delete({
       where: { id },
     });
 
     // Create audit event
-    await this.createAuditEvent(userId, 'storage:object:delete', id, {
+    await this.createAuditEvent(userId, orgId, 'storage:object:delete', id, {
       name: object.name,
       size: object.size.toString(),
       mimeType: object.mimeType,
@@ -579,8 +620,9 @@ export class ObjectsService {
     id: string,
     dto: UpdateMetadataDto,
     userId: string,
+    orgId: string,
   ): Promise<ObjectResponseDto> {
-    const object = await this.getObjectWithAuthCheck(id, userId);
+    const object = await this.getObjectWithAuthCheck(id, userId, orgId);
 
     // Merge new metadata with existing
     const existingMetadata = (object.metadata as Record<string, unknown>) || {};
@@ -590,13 +632,13 @@ export class ObjectsService {
     };
 
     // Update in database
-    const updated = await this.prisma.storageObject.update({
+    const updated = await this.db(orgId, userId).storageObject.update({
       where: { id },
       data: { metadata: mergedMetadata as Prisma.InputJsonValue },
     });
 
     // Create audit event
-    await this.createAuditEvent(userId, 'storage:object:metadata:update', id, {
+    await this.createAuditEvent(userId, orgId, 'storage:object:metadata:update', id, {
       name: object.name,
       metadataChanges: dto.metadata,
     });
@@ -647,8 +689,11 @@ export class ObjectsService {
   private async getObjectWithAuthCheck(
     id: string,
     userId: string,
+    orgId: string,
   ): Promise<any> {
-    const object = await this.prisma.storageObject.findUnique({
+    // Another organization's object is invisible to this client (row-level
+    // security), so it is a 404 here exactly like an id that does not exist.
+    const object = await this.db(orgId, userId).storageObject.findUnique({
       where: { id },
     });
 
@@ -697,7 +742,9 @@ export class ObjectsService {
       reason: 'upload',
       subjectType: STORAGE_OBJECT_SUBJECT_TYPE,
       subjectId: object.id,
-      payload: { objectId: object.id },
+      // `orgId` rides in the payload: the handler scopes its database client
+      // with it (a payload without one is a pre-#725 job; see `resolveJobOrgId`).
+      payload: { objectId: object.id, orgId: object.orgId },
     });
 
     this.logger.log(`Queued processing job ${job.id} for object ${object.id}`);
@@ -713,8 +760,8 @@ export class ObjectsService {
    * still protected.
    * @private
    */
-  private async getObjectForDeleteAny(id: string, userId: string) {
-    const object = await this.prisma.storageObject.findUnique({
+  private async getObjectForDeleteAny(id: string, userId: string, orgId: string) {
+    const object = await this.db(orgId, userId).storageObject.findUnique({
       where: { id },
     });
 
@@ -769,6 +816,7 @@ export class ObjectsService {
    */
   private async createAuditEvent(
     userId: string,
+    orgId: string,
     action: string,
     objectId: string,
     meta?: Record<string, unknown>,
@@ -776,6 +824,7 @@ export class ObjectsService {
     await this.prisma.auditEvent.create({
       data: {
         actorUserId: userId,
+        orgId,
         action,
         targetType: 'storage_object',
         targetId: objectId,
