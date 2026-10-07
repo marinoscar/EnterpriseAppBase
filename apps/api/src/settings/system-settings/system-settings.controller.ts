@@ -14,8 +14,7 @@ import {
 } from '@nestjs/swagger';
 
 import { SystemSettingsService } from './system-settings.service';
-import { Auth } from '@marinoscar/platform-api/identity';
-import { CurrentUser } from '@marinoscar/platform-api/identity';
+import { Auth, CurrentUser } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import {
   UpdateSystemSettingsDto,

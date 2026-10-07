@@ -3,8 +3,7 @@ import {
   updateTelemetryConnectionSchema,
 } from '@marinoscar/platform-contract/telemetry';
 
-import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
-import { RBAC_EXTENSION_KEY } from '@marinoscar/platform-api/identity';
+import { PERMISSIONS_KEY, RBAC_EXTENSION_KEY } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../src/common/constants/roles.constants';
 import { telemetryControllers } from '../../src/platform/telemetry/telemetry.config';
 

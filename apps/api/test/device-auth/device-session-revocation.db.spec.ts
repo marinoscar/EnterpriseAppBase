@@ -26,13 +26,15 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { DeviceCodeStatus, type PrismaClient } from '@prisma/client';
 
-import { AuthService } from '@marinoscar/platform-api/identity';
-import { PrincipalCache } from '@marinoscar/platform-api/identity';
+import {
+  AuthService,
+  PrincipalCache,
+  DeviceAuthService,
+  PatService,
+  OrganizationsService,
+  TenancyService,
+} from '@marinoscar/platform-api/identity';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
-import { DeviceAuthService } from '@marinoscar/platform-api/identity';
-import { PatService } from '@marinoscar/platform-api/identity';
-import { OrganizationsService } from '@marinoscar/platform-api/identity';
-import { TenancyService } from '@marinoscar/platform-api/identity';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';

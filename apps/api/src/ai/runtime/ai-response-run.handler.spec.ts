@@ -6,12 +6,11 @@ import { Logger } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
-import { recordTenancyMode } from '@marinoscar/platform-api/identity';
+import { recordTenancyMode, MissingOrgScopeError } from '@marinoscar/platform-api/identity';
 import { JobSettledEvent } from '../../jobs/events/job-settled.event';
 import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { RateLimitError } from '../../jobs/rate-limit.error';
-import { MissingOrgScopeError } from '@marinoscar/platform-api/identity';
 import { AiError } from '../core/ai-error';
 import { defineTool } from '../core/tools';
 import type { AiResponse } from '../core/types/responses.types';

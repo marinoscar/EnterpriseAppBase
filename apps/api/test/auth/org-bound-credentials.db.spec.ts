@@ -28,14 +28,16 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { PrismaClient } from '@prisma/client';
 
-import { AuthService } from '@marinoscar/platform-api/identity';
-import { PRINCIPAL_USER_INCLUDE } from '@marinoscar/platform-api/identity';
-import { PrincipalCache } from '@marinoscar/platform-api/identity';
-import { recordTenancyMode } from '@marinoscar/platform-api/identity';
+import {
+  AuthService,
+  PRINCIPAL_USER_INCLUDE,
+  PrincipalCache,
+  recordTenancyMode,
+  OrganizationsService,
+  TenancyService,
+  PatService,
+} from '@marinoscar/platform-api/identity';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
-import { OrganizationsService } from '@marinoscar/platform-api/identity';
-import { TenancyService } from '@marinoscar/platform-api/identity';
-import { PatService } from '@marinoscar/platform-api/identity';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';

@@ -11,8 +11,7 @@ import type { TelemetryAssistantEmit } from '@marinoscar/platform-contract/telem
 
 import { AiError } from '../../src/ai/core/ai-error';
 import { AI_SSE_HEADERS } from '../../src/ai/http/ai-sse';
-import { RBAC_EXTENSION_KEY } from '@marinoscar/platform-api/identity';
-import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
+import { RBAC_EXTENSION_KEY, PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../src/common/constants/roles.constants';
 import { telemetryControllers } from '../../src/platform/telemetry/telemetry.config';
 
