@@ -1,0 +1,389 @@
+{
+  "name": "compose",
+  "networks": {
+    "app-network": {
+      "driver": "bridge",
+      "ipam": {},
+      "name": "compose_app-network"
+    },
+    "devnet": {
+      "external": true,
+      "ipam": {},
+      "name": "devnet"
+    }
+  },
+  "services": {
+    "api": {
+      "build": {
+        "context": "<ROOT>",
+        "dockerfile": "apps/api/Dockerfile",
+        "target": "production"
+      },
+      "command": null,
+      "depends_on": {
+        "otel-collector": {
+          "condition": "service_started",
+          "required": true
+        }
+      },
+      "deploy": {
+        "placement": {},
+        "resources": {
+          "limits": {
+            "memory": "536870912"
+          }
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "DEPLOY_INFO_PATH": "/app/deploy-info/info.json",
+        "GREPTIME_ADMIN_PASSWORD": "snapshot-admin",
+        "GREPTIME_ADMIN_USER": "admin",
+        "GREPTIME_DB": "public",
+        "GREPTIME_HOST": "greptimedb",
+        "GREPTIME_PG_PORT": "4003",
+        "GREPTIME_READER_PASSWORD": "snapshot-reader",
+        "GREPTIME_READER_USER": "reader",
+        "JWT_ACCESS_TTL_MINUTES": "15",
+        "JWT_REFRESH_TTL_DAYS": "14",
+        "LOG_LEVEL": "info",
+        "NODE_ENV": "production",
+        "OTEL_ENABLED": "true",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
+        "OTEL_SERVICE_NAME": "my-app-api",
+        "PORT": "3000",
+        "POSTGRES_DB": "appdb",
+        "POSTGRES_HOST": "db",
+        "POSTGRES_PASSWORD": "postgres",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_SSL": "false",
+        "POSTGRES_USER": "postgres",
+        "STACK_AGENT_TOKEN": "snapshot-token",
+        "STACK_AGENT_URL": "http://stack-agent:8090"
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "networks": {
+        "app-network": null,
+        "devnet": null
+      },
+      "restart": "unless-stopped",
+      "ulimits": {
+        "nofile": {
+          "hard": 65536,
+          "soft": 65536
+        }
+      },
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "/srv/snapshot/deploy-info",
+          "target": "/app/deploy-info",
+          "type": "bind"
+        }
+      ]
+    },
+    "greptimedb": {
+      "command": [
+        "standalone",
+        "start",
+        "--http-addr=0.0.0.0:4000",
+        "--rpc-bind-addr=0.0.0.0:4001",
+        "--mysql-addr=0.0.0.0:4002",
+        "--postgres-addr=0.0.0.0:4003",
+        "--user-provider=static_user_provider:cmd:admin=snapshot-admin,writer=snapshot-writer,reader:readonly=snapshot-reader"
+      ],
+      "deploy": {
+        "placement": {},
+        "resources": {
+          "limits": {
+            "memory": "1073741824"
+          }
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GREPTIMEDB_STANDALONE__ENABLE_TELEMETRY": "false"
+      },
+      "healthcheck": {
+        "interval": "5s",
+        "retries": 12,
+        "start_period": "10s",
+        "test": [
+          "CMD",
+          "curl",
+          "-fsS",
+          "http://localhost:4000/health"
+        ],
+        "timeout": "5s"
+      },
+      "image": "greptime/greptimedb:v1.2.1",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "networks": {
+        "app-network": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "14003",
+          "target": 4003
+        }
+      ],
+      "restart": "unless-stopped",
+      "volumes": [
+        {
+          "source": "greptimedb-data",
+          "target": "/greptimedb_data",
+          "type": "volume",
+          "volume": {}
+        }
+      ]
+    },
+    "nginx": {
+      "command": null,
+      "depends_on": {
+        "api": {
+          "condition": "service_started",
+          "required": true
+        },
+        "web": {
+          "condition": "service_started",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "image": "nginx:1.30-alpine",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "networks": {
+        "app-network": null
+      },
+      "ports": [
+        {
+          "host_ip": "127.0.0.1",
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "3535",
+          "target": 80
+        }
+      ],
+      "restart": "unless-stopped",
+      "ulimits": {
+        "nofile": {
+          "hard": 65536,
+          "soft": 65536
+        }
+      },
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/nginx/nginx.conf",
+          "target": "/etc/nginx/nginx.conf",
+          "type": "bind"
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/nginx/csp.conf",
+          "target": "/etc/nginx/csp.conf",
+          "type": "bind"
+        }
+      ]
+    },
+    "otel-collector": {
+      "command": [
+        "--config=/etc/otelcol/platform.yaml",
+        "--config=/etc/otelcol/app.yaml"
+      ],
+      "depends_on": {
+        "greptimedb": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "deploy": {
+        "placement": {},
+        "resources": {
+          "limits": {
+            "memory": "268435456"
+          }
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "GREPTIME_DB": "public",
+        "GREPTIME_WRITER_PASSWORD": "snapshot-writer",
+        "GREPTIME_WRITER_USER": "writer",
+        "POSTGRES_DB": "appdb",
+        "POSTGRES_HOST": "db",
+        "POSTGRES_MONITOR_PASSWORD": "postgres",
+        "POSTGRES_MONITOR_USER": "postgres",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_SSL": "false",
+        "POSTGRES_TLS_INSECURE_WHEN_SSL_true": "false",
+        "UPTIME_PUBLIC_URL": "http://nginx/api/health/live"
+      },
+      "image": "otel/opentelemetry-collector-contrib:0.145.0",
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "networks": {
+        "app-network": null,
+        "devnet": null
+      },
+      "restart": "unless-stopped",
+      "tmpfs": [
+        "/hostfs/run:size=1m,mode=0555"
+      ],
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/otel/otel-collector-config.yaml",
+          "target": "/etc/otelcol/platform.yaml",
+          "type": "bind"
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/otel/app-collector.yaml",
+          "target": "/etc/otelcol/app.yaml",
+          "type": "bind"
+        },
+        {
+          "bind": {
+            "propagation": "rslave"
+          },
+          "read_only": true,
+          "source": "/",
+          "target": "/hostfs",
+          "type": "bind"
+        }
+      ]
+    },
+    "stack-agent": {
+      "build": {
+        "context": "<ROOT>",
+        "dockerfile": "apps/stack-agent/Dockerfile"
+      },
+      "cap_drop": [
+        "ALL"
+      ],
+      "command": null,
+      "deploy": {
+        "placement": {},
+        "resources": {
+          "limits": {
+            "memory": "134217728"
+          }
+        }
+      },
+      "entrypoint": null,
+      "environment": {
+        "STACK_AGENT_TOKEN": "snapshot-token"
+      },
+      "healthcheck": {
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "10s",
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8090/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+        ],
+        "timeout": "5s"
+      },
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "networks": {
+        "app-network": null
+      },
+      "read_only": true,
+      "restart": "unless-stopped",
+      "security_opt": [
+        "no-new-privileges:true"
+      ],
+      "tmpfs": [
+        "/tmp"
+      ],
+      "volumes": [
+        {
+          "bind": {},
+          "source": "/var/run/docker.sock",
+          "target": "/var/run/docker.sock",
+          "type": "bind"
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "/srv/snapshot",
+          "target": "/srv/snapshot",
+          "type": "bind"
+        }
+      ]
+    },
+    "web": {
+      "build": {
+        "context": "<ROOT>",
+        "dockerfile": "apps/web/Dockerfile",
+        "target": "production"
+      },
+      "command": null,
+      "deploy": {
+        "placement": {},
+        "resources": {
+          "limits": {
+            "memory": "134217728"
+          }
+        }
+      },
+      "entrypoint": null,
+      "logging": {
+        "driver": "json-file",
+        "options": {
+          "max-file": "3",
+          "max-size": "10m"
+        }
+      },
+      "networks": {
+        "app-network": null
+      },
+      "restart": "unless-stopped"
+    }
+  },
+  "volumes": {
+    "greptimedb-data": {
+      "name": "compose_greptimedb-data"
+    }
+  }
+}

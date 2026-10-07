@@ -1,0 +1,147 @@
+{
+  "name": "compose",
+  "networks": {
+    "app-network": {
+      "driver": "bridge",
+      "ipam": {},
+      "name": "compose_app-network"
+    },
+    "devnet": {
+      "external": true,
+      "ipam": {},
+      "name": "devnet"
+    }
+  },
+  "services": {
+    "api": {
+      "build": {
+        "context": "<ROOT>",
+        "dockerfile": "apps/api/Dockerfile",
+        "target": "development"
+      },
+      "command": [
+        "npm",
+        "run",
+        "start:dev"
+      ],
+      "entrypoint": null,
+      "environment": {
+        "JWT_ACCESS_TTL_MINUTES": "15",
+        "JWT_REFRESH_TTL_DAYS": "14",
+        "LOG_LEVEL": "info",
+        "NODE_ENV": "development",
+        "OTEL_ENABLED": "false",
+        "OTEL_SERVICE_NAME": "my-app-api",
+        "PORT": "3000",
+        "POSTGRES_DB": "appdb",
+        "POSTGRES_HOST": "db",
+        "POSTGRES_PASSWORD": "postgres",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_SSL": "false",
+        "POSTGRES_USER": "postgres"
+      },
+      "networks": {
+        "app-network": null,
+        "devnet": null
+      },
+      "ulimits": {
+        "nofile": {
+          "hard": 65536,
+          "soft": 65536
+        }
+      },
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/apps/api/src",
+          "target": "/app/apps/api/src",
+          "type": "bind"
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/apps/api/prisma",
+          "target": "/app/apps/api/prisma",
+          "type": "bind"
+        }
+      ]
+    },
+    "nginx": {
+      "command": null,
+      "depends_on": {
+        "api": {
+          "condition": "service_started",
+          "required": true
+        },
+        "web": {
+          "condition": "service_started",
+          "required": true
+        }
+      },
+      "entrypoint": null,
+      "image": "nginx:1.30-alpine",
+      "networks": {
+        "app-network": null
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "protocol": "tcp",
+          "published": "3535",
+          "target": 80
+        }
+      ],
+      "ulimits": {
+        "nofile": {
+          "hard": 65536,
+          "soft": 65536
+        }
+      },
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/nginx/nginx.conf",
+          "target": "/etc/nginx/nginx.conf",
+          "type": "bind"
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/nginx/csp.dev.conf",
+          "target": "/etc/nginx/csp.conf",
+          "type": "bind"
+        }
+      ]
+    },
+    "web": {
+      "build": {
+        "context": "<ROOT>",
+        "dockerfile": "apps/web/Dockerfile",
+        "target": "development"
+      },
+      "command": [
+        "npm",
+        "run",
+        "dev"
+      ],
+      "entrypoint": null,
+      "environment": {
+        "NODE_ENV": "development"
+      },
+      "networks": {
+        "app-network": null
+      },
+      "volumes": [
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/apps/web/src",
+          "target": "/app/apps/web/src",
+          "type": "bind"
+        }
+      ]
+    }
+  }
+}
