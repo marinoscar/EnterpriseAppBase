@@ -82,4 +82,41 @@ describe('hashing and versions', () => {
     expect(nextPlatformVersion('1.2.3', ['1.4.0', '1.3.0'])).toBe('1.4.0');
     expect(compareVersions('1.10.0', '1.9.9')).toBeGreaterThan(0);
   });
+
+  it('orders versions by semver precedence, prerelease included (the example chain of semver.org)', () => {
+    const ascending = ['1.0.0-alpha', '1.0.0-alpha.1', '1.0.0-alpha.beta', '1.0.0-beta', '1.0.0-beta.2', '1.0.0-beta.11', '1.0.0-rc.1', '1.0.0'];
+    for (let i = 1; i < ascending.length; i += 1) {
+      expect(compareVersions(ascending[i - 1]!, ascending[i]!), `${ascending[i - 1]} < ${ascending[i]}`).toBeLessThan(0);
+      expect(compareVersions(ascending[i]!, ascending[i - 1]!)).toBeGreaterThan(0);
+    }
+    expect(compareVersions('0.1.0-next.10', '0.1.0-next.9')).toBeGreaterThan(0); // numeric, not lexical
+    expect(compareVersions('0.1.0-next.1', '0.1.0')).toBeLessThan(0);
+    expect(compareVersions('0.2.0-next.0', '0.1.9')).toBeGreaterThan(0);
+    expect(compareVersions('1.0.0+build.5', '1.0.0+build.9')).toBe(0); // build metadata is ignored
+    expect(() => compareVersions('1.0', '1.0.0')).toThrow(/not a version/);
+  });
+
+  it('a prerelease package ships its next migration in the release it leads to', () => {
+    expect(nextPlatformVersion('0.1.0-next.1', [])).toBe('0.1.0');
+    expect(nextPlatformVersion('0.1.0-next.1', ['0.1.0-next.1'])).toBe('0.1.0');
+    expect(nextPlatformVersion('0.1.0-next.1', ['1.0.0'])).toBe('1.0.0');
+    expect(nextPlatformVersion('1.2.3', ['1.3.0-next.1'])).toBe('1.3.0');
+  });
+});
+
+describe('versions in the lock and the manifest', () => {
+  it('accepts a prerelease platformVersion and since, and still rejects what is not semver', () => {
+    const lock = { ...emptyLock('0.1.0-next.1'), migrations: [{ ...entry, since: '0.1.0-next.1' }] };
+    expect(parseLock(serializeLock(lock))).toEqual(lock);
+    expect(parseLock(serializeLock({ ...emptyLock('1.2.3+sha.5'), migrations: [] })).platformVersion).toBe('1.2.3+sha.5');
+    for (const bad of ['1.2', 'v1.2.3', '1.2.3-', '1.2.3-next..1', 'next']) {
+      expect(() => parseLock(serializeLock(emptyLock(bad))), bad).toThrow(LockFormatError);
+    }
+  });
+
+  it('accepts a prerelease since in the manifest', () => {
+    const manifest = [{ id: '0001_initial', dir: '0001_initial', sha256: HASH, since: '0.1.0-next.1', slice: 'core', requires: [] }];
+    expect(parseManifest(JSON.stringify(manifest))[0]!.since).toBe('0.1.0-next.1');
+    expect(() => parseManifest(JSON.stringify([{ ...manifest[0]!, since: '0.1' }]))).toThrow(ManifestFormatError);
+  });
 });

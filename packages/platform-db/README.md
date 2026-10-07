@@ -56,7 +56,8 @@ To add an app model that points at a platform model, see the example in [Extensi
   "scripts": {
     "db:sync": "platform db sync",
     "db:check": "platform db check",
-    "db:drift": "node scripts/platform-env.js db drift"
+    "db:drift": "node scripts/platform-env.js db drift",
+    "db:baseline": "node scripts/platform-env.js db baseline"
   }
 }
 ```
@@ -67,7 +68,7 @@ npm run prisma:migrate   # apply them, explicitly (the API never migrates on sta
 npm run db:check    # prove the installed SQL is still byte-identical to the package's
 ```
 
-`db:drift` (and `platform db check --database`) read `DATABASE_URL`; the reference app's `apps/api/scripts/platform-env.js` builds it from `POSTGRES_*` the way `prisma-env.js` does.
+`db:drift`, `db:baseline` (and `platform db check --database`) read `DATABASE_URL`; the reference app's `apps/api/scripts/platform-env.js` builds it from `POSTGRES_*` the way `prisma-env.js` does.
 
 ## Configuration
 
@@ -188,7 +189,7 @@ A slice declares the back-relations that point **into** another slice as `extend
     "platformVersion": "1.0.0"
   }
   ```
-  `sha256` is the SHA-256 of the package file's raw bytes. It is also what Prisma stores in `_prisma_migrations.checksum` for a byte copy, which `apps/api/test/prisma/platform-sync.db.spec.ts` proves on a real database. Optional keys: `localSha256` and `note` (a comment-only divergence), `deviations`, `rawSqlIndexes`. A reader refuses a `lockVersion` newer than it knows. Prisma's own `migration_lock.toml` is separate and untouched.
+  `sha256` is the SHA-256 of the package file's raw bytes. It is also what Prisma stores in `_prisma_migrations.checksum` for a byte copy, which `apps/api/test/prisma/platform-sync.db.spec.ts` proves on a real database. Optional keys: `localSha256` and `note` (a comment-only divergence), `deviations`, `rawSqlIndexes`. A reader refuses a `lockVersion` newer than it knows. `platformVersion` and `since` are semantic versions, a prerelease included (`0.1.0-next.1`, which `platform db sync` writes when the installed package is a prerelease); versions are ordered by semver precedence, so `0.1.0-next.9` < `0.1.0-next.10` < `0.1.0`. Prisma's own `migration_lock.toml` is separate and untouched.
 - **Raw bytes.** Hashes are over the bytes, never normalised: a changed comment, trailing newline or line ending is a different migration. The repository marks `**/migration.sql` as `-text` in `.gitattributes`.
 - **`raw-sql-indexes.json`.** The partial and expression indexes that exist only in migration SQL, listed under [Raw-SQL indexes](#raw-sql-indexes) and exported as `RAW_SQL_INDEXES`.
 - **Concurrent index builds.** A big-table index change is `CREATE INDEX CONCURRENTLY IF NOT EXISTS` as the only statement of its own migration. Prisma runs a migration inside a transaction unless it contains only statements that cannot, and `CONCURRENTLY` cannot run in one.
@@ -255,7 +256,7 @@ None. The package renders nothing.
 
 ## Infra
 
-None. The package ships no deployment configuration. The two commands that touch a database read `DATABASE_URL` (and optionally `SHADOW_DATABASE_URL`) from the environment of the process; the app's scripts build the first from its `POSTGRES_*` variables, and the package adds no variable of its own. The one variable the seed uses is `INITIAL_ADMIN_EMAIL` (the initial administrator), which `platformSeedInputFrom` reads only from the `env` object it is handed. CI runs `db:check`, `db:check:database` and `db:drift` in the `smoke` job after `prisma:migrate`.
+None. The package ships no deployment configuration. The commands that touch a database (`db drift`, `db check --database`, `db baseline`) read `DATABASE_URL` (and optionally `SHADOW_DATABASE_URL`) from the environment of the process; the app's scripts build the first from its `POSTGRES_*` variables, and the package adds no variable of its own. The one variable the seed uses is `INITIAL_ADMIN_EMAIL` (the initial administrator), which `platformSeedInputFrom` reads only from the `env` object it is handed. CI runs `db:check`, `db:check:database` and `db:drift` in the `smoke` job after `prisma:migrate`.
 
 ## Observability
 
@@ -288,7 +289,20 @@ It sits beside, not inside, `runPlatformConformance()` of `@marinoscar/platform-
 
 After every version bump of `@marinoscar/platform-db`, run `npm run db:sync`, review the new directories under `prisma/migrations/`, commit them with the updated `platform.lock`, then `npm run prisma:migrate`. No version has been published yet, so there is nothing older to migrate from.
 
-The first adoption of platform history v1 by an app that already has these tables is a **baseline**, not a sync: the database must not re-run the 22 migrations. The reference app is already baselined (its directories are the installed copies and `platform.lock` maps them); a fork or another app follows the baseline procedure in `docs/runbooks/database-baseline.md` (planned with `platform db baseline`, [ADR 0002](../../docs/adr/0002-database-packaging-and-rls.md) D4).
+The first adoption of platform history v1 by an app that already has these tables is a **baseline**, not a sync: the database must not re-run the 22 migrations. The reference app is already baselined (its directories are the installed copies and `platform.lock` maps them); a fork or another app follows [the baseline runbook](../../docs/runbooks/database-baseline.md) with `platform db baseline` ([ADR 0002](../../docs/adr/0002-database-packaging-and-rls.md) D4). **Baseline before the first deploy** of an app version that depends on this package, never from `appctl deploy update`.
+
+`platform db baseline` is a dry run unless `--apply` is given, and a dry run writes nothing and runs no `prisma migrate resolve`:
+
+| Step | What it does |
+|---|---|
+| B1 map | Matches each platform migration to one of the app's directories by identical bytes (a directory rename is irrelevant), else identical after stripping comments and whitespace (the lock records `localSha256` and a `note`), else the `--map <file.json>` (`{ "platform:0019_...": "<localDir>" }`). Reports unmatched migrations and app-only directories |
+| B2 ledger | Every mapped directory must be a finished, non-rolled-back row of `_prisma_migrations` with the local file's checksum. A failed or rolled-back row is checked first and stops the run |
+| B3 diff | Replays the package history up to `--through` in a shadow database and diffs it against the **live** database. A statement a `deviations[].expectDiff` entry of `platform.lock` declares is allowed; any other refuses |
+| B4 indexes | Asserts every raw-SQL index of the package (up to `--through`) and of the lock's `rawSqlIndexes` in `pg_indexes`, name and definition |
+| B5 act | `--apply` only. Installs each migration that has no directory (a byte copy placed right after its package predecessor, so a fresh database applies the history in package order), runs `prisma migrate resolve --applied` for those at or below `--through`, and writes `platform.lock` last |
+| B6 verify | `prisma migrate status`, `platform db check` and the ledger comparison |
+
+`--through <NNNN>` names the platform migration the database equals (default: the newest). Below the newest is partial adoption: the rest is installed, and `prisma migrate deploy` applies it. `--force-remap` allows `--apply` over a lock that already has entries. `--shadow-database-url` supplies the empty database the replay needs (default: a throwaway one is created next to the live one and dropped). There is no `--force`. It never creates, drops or alters a database object: the only write to the database is `migrate resolve --applied`, through the app's `scripts/prisma-env.js`. Exit code 0 when clean, 1 on a refusal or a failed verification, 2 on a usage error.
 
 A migration that changes a package-owned table is authored in the base app and promoted into the package; see [Authoring a platform migration](../../docs/DEVELOPMENT.md#authoring-a-platform-migration). Only one pull request labelled `pp:migration` may be open at a time; a second one waits, rebases, deletes its local directory and re-runs `prisma migrate dev --create-only` and `platform db promote`, so its directory gets a newer timestamp.
 
@@ -331,6 +345,22 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 | `LEDGER_UNFINISHED` (`--database`) | A row of `_prisma_migrations` never finished | `prisma migrate resolve --rolled-back <dir>` or `--applied <dir>`, after checking the database |
 
 `platform db sync` refuses with `LOCK_GAP` (the lock is not an in-order prefix of the package history: restore `platform.lock`), `REQUIRES_VIOLATION` (a manifest entry requires a slice no earlier entry provides: a package bug) or `PACKAGE_FILE_MISMATCH` (a package file does not match its manifest hash; nothing is copied). `platform db promote` refuses with `PROMOTE_NOT_SYNCED` (run `db:sync` first), `PROMOTE_ORDER` (the directory sorts before the last installed platform migration: rebase and regenerate it) and `PROMOTE_CONFLICT` (the slug or directory is already recorded with different bytes).
+
+`platform db baseline` refuses with a code, and prints the report first ([the runbook](../../docs/runbooks/database-baseline.md) has the fix for each):
+
+| Code | Meaning | Fix |
+|---|---|---|
+| `LEDGER_FAILED_ROW` | `_prisma_migrations` has a row that never finished or was rolled back, with no later successful run | Resolve it with `prisma migrate resolve --rolled-back` or `--applied` after checking the database (runbook section 8) |
+| `LEDGER_ROW_MISSING`, `LEDGER_CHECKSUM_MISMATCH` | A mapped directory is not recorded as applied, or its file was edited after it was | Lower `--through`, or restore the file from Git |
+| `DIFF_BLOCKING` | The live database differs from the package history up to `--through` in a statement no deviation declares | Write a forward migration, declare it under `deviations` in `platform.lock` (the statement as printed), or lower `--through` |
+| `INDEX_MISSING`, `INDEX_DEFINITION_DIFFERS` | A raw-SQL index is missing or lost its `WHERE` clause (Prisma's diff cannot see this) | Re-create it from the definition printed, in a forward migration |
+| `LOCK_NOT_EMPTY` | `platform.lock` already has entries | `--force-remap`, after reading the dry run |
+| `PLACEMENT_IMPOSSIBLE` | The directories cannot sort in package order | Rename an app directory the database has not applied, or re-map |
+| `MAP_INVALID` | `--map` is not valid, or names a directory another migration already matches exactly | Fix the file |
+| `THROUGH_UNKNOWN`, `PACKAGE_FILE_MISMATCH` | `--through` names no migration, or a package file does not match its manifest hash | Use `22`, `0022` or `platform:0022_slug`; reinstall the package |
+| `RESOLVE_FAILED` | `prisma migrate resolve --applied` failed; the directory created for that step was removed and no lock was written | Read Prisma's message (`P3008` means the directory is already recorded); fix and re-run, the migrations already resolved are mapped by hash |
+
+`permission denied to create database` means the role cannot create the throwaway shadow database: pass `--shadow-database-url`. `P3005` on `migrate deploy` means the database was never managed by Prisma Migrate: the baseline records every migration up to `--through` with `migrate resolve --applied`, which creates the ledger.
 
 `platform db drift` prints `SCHEMA_DRIFT` with the SQL that is in the schema but in no migration (add a migration), `INDEX_MISSING` or `INDEX_DEFINITION_DIFFERS` for a raw-SQL index that was dropped or re-created without its `WHERE` clause. `Error: You must set datasource.shadowDatabaseUrl` means `prisma.config.ts` does not pass `process.env.SHADOW_DATABASE_URL` through.
 

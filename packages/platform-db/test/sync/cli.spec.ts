@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { main } from '../../src/bin/platform.js';
 import { writeLocalMigration } from '../../src/bin/fs-io.js';
-import { parseLock, sha256Hex } from '../../src/lock/index.js';
+import { parseLock, serializeLock, sha256Hex } from '../../src/lock/index.js';
 import { makeWorkspace, type Workspace } from '../helpers/fixtures.js';
 
 interface Run {
@@ -60,6 +60,24 @@ describe('platform db sync', () => {
     expect(second.out.join('\n')).toContain('up to date');
     expect(readFileSync(ws.lockFile, 'utf8')).toBe(before);
     expect(localDirs(ws)).toEqual(dirs);
+  });
+
+  it('syncs a prerelease package: the lock it writes parses, checks and syncs again (0.1.0-next.1)', async () => {
+    const ws = makeWorkspace();
+    writeFileSync(join(ws.packageDir, 'package.json'), '{ "name": "@marinoscar/platform-db", "version": "0.1.0-next.1" }\n');
+    const first = await platform(ws, ['sync']);
+    expect(first.code).toBe(0);
+    expect(first.err).toEqual([]);
+
+    const lock = parseLock(readFileSync(ws.lockFile, 'utf8'));
+    expect(lock.platformVersion).toBe('0.1.0-next.1');
+
+    const check = await platform(ws, ['check']);
+    expect(check.code).toBe(0);
+    const second = await platform(ws, ['sync']);
+    expect(second.code).toBe(0);
+    expect(second.out.join('\n')).toContain('up to date');
+    expect(readFileSync(ws.lockFile, 'utf8')).toBe(serializeLock(lock));
   });
 
   it('--dry-run prints the plan and writes nothing', async () => {

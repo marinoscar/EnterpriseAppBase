@@ -3,7 +3,7 @@
   "platform-api": { "core": [], "testing": ["core"], "doctor": ["core"], "otel-core": ["core"] },
   "platform-web": { "core": [], "testing": ["core"], "doctor": ["core"] },
   "platform-contract": {},
-  "platform-db": { "compose": [], "lock": [], "sync": ["lock"], "drift": ["lock", "sync"], "bin": ["compose", "lock", "sync", "drift"], "seed": [] },
+  "platform-db": { "compose": [], "lock": [], "sync": ["lock"], "drift": ["lock", "sync"], "baseline": ["lock", "sync", "drift"], "bin": ["compose", "lock", "sync", "drift", "baseline"], "seed": [] },
   "platform-cli": { "core": [], "telemetry": ["core"] },
   "platform-infra": { "telemetry": [] }
 }

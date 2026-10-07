@@ -13,3 +13,4 @@ export * from './compose/index.js';
 export * from './lock/index.js';
 export * from './sync/index.js';
 export * from './drift/index.js';
+export * from './baseline/index.js';

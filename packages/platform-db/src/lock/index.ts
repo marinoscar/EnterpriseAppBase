@@ -1,4 +1,5 @@
 export { sha256Hex } from './hash.js';
+export { SEMVER_PATTERN } from './semver.js';
 export {
   LockFormatError,
   emptyLock,

@@ -1,7 +1,6 @@
 // The `platform` command (bin/platform.js runs `main`): a subcommand router.
-// `platform db compose` (./compose) and `platform db sync|check|promote|drift`
-// (./db-commands) are here; `platform db baseline` plugs in as a further `db`
-// subcommand. `main` returns the exit code and takes
+// `platform db compose` (./compose) and `platform db sync|check|promote|drift|baseline`
+// (./db-commands) are `db` subcommands. `main` returns the exit code and takes
 // its output sinks so tests drive it without process.exit.
 
 import { isAbsolute, join, resolve } from 'node:path';
