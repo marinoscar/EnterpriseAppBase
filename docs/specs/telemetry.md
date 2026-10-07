@@ -2262,7 +2262,11 @@ finite bound). API gauges are delta-temporality (§11.13): a group whose latest
 bucket is more than one bucket older than the family's newest has stopped
 reporting and is left out of the tile, and a listed tile group with no current
 reading reads 0 (nothing pending); a table's `last` cell older than its part's
-newest reading by 150 s is `null`.
+newest reading by the freshness window is `null`. The window is 150 s
+(`METRIC_FRESH_MS`) unless the app passes
+`TelemetryModule.forRoot({ metrics: { freshMs } })`; the response reports it
+as `freshMs`, and each section with a table shows it in its header ("Current
+within 2 min 30 s"). The verdict's own `VERDICT_FRESH_MS` is separate and fixed.
 
 **Filters.** `host` applies to collector-scraped tables (`host_name` is the
 real host); `service` and `instance` apply to the API's `app_*` tables
