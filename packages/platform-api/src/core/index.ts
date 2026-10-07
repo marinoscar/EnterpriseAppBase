@@ -114,3 +114,10 @@ export type {
   RlsTransactionOptions,
   SystemAccessReason,
 } from './data-access/index';
+
+// Cross-cutting decorators every packaged controller needs (issue #727): the
+// maintenance-window exemption the app's `MaintenanceGuard` reads, and the
+// `{ data: … }` envelope response documentation.
+export { ALLOW_DURING_MAINTENANCE_KEY, AllowDuringMaintenance } from './maintenance/allow-during-maintenance.decorator';
+export { ApiDataResponse } from './openapi/api-data-response.decorator';
+export type { ApiDataResponseOptions, DataResponsePagination } from './openapi/api-data-response.decorator';
