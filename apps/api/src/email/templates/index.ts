@@ -207,6 +207,9 @@ export { nodeOfflineEmail } from './node-offline.email';
 export { backupFailedEmail } from './backup-failed.email';
 export { restoreCompletedEmail } from './restore-completed.email';
 
+// The organization invitation (#726, PP-6.7).
+export { orgInvitationEmail } from './org-invitation.email';
+
 export { PLATFORM_EMAIL_TEMPLATES } from './platform-email-templates';
 export type {
   PlatformEmailTemplateDataMap,
@@ -237,3 +240,4 @@ export type {
   BackupFailureOutcome,
 } from './backup-failed.email';
 export type { RestoreCompletedEmailData } from './restore-completed.email';
+export type { OrgInvitationEmailData } from './org-invitation.email';

@@ -61,6 +61,8 @@ const PLATFORM_EVENT_KEYS = [
   'nodes.node_offline',
   'db_backup.backup_failed',
   'db_backup.restore_completed',
+  // #726 (PP-6.7), appended after the events `main` declared before #678.
+  'org.invitation',
 ];
 
 /** A valid app event; tests spread it and break one field. */
@@ -111,11 +113,11 @@ describe('notification registries (#678)', () => {
       expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
     });
 
-    it('registers the nine platform events in the old array order', () => {
+    it('registers the nine platform events in the old array order, then org.invitation (#726)', () => {
       expect(notificationEventRegistry.ids()).toEqual(PLATFORM_EVENT_KEYS);
     });
 
-    it('registers the nine platform email templates in the old literal order', () => {
+    it('registers the nine platform email templates in the old literal order, then org-invitation (#726)', () => {
       expect(emailTemplateRegistry.ids()).toEqual([
         'test-email',
         'user-welcome',
@@ -126,6 +128,7 @@ describe('notification registries (#678)', () => {
         'node-offline',
         'backup-failed',
         'restore-completed',
+        'org-invitation',
       ]);
       for (const [name, render] of Object.entries(PLATFORM_EMAIL_TEMPLATES)) {
         expect(emailTemplateRegistry.require(name).render).toBe(render);
@@ -143,6 +146,7 @@ describe('notification registries (#678)', () => {
         'nodes.node_offline': 'node-offline',
         'db_backup.backup_failed': 'backup-failed',
         'db_backup.restore_completed': 'restore-completed',
+        'org.invitation': 'org-invitation',
       });
     });
 
