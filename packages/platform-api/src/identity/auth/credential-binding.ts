@@ -23,7 +23,7 @@
 // org taken from a header, query or body.
 // =============================================================================
 
-import type { CredentialKind } from '@marinoscar/platform-api/core';
+import type { CredentialKind } from '../../core/index';
 
 /**
  * What a credential path binds: the org (`null` for a system-scoped node;

@@ -13,7 +13,7 @@ import {
   Body,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
+import { DatabaseSeedException } from '../../core/index';
 import {
   ApiTags,
   ApiOperation,
@@ -21,7 +21,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
-import { FastifyRequest, FastifyReply } from 'fastify';
+import type { CookieReply as FastifyReply, CookieRequest as FastifyRequest } from './cookie-http';
 import { AuthService } from './auth.service';
 import {
   buildAuthErrorRedirectUrl,
@@ -34,7 +34,7 @@ import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Auth } from './decorators/auth.decorator';
 import { CurrentPrincipal } from './decorators/current-principal.decorator';
-import type { Principal } from '@marinoscar/platform-api/core';
+import type { Principal } from '../../core/index';
 import { RequestUser } from './interfaces/authenticated-user.interface';
 import { SwitchOrgDto } from './dto/switch-org.dto';
 import { GoogleProfile } from './strategies/google.strategy';
@@ -43,7 +43,7 @@ import {
   AuthProviderDto,
 } from './dto/auth-provider.dto';
 import { CurrentUserDto, TokenResponseDto } from './dto/auth-user.dto';
-import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
+import { AllowDuringMaintenance } from '../../core/index';
 
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 const COOKIE_OPTIONS = {

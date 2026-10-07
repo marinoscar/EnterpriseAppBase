@@ -1,5 +1,5 @@
 import { ForbiddenException } from '@nestjs/common';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
+import { DatabaseSeedException } from '../../core/index';
 
 // The CLOSED set of sign-in failure codes (#652) is defined ONCE, in
 // `@marinoscar/platform-contract/identity` (#727): the web app keys its copy

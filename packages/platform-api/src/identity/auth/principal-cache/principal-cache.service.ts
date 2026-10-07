@@ -7,15 +7,15 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { CredentialKind } from '@marinoscar/platform-api/core';
+import type { CredentialKind } from '../../../core/index';
 
 import {
-  EVENT_BUS,
-  type EventBus,
-  type EventBusHealth,
-  type EventBusMeta,
-} from '../../common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../../common/event-bus/in-process-event-bus';
+  IDENTITY_EVENT_BUS,
+  type IdentityEventBus as EventBus,
+  type IdentityEventBusHealth as EventBusHealth,
+  type IdentityEventBusMeta as EventBusMeta,
+} from '../../ports';
+import { LocalIdentityEventBus } from './local-event-bus';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import { DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS } from './principal-cache.config';
 import { stampCredential } from '../credential-binding';
@@ -71,7 +71,7 @@ export const PRINCIPAL_INVALIDATE_CHANNEL = 'auth.principal.invalidate';
 export const PRINCIPAL_CACHE_MAX_ENTRIES = 10_000;
 
 /** Optional DI token for the clock (ms since epoch). Tests inject one; production uses `Date.now`. */
-export const PRINCIPAL_CACHE_CLOCK = Symbol('PRINCIPAL_CACHE_CLOCK');
+export const PRINCIPAL_CACHE_CLOCK: unique symbol = Symbol.for('@marinoscar/platform/identity/PRINCIPAL_CACHE_CLOCK');
 
 /**
  * What to drop: every entry of one user (all orgs, all credential kinds), or
@@ -202,10 +202,10 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
     // graph built from one feature module has no `EventBusModule`. There the
     // cache still invalidates locally (single process); the app always has
     // the global bus, and the Doctor reports which one this cache uses.
-    @Optional() @Inject(EVENT_BUS) bus?: EventBus,
+    @Optional() @Inject(IDENTITY_EVENT_BUS) bus?: EventBus,
     @Optional() @Inject(PRINCIPAL_CACHE_CLOCK) private readonly now: () => number = Date.now,
   ) {
-    this.bus = bus ?? new InProcessEventBus();
+    this.bus = bus ?? new LocalIdentityEventBus();
     const seconds = config.get<number>('auth.principalCacheTtlSeconds');
     const ttlSeconds =
       typeof seconds === 'number' && Number.isSafeInteger(seconds) && seconds >= 0

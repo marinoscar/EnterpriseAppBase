@@ -45,11 +45,9 @@
 // asks for and the reason no profile is needed here.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Job } from '@prisma/client';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { IDENTITY_JOBS, type IdentityJobHandler, type IdentityJobRecord as Job, type IdentityJobsPort } from '../../ports';
 import { PatService } from '../../pat/pat.service';
 import { AuthService } from '../auth.service';
 
@@ -66,20 +64,20 @@ import { AuthService } from '../auth.service';
 export const AUTH_TOKEN_CLEANUP_TYPE = 'auth.token.cleanup';
 
 @Injectable()
-export class TokenCleanupHandler implements JobHandler, OnModuleInit {
+export class TokenCleanupHandler implements IdentityJobHandler, OnModuleInit {
   private readonly logger = new Logger(TokenCleanupHandler.name);
 
   readonly type = AUTH_TOKEN_CLEANUP_TYPE;
 
   constructor(
-    private readonly registry: JobHandlerRegistry,
+    @Inject(IDENTITY_JOBS) private readonly jobs: IdentityJobsPort,
     private readonly auth: AuthService,
     private readonly pat: PatService
   ) {}
 
   /** Self-registration — the only wiring a handler needs. */
   onModuleInit(): void {
-    this.registry.register(this);
+    this.jobs.registerHandler(this);
   }
 
   /**

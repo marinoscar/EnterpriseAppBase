@@ -3,11 +3,11 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  Optional,
-} from '@nestjs/common';
+  Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, createHash } from 'node:crypto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
 import { AuthService } from '../auth/auth.service';
 import { PatService } from '../pat/pat.service';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
@@ -56,7 +56,7 @@ export class DeviceAuthService {
   private readonly PAT_NAME_FALLBACK = 'Unnamed device';
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
     // PatModule is @Global and registered in AppModule, so this resolves

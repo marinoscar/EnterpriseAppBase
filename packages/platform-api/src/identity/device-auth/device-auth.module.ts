@@ -2,9 +2,7 @@ import { Module } from '@nestjs/common';
 import { DeviceAuthController } from './device-auth.controller';
 import { DeviceAuthService } from './device-auth.service';
 import { DeviceCodeCleanupTask } from './tasks/device-code-cleanup.task';
-import { AuthModule } from '../auth/auth.module';
 import { DeviceCodeCleanupHandler } from './handlers/device-code-cleanup.handler';
-import { JobsModule } from '../jobs/jobs.module';
 
 /**
  * Module for Device Authorization Flow (RFC 8628)
@@ -14,9 +12,14 @@ import { JobsModule } from '../jobs/jobs.module';
  * - Polling for authorization status
  * - User authorization of devices
  * - Managing device sessions
+ *
+ * Mounted by `IdentityModule.forRoot()`; never import it directly.
+ *
+ * @stability experimental
  */
 @Module({
-  imports: [AuthModule, JobsModule],
+  // `IdentityModule.forRoot()` imports the very AuthModule instance it
+  // mounts (AuthService, JwtModule); the jobs port is the app's global host module.
   controllers: [DeviceAuthController],
   providers: [DeviceAuthService, DeviceCodeCleanupTask, DeviceCodeCleanupHandler],
   exports: [DeviceAuthService],

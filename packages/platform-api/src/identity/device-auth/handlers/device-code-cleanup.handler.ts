@@ -19,11 +19,9 @@
 // `auth/handlers/token-cleanup.handler.ts` for the same argument at length.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Job } from '@prisma/client';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { IDENTITY_JOBS, type IdentityJobHandler, type IdentityJobRecord as Job, type IdentityJobsPort } from '../../ports';
 import { DeviceAuthService } from '../device-auth.service';
 
 /**
@@ -34,19 +32,19 @@ import { DeviceAuthService } from '../device-auth.service';
 export const DEVICE_CODE_CLEANUP_TYPE = 'device-auth.code.cleanup';
 
 @Injectable()
-export class DeviceCodeCleanupHandler implements JobHandler, OnModuleInit {
+export class DeviceCodeCleanupHandler implements IdentityJobHandler, OnModuleInit {
   private readonly logger = new Logger(DeviceCodeCleanupHandler.name);
 
   readonly type = DEVICE_CODE_CLEANUP_TYPE;
 
   constructor(
-    private readonly registry: JobHandlerRegistry,
+    @Inject(IDENTITY_JOBS) private readonly jobs: IdentityJobsPort,
     private readonly deviceAuth: DeviceAuthService
   ) {}
 
   /** Self-registration — the only wiring a handler needs. */
   onModuleInit(): void {
-    this.registry.register(this);
+    this.jobs.registerHandler(this);
   }
 
   /**

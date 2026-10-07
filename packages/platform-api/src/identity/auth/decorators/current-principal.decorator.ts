@@ -1,5 +1,5 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import type { Principal } from '@marinoscar/platform-api/core';
+import type { Principal } from '../../../core/index';
 
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import { toPrincipal } from '../principal.factory';

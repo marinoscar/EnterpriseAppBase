@@ -26,7 +26,7 @@
 // system `admin` role; no org role may hold them (the registry refuses it).
 // =============================================================================
 
-import type { PermissionDeclarationMap } from '../common/permissions/permission.types';
+import type { IdentityPermissionDeclarationMap as PermissionDeclarationMap } from '../identity.permissions';
 
 export const ORGANIZATIONS_PERMISSIONS = {
   ORG_MEMBERS_READ: {

@@ -3,22 +3,21 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
+  ConflictException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
 import { AddEmailDto } from './dto/add-email.dto';
 import { AllowlistQueryDto } from './dto/allowlist-query.dto';
-import { NotificationsService } from '../notifications/notifications.service';
-import type { AllowlistInvitationEmailData } from '../email';
+import { IDENTITY_NOTIFIER, type AllowlistInvitationNotice, type IdentityNotifier } from '../ports';
 
 @Injectable()
 export class AllowlistService {
   private readonly logger = new Logger(AllowlistService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly notifications: NotificationsService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
+    @Inject(IDENTITY_NOTIFIER) private readonly notifications: IdentityNotifier,
     private readonly config: ConfigService,
   ) {}
 
@@ -158,7 +157,7 @@ export class AllowlistService {
     // today, but only the former survives being serialised, logged or
     // compared, and only the former stays correct if
     // `exactOptionalPropertyTypes` is ever turned on.
-    const payload: AllowlistInvitationEmailData = {
+    const payload: AllowlistInvitationNotice = {
       recipientEmail: email,
       // `addedBy` came free with the `include` on the create above — no extra
       // query. Optional because `added_by_id` is nullable (`onDelete:
@@ -172,7 +171,7 @@ export class AllowlistService {
     // written with no expectation that they will read it. Omitting it at the
     // call site rather than in the template means no future edit to the copy
     // can surface it.
-    await this.notifications.notifyAddress('allowlist.invitation', email, payload);
+    await this.notifications.allowlistInvitation(email, payload);
 
     return entry;
   }

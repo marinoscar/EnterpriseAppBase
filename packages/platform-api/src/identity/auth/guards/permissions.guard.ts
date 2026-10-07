@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
-import type { Principal } from '@marinoscar/platform-api/core';
+import type { Principal } from '../../../core/index';
 import { toRequestUser, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 @Injectable()

@@ -1,18 +1,22 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
-import { ORG_ADMIN_ROLE, ROLES } from '../constants/roles.constants';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
+import { PrincipalCache } from './principal-cache/principal-cache.service';
+import { ORG_ADMIN_ROLE, ROLES } from '../identity.constants';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
 
 @Injectable()
 export class AdminBootstrapService implements OnModuleInit {
   private readonly logger = new Logger(AdminBootstrapService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly config: ConfigService,
     // PP-1.12 (#683): `assignAdminRole` changes what the user's JWT resolves to.
     private readonly principalCache: PrincipalCache,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
   ) {}
 
   async onModuleInit() {
@@ -30,11 +34,11 @@ export class AdminBootstrapService implements OnModuleInit {
    * when they first log in. This is handled during OAuth callback.
    */
   private async ensureInitialAdminRole() {
-    const initialAdminEmail = this.config.get<string>('INITIAL_ADMIN_EMAIL');
+    const initialAdminEmail = this.config.get<string>(this.identityOptions.initialAdminEmailEnv);
 
     if (!initialAdminEmail) {
       this.logger.warn(
-        'INITIAL_ADMIN_EMAIL not set - no admin will be auto-assigned',
+        `${this.identityOptions.initialAdminEmailEnv} not set - no admin will be auto-assigned`,
       );
       return;
     }
@@ -48,7 +52,7 @@ export class AdminBootstrapService implements OnModuleInit {
    * Called during OAuth callback to check if user should be granted admin
    */
   async shouldGrantAdminRole(email: string): Promise<boolean> {
-    const initialAdminEmail = this.config.get<string>('INITIAL_ADMIN_EMAIL');
+    const initialAdminEmail = this.config.get<string>(this.identityOptions.initialAdminEmailEnv);
 
     if (!initialAdminEmail) {
       return false;

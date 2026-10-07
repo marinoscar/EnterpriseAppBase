@@ -1,20 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import type { Prisma } from '@prisma/client';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
+import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
 import { TestLoginDto } from './dto/test-login.dto';
 import { JwtPayload } from '../auth/strategies/jwt.strategy';
-import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
+import { USER_DEFAULTS, type UserDefaults } from '../ports';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { TenancyService } from '../organizations/tenancy.service';
 import { AuthLoginDeniedException } from '../auth/auth-error-codes';
 import {
-  DEFAULT_ORG_ROLE,
   ORG_ADMIN_ROLE,
   ROLES,
-} from '../common/constants/roles.constants';
+} from '../identity.constants';
 import { PRINCIPAL_USER_INCLUDE, principalFactory } from '../auth/principal.factory';
 
 export interface TestAuthTokenResponse {
@@ -34,7 +38,7 @@ export class TestAuthService {
   private readonly logger = new Logger(TestAuthService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     // PP-1.12 (#683): the role swap below must reach the next request.
@@ -43,6 +47,11 @@ export class TestAuthService {
     private readonly organizations: OrganizationsService,
     // PP-6.2 (#722): the same tenancy rules as a Google sign-in.
     private readonly tenancy: TenancyService,
+    // #727: a new test user's settings row.
+    @Inject(USER_DEFAULTS) private readonly userDefaults: UserDefaults,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /**
@@ -60,7 +69,7 @@ export class TestAuthService {
     const isInitialAdmin = this.isInitialAdminEmail(email);
     let userWasCreated = false;
 
-    const roleName = dto.role || DEFAULT_ORG_ROLE;
+    const roleName = dto.role || this.identityOptions.defaultOrgRole;
     const isAdmin = roleName === ROLES.ADMIN;
     const membershipRoleName = isAdmin ? ORG_ADMIN_ROLE : roleName;
 
@@ -103,7 +112,7 @@ export class TestAuthService {
             // Create default user settings
             userSettings: {
               create: {
-                value: DEFAULT_USER_SETTINGS as any,
+                value: this.userDefaults.userSettings() as Prisma.InputJsonValue,
               },
             },
           },
@@ -121,6 +130,12 @@ export class TestAuthService {
       userWasCreated = true;
 
       this.logger.log(`Created test user: ${email}`);
+      emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.USER_CREATED, {
+        userId: user.id,
+        email,
+        source: 'test-auth',
+        orgId: defaultOrg?.id ?? null,
+      });
     }
 
     const userId = user.id;
@@ -222,7 +237,7 @@ export class TestAuthService {
 
   /** Same rule as `AuthService.isInitialAdminEmail`. */
   private isInitialAdminEmail(email: string): boolean {
-    const initialAdminEmail = this.configService.get<string>('INITIAL_ADMIN_EMAIL');
+    const initialAdminEmail = this.configService.get<string>(this.identityOptions.initialAdminEmailEnv);
     return initialAdminEmail ? email === initialAdminEmail.toLowerCase() : false;
   }
 

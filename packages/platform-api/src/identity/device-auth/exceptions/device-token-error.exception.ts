@@ -3,7 +3,7 @@ import {
   HttpException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { withVerbatimErrorBody } from '@marinoscar/platform-api/core';
+import { withVerbatimErrorBody } from '../../../core/index';
 
 /**
  * The error codes `POST /auth/device/token` can return.

@@ -1,6 +1,5 @@
 import { PrincipalCacheModule } from '../auth/principal-cache/principal-cache.module';
 import { Module } from '@nestjs/common';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
@@ -9,7 +8,8 @@ import { UsersService } from './users.service';
   // Imported explicitly — NotificationsModule is not @Global — so every
   // feature able to send a notification shows up in a diff.
   // PrincipalCacheModule (PP-1.12, #683): `UsersService` invalidates principals.
-  imports: [NotificationsModule, PrincipalCacheModule],
+  // The notifier (`IDENTITY_NOTIFIER`) is the app's global host port.
+  imports: [PrincipalCacheModule],
   controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService],

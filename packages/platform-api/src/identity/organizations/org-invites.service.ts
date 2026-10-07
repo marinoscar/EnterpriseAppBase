@@ -3,18 +3,23 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  Optional,
-} from '@nestjs/common';
+  Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { trace } from '@opentelemetry/api';
 import type { Invite, InviteStatus, Prisma } from '@prisma/client';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import type { OrgInvitationEmailData } from '../email';
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
-import { DEFAULT_ORG_ROLE } from '../common/constants/roles.constants';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
+import {
+  IDENTITY_METRICS,
+  IDENTITY_NOTIFIER,
+  NOOP_IDENTITY_METRICS,
+  type IdentityMetrics,
+  type IdentityNotifier,
+  type OrgInvitationNotice,
+} from '../ports';
+import { DatabaseSeedException } from '../../core/index';
+import { DEFAULT_ORG_ROLE } from '../identity.constants';
 import { signInUrlFrom, writeAudit } from './org-admin.common';
 import type { CreateOrgInviteDto, OrgInviteListQueryDto } from './dto/org-invite.dto';
 
@@ -64,7 +69,7 @@ export interface WriteInviteInput {
 /** The email to send once the transaction that wrote an invite has committed. */
 export interface PendingInvitation {
   invite: Invite;
-  payload: OrgInvitationEmailData;
+  payload: OrgInvitationNotice;
 }
 
 /**
@@ -88,11 +93,11 @@ export class OrgInvitesService {
   private readonly logger = new Logger(OrgInvitesService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly notifications: NotificationsService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
+    @Inject(IDENTITY_NOTIFIER) private readonly notifications: IdentityNotifier,
     private readonly config: ConfigService,
-    @Optional()
-    private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() @Inject(IDENTITY_METRICS)
+    private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
   ) {}
 
   /** The organization's invitations, newest first, after marking lapsed ones `expired`. */
@@ -263,7 +268,7 @@ export class OrgInvitesService {
   async dispatchInvitation(pending: PendingInvitation): Promise<void> {
     this.metrics.add('orgInvitesCreated');
     this.logger.log(`Organization invitation ${pending.invite.id} written for org ${pending.invite.orgId}`);
-    await this.notifications.notifyAddress('org.invitation', pending.payload.recipientEmail, pending.payload);
+    await this.notifications.orgInvitation(pending.payload.recipientEmail, pending.payload);
   }
 
   /**

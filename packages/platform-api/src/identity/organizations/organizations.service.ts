@@ -1,15 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Membership, MembershipStatus, Organization, Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { DefaultOrganizationMissingException } from './organizations.errors';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
-import { DEFAULT_ORG_ROLE } from '../common/constants/roles.constants';
+import { DatabaseSeedException } from '../../core/index';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
+import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
 import { orgRoleRank } from './org-admin.common';
 
 /** The audit action an invitation claimed at sign-in writes (#726). */
 export const ORG_INVITE_ACCEPTED_AUDIT = 'org:invite_accepted';
-import type { TenancyMode } from '@marinoscar/platform-api/core';
+import type { TenancyMode } from '../../core/index';
 
 /**
  * Organizations, the tenancy foundation (PP-6.1, ADR 0001).
@@ -32,9 +35,15 @@ import type { TenancyMode } from '@marinoscar/platform-api/core';
 @Injectable()
 export class OrganizationsService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly principalCache: PrincipalCache,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
+    // #727: `identity.membership.changed` when a sign-in claims an invitation.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
+
+  private readonly logger = new Logger(OrganizationsService.name);
 
   /**
    * The deployment's default organization: the single row with `isDefault`,
@@ -118,7 +127,7 @@ export class OrganizationsService {
    */
   async ensureDefaultOrgMembership(
     userId: string,
-    roleName: string = DEFAULT_ORG_ROLE,
+    roleName: string = this.identityOptions.defaultOrgRole,
   ): Promise<{ orgId: string; created: boolean }> {
     const org = await this.getDefaultOrg();
     const existing = await this.prisma.membership.findUnique({
@@ -324,12 +333,13 @@ export class OrganizationsService {
 
       let role = invite.role;
       if (!role) {
+        const defaultRoleName = this.identityOptions.defaultOrgRole;
         defaultRole ??= await this.prisma.role.findUnique({
-          where: { name: DEFAULT_ORG_ROLE },
+          where: { name: defaultRoleName },
           select: { id: true, name: true },
         });
         if (!defaultRole) {
-          throw new DatabaseSeedException(`Role "${DEFAULT_ORG_ROLE}"`, 'npm run prisma:seed');
+          throw new DatabaseSeedException(`Role "${defaultRoleName}"`, 'npm run prisma:seed');
         }
         role = defaultRole;
       }
@@ -340,12 +350,17 @@ export class OrganizationsService {
           where: { id: invite.id, status: 'pending' },
           data: { status: 'accepted', acceptedById: userId, acceptedAt: now },
         });
-        if (marked.count !== 1) return false;
+        if (marked.count !== 1) return null;
 
         const existing = await tx.membership.findUnique({
           where: { orgId_userId: { orgId: invite.orgId, userId } },
           include: { role: { select: { name: true } } },
         });
+        const outcome: 'created' | 'upgraded' | 'unchanged' = !existing
+          ? 'created'
+          : orgRoleRank(grantedRole.name) > orgRoleRank(existing.role.name)
+            ? 'upgraded'
+            : 'unchanged';
         if (!existing) {
           await tx.membership.create({
             data: { orgId: invite.orgId, userId, roleId: grantedRole.id, lastActiveAt: now },
@@ -366,17 +381,25 @@ export class OrganizationsService {
             meta: {
               orgId: invite.orgId,
               role: grantedRole.name,
-              membership: !existing
-                ? 'created'
-                : orgRoleRank(grantedRole.name) > orgRoleRank(existing.role.name)
-                  ? 'upgraded'
-                  : 'unchanged',
+              membership: outcome,
             },
           },
         });
-        return true;
+        return outcome;
       });
-      if (claimed) accepted += 1;
+      if (claimed) {
+        accepted += 1;
+        if (claimed !== 'unchanged') {
+          // #727: committed (the transaction above resolved).
+          emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.MEMBERSHIP_CHANGED, {
+            userId,
+            orgId: invite.orgId,
+            change: claimed === 'created' ? 'created' : 'role_changed',
+            role: grantedRole.name,
+            actorUserId: null,
+          });
+        }
+      }
     }
 
     if (accepted > 0) {

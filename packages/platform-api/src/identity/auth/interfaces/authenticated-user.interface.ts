@@ -1,5 +1,5 @@
 import { User, MembershipStatus } from '@prisma/client';
-import type { CredentialKind } from '@marinoscar/platform-api/core';
+import type { CredentialKind } from '../../../core/index';
 import { principalFactory } from '../principal.factory';
 
 /** A role row with its permissions, as the principal graph loads it. */
