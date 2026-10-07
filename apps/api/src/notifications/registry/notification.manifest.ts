@@ -40,6 +40,7 @@ import type { EmailTemplate } from '../../email/templates/email-template.types';
 import { PLATFORM_EMAIL_TEMPLATES } from '../../email/templates/platform-email-templates';
 import { NODES_NOTIFICATIONS } from '../../nodes/nodes.notifications';
 import { USERS_NOTIFICATIONS } from '../../users/users.notifications';
+import { ORGANIZATIONS_NOTIFICATIONS } from '../../organizations/organizations.notifications';
 import { BROADCASTS_NOTIFICATIONS } from '../broadcasts/broadcasts.notifications';
 import { OPS_NOTIFICATIONS } from '../ops/ops.notifications';
 import { registerNotifications } from './bindings.registry';
@@ -68,6 +69,7 @@ registerNotifications(BROADCASTS_NOTIFICATIONS);
 registerNotifications(OPS_NOTIFICATIONS);
 registerNotifications(NODES_NOTIFICATIONS);
 registerNotifications(DB_BACKUP_NOTIFICATIONS);
+registerNotifications(ORGANIZATIONS_NOTIFICATIONS);
 
 // 6. App notifications, last.
 registerNotifications(APP_NOTIFICATIONS);

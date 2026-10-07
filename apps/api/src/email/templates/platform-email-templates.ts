@@ -19,6 +19,7 @@ import {
 } from './restore-completed.email';
 import { type RoleChangedEmailData, roleChangedEmail } from './role-changed.email';
 import { type TestEmailData, testEmail } from './test-email.email';
+import { type OrgInvitationEmailData, orgInvitationEmail } from './org-invitation.email';
 import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.email';
 
 // =============================================================================
@@ -84,6 +85,10 @@ export interface PlatformEmailTemplateDataMap {
   'node-offline': NodeOfflineEmailData;
   'backup-failed': BackupFailedEmailData;
   'restore-completed': RestoreCompletedEmailData;
+
+  // #726 (PP-6.7). An invitation to one ORGANIZATION, addressed (like
+  // `allowlist-invitation`) to somebody who may have no account yet.
+  'org-invitation': OrgInvitationEmailData;
 }
 
 /** A platform template name. */
@@ -109,4 +114,5 @@ export const PLATFORM_EMAIL_TEMPLATES: {
   'node-offline': nodeOfflineEmail,
   'backup-failed': backupFailedEmail,
   'restore-completed': restoreCompletedEmail,
+  'org-invitation': orgInvitationEmail,
 };

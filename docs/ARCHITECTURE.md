@@ -513,10 +513,12 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `telemetry:read` | system | ✓ | | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | system | ✓ | | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | system | ✓ | | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
-| `org_members:read` | org | | ✓ | | | View the organization's members and their org roles (enforced by the org admin endpoints, PP-6.8) |
-| `org_members:write` | org | | ✓ | | | Change a member's org role, suspend or remove members (PP-6.8) |
-| `org_invites:read` | org | | ✓ | | | View the organization's invitations (PP-6.8) |
-| `org_invites:write` | org | | ✓ | | | Invite people to the organization, revoke invitations (PP-6.8) |
+| `org_members:read` | org | | ✓ | | | `GET /api/org/members`: the active organization's members and their org roles (`org-members.controller.ts`, #726) |
+| `org_members:write` | org | | ✓ | | | `PATCH`/`DELETE /api/org/members/:userId`: change a member's org role, suspend or remove members (#726) |
+| `org_invites:read` | org | | ✓ | | | `GET /api/org/invites`: the active organization's invitations (`org-invites.controller.ts`, #726) |
+| `org_invites:write` | org | | ✓ | | | `POST /api/org/invites`, `DELETE /api/org/invites/:id`: invite people (adds an allowlist entry), revoke invitations (#726) |
+| `organizations:read` | system | ✓ | | | | `GET /api/admin/organizations`: the deployment's organizations with member counts (`organizations-admin.controller.ts`, #726) |
+| `organizations:write` | system | ✓ | | | | `POST`/`PATCH /api/admin/organizations`: create an organization with a first-admin invitation, rename one (#726) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
@@ -601,10 +603,10 @@ Routes are declared in `apps/web/src/App.tsx`.
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
 | Signed in | `/` (home), `/activate` (device approval), `/settings` hub and its pages |
-| Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
+| Admin | `/admin/settings` hub (`system_settings:read`, `users:read` or `org_members:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
-`ProtectedRoute` establishes that someone is signed in. `RequirePermission` wraps each gated page with the same permission string its registry card declares and its API controller enforces. `RequireAiEnabled` redirects AI pages while AI is off. `MaintenanceGate` swaps the app for a maintenance screen while a window is open.
+`ProtectedRoute` establishes that someone is signed in. `RequirePermission` wraps each gated page with the same permission string its registry card declares and its API controller enforces. `RequireAiEnabled` redirects AI pages while AI is off, and `RequireMultiOrg` redirects the organization pages in a single-org deployment. `MaintenanceGate` swaps the app for a maintenance screen while a window is open.
 
 ### 9.2 Settings pages
 
@@ -631,13 +633,15 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/doctor` | Doctor | Observability | `system_settings:read` | none (reports on AI and telemetry while they are off) |
+| `/admin/settings/organization` | Organization | Organizations | `org_members:read` (org) | `orgs` (multi-org mode) |
+| `/admin/settings/organizations` | Organizations | Organizations | `organizations:read` (system) | `orgs` (multi-org mode) |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 
-Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
+Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content. The Organization page (#726) follows the same precedent: Members and Invites are parallel views of "who belongs to this organization", and `org_invites:read` gates the Invites tab. Both organization cards exist only when `/api/auth/me` reports `tenancyMode: 'multi'` (the `orgs` feature); an organization's own administrator, who holds no system permission, reaches the Console through `org_members:read` and sees only the Organization card. The AppBar's organization switcher (`components/navigation/OrgSwitcher.tsx`) appears in multi-org mode for a user with two or more active memberships.
 
 ### 9.3 Layout and breakpoint
 
@@ -648,7 +652,7 @@ The layout switches between a phone treatment (bottom navigation, compact AppBar
 | Context | File | Provides |
 |---|---|---|
 | `ThemeContextProvider` | `apps/web/src/contexts/ThemeContext.tsx` | Light, dark or system theme preference |
-| `AuthProvider` | `apps/web/src/contexts/AuthContext.tsx` | Current user, enabled sign-in providers, sign-in and sign-out |
+| `AuthProvider` | `apps/web/src/contexts/AuthContext.tsx` | Current user, enabled sign-in providers, sign-in and sign-out, the active organization, the user's memberships and `switchOrg` (`POST /api/auth/switch-org`) |
 | `NotificationProvider` | `apps/web/src/contexts/NotificationContext.tsx` | In-app inbox and the SSE notification stream |
 | `AiConfigProvider` | `apps/web/src/contexts/AiConfigContext.tsx` | The one `GET /api/ai/config` answer: whether AI is on, key policy, enabled providers |
 

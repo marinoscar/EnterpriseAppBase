@@ -536,6 +536,9 @@ describe('AppMetricsService baseline (#680)', () => {
       eventBusPublished: 'app.event_bus.published',
       eventBusDelivered: 'app.event_bus.delivered',
       eventBusReconnects: 'app.event_bus.reconnects',
+      // The organization administration counters (#726, PP-6.7).
+      orgInvitesCreated: 'app.org.invites_created',
+      orgMembersRemoved: 'app.org.members_removed',
     });
     expect(Object.keys(APP_METRIC_NAMES).slice(0, 31)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });
@@ -609,6 +612,17 @@ describe('AppMetricsService baseline (#680)', () => {
         },
       },
       { kind: 'counter', name: 'app.event_bus.reconnects', options: { description: 'Listener reconnects the event bus scheduled after losing its session, by adapter.', unit: '{reconnect}' } },
+      // Added after the baseline (organization administration, #726).
+      {
+        kind: 'counter',
+        name: 'app.org.invites_created',
+        options: {
+          description:
+            "Organization invitations created or renewed (an organization creation's first-admin invitation included).",
+          unit: '{invite}',
+        },
+      },
+      { kind: 'counter', name: 'app.org.members_removed', options: { description: 'Members removed from an organization by an organization administrator.', unit: '{member}' } },
       { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
       { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },
       { kind: 'gauge', name: 'app.backup.last_success.timestamp', options: { description: 'When the most recent completed database backup finished (unix seconds).', unit: 's' } },

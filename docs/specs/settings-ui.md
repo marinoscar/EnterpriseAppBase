@@ -27,11 +27,11 @@ What it is not:
 Each registry is an ordered list of groups, each group an ordered list of cards. A card declares at least a `title`, a `path`, and optionally:
 
 - `permission` — the API permission string required to see the card. Absent means any authenticated user.
-- `feature` — a deployment feature the card depends on (today only `'ai'`). The card is hidden unless the caller's feature map says `features[feature] === true`. `permission` asks "may this user see it?"; `feature` asks "does it exist in this deployment right now?". The feature gate is applied before `alwaysShow`.
+- `feature` — a deployment feature the card depends on: `'ai'` (AI switched on), `'telemetry'` (a telemetry store deployed and collecting) or `'orgs'` (multi-organization mode: `/api/auth/me` reports `tenancyMode: 'multi'`, #726). The card is hidden unless the caller's feature map says `features[feature] === true`. `permission` asks "may this user see it?"; `feature` asks "does it exist in this deployment right now?". The feature gate is applied before `alwaysShow`.
 - `alwaysShow` — an escape hatch that shows the card even when `permission` is not held. Reserved; no current card relies on it.
 - `disabled` — together with no `path`, declares an inert "Coming soon" card for a page that is planned but not built.
 
-`ADMIN_SECTIONS` has four groups, appended in this order: **General**, **Access**, **Operations**, **AI**. Groups and cards are append-only because the hub, the rail and the drill-down list render the array in declaration order; inserting a card moves every existing card for a reader who has learnt where they are. A packaged slice contributes its cards as data (`doctorSettingsPage.card`, `telemetryAdminCards`), and the app places them in its own registry where they belong; the append-only rule applies to that placement unchanged. The full inventory of pages and their permissions lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
+`ADMIN_SECTIONS` has six groups, appended in this order: **General**, **Access**, **Operations**, **AI**, **Observability**, **Organizations**. The last (#726) holds two cards, both `feature: 'orgs'`, so a single-org deployment never shows it: **Organization** (`/admin/settings/organization`, `org_members:read`, the current organization's members and invitations as two parallel tabs, the Invites tab gated on `org_invites:read`) and **Organizations** (`/admin/settings/organizations`, `organizations:read`, the deployment's list of organizations). Groups and cards are append-only because the hub, the rail and the drill-down list render the array in declaration order; inserting a card moves every existing card for a reader who has learnt where they are. A packaged slice contributes its cards as data (`doctorSettingsPage.card`, `telemetryAdminCards`), and the app places them in its own registry where they belong; the append-only rule applies to that placement unchanged. The full inventory of pages and their permissions lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 `USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to every org role (org admin, contributor, viewer), which every member holds through their membership. The exception is the `AI Keys` card (`/settings/ai`), which declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (org admin and Contributor, not Viewer; a system administrator holds it through their `org_admin` membership).
 
@@ -83,6 +83,8 @@ A card's `permission` is the literal string the API controller enforces. The hub
 | `broadcasts:read` | `apps/api/src/notifications/broadcasts/broadcasts.controller.ts` |
 | `ai_config:read` | `apps/api/src/ai/config/ai-admin.controller.ts` (AI, AI Models, AI Usage) |
 | `ai:use` | `apps/api/src/ai/keys/user-ai-keys.controller.ts` (user `AI Keys` card) |
+| `org_members:read` | `apps/api/src/organizations/org-members.controller.ts` (Organization card; an ORG permission, held through `org_admin`). `org_invites:read` (`org-invites.controller.ts`) gates the Invites **tab** |
+| `organizations:read` | `apps/api/src/organizations/organizations-admin.controller.ts` (Organizations card; a SYSTEM permission) |
 
 Two consequences:
 
@@ -127,7 +129,7 @@ The boundary is `sm` (600px), never `md` (900px). 600px is Material 3's compact/
 - **Settings:** none. The registries are code.
 - **Environment variables:** none.
 - **Permissions:** each card names one, per the mirror table in §2. The full permission matrix lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
-- **Feature map:** `features.ai` comes from `GET /api/ai/config` (via `useAiConfig()`), reachable by any authenticated user.
+- **Feature map:** `features.ai` comes from `GET /api/ai/config` (via `useAiConfig()`), reachable by any authenticated user; `features.telemetry` from `GET /api/telemetry/config`; `features.orgs` from the signed-in user's `tenancyMode` on `GET /api/auth/me` (`useOrgsFeature()`, #726). `useSettingsFeatures()` merges the three.
 - **API surface:** none of its own.
 
 ## 4. Extending it in a fork
@@ -189,3 +191,4 @@ Manually:
 - #425 (epic #419): feature-gated cards (`feature: 'ai'`) and the AI admin group.
 - #499: `ai:use` withdrawn from Viewer, so the AI Keys card is permission-gated.
 - #677: the API's settings namespaces became registries; §4 points UI authors at the API-side recipe.
+- #726 (PP-6.7): the `orgs` feature (multi-organization mode) and the appended Organizations group: `Organization` (`org_members:read`, Members and Invites tabs) and `Organizations` (`organizations:read`). `console` reachability gains `org_members:read`.

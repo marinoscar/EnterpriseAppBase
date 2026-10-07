@@ -75,6 +75,8 @@ export {
   nodeOfflineEmail,
   backupFailedEmail,
   restoreCompletedEmail,
+  // The organization invitation (#726, PP-6.7).
+  orgInvitationEmail,
 } from './templates';
 export {
   SmtpEmailProvider,
@@ -108,6 +110,7 @@ export type {
   BackupFailedEmailData,
   BackupFailureOutcome,
   RestoreCompletedEmailData,
+  OrgInvitationEmailData,
 } from './templates';
 export type { EmailProvider } from './providers/email-provider.interface';
 export type {

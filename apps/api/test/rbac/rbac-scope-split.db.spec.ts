@@ -55,6 +55,8 @@ const LEGACY = `rbac_split_legacy_${process.pid}`;
 const FRESH = `rbac_split_fresh_${process.pid}`;
 
 const ORG_PERMISSIONS = ['org_members:read', 'org_members:write', 'org_invites:read', 'org_invites:write'];
+/** Declared after the split (#726, PP-6.7), so absent from the pre-split catalog too. */
+const LATER_PERMISSIONS = ['organizations:read', 'organizations:write'];
 const SEED_INPUT = platformSeedInputFrom(SEED_SNAPSHOT, {});
 
 interface LockFile {
@@ -70,7 +72,9 @@ const splitMigrationDir = lock.migrations.find((m) => m.originId === MIGRATION_O
  * permission set, and asserted below against the literal pre-split counts.
  */
 function preSplitCatalog() {
-  const permissions = SEED_INPUT.permissions.filter((p) => !ORG_PERMISSIONS.includes(p.name));
+  const permissions = SEED_INPUT.permissions.filter(
+    (p) => !ORG_PERMISSIONS.includes(p.name) && !LATER_PERMISSIONS.includes(p.name),
+  );
   return {
     roles: SEED_INPUT.roles.filter((r) => r.name !== 'org_admin'),
     permissions,
@@ -244,7 +248,11 @@ describeWithDb('system/org role split against real Postgres', () => {
     it('keeps the administrator\'s effective permission set, plus the four org_* permissions', async () => {
       const access = await effective('admin');
 
-      expect(access.permissions.sort()).toEqual([...before.get('admin')!, ...ORG_PERMISSIONS].sort());
+      // Plus the system permissions declared after the split (#726), which the
+      // seed that follows the migration grants to admin.
+      expect(access.permissions.sort()).toEqual(
+        [...before.get('admin')!, ...ORG_PERMISSIONS, ...LATER_PERMISSIONS].sort(),
+      );
       expect(access.roles).toEqual(['admin', 'org_admin']);
     });
 

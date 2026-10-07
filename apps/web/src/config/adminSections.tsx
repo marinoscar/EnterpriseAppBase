@@ -54,6 +54,8 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
 import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
+import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 // Observability (#537, epic #528; #578) — the telemetry policy page, the
 // explorer and the dashboard, packaged since #704 (cards and icons from the slice).
 import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
@@ -109,10 +111,12 @@ export interface SettingsCardDef {
 }
 
 /**
- * The deployment features a card may be gated on: `ai` (#425) and `telemetry`
- * (#537 — a telemetry store is deployed AND collection is switched on).
+ * The deployment features a card may be gated on: `ai` (#425), `telemetry`
+ * (#537 — a telemetry store is deployed AND collection is switched on) and
+ * `orgs` (#726 — the deployment runs with `TENANCY_MODE=multi`, as
+ * `/api/auth/me` reports; single-org deployments hide org management).
  */
-export type SettingsFeatureKey = 'ai' | 'telemetry';
+export type SettingsFeatureKey = 'ai' | 'telemetry' | 'orgs';
 
 /**
  * Which features are on, as `visibleSettingsSections` / `settingsPageTitle` /
@@ -641,6 +645,53 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         // permission come from it, word for word what the page shows.
         ...doctorSettingsPage.card,
         Icon: doctorSettingsPage.Icon,
+      },
+    ],
+  },
+  /**
+   * Organizations (#726, PP-6.7) — APPENDED after every existing card, never
+   * inserted between them (CLAUDE.md Settings UI Pattern rule 1), and both
+   * cards carry `feature: 'orgs'`: they exist only in a multi-organization
+   * deployment (`TENANCY_MODE=multi`, as `/api/auth/me` reports). In
+   * single-org mode the spec says "org management hidden", so this whole
+   * group disappears and the grid is exactly what it was before.
+   *
+   * TWO CARDS, TWO QUESTIONS, TWO KINDS OF PERMISSION:
+   *
+   *   - `Organization` is the CURRENT org's people, for that org's own
+   *     administrator: `org_members:read`, the ORG permission
+   *     `organizations/org-members.controller.ts` enforces on
+   *     `GET /api/org/members`, held through the `org_admin` membership role.
+   *     Its two tabs (Members, Invites) are parallel content inside one
+   *     destination ("who belongs to this org"), the `UsersPage` precedent;
+   *     the Invites tab gates itself on `org_invites:read`.
+   *   - `Organizations` is the deployment's list of orgs, for its operator:
+   *     `organizations:read`, the SYSTEM permission
+   *     `organizations/organizations-admin.controller.ts` enforces.
+   *
+   * Writes are gated inside each page (`org_members:write`,
+   * `org_invites:write`, `organizations:write`), not by a second card.
+   */
+  {
+    label: 'Organizations',
+    cards: [
+      {
+        title: 'Organization',
+        description:
+          'See who belongs to your current organization, change their roles, suspend or remove them, and invite new members.',
+        Icon: GroupsOutlinedIcon,
+        path: '/admin/settings/organization',
+        permission: 'org_members:read',
+        feature: 'orgs',
+      },
+      {
+        title: 'Organizations',
+        description:
+          'List every organization in this deployment, create one with its first administrator, and rename them.',
+        Icon: BusinessOutlinedIcon,
+        path: '/admin/settings/organizations',
+        permission: 'organizations:read',
+        feature: 'orgs',
       },
     ],
   },

@@ -68,6 +68,10 @@ export interface MockUser {
   permissions: string[];
   isActive: boolean;
   createdAt: string;
+  /** #726: `multi` turns the organization UI on. Absent reads as single-org. */
+  tenancyMode?: 'single' | 'multi';
+  activeOrg?: { id: string; name: string; slug: string } | null;
+  memberships?: { orgId: string; name: string; slug: string; role: string }[];
 }
 
 export const mockUser: MockUser = {
@@ -177,6 +181,10 @@ function MockAuthProvider({
     login: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     refreshUser: vi.fn().mockResolvedValue(undefined),
+    // #726: the org fields `AuthProvider` derives from `/api/auth/me`.
+    activeOrg: (authenticated ? user?.activeOrg : null) ?? null,
+    memberships: (authenticated ? user?.memberships : undefined) ?? [],
+    switchOrg: vi.fn().mockResolvedValue(undefined),
   };
 
   return (

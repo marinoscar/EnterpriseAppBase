@@ -733,6 +733,30 @@ them instead. Additions and removals write `allowlist:add` and
 `allowlist:remove` audit events. The UI is the Allowlist tab at
 `/admin/settings/users`.
 
+**Organization invitations add allowlist entries (#726).** Inviting an
+address to an organization (`POST /api/org/invites`, or the first-admin
+invitation `POST /api/admin/organizations` writes) creates its
+`allowed_emails` row when none exists, in the same transaction as the
+invitation, with an `allowlist:add` audit event (`meta.source: "org_invite"`),
+so the invitee can sign in. An existing entry is left as it is, and revoking
+the invitation does not remove the entry. The invitation itself is claimed at
+sign-in, before the multi-org "no organization" check: each pending,
+unexpired invitation to the signing-in address creates the membership with its
+org role, or upgrades an existing one (never downgrades), and is marked
+`accepted`; a lapsed one is marked `expired` (invitations last 14 days, and
+re-inviting renews them). There is no invitation token: signing in with the
+invited Google address is the acceptance, so nothing secret is emailed or
+logged. The `org.invitation` email goes to the invitee only, after the write
+commits, and never carries the administrator's notes.
+
+**Removing a member** (`DELETE /api/org/members/{userId}`) deletes the
+membership and, in the same transaction, revokes that user's refresh tokens,
+personal access tokens and device sessions bound to that organization (their
+other organizations are untouched), then invalidates the principal cache: an
+access token already issued for that organization stops validating at once on
+the replica that served the removal and within the principal-cache TTL
+elsewhere.
+
 ---
 
 ## 6. Request lifecycle

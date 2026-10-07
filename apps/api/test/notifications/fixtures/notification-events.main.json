@@ -131,5 +131,18 @@
     ],
     "defaultEnabled": true,
     "mandatory": true
+  },
+  {
+    "key": "org.invitation",
+    "label": "Invitation to an organization",
+    "description": "Sent when an organization administrator invites your email address to join their organization.",
+    "channels": [
+      "email"
+    ],
+    "declaredChannels": [
+      "email"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
   }
 ]

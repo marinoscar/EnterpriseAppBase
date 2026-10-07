@@ -119,6 +119,15 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     preRestoreBackupId: 'run-pre-restore',
     appUrl: 'https://app.example.com',
   },
+  // #726 (PP-6.7): the organization name is administrator-typed, so it gets a
+  // hostile fragment too.
+  'org-invitation': {
+    recipientEmail: '<script>alert(document.cookie)</script>@example.com',
+    orgName: '"><img src=x onerror=alert(1)>',
+    roleName: 'contributor',
+    invitedBy: '"><img src=x onerror=alert(1)>',
+    signInUrl: 'https://app.example.com/login',
+  },
 };
 
 function render(name: EmailTemplateName): RenderedEmail {

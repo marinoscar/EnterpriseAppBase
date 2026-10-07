@@ -56,5 +56,8 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
   {
     file: 'db-backup/migration-state.util.ts',
     why: 'Backup and restore: reads the newest applied migration from _prisma_migrations, which has no Prisma model.',
+  },  {
+    file: 'organizations/org-admin.common.ts',
+    why: "Org administration (#726): SELECT ... FOR UPDATE on the caller's ACTIVE organization row, to serialize the last-admin check; Prisma has no row lock. The org id comes from the principal, never from the request.",
   },
 ];

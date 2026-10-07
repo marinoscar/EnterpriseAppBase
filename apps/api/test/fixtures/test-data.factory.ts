@@ -240,6 +240,18 @@ export const mockPermissions = {
     name: 'org_invites:write',
     description: 'Invite people to the organization and revoke invitations',
   },
+  // The deployment's list of organizations (#726, PP-6.7). SYSTEM scope,
+  // seeded to `admin` only.
+  organizationsRead: {
+    id: randomUUID(),
+    name: 'organizations:read',
+    description: "List the deployment's organizations and their member counts",
+  },
+  organizationsWrite: {
+    id: randomUUID(),
+    name: 'organizations:write',
+    description: 'Create organizations (with a first administrator invitation) and rename them',
+  },
 };
 
 // `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
@@ -590,6 +602,8 @@ export const rolePermissionsMap = {
     mockPermissions.telemetryRead,
     mockPermissions.telemetryWrite,
     mockPermissions.telemetryQuery,
+    mockPermissions.organizationsRead,
+    mockPermissions.organizationsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,

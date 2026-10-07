@@ -23,6 +23,35 @@ export interface User {
   permissions: string[];
   isActive: boolean;
   createdAt: string;
+  /**
+   * The deployment's tenancy mode (`TENANCY_MODE`, PP-6.2), as
+   * `GET /api/auth/me` reports it. Organization UI exists only in `multi`
+   * (#726). Optional so a payload from an older server reads as single-org.
+   */
+  tenancyMode?: TenancyMode;
+  /** The organization this session acts in (#724), or `null`. */
+  activeOrg?: OrgSummary | null;
+  /** Every organization the user is an ACTIVE member of, i.e. can switch to (#724). */
+  memberships?: OrgMembershipSummary[];
+}
+
+/** How the deployment isolates its users (PP-6.2). */
+export type TenancyMode = 'single' | 'multi';
+
+/** An organization as `/api/auth/me` names it. */
+export interface OrgSummary {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/** One of the user's active memberships, as `/api/auth/me` lists them. */
+export interface OrgMembershipSummary {
+  orgId: string;
+  name: string;
+  slug: string;
+  /** The org role held there (`org_admin`, `contributor`, `viewer`, or an app role). */
+  role: string;
 }
 
 /** Where the profile picture comes from (#367). */

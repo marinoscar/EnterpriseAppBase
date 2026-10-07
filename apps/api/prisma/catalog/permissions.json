@@ -197,6 +197,16 @@
       "name": "org_invites:write",
       "description": "Invite people to the organization and revoke invitations",
       "scope": "org"
+    },
+    {
+      "name": "organizations:read",
+      "description": "List the deployment's organizations and their member counts",
+      "scope": "system"
+    },
+    {
+      "name": "organizations:write",
+      "description": "Create organizations (with a first administrator invitation) and rename them",
+      "scope": "system"
     }
   ],
   "rolePermissions": {
@@ -226,7 +236,9 @@
       "ai_config:write",
       "telemetry:read",
       "telemetry:write",
-      "telemetry:query"
+      "telemetry:query",
+      "organizations:read",
+      "organizations:write"
     ],
     "contributor": [
       "user_settings:read",

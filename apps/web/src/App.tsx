@@ -8,6 +8,7 @@ import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
+import { RequireMultiOrg } from './components/common/RequireMultiOrg';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 // Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error
@@ -112,6 +113,9 @@ const TelemetryExplorerPage = lazy(() => import('@marinoscar/platform-web/teleme
 // (`@mui/x-charts`) travel in its own chunk.
 const TelemetryDashboardPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/dashboard-page'));
 const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
+// Organization administration (#726, PP-6.7): multi-org deployments only.
+const OrganizationPage = lazy(() => import('./pages/Admin/OrganizationPage'));
+const OrganizationsPage = lazy(() => import('./pages/Admin/OrganizationsPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -359,12 +363,17 @@ function AppRoutes() {
                       this route only answers the coarser question "may this user
                       reach the admin surface at all?". The five child routes
                       below keep their single-permission gates: each is one
-                      specific page with one specific permission. */}
+                      specific page with one specific permission.
+
+                      `org_members:read` (#726) joins the list, with the
+                      destination: an organization's administrator holds no
+                      system permission and reaches a hub showing only the
+                      `Organization` card. */}
                   <Route
                     path="/admin/settings"
                     element={
                       <RequirePermission
-                        permissions={['system_settings:read', 'users:read']}
+                        permissions={['system_settings:read', 'users:read', 'org_members:read']}
                         fallback={<Navigate to="/" replace />}
                       >
                         <SettingsHubPage />
@@ -761,6 +770,43 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <AdminUsersPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #726 (PP-6.7). The `Organization` card's route:
+                      `org_members:read`, the ORG permission
+                      `org-members.controller.ts` enforces on
+                      `GET /api/org/members` and the string the card declares.
+                      Nested inside it, `RequireMultiOrg` redirects in a
+                      single-org deployment, exactly as `RequireAiEnabled`
+                      does while AI is off ("org management hidden"). */}
+                  <Route
+                    path="/admin/settings/organization"
+                    element={
+                      <RequirePermission
+                        permission="org_members:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireMultiOrg>
+                          <OrganizationPage />
+                        </RequireMultiOrg>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #726. The `Organizations` card's route:
+                      `organizations:read`, the SYSTEM permission
+                      `organizations-admin.controller.ts` enforces, and the
+                      same multi-org gate. */}
+                  <Route
+                    path="/admin/settings/organizations"
+                    element={
+                      <RequirePermission
+                        permission="organizations:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireMultiOrg>
+                          <OrganizationsPage />
+                        </RequireMultiOrg>
                       </RequirePermission>
                     }
                   />

@@ -32,6 +32,7 @@
 import { SettingsHub } from '../components/settings/SettingsHub';
 import { USER_SETTINGS_SECTIONS, USER_HUB_TITLE } from '../config/userSettingsSections';
 import { useAiConfig } from '../hooks/useAiConfig';
+import { useOrgsFeature } from '../hooks/useOrgsFeature';
 import { isTelemetryOn, useTelemetryConfig } from '@marinoscar/platform-web/telemetry/headless';
 
 export default function UserSettingsHubPage() {
@@ -40,6 +41,9 @@ export default function UserSettingsHubPage() {
   const { config: aiConfig } = useAiConfig();
   // `Telemetry Explorer` (#537) is declared with `feature: 'telemetry'`.
   const { config: telemetryConfig } = useTelemetryConfig();
+  // #726: no per-user card is org-gated today; the map is passed whole so
+  // every hub reads the same features.
+  const orgs = useOrgsFeature();
   return (
     <SettingsHub
       sections={USER_SETTINGS_SECTIONS}
@@ -53,7 +57,7 @@ export default function UserSettingsHubPage() {
       // the admin hub's system-configuration copy: these are the user's
       // preferences, not the deployment's.
       subtitle="Manage your account preferences"
-      features={{ ai: aiConfig.enabled, telemetry: isTelemetryOn(telemetryConfig) }}
+      features={{ ai: aiConfig.enabled, telemetry: isTelemetryOn(telemetryConfig), orgs }}
     />
   );
 }

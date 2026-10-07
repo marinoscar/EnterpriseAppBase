@@ -211,6 +211,21 @@ export class AuthService {
       );
     }
 
+    // Invitations (#726): claim every pending, unexpired invitation to this
+    // address BEFORE the tenancy check below, so an invitee's first multi-org
+    // sign-in finds the membership it grants. After the disabled check, so a
+    // deactivated account claims nothing. A claim changes the memberships the
+    // active-org choice reads, so the graph is reloaded.
+    const claimed = await this.organizations.claimPendingInvites(user.id, email);
+    if (claimed > 0) {
+      this.logger.log(`User ${user.id} accepted ${claimed} organization invitation(s) at sign-in`);
+      user =
+        (await this.prisma.user.findUnique({
+          where: { id: user.id },
+          include: PRINCIPAL_USER_INCLUDE,
+        })) ?? user;
+    }
+
     // Tenancy mode (PP-6.2, #722): self-heal the default-org membership, or
     // refuse a multi-org sign-in that belongs to no organization. After the
     // disabled check, so a deactivated account is told that first and never
@@ -310,8 +325,8 @@ export class AuthService {
    *   auto-join is self-healing rather than only applied at creation.
    * - **multi**: nobody is auto-joined except the `INITIAL_ADMIN_EMAIL`
    *   account (so the deployment can be administered), and a user with zero
-   *   active memberships is refused with `no_organization`. Invite claiming
-   *   (#726) will run before this check.
+   *   active memberships is refused with `no_organization`. Pending
+   *   invitations were claimed just before this check (#726).
    *
    * The mode goes on the active (HTTP request) span as `tenancy.mode`; the
    * auth path has no span of its own. Never an org id on a metric label.

@@ -97,6 +97,32 @@ cookie is missing or spent. The client discards its old access token and uses
 the new one: there is no way to act in two organizations with one token. A
 credential whose membership is removed or suspended is refused with `401`.
 
+### Organization routes act on the active organization
+
+`/api/org/members` and `/api/org/invites` (#726) administer **the caller's
+active organization**, the one the credential is bound to. No route takes an
+org id in the path, the query or the body (a body with an `orgId` key is a
+`400`, the DTOs are strict), so an administrator of org A cannot name org B:
+a member or an invitation of another organization is a `404`, exactly like
+one that does not exist. Administer another organization by switching to it
+(`POST /api/auth/switch-org`) as a member of it. They need ORG permissions
+(`org_members:*`, `org_invites:*`, held through the `org_admin` membership
+role), and work in both tenancy modes; the web UI shows them only in
+multi-org mode.
+
+`/api/admin/organizations` is the deployment operator's list of
+organizations (SYSTEM permissions `organizations:read` / `organizations:write`).
+Creating one is refused in single-org mode with `409` and
+`details.reason: "TENANCY_SINGLE_ORG"`; a taken slug is `409`
+(`SLUG_TAKEN`). The slug is immutable after creation, and which organization
+is the default cannot be changed.
+
+Member writes that would leave the organization without an active
+`org_admin` answer `409` with `details.reason: "LAST_ORG_ADMIN"`; changing
+your own role, suspending or removing yourself is `403`. Re-inviting an
+address that is already a member is `409` (`ALREADY_MEMBER`, or
+`INVITE_ACCEPTED` when its invitation was accepted).
+
 ### Google sign-in redirects
 
 The two Google routes answer with redirects, not the JSON envelope.
@@ -304,6 +330,8 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `users` | User management and role assignment | `users:*`, `rbac:manage` | [SECURITY-ARCHITECTURE](SECURITY-ARCHITECTURE.md) |
 | `users/:userId/avatar` | Public stream of an uploaded avatar | public | [storage-providers](specs/storage-providers.md) |
 | `allowlist` | Email allowlist | `allowlist:*` | [SECURITY-ARCHITECTURE](SECURITY-ARCHITECTURE.md) |
+| `org/members`, `org/invites` | The active organization's members and invitations (never another org's) | `org_members:*`, `org_invites:*` (org) | [platform-packages](specs/platform-packages.md#tenancy-and-access-model) |
+| `admin/organizations` | The deployment's organizations: list, create with a first-admin invitation, rename | `organizations:*` (system) | [platform-packages](specs/platform-packages.md#tenancy-and-access-model) |
 | `user-settings` | Current user's settings | `user_settings:*` | [settings-ui](specs/settings-ui.md) |
 | `user-settings/profile-image` | Upload, preview, remove profile picture | `user_settings:*` | [storage-providers](specs/storage-providers.md) |
 | `system-settings` | Global settings (JSONB namespaces) | `system_settings:*` | [settings-ui](specs/settings-ui.md) |

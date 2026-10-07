@@ -686,13 +686,15 @@ describe('the Operations group (#266)', () => {
 
   it('is a third group, and the first two are untouched', () => {
     // `AI` (#425) is APPENDED as a fourth group after it — see the AI suite —
-    // and `Observability` (#537) as a fifth after that.
+    // `Observability` (#537) as a fifth after that, and `Organizations`
+    // (#726) as a sixth.
     expect(ADMIN_SECTIONS.map((section) => section.label)).toEqual([
       'General',
       'Access',
       'Operations',
       'AI',
       'Observability',
+      'Organizations',
     ]);
   });
 
@@ -1065,9 +1067,10 @@ describe('the AI group (#425)', () => {
   const cards = new Map((aiSection?.cards ?? []).map((card) => [card.title, card]));
 
   it('is APPENDED after Operations, leaving every earlier card in place', () => {
-    // It was the last group until `Observability` (#537) was appended after it.
+    // It was the last group until `Observability` (#537), then `Organizations`
+    // (#726), were appended after it.
     expect(ADMIN_SECTIONS[3]).toBe(aiSection);
-    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability']);
+    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability', 'Organizations']);
     // `AI Usage` (#444) is appended after `AI Models`, never inserted.
     expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models', 'AI Usage']);
   });
@@ -1154,8 +1157,9 @@ describe('the Observability group (#537)', () => {
   const titles = (hasPermission: (permission: string) => boolean, features = {}) =>
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
 
-  it('is APPENDED as the last group, with its cards in declaration order', () => {
-    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(observability);
+  it('is APPENDED after AI, followed only by Organizations (#726), with its cards in declaration order', () => {
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 2]).toBe(observability);
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]?.label).toBe('Organizations');
     // `Telemetry Dashboard` (#578) was appended after the Explorer, and
     // `Doctor` (#634) after the Dashboard.
     expect(observability?.cards.map((card) => card.title)).toEqual([
@@ -1213,9 +1217,10 @@ describe('the Observability group (#537)', () => {
     const dashboard = cards.get('Telemetry Dashboard');
     const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
 
-    it('was appended after the Explorer, not inserted — only Doctor (#634) follows it', () => {
-      expect(allCards[allCards.length - 2]).toBe(dashboard);
-      expect(allCards[allCards.length - 1]?.title).toBe('Doctor');
+    it('was appended after the Explorer, not inserted — only Doctor (#634) follows it before the Organizations group (#726)', () => {
+      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs');
+      expect(beforeOrgs[beforeOrgs.length - 2]).toBe(dashboard);
+      expect(beforeOrgs[beforeOrgs.length - 1]?.title).toBe('Doctor');
       expect(dashboard?.disabled).toBeUndefined();
       expect(dashboard?.alwaysShow).toBeUndefined();
     });
@@ -1263,8 +1268,9 @@ describe('the Observability group (#537)', () => {
       expect(allCards.filter((card) => card.path === doctor?.path)).toHaveLength(1);
     });
 
-    it('is the LAST card of the last group (Observability) — appended, not inserted', () => {
-      expect(allCards[allCards.length - 1]).toBe(doctor);
+    it('is the LAST card of Observability, the last group before Organizations (#726) — appended, not inserted', () => {
+      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs');
+      expect(beforeOrgs[beforeOrgs.length - 1]).toBe(doctor);
       const owner = ADMIN_SECTIONS.find((section) => section.cards.includes(doctor!));
       expect(owner?.label).toBe('Observability');
     });
@@ -1356,5 +1362,83 @@ describe('the Observability group (#537)', () => {
     expect(
       settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/telemetry'),
     ).toBe('Telemetry');
+  });
+});
+
+/**
+ * Issue #726 (PP-6.7) — the Organizations group: two cards, APPENDED after
+ * every existing one, both `feature: 'orgs'` (multi-org deployments only),
+ * each declaring the exact permission its controller enforces.
+ */
+describe('the Organizations group (#726)', () => {
+  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  const rolesConstants = readApiPermissionConstants();
+  const group = ADMIN_SECTIONS.find((section) => section.label === 'Organizations');
+  const cards = new Map((group?.cards ?? []).map((card) => [card.title, card]));
+  const organization = cards.get('Organization');
+  const organizations = cards.get('Organizations');
+  const allPermissions = new Set([
+    'system_settings:read',
+    'users:read',
+    'allowlist:read',
+    'org_members:read',
+    'org_invites:read',
+    'organizations:read',
+  ]);
+  const ORGS_ON = { orgs: true };
+  const titles = (held: string[], features = {}) =>
+    titlesOf(visibleSettingsSections(ADMIN_SECTIONS, (p) => held.includes(p), '', features));
+
+  it('is APPENDED as the last group, its two cards in declaration order', () => {
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(group);
+    expect(group?.cards.map((card) => card.title)).toEqual(['Organization', 'Organizations']);
+  });
+
+  it('declares Organization on org_members:read, the org members controller string, feature orgs', () => {
+    expect(organization).toMatchObject({
+      path: '/admin/settings/organization',
+      permission: 'org_members:read',
+      feature: 'orgs',
+    });
+    expect(organization?.alwaysShow).toBeUndefined();
+    const controller = readFileSync(resolve(API_SRC, 'organizations/org-members.controller.ts'), 'utf8');
+    expect(rolesConstants).toContain("ORG_MEMBERS_READ: 'org_members:read'");
+    expect(controller).toContain('PERMISSIONS.ORG_MEMBERS_READ');
+  });
+
+  it('declares Organizations on organizations:read, the organizations admin controller string, feature orgs', () => {
+    expect(organizations).toMatchObject({
+      path: '/admin/settings/organizations',
+      permission: 'organizations:read',
+      feature: 'orgs',
+    });
+    const controller = readFileSync(resolve(API_SRC, 'organizations/organizations-admin.controller.ts'), 'utf8');
+    expect(rolesConstants).toContain("ORGANIZATIONS_READ: 'organizations:read'");
+    expect(controller).toContain('PERMISSIONS.ORGANIZATIONS_READ');
+  });
+
+  it('is absent in a single-org deployment, even for a holder of every permission', () => {
+    const held = [...allPermissions];
+    expect(titles(held)).not.toContain('Organization');
+    expect(titles(held)).not.toContain('Organizations');
+    expect(titles(held, { orgs: false })).not.toContain('Organization');
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/organizations'),
+    ).toBe(ADMIN_HUB_TITLE);
+  });
+
+  it('shows both cards to a system admin who is also an org admin, in multi-org mode', () => {
+    expect(titles([...allPermissions], ORGS_ON)).toEqual(expect.arrayContaining(['Organization', 'Organizations']));
+  });
+
+  it('shows an org admin without system permissions ONLY the Organization card', () => {
+    const orgAdmin = ['org_members:read', 'org_members:write', 'org_invites:read', 'org_invites:write'];
+    expect(titles(orgAdmin, ORGS_ON)).toEqual(['Organization']);
+  });
+
+  it('titles each route after its own card, the plural not swallowing the singular', () => {
+    const title = (path: string) => settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, ORGS_ON);
+    expect(title('/admin/settings/organization')).toBe('Organization');
+    expect(title('/admin/settings/organizations')).toBe('Organizations');
   });
 });

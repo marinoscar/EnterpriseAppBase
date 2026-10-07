@@ -5,14 +5,20 @@ import { PrincipalCache } from '../auth/principal-cache/principal-cache.service'
 import { DefaultOrganizationMissingException } from './organizations.errors';
 import { DatabaseSeedException } from '@marinoscar/platform-api/core';
 import { DEFAULT_ORG_ROLE } from '../common/constants/roles.constants';
+import { orgRoleRank } from './org-admin.common';
+
+/** The audit action an invitation claimed at sign-in writes (#726). */
+export const ORG_INVITE_ACCEPTED_AUDIT = 'org:invite_accepted';
 import type { TenancyMode } from '@marinoscar/platform-api/core';
 
 /**
  * Organizations, the tenancy foundation (PP-6.1, ADR 0001).
  *
- * Read helpers, the write path new users go through, and the membership
- * mutations (#724) the member admin API (PP-6.8, #726) will call. There are no
- * HTTP routes here: switch-org lives in `AuthController` (PP-6.4). The
+ * Read helpers, the write path new users go through, the membership
+ * mutations (#724) and the invitation claim at sign-in (#726). There are no
+ * HTTP routes here: switch-org lives in `AuthController` (PP-6.4), and the
+ * org administration API (#726) in `OrgMembersService`, `OrgInvitesService`
+ * and `OrganizationsAdminService` beside this file. The
  * `organizations`, `memberships` and `org_invites` tables are identity tables,
  * read across organizations at login and guarded here, not by RLS (ADR 0002).
  *
@@ -269,6 +275,115 @@ export class OrganizationsService {
     if (loaded) return loaded.orgId;
     const [latest] = await this.listActiveMemberships(user.id);
     return latest?.orgId ?? null;
+  }
+
+  /**
+   * Claim the user's pending invitations at sign-in (#726, PP-6.7; the
+   * MemoriaHub `claimPendingCircleInvites` precedent). `AuthService` calls it
+   * before the multi-mode "no organization" check, so an invitee's first
+   * sign-in finds the membership the invitation grants.
+   *
+   * For each PENDING invitation addressed to `email`:
+   * - lapsed (`expiresAt` passed): marked `expired`, nothing granted (lazy
+   *   expiry);
+   * - otherwise, in its own transaction: the membership is created with the
+   *   invitation's org role (a NULL role means `DEFAULT_ORG_ROLE`), or an
+   *   existing one is UPGRADED to it, never downgraded (`org_admin` >
+   *   `contributor` > `viewer`); a suspended membership stays suspended
+   *   (reactivating is an administrator's decision); and the invitation is
+   *   marked `accepted` (`acceptedById`, `acceptedAt`) conditionally, so two
+   *   concurrent sign-ins cannot both claim it.
+   *
+   * Invalidates the principal cache once, after the last commit, when
+   * anything was granted.
+   *
+   * @param email - the signing-in address, lower-cased.
+   * @returns how many invitations were accepted.
+   */
+  async claimPendingInvites(userId: string, email: string): Promise<number> {
+    const now = new Date();
+    const pending =
+      (await this.prisma.invite.findMany({
+        where: { email: email.toLowerCase(), status: 'pending' },
+        include: { role: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'asc' },
+      })) ?? [];
+    if (pending.length === 0) return 0;
+
+    let defaultRole: { id: string; name: string } | null = null;
+    let accepted = 0;
+
+    for (const invite of pending) {
+      if (invite.expiresAt && invite.expiresAt < now) {
+        await this.prisma.invite.updateMany({
+          where: { id: invite.id, status: 'pending' },
+          data: { status: 'expired' },
+        });
+        continue;
+      }
+
+      let role = invite.role;
+      if (!role) {
+        defaultRole ??= await this.prisma.role.findUnique({
+          where: { name: DEFAULT_ORG_ROLE },
+          select: { id: true, name: true },
+        });
+        if (!defaultRole) {
+          throw new DatabaseSeedException(`Role "${DEFAULT_ORG_ROLE}"`, 'npm run prisma:seed');
+        }
+        role = defaultRole;
+      }
+      const grantedRole = role;
+
+      const claimed = await this.prisma.$transaction(async (tx) => {
+        const marked = await tx.invite.updateMany({
+          where: { id: invite.id, status: 'pending' },
+          data: { status: 'accepted', acceptedById: userId, acceptedAt: now },
+        });
+        if (marked.count !== 1) return false;
+
+        const existing = await tx.membership.findUnique({
+          where: { orgId_userId: { orgId: invite.orgId, userId } },
+          include: { role: { select: { name: true } } },
+        });
+        if (!existing) {
+          await tx.membership.create({
+            data: { orgId: invite.orgId, userId, roleId: grantedRole.id, lastActiveAt: now },
+          });
+        } else if (orgRoleRank(grantedRole.name) > orgRoleRank(existing.role.name)) {
+          await tx.membership.update({
+            where: { id: existing.id },
+            data: { roleId: grantedRole.id },
+          });
+        }
+
+        await tx.auditEvent.create({
+          data: {
+            actorUserId: userId,
+            action: ORG_INVITE_ACCEPTED_AUDIT,
+            targetType: 'org_invite',
+            targetId: invite.id,
+            meta: {
+              orgId: invite.orgId,
+              role: grantedRole.name,
+              membership: !existing
+                ? 'created'
+                : orgRoleRank(grantedRole.name) > orgRoleRank(existing.role.name)
+                  ? 'upgraded'
+                  : 'unchanged',
+            },
+          },
+        });
+        return true;
+      });
+      if (claimed) accepted += 1;
+    }
+
+    if (accepted > 0) {
+      // Committed: the new or upgraded memberships grant their org roles.
+      this.principalCache.invalidateUser(userId);
+    }
+    return accepted;
   }
 
   /** How many active (not suspended) memberships the user holds, in any org. */

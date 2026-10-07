@@ -78,6 +78,8 @@ const BASELINE_PERMISSIONS = [
   { name: 'org_members:write', description: 'Change organization members: their organization role, suspend or remove them', scope: 'org' },
   { name: 'org_invites:read', description: 'View pending and past invitations to the organization', scope: 'org' },
   { name: 'org_invites:write', description: 'Invite people to the organization and revoke invitations', scope: 'org' },
+  { name: 'organizations:read', description: "List the deployment's organizations and their member counts", scope: 'system' },
+  { name: 'organizations:write', description: 'Create organizations (with a first administrator invitation) and rename them', scope: 'system' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -108,6 +110,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'telemetry:read',
     'telemetry:write',
     'telemetry:query',
+    'organizations:read',
+    'organizations:write',
   ],
   contributor: [
     'user_settings:read',

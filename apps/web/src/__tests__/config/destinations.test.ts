@@ -199,10 +199,12 @@ describe('destinations — reachability regression', () => {
 });
 
 describe('destinations — the table itself', () => {
-  it('gates Console on either permission the API enforces, never on one alone', () => {
+  it('gates Console on any of the permissions the API enforces, never on one alone', () => {
     // Verified against the controllers, not assumed:
     //   users.controller.ts           → PERMISSIONS.USERS_READ
     //   system-settings.controller.ts → PERMISSIONS.SYSTEM_SETTINGS_READ
+    //   org-members.controller.ts     → PERMISSIONS.ORG_MEMBERS_READ (#726: an
+    //     organization's administrator, who holds no system permission)
     //
     // Both, because `/admin/settings` fronts pages from both. The obvious way
     // to get this wrong while merging two destinations into one is to keep
@@ -211,9 +213,19 @@ describe('destinations — the table itself', () => {
     const byKey = Object.fromEntries(DESTINATIONS.map((d) => [d.key, d]));
     expect(byKey.console.permission).toBeUndefined();
     expect([...(byKey.console.anyPermission ?? [])].sort()).toEqual([
+      'org_members:read',
       'system_settings:read',
       'users:read',
     ]);
+  });
+
+  it('lets an org admin with no system permission reach Console (#726)', () => {
+    const [consoleDestination] = DESTINATIONS.filter((d) => d.key === 'console');
+    const orgAdmin = (permission: string) =>
+      ['org_members:read', 'org_members:write', 'org_invites:read', 'org_invites:write'].includes(permission);
+    expect(isDestinationVisible(consoleDestination, orgAdmin)).toBe(true);
+    // A plain member holds none of the three and still does not.
+    expect(isDestinationVisible(consoleDestination, (p) => p === 'user_settings:read')).toBe(false);
   });
 
   it('reads anyPermission as OR, and permission as a hard requirement', () => {
