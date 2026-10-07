@@ -86,7 +86,7 @@ org fields narrow later (see [Tenancy modes](#tenancy-modes)).
 | `TenancyMode` | `'single' \| 'multi'` | Deployment-level. Parsed from `TENANCY_MODE` by #722; this ADR only names it. |
 | `CredentialKind` | `'session' \| 'device' \| 'pat' \| 'node'` | One value per credential family. See [credential mapping](#credential-mapping). |
 | `PrincipalKind` | `'user' \| 'node'` | Discriminant of `Principal`. |
-| `OrgMembership` | `{ orgId, role }` | One org the principal belongs to, with its org-scoped role name (spec: "Org roles"). |
+| `OrgMembership` | `{ orgId, role, status? }` | One org the principal belongs to, with its org-scoped role name (spec: "Org roles") and, since #724, whether it is `active` or `suspended` (absent means `active`). |
 | `GroupMembership` | `{ groupId, orgId, role }` | One group inside an org, with the member's role in it. |
 | `UserPrincipal` | base + `kind: 'user'`, `credential: 'session' \| 'device' \| 'pat'` | A human, directly or through a credential they delegated. |
 | `NodePrincipal` | base + `kind: 'node'`, `credential: 'node'`, `nodeId?` | An unattended worker process acting as its owning user. |

@@ -8,10 +8,10 @@
 // `@marinoscar/platform-api/core` unchanged, which it did (issue #698). Both
 // properties are pinned by `test/core/principal.spec.ts` in this package.
 //
-// Nothing in the reference app consumes it yet. Requests still carry the
-// app's `RequestUser` (`apps/api/src/auth/interfaces/authenticated-user.interface.ts`);
-// attaching a `Principal` to the request, the runtime `toPrincipal()` mapper
-// and `@CurrentPrincipal()` arrive later (issue #724). The derivation rules
+// Since issue #724 the reference app builds one per request: `JwtAuthGuard`
+// sets `request.principal` (the app's `toPrincipal()`, beside its
+// `PrincipalFactory`) next to the legacy `request.user`, and routes read it
+// with the app's `@CurrentPrincipal()`. The derivation rules
 // this contract is built on (credential mapping, scope derivation, tenancy
 // modes, `SystemActor`) are written down in
 // docs/adr/0001-org-aware-principal-and-scope.md. Read it before changing a
@@ -83,6 +83,13 @@ export interface OrgMembership {
   readonly orgId: string;
   /** Org-scoped role name (spec: "Org roles"), e.g. `'org_admin'`, `'member'`. */
   readonly role: string;
+  /**
+   * Whether the membership is in force. A suspended membership is listed (so
+   * a client can show it) but grants nothing and cannot be the active org.
+   * Optional so a principal built before memberships carried a status still
+   * type-checks; absent means `'active'`.
+   */
+  readonly status?: 'active' | 'suspended';
 }
 
 /**
