@@ -8,15 +8,18 @@ import {
   DEFAULT_VERDICT_THRESHOLDS,
   DefaultVerdictPolicy,
   GreptimeClient,
+  METRIC_FRESH_MS,
   MetricGroupRegistry,
   REQUIRED_LOG_COLUMNS,
   REQUIRED_TRACE_COLUMNS,
+  TELEMETRY_METRIC_FRESH_MS,
   TELEMETRY_VERDICT_THRESHOLDS,
   TelemetrySchemaService,
   TelemetrySettingsService,
   VERDICT_POLICY,
   metricGroupRegistry,
   registerMetricGroup,
+  resolveMetricFreshMs,
   resolveVerdictThresholds,
   type DashboardVerdict,
   type MetricGroup,
@@ -48,7 +51,10 @@ import { resetPrismaMock } from '../mocks/prisma.mock';
 //           tool, and documented in the route's `group` enum;
 //   rung 3  overriding `VERDICT_POLICY` changes `/summary`'s verdict;
 //   rung 1  overriding the resolved thresholds (`noDataMinutes`) changes both
-//           `/summary`'s verdict and `TelemetryFreshnessDoctorCheck`.
+//           `/summary`'s verdict and `TelemetryFreshnessDoctorCheck`; the
+//           metrics freshness window (`forRoot({ metrics: { freshMs } })`,
+//           resolved into `TELEMETRY_METRIC_FRESH_MS`) is what `/metrics`
+//           reports as `freshMs`.
 //
 // No network: GreptimeDB, the policy and the schema are stubbed on the real
 // providers, as in telemetry-dashboard.integration.spec.ts.
@@ -280,6 +286,40 @@ describe('Telemetry extension points (rung 1: verdict thresholds)', () => {
       expect(verdict).toBe('healthy');
       expect(freshness).toBe('pass');
       expect(threshold).toBe(60);
+    } finally {
+      jest.restoreAllMocks();
+      await closeTestApp(context);
+    }
+  });
+});
+
+describe('Telemetry extension points (rung 1: the metrics freshness window)', () => {
+  async function freshMsOf(context: TestContext) {
+    const admin = await createMockAdminUser(context);
+    const res = await request(context.app.getHttpServer())
+      .get(`${BASE}/metrics?group=coach`)
+      .set(authHeader(admin.accessToken))
+      .expect(200);
+    return res.body.data.freshMs as number;
+  }
+
+  it('reports the default window, 150 s, when the app passes no `metrics` option', async () => {
+    const context = await boot();
+    try {
+      prepare(context);
+      expect(context.module.get(TELEMETRY_METRIC_FRESH_MS)).toBe(METRIC_FRESH_MS);
+      expect(await freshMsOf(context)).toBe(150_000);
+    } finally {
+      jest.restoreAllMocks();
+      await closeTestApp(context);
+    }
+  });
+
+  it('metrics.freshMs: 300000 is the window /metrics reports', async () => {
+    const context = await boot([{ provide: TELEMETRY_METRIC_FRESH_MS, useValue: resolveMetricFreshMs({ freshMs: 300_000 }) }]);
+    try {
+      prepare(context);
+      expect(await freshMsOf(context)).toBe(300_000);
     } finally {
       jest.restoreAllMocks();
       await closeTestApp(context);
