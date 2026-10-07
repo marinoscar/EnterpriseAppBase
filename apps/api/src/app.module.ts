@@ -36,6 +36,7 @@ import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
 import { identityModule } from './platform/identity/identity.config';
 import { sharingModule } from './platform/sharing/sharing.config';
+import { IdentityExtensionsModule } from './identity-extensions/identity-extensions.module';
 
 import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -84,6 +85,8 @@ import configuration from './config/configuration';
     // organizations, then users, then the device flow), so the generated OpenAPI
     // document keeps its paths in place.
     identityModule,
+    // The app's listeners on identity's events (no routes).
+    IdentityExtensionsModule,
     SettingsModule,
     // Uploaded profile pictures (#367): its own module because it needs the
     // storage provider and SettingsModule must not (see the module).
