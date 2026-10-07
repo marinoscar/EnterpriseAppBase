@@ -9,6 +9,7 @@ import { DOCTOR_MODULE_OPTIONS, ResolvedDoctorModuleOptions } from './doctor.opt
 import { DOCTOR_CACHE_TTL_MS, DOCTOR_DEFAULT_TIMEOUT_MS, DoctorService } from './doctor.service';
 import { EgressRegistry } from './egress/egress.registry';
 import { DoctorSupportBundleSection } from './support-bundle/sections/doctor.section';
+import { EgressSupportBundleSection } from './support-bundle/sections/egress.section';
 import { MetaSupportBundleSection } from './support-bundle/sections/meta.section';
 import { createSupportBundleController } from './support-bundle/support-bundle.controller';
 import { resolveSupportBundleOptions } from './support-bundle/support-bundle.options';
@@ -168,7 +169,9 @@ export class DoctorModule {
         // app's to provide (`NetworkEgressDoctorCheck`), like every check.
         EgressRegistry,
         SupportBundleRegistry,
-        ...(bundle ? [SupportBundleService, MetaSupportBundleSection, DoctorSupportBundleSection] : []),
+        ...(bundle
+          ? [SupportBundleService, MetaSupportBundleSection, DoctorSupportBundleSection, EgressSupportBundleSection]
+          : []),
       ],
       exports: [
         DoctorCheckRegistry,
