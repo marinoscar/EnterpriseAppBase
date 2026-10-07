@@ -478,6 +478,13 @@ jobs:
           GREPTIME_TEST_URL: postgres://reader:test-reader@localhost:14013/public
           GREPTIME_TEST_ADMIN_URL: postgres://admin:test-admin@localhost:14013/public
 
+      # The telemetry slice moved into the package (#703): its real-GreptimeDB
+      # specs run from there.
+      - run: npm run test:greptime --workspace=@marinoscar/platform-api
+        env:
+          GREPTIME_TEST_URL: postgres://reader:test-reader@localhost:14013/public
+          GREPTIME_TEST_ADMIN_URL: postgres://admin:test-admin@localhost:14013/public
+
       - name: Stop GreptimeDB
         if: always()
         run: docker rm -f greptime-test
