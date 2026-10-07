@@ -24,8 +24,6 @@ export interface TestApiRequest {
   body?: unknown;
   /** The `ifMatch` option of a PUT, PATCH or DELETE. */
   ifMatch?: string;
-  /** How the page asked: a JSON call, a download (`getBlob`/`postBlob`) or a stream (`postSse`). */
-  kind?: 'json' | 'blob' | 'sse';
 }
 
 /**
@@ -161,11 +159,11 @@ export function createTestPlatformHost(options: TestPlatformHostOptions = {}): T
     delete: (path, deleteOptions) => call({ method: 'DELETE', path, ...withIfMatch(deleteOptions) }),
     // Downloads answer from the same table (`'GET <path>'`, `'POST <path>'`);
     // the canned value is a `PlatformBlobResponse`, e.g. from `createTestBlobResponse`.
-    getBlob: (path) => call({ method: 'GET', path, kind: 'blob' }),
-    postBlob: (path, body) => call({ method: 'POST', path, body, kind: 'blob' }),
+    getBlob: (path) => call({ method: 'GET', path }),
+    postBlob: (path, body) => call({ method: 'POST', path, body }),
     // A stream answers with an array of frames; anything else delivers none.
     postSse: async (path, body, sseOptions) => {
-      const frames = await call<unknown>({ method: 'POST', path, body, kind: 'sse' });
+      const frames = await call<unknown>({ method: 'POST', path, body });
       if (!Array.isArray(frames)) return;
       for (const frame of frames as TestSseFrame[]) {
         if (sseOptions.signal?.aborted) return;
