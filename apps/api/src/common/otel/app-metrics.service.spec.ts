@@ -217,6 +217,16 @@ describe('AppMetricsService', () => {
       );
     });
 
+    it('records the no_organization login outcome as itself, not "other" (PP-6.2, #722)', async () => {
+      const { service, reader } = setup();
+
+      service.authLogin('no_organization');
+
+      expect(points(await collect(reader), 'app.auth.logins')).toEqual([
+        { attributes: { provider: 'google', outcome: 'no_organization' }, value: 1 },
+      ]);
+    });
+
     it('records AI requests, tokens by type and latency in seconds', async () => {
       const { service, reader } = setup();
 
