@@ -35,7 +35,7 @@ export type RequestUserCoverage = [
 // The mapping the ADR specifies, written out as an object literal. Local
 // functions on purpose: they pin the ADR's mapping from today's `RequestUser`
 // independently of the runtime `toPrincipal()` (#724,
-// `src/auth/principal.factory.ts`), which builds the principal from the
+// `packages/platform-api/src/identity/auth/principal.factory.ts`), which builds the principal from the
 // loaded graph instead.
 
 function userPrincipalFrom(
