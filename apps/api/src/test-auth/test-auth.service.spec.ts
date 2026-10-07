@@ -7,6 +7,7 @@ import { createMockPrismaService, MockPrismaService, mockPrismaTransaction } fro
 import { TestLoginDto } from './dto/test-login.dto';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { TenancyService } from '../organizations/tenancy.service';
 
 const principalCacheStub = { invalidate: jest.fn() };
 
@@ -83,6 +84,8 @@ describe('TestAuthService', () => {
         { provide: PrincipalCache, useValue: principalCacheStub },
         // PP-6.1 (#721): the real service over the mocked Prisma.
         OrganizationsService,
+        // PP-6.2 (#722): the tenancy mode (single, from the stub ConfigService).
+        TenancyService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
@@ -189,6 +192,9 @@ describe('TestAuthService', () => {
     it('does not create a membership for an existing user', async () => {
       const dto: TestLoginDto = { email: 'already@example.com', role: 'viewer' };
       const mockUser = { id: 'user-11', email: dto.email, userRoles: [{ role: mockViewerRole }] };
+      // PP-6.2 (#722): the user already belongs to the default org (the
+      // PP-6.1 backfill), so the sign-in self-heal finds it and writes nothing.
+      mockPrisma.membership.findUnique.mockResolvedValue({ id: 'membership-11' } as any);
       mockPrisma.user.findUnique.mockResolvedValue(mockUser as any);
       mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
       mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
@@ -686,6 +692,106 @@ describe('TestAuthService', () => {
 
       // 15 minutes * 60 seconds = 900 seconds
       expect(result.expiresIn).toBe(900);
+    });
+  });
+
+  // PP-6.2 (#722): test login bypasses OAuth and the allowlist, never the
+  // tenancy rules. Single mode is every test above (the stub has no
+  // `tenancy.mode`); these rebuild the service with TENANCY_MODE=multi.
+  describe('loginAsTestUser, TENANCY_MODE=multi', () => {
+    const ADMIN_EMAIL = 'admin@example.test';
+
+    beforeEach(async () => {
+      mockConfigService.get.mockImplementation(((key: string) => {
+        const config: Record<string, any> = {
+          'jwt.accessTtlMinutes': 15,
+          'jwt.refreshTtlDays': 14,
+          'tenancy.mode': 'multi',
+          INITIAL_ADMIN_EMAIL: ADMIN_EMAIL,
+        };
+        return config[key];
+      }) as any);
+      const module = await Test.createTestingModule({
+        providers: [
+          TestAuthService,
+          { provide: PrincipalCache, useValue: principalCacheStub },
+          OrganizationsService,
+          TenancyService,
+          { provide: PrismaService, useValue: mockPrisma },
+          { provide: JwtService, useValue: mockJwtService },
+          { provide: ConfigService, useValue: mockConfigService },
+        ],
+      }).compile();
+      service = module.get(TestAuthService);
+      mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.userRole.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+    });
+
+    it('creates a new non-admin user without a membership and refuses it with no_organization', async () => {
+      const created = { id: 'user-m1', email: 'new@example.test', displayName: 'new', userRoles: [] };
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.user.create.mockResolvedValue(created as any);
+      mockPrisma.membership.count.mockResolvedValue(0);
+
+      await expect(service.loginAsTestUser({ email: created.email, role: 'viewer' })).rejects.toMatchObject({
+        reason: 'no_organization',
+      });
+
+      expect(mockPrisma.organization.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
+      // Refused before the role swap and before any token.
+      expect(mockPrisma.userRole.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('joins the INITIAL_ADMIN_EMAIL user to the default org and signs it in', async () => {
+      const created = { id: 'admin-1', email: ADMIN_EMAIL, displayName: 'admin', userRoles: [{ role: mockAdminRole }] };
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValue(created as any);
+      mockPrisma.user.create.mockResolvedValue(created as any);
+      mockPrisma.role.findUnique.mockResolvedValue(mockAdminRole as any);
+      mockPrisma.membership.count.mockResolvedValue(1);
+
+      const result = await service.loginAsTestUser({ email: ADMIN_EMAIL, role: 'admin' });
+
+      expect(result.accessToken).toBe('mock-jwt-token');
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { orgId_userId: { orgId: 'org-default', userId: 'admin-1' } } }),
+      );
+    });
+
+    it('signs in an existing user with an active membership, writing no membership', async () => {
+      const existing = { id: 'user-m2', email: 'member@example.test', displayName: null, userRoles: [{ role: mockViewerRole }] };
+      mockPrisma.user.findUnique.mockResolvedValue(existing as any);
+      mockPrisma.membership.count.mockResolvedValue(1);
+
+      const result = await service.loginAsTestUser({ email: existing.email, role: 'viewer' });
+
+      expect(result.user.id).toBe('user-m2');
+      expect(mockPrisma.membership.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('loginAsTestUser, TENANCY_MODE=single self-heal', () => {
+    it('gives an existing user without a default-org membership one', async () => {
+      const existing = { id: 'user-s1', email: 'lost@example.test', displayName: null, userRoles: [{ role: mockViewerRole }] };
+      mockPrisma.user.findUnique.mockResolvedValue(existing as any);
+      mockPrisma.membership.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.userRole.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.loginAsTestUser({ email: existing.email, role: 'viewer' });
+
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { orgId_userId: { orgId: 'org-default', userId: 'user-s1' } } }),
+      );
+      expect(mockPrisma.membership.count).not.toHaveBeenCalled();
     });
   });
 });

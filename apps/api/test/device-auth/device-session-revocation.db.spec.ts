@@ -97,6 +97,8 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
       (principalCache = new PrincipalCache(config, new InProcessEventBus())),
       // PP-6.1 (#721): only `createNewUser` uses it; device revocation never signs up.
       {} as never,
+      // PP-6.2 (#722): tenancy is a sign-in concern; device revocation never signs in.
+      {} as never,
     );
     deviceAuth = new DeviceAuthService(
       prisma,

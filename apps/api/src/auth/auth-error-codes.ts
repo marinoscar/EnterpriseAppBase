@@ -21,6 +21,9 @@ import { DatabaseSeedException } from '@marinoscar/platform-api/core';
  *   authentication_failed   token exchange failed, code replayed or expired,
  *                           no email on the profile, or anything unexpected
  *   server_misconfigured    seed data is missing (`DatabaseSeedException`)
+ *   no_organization         multi-org tenancy mode (`TENANCY_MODE=multi`) and
+ *                           the user has no active organization membership
+ *                           (PP-6.2, #722)
  */
 export const AUTH_ERROR_CODES = [
   'not_allowlisted',
@@ -28,6 +31,7 @@ export const AUTH_ERROR_CODES = [
   'access_denied',
   'authentication_failed',
   'server_misconfigured',
+  'no_organization',
 ] as const;
 
 export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];
@@ -38,12 +42,12 @@ export const DEFAULT_AUTH_ERROR_CODE: AuthErrorCode = 'authentication_failed';
 /** Reasons a login can be refused, a subset of `AuthErrorCode`. */
 export type AuthLoginDeniedReason = Extract<
   AuthErrorCode,
-  'not_allowlisted' | 'account_disabled' | 'access_denied'
+  'not_allowlisted' | 'account_disabled' | 'access_denied' | 'no_organization'
 >;
 
 /**
  * A sign-in that ended in a refusal rather than a fault: refused by policy
- * (allowlist, disabled account) or declined by the person at Google's consent
+ * (allowlist, disabled account, no organization in multi-org mode) or declined by the person at Google's consent
  * screen (`GoogleOAuthGuard` raises that one).
  *
  * Still a 403 `ForbiddenException`, so every caller that treats it as one (and

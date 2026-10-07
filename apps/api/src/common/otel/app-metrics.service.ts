@@ -188,7 +188,7 @@ const DEPTH_STATUSES = JOB_DEPTH_STATUS_VALUES;
 export type BackupOutcome = 'completed' | 'failed';
 const BACKUP_OUTCOMES = new Set<string>(BACKUP_OUTCOME_VALUES);
 
-export type AuthLoginOutcome = 'success' | 'allowlist_rejected' | 'disabled';
+export type AuthLoginOutcome = 'success' | 'allowlist_rejected' | 'disabled' | 'no_organization';
 const AUTH_LOGIN_OUTCOMES = new Set<string>(AUTH_LOGIN_OUTCOME_VALUES);
 
 export type AuthRefreshOutcome =

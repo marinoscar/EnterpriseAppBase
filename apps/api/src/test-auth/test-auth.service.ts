@@ -8,6 +8,8 @@ import { JwtPayload } from '../auth/strategies/jwt.strategy';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { TenancyService } from '../organizations/tenancy.service';
+import { AuthLoginDeniedException } from '../auth/auth-error-codes';
 
 export interface TestAuthTokenResponse {
   accessToken: string;
@@ -33,6 +35,8 @@ export class TestAuthService {
     private readonly principalCache: PrincipalCache,
     // PP-6.1 (#721): a new test user joins the default organization.
     private readonly organizations: OrganizationsService,
+    // PP-6.2 (#722): the same tenancy rules as a Google sign-in.
+    private readonly tenancy: TenancyService,
   ) {}
 
   /**
@@ -42,6 +46,8 @@ export class TestAuthService {
     this.logger.log(`Test login for email: ${dto.email} with role: ${dto.role}`);
 
     const email = dto.email.toLowerCase();
+    const isInitialAdmin = this.isInitialAdminEmail(email);
+    let userWasCreated = false;
 
     // Find or create user
     let user = await this.prisma.user.findUnique({
@@ -60,8 +66,12 @@ export class TestAuthService {
       const displayName = dto.displayName || email.split('@')[0];
 
       // Same shape as `AuthService.createNewUser`: the user and its default
-      // org membership are created in one transaction (PP-6.1, #721).
-      const defaultOrg = await this.organizations.getDefaultOrg();
+      // org membership are created in one transaction (PP-6.1, #721), when the
+      // tenancy mode auto-joins this user (PP-6.2, #722): everyone in single
+      // mode, only the initial admin in multi.
+      const defaultOrg = this.tenancy.autoJoinsDefaultOrg(isInitialAdmin)
+        ? await this.organizations.getDefaultOrg()
+        : null;
 
       user = await this.prisma.$transaction(async (tx) => {
         const created = await tx.user.create({
@@ -84,11 +94,34 @@ export class TestAuthService {
             },
           },
         });
-        await this.organizations.ensureMembership(tx, defaultOrg.id, created.id);
+        if (defaultOrg) {
+          await this.organizations.ensureMembership(tx, defaultOrg.id, created.id);
+        }
         return created;
       });
+      userWasCreated = true;
 
       this.logger.log(`Created test user: ${email}`);
+    }
+
+    // Tenancy mode (PP-6.2, #722), exactly as `AuthService` applies it to a
+    // Google sign-in: test login bypasses OAuth and the allowlist, never the
+    // organization rules, so an e2e suite in multi mode sees the real refusal.
+    // Before the role swap below, so a refused login changes nothing.
+    if (!userWasCreated && this.tenancy.autoJoinsDefaultOrg(isInitialAdmin)) {
+      await this.organizations.ensureDefaultOrgMembership(user.id);
+    }
+    if (
+      this.tenancy.capabilities.requireActiveMembership &&
+      (await this.organizations.countActiveMemberships(user.id)) === 0
+    ) {
+      this.logger.warn(
+        `Test login denied - user ${user.id} has no active organization membership (tenancy mode multi)`,
+      );
+      throw new AuthLoginDeniedException(
+        'no_organization',
+        'Your account is not a member of any organization. Ask an organization administrator to invite you.',
+      );
     }
 
     // Assign specified role (replace existing roles)
@@ -165,6 +198,12 @@ export class TestAuthService {
         roles,
       },
     };
+  }
+
+  /** Same rule as `AuthService.isInitialAdminEmail`. */
+  private isInitialAdminEmail(email: string): boolean {
+    const initialAdminEmail = this.configService.get<string>('INITIAL_ADMIN_EMAIL');
+    return initialAdminEmail ? email === initialAdminEmail.toLowerCase() : false;
   }
 
   /**

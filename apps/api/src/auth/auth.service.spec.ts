@@ -15,6 +15,7 @@ import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
 import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from './principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { TenancyService } from '../organizations/tenancy.service';
 import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
 
 const DEFAULT_ORG = { id: 'org-default', name: 'Default organization', slug: 'default', isDefault: true };
@@ -84,6 +85,8 @@ describe('AuthService', () => {
         // PP-6.1 (#721): the real service over the mocked Prisma, so the
         // tests below can assert the membership write itself.
         OrganizationsService,
+        // PP-6.2 (#722): the tenancy mode (single, from the stub ConfigService).
+        TenancyService,
         { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PRINCIPAL_CACHE_CLOCK, useValue: () => clock },
         // #600: application metrics, stubbed so the outcome labels can be asserted.
@@ -202,6 +205,9 @@ describe('AuthService', () => {
         user: { ...mockUser, userRoles: [{ role: mockRole }] },
       } as any);
       mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      // PP-6.2 (#722): the user already belongs to the default org (the
+      // PP-6.1 backfill), so the sign-in self-heal finds it and writes nothing.
+      mockPrisma.membership.findUnique.mockResolvedValue({ id: 'membership-1' } as any);
 
       await service.handleGoogleLogin(mockGoogleProfile);
 

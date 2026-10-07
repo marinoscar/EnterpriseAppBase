@@ -13,6 +13,7 @@ import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.fa
 import { GoogleProfile } from '../../src/auth/strategies/google.strategy';
 import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
 import { OrganizationsService } from '../../src/organizations/organizations.service';
+import { TenancyService } from '../../src/organizations/tenancy.service';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 
@@ -53,6 +54,8 @@ describe('Auth Service - Allowlist Enforcement', () => {
         PrincipalCache,
         // PP-6.1 (#721): new users join the default org (mocked rows in setupBaseMocks).
         OrganizationsService,
+        // PP-6.2 (#722): the tenancy mode (single, from the stub ConfigService).
+        TenancyService,
         { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: { sign: jest.fn(() => 'mock-jwt-token'), signAsync: jest.fn(() => 'mock-jwt-token') } },
