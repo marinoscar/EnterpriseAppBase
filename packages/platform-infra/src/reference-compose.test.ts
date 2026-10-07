@@ -15,6 +15,17 @@
 // GitHub runners have it, so CI always runs it. Without Compose the suite is
 // skipped with a message saying so.
 //
+// REFRESHING THE BASELINE. When main changes a platform compose file, port the
+// change into the package, sync, then rewrite the snapshots FROM THE PRE-MOVE
+// FILES of that main, never from the generated ones:
+//
+//   git archive <main> infra/compose | tar -x -C /tmp/baseline
+//   PLATFORM_INFRA_BASELINE_COMPOSE_DIR=/tmp/baseline/infra/compose \
+//     npx vitest run src/reference-compose.test.ts -t "renders exactly" -u
+//
+// and run the suite again without the variable: the generated files must
+// render to the same snapshots.
+//
 // The files are copied into a scratch `infra/compose/` first, so a developer's
 // own `.env` (which `env_file:` would inline) never reaches the snapshot, and
 // the scratch root is replaced by `<ROOT>` so the snapshot is portable.
@@ -177,9 +188,10 @@ describe('composeFilesForMode() keeps the documented order', () => {
 
 describe.skipIf(!HAS_COMPOSE)('the reference app compose stacks (docker compose config)', () => {
   const composeDir = join(REPO_ROOT, 'infra', 'compose');
+  const baselineDir = process.env.PLATFORM_INFRA_BASELINE_COMPOSE_DIR;
 
   it.each(Object.entries(CURRENT_MODES))('%s renders exactly as before the move', async (mode, files) => {
-    const rendered = withoutIncludePoints(renderCompose(composeDir, files));
+    const rendered = withoutIncludePoints(renderCompose(baselineDir ?? composeDir, files));
     await expect(stableJson(rendered)).toMatchFileSnapshot(join(SNAPSHOTS, `${mode}.json`));
   });
 

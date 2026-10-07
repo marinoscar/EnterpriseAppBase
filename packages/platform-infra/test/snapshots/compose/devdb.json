@@ -44,7 +44,7 @@
         "POSTGRES_PASSWORD": "postgres",
         "POSTGRES_PORT": "5432",
         "POSTGRES_SSL": "false",
-        "POSTGRES_USER": "postgres"
+        "POSTGRES_USER": "app"
       },
       "networks": {
         "app-network": null,
@@ -77,6 +77,8 @@
       "command": null,
       "entrypoint": null,
       "environment": {
+        "APP_DB_PASSWORD": "postgres",
+        "APP_DB_USER": "app",
         "POSTGRES_DB": "appdb",
         "POSTGRES_PASSWORD": "postgres",
         "POSTGRES_USER": "postgres"
@@ -110,6 +112,13 @@
           "target": "/var/lib/postgresql/data",
           "type": "volume",
           "volume": {}
+        },
+        {
+          "bind": {},
+          "read_only": true,
+          "source": "<ROOT>/infra/compose/postgres-init",
+          "target": "/docker-entrypoint-initdb.d",
+          "type": "bind"
         }
       ]
     },
