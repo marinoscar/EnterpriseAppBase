@@ -11,6 +11,7 @@ import { render } from '../../harness.js';
 import {
   MetricSection,
   MetricsNotCollected,
+  formatFreshWindow,
   metricsAssistantContext,
   sectionHasContent,
 } from '../../../../src/telemetry/ui/components/dashboard/metrics/MetricSections.js';
@@ -240,6 +241,23 @@ describe('MetricSection — states', () => {
     expect(region).toHaveTextContent('Some lists were cut short.');
   });
 
+  it('shows the freshness window in the header of a section with a table', () => {
+    renderSection('nodes', loaded('nodes', { freshMs: 150_000 }));
+    const region = screen.getByRole('region', { name: 'Worker nodes' });
+    expect(within(region).getByTestId('metric-fresh-window-nodes')).toHaveTextContent('Current within 2 min 30 s');
+  });
+
+  it('leaves the freshness window out when the API does not report it (an older server)', () => {
+    renderSection('nodes', loaded('nodes'));
+    expect(screen.queryByTestId('metric-fresh-window-nodes')).not.toBeInTheDocument();
+  });
+
+  it('leaves the freshness window out of a section without a table', () => {
+    renderSection('database', loaded('database', { tables: [], freshMs: 150_000 }));
+    expect(screen.getByRole('region', { name: 'Database' })).toBeInTheDocument();
+    expect(screen.queryByTestId('metric-fresh-window-database')).not.toBeInTheDocument();
+  });
+
   it("hands the group's statements to its actions", async () => {
     const onClick = renderSection('host', loaded('host'));
     await userEvent.setup().click(screen.getByRole('button', { name: 'Open in Explorer' }));
@@ -248,6 +266,13 @@ describe('MetricSection — states', () => {
 });
 
 describe('helpers', () => {
+  it('formatFreshWindow says the window in minutes and seconds', () => {
+    expect(formatFreshWindow(150_000)).toBe('2 min 30 s');
+    expect(formatFreshWindow(300_000)).toBe('5 min');
+    expect(formatFreshWindow(45_000)).toBe('45 s');
+    expect(formatFreshWindow(1_000)).toBe('1 s');
+  });
+
   it('MetricsNotCollected names the hidden sections, or renders nothing', () => {
     const hidden = mockDashboardMetricGroups.filter((group) => group.id === 'database' || group.id === 'pipeline');
     const { rerender } = render(<MetricsNotCollected groups={hidden} />);

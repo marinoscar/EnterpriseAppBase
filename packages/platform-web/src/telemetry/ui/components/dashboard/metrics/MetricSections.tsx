@@ -338,6 +338,39 @@ function SectionBody({
   );
 }
 
+/**
+ * A freshness window as words: `150000` → "2 min 30 s", `300000` → "5 min",
+ * `45000` → "45 s".
+ */
+export function formatFreshWindow(ms: number): string {
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds} s`;
+  return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} s`;
+}
+
+/**
+ * The section header's freshness note, or `undefined`: shown when the API
+ * reports its window (`freshMs`) and the section has a table, the only place
+ * the window applies.
+ */
+function freshWindowNote(group: DashboardMetricGroup, data: DashboardMetrics | null | undefined): ReactNode {
+  if (!data || data.freshMs === undefined || sectionTables(group, data).length === 0) return undefined;
+  const window = formatFreshWindow(data.freshMs);
+  return (
+    <Typography
+      variant="caption"
+      color="text.secondary"
+      data-testid={`metric-fresh-window-${group}`}
+      title={`A table reading more than ${window} older than its table's newest reading is not shown as current.`}
+      sx={{ whiteSpace: 'nowrap' }}
+    >
+      Current within {window}
+    </Typography>
+  );
+}
+
 /** Whether a section has anything to draw for the response. */
 export function sectionHasContent(group: DashboardMetricGroup, data: DashboardMetrics): boolean {
   const spec = sectionSpec(group, data);
@@ -373,6 +406,7 @@ export function MetricSection({ group, title, resource, actions, layout, spanMs,
       id={metricPanelId(group)}
       anchorId={metricSectionAnchor(group)}
       title={title}
+      headerExtra={freshWindowNote(group, data)}
       actions={actions}
       sql={data?.sql}
       isLoading={resource.isLoading}
