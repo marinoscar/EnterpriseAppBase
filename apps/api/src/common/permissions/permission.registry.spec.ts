@@ -7,7 +7,7 @@ import {
   PLATFORM_ROLES,
   roleRegistry,
 } from './index';
-import type { PermissionDeclaration } from './permission.types';
+import type { PermissionDeclaration, RoleDeclaration } from './permission.types';
 
 // =============================================================================
 // Role and permission registries (issue #676, PP-1.4)
@@ -27,6 +27,7 @@ function permission(overrides: Partial<PermissionDeclaration> = {}): PermissionD
   return {
     id: 'widgets:read',
     description: 'Read widgets',
+    scope: 'system',
     defaultGrants: ['admin'],
     ...overrides,
   };
@@ -67,6 +68,11 @@ describe('permission registry', () => {
       ['an id with an upper-case letter', permission({ id: 'Widgets:read' }), 'INVALID_ID', /must match/],
       ['an id with no action', permission({ id: 'widgets:' }), 'INVALID_ID', /must match/],
       ['a duplicate of a platform id', permission({ id: 'jobs:read' }), 'DUPLICATE_ID', /Duplicate id "jobs:read"/],
+      // Issue #723: every permission declares its scope; there is no default.
+      ['no scope', permission({ scope: undefined as unknown as 'system' }), 'INVALID_ENTRY', /needs a scope of 'system' or 'org'/],
+      ['an unknown scope', permission({ scope: 'tenant' as unknown as 'system' }), 'INVALID_ENTRY', /needs a scope/],
+      ['a system permission granted to an org role', permission({ defaultGrants: ['admin', 'viewer'] }), 'INVALID_ENTRY', /org role "viewer" for a system permission/],
+      ['an org permission granted to the system admin role', permission({ scope: 'org', defaultGrants: ['org_admin', 'admin'] }), 'INVALID_ENTRY', /system role "admin" for a org permission/],
     ])('refuses %s, naming the id', async (_label, entry, code, message) => {
       const error = await rejectedRegistryErrorOf(
         withTemporaryEntries(permissionRegistry, [entry], () => undefined),
@@ -94,20 +100,21 @@ describe('permission registry', () => {
     });
 
     it('accepts a grant to a role registered earlier', async () => {
-      await withTemporaryEntries(roleRegistry, [{ id: 'coach', description: 'Coaches athletes' }], () =>
-        withTemporaryEntries(permissionRegistry, [permission({ defaultGrants: ['coach'] })], () => {
+      await withTemporaryEntries(roleRegistry, [{ id: 'coach', description: 'Coaches athletes', scope: 'org' }], () =>
+        withTemporaryEntries(permissionRegistry, [permission({ scope: 'org', defaultGrants: ['coach'] })], () => {
           expect(permissionRegistry.require('widgets:read').defaultGrants).toEqual(['coach']);
         }),
       );
     });
 
     it.each([
-      ['an empty description', { id: 'coach', description: '' }, 'INVALID_ENTRY'],
-      ['an id with a colon', { id: 'coach:x', description: 'Coach' }, 'INVALID_ID'],
-      ['a duplicate of a platform role', { id: 'admin', description: 'Again' }, 'DUPLICATE_ID'],
+      ['an empty description', { id: 'coach', description: '', scope: 'org' }, 'INVALID_ENTRY'],
+      ['an id with a colon', { id: 'coach:x', description: 'Coach', scope: 'org' }, 'INVALID_ID'],
+      ['a duplicate of a platform role', { id: 'admin', description: 'Again', scope: 'system' }, 'DUPLICATE_ID'],
+      ['no scope', { id: 'coach', description: 'Coach' }, 'INVALID_ENTRY'],
     ])('refuses a role with %s, naming the id', async (_label, entry, code) => {
       const error = await rejectedRegistryErrorOf(
-        withTemporaryEntries(roleRegistry, [entry], () => undefined),
+        withTemporaryEntries(roleRegistry, [entry as RoleDeclaration], () => undefined),
       );
 
       expect(error.code).toBe(code);
@@ -151,41 +158,41 @@ describe('permission registry', () => {
       let isolated: typeof import('./index') | undefined;
       jest.isolateModules(() => {
         jest.doMock(APP_REGISTRATIONS, () => ({
-          APP_ROLES: [{ id: 'coach', description: 'Coaches athletes' }],
-          APP_PERMISSIONS: [permission({ id: 'workouts:read', defaultGrants: ['admin', 'coach'] })],
+          APP_ROLES: [{ id: 'coach', description: 'Coaches athletes', scope: 'org' }],
+          APP_PERMISSIONS: [permission({ id: 'workouts:read', scope: 'org', defaultGrants: ['org_admin', 'coach'] })],
         }));
         isolated = require('./index');
       });
 
       const catalog = isolated!.buildPermissionCatalog();
-      expect(catalog.roles.map((role) => role.name)).toEqual(['admin', 'contributor', 'viewer', 'coach']);
-      expect(catalog.permissions.at(-1)?.name).toBe('workouts:read');
+      expect(catalog.roles.map((role) => role.name)).toEqual(['admin', 'contributor', 'viewer', 'org_admin', 'coach']);
+      expect(catalog.permissions.at(-1)).toEqual({ name: 'workouts:read', description: 'Read widgets', scope: 'org' });
       expect(catalog.rolePermissions.coach).toEqual(['workouts:read']);
-      expect(catalog.rolePermissions.admin.at(-1)).toBe('workouts:read');
+      expect(catalog.rolePermissions.org_admin.at(-1)).toBe('workouts:read');
     });
   });
 
   describe('order', () => {
     it('registers the platform roles in seed order', () => {
-      expect(roleRegistry.ids()).toEqual(['admin', 'contributor', 'viewer']);
+      expect(roleRegistry.ids()).toEqual(['admin', 'contributor', 'viewer', 'org_admin']);
     });
 
     it('registers the platform permissions in the order PERMISSIONS lists them', () => {
       expect(permissionRegistry.ids()).toEqual(Object.values(PERMISSIONS));
     });
 
-    it('declares 31 permissions and 3 roles, each exactly once', () => {
-      expect(permissionRegistry.size).toBe(31);
-      expect(new Set(Object.values(PERMISSIONS)).size).toBe(31);
-      expect(roleRegistry.size).toBe(3);
+    it('declares 35 permissions and 4 roles, each exactly once', () => {
+      expect(permissionRegistry.size).toBe(35);
+      expect(new Set(Object.values(PERMISSIONS)).size).toBe(35);
+      expect(roleRegistry.size).toBe(4);
     });
   });
 
   describe('permissionIds', () => {
     it('maps each key to its id, in key order, and freezes the result', () => {
       const ids = permissionIds({
-        B_WRITE: { id: 'b:write', description: 'w', defaultGrants: [] },
-        A_READ: { id: 'a:read', description: 'r', defaultGrants: [] },
+        B_WRITE: { id: 'b:write', description: 'w', scope: 'system', defaultGrants: [] },
+        A_READ: { id: 'a:read', description: 'r', scope: 'org', defaultGrants: [] },
       } as const);
 
       expect(ids).toEqual({ B_WRITE: 'b:write', A_READ: 'a:read' });
@@ -198,22 +205,75 @@ describe('permission registry', () => {
     });
 
     it('derives ROLES from the platform role declarations', () => {
-      expect(ROLES).toEqual({ ADMIN: 'admin', CONTRIBUTOR: 'contributor', VIEWER: 'viewer' });
+      expect(ROLES).toEqual({ ADMIN: 'admin', CONTRIBUTOR: 'contributor', VIEWER: 'viewer', ORG_ADMIN: 'org_admin' });
       expect(Object.values(PLATFORM_ROLES).map((role) => role.id)).toEqual(Object.values(ROLES));
+    });
+  });
+
+  describe('scopes (issue #723)', () => {
+    it('gives every role and every permission a scope', () => {
+      for (const role of roleRegistry.list()) expect(['system', 'org']).toContain(role.scope);
+      for (const entry of permissionRegistry.list()) expect(['system', 'org']).toContain(entry.scope);
+    });
+
+    it('scopes admin as the system role and org_admin, contributor and viewer as org roles', () => {
+      expect(Object.fromEntries(roleRegistry.list().map((role) => [role.id, role.scope]))).toEqual({
+        admin: 'system',
+        contributor: 'org',
+        viewer: 'org',
+        org_admin: 'org',
+      });
+    });
+
+    it('classifies the permissions as the story table does', () => {
+      const orgScoped = permissionRegistry.list().filter((entry) => entry.scope === 'org').map((entry) => entry.id);
+      expect(orgScoped).toEqual([
+        'user_settings:read',
+        'user_settings:write',
+        'storage:read',
+        'storage:write',
+        'ai:use',
+        'org_members:read',
+        'org_members:write',
+        'org_invites:read',
+        'org_invites:write',
+      ]);
+    });
+
+    it('grants every role only permissions of its own scope', () => {
+      for (const entry of permissionRegistry.list()) {
+        for (const role of entry.defaultGrants) expect(roleRegistry.require(role).scope).toBe(entry.scope);
+      }
     });
   });
 
   describe('default grants', () => {
     const catalog = buildPermissionCatalog();
+    const idsOfScope = (scope: 'system' | 'org') =>
+      permissionRegistry.list().filter((entry) => entry.scope === scope).map((entry) => entry.id);
 
-    it('grants Admin every registered permission (docs/ARCHITECTURE.md §7.1)', () => {
-      const missing = permissionRegistry
-        .list()
-        .filter((entry) => !entry.defaultGrants.includes(ROLES.ADMIN))
-        .map((entry) => entry.id);
+    it('grants the system admin role every system permission and nothing else (docs/ARCHITECTURE.md §7.1)', () => {
+      expect(catalog.rolePermissions.admin).toEqual(idsOfScope('system'));
+    });
 
-      expect(missing).toEqual([]);
-      expect(catalog.rolePermissions.admin).toEqual(permissionRegistry.ids());
+    it('grants org_admin every org permission', () => {
+      expect(catalog.rolePermissions.org_admin).toEqual(idsOfScope('org'));
+    });
+
+    it('matches the grants table per role', () => {
+      expect(catalog.rolePermissions.contributor).toEqual([
+        'user_settings:read',
+        'user_settings:write',
+        'storage:read',
+        'storage:write',
+        'ai:use',
+      ]);
+      expect(catalog.rolePermissions.viewer).toEqual(['user_settings:read', 'user_settings:write', 'storage:read']);
+    });
+
+    it('keeps admin + org_admin equal to what admin alone held before the split, plus the four org_* permissions', () => {
+      const union = new Set([...catalog.rolePermissions.admin, ...catalog.rolePermissions.org_admin]);
+      expect([...union].sort()).toEqual([...permissionRegistry.ids()].sort());
     });
 
     it('withholds ai:use from Viewer and grants it to Contributor', () => {
@@ -221,8 +281,8 @@ describe('permission registry', () => {
       expect(catalog.rolePermissions.contributor).toContain(PERMISSIONS.AI_USE);
     });
 
-    it('keeps storage_config:* Admin-only while storage:read reaches every role', () => {
-      for (const role of [ROLES.CONTRIBUTOR, ROLES.VIEWER]) {
+    it('keeps storage_config:* Admin-only while storage:read reaches every org role', () => {
+      for (const role of [ROLES.CONTRIBUTOR, ROLES.VIEWER, ROLES.ORG_ADMIN]) {
         expect(catalog.rolePermissions[role]).not.toContain(PERMISSIONS.STORAGE_CONFIG_READ);
         expect(catalog.rolePermissions[role]).not.toContain(PERMISSIONS.STORAGE_CONFIG_WRITE);
         expect(catalog.rolePermissions[role]).toContain(PERMISSIONS.STORAGE_READ);

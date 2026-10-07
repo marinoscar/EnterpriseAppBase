@@ -72,7 +72,7 @@ Order follows the extension ladder: options (rung 1), registries (rung 2), token
 | `MetricGroupDef` | option | `{ id; label; title; order; description; families; ratios?; tables? }` | Declare an app's dashboard group: its counters, gauges, histograms, ratios and tables | stable | [example](../../../../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts) |
 | `MetricGroupRegistry.register` | registry | `register(definition: MetricGroupDefinition): void` | Add a metric group from the app's own `onModuleInit` | experimental | [example](../../../../apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts) |
 | `registerMetricGroup` | registry | `registerMetricGroup(registry, definition): void` | The function form of `MetricGroupRegistry.register` | experimental | [example](../../../../apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts) |
-| `TELEMETRY_PERMISSION_DECLARATIONS` | registry | `{ TELEMETRY_READ; TELEMETRY_WRITE; TELEMETRY_QUERY }`, each `{ id; description; defaultGrants }` | Register the three permissions with the app's permission registry | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
+| `TELEMETRY_PERMISSION_DECLARATIONS` | registry | `{ TELEMETRY_READ; TELEMETRY_WRITE; TELEMETRY_QUERY }`, each `{ id; description; scope; defaultGrants }` (`scope: 'system'`) | Register the three permissions with the app's permission registry | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
 | `telemetrySettingsSchema` | schema | `ZodObject<{ enabled; retentionDays; instanceId; query; assistant }>` (re-exported from the contract) | Validate or `.extend()` the `telemetry` settings namespace in the app's settings registry | stable | [example](../../../../apps/api/src/platform/telemetry/telemetry.system-settings.ts) |
 | `TELEMETRY_AUDIT_SINK` | token | `unique symbol` -> `TelemetryAuditSink` | Bind where telemetry's audit rows go | experimental | [example](../../../../apps/api/src/platform/telemetry/telemetry-audit-sink.adapter.ts) |
 | `TELEMETRY_SETTINGS_STORE` | token | `unique symbol` -> `TelemetrySettingsStore` | Bind the `telemetry` namespace, its provenance and the `telemetry_connection` row | experimental | [example](../../../../apps/api/src/platform/telemetry/telemetry-settings-store.adapter.ts) |
@@ -161,7 +161,7 @@ An app may reference the namespace name and the row key (`TELEMETRY_SETTINGS_NAM
 
 ## Permissions and settings
 
-`TELEMETRY_PERMISSION_DECLARATIONS` declares three permissions, all granted to `admin` by default, which the app registers in its permission registry:
+`TELEMETRY_PERMISSION_DECLARATIONS` declares three system-scoped permissions, all granted to `admin` (the system administrator role) by default, which the app registers in its permission registry:
 
 | Permission | Gates |
 |---|---|

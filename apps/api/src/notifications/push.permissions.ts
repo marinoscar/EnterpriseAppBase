@@ -34,11 +34,13 @@ export const PUSH_PERMISSIONS = {
   PUSH_READ: {
     id: 'push:read',
     description: 'View Web Push (VAPID) configuration',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   PUSH_WRITE: {
     id: 'push:write',
     description: 'Generate, rotate, enable/disable and remove Web Push VAPID keys',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

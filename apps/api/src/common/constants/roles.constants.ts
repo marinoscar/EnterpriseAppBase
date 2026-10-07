@@ -32,6 +32,7 @@ import { STORAGE_CONFIG_PERMISSIONS } from '../../storage/config/storage-config.
 import { STORAGE_PERMISSIONS } from '../../storage/storage.permissions';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
 import { USERS_PERMISSIONS } from '../../users/users.permissions';
+import { ORGANIZATIONS_PERMISSIONS } from '../../organizations/organizations.permissions';
 import { permissionIds, roleIds } from '../permissions/permission-ids';
 import type { AppPermissionIds, AppRoleIds } from '../permissions/permission.types';
 import { PLATFORM_ROLES } from '../permissions/platform-roles';
@@ -40,7 +41,13 @@ import { PLATFORM_ROLES } from '../permissions/platform-roles';
 // Role Constants
 // =============================================================================
 
-/** The platform roles: `{ ADMIN: 'admin', CONTRIBUTOR: 'contributor', VIEWER: 'viewer' }`. */
+/**
+ * The platform roles: `{ ADMIN: 'admin', CONTRIBUTOR: 'contributor', VIEWER: 'viewer', ORG_ADMIN: 'org_admin' }`.
+ *
+ * `ADMIN` is the SYSTEM administrator (held in `user_roles`), so every
+ * `@Auth({ roles: [ROLES.ADMIN] })` keeps meaning "deployment operator". The
+ * other three are ORG roles, held on a membership (issue #723).
+ */
 export const ROLES = roleIds(PLATFORM_ROLES);
 
 /** A platform role id, or an app role id added to `AppRoleIds` by augmentation. */
@@ -64,6 +71,7 @@ export const PERMISSIONS = {
   ...permissionIds(STORAGE_CONFIG_PERMISSIONS),
   ...permissionIds(AI_PERMISSIONS),
   ...permissionIds(TELEMETRY_PERMISSION_DECLARATIONS),
+  ...permissionIds(ORGANIZATIONS_PERMISSIONS),
 } as const;
 
 /** A platform permission id, or an app permission id added to `AppPermissionIds` by augmentation. */
@@ -72,7 +80,23 @@ export type PermissionName =
   | (keyof AppPermissionIds & string);
 
 // =============================================================================
-// Default Role
+// Default roles (issue #723: system vs org)
 // =============================================================================
 
-export const DEFAULT_ROLE = ROLES.VIEWER;
+/**
+ * The org role a new membership gets: every sign-up's role in the default
+ * organization, and the role a NULL `org_invites.role_id` stands for.
+ */
+export const DEFAULT_ORG_ROLE = ROLES.VIEWER;
+
+/**
+ * Kept for existing imports: the default role is the default MEMBERSHIP role,
+ * {@link DEFAULT_ORG_ROLE}. New code uses that name.
+ */
+export const DEFAULT_ROLE = DEFAULT_ORG_ROLE;
+
+/**
+ * The org role that administers one organization. The initial administrator
+ * holds it on the default organization, alongside the system `admin` role.
+ */
+export const ORG_ADMIN_ROLE = ROLES.ORG_ADMIN;

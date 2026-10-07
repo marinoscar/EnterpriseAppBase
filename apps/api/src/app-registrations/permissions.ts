@@ -15,14 +15,14 @@
 
 import type { PermissionDeclaration, RoleDeclaration } from '../common/permissions/permission.types';
 
-/** This app's own roles, seeded after the platform's admin, contributor and viewer. */
+/** This app's own roles, seeded after the platform's admin, contributor, viewer and org_admin. */
 export const APP_ROLES: readonly RoleDeclaration[] = [
-  // { id: 'coach', description: 'Reviews the workouts of assigned athletes' },
+  // { id: 'coach', description: 'Reviews the workouts of assigned athletes', scope: 'org' },
 ];
 
 /** This app's own permissions, seeded after every platform permission. */
 export const APP_PERMISSIONS: readonly PermissionDeclaration[] = [
-  // { id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'contributor', 'viewer'] },
+  // { id: 'workouts:read', description: 'Read own workouts', scope: 'org', defaultGrants: ['org_admin', 'contributor', 'viewer'] },
 ];
 
 // Typed ids for `@Auth({ permissions: [...] })` and `@Roles(...)`: add each id

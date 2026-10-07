@@ -242,7 +242,7 @@ describe('seed data', () => {
       expect(leaked).toEqual([]);
     });
 
-    it('grants ai_config:* to Admin only, and ai:use to Admin and Contributor but NOT Viewer (#423, #499)', () => {
+    it('grants ai_config:* to Admin only, and ai:use to Org admin and Contributor but NOT Viewer (#423, #499, #723)', () => {
       // `ai_config:*` is the deployment-wide policy — same "narrow,
       // operational surface" posture as `storage_config:*`, `push:*`,
       // `broadcasts:*` and `nodes:*` above: Admin only, including the read
@@ -264,12 +264,14 @@ describe('seed data', () => {
       expect(leakedConfig).toEqual([]);
 
       // `ai:use` is the opposite axis — may this caller invoke AI with their
-      // OWN key. Admin and Contributor hold it; Viewer deliberately does NOT
+      // OWN key. It is ORG scope since #723, so the org roles hold it: Org admin
+      // (which every system administrator also holds on their membership) and
+      // Contributor. Viewer deliberately does NOT
       // (#499) — Viewer is the DEFAULT role every new signup lands in, and
       // under `byok_with_org_fallback` a default grant would let a brand-new
       // account spend the deployment's own org key with no administrator
       // having decided that.
-      expect(ROLE_PERMISSIONS.admin).toContain('ai:use');
+      expect(ROLE_PERMISSIONS.org_admin).toContain('ai:use');
       expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
       expect(ROLE_PERMISSIONS.viewer).not.toContain('ai:use');
     });
@@ -303,6 +305,33 @@ describe('seed data', () => {
         );
 
       expect(leaked).toEqual([]);
+    });
+  });
+
+  describe('role and permission scopes (#723)', () => {
+    const OPERATIONAL = [
+      'system_settings:read', 'system_settings:write', 'users:read', 'users:write', 'rbac:manage',
+      'allowlist:read', 'allowlist:write', 'storage:delete_any', 'jobs:read', 'jobs:write', 'nodes:read',
+      'nodes:write', 'db_backup:read', 'db_backup:write', 'db_backup:restore', 'broadcasts:read',
+      'broadcasts:write', 'push:read', 'push:write', 'storage_config:read', 'storage_config:write',
+      'ai_config:read', 'ai_config:write', 'telemetry:read', 'telemetry:write', 'telemetry:query',
+    ];
+
+    it('scopes every operational permission to the system and grants it to the system admin role only', () => {
+      for (const name of OPERATIONAL) {
+        expect(PERMISSIONS.find((permission) => permission.name === name)?.scope).toBe('system');
+        expect(ROLE_PERMISSIONS.admin).toContain(name);
+        for (const role of ['org_admin', 'contributor', 'viewer']) expect(ROLE_PERMISSIONS[role]).not.toContain(name);
+      }
+    });
+
+    it('scopes admin to the system and the other platform roles to an organization', () => {
+      expect(Object.fromEntries(ROLES.map((role) => [role.name, role.scope]))).toEqual({
+        admin: 'system',
+        contributor: 'org',
+        viewer: 'org',
+        org_admin: 'org',
+      });
     });
   });
 

@@ -24,11 +24,13 @@ export const JOBS_PERMISSIONS = {
   JOBS_READ: {
     id: 'jobs:read',
     description: 'View queued, running and completed jobs',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   JOBS_WRITE: {
     id: 'jobs:write',
     description: 'Enqueue, retry and cancel jobs',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

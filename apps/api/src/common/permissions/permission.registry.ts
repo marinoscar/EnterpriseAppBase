@@ -24,6 +24,7 @@ import { defineRegistry } from '@marinoscar/platform-api/core';
 import type {
   PermissionDeclaration,
   PermissionDeclarationMap,
+  PermissionScope,
   RoleDeclaration,
   RoleDeclarationMap,
 } from './permission.types';
@@ -37,6 +38,9 @@ export const roleRegistry = defineRegistry<RoleDeclaration>({
     if (typeof role.description !== 'string' || role.description.trim() === '') {
       throw new Error('a role needs a non-empty description');
     }
+    if (!isScope(role.scope)) {
+      throw new Error(`a role needs a scope of 'system' or 'org' (got ${JSON.stringify(role.scope)})`);
+    }
   },
 });
 
@@ -49,6 +53,9 @@ export const permissionRegistry = defineRegistry<PermissionDeclaration>({
     if (typeof permission.description !== 'string' || permission.description.trim() === '') {
       throw new Error('a permission needs a non-empty description');
     }
+    if (!isScope(permission.scope)) {
+      throw new Error(`a permission needs a scope of 'system' or 'org' (got ${JSON.stringify(permission.scope)})`);
+    }
     if (!Array.isArray(permission.defaultGrants)) {
       throw new Error('defaultGrants must be an array of role ids (use [] for none)');
     }
@@ -60,11 +67,23 @@ export const permissionRegistry = defineRegistry<PermissionDeclaration>({
             'register the role before the permission',
         );
       }
+      const roleScope = roleRegistry.get(role)?.scope;
+      if (roleScope !== permission.scope) {
+        throw new Error(
+          `defaultGrants names ${roleScope} role "${role}" for a ${permission.scope} permission; ` +
+            'a role is granted only permissions of its own scope (grant the permission to a role of that scope)',
+        );
+      }
       if (seen.has(role)) throw new Error(`defaultGrants names role "${role}" twice`);
       seen.add(role);
     }
   },
 });
+
+/** The two scopes (issue #723). Checked at run time: a JS caller can pass anything. */
+function isScope(value: unknown): value is PermissionScope {
+  return value === 'system' || value === 'org';
+}
 
 function entriesOf<T>(declarations: readonly T[] | Readonly<Record<string, T>>): readonly T[] {
   return Array.isArray(declarations) ? declarations : Object.values(declarations as Record<string, T>);
@@ -74,7 +93,8 @@ function entriesOf<T>(declarations: readonly T[] | Readonly<Record<string, T>>):
  * Registers roles, all or nothing. Accepts an array or a {@link RoleDeclarationMap}
  * (registered in the map's key order).
  *
- * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY`, `DUPLICATE_ID` or `FROZEN`, naming the id.
+ * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY` (empty description or
+ * missing scope), `DUPLICATE_ID` or `FROZEN`, naming the id.
  */
 export function registerRoles(roles: readonly RoleDeclaration[] | RoleDeclarationMap): void {
   roleRegistry.registerAll(entriesOf(roles));
@@ -86,7 +106,8 @@ export function registerRoles(roles: readonly RoleDeclaration[] | RoleDeclaratio
  * role in `defaultGrants` must already be registered.
  *
  * @throws RegistryError `INVALID_ID` (not `<resource>:<action>`), `INVALID_ENTRY`
- * (empty description, unknown or repeated grant), `DUPLICATE_ID` or `FROZEN`, naming the id.
+ * (empty description, missing scope, unknown or repeated grant, or a grant to a
+ * role of the other scope), `DUPLICATE_ID` or `FROZEN`, naming the id.
  */
 export function registerPermissions(
   permissions: readonly PermissionDeclaration[] | PermissionDeclarationMap,

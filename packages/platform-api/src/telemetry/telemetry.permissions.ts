@@ -34,6 +34,12 @@ export interface TelemetryPermissionDeclaration<Id extends string = string> {
   readonly id: Id;
   /** Seeded into `permissions.description`. */
   readonly description: string;
+  /**
+   * What the permission operates: `'system'` (the deployment) or `'org'` (one
+   * organization). Every telemetry permission is `'system'`: telemetry is a
+   * deployment-wide operator surface.
+   */
+  readonly scope: 'system' | 'org';
   /** Role ids the permission is granted to by default (seeded into `role_permissions`). */
   readonly defaultGrants: readonly string[];
 }
@@ -62,16 +68,19 @@ export const TELEMETRY_PERMISSION_DECLARATIONS: {
   TELEMETRY_READ: {
     id: 'telemetry:read',
     description: 'View telemetry settings and status',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   TELEMETRY_WRITE: {
     id: 'telemetry:write',
     description: 'Change telemetry settings',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   TELEMETRY_QUERY: {
     id: 'telemetry:query',
     description: 'Run SQL, export and use the AI assistant against telemetry',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 };
