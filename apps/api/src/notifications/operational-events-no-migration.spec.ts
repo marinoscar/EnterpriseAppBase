@@ -78,6 +78,10 @@ const MIGRATIONS_AT_288 = [
   // #681: plain `created_at` indexes for the retention sweeps. About data
   // retention, not the operational notification events.
   '20261006120000_add_retention_created_at_indexes',
+  // #721 (PP-6.1): organizations, memberships and invites, the nullable
+  // `org_id` on the credential tables and the default-org backfill. About
+  // tenancy, not the operational notification events.
+  '20261007141244_add_organizations',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
