@@ -93,7 +93,7 @@ READMEs that live next to the code they describe.
 | [../apps/api/src/ai/README.md](../apps/api/src/ai/README.md) | Using AI from a feature; the AI module's map |
 | [../apps/api/src/notifications/README.md](../apps/api/src/notifications/README.md) | Adding a notification; the notifications module's map |
 | [../apps/api/src/storage/processing/processors/README.md](../apps/api/src/storage/processing/processors/README.md) | Post-upload storage object processors |
-| [../apps/api/src/device-auth/README.md](../apps/api/src/device-auth/README.md) | Device flow reference: schemas, fields, security rationale |
+| [../packages/platform-api/src/identity/device-auth/README.md](../packages/platform-api/src/identity/device-auth/README.md) | Device flow reference: schemas, fields, security rationale |
 | [../apps/api/scripts/README.md](../apps/api/scripts/README.md) | The `prisma-env.js` wrapper that builds `DATABASE_URL` |
 | [../packages/shared/README.md](../packages/shared/README.md) | Product identity: name and brand colours shared by every app |
 | [../packages/platform-api/src/core/registry/README.md](../packages/platform-api/src/core/registry/README.md) | Defining a registry, declaring its entries and writing its manifest; the registry behaviour apps rely on |

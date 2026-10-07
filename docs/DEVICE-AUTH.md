@@ -8,7 +8,7 @@ server, a TV app) in to this application with the Device Authorization Grant.
 > are in the generated API reference at `/api/docs` (tag **Device
 > Authorization**). The implementation notes and the security rationale live
 > next to the code in
-> [`apps/api/src/device-auth/README.md`](../apps/api/src/device-auth/README.md).
+> [`apps/api/src/device-auth/README.md`](../packages/platform-api/src/identity/device-auth/README.md).
 
 ## Table of Contents
 
@@ -263,7 +263,7 @@ Details of the PAT branch:
   process's memory and the HTTPS response. It is never written anywhere in
   clear. The device code is claimed atomically first, so two racing polls
   cannot both collect a token. See the
-  [rationale](../apps/api/src/device-auth/README.md#why-the-pat-is-minted-on-the-poll-not-at-approval).
+  [rationale](../packages/platform-api/src/identity/device-auth/README.md#why-the-pat-is-minted-on-the-poll-not-at-approval).
 - **Name.** The token is named `Device: <deviceName>`. Because `deviceName`
   comes from an unauthenticated caller, control, zero-width and bidi-override
   characters are removed and the name is truncated to 100 characters. An empty
@@ -296,7 +296,7 @@ code, `400` for an expired code or one that was already approved or denied.
 `activate` and `authorize` stay reachable during a maintenance window.
 
 For the implementation (module layout, `device_codes` table, services, tests),
-read [`apps/api/src/device-auth/README.md`](../apps/api/src/device-auth/README.md).
+read [`apps/api/src/device-auth/README.md`](../packages/platform-api/src/identity/device-auth/README.md).
 
 ---
 
@@ -629,6 +629,6 @@ Check the API logs; each approval and each issued credential is logged.
 - [API conventions](API.md)
 - [Personal Access Tokens](personal-access-tokens.md)
 - [Security Architecture](SECURITY-ARCHITECTURE.md)
-- [Device auth module README](../apps/api/src/device-auth/README.md)
+- [Device auth module README](../packages/platform-api/src/identity/device-auth/README.md)
 - [`appctl` CLI](../apps/cli/README.md), the reference client for the `pat`
   credential
