@@ -2,7 +2,7 @@
 // Runs the CLI's own node-side pg_dump (issue #725), for the backup RLS db spec
 // =============================================================================
 //
-// A worker node dumps with `apps/cli/src/node/pg-dump.ts`, a standalone ESM
+// A worker node dumps with @marinoscar/platform-cli's `node/pg-dump.ts`, an ESM
 // package that must not import the API. The API's Jest runs CommonJS, so the
 // spec starts this file in a child process (`node --import tsx`) instead of
 // importing the CLI. Usage: NODE_DUMP_CONNECTION='<json>' node --import tsx
@@ -13,7 +13,7 @@
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 
-import { spawnPgDump } from '../../../cli/src/node/pg-dump.ts';
+import { spawnPgDump } from '../../../../packages/platform-cli/src/engine/node/pg-dump.ts';
 
 const output = process.argv[2];
 const raw = process.env.NODE_DUMP_CONNECTION;

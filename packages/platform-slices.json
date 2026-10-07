@@ -4,6 +4,6 @@
   "platform-web": { "core": [], "testing": ["core"], "doctor": ["core"], "telemetry": ["core"] },
   "platform-contract": { "doctor": [], "telemetry": [], "sharing": [] },
   "platform-db": { "compose": [], "lock": [], "sync": ["lock"], "drift": ["lock", "sync"], "baseline": ["lock", "sync", "drift"], "bin": ["compose", "lock", "sync", "drift", "baseline"], "seed": [] },
-  "platform-cli": { "core": [], "telemetry": ["core"] },
+  "platform-cli": { "core": [], "telemetry": ["core"], "engine": ["core", "telemetry"], "commands": ["engine"], "tui": ["engine"], "deploy": ["engine"], "node": ["engine"], "api-client": ["engine"], "testing": ["engine"] },
   "platform-infra": { "telemetry": [] }
 }

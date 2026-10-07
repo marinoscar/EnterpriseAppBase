@@ -104,6 +104,13 @@ jobs:
       # here — see the note atop this file for the measurements behind that.
       - run: npm run test:run --workspace=cli
 
+      # The CLI's commands, TUI, deploy pipeline and node engine live in
+      # @marinoscar/platform-cli since #715, with their ~100 test files; the
+      # reference app's apps/cli is a thin createCli composition. packages.yml
+      # runs every package's suite too; this keeps the CLI's here as well.
+      - run: npm run typecheck --workspace=@marinoscar/platform-cli
+      - run: npm run test:run --workspace=@marinoscar/platform-cli
+
       # The CLI is the one workspace whose BUILD is the deliverable — the `bin`
       # points at dist/, so a package that typechecks but does not emit is
       # broken for every user while looking green here. Cheap (tsc only) and it

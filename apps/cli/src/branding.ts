@@ -1,6 +1,6 @@
 import { APP_NAME, REPO_SLUG } from '@app/shared';
 
-import type { CliIdentity } from './identity.js';
+import type { CliIdentity } from '@marinoscar/platform-cli';
 
 // =============================================================================
 // CLI identity — the one constant a fork renames  (issue #140, epic #110)

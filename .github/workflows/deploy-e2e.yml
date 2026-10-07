@@ -109,10 +109,12 @@ jobs:
       - name: Gate — typecheck and the unit suites
         run: |
           npx prisma generate --schema apps/api/prisma/schema
-          # The CLI imports @marinoscar/platform-infra, which resolves to its dist/.
+          # The CLI is @marinoscar/platform-cli (#715), which resolves to its dist/.
           npm run build:packages
           npm run typecheck --workspace=cli
           npm run test:run --workspace=cli
+          # The deploy pipeline's own suites live in the package since #715.
+          npm run test:run --workspace=@marinoscar/platform-cli
           npm run build --workspace=cli
 
       - name: Prepare the fake VPS layout

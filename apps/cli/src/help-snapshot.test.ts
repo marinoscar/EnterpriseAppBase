@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
 import { describe, expect, it } from 'vitest';
 
-import { buildProgram } from './program.js';
+import { createCli } from '@marinoscar/platform-cli';
+import { resetCliForTests } from '@marinoscar/platform-cli/testing';
+
+import { APP_CLI_OPTIONS } from './app.js';
 
 // =============================================================================
 // `--help` parity for every command  (PP-8.9, #715)
@@ -38,7 +41,9 @@ export function collectHelp(program: Command): Record<string, string> {
 
 describe('--help output (pre-move parity, #715)', () => {
   const expected = JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8')) as Record<string, string>;
-  const actual = collectHelp(buildProgram());
+  resetCliForTests();
+  const actual = collectHelp(createCli(APP_CLI_OPTIONS).program);
+  resetCliForTests();
 
   it('covers the same commands, in the same order', () => {
     expect(Object.keys(actual)).toEqual(Object.keys(expected));

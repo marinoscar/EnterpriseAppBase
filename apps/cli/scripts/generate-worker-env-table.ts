@@ -3,8 +3,9 @@
 // (issue #289, epic #254 — the documentation rollup)
 // =============================================================================
 //
-// The table itself is built by `src/node/worker-env-table.ts`, from
-// `WORKER_ENV` and the JSDoc already written above each of its entries — see
+// The table itself is built by `node/worker-env-table.ts` of
+// @marinoscar/platform-cli (imported from its SOURCE, because the builder
+// reads `worker-env.ts` as text), from `workerEnv()` and the JSDoc already written above each of its entries — see
 // that file's header for why. This script is only the writer: it finds the
 // `<!-- GENERATED:WORKER_ENV_TABLE:START/END -->` markers in
 // `apps/cli/README.md` and replaces whatever sits between them.
@@ -23,11 +24,17 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { setCliIdentity } from '../../../packages/platform-cli/src/engine/identity.js';
 import {
   buildWorkerEnvTable,
   WORKER_ENV_TABLE_END,
   WORKER_ENV_TABLE_START,
-} from '../src/node/worker-env-table.js';
+} from '../../../packages/platform-cli/src/engine/node/worker-env-table.js';
+import { CLI_IDENTITY } from '../src/branding.js';
+import { CLI_VERSION } from '../src/package-info.js';
+
+// The variable names are derived from THIS app's CLI identity (`APPCTL_*`).
+setCliIdentity(CLI_IDENTITY, CLI_VERSION);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const README_PATH = join(HERE, '..', 'README.md');
