@@ -686,13 +686,15 @@ describe('the Operations group (#266)', () => {
 
   it('is a third group, and the first two are untouched', () => {
     // `AI` (#425) is APPENDED as a fourth group after it — see the AI suite —
-    // and `Observability` (#537) as a fifth after that.
+    // `Observability` (#537) as a fifth after that, and `Organizations`
+    // (#726) as a sixth.
     expect(ADMIN_SECTIONS.map((section) => section.label)).toEqual([
       'General',
       'Access',
       'Operations',
       'AI',
       'Observability',
+      'Organizations',
     ]);
   });
 
@@ -1065,9 +1067,10 @@ describe('the AI group (#425)', () => {
   const cards = new Map((aiSection?.cards ?? []).map((card) => [card.title, card]));
 
   it('is APPENDED after Operations, leaving every earlier card in place', () => {
-    // It was the last group until `Observability` (#537) was appended after it.
+    // It was the last group until `Observability` (#537), then `Organizations`
+    // (#726), were appended after it.
     expect(ADMIN_SECTIONS[3]).toBe(aiSection);
-    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability']);
+    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability', 'Organizations']);
     // `AI Usage` (#444) is appended after `AI Models`, never inserted.
     expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models', 'AI Usage']);
   });
@@ -1154,8 +1157,9 @@ describe('the Observability group (#537)', () => {
   const titles = (hasPermission: (permission: string) => boolean, features = {}) =>
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
 
-  it('is APPENDED as the last group, with its cards in declaration order', () => {
-    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(observability);
+  it('is APPENDED after AI, followed only by Organizations (#726), with its cards in declaration order', () => {
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 2]).toBe(observability);
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]?.label).toBe('Organizations');
     // `Telemetry Dashboard` (#578) was appended after the Explorer, and
     // `Doctor` (#634) after the Dashboard.
     expect(observability?.cards.map((card) => card.title)).toEqual([
@@ -1213,9 +1217,10 @@ describe('the Observability group (#537)', () => {
     const dashboard = cards.get('Telemetry Dashboard');
     const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
 
-    it('was appended after the Explorer, not inserted — only Doctor (#634) follows it', () => {
-      expect(allCards[allCards.length - 2]).toBe(dashboard);
-      expect(allCards[allCards.length - 1]?.title).toBe('Doctor');
+    it('was appended after the Explorer, not inserted — only Doctor (#634) follows it before the Organizations group (#726)', () => {
+      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs');
+      expect(beforeOrgs[beforeOrgs.length - 2]).toBe(dashboard);
+      expect(beforeOrgs[beforeOrgs.length - 1]?.title).toBe('Doctor');
       expect(dashboard?.disabled).toBeUndefined();
       expect(dashboard?.alwaysShow).toBeUndefined();
     });
@@ -1263,8 +1268,9 @@ describe('the Observability group (#537)', () => {
       expect(allCards.filter((card) => card.path === doctor?.path)).toHaveLength(1);
     });
 
-    it('is the LAST card of the last group (Observability) — appended, not inserted', () => {
-      expect(allCards[allCards.length - 1]).toBe(doctor);
+    it('is the LAST card of Observability, the last group before Organizations (#726) — appended, not inserted', () => {
+      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs');
+      expect(beforeOrgs[beforeOrgs.length - 1]).toBe(doctor);
       const owner = ADMIN_SECTIONS.find((section) => section.cards.includes(doctor!));
       expect(owner?.label).toBe('Observability');
     });

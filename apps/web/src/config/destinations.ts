@@ -195,10 +195,12 @@ export function isDestinationVisible(
  *
  *   - `users.controller.ts`           → `users:read`
  *   - `system-settings.controller.ts` → `system_settings:read`
+ *   - `org-members.controller.ts`     → `org_members:read` (#726, an ORG
+ *     permission: an organization's administrator who operates nothing else)
  *
- * `console` is reachable on EITHER of those (see `anyPermission`), because
- * `/admin/settings` fronts pages from both controllers and a user entitled to
- * only one half must still reach the surface. The per-page gates inside
+ * `console` is reachable on ANY of those (see `anyPermission`), because
+ * `/admin/settings` fronts pages from all three controllers and a user entitled
+ * to only one of them must still reach the surface. The per-page gates inside
  * `/admin/settings/*` are what decide which cards and routes that user actually
  * gets — `config/adminSections.tsx` declares them, and `App.tsx` wraps each
  * route in the matching `RequirePermission`.
@@ -233,7 +235,9 @@ export const DESTINATIONS: readonly Destination[] = [
     compactLabel: 'Console',
     Icon: AdminIcon,
     path: '/admin/settings',
-    anyPermission: ['system_settings:read', 'users:read'],
+    // `org_members:read` (#726): an organization's own administrator holds no
+    // system permission, and the Organization card is their whole Console.
+    anyPermission: ['system_settings:read', 'users:read', 'org_members:read'],
     // Pinned at the rail's foot (#105) — a mode, not a third library
     // destination. The permission gate above still runs first: a user who
     // cannot reach Console gets no pinned row AND no stray divider.
