@@ -34,6 +34,8 @@ import { Client } from 'pg';
 
 import { buildDatabaseUrl, type DatabaseEnv } from '../../src/common/database-url';
 import type { PgConnection } from '../../src/db-backup/pg-dump.util';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { PrismaSystemService } from '../../src/prisma/prisma-system.service';
 
 /** `apps/api`, resolved from this file's location. */
 const API_ROOT = join(__dirname, '..', '..');
@@ -292,4 +294,40 @@ export async function seedTwoOrgs(db: RlsDatabase, perOrg = 3): Promise<TwoOrgFi
   });
 
   return f;
+}
+
+/**
+ * The application's own two database providers, built against `db` as its
+ * ordinary role: `PrismaService` (the tenant pool, `forOrg` / `runInOrg`) and
+ * `PrismaSystemService` (the separate bypass pool). For a suite that drives a
+ * REAL service (`ObjectsService`, a job handler) over a database that
+ * enforces row-level security. `close()` disconnects both.
+ */
+export function rlsServices(db: RlsDatabase): { prisma: PrismaService; system: PrismaSystemService; close: () => Promise<void> } {
+  const saved = { ...process.env };
+  // Both constructors read the environment once; see `createDbClient` for why DATABASE_URL must not win.
+  delete process.env.DATABASE_URL;
+  Object.assign(process.env, {
+    POSTGRES_HOST: db.env.POSTGRES_HOST,
+    POSTGRES_PORT: db.env.POSTGRES_PORT,
+    POSTGRES_DB: db.database,
+    POSTGRES_USER: db.role,
+    POSTGRES_PASSWORD: db.password,
+    POSTGRES_SSL: 'false',
+  });
+  try {
+    const prisma = new PrismaService();
+    const system = new PrismaSystemService();
+    return {
+      prisma,
+      system,
+      close: async () => {
+        await prisma.$disconnect();
+        await system.$disconnect();
+      },
+    };
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
 }
