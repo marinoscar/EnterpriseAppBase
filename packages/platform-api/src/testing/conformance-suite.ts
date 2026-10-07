@@ -81,8 +81,12 @@ export interface ConformanceContext {
 export interface ConformanceCase {
   /** The test title; stable, because dashboards and CI filters read it. */
   name: string;
-  /** Asserts against the (memoised) report of the suite's single scan. */
-  run(report: ConformanceReport, expect: ConformanceTestApi['expect']): void;
+  /**
+   * Asserts against the (memoised) report of the suite's single scan. May be
+   * async: a case that has to boot something (the telemetry suite boots the
+   * slice's module) awaits it here, and the runner awaits the returned promise.
+   */
+  run(report: ConformanceReport, expect: ConformanceTestApi['expect']): void | Promise<void>;
 }
 
 /**
