@@ -17,6 +17,7 @@ import { APP_NAME } from '@app/shared';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { UserMenu } from './UserMenu';
 import { NotificationBell } from './NotificationBell';
+import { OrgSwitcher } from './OrgSwitcher';
 import {
   ADMIN_SECTIONS,
   ADMIN_HUB_PATH,
@@ -270,6 +271,14 @@ export function AppBar() {
             {isDarkMode ? <LightModeIcon /> : <DarkModeIcon />}
           </IconButton>
         )}
+
+        {/* The organization switcher (#726), next to the user menu. Renders
+            nothing unless the deployment is multi-org AND the user has two or
+            more active memberships, so single-org deployments (and every
+            existing AppBar test) keep their exact controls. Dropped in the
+            compact drill-down for the theme toggle's reason: the treatment is
+            sized for three icon buttons, and switching org is one tap up. */}
+        {!drillDown && <OrgSwitcher />}
 
         {/* User Menu */}
         <Box sx={{ flexShrink: 0 }}>
