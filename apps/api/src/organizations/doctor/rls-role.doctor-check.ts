@@ -68,14 +68,14 @@ export function decideRlsRole(facts: RlsRoleFacts): DoctorCheckOutcome {
 }
 
 /**
- * `auth` / `tenancy.rls-role` — the API's database role is subject to
+ * `core` / `db.rls_role` — the API's database role is subject to
  * row-level security. Read-only: two catalogue reads over the system
  * connection (reason `doctor`).
  */
 @Injectable()
 export class RlsRoleDoctorCheck implements DoctorCheck, OnModuleInit {
-  readonly id = 'tenancy.rls-role';
-  readonly category = 'auth';
+  readonly id = 'db.rls_role';
+  readonly category = 'core';
   readonly label = 'Tenant isolation role';
   readonly dependsOn = ['db.connection'];
 

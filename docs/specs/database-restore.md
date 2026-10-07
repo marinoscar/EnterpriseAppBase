@@ -297,6 +297,21 @@ the live name:
 throw would reach a failure handler that assumes it was not. A failed carry
 logs CRITICAL and names the manual fix.
 
+### Row-level security
+
+The archive carries the tenant tables' `FORCE ROW LEVEL SECURITY` and their
+policies, and the rows go in through `pg_restore` run with
+`--enable-row-security` **and** `PGOPTIONS=-c app.rls_bypass=on`
+(`spawnPgRestore`), because the policy's `WITH CHECK` would otherwise refuse
+every row under the application role (#725). The restored database therefore
+comes back with its isolation intact: an unscoped session sees no rows and each
+organization sees only its own (`test/db-backup/db-backup-rls.db.spec.ts`
+asserts the per-organization counts after a restore). The cluster admin
+connection (outside the Prisma pool) is unaffected, and the catalog carry-over
+only touches `jobs`, `database_backup_runs` and `audit_events`, none of which
+force row-level security (`audit_events.org_id` is nullable and carried as
+`NULL`). Restore needs a direct connection to the database, as the dump does.
+
 ### Migration roll-forward and exit
 
 - `_prisma_migrations` comes from the archive, so after the swap the database
@@ -660,3 +675,6 @@ rehearsal is for.
   retained-database drop became `db.restore.old-db-drop`.
 - #685 (platform-packages PP-1.14): `DEPLOYMENT_MODE=saas` disables in-app
   restore and rollback at the service, HTTP and queue layers.
+- #725 (platform-packages PP-6.5): `pg_restore` runs with `--enable-row-security`
+  and the `app.rls_bypass` startup option so the restored tenant tables keep
+  every row and their forced policies.

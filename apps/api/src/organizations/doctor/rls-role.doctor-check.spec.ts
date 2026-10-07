@@ -52,7 +52,7 @@ describe('RlsRoleDoctorCheck', () => {
     const { check, registry, system, queryRaw } = build([{ role: 'postgres', superuser: true, bypassrls: false }], [{ count: 4 }]);
 
     check.onModuleInit();
-    expect(registry.get('tenancy.rls-role')).toBe(check);
+    expect(registry.get('db.rls_role')).toBe(check);
     expect(check.dependsOn).toEqual(['db.connection']);
 
     const outcome = await check.run();

@@ -55,6 +55,7 @@ registry:
 | File | Registry | Recipe |
 |---|---|---|
 | `user-owned-models.ts` | `userOwnedModelRegistry` (`@marinoscar/platform-api/core`): every model with a foreign key to `User` | [prisma/ownership/README.md](../prisma/ownership/README.md) |
+| `model-ownership.ts` | `modelOwnershipRegistry` (`@marinoscar/platform-api/core`): the ownership kind of every model (`org`, `org-optional`, `user`, `system`); an `org` model also needs `org_id`, a policy and a migration (#725) | [prisma/ownership/README.md](../prisma/ownership/README.md), [SECURITY-ARCHITECTURE.md §18](../../../../docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls) |
 
 | File | Registries it feeds | Recipe |
 |---|---|---|

@@ -17,6 +17,18 @@ folder holds the **app side**:
    unscoped. `PrismaService.forUser(scope)` is the same client without the
    service.
 
+**Model ownership kinds and row-level security (#725).** Beside the user-owned
+registry this folder holds the **model ownership** registrations
+(`platform-model-ownership.ts`, `model-ownership.manifest.ts`): every Prisma
+model is `org` (NOT NULL `org_id`, row-level security forced), `org-optional`
+(nullable `org_id`), `user` or `system`, with `orgReference` for an identity
+table that merely names an organization. An app adds its own in
+`app-registrations/model-ownership.ts`. `test/tenancy/model-ownership.spec.ts`
+fails for a model with no entry and `test/tenancy/rls-coverage.db.spec.ts` for an
+`org` table without its policy. The org-scoped client (`PrismaService.forOrg` /
+`runInOrg`) and the bypass client (`PrismaSystemService`) are in `../`; the
+rules are in [SECURITY-ARCHITECTURE.md §18](../../../../../docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls).
+
 Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 "Tenancy and access model" → "Enforcement". Security view:
 [SECURITY-ARCHITECTURE.md §17](../../../../../docs/SECURITY-ARCHITECTURE.md#17-user-owned-data-and-scoped-access).

@@ -280,6 +280,45 @@ const user = await prisma.$transaction(async (tx) => {
 A single `create` with nested `create` blocks (as above) is already atomic;
 the explicit `$transaction` matters when you need several top-level writes.
 
+### Organization-scoped data (row-level security)
+
+The tables registered `org` (`storage_objects`, `storage_object_chunks`, `ai_runs`,
+`ai_usage_events`) force PostgreSQL row-level security on `org_id`, so a query
+that sets no organization returns **no rows** and an insert fails. Reach them
+through the org scope, never the bare client:
+
+```typescript
+// one statement: every operation and $queryRaw runs after set_config(app.org_id, ..., true)
+const items = await this.prisma.forOrg(orgId, { userId }).storageObject.findMany({ where });
+
+// several statements: fn receives the plain transaction client, set_config is first
+await this.prisma.runInOrg(orgId, async (tx) => {
+  const created = await tx.storageObject.create({ data: { orgId, ...rest } });
+  return tx.storageObjectChunk.create({ data: { objectId: created.id, orgId, ...part } });
+}, { userId });
+```
+
+- A controller takes the organization with `@CurrentOrg()` and passes it to the
+  service; a job reads it from its payload (`resolveJobOrgId`) and enqueuers put
+  `orgId` there. Never read it from a header, query or body.
+- Never open `$transaction(async tx => ...)` on a `forOrg` client: its
+  operations escape the transaction. Use `runInOrg`.
+- Cross-organization work (purges, retention, backups, the Doctor, an admin
+  aggregate) uses `PrismaSystemService` with a reason from the closed list, and
+  the file must be on the allowlist in
+  `test/tenancy/system-injection-boundary.spec.ts`.
+- **The database role must be ordinary.** A superuser ignores every policy.
+  `devdb.compose.yml` and `test.compose.yml` create `app` for you
+  (`infra/compose/postgres-init/10-application-role.sh`); `.env` says
+  `POSTGRES_USER=app`. If the Doctor reports `db.rls_role`, see
+  [SECURITY-ARCHITECTURE.md §18](SECURITY-ARCHITECTURE.md#the-application-role).
+- A migration that backfills or fixes rows in these tables wraps the statements
+  in `BEGIN; SELECT set_config('app.rls_bypass', 'on', true); ...; COMMIT;`;
+  under `FORCE` a bare `UPDATE` changes zero rows without an error.
+- A db spec that needs to read or write every organization's rows uses
+  `createDbClient()` (a bypass raw client); a spec that proves isolation builds its
+  own non-superuser database with `test/helpers/rls-database.helper.ts`.
+
 ### Seeding the Database
 
 The seed script (`apps/api/prisma/seed.ts`) is idempotent. Always run it
@@ -575,6 +614,7 @@ migrate on startup.
 
 **Rules** the tooling enforces or relies on:
 
+- **A migration that enables row-level security** is promoted with `--rls` (the manifest flag; a partial `platform db baseline` stops before it unless given `--allow-rls`), its policies go in `packages/platform-db/rls-policies.json`, and `--touches` names any other slice whose tables it changes.
 - **Forward-only**: no down migrations.
 - **Immutable once released**: `npm run db:check` fails on any byte change, a
   comment or a line ending included. Fix a mistake with a new migration.

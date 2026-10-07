@@ -35,7 +35,7 @@ Source of truth for every claim below:
 |---|---|
 | Role name | `appjob_<first 8 of the job id>_<6 random hex>` |
 | Privileges | `CONNECT` on the application database, `USAGE` on `public`, `SELECT` on its tables and sequences |
-| Attributes | `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION CONNECTION LIMIT 4` |
+| Attributes | `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 4` |
 | Lifetime | `VALID UNTIL` = the job's lease expiry + 60 seconds |
 | Password | 43 random `[A-Za-z0-9]` characters, returned once and never stored |
 
@@ -43,6 +43,19 @@ It can read. It cannot write, cannot create anything, cannot create databases or
 roles, and cannot replicate. `pg_dump` needs nothing more than this: the archive
 is taken with `--no-owner --no-acl`, so ownership and grants are not in it, and
 a dump is a read.
+
+**Row-level security.** The tenant tables force row-level security (#725), so a
+read through this role sees no rows unless the dump says it is system work. The
+node's `pg_dump` therefore runs with `--enable-row-security` **and**
+`PGOPTIONS=-c app.rls_bypass=on` in its environment. The role gains no
+attribute for this (it stays `NOBYPASSRLS`; `app.rls_bypass` is a custom
+setting any role may set), and the option is useless to anything that is not a
+connection straight to the database: it is rejected by a transaction-mode
+pooler, so the node needs a **direct** route to PostgreSQL (see the network
+note in §2). Without the option the dump exits 0 with an archive that has the
+tables and none of the rows, which is why the Doctor check `backup.rls-bypass`
+exists and why `test/db-backup/db-backup-rls.db.spec.ts` dumps with this exact
+role and counts the rows after a restore.
 
 **The password is never persisted.** `job_node_secrets` records the role NAME
 (the handle), the job, the node, and the expiry — there is no column that could
@@ -207,6 +220,9 @@ substituting your application's database user:
 ```sql
 -- Option A (simplest):
 ALTER ROLE "appuser" CREATEROLE;
+-- PostgreSQL 16 or later: without this a non-superuser CREATEROLE role can create a job
+-- role but not drop its privileges again (DROP OWNED BY), so revocation would fail.
+ALTER ROLE "appuser" SET createrole_self_grant = 'inherit, set';
 
 -- Option B (least privilege - a dedicated minter the app must SET ROLE into):
 CREATE ROLE app_job_minter NOINHERIT CREATEROLE;
