@@ -4,14 +4,19 @@ import { useMemo, type ReactNode } from 'react';
 
 import { cliName } from '../../identity.js';
 import { describeConfig, type ConfigSummary } from '../../config.js';
+import { allTuiScreens } from '../builtin-screens.js';
 import { Frame } from '../layout.js';
 import type { Route } from '../routes.js';
+import type { TuiMenuContext, TuiScreenRegistration } from '../screen-registry.js';
 
 // =============================================================================
 // The menu  (issue #145, epic #110)
 // =============================================================================
 //
-// The list #145 specifies: Login, Call an endpoint, Status, Logout, Quit.
+// The list #145 specifies: Login, Call an endpoint, Status, Logout, Quit,
+// plus Worker node and Deploy since; and since #715 every screen an app
+// registers (`registerTuiScreen`), sorted by `order` then route id, with Quit
+// always last.
 //
 // It is rebuilt on every mount rather than held as a module constant, because
 // two of the five entries change with the login state — "Logout" is meaningless
@@ -29,11 +34,28 @@ export interface MenuScreenProps {
   onQuit: () => void;
 }
 
-interface MenuItem {
+/** One entry of the menu list. */
+export interface MenuItem {
   /** `key` is what `ink-select-input` uses for reconciliation; label is display. */
   key: string;
   label: string;
   value: Route | 'quit';
+}
+
+/**
+ * The menu list for a set of screens: each screen's label for the login
+ * state, in the order given, then Quit. Pure, so the order is testable
+ * without rendering.
+ */
+export function buildMenuItems(screens: readonly TuiScreenRegistration[], context: TuiMenuContext): MenuItem[] {
+  return [
+    ...screens.map((screen) => ({
+      key: screen.route,
+      label: typeof screen.label === 'function' ? screen.label(context) : screen.label,
+      value: screen.route,
+    })),
+    { key: 'quit', label: 'Quit', value: 'quit' },
+  ];
 }
 
 export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
@@ -45,34 +67,7 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
   const summary = useMemo<ConfigSummary>(() => safeDescribeConfig(), []);
   const loggedIn = summary.tokenSource !== undefined;
 
-  const items = useMemo<MenuItem[]>(
-    () => [
-      { key: 'login', label: loggedIn ? 'Login  (replace the stored token)' : 'Login', value: 'login' },
-      {
-        key: 'invoke',
-        label: loggedIn ? 'Call an endpoint' : 'Call an endpoint  (not logged in)',
-        value: 'invoke',
-      },
-      { key: 'status', label: 'Status', value: 'status' },
-      {
-        key: 'node',
-        // Not gated on being logged in either: Enroll is exactly what an
-        // unconfigured machine needs, and hiding the entry would hide the fix.
-        label: 'Worker node  (this machine)',
-        value: 'node',
-      },
-      {
-        key: 'deploy',
-        // Not gated on being logged in: deploying acts on THIS SERVER, not on
-        // the API, so a stored token is irrelevant to it.
-        label: 'Deploy  (this server)',
-        value: 'deploy',
-      },
-      { key: 'logout', label: loggedIn ? 'Logout' : 'Logout  (nothing stored)', value: 'logout' },
-      { key: 'quit', label: 'Quit', value: 'quit' },
-    ],
-    [loggedIn],
-  );
+  const items = useMemo<MenuItem[]>(() => buildMenuItems(allTuiScreens(), { loggedIn }), [loggedIn]);
 
   // `q` and Esc, in addition to the Quit entry. Safe on THIS screen and only
   // this screen: every other screen has a text field, where a bare `q` is a

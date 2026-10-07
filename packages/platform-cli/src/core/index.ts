@@ -3,6 +3,7 @@
 
 export {
   applyRegisteredCommands,
+  freezeCommandRegistry,
   listRegisteredCommands,
   registerCliCommand,
   resetCommandRegistryForTests,
@@ -10,6 +11,7 @@ export {
 export type { CliCommandRegistration } from './command-registry.js';
 
 export {
+  freezeEnvSpecRegistry,
   listEnvSpecFragments,
   registerEnvSpecFragment,
   resetEnvSpecRegistryForTests,

@@ -1,15 +1,10 @@
 import { Box, Text, useApp, useInput } from 'ink';
 import { useCallback, useState, type ReactNode } from 'react';
 
-import type { Route } from './routes.js';
+import { allTuiScreens } from './builtin-screens.js';
 import { useTerminalSize } from './layout.js';
-import { InvokeScreen } from './screens/invoke.js';
-import { LoginScreen } from './screens/login.js';
-import { LogoutScreen } from './screens/logout.js';
+import { MENU_ROUTE, type Route } from './routes.js';
 import { MenuScreen } from './screens/menu.js';
-import { DeployScreen } from './screens/deploy.js';
-import { NodeScreen } from './screens/node.js';
-import { StatusScreen } from './screens/status.js';
 
 // =============================================================================
 // The app root  (issue #145, epic #110)
@@ -46,12 +41,12 @@ import { StatusScreen } from './screens/status.js';
 const UNRENDERABLE_COLUMNS = 10;
 
 export function App(): ReactNode {
-  const [route, setRoute] = useState<Route>('menu');
+  const [route, setRoute] = useState<Route>(MENU_ROUTE);
   const { columns } = useTerminalSize();
   const { exit } = useApp();
 
   const toMenu = useCallback(() => {
-    setRoute('menu');
+    setRoute(MENU_ROUTE);
   }, []);
 
   // `useApp().exit()` is the ONLY way out, and it is the same path Ctrl-C
@@ -82,29 +77,18 @@ export function App(): ReactNode {
     return <Text>Terminal too narrow — widen it.</Text>;
   }
 
-  switch (route) {
-    case 'menu':
-      return <MenuScreen onSelect={setRoute} onQuit={quit} />;
-    case 'login':
-      return <LoginScreen onDone={toMenu} />;
-    case 'invoke':
-      return <InvokeScreen onDone={toMenu} />;
-    case 'status':
-      return <StatusScreen onDone={toMenu} />;
-    case 'node':
-      return <NodeScreen onDone={toMenu} />;
-    case 'deploy':
-      return <DeployScreen onDone={toMenu} />;
-    case 'logout':
-      return <LogoutScreen onDone={toMenu} />;
-    default:
-      // Unreachable while `Route` is exhaustive, and present so that ADDING a
-      // route without adding a case is a blank frame with an explanation rather
-      // than an app that renders nothing and looks hung.
-      return (
-        <Box>
-          <Text color="red">Unknown screen. Press ctrl-c to exit.</Text>
-        </Box>
-      );
-  }
+  if (route === MENU_ROUTE) return <MenuScreen onSelect={setRoute} onQuit={quit} />;
+
+  // The built-in screens and every app screen (`registerTuiScreen`, #715).
+  const Screen = allTuiScreens().find((screen) => screen.route === route)?.component;
+  if (Screen !== undefined) return <Screen onDone={toMenu} />;
+
+  // Unreachable while the menu lists only registered routes, and present so
+  // that a route without a screen is a blank frame with an explanation rather
+  // than an app that renders nothing and looks hung.
+  return (
+    <Box>
+      <Text color="red">Unknown screen. Press ctrl-c to exit.</Text>
+    </Box>
+  );
 }

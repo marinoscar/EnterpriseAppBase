@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import type { Route } from '../routes.js';
+import { BUILTIN_TUI_SCREENS } from '../screen-registry.js';
 
 // =============================================================================
 // The node screen  (issue #279, epic #254)
@@ -71,18 +71,11 @@ describe('the node screen reuses the command layer', () => {
 });
 
 describe('routing', () => {
-  it('declares the node route and mounts it from the app root', () => {
-    const routes = readFileSync(join(HERE, '..', 'routes.ts'), 'utf8');
-    const app = readFileSync(join(HERE, '..', 'app.tsx'), 'utf8');
-    const menu = readFileSync(join(HERE, 'menu.tsx'), 'utf8');
-
-    const route: Route = 'node';
-    expect(routes).toContain(`'${route}'`);
-    // A route added without a case in app.tsx renders the unknown-screen
-    // fallback, which looks like a hung app.
-    expect(app).toContain(`case '${route}':`);
-    expect(app).toContain('<NodeScreen');
-    // And one added without a menu entry is unreachable from the TUI at all.
-    expect(menu).toContain(`value: '${route}'`);
+  it('registers the node screen as a built-in and attaches its component', () => {
+    const builtins = readFileSync(join(HERE, '..', 'builtin-screens.tsx'), 'utf8');
+    // A built-in route without a component is the unknown-screen fallback,
+    // which looks like a hung app.
+    expect(BUILTIN_TUI_SCREENS.map((screen) => screen.route)).toContain('node');
+    expect(builtins).toContain('node: NodeScreen');
   });
 });

@@ -411,3 +411,38 @@ export type { UpdateOptions, UpdateResult } from './deploy/update.js';
 
 // Test helpers, published only through `@marinoscar/platform-cli/testing`.
 export { TEST_CLI_IDENTITY, resetCliForTests, useTestCliIdentity } from './test-support.js';
+
+// The registries an app extends (#715), beside `/core`'s commands and
+// env-spec fragments.
+export {
+  BUILTIN_TUI_SCREENS,
+  listRegisteredTuiScreens,
+  registerTuiScreen,
+  sortTuiScreens,
+} from './tui/screen-registry.js';
+export type { TuiMenuContext, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
+export {
+  INSTALL_STEP_IDS,
+  UPDATE_STEP_IDS,
+  builtinDeployStepIds,
+  listRegisteredDeploySteps,
+  registerDeployStep,
+} from './deploy/steps/registry.js';
+export type {
+  AppDeployStep,
+  DeployCommandResult,
+  DeployPipeline,
+  DeployStepContext,
+  DeployStepRegistration,
+} from './deploy/steps/registry.js';
+export { planDeploySteps } from './deploy/steps/plan.js';
+export type { DeployPlanStep } from './deploy/steps/plan.js';
+export { ExecutorRegistry } from './node/executors/index.js';
+export type { JobExecutionContext, JobExecutor } from './node/executors/index.js';
+export { defaultExecutors } from './node/executors/example-checksum.js';
+export {
+  defaultExecutorRegistry,
+  listRegisteredNodeExecutors,
+  registerNodeExecutor,
+} from './node/executors/registry.js';
+export { freezeCliRegistries, resetCliRegistriesForTests } from './registries.js';

@@ -7,8 +7,8 @@ import { pipeline } from 'node:stream/promises';
 
 import type { ClaimToken, HeartbeatRequest, NodeApi, NodeJobAssignment, NodeVitals, NodeVitalsCounters } from './node-api.js';
 import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapshot } from './node-events.js';
-import { ExecutorRegistry } from './executors/index.js';
-import { defaultExecutors } from './executors/example-checksum.js';
+import type { ExecutorRegistry } from './executors/index.js';
+import { defaultExecutorRegistry } from './executors/registry.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
 import type { EngineVitalsInput } from './node-vitals.js';
 import { ApiError } from '../errors.js';
@@ -84,7 +84,7 @@ export interface NodeEngineOptions {
   /** Empty means "everything this node has an executor for". */
   eligibleTypes?: string[] | undefined;
   pollIntervalMs?: number | undefined;
-  /** Defaults to the executors this template ships. */
+  /** Defaults to the platform's executors plus every `registerNodeExecutor` one. */
   executors?: ExecutorRegistry | undefined;
   /** Where per-job input files are written. Cleaned in a `finally`, always. */
   tmpDir?: string | undefined;
@@ -218,7 +218,8 @@ export class NodeEngine {
     this.api = options.api;
     this.nodeId = options.nodeId;
     this.concurrency = options.concurrency;
-    this.executors = options.executors ?? defaultExecutors().reduce((registry, executor) => registry.register(executor), new ExecutorRegistry());
+    // The built-ins plus every app executor (`registerNodeExecutor`, #715).
+    this.executors = options.executors ?? defaultExecutorRegistry();
     this.requestedTypes = options.eligibleTypes ?? [];
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_MS;
     this.leaseRenewIntervalMs = options.leaseRenewIntervalMs ?? DEFAULT_LEASE_RENEW_MS;

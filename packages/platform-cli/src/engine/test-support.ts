@@ -1,5 +1,5 @@
-import { resetPlatformRegistrationsForTests } from './builtin-registrations.js';
 import { replaceCliIdentityForTests, type CliIdentity } from './identity.js';
+import { resetCliRegistriesForTests } from './registries.js';
 
 // =============================================================================
 // Test helpers published through `@marinoscar/platform-cli/testing`  (#715)
@@ -50,6 +50,6 @@ export function useTestCliIdentity(identity: CliIdentity | undefined, version?: 
  * @stability experimental
  */
 export function resetCliForTests(): void {
-  resetPlatformRegistrationsForTests();
+  resetCliRegistriesForTests();
   replaceCliIdentityForTests(undefined);
 }

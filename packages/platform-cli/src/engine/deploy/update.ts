@@ -52,6 +52,8 @@ import {
   type HostFacts,
 } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
+import { appStepContext } from './steps/app-step-context.js';
+import { withRegisteredSteps } from './steps/registry.js';
 import {
   checkoutPathFor,
   publishVersion,
@@ -1232,7 +1234,10 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     ...(existsSync(path) ? { env: parseEnvFile(readFileSync(path, 'utf8')) } : {}),
   };
 
-  const result = await runPipeline(buildUpdateSteps(), context);
+  // The app's steps (`registerDeployStep`, #715) go in after the built-in
+  // step each one names; they see a narrow context, never this one.
+  const steps = withRegisteredSteps('update', buildUpdateSteps(), (step: UpdateContext) => appStepContext('update', step));
+  const result = await runPipeline(steps, context);
 
   if (result.failed !== undefined) {
     journal.finish('failure', `${result.failed.id}: ${result.failed.detail ?? ''}`);

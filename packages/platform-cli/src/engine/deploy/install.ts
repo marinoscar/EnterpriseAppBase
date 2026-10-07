@@ -60,6 +60,8 @@ import {
   type HostFacts,
 } from './state.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
+import { appStepContext } from './steps/app-step-context.js';
+import { withRegisteredSteps } from './steps/registry.js';
 import {
   checkoutPathFor,
   publishVersion,
@@ -1391,7 +1393,10 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
     progress: [],
   };
 
-  const result = await runPipeline(buildInstallSteps(), context);
+  // The app's steps (`registerDeployStep`, #715) go in after the built-in
+  // step each one names; they see a narrow context, never this one.
+  const steps = withRegisteredSteps('install', buildInstallSteps(), (step: InstallContext) => appStepContext('install', step));
+  const result = await runPipeline(steps, context);
 
   if (result.failed !== undefined) {
     journal.finish('failure', `${result.failed.id}: ${result.failed.detail ?? ''}`);
