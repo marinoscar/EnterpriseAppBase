@@ -80,10 +80,13 @@ export { GroupMembershipPurge, SHARING_MODEL_OWNERSHIP, SHARING_USER_OWNED_MODEL
 export type { GroupPurgeSummary } from './user-data';
 
 // ---- the services the module exports (what the app may inject) -------------------
-export { GroupsService, toGroupDto } from './groups/groups.service';
-export { GroupMembershipService, toGroupMemberDto } from './groups/group-membership.service';
+export { GroupsService } from './groups/groups.service';
+export { GroupMembershipService } from './groups/group-membership.service';
 export type { GroupAccess } from './groups/group-membership.service';
-export { GROUP_INVITES_CLOCK, GroupInvitesService, inviteStatus, toGroupInviteDto } from './groups/group-invites.service';
+export { GROUP_INVITES_CLOCK, GroupInvitesService, inviteStatus } from './groups/group-invites.service';
+export { SharingEffects } from './groups/sharing-effects';
+export type { CommittedChange, SharingEmittedEvent } from './groups/sharing-effects';
+export type { GroupRow } from './data/sharing-tx';
 export { MemberLookupThrottle } from './groups/member-lookup-throttle';
 export type { MemberLookupThrottleOptions } from './groups/member-lookup-throttle';
 export { ORPHANED_GROUPS_SAMPLE, GroupsOrphanedDoctorCheck, decideOrphanedGroups } from './doctor/groups-orphaned.doctor-check';

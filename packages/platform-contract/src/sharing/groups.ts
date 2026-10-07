@@ -22,14 +22,15 @@
 
 import { z } from 'zod';
 
-import { GROUP_INVITE_STATUSES, GROUP_ROLES, SHARING_LIMITS } from './constants.js';
+import { GROUP_INVITE_LIST_FILTERS, GROUP_INVITE_STATUSES, GROUP_LIST_SCOPES, GROUP_ROLES, SHARING_LIMITS } from './constants.js';
+import { wireEnum } from './enum.js';
 
 /**
  * A group role on the wire.
  *
  * @stability experimental
  */
-export const groupRoleSchema = z.enum(GROUP_ROLES).describe('A group role: `admin`, `editor` or `viewer`.');
+export const groupRoleSchema = wireEnum(GROUP_ROLES).describe('A group role: `admin`, `editor` or `viewer`.');
 
 /**
  * An e-mail address, trimmed and lower-cased (invites are stored lower-cased).
@@ -64,8 +65,7 @@ export const pageQuerySchema = z.object({
  */
 export const groupListQuerySchema = pageQuerySchema.extend({
   /** `mine` or `all`. */
-  scope: z
-    .enum(['mine', 'all'])
+  scope: wireEnum(GROUP_LIST_SCOPES)
     .default('mine')
     .describe('`mine`: groups you belong to. `all`: every group of the organization (needs `groups:admin`).'),
 });
@@ -256,7 +256,7 @@ export const createGroupInviteSchema = z
  */
 export const groupInviteListQuerySchema = pageQuerySchema.extend({
   /** `pending` (default) or `all`. */
-  status: z.enum(['pending', 'all']).default('pending'),
+  status: wireEnum(GROUP_INVITE_LIST_FILTERS).default('pending'),
 });
 
 /**
@@ -276,7 +276,7 @@ export const groupInviteSchema = z.object({
   /** The role on acceptance. */
   role: groupRoleSchema,
   /** What the invite currently is. */
-  status: z.enum(GROUP_INVITE_STATUSES),
+  status: wireEnum(GROUP_INVITE_STATUSES),
   /** Who sent it, or `null`. */
   invitedById: z.uuid().nullable(),
   /** After this instant the invite can no longer be accepted; `null` never expires. */

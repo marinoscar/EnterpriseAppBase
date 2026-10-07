@@ -407,7 +407,7 @@ describeWithDb('platform db baseline against real Postgres', () => {
       const rowsBefore = await prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM _prisma_migrations`;
       const dry = platform();
       expect(dry.status).toBe(0);
-      expect(dry.stdout).toContain('24 matched, 1 unmatched, 1 app-only');
+      expect(dry.stdout).toContain('25 matched, 1 unmatched, 1 app-only');
       expect(dry.stdout).toContain('platform:0017_revoke_viewer_ai_use -> 20260927000000_revoke_viewer_ai_use  [normalised, localSha256 recorded]');
       expect(dry.stdout).toMatch(/platform:0020_add_worker_node_vitals -> 20260929090000_worker_node_vitals\s+\[sha256\]/);
       expect(dry.stdout).toContain('would resolve --applied 20260929090001_add_job_trace_context (installed first)');

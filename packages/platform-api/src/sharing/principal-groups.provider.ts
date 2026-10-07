@@ -51,7 +51,11 @@ export const PRINCIPAL_INVALIDATE_CHANNEL = 'auth.principal.invalidate';
 /** Most user ids per bus message (keeps the payload far below the bus limit). */
 const IDS_PER_MESSAGE = 100;
 
-/** Most (user, org) entries one process caches. */
+/**
+ * Most (user, org) entries one process caches.
+ *
+ * @stability experimental
+ */
 export const PRINCIPAL_GROUPS_MAX_ENTRIES = 10_000;
 
 /**
@@ -72,7 +76,10 @@ interface Entry {
  *
  * @stability experimental
  */
-export type PrincipalWithGroups = Principal & { readonly groups: readonly GroupMembership[] };
+export type PrincipalWithGroups = Principal & {
+  /** The memberships in the active organization. */
+  readonly groups: readonly GroupMembership[];
+};
 
 function isIdList(payload: unknown): payload is { userIds: string[] } {
   const ids = (payload as { userIds?: unknown } | null)?.userIds;
@@ -106,6 +113,7 @@ export class PrincipalGroupsProvider implements OnModuleInit, OnModuleDestroy {
     this.ttlMs = options.groups.membershipCacheTtlSeconds * 1000;
   }
 
+  /** Subscribes to the invalidation channels (once). */
   onModuleInit(): void {
     if (!this.bus || this.unsubscribers.length > 0) return;
     this.unsubscribers.push(
@@ -125,6 +133,7 @@ export class PrincipalGroupsProvider implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** Unsubscribes and drops the cache. */
   onModuleDestroy(): void {
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.entries.clear();

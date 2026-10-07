@@ -19,7 +19,11 @@ import { DoctorCheckRegistry, type DoctorCheck, type DoctorCheckOutcome } from '
 import { asSharingTx } from '../data/sharing-tx';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 
-/** How many orphaned group ids the outcome names at most. */
+/**
+ * How many orphaned group ids the outcome names at most.
+ *
+ * @stability experimental
+ */
 export const ORPHANED_GROUPS_SAMPLE = 10;
 
 /**
@@ -59,10 +63,12 @@ export class GroupsOrphanedDoctorCheck implements DoctorCheck, OnModuleInit {
     @Optional() private readonly registry?: DoctorCheckRegistry,
   ) {}
 
+  /** Registers the check with the Doctor, when the app has one. */
   onModuleInit(): void {
     this.registry?.register(this);
   }
 
+  /** Counts the groups without an admin member, across organizations (read-only). */
   async run(): Promise<DoctorCheckOutcome> {
     const where = { members: { none: { role: 'admin' } } };
     const { orphaned, sample } = await this.data.runAsSystem('doctor', async (raw) => {

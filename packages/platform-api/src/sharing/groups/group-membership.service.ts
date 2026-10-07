@@ -104,7 +104,7 @@ export class GroupMembershipService {
    * Loads a group of the caller's active organization and checks the caller
    * may act on it. Runs inside the caller's org-scoped transaction.
    *
-   * @param tx - the org-scoped transaction client.
+   * @param client - the org-scoped transaction client.
    * @param principal - the caller.
    * @param orgId - the caller's active organization.
    * @param groupId - the group.
@@ -113,7 +113,8 @@ export class GroupMembershipService {
    * @throws NotFoundException (404) when the group does not exist or the caller may not see it.
    * @throws ForbiddenException (403) when the caller is a member without the `admin` role.
    */
-  async access(tx: SharingTx, principal: Principal, orgId: string, groupId: string, need: 'member' | 'admin'): Promise<GroupAccess> {
+  async access(client: unknown, principal: Principal, orgId: string, groupId: string, need: 'member' | 'admin'): Promise<GroupAccess> {
+    const tx = asSharingTx(client);
     const group = await tx.group.findFirst({ where: { id: groupId, orgId } });
     if (!group) throw groupNotFound();
     const membership = await tx.groupMember.findUnique<Pick<GroupMemberRow, 'role'>>({

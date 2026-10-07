@@ -65,7 +65,10 @@ export const GROUP_INVITES_CLOCK: unique symbol = Symbol.for('@marinoscar/platfo
  *
  * @stability experimental
  */
-export function inviteStatus(row: Pick<GroupInviteRow, 'acceptedAt' | 'declinedAt' | 'revokedAt' | 'expiresAt'>, now: Date): GroupInviteStatus {
+export function inviteStatus(
+  row: { acceptedAt: Date | null; declinedAt: Date | null; revokedAt: Date | null; expiresAt: Date | null },
+  now: Date,
+): GroupInviteStatus {
   if (row.acceptedAt) return 'accepted';
   if (row.declinedAt) return 'declined';
   if (row.revokedAt) return 'revoked';

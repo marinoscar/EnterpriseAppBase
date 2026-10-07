@@ -33,16 +33,29 @@ export interface Delegate<Row> {
   deleteMany(args?: QueryArgs): Promise<{ count: number }>;
 }
 
-/** A `groups` row. */
+/**
+ * A `groups` row.
+ *
+ * @stability experimental
+ */
 export interface GroupRow {
+  /** The group's id. */
   id: string;
+  /** Its organization. */
   orgId: string;
+  /** Display name. */
   name: string;
+  /** Description, or `null`. */
   description: string | null;
+  /** App-defined JSON, or `null`. */
   metadata: unknown;
+  /** Who created it, or `null`. */
   createdById: string | null;
+  /** Optimistic-concurrency version. */
   version: number;
+  /** When it was created. */
   createdAt: Date;
+  /** When it last changed. */
   updatedAt: Date;
 }
 

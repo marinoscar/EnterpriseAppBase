@@ -76,10 +76,15 @@ export interface ResolvedSharingModuleOptions {
   readonly imports: NonNullable<ModuleMetadata['imports']>;
   /** Group limits and behaviour, every field set. */
   readonly groups: {
+    /** Max groups one user may create per organization. */
     readonly maxGroupsPerCreator: number;
+    /** Max members per group. */
     readonly maxMembersPerGroup: number;
+    /** Invite lifetime in days, or `null` for no expiry. */
     readonly inviteTtlDays: number | null;
+    /** Experimental; a no-op until the identity slice emits a user-created event. */
     readonly autoAcceptInvitesOnSignup: boolean;
+    /** Membership cache TTL in seconds; `0` is off. */
     readonly membershipCacheTtlSeconds: number;
   };
   /** The principal resolver. */

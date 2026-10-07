@@ -4,8 +4,8 @@
 // zod-free. Documented in
 // ./README.md. Explicit named exports only.
 
-export { GROUP_INVITE_STATUSES, GROUP_ROLES, SHARING_LIMITS } from './constants.js';
-export type { GroupInviteStatus, GroupRole } from './constants.js';
+export { GROUP_INVITE_LIST_FILTERS, GROUP_INVITE_STATUSES, GROUP_LIST_SCOPES, GROUP_ROLES, SHARING_LIMITS } from './constants.js';
+export type { GroupInviteStatus, GroupRole, SharingEnumEntries } from './constants.js';
 export {
   addGroupMemberSchema,
   createGroupInviteSchema,
