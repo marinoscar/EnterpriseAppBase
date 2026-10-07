@@ -1,4 +1,4 @@
-import type { SystemTelemetryValue } from '../../common/schemas/settings.schema';
+import type { TelemetrySettings as SystemTelemetryValue } from '@marinoscar/platform-contract/telemetry';
 import type { GreptimeClient } from '../greptime/greptime.client';
 import {
   TelemetryMultiStatementError,

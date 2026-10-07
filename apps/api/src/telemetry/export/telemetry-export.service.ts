@@ -4,7 +4,7 @@ import { Workbook } from 'exceljs';
 import type { TelemetryColumnType, TelemetryExportFormat, TelemetryQueryRunResult } from '../dto/telemetry-query.dto';
 import { TelemetryQueryService } from '../query/telemetry-query.service';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
-import { csvField, neutralizeFormula, UTF8_BOM } from '../../common/export/csv';
+import { csvField, neutralizeFormula, UTF8_BOM } from '../internal/csv';
 import { loadParquetWriter, type ParquetColumn } from './parquet-writer.loader';
 
 // =============================================================================

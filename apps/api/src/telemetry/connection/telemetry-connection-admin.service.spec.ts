@@ -74,7 +74,8 @@ function input(overrides: Partial<UpdateTelemetryConnectionInput> = {}): UpdateT
 
 describe('TelemetryConnectionAdminService', () => {
   let service: TelemetryConnectionAdminService;
-  let prisma: any;
+  let audit: { record: jest.Mock };
+  let settingsStore: { writeRow: jest.Mock; deleteRow: jest.Mock };
   let credentials: {
     setSecret: jest.Mock;
     deleteSecret: jest.Mock;
@@ -88,7 +89,7 @@ describe('TelemetryConnectionAdminService', () => {
     configurationProblem: jest.Mock;
   };
   let settings: { refreshGate: jest.Mock };
-  let jobs: { enqueue: jest.Mock };
+  let jobs: { enqueueHousekeepingJob: jest.Mock };
 
   /** The state `connection.refresh()` reports — stored, with both credentials present. */
   function state(overrides: Partial<{ row: typeof ROW | null; storedRow: boolean; readerInfo: any; adminInfo: any }> = {}) {
@@ -116,10 +117,10 @@ describe('TelemetryConnectionAdminService', () => {
   }
 
   beforeEach(() => {
-    prisma = {
-      systemSettings: { upsert: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      auditEvent: { create: jest.fn().mockResolvedValue({}) },
-      job: { findFirst: jest.fn().mockResolvedValue(null) },
+    audit = { record: jest.fn().mockResolvedValue(undefined) };
+    settingsStore = {
+      writeRow: jest.fn().mockResolvedValue(undefined),
+      deleteRow: jest.fn().mockResolvedValue(undefined),
     };
 
     credentials = {
@@ -137,10 +138,11 @@ describe('TelemetryConnectionAdminService', () => {
     };
 
     settings = { refreshGate: jest.fn().mockResolvedValue(true) };
-    jobs = { enqueue: jest.fn().mockResolvedValue({ id: 'job-1' }) };
+    jobs = { enqueueHousekeepingJob: jest.fn().mockResolvedValue(undefined) };
 
     service = new TelemetryConnectionAdminService(
-      prisma as never,
+      audit as never,
+      settingsStore as never,
       credentials as never,
       connection as never,
       settings as never,
@@ -159,7 +161,7 @@ describe('TelemetryConnectionAdminService', () => {
       await expect(service.replace(input({ readerPassword: undefined }), 'admin-1')).rejects.toThrow(
         BadRequestException,
       );
-      expect(prisma.systemSettings.upsert).not.toHaveBeenCalled();
+      expect(settingsStore.writeRow).not.toHaveBeenCalled();
       expect(credentials.setSecret).not.toHaveBeenCalled();
     });
 
@@ -169,7 +171,7 @@ describe('TelemetryConnectionAdminService', () => {
       await expect(
         service.replace(input({ adminUser: 'new-admin', adminPassword: undefined }), 'admin-1'),
       ).rejects.toThrow(BadRequestException);
-      expect(prisma.systemSettings.upsert).not.toHaveBeenCalled();
+      expect(settingsStore.writeRow).not.toHaveBeenCalled();
     });
 
     it('accepts a PUT with adminUser null and no admin password at all', async () => {
@@ -180,7 +182,7 @@ describe('TelemetryConnectionAdminService', () => {
         'admin-1',
       );
 
-      expect(prisma.systemSettings.upsert).toHaveBeenCalled();
+      expect(settingsStore.writeRow).toHaveBeenCalled();
     });
   });
 
@@ -192,9 +194,9 @@ describe('TelemetryConnectionAdminService', () => {
     it('stores the automatic marker only — never the resolved deployment host, users, port or database', async () => {
       await service.replace(input({ host: null }), 'admin-1');
 
-      const call = prisma.systemSettings.upsert.mock.calls[0][0];
-      expect(call.update.value).toEqual({ host: null });
-      expect(call.create.value).toEqual({ host: null });
+      const call = settingsStore.writeRow.mock.calls[0];
+      expect(call[0]).toBe(TELEMETRY_CONNECTION_SETTINGS_KEY);
+      expect(call[1]).toEqual({ host: null });
       expect(JSON.stringify(call)).not.toContain('deploy-host');
       expect(JSON.stringify(call)).not.toContain('new-reader');
     });
@@ -206,7 +208,7 @@ describe('TelemetryConnectionAdminService', () => {
       );
 
       expect(credentials.setSecret).not.toHaveBeenCalled();
-      const data = prisma.auditEvent.create.mock.calls[0][0].data;
+      const data = audit.record.mock.calls[0][0];
       expect(data.meta.ignoredFields).toEqual(['readerUser', 'readerPassword', 'adminUser', 'adminPassword']);
       expect(JSON.stringify(data)).not.toContain('guessed-reader-pw');
       expect(JSON.stringify(data)).not.toContain('guessed-admin-pw');
@@ -217,7 +219,7 @@ describe('TelemetryConnectionAdminService', () => {
 
       expect(credentials.deleteSecret).toHaveBeenCalledWith(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'reader');
       expect(credentials.deleteSecret).toHaveBeenCalledWith(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'admin');
-      const meta = prisma.auditEvent.create.mock.calls[0][0].data.meta;
+      const meta = audit.record.mock.calls[0][0].meta;
       expect(meta.credentials).toEqual({ reader: 'cleared', admin: 'cleared' });
       expect(meta.hostMode).toBe('auto');
     });
@@ -230,27 +232,27 @@ describe('TelemetryConnectionAdminService', () => {
       ).resolves.toBeDefined();
 
       expect(credentials.deleteSecret).not.toHaveBeenCalled();
-      expect(prisma.systemSettings.upsert).toHaveBeenCalled();
-      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta).not.toHaveProperty('ignoredFields');
+      expect(settingsStore.writeRow).toHaveBeenCalled();
+      expect(audit.record.mock.calls[0][0].meta).not.toHaveProperty('ignoredFields');
     });
 
     it('stores a custom host as the literal it is, with its logins', async () => {
       await service.replace(input({ host: 'custom-host' }), 'admin-1');
 
-      expect(prisma.systemSettings.upsert.mock.calls[0][0].update.value).toEqual({
+      expect(settingsStore.writeRow.mock.calls[0][1]).toEqual({
         host: 'custom-host',
         pgPort: 4003,
         database: 'public',
         readerUser: 'new-reader',
         adminUser: 'new-admin',
       });
-      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta.hostMode).toBe('custom');
+      expect(audit.record.mock.calls[0][0].meta.hostMode).toBe('custom');
     });
 
     it('audits a switch from a custom host to automatic as every stored field changing', async () => {
       await service.replace(input({ host: null, readerUser: 'old-reader', adminUser: 'old-admin' }), 'admin-1');
 
-      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta.changedFields).toEqual([
+      expect(audit.record.mock.calls[0][0].meta.changedFields).toEqual([
         'host',
         'pgPort',
         'database',
@@ -318,24 +320,24 @@ describe('TelemetryConnectionAdminService', () => {
   describe('optimistic concurrency', () => {
     it('PUT 409s on a stale If-Match, before anything is written', async () => {
       await expect(service.replace(input(), 'admin-1', 99)).rejects.toThrow(ConflictException);
-      expect(prisma.systemSettings.upsert).not.toHaveBeenCalled();
+      expect(settingsStore.writeRow).not.toHaveBeenCalled();
       expect(credentials.setSecret).not.toHaveBeenCalled();
     });
 
     it('PUT accepts a matching If-Match', async () => {
       await service.replace(input(), 'admin-1', ROW.version);
-      expect(prisma.systemSettings.upsert).toHaveBeenCalled();
+      expect(settingsStore.writeRow).toHaveBeenCalled();
     });
 
     it('DELETE 409s on a stale If-Match, before anything is deleted', async () => {
       await expect(service.reset('admin-1', 99)).rejects.toThrow(ConflictException);
-      expect(prisma.systemSettings.deleteMany).not.toHaveBeenCalled();
+      expect(settingsStore.deleteRow).not.toHaveBeenCalled();
       expect(credentials.deleteSecret).not.toHaveBeenCalled();
     });
 
     it('DELETE accepts a matching If-Match', async () => {
       await service.reset('admin-1', ROW.version);
-      expect(prisma.systemSettings.deleteMany).toHaveBeenCalled();
+      expect(settingsStore.deleteRow).toHaveBeenCalled();
     });
 
     it('treats an absent expectedVersion as unconditional, using 0 when nothing is stored', async () => {
@@ -356,8 +358,8 @@ describe('TelemetryConnectionAdminService', () => {
         'admin-1',
       );
 
-      expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
-      const data = prisma.auditEvent.create.mock.calls[0][0].data;
+      expect(audit.record).toHaveBeenCalledTimes(1);
+      const data = audit.record.mock.calls[0][0];
 
       expect(data.action).toBe('telemetry:connection_update');
       expect(data.actorUserId).toBe('admin-1');
@@ -375,7 +377,7 @@ describe('TelemetryConnectionAdminService', () => {
     it('a DELETE also audits without any password, and names the previous/next source', async () => {
       await service.reset('admin-1');
 
-      const data = prisma.auditEvent.create.mock.calls[0][0].data;
+      const data = audit.record.mock.calls[0][0];
       expect(data.action).toBe('telemetry:connection_reset');
       expect(data.meta.credentialsCleared).toEqual(expect.arrayContaining(['reader', 'admin']));
     });
@@ -412,24 +414,20 @@ describe('TelemetryConnectionAdminService', () => {
       // the new snapshot before anything else touches it).
       expect(connection.refresh).toHaveBeenCalledTimes(2);
       expect(settings.refreshGate).toHaveBeenCalledTimes(1);
-      expect(jobs.enqueue).toHaveBeenCalledTimes(1);
-      expect(jobs.enqueue.mock.calls[0][0]).toMatchObject({ type: TELEMETRY_RETENTION_TYPE });
+      expect(jobs.enqueueHousekeepingJob).toHaveBeenCalledTimes(1);
+      expect(jobs.enqueueHousekeepingJob.mock.calls[0][0]).toMatchObject({ type: TELEMETRY_RETENTION_TYPE });
     });
 
     it('does the same side effects on DELETE', async () => {
       await service.reset('admin-1');
 
       expect(settings.refreshGate).toHaveBeenCalledTimes(1);
-      expect(jobs.enqueue).toHaveBeenCalledTimes(1);
+      expect(jobs.enqueueHousekeepingJob).toHaveBeenCalledTimes(1);
     });
 
-    it('does not enqueue a duplicate retention job when one is already active', async () => {
-      prisma.job.findFirst.mockResolvedValue({ id: 'already-active' });
-
-      await service.replace(input(), 'admin-1');
-
-      expect(jobs.enqueue).not.toHaveBeenCalled();
-    });
+    // "No duplicate retention job while one is active" is the housekeeping
+    // enqueue's own rule, proved on the app's TELEMETRY_JOBS adapter
+    // (apps/api/src/platform/telemetry/telemetry-jobs.adapter.spec.ts).
   });
 
   // ==========================================================================
@@ -440,9 +438,7 @@ describe('TelemetryConnectionAdminService', () => {
     it('removes the stored row and both credentials', async () => {
       await service.reset('admin-1');
 
-      expect(prisma.systemSettings.deleteMany).toHaveBeenCalledWith({
-        where: { key: TELEMETRY_CONNECTION_SETTINGS_KEY },
-      });
+      expect(settingsStore.deleteRow).toHaveBeenCalledWith(TELEMETRY_CONNECTION_SETTINGS_KEY);
       expect(credentials.deleteSecret).toHaveBeenCalledWith(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'reader');
       expect(credentials.deleteSecret).toHaveBeenCalledWith(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'admin');
     });

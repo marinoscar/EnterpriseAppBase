@@ -37,15 +37,15 @@
 // GreptimeDB has no TTL yet). All best effort — none can fail the deploy.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Job, Prisma } from '@prisma/client';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JobsService } from '../../jobs/jobs.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import {
+  TELEMETRY_JOBS,
+  type TelemetryJobExecutionProfile,
+  type TelemetryJobHandler,
+  type TelemetryJobRecord as Job,
+  type TelemetryJobsPort,
+} from '../ports';
 import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
 import { TELEMETRY_RETENTION_TYPE } from '../handlers/telemetry-retention.handler';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
@@ -85,27 +85,25 @@ export function capOutput(output: string, maxBytes = STACK_DEPLOY_OUTPUT_MAX_BYT
 }
 
 @Injectable()
-export class TelemetryStackDeployHandler implements JobHandler, OnModuleInit {
+export class TelemetryStackDeployHandler implements TelemetryJobHandler, OnModuleInit {
   private readonly logger = new Logger(TelemetryStackDeployHandler.name);
 
   readonly type = TELEMETRY_STACK_DEPLOY_TYPE;
 
   /** An image pull can take ten minutes; never retried automatically. */
-  readonly profile: JobExecutionProfile = { maxRuntimeMs: 15 * 60 * 1000, maxAttempts: 1 };
+  readonly profile: TelemetryJobExecutionProfile = { maxRuntimeMs: 15 * 60 * 1000, maxAttempts: 1 };
 
   // Deliberately NO `nodeResultSchema` / `persistNodeResult` — see the header.
 
   constructor(
-    private readonly registry: JobHandlerRegistry,
     private readonly agent: StackAgentClient,
-    private readonly prisma: PrismaService,
-    private readonly jobs: JobsService,
+    @Inject(TELEMETRY_JOBS) private readonly jobs: TelemetryJobsPort,
     private readonly connection: TelemetryConnectionService,
     private readonly settings: TelemetrySettingsService,
   ) {}
 
   onModuleInit(): void {
-    this.registry.register(this);
+    this.jobs.registerHandler(this);
   }
 
   /** Throws to fail; the row's `payload.result` is written either way when the agent answered. */
@@ -135,14 +133,11 @@ export class TelemetryStackDeployHandler implements JobHandler, OnModuleInit {
   private async recordResult(job: Job, result: TelemetryStackDeployResult): Promise<void> {
     const base =
       job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload)
-        ? (job.payload as Prisma.JsonObject)
+        ? (job.payload as Record<string, unknown>)
         : {};
 
     try {
-      await this.prisma.job.update({
-        where: { id: job.id },
-        data: { payload: { ...base, result: { ...result } } as Prisma.InputJsonValue },
-      });
+      await this.jobs.updatePayload(job.id, { ...base, result: { ...result } });
     } catch (error) {
       this.logger.warn(
         `Could not record the deploy result on job ${job.id}: ${error instanceof Error ? error.message : String(error)}`,
@@ -161,9 +156,7 @@ export class TelemetryStackDeployHandler implements JobHandler, OnModuleInit {
       );
     }
 
-    await enqueueHousekeepingJob({
-      jobs: this.jobs,
-      prisma: this.prisma,
+    await this.jobs.enqueueHousekeepingJob({
       logger: this.logger,
       type: TELEMETRY_RETENTION_TYPE,
       what: 'telemetry retention',

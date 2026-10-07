@@ -1,38 +1,27 @@
 import { TELEMETRY_RETENTION_TYPE } from '../handlers/telemetry-retention.handler';
 import { TelemetryRetentionTask } from './telemetry-retention.task';
 
+// The housekeeping semantics (one global low-priority job, skip while one is
+// pending or running, never throw) belong to the TELEMETRY_JOBS port's
+// `enqueueHousekeepingJob`; the app's adapter proves them
+// (apps/api/src/platform/telemetry/telemetry-jobs.adapter.spec.ts).
 describe('TelemetryRetentionTask', () => {
-  let findFirst: jest.Mock;
-  let enqueue: jest.Mock;
+  let enqueueHousekeepingJob: jest.Mock;
   let task: TelemetryRetentionTask;
 
   beforeEach(() => {
-    findFirst = jest.fn().mockResolvedValue(null);
-    enqueue = jest.fn().mockResolvedValue({ id: 'job-1' });
-    task = new TelemetryRetentionTask({ enqueue } as never, { job: { findFirst } } as never);
+    enqueueHousekeepingJob = jest.fn().mockResolvedValue(undefined);
+    task = new TelemetryRetentionTask({ enqueueHousekeepingJob } as never);
   });
 
-  it('enqueues one global, low-priority telemetry.retention.apply job', async () => {
+  it('enqueues one telemetry.retention.apply housekeeping job, on its own logger', async () => {
     await task.handleCron();
 
-    expect(enqueue).toHaveBeenCalledWith({
+    expect(enqueueHousekeepingJob).toHaveBeenCalledTimes(1);
+    expect(enqueueHousekeepingJob).toHaveBeenCalledWith({
       type: TELEMETRY_RETENTION_TYPE,
-      reason: 'backfill',
-      priority: 100,
+      what: 'telemetry retention',
+      logger: expect.objectContaining({ log: expect.any(Function) }),
     });
-  });
-
-  it('skips the tick while one is already pending or running', async () => {
-    findFirst.mockResolvedValue({ id: 'job-0', status: 'pending' });
-
-    await task.handleCron();
-
-    expect(enqueue).not.toHaveBeenCalled();
-  });
-
-  it('never throws out of the cron', async () => {
-    enqueue.mockRejectedValue(new Error('db down'));
-
-    await expect(task.handleCron()).resolves.toBeUndefined();
   });
 });

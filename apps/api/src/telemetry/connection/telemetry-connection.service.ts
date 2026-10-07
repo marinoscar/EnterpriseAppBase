@@ -1,9 +1,13 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { CredentialsService } from '../../credentials/credentials.service';
-import type { CredentialInfo } from '../../credentials/interfaces/credential-info.interface';
-import { PrismaService } from '../../prisma/prisma.service';
+import {
+  TELEMETRY_CREDENTIAL_STORE,
+  TELEMETRY_SETTINGS_STORE,
+  type TelemetryCredentialInfo as CredentialInfo,
+  type TelemetryCredentialStore,
+  type TelemetrySettingsStore,
+} from '../ports';
 import {
   TELEMETRY_CONNECTION_SETTINGS_KEY,
   TELEMETRY_DEFAULT_DATABASE,
@@ -220,8 +224,8 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
 
   constructor(
     configService: ConfigService,
-    private readonly prisma: PrismaService,
-    private readonly credentials: CredentialsService,
+    @Inject(TELEMETRY_SETTINGS_STORE) private readonly settingsStore: TelemetrySettingsStore,
+    @Inject(TELEMETRY_CREDENTIAL_STORE) private readonly credentials: TelemetryCredentialStore,
   ) {
     const raw = configService.get<Partial<GreptimeEnvironmentConfig>>('greptime') ?? {};
 
@@ -421,15 +425,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
    */
   async refresh(): Promise<TelemetryConnectionState> {
     const [row, reader, admin] = await Promise.all([
-      this.prisma.systemSettings.findUnique({
-        where: { key: TELEMETRY_CONNECTION_SETTINGS_KEY },
-        select: {
-          value: true,
-          version: true,
-          updatedAt: true,
-          updatedByUser: { select: { id: true, email: true } },
-        },
-      }),
+      this.settingsStore.readRow(TELEMETRY_CONNECTION_SETTINGS_KEY),
       this.credentials.describe(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'reader'),
       this.credentials.describe(TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE, 'admin'),
     ]);
@@ -479,7 +475,7 @@ export class TelemetryConnectionService implements OnModuleInit, OnModuleDestroy
     return {
       snapshot: structuredClone(snapshot),
       stored,
-      row: row ? { version: row.version, updatedAt: row.updatedAt, updatedByUser: row.updatedByUser } : null,
+      row: row ? { version: row.version, updatedAt: row.updatedAt, updatedByUser: row.updatedBy } : null,
       credentials,
     };
   }

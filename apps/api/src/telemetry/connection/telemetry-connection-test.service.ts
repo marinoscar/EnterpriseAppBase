@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Client, type ClientConfig } from 'pg';
 
-import { isBlankSecret } from '../../credentials/credential-internals';
+import { isBlankSecret } from '../internal/blank-secret';
 import type {
   TelemetryConnectionProbe,
   TelemetryConnectionTestResult,

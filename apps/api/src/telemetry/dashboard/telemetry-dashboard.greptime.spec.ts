@@ -84,8 +84,8 @@ describeLive('telemetry dashboard — live GreptimeDB', () => {
     );
     const settings = { getPolicy: jest.fn().mockResolvedValue(POLICY) };
     const schema = new TelemetrySchemaService(greptime, settings as never);
-    const prisma = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
-    dashboard = new TelemetryDashboardService(greptime, settings as never, schema, prisma as never);
+    const audit = { record: jest.fn().mockResolvedValue(undefined) };
+    dashboard = new TelemetryDashboardService(greptime, settings as never, schema, audit as never);
   });
 
   afterAll(async () => {
@@ -200,8 +200,8 @@ describeSeeded('telemetry dashboard metrics — live GreptimeDB', () => {
     greptime = clientFor(READER_URL!, ADMIN_URL);
     const settings = { getPolicy: jest.fn().mockResolvedValue(POLICY) };
     schema = new TelemetrySchemaService(greptime, settings as never);
-    const prisma = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
-    dashboard = new TelemetryDashboardService(greptime, settings as never, schema, prisma as never);
+    const audit = { record: jest.fn().mockResolvedValue(undefined) };
+    dashboard = new TelemetryDashboardService(greptime, settings as never, schema, audit as never);
 
     const existing = await schema.getSchema({ fresh: true });
     seeded = !existing.tables.some((t) => t.name in VERIFIED_METRIC_TAGS);

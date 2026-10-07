@@ -1,8 +1,12 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
-import type { Job, Prisma } from '@prisma/client';
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 
-import { JobsService } from '../../jobs/jobs.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import {
+  TELEMETRY_AUDIT_SINK,
+  TELEMETRY_JOBS,
+  type TelemetryAuditSink,
+  type TelemetryJobRecord,
+  type TelemetryJobsPort,
+} from '../ports';
 import type { TelemetryStackAgentState, TelemetryStackDeploy, TelemetryStackStatus } from './dto/telemetry-stack.dto';
 import { StackAgentClient } from './stack-agent.client';
 import { TELEMETRY_STACK_DEPLOY_TYPE } from './telemetry-stack-deploy.handler';
@@ -32,17 +36,14 @@ export class TelemetryStackService {
 
   constructor(
     private readonly agent: StackAgentClient,
-    private readonly jobs: JobsService,
-    private readonly prisma: PrismaService,
+    @Inject(TELEMETRY_JOBS) private readonly jobs: TelemetryJobsPort,
+    @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
   ) {}
 
   async getStatus(): Promise<TelemetryStackStatus> {
     const [status, latest] = await Promise.all([
       this.agent.telemetryStatus(),
-      this.prisma.job.findFirst({
-        where: { type: TELEMETRY_STACK_DEPLOY_TYPE },
-        orderBy: { createdAt: 'desc' },
-      }),
+      this.jobs.findLatest(TELEMETRY_STACK_DEPLOY_TYPE),
     ]);
 
     let agent: TelemetryStackAgentState;
@@ -83,14 +84,12 @@ export class TelemetryStackService {
       payload: { requestedByUserId: userId },
     });
 
-    await this.prisma.auditEvent.create({
-      data: {
-        actorUserId: userId,
-        action: TELEMETRY_STACK_DEPLOY_AUDIT_ACTION,
-        targetType: 'job',
-        targetId: job.id,
-        meta: { type: TELEMETRY_STACK_DEPLOY_TYPE, status: job.status } as Prisma.InputJsonValue,
-      },
+    await this.auditSink.record({
+      actorUserId: userId,
+      action: TELEMETRY_STACK_DEPLOY_AUDIT_ACTION,
+      targetType: 'job',
+      targetId: job.id,
+      meta: { type: TELEMETRY_STACK_DEPLOY_TYPE, status: job.status },
     });
 
     this.logger.log(`Telemetry stack deploy requested by ${userId} (job ${job.id}, ${job.status})`);
@@ -100,13 +99,16 @@ export class TelemetryStackService {
 }
 
 /** The API shape of one deploy job. `output` comes from the handler's `payload.result`. */
-export function toDeploy(job: Pick<Job, 'id' | 'status' | 'createdAt' | 'finishedAt' | 'lastError' | 'payload'>): TelemetryStackDeploy {
+export function toDeploy(
+  job: Pick<TelemetryJobRecord, 'id' | 'status' | 'createdAt' | 'finishedAt' | 'lastError' | 'payload'>,
+): TelemetryStackDeploy {
   const payload = job.payload as { result?: { output?: unknown } } | null;
   const output = payload && typeof payload === 'object' ? payload.result?.output : undefined;
 
   return {
     jobId: job.id,
-    status: job.status,
+    // The queue's own status strings (`JobStatus`), which the wire enum mirrors.
+    status: job.status as TelemetryStackDeploy['status'],
     createdAt: job.createdAt.toISOString(),
     finishedAt: job.finishedAt ? job.finishedAt.toISOString() : null,
     // A succeeded job's `lastError` is history from an earlier attempt, not its outcome.

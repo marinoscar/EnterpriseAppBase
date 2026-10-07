@@ -1,7 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { PrismaService } from '../../prisma/prisma.service';
 import {
   DASHBOARD_BUCKET_COUNTS,
   DASHBOARD_RANGE_MS,
@@ -25,6 +23,7 @@ import { analyzeStatement } from '../query/sql-guard';
 import { requireQueryablePolicy, toTelemetryHttpError } from '../query/telemetry-availability';
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from '../query/telemetry-query.errors';
 import { TelemetrySchemaService } from '../query/telemetry-schema.service';
+import { TELEMETRY_AUDIT_SINK, type TelemetryAuditSink } from '../ports';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import { HOST_DISTINCT_TABLE, metricTablesOf, type MetricTables } from '../metrics/metric-catalog';
 import { computeMetricGroup } from '../metrics/metric-group';
@@ -408,7 +407,7 @@ export class TelemetryDashboardService {
     private readonly greptime: GreptimeClient,
     private readonly settings: TelemetrySettingsService,
     private readonly schema: TelemetrySchemaService,
-    private readonly prisma: PrismaService,
+    @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
   ) {}
 
   async summary(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardSummary> {
@@ -541,14 +540,12 @@ export class TelemetryDashboardService {
     params: Record<string, unknown>,
     meta: Record<string, unknown>,
   ): Promise<void> {
-    await this.prisma.auditEvent.create({
-      data: {
-        actorUserId: userId,
-        action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
-        targetType: 'telemetry_store',
-        targetId: this.greptime.database,
-        meta: { route, params: auditParams(params), ...meta } as Prisma.InputJsonValue,
-      },
+    await this.auditSink.record({
+      actorUserId: userId,
+      action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
+      targetType: 'telemetry_store',
+      targetId: this.greptime.database,
+      meta: { route, params: auditParams(params), ...meta },
     });
   }
 

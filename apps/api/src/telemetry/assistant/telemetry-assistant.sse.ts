@@ -2,8 +2,8 @@ import type { OutgoingHttpHeaders } from 'node:http';
 
 import type { FastifyReply } from 'fastify';
 
-import { AI_SSE_HEADERS, AI_SSE_HEARTBEAT_MS, type DisconnectSignal } from '../../ai/http/ai-sse';
 import type { TelemetryAssistantEmit } from '../dto/telemetry-assistant.dto';
+import { AI_SSE_HEADERS, AI_SSE_HEARTBEAT_MS, type DisconnectSignal } from '../internal/sse';
 
 // =============================================================================
 // The telemetry assistant's event stream (issue #536, epic #528)

@@ -87,7 +87,7 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
   let queries: TelemetryQueryService;
   let schema: TelemetrySchemaService;
   let exporter: TelemetryExportService;
-  const audit = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
 
   beforeAll(async () => {
     greptime = clientFor(READER_URL!, ADMIN_URL);
@@ -155,9 +155,7 @@ describeLive('telemetry explorer — live GreptimeDB', () => {
       '/api/x',
     ]);
     expect(result).toMatchObject({ rowCount: 3, truncated: false });
-    expect(audit.auditEvent.create).toHaveBeenLastCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ action: 'telemetry:query' }) }),
-    );
+    expect(audit.record).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'telemetry:query' }));
   });
 
   it('truncates at maxRows using the server-side LIMIT', async () => {

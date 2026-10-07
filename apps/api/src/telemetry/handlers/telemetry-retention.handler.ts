@@ -36,14 +36,18 @@
 // (CLAUDE.md, queue rule 3).
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Job } from '@prisma/client';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import { GreptimeClient } from '../greptime/greptime.client';
+import {
+  TELEMETRY_JOBS,
+  TELEMETRY_SETTINGS_STORE,
+  type TelemetryJobExecutionProfile,
+  type TelemetryJobHandler,
+  type TelemetryJobRecord as Job,
+  type TelemetryJobsPort,
+  type TelemetrySettingsStore,
+} from '../ports';
 
 /** The job type. PERMANENT once rows of it exist. */
 export const TELEMETRY_RETENTION_TYPE = 'telemetry.retention.apply';
@@ -71,24 +75,24 @@ export function retentionStatement(database: string, retentionDays: number): str
 }
 
 @Injectable()
-export class TelemetryRetentionHandler implements JobHandler, OnModuleInit {
+export class TelemetryRetentionHandler implements TelemetryJobHandler, OnModuleInit {
   private readonly logger = new Logger(TelemetryRetentionHandler.name);
 
   readonly type = TELEMETRY_RETENTION_TYPE;
 
   /** One metadata statement; a minute is generous. Retried like any housekeeping job. */
-  readonly profile: JobExecutionProfile = { maxRuntimeMs: 60_000, maxAttempts: 3 };
+  readonly profile: TelemetryJobExecutionProfile = { maxRuntimeMs: 60_000, maxAttempts: 3 };
 
   // Deliberately NO `nodeResultSchema` / `persistNodeResult` — see the header.
 
   constructor(
-    private readonly registry: JobHandlerRegistry,
-    private readonly systemSettings: SystemSettingsService,
+    @Inject(TELEMETRY_JOBS) private readonly jobs: TelemetryJobsPort,
+    @Inject(TELEMETRY_SETTINGS_STORE) private readonly systemSettings: TelemetrySettingsStore,
     private readonly greptime: GreptimeClient,
   ) {}
 
   onModuleInit(): void {
-    this.registry.register(this);
+    this.jobs.registerHandler(this);
   }
 
   /** Throws to fail (GreptimeDB unreachable or refusing), so the queue's retry applies. */

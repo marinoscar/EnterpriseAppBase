@@ -1,7 +1,5 @@
-import type { Job } from '@prisma/client';
-
 import { DEFAULT_SYSTEM_SETTINGS } from '../../common/types/settings.types';
-import { JOB_TYPE_LABELS, jobTypeLabel } from '../../jobs/job-type-labels';
+import type { TelemetryJobRecord as Job } from '../ports';
 import {
   retentionStatement,
   TELEMETRY_RETENTION_TYPE,
@@ -11,7 +9,7 @@ import {
 const JOB = { id: 'job-1' } as Job;
 
 function build(options: { configured?: boolean; admin?: boolean; retentionDays?: number } = {}) {
-  const registry = { register: jest.fn() };
+  const registry = { registerHandler: jest.fn() };
   const systemSettings = {
     getTelemetryPolicy: jest.fn().mockResolvedValue({
       ...DEFAULT_SYSTEM_SETTINGS.telemetry,
@@ -51,13 +49,11 @@ describe('TelemetryRetentionHandler', () => {
 
     handler.onModuleInit();
 
-    expect(registry.register).toHaveBeenCalledWith(handler);
+    expect(registry.registerHandler).toHaveBeenCalledWith(handler);
   });
 
-  it('is labelled for the jobs dashboard', () => {
-    expect(JOB_TYPE_LABELS[TELEMETRY_RETENTION_TYPE]).toBe('Telemetry retention');
-    expect(jobTypeLabel(TELEMETRY_RETENTION_TYPE)).not.toBe(TELEMETRY_RETENTION_TYPE);
-  });
+  // "Labelled for the jobs dashboard" is app data (`jobs/job-type-labels.ts`):
+  // apps/api/src/platform/telemetry/telemetry-jobs.adapter.spec.ts.
 
   it('sets the database TTL from telemetry.retentionDays on the admin connection', async () => {
     const { handler, greptime } = build({ retentionDays: 14 });

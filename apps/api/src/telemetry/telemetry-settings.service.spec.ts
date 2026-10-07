@@ -17,38 +17,34 @@ const DEFAULTS: SystemTelemetryValue = structuredClone(DEFAULT_SYSTEM_SETTINGS.t
 function build(options: { configured?: boolean; policy?: SystemTelemetryValue; version?: number } = {}) {
   const policy = { current: structuredClone(options.policy ?? DEFAULTS) };
 
-  const prisma = {
-    systemSettings: {
-      findUnique: jest.fn().mockResolvedValue(
-        options.version === undefined
-          ? null
-          : { version: options.version, updatedAt: new Date('2026-09-27T00:00:00Z'), updatedByUser: null },
-      ),
-    },
-    auditEvent: { create: jest.fn().mockResolvedValue({}) },
-    job: { findFirst: jest.fn().mockResolvedValue(null) },
-  };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const systemSettings = {
     getTelemetryPolicy: jest.fn(async () => structuredClone(policy.current)),
-    patchSettings: jest.fn(async (dto: { telemetry: SystemTelemetryValue }) => {
-      policy.current = structuredClone(dto.telemetry);
-      return {};
+    replaceTelemetryPolicy: jest.fn(async (next: SystemTelemetryValue) => {
+      policy.current = structuredClone(next);
     }),
+    readPolicyProvenance: jest.fn().mockResolvedValue(
+      options.version === undefined
+        ? null
+        : { version: options.version, updatedAt: new Date('2026-09-27T00:00:00Z'), updatedBy: null },
+    ),
   };
   const greptime = {
     isConfigured: jest.fn().mockReturnValue(options.configured ?? true),
     isAdminConfigured: jest.fn().mockReturnValue(options.configured ?? true),
   };
-  const jobs = { enqueue: jest.fn().mockResolvedValue({ id: 'job-1' }) };
+  const jobs = { enqueueHousekeepingJob: jest.fn().mockResolvedValue(undefined) };
+  const appInfo = { slug: APP_SLUG };
 
   const service = new TelemetrySettingsService(
-    prisma as never,
+    audit as never,
     systemSettings as never,
     greptime as never,
     jobs as never,
+    appInfo as never,
   );
 
-  return { service, prisma, systemSettings, greptime, jobs, policy };
+  return { service, audit, systemSettings, greptime, jobs, policy };
 }
 
 describe('TelemetrySettingsService', () => {
@@ -159,36 +155,34 @@ describe('TelemetrySettingsService', () => {
     };
 
     it('refuses an If-Match mismatch with 409 before writing anything', async () => {
-      const { service, systemSettings, prisma, jobs } = build({ version: 5 });
+      const { service, systemSettings, audit, jobs } = build({ version: 5 });
 
       await expect(service.replace(NEXT, 'user-1', 4)).rejects.toBeInstanceOf(ConflictException);
 
-      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
-      expect(prisma.auditEvent.create).not.toHaveBeenCalled();
-      expect(jobs.enqueue).not.toHaveBeenCalled();
+      expect(systemSettings.replaceTelemetryPolicy).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(jobs.enqueueHousekeepingJob).not.toHaveBeenCalled();
     });
 
-    it('writes the namespace, passing the expected version on to patchSettings', async () => {
+    it('writes the namespace, passing the expected version on to the settings write', async () => {
       const { service, systemSettings } = build({ version: 5 });
 
       await service.replace(NEXT, 'user-1', 5);
 
-      expect(systemSettings.patchSettings).toHaveBeenCalledWith({ telemetry: NEXT }, 'user-1', 5);
+      expect(systemSettings.replaceTelemetryPolicy).toHaveBeenCalledWith(NEXT, 'user-1', 5);
     });
 
     it('audits telemetry:config_update with changed field names only', async () => {
-      const { service, prisma } = build({ version: 1 });
+      const { service, audit } = build({ version: 1 });
 
       await service.replace(NEXT, 'user-1');
 
-      expect(prisma.auditEvent.create).toHaveBeenCalledWith({
-        data: {
-          actorUserId: 'user-1',
-          action: TELEMETRY_CONFIG_AUDIT_ACTION,
-          targetType: 'telemetry_config',
-          targetId: 'telemetry',
-          meta: { changedFields: ['enabled', 'retentionDays', 'assistant.provider'] },
-        },
+      expect(audit.record).toHaveBeenCalledWith({
+        actorUserId: 'user-1',
+        action: TELEMETRY_CONFIG_AUDIT_ACTION,
+        targetType: 'telemetry_config',
+        targetId: 'telemetry',
+        meta: { changedFields: ['enabled', 'retentionDays', 'assistant.provider'] },
       });
     });
 
@@ -201,12 +195,12 @@ describe('TelemetrySettingsService', () => {
     });
 
     it('applies a new instance id on this instance, and audits the field name', async () => {
-      const { service, prisma } = build({ version: 1 });
+      const { service, audit } = build({ version: 1 });
 
       await service.replace({ ...DEFAULTS, instanceId: 'staging' }, 'user-1');
 
       expect(telemetryGate.instanceId()).toBe('staging');
-      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta).toEqual({ changedFields: ['instanceId'] });
+      expect(audit.record.mock.calls[0][0].meta).toEqual({ changedFields: ['instanceId'] });
     });
 
     it('null returns the instance id to the APP_SLUG default', async () => {
@@ -214,40 +208,37 @@ describe('TelemetrySettingsService', () => {
 
       const view = await service.replace({ ...DEFAULTS, instanceId: null }, 'user-1');
 
-      expect(systemSettings.patchSettings.mock.calls[0][0].telemetry.instanceId).toBeNull();
+      expect(systemSettings.replaceTelemetryPolicy.mock.calls[0][0].instanceId).toBeNull();
       expect(telemetryGate.instanceId()).toBe(APP_SLUG);
       expect(view).toMatchObject({ instanceId: null, instanceIdDefault: APP_SLUG, instanceIdEffective: APP_SLUG });
     });
 
     it('an absent instanceId keeps the stored value (a client that predates the field cannot reset it)', async () => {
-      const { service, systemSettings, prisma } = build({ version: 1, policy: { ...DEFAULTS, instanceId: 'staging' } });
+      const { service, systemSettings, audit } = build({ version: 1, policy: { ...DEFAULTS, instanceId: 'staging' } });
       const { instanceId: _omitted, ...withoutInstanceId } = DEFAULTS;
 
       const view = await service.replace(withoutInstanceId, 'user-1');
 
-      expect(systemSettings.patchSettings.mock.calls[0][0].telemetry.instanceId).toBe('staging');
-      expect(prisma.auditEvent.create.mock.calls[0][0].data.meta).toEqual({ changedFields: [] });
+      expect(systemSettings.replaceTelemetryPolicy.mock.calls[0][0].instanceId).toBe('staging');
+      expect(audit.record.mock.calls[0][0].meta).toEqual({ changedFields: [] });
       expect(view.instanceIdEffective).toBe('staging');
     });
 
-    it('enqueues the retention job as low-priority housekeeping', async () => {
+    it('enqueues the retention job as housekeeping, logged on its own logger', async () => {
       const { service, jobs } = build({ version: 1 });
 
       await service.replace(NEXT, 'user-1');
 
-      expect(jobs.enqueue).toHaveBeenCalledWith({
+      expect(jobs.enqueueHousekeepingJob).toHaveBeenCalledWith({
         type: TELEMETRY_RETENTION_TYPE,
-        reason: 'backfill',
-        priority: 100,
+        what: 'telemetry retention',
+        logger: expect.objectContaining({ log: expect.any(Function) }),
       });
     });
 
-    it('does not fail the save when the retention enqueue fails', async () => {
-      const { service, jobs } = build({ version: 1 });
-      jobs.enqueue.mockRejectedValue(new Error('queue down'));
-
-      await expect(service.replace(NEXT, 'user-1')).resolves.toMatchObject({ enabled: true, retentionDays: 7 });
-    });
+    // "A failed retention enqueue never fails the save" is the port's contract
+    // (`enqueueHousekeepingJob` never throws), proved on the app's adapter:
+    // apps/api/src/platform/telemetry/telemetry-jobs.adapter.spec.ts.
 
     it('returns the admin view of the new value', async () => {
       const { service } = build({ version: 1 });

@@ -2,13 +2,13 @@ import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards } from '@n
 import { ApiOkResponse, ApiOperation, ApiProduces, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 
-import { AiEnabledGuard } from '../../ai/config/ai-enabled.guard';
-import { AI_SSE_HEARTBEAT_MS, abortOnDisconnect } from '../../ai/http/ai-sse';
 import { Auth } from '../../auth/decorators/auth.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ErrorDto } from '@marinoscar/platform-api/core';
 import { TelemetryAssistantRequestDto } from '../dto/telemetry-assistant.dto';
+import { AI_SSE_HEARTBEAT_MS, abortOnDisconnect } from '../internal/sse';
+import { TelemetryAiEnabledGuard } from './telemetry-ai-enabled.guard';
 import { TelemetryAssistantService } from './telemetry-assistant.service';
 import { openTelemetrySse } from './telemetry-assistant.sse';
 
@@ -21,7 +21,7 @@ import { openTelemetrySse } from './telemetry-assistant.sse';
 // ACCESS. `@Auth({ permissions: [...] })` is ALL-OF (`PermissionsGuard` uses
 // `every`), so the caller must hold both: `telemetry:query` because the
 // assistant reads telemetry data, `ai:use` because it spends an AI key.
-// `AiEnabledGuard` answers 403 `AI_DISABLED` while the platform is off. This
+// `TelemetryAiEnabledGuard` answers 403 `AI_DISABLED` while the platform is off. This
 // route lives under `/api/admin/telemetry`, not `/api/ai`, so the AI
 // kill-switch and RBAC tripwire suites (which discover `/api/ai*` and
 // `/api/admin/ai*`) do not enumerate it; the guard is applied explicitly and
@@ -41,7 +41,7 @@ import { openTelemetrySse } from './telemetry-assistant.sse';
 
 @ApiTags('Telemetry')
 @Controller('admin/telemetry')
-@UseGuards(AiEnabledGuard)
+@UseGuards(TelemetryAiEnabledGuard)
 export class TelemetryAssistantController {
   constructor(private readonly assistant: TelemetryAssistantService) {}
 

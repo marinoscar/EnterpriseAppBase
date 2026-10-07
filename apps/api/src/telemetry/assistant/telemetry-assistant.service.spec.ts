@@ -16,6 +16,8 @@ import {
   type AiRuntimeHarnessOptions,
 } from '../../ai/testing/ai-runtime-harness';
 import type { FakeAiScriptedResponse } from '../../ai/testing/fake-ai-provider';
+import { TelemetryAiAdapter } from '../../platform/telemetry/telemetry-ai.adapter';
+import { TelemetryAppInfoAdapter } from '../../platform/telemetry/telemetry-app-info.adapter';
 import type { TelemetryAssistantEventMap, TelemetryAssistantEventName, TelemetryAssistantReport } from '../dto/telemetry-assistant.dto';
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
 import { analyzeStatement } from '../query/sql-guard';
@@ -169,13 +171,10 @@ function setup(opts: Setup = {}) {
     describeTable: jest.fn(async (name: string) => storeSchema.tables.find((t) => t.name === name) ?? null),
   };
   const audits: Array<Record<string, any>> = [];
-  const prisma = {
-    auditEvent: {
-      create: jest.fn(async (args: { data: Record<string, any> }) => {
-        audits.push(args.data);
-        return args.data;
-      }),
-    },
+  const audit = {
+    record: jest.fn(async (event: Record<string, any>) => {
+      audits.push(event);
+    }),
   };
   const featureFlags = {
     ai: true,
@@ -186,21 +185,22 @@ function setup(opts: Setup = {}) {
     ...opts.systemSettings,
   };
   const systemSettings = {
-    getAiPolicy: jest.fn(async () => ({ enabled: featureFlags.ai })),
-    getMaintenancePolicy: jest.fn(async () => ({ enabled: featureFlags.maintenanceMode })),
-    getDatabaseBackupPolicy: jest.fn(async () => ({ enabled: featureFlags.databaseBackup })),
-    getNotificationsPolicy: jest.fn(async () => ({ browserEnabled: featureFlags.browserNotifications })),
-    getNodesPolicy: jest.fn(async () => ({ jobSecretBrokerEnabled: featureFlags.nodeJobSecretBroker })),
+    readFeatureFlag: jest.fn(async (flag: keyof typeof featureFlags) => featureFlags[flag]),
   };
+  // The REAL app adapter over the harness's AiService: the assistant reaches
+  // models only through the TELEMETRY_AI port (the route's kill switch is the
+  // guard, not this service, so `assertEnabled` is never called here).
+  const ai = new TelemetryAiAdapter(h.ai, { assertEnabled: jest.fn() } as never);
 
   const service = new TelemetryAssistantService(
-    h.ai,
+    ai,
     greptime as never,
     settings as never,
     { run } as never,
     schema as never,
-    prisma as never,
+    audit as never,
     systemSettings as never,
+    new TelemetryAppInfoAdapter(),
   );
 
   const events: Array<{ event: TelemetryAssistantEventName; data: unknown }> = [];

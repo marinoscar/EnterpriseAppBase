@@ -10,15 +10,13 @@ function setup(options: { configured?: boolean; status?: unknown; latest?: unkno
   };
   const jobs = {
     enqueue: jest.fn().mockResolvedValue(options.enqueued ?? { id: 'job-new', status: 'pending' }),
+    findLatest: jest.fn().mockResolvedValue(options.latest ?? null),
   };
-  const prisma = {
-    job: { findFirst: jest.fn().mockResolvedValue(options.latest ?? null) },
-    auditEvent: { create: jest.fn().mockResolvedValue({}) },
-  };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
 
-  const service = new TelemetryStackService(agent as never, jobs as never, prisma as never);
+  const service = new TelemetryStackService(agent as never, jobs as never, audit as never);
 
-  return { service, agent, jobs, prisma };
+  return { service, agent, jobs, audit };
 }
 
 const CREATED = new Date('2026-09-27T10:00:00.000Z');
@@ -31,13 +29,10 @@ describe('TelemetryStackService', () => {
         { name: 'greptimedb', state: 'running', health: 'healthy' },
         { name: 'otel-collector', state: 'running', health: null },
       ];
-      const { service, prisma } = setup({ status: { ok: true, services } });
+      const { service, jobs } = setup({ status: { ok: true, services } });
 
       await expect(service.getStatus()).resolves.toEqual({ agent: 'available', agentError: null, services, deploy: null });
-      expect(prisma.job.findFirst).toHaveBeenCalledWith({
-        where: { type: TELEMETRY_STACK_DEPLOY_TYPE },
-        orderBy: { createdAt: 'desc' },
-      });
+      expect(jobs.findLatest).toHaveBeenCalledWith(TELEMETRY_STACK_DEPLOY_TYPE);
     });
 
     it.each([
@@ -97,7 +92,7 @@ describe('TelemetryStackService', () => {
 
   describe('deploy', () => {
     it('refuses with 409 when no stack agent is configured, queueing nothing', async () => {
-      const { service, jobs, prisma } = setup({ configured: false });
+      const { service, jobs, audit } = setup({ configured: false });
 
       const error = await service.deploy('admin-1').catch((e: unknown) => e);
 
@@ -106,11 +101,11 @@ describe('TelemetryStackService', () => {
         details: { reason: 'STACK_AGENT_NOT_CONFIGURED' },
       });
       expect(jobs.enqueue).not.toHaveBeenCalled();
-      expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
     });
 
     it('enqueues a global (deduplicated) deploy job and audits it', async () => {
-      const { service, jobs, prisma } = setup();
+      const { service, jobs, audit } = setup();
 
       await expect(service.deploy('admin-1')).resolves.toEqual({ jobId: 'job-new' });
 
@@ -121,14 +116,12 @@ describe('TelemetryStackService', () => {
       expect(input.subjectId).toBeUndefined();
       expect(input.skipDedup).toBeUndefined();
 
-      expect(prisma.auditEvent.create).toHaveBeenCalledWith({
-        data: {
-          actorUserId: 'admin-1',
-          action: TELEMETRY_STACK_DEPLOY_AUDIT_ACTION,
-          targetType: 'job',
-          targetId: 'job-new',
-          meta: { type: TELEMETRY_STACK_DEPLOY_TYPE, status: 'pending' },
-        },
+      expect(audit.record).toHaveBeenCalledWith({
+        actorUserId: 'admin-1',
+        action: TELEMETRY_STACK_DEPLOY_AUDIT_ACTION,
+        targetType: 'job',
+        targetId: 'job-new',
+        meta: { type: TELEMETRY_STACK_DEPLOY_TYPE, status: 'pending' },
       });
     });
 

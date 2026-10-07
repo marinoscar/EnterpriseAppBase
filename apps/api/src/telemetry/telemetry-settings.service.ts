@@ -1,21 +1,15 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 
-import { resolveTelemetryInstanceId } from '../common/otel/telemetry-identity';
-import { telemetryGate } from '@marinoscar/platform-api/otel-core';
-import type { SystemTelemetryValue } from '../common/schemas/settings.schema';
-import { APP_SLUG } from '@app/shared';
+import { resolveTelemetryInstanceId, telemetryGate } from '@marinoscar/platform-api/otel-core';
+import type { TelemetrySettings as SystemTelemetryValue } from '@marinoscar/platform-contract/telemetry';
 
-import { enqueueHousekeepingJob } from '../jobs/housekeeping.enqueue';
-import { JobsService } from '../jobs/jobs.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
 import type {
   TelemetryConfigResponse,
   TelemetryPublicConfig,
@@ -23,6 +17,17 @@ import type {
 } from './dto/telemetry-config.dto';
 import { GreptimeClient } from './greptime/greptime.client';
 import { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler';
+import {
+  TELEMETRY_APP_INFO,
+  TELEMETRY_AUDIT_SINK,
+  TELEMETRY_JOBS,
+  TELEMETRY_SETTINGS_STORE,
+  type TelemetryAppInfo,
+  type TelemetryAuditSink,
+  type TelemetryJobsPort,
+  type TelemetrySettingsProvenance,
+  type TelemetrySettingsStore,
+} from './ports';
 
 // =============================================================================
 // TelemetrySettingsService — the `telemetry` namespace, and the runtime gate
@@ -51,7 +56,7 @@ import { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler
 //      multi-instance deployment converge: the instance that served the PUT
 //      flips its gate immediately, every other one within one interval.
 //      The same refresh pushes the resolved instance identifier
-//      (`telemetry.instanceId`, else `APP_SLUG` — #565) with
+//      (`telemetry.instanceId`, else the app's slug — #565) with
 //      `telemetryGate.setInstanceId()`, so a relabel converges the same way.
 //
 // WHY BOTH CONDITIONS FOR THE GATE: with no GreptimeDB there is nowhere for
@@ -73,12 +78,6 @@ export const TELEMETRY_GATE_REFRESH_MS = 5_000;
 /** Audit `action` for a successful admin save. */
 export const TELEMETRY_CONFIG_AUDIT_ACTION = 'telemetry:config_update';
 
-type SettingsRow = {
-  version: number;
-  updatedAt: Date;
-  updatedByUser: { id: string; email: string } | null;
-} | null;
-
 @Injectable()
 export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelemetrySettingsService.name);
@@ -89,10 +88,11 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
   private refreshFailing = false;
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly systemSettings: SystemSettingsService,
+    @Inject(TELEMETRY_AUDIT_SINK) private readonly audit: TelemetryAuditSink,
+    @Inject(TELEMETRY_SETTINGS_STORE) private readonly systemSettings: TelemetrySettingsStore,
     private readonly greptime: GreptimeClient,
-    private readonly jobs: JobsService,
+    @Inject(TELEMETRY_JOBS) private readonly jobs: TelemetryJobsPort,
+    @Inject(TELEMETRY_APP_INFO) private readonly appInfo: TelemetryAppInfo,
   ) {}
 
   /**
@@ -141,7 +141,7 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
   /**
    * Re-reads the policy and sets the export gate to
    * `telemetry.enabled && GreptimeDB configured`, and the gate's instance id
-   * to `telemetry.instanceId ?? APP_SLUG`. Never throws: on a failed read the
+   * to `telemetry.instanceId ??` the app's slug. Never throws: on a failed read the
    * gate keeps its last values (see the header).
    *
    * @returns the gate's state after the call.
@@ -151,7 +151,7 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
       const policy = await this.getPolicy({ fresh: true });
       const next = policy.enabled && this.greptime.isConfigured();
       const previous = telemetryGate.isEnabled();
-      const nextInstanceId = resolveTelemetryInstanceId(policy.instanceId);
+      const nextInstanceId = resolveTelemetryInstanceId(policy.instanceId, this.appInfo.slug);
       const previousInstanceId = telemetryGate.instanceId();
 
       telemetryGate.setEnabled(next);
@@ -191,11 +191,11 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
       ...structuredClone(policy),
       available: this.greptime.isConfigured(),
       retentionApplicable: this.greptime.isAdminConfigured(),
-      instanceIdDefault: APP_SLUG,
-      instanceIdEffective: resolveTelemetryInstanceId(policy.instanceId),
+      instanceIdDefault: this.appInfo.slug,
+      instanceIdEffective: resolveTelemetryInstanceId(policy.instanceId, this.appInfo.slug),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
-      updatedBy: row?.updatedByUser ?? null,
+      updatedBy: row?.updatedBy ?? null,
     };
   }
 
@@ -215,7 +215,7 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
    *
    * Order, each step load-bearing:
    *   1. `If-Match` refused BEFORE anything is written (409);
-   *   2. `patchSettings`, passing `expectedVersion` again so the write
+   *   2. the settings write, passing `expectedVersion` again so the write
    *      re-checks it (that also writes the generic `system_settings:patch`
    *      audit row);
    *   3. the cache dropped SYNCHRONOUSLY, before anything else awaits;
@@ -250,21 +250,19 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
       instanceId: input.instanceId !== undefined ? input.instanceId : current.instanceId,
     });
 
-    await this.systemSettings.patchSettings({ telemetry: next }, userId, expectedVersion);
+    await this.systemSettings.replaceTelemetryPolicy(next, userId, expectedVersion);
 
     // Step 3 — nothing awaits between the write and this.
     this.invalidateCache();
 
     const changedFields = diffTelemetryFieldNames(current, next);
 
-    await this.prisma.auditEvent.create({
-      data: {
-        actorUserId: userId,
-        action: TELEMETRY_CONFIG_AUDIT_ACTION,
-        targetType: 'telemetry_config',
-        targetId: 'telemetry',
-        meta: { changedFields } as Prisma.InputJsonValue,
-      },
+    await this.audit.record({
+      actorUserId: userId,
+      action: TELEMETRY_CONFIG_AUDIT_ACTION,
+      targetType: 'telemetry_config',
+      targetId: 'telemetry',
+      meta: { changedFields },
     });
 
     this.logger.log(
@@ -275,9 +273,7 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
 
     await this.refreshGate();
 
-    await enqueueHousekeepingJob({
-      jobs: this.jobs,
-      prisma: this.prisma,
+    await this.jobs.enqueueHousekeepingJob({
       logger: this.logger,
       type: TELEMETRY_RETENTION_TYPE,
       what: 'telemetry retention',
@@ -287,15 +283,8 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** The `global` settings row's provenance, WITHOUT creating it. */
-  private async readRow(): Promise<SettingsRow> {
-    return this.prisma.systemSettings.findUnique({
-      where: { key: 'global' },
-      select: {
-        version: true,
-        updatedAt: true,
-        updatedByUser: { select: { id: true, email: true } },
-      },
-    });
+  private readRow(): Promise<TelemetrySettingsProvenance | null> {
+    return this.systemSettings.readPolicyProvenance();
   }
 }
 

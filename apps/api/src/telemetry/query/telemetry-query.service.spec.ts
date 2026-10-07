@@ -37,12 +37,12 @@ function setup(overrides: { configured?: boolean; policy?: Partial<SystemTelemet
     queryReader: jest.fn().mockResolvedValue({ fields: [], rows: [] }),
   };
   const settings = { getPolicy: jest.fn().mockResolvedValue({ ...POLICY, ...overrides.policy }) };
-  const prisma = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
-  const service = new TelemetryQueryService(greptime as never, settings as never, prisma as never);
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  const service = new TelemetryQueryService(greptime as never, settings as never, audit as never);
 
-  const auditMeta = () => prisma.auditEvent.create.mock.calls.at(-1)?.[0].data;
+  const auditMeta = () => audit.record.mock.calls.at(-1)?.[0];
 
-  return { service, greptime, settings, prisma, auditMeta };
+  return { service, greptime, settings, audit, auditMeta };
 }
 
 async function failure(promise: Promise<unknown>): Promise<TelemetryHttpError> {
@@ -63,7 +63,7 @@ function bodyOf(error: TelemetryHttpError) {
 describe('TelemetryQueryService', () => {
   describe('preconditions', () => {
     it('503 TELEMETRY_NOT_CONFIGURED without a store, and never reads the policy', async () => {
-      const { service, settings, greptime, prisma } = setup({ configured: false });
+      const { service, settings, greptime, audit } = setup({ configured: false });
 
       const error = await failure(service.run('u1', 'SELECT 1'));
 
@@ -71,7 +71,7 @@ describe('TelemetryQueryService', () => {
       expect(bodyOf(error).details.reason).toBe('TELEMETRY_NOT_CONFIGURED');
       expect(settings.getPolicy).not.toHaveBeenCalled();
       expect(greptime.queryReader).not.toHaveBeenCalled();
-      expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
     });
 
     it('409 TELEMETRY_DISABLED when telemetry is off', async () => {
@@ -329,17 +329,17 @@ describe('TelemetryQueryService', () => {
     });
 
     it('rethrows an unknown error unchanged (a 500), audited', async () => {
-      const { service, greptime, prisma } = setup();
+      const { service, greptime, audit } = setup();
       const boom = new Error('boom');
       greptime.queryReader.mockRejectedValue(boom);
 
       await expect(service.run('u1', 'SELECT 1')).rejects.toBe(boom);
-      expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
+      expect(audit.record).toHaveBeenCalledTimes(1);
     });
 
     it('a failed audit write does not replace the query error', async () => {
-      const { service, prisma } = setup();
-      prisma.auditEvent.create.mockRejectedValue(new Error('db down'));
+      const { service, audit } = setup();
+      audit.record.mockRejectedValue(new Error('db down'));
 
       const error = await failure(service.run('u1', 'DELETE FROM t'));
 
@@ -347,11 +347,11 @@ describe('TelemetryQueryService', () => {
     });
 
     it('a failed audit write after a successful query is surfaced', async () => {
-      const { service, prisma } = setup();
-      prisma.auditEvent.create.mockRejectedValue(new Error('db down'));
+      const { service, audit } = setup();
+      audit.record.mockRejectedValue(new Error('db down'));
 
       await expect(service.run('u1', 'SELECT 1')).rejects.toThrow('db down');
-      expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
+      expect(audit.record).toHaveBeenCalledTimes(1);
     });
   });
 });

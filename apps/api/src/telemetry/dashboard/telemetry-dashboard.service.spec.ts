@@ -174,11 +174,11 @@ function setup(opts: { schema?: TelemetrySchema; overrides?: Record<string, Tele
   };
   const settings = { getPolicy: jest.fn().mockResolvedValue(POLICY) };
   const schema = { getSchema: jest.fn().mockResolvedValue(opts.schema ?? FULL_SCHEMA) };
-  const prisma = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
-  const service = new TelemetryDashboardService(greptime as never, settings as never, schema as never, prisma as never);
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  const service = new TelemetryDashboardService(greptime as never, settings as never, schema as never, audit as never);
   const sqlOf = (kind: string) => greptime.queryReader.mock.calls.map(([sql]) => sql).filter((sql) => classify(sql) === kind);
 
-  return { service, greptime, settings, schema, prisma, sqlOf };
+  return { service, greptime, settings, schema, audit, sqlOf };
 }
 
 async function rejection(promise: Promise<unknown>): Promise<TelemetryHttpError> {
@@ -450,18 +450,16 @@ describe('store errors', () => {
     [new TelemetryQueryFailedError('column not found', '42703', 'server'), 400, 'TELEMETRY_QUERY_FAILED'],
     [new TelemetryQueryFailedError('ECONNREFUSED', 'ECONNREFUSED', 'connection'), 503, 'TELEMETRY_UNREACHABLE'],
   ])('maps %p to %d %s and audits it', async (thrown, status, reason) => {
-    const { service, greptime, prisma } = setup();
+    const { service, greptime, audit } = setup();
     greptime.queryReader.mockRejectedValue(thrown);
 
     const error = await rejection(service.timeseries('u1', { panel: 'logs' }));
     expect(error.getStatus()).toBe(status);
     expect(error.reason).toBe(reason);
-    expect(prisma.auditEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
-        meta: expect.objectContaining({ route: 'timeseries', reason }),
-      }),
-    });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
+      meta: expect.objectContaining({ route: 'timeseries', reason }),
+    }));
   });
 
   it('runs every statement with the policy timeout on the reader pool', async () => {
@@ -867,19 +865,17 @@ describe('events', () => {
 
 describe('audit', () => {
   it('writes one telemetry:dashboard row per store read, none for a cache hit', async () => {
-    const { service, prisma } = setup();
+    const { service, audit } = setup();
     await service.top('u1', { kind: 'routes' });
     await service.top('u1', { kind: 'routes' });
 
-    expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
-    expect(prisma.auditEvent.create).toHaveBeenCalledWith({
-      data: {
-        actorUserId: 'u1',
-        action: 'telemetry:dashboard',
-        targetType: 'telemetry_store',
-        targetId: 'public',
-        meta: expect.objectContaining({ route: 'top', params: { kind: 'routes' }, statements: 1, truncated: false }),
-      },
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith({
+      actorUserId: 'u1',
+      action: 'telemetry:dashboard',
+      targetType: 'telemetry_store',
+      targetId: 'public',
+      meta: expect.objectContaining({ route: 'top', params: { kind: 'routes' }, statements: 1, truncated: false }),
     });
   });
 
@@ -981,22 +977,20 @@ describe('metrics route', () => {
   });
 
   it('caches by group and host, and audits each store read as telemetry:dashboard', async () => {
-    const { service, greptime, prisma } = setup({ schema: METRIC_SCHEMA });
+    const { service, greptime, audit } = setup({ schema: METRIC_SCHEMA });
     await service.metrics('u1', { group: 'nodes' });
     const calls = greptime.queryReader.mock.calls.length;
     await service.metrics('u1', { group: 'nodes' });
     expect(greptime.queryReader).toHaveBeenCalledTimes(calls);
-    expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
-    expect(prisma.auditEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
-        meta: expect.objectContaining({ route: 'metrics', params: { group: 'nodes' }, statements: calls }),
-      }),
-    });
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({
+      action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
+      meta: expect.objectContaining({ route: 'metrics', params: { group: 'nodes' }, statements: calls }),
+    }));
 
     await service.metrics('u1', { group: 'uptime' });
     await service.metrics('u1', { group: 'uptime', host: 'vm1' });
-    expect(prisma.auditEvent.create).toHaveBeenCalledTimes(3);
+    expect(audit.record).toHaveBeenCalledTimes(3);
   });
 
   it('refuses an unknown host with 400 TELEMETRY_DASHBOARD_BAD_FILTER', async () => {

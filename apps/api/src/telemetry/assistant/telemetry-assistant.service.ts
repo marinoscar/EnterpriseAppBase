@@ -1,18 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { resolveTelemetryInstanceId } from '@marinoscar/platform-api/otel-core';
+import type { TelemetrySettings as SystemTelemetryValue } from '@marinoscar/platform-contract/telemetry';
 import { z } from 'zod';
 
-import { readDeployInfo, resolveDeployInfoPath } from '../../about/deploy-info';
-import { AiError } from '../../ai/core/ai-error';
-import { defineTool, type AiDefinedTool } from '../../ai/core/tools';
-import type { AiInputItem } from '../../ai/core/types/responses.types';
-import { AiService } from '../../ai/runtime/ai.service';
-import type { AiToolCallRecord, AiToolLoopResult, AiToolStep } from '../../ai/runtime/ai-runtime.types';
-import { resolveServiceName, resolveTelemetryInstanceId } from '../../common/otel/telemetry-identity';
-import type { SystemTelemetryValue } from '../../common/schemas/settings.schema';
-import { resolveApiVersion } from '../../openapi/version';
-import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 import {
   TELEMETRY_ASSISTANT_CONFIDENCES,
   TELEMETRY_ASSISTANT_HISTORY_CONTENT_MAX,
@@ -41,6 +31,22 @@ import { requireQueryablePolicy } from '../query/telemetry-availability';
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError, type TelemetryErrorReason } from '../query/telemetry-query.errors';
 import { TelemetryQueryService } from '../query/telemetry-query.service';
 import { TelemetrySchemaService } from '../query/telemetry-schema.service';
+import {
+  TELEMETRY_AI,
+  TELEMETRY_APP_INFO,
+  TELEMETRY_AUDIT_SINK,
+  TELEMETRY_SETTINGS_STORE,
+  type TelemetryAiError as AiError,
+  type TelemetryAiInputMessage as AiInputItem,
+  type TelemetryAiPort,
+  type TelemetryAiTool as AiDefinedTool,
+  type TelemetryAiToolCallRecord as AiToolCallRecord,
+  type TelemetryAiToolLoopResult as AiToolLoopResult,
+  type TelemetryAiToolStep as AiToolStep,
+  type TelemetryAppInfo,
+  type TelemetryAuditSink,
+  type TelemetrySettingsStore,
+} from '../ports';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import {
   assistantMetricWindow,
@@ -83,8 +89,8 @@ import {
 // query" request still works: the query is `report.queries[0]`, mirrored in
 // the answer's back-compat `sql` field.
 //
-// Everything goes through the AI platform's facade
-// (`AiService.forUser(userId).runTools`) — every round-trip is gated, spends
+// Everything goes through the AI platform's facade, the `TELEMETRY_AI` port
+// (`AiService.forUser(userId).runTools` in the app) — every round-trip is gated, spends
 // the CALLER's key (or the org key, per the key policy) and records its own
 // usage row. No provider SDK is imported here, and no key passes through.
 //
@@ -356,20 +362,21 @@ export class TelemetryAssistantService {
   private readonly logger = new Logger(TelemetryAssistantService.name);
 
   constructor(
-    private readonly ai: AiService,
+    @Inject(TELEMETRY_AI) private readonly ai: TelemetryAiPort,
     private readonly greptime: GreptimeClient,
     private readonly settings: TelemetrySettingsService,
     private readonly queries: TelemetryQueryService,
     private readonly schema: TelemetrySchemaService,
-    private readonly prisma: PrismaService,
-    private readonly systemSettings: SystemSettingsService,
+    @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
+    @Inject(TELEMETRY_SETTINGS_STORE) private readonly systemSettings: TelemetrySettingsStore,
+    @Inject(TELEMETRY_APP_INFO) private readonly appInfo: TelemetryAppInfo,
   ) {}
 
   /**
    * The policy, or a `TelemetryHttpError` saying why the assistant cannot run:
    * store not configured (503), telemetry disabled (409), assistant disabled
    * (409), no provider/model chosen (409). The global AI kill switch is the
-   * route's `AiEnabledGuard`.
+   * route's `TelemetryAiEnabledGuard`.
    */
   async assertReady(): Promise<SystemTelemetryValue & { assistant: { provider: string; modelId: string } }> {
     const policy = await requireQueryablePolicy(this.greptime, this.settings);
@@ -446,7 +453,7 @@ export class TelemetryAssistantService {
         emit('error', { code: state.fatal.reason, message: state.fatal.message });
       } else if (opts.signal?.aborted) {
         errorCode = 'CANCELLED';
-      } else if (err instanceof AiError) {
+      } else if (this.ai.isAiError(err)) {
         errorCode = err.code;
         emit('error', { code: err.code, message: describeAiError(err, provider, modelId) });
       } else {
@@ -508,7 +515,7 @@ export class TelemetryAssistantService {
 
     const tc: ToolContext = { userId, policy, state, rowsToModel, shareResults, recover };
 
-    const listTables = defineTool({
+    const listTables = this.ai.defineTool({
       name: 'list_tables',
       description: 'List the tables of the telemetry store with their approximate row counts.',
       parameters: z.object({}).strict(),
@@ -525,7 +532,7 @@ export class TelemetryAssistantService {
       },
     });
 
-    const describeTable = defineTool({
+    const describeTable = this.ai.defineTool({
       name: 'describe_table',
       description:
         'The columns of one telemetry table: name, SQL type and GreptimeDB semantic type (TAG, FIELD or TIMESTAMP).',
@@ -560,7 +567,7 @@ export class TelemetryAssistantService {
       },
     });
 
-    const runQuery = defineTool({
+    const runQuery = this.ai.defineTool({
       name: 'run_query',
       description:
         `Run ONE read-only SQL statement against the telemetry store. Returns the columns, the row count ` +
@@ -586,7 +593,7 @@ export class TelemetryAssistantService {
       },
     });
 
-    const getAppContext = defineTool({
+    const getAppContext = this.ai.defineTool({
       name: 'get_app_context',
       description:
         'How this application is deployed and configured: API version, runtime, OpenTelemetry service name and ' +
@@ -600,7 +607,7 @@ export class TelemetryAssistantService {
       },
     });
 
-    const healthOverview = defineTool({
+    const healthOverview = this.ai.defineTool({
       name: 'health_overview',
       description:
         'A health baseline over a time window, in one call: per-service span count, error spans and latency ' +
@@ -634,7 +641,7 @@ export class TelemetryAssistantService {
       },
     });
 
-    const getTrace = defineTool({
+    const getTrace = this.ai.defineTool({
       name: 'get_trace',
       description:
         'Every span (service, name, kind, status, duration, key HTTP/DB attributes, parent) and every log record ' +
@@ -678,7 +685,7 @@ export class TelemetryAssistantService {
       },
     });
 
-    const metricsOverview = defineTool({
+    const metricsOverview = this.ai.defineTool({
       name: 'metrics_overview',
       // The groups are read from the metric-group registry (#680) when the
       // tools are built, so an app's own group is offered too, with its own
@@ -730,7 +737,7 @@ export class TelemetryAssistantService {
       },
     });
 
-    const compareNodes = defineTool({
+    const compareNodes = this.ai.defineTool({
       name: 'compare_nodes',
       description:
         'Every worker node side by side over a time window: CPU, RSS, heap used/limit, state-directory free ' +
@@ -940,7 +947,7 @@ export class TelemetryAssistantService {
 
     const uptimeSeconds = Math.round(process.uptime());
     const app = {
-      apiVersion: safe(() => resolveApiVersion(), 'unknown'),
+      apiVersion: safe(() => this.appInfo.apiVersion(), 'unknown'),
       nodeEnv: process.env.NODE_ENV ?? null,
       nodeVersion: process.version,
       uptimeSeconds,
@@ -948,8 +955,8 @@ export class TelemetryAssistantService {
     };
 
     const telemetry = {
-      serviceName: safe(() => resolveServiceName(), 'unknown'),
-      instanceId: safe(() => resolveTelemetryInstanceId(policy.instanceId), 'unknown'),
+      serviceName: safe(() => this.appInfo.serviceName(), 'unknown'),
+      instanceId: safe(() => resolveTelemetryInstanceId(policy.instanceId, this.appInfo.slug), 'unknown'),
       otelSdkEnabled: process.env.OTEL_ENABLED === 'true',
       exportEnabled: policy.enabled,
       retentionDays: policy.retentionDays,
@@ -963,7 +970,7 @@ export class TelemetryAssistantService {
 
     let deploy: unknown;
     try {
-      deploy = pickDeployInfo(await readDeployInfo(resolveDeployInfoPath()));
+      deploy = pickDeployInfo(await this.appInfo.readDeployInfo());
     } catch {
       deploy = { unavailable: 'could not be read' };
     }
@@ -1021,11 +1028,11 @@ export class TelemetryAssistantService {
     };
 
     const [ai, maintenanceMode, databaseBackup, browserNotifications, nodeJobSecretBroker] = await Promise.all([
-      read(async () => (await this.systemSettings.getAiPolicy()).enabled),
-      read(async () => (await this.systemSettings.getMaintenancePolicy()).enabled),
-      read(async () => (await this.systemSettings.getDatabaseBackupPolicy()).enabled),
-      read(async () => (await this.systemSettings.getNotificationsPolicy()).browserEnabled),
-      read(async () => (await this.systemSettings.getNodesPolicy()).jobSecretBrokerEnabled),
+      read(() => this.systemSettings.readFeatureFlag('ai')),
+      read(() => this.systemSettings.readFeatureFlag('maintenanceMode')),
+      read(() => this.systemSettings.readFeatureFlag('databaseBackup')),
+      read(() => this.systemSettings.readFeatureFlag('browserNotifications')),
+      read(() => this.systemSettings.readFeatureFlag('nodeJobSecretBroker')),
     ]);
 
     return { ai, maintenanceMode, databaseBackup, browserNotifications, nodeJobSecretBroker };
@@ -1033,14 +1040,12 @@ export class TelemetryAssistantService {
 
   private async audit(userId: string, meta: Record<string, unknown>): Promise<void> {
     try {
-      await this.prisma.auditEvent.create({
-        data: {
-          actorUserId: userId,
-          action: TELEMETRY_ASSISTANT_AUDIT_ACTION,
-          targetType: 'telemetry_store',
-          targetId: this.greptime.database,
-          meta: meta as Prisma.InputJsonValue,
-        },
+      await this.auditSink.record({
+        actorUserId: userId,
+        action: TELEMETRY_ASSISTANT_AUDIT_ACTION,
+        targetType: 'telemetry_store',
+        targetId: this.greptime.database,
+        meta,
       });
     } catch (err) {
       // The stream has already been answered; a failed audit write is logged, not surfaced.

@@ -1,9 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { PrismaService } from '../../prisma/prisma.service';
 import type { TelemetryColumnType, TelemetryQueryRunResult } from '../dto/telemetry-query.dto';
 import { GreptimeClient } from '../greptime/greptime.client';
+import { TELEMETRY_AUDIT_SINK, type TelemetryAuditSink } from '../ports';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import { analyzeStatement, applyRowCap } from './sql-guard';
 import { requireQueryablePolicy, toTelemetryHttpError } from './telemetry-availability';
@@ -123,7 +122,7 @@ export class TelemetryQueryService {
   constructor(
     private readonly greptime: GreptimeClient,
     private readonly settings: TelemetrySettingsService,
-    private readonly prisma: PrismaService,
+    @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
   ) {}
 
   /**
@@ -207,18 +206,16 @@ export class TelemetryQueryService {
     sql: string,
     meta: { rowCount: number; truncated: boolean; elapsedMs: number; error?: string; reason?: string },
   ): Promise<void> {
-    await this.prisma.auditEvent.create({
-      data: {
-        actorUserId: userId,
-        action: TELEMETRY_QUERY_AUDIT_ACTIONS[source],
-        targetType: 'telemetry_store',
-        targetId: this.greptime.database,
-        meta: {
-          sql: sql.length > TELEMETRY_AUDIT_SQL_MAX ? `${sql.slice(0, TELEMETRY_AUDIT_SQL_MAX)}…` : sql,
-          ...(sql.length > TELEMETRY_AUDIT_SQL_MAX ? { sqlLength: sql.length } : {}),
-          source,
-          ...meta,
-        } as Prisma.InputJsonValue,
+    await this.auditSink.record({
+      actorUserId: userId,
+      action: TELEMETRY_QUERY_AUDIT_ACTIONS[source],
+      targetType: 'telemetry_store',
+      targetId: this.greptime.database,
+      meta: {
+        sql: sql.length > TELEMETRY_AUDIT_SQL_MAX ? `${sql.slice(0, TELEMETRY_AUDIT_SQL_MAX)}…` : sql,
+        ...(sql.length > TELEMETRY_AUDIT_SQL_MAX ? { sqlLength: sql.length } : {}),
+        source,
+        ...meta,
       },
     });
   }

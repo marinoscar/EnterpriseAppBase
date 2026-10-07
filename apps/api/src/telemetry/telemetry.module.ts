@@ -1,9 +1,7 @@
 import { Module } from '@nestjs/common';
 
-import { AiModule } from '../ai/ai.module';
-import { CredentialsModule } from '../credentials/credentials.module';
-import { JobsModule } from '../jobs/jobs.module';
-import { SettingsModule } from '../settings/settings.module';
+import { TelemetryHostModule } from '../platform/telemetry/telemetry-host.module';
+import { TelemetryAiEnabledGuard } from './assistant/telemetry-ai-enabled.guard';
 import { TelemetryAssistantController } from './assistant/telemetry-assistant.controller';
 import { TelemetryAssistantService } from './assistant/telemetry-assistant.service';
 import { TelemetryConnectionAdminService } from './connection/telemetry-connection-admin.service';
@@ -81,7 +79,9 @@ import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-che
 // =============================================================================
 
 @Module({
-  imports: [JobsModule, SettingsModule, AiModule, CredentialsModule],
+  // The app's adapters for the host ports (./ports.ts): audit, settings,
+  // credentials, jobs, AI and the app's identity.
+  imports: [TelemetryHostModule],
   controllers: [
     TelemetryAdminController,
     TelemetryConfigController,
@@ -104,6 +104,7 @@ import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-che
     TelemetrySchemaService,
     TelemetryExportService,
     TelemetryAssistantService,
+    TelemetryAiEnabledGuard,
     StackAgentClient,
     TelemetryStackService,
     TelemetryStackDeployHandler,

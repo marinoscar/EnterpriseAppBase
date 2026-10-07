@@ -13,28 +13,21 @@
 // idempotent, so running it every night costs one metadata write.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import { JobsService } from '../../jobs/jobs.service';
-import { PrismaService } from '../../prisma/prisma.service';
 import { TELEMETRY_RETENTION_TYPE } from '../handlers/telemetry-retention.handler';
+import { TELEMETRY_JOBS, type TelemetryJobsPort } from '../ports';
 
 @Injectable()
 export class TelemetryRetentionTask {
   private readonly logger = new Logger(TelemetryRetentionTask.name);
 
-  constructor(
-    private readonly jobs: JobsService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(@Inject(TELEMETRY_JOBS) private readonly jobs: TelemetryJobsPort) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async handleCron(): Promise<void> {
-    await enqueueHousekeepingJob({
-      jobs: this.jobs,
-      prisma: this.prisma,
+    await this.jobs.enqueueHousekeepingJob({
       logger: this.logger,
       type: TELEMETRY_RETENTION_TYPE,
       what: 'telemetry retention',

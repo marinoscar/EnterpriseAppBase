@@ -51,7 +51,7 @@ const NO_ENV: GreptimeEnvironmentConfig = {
 const STORED_ROW = {
   version: 3,
   updatedAt: new Date('2026-03-03T00:00:00.000Z'),
-  updatedByUser: { id: 'admin-1', email: 'admin@example.com' },
+  updatedBy: { id: 'admin-1', email: 'admin@example.com' },
 };
 
 const STORED_VALUE = {
@@ -81,17 +81,15 @@ const ADMIN_INFO = {
 function build(env: Partial<GreptimeEnvironmentConfig> = ENV) {
   const config = { get: jest.fn().mockReturnValue(env) } as unknown as ConfigService;
 
-  const prisma = {
-    systemSettings: { findUnique: jest.fn().mockResolvedValue(null) },
-  };
+  const settingsStore = { readRow: jest.fn().mockResolvedValue(null) };
   const credentials: { describe: jest.Mock; getSecret: jest.Mock; deleteSecret?: jest.Mock } = {
     describe: jest.fn().mockResolvedValue(null),
     getSecret: jest.fn().mockResolvedValue(null),
   };
 
-  const service = new TelemetryConnectionService(config, prisma as never, credentials as never);
+  const service = new TelemetryConnectionService(config, settingsStore as never, credentials as never);
 
-  return { service, prisma, credentials };
+  return { service, settingsStore, credentials };
 }
 
 describe('TelemetryConnectionService', () => {
@@ -101,8 +99,8 @@ describe('TelemetryConnectionService', () => {
 
   describe('precedence', () => {
     it('a stored row wins wholly: host/port/database/users all come from it, not the environment', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       credentials.describe.mockImplementation(async (_purpose: string, role: string) =>
         role === 'reader' ? READER_INFO : ADMIN_INFO,
       );
@@ -138,8 +136,8 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('a stored-but-invalid row is stored-and-unusable, and never falls back to the environment', async () => {
-      const { service, prisma } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({
+      const { service, settingsStore } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({
         ...STORED_ROW,
         value: { host: '', pgPort: 4003, database: 'public', readerUser: '', adminUser: null },
       });
@@ -160,8 +158,8 @@ describe('TelemetryConnectionService', () => {
 
   describe('isConfigured / isAdminConfigured / database', () => {
     it('is configured with a host, reader user and reader password; admin needs its own login too', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       credentials.describe.mockImplementation(async (_purpose: string, role: string) =>
         role === 'reader' ? READER_INFO : null,
       );
@@ -173,8 +171,8 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('isAdminConfigured requires isConfigured to also hold', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({
         ...STORED_ROW,
         value: { ...STORED_VALUE, readerUser: '' },
       });
@@ -189,8 +187,8 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('exposes the resolved database', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({
         ...STORED_ROW,
         value: { ...STORED_VALUE, database: 'custom_db' },
       });
@@ -208,13 +206,13 @@ describe('TelemetryConnectionService', () => {
 
   describe('refreshSafely', () => {
     it('keeps the last snapshot and does not throw when the read fails', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       credentials.describe.mockResolvedValue(READER_INFO);
       await service.refresh();
       expect(service.source).toBe('stored');
 
-      prisma.systemSettings.findUnique.mockRejectedValue(new Error('database is down'));
+      settingsStore.readRow.mockRejectedValue(new Error('database is down'));
 
       await expect(service.refreshSafely()).resolves.toBe(false);
       // The last good snapshot is untouched.
@@ -223,8 +221,8 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('refresh() itself throws on a failed read, for a caller that must know', async () => {
-      const { service, prisma } = build(ENV);
-      prisma.systemSettings.findUnique.mockRejectedValue(new Error('boom'));
+      const { service, settingsStore } = build(ENV);
+      settingsStore.readRow.mockRejectedValue(new Error('boom'));
 
       await expect(service.refresh()).rejects.toThrow('boom');
     });
@@ -236,8 +234,8 @@ describe('TelemetryConnectionService', () => {
 
   describe('resolveCredentials', () => {
     it('reads the stored password from CredentialsService.getSecret when the source is stored', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       credentials.describe.mockImplementation(async (_purpose: string, role: string) =>
         role === 'reader' ? READER_INFO : ADMIN_INFO,
       );
@@ -274,8 +272,8 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('returns null when the stored password has since gone (credential store returns null)', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       credentials.describe.mockResolvedValue(READER_INFO);
       credentials.getSecret.mockResolvedValue(null);
       await service.refresh();
@@ -290,8 +288,8 @@ describe('TelemetryConnectionService', () => {
 
   describe('fingerprint', () => {
     it('changes when the credential updatedAt changes, even with the same user/host', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       credentials.describe.mockResolvedValue(READER_INFO);
       await service.refresh();
       const first = service.fingerprint('reader');
@@ -309,8 +307,8 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('is stable across refreshes when nothing changed', async () => {
-      const { service, prisma, credentials } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore, credentials } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       credentials.describe.mockResolvedValue(READER_INFO);
       await service.refresh();
       const first = service.fingerprint('reader');
@@ -339,7 +337,7 @@ describe('TelemetryConnectionService', () => {
 
     function storedAuto(env: Partial<GreptimeEnvironmentConfig>) {
       const built = build(env);
-      built.prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: AUTO_VALUE });
+      built.settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: AUTO_VALUE });
       built.credentials.describe.mockImplementation(async (_purpose: string, role: string) =>
         role === 'reader' ? READER_INFO : ADMIN_INFO,
       );
@@ -411,8 +409,8 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('a custom stored host never reports a deployment problem', async () => {
-      const { service, prisma } = build({ ...ENV, readerPassword: '' });
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore } = build({ ...ENV, readerPassword: '' });
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
 
       await service.refresh();
 
@@ -480,21 +478,21 @@ describe('TelemetryConnectionService', () => {
     });
 
     it('switching between a custom and an automatic row changes the fingerprint', async () => {
-      const { service, prisma, credentials } = build({ ...ENV, host: 'stored-host', readerUser: 'stored-reader' });
+      const { service, settingsStore, credentials } = build({ ...ENV, host: 'stored-host', readerUser: 'stored-reader' });
       credentials.describe.mockResolvedValue(READER_INFO);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
       await service.refresh();
       const custom = service.fingerprint('reader');
 
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: { host: null } });
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: { host: null } });
       await service.refresh();
 
       expect(service.fingerprint('reader')).not.toBe(custom);
     });
 
     it('a stored string host (every row saved before #562) is a custom override', async () => {
-      const { service, prisma } = build(ENV);
-      prisma.systemSettings.findUnique.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
+      const { service, settingsStore } = build(ENV);
+      settingsStore.readRow.mockResolvedValue({ ...STORED_ROW, value: STORED_VALUE });
 
       const state = await service.refresh();
 
@@ -532,12 +530,10 @@ describe('TelemetryConnectionService', () => {
   // ==========================================================================
 
   it('reads the stored row by the documented settings key', async () => {
-    const { service, prisma } = build(ENV);
+    const { service, settingsStore } = build(ENV);
 
     await service.refresh();
 
-    expect(prisma.systemSettings.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { key: TELEMETRY_CONNECTION_SETTINGS_KEY } }),
-    );
+    expect(settingsStore.readRow).toHaveBeenCalledWith(TELEMETRY_CONNECTION_SETTINGS_KEY);
   });
 });

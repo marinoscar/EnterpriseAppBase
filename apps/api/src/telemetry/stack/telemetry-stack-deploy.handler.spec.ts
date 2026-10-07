@@ -1,7 +1,5 @@
-import type { Job } from '@prisma/client';
-
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { TELEMETRY_RETENTION_TYPE } from '../handlers/telemetry-retention.handler';
+import type { TelemetryJobRecord as Job } from '../ports';
 import {
   STACK_DEPLOY_OUTPUT_MAX_BYTES,
   TELEMETRY_STACK_DEPLOY_TYPE,
@@ -19,38 +17,28 @@ function job(overrides: Partial<Job> = {}): Job {
 }
 
 function setup(upResult: unknown) {
-  const registry = { register: jest.fn() };
   const agent = { telemetryUp: jest.fn().mockResolvedValue(upResult) };
-  const prisma = {
-    job: {
-      update: jest.fn().mockResolvedValue({}),
-      findFirst: jest.fn().mockResolvedValue(null),
-    },
+  const jobs = {
+    registerHandler: jest.fn(),
+    updatePayload: jest.fn().mockResolvedValue(undefined),
+    enqueueHousekeepingJob: jest.fn().mockResolvedValue(undefined),
   };
-  const jobs = { enqueue: jest.fn().mockResolvedValue({ id: 'retention-1' }) };
   const connection = { refreshSafely: jest.fn().mockResolvedValue(true) };
   const settings = { refreshGate: jest.fn().mockResolvedValue(true) };
 
-  const handler = new TelemetryStackDeployHandler(
-    registry as unknown as JobHandlerRegistry,
-    agent as never,
-    prisma as never,
-    jobs as never,
-    connection as never,
-    settings as never,
-  );
+  const handler = new TelemetryStackDeployHandler(agent as never, jobs as never, connection as never, settings as never);
 
-  return { handler, registry, agent, prisma, jobs, connection, settings };
+  return { handler, agent, jobs, connection, settings };
 }
 
 describe('TelemetryStackDeployHandler', () => {
   it('has the permanent type string and self-registers', () => {
-    const { handler, registry } = setup({ ok: true, exitCode: 0, output: '' });
+    const { handler, jobs } = setup({ ok: true, exitCode: 0, output: '' });
 
     handler.onModuleInit();
 
     expect(handler.type).toBe('telemetry.stack.deploy');
-    expect(registry.register).toHaveBeenCalledWith(handler);
+    expect(jobs.registerHandler).toHaveBeenCalledWith(handler);
   });
 
   it('declares a 15-minute, single-attempt profile', () => {
@@ -69,26 +57,21 @@ describe('TelemetryStackDeployHandler', () => {
   });
 
   it('records the result on the job payload and nudges telemetry after a successful deploy', async () => {
-    const { handler, prisma, jobs, connection, settings } = setup({ ok: true, exitCode: 0, output: 'Started greptimedb' });
+    const { handler, jobs, connection, settings } = setup({ ok: true, exitCode: 0, output: 'Started greptimedb' });
 
     await handler.process(job());
 
-    expect(prisma.job.update).toHaveBeenCalledWith({
-      where: { id: 'job-1' },
-      data: {
-        payload: {
-          requestedByUserId: 'admin-1',
-          result: { ok: true, exitCode: 0, output: 'Started greptimedb' },
-        },
-      },
+    expect(jobs.updatePayload).toHaveBeenCalledWith('job-1', {
+      requestedByUserId: 'admin-1',
+      result: { ok: true, exitCode: 0, output: 'Started greptimedb' },
     });
     expect(connection.refreshSafely).toHaveBeenCalled();
     expect(settings.refreshGate).toHaveBeenCalled();
-    expect(jobs.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: TELEMETRY_RETENTION_TYPE }));
+    expect(jobs.enqueueHousekeepingJob).toHaveBeenCalledWith(expect.objectContaining({ type: TELEMETRY_RETENTION_TYPE }));
   });
 
   it('records the output and throws when the agent reports a failure', async () => {
-    const { handler, prisma, connection } = setup({
+    const { handler, jobs, connection } = setup({
       ok: false,
       error: 'failed',
       message: 'stack-agent could not start the telemetry services (HTTP 500, exit code 1)',
@@ -98,14 +81,9 @@ describe('TelemetryStackDeployHandler', () => {
 
     await expect(handler.process(job())).rejects.toThrow(/\(failed\).*exit code 1/);
 
-    expect(prisma.job.update).toHaveBeenCalledWith({
-      where: { id: 'job-1' },
-      data: {
-        payload: {
-          requestedByUserId: 'admin-1',
-          result: { ok: false, exitCode: 1, output: 'Error: pull access denied' },
-        },
-      },
+    expect(jobs.updatePayload).toHaveBeenCalledWith('job-1', {
+      requestedByUserId: 'admin-1',
+      result: { ok: false, exitCode: 1, output: 'Error: pull access denied' },
     });
     expect(connection.refreshSafely).not.toHaveBeenCalled();
   });
@@ -113,26 +91,26 @@ describe('TelemetryStackDeployHandler', () => {
   it.each(['busy', 'unreachable', 'unauthorized', 'not_configured'])(
     'throws without a stored result when the agent is %s',
     async (error) => {
-      const { handler, prisma } = setup({ ok: false, error, message: `agent ${error}` });
+      const { handler, jobs } = setup({ ok: false, error, message: `agent ${error}` });
 
       await expect(handler.process(job())).rejects.toThrow(`(${error})`);
-      expect(prisma.job.update).not.toHaveBeenCalled();
+      expect(jobs.updatePayload).not.toHaveBeenCalled();
     },
   );
 
   it('still succeeds when recording the result fails', async () => {
-    const { handler, prisma } = setup({ ok: true, exitCode: 0, output: '' });
-    prisma.job.update.mockRejectedValue(new Error('row purged'));
+    const { handler, jobs } = setup({ ok: true, exitCode: 0, output: '' });
+    jobs.updatePayload.mockRejectedValue(new Error('row purged'));
 
     await expect(handler.process(job())).resolves.toBeUndefined();
   });
 
   it('caps a long output to 4 KB before storing it', async () => {
-    const { handler, prisma } = setup({ ok: true, exitCode: 0, output: 'x'.repeat(10_000) + 'END' });
+    const { handler, jobs } = setup({ ok: true, exitCode: 0, output: 'x'.repeat(10_000) + 'END' });
 
     await handler.process(job());
 
-    const stored = prisma.job.update.mock.calls[0][0].data.payload.result.output as string;
+    const stored = jobs.updatePayload.mock.calls[0][1].result.output as string;
     expect(Buffer.byteLength(stored, 'utf8')).toBeLessThanOrEqual(STACK_DEPLOY_OUTPUT_MAX_BYTES);
     expect(stored.endsWith('END')).toBe(true);
   });

@@ -1,13 +1,18 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 
-import { isBlankSecret } from '../../credentials/credential-internals';
-import { CredentialsService } from '../../credentials/credentials.service';
-import type { CredentialInfo } from '../../credentials/interfaces/credential-info.interface';
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import { JobsService } from '../../jobs/jobs.service';
-import { PrismaService } from '../../prisma/prisma.service';
 import { TELEMETRY_RETENTION_TYPE } from '../handlers/telemetry-retention.handler';
+import { isBlankSecret } from '../internal/blank-secret';
+import {
+  TELEMETRY_AUDIT_SINK,
+  TELEMETRY_CREDENTIAL_STORE,
+  TELEMETRY_JOBS,
+  TELEMETRY_SETTINGS_STORE,
+  type TelemetryAuditSink,
+  type TelemetryCredentialInfo as CredentialInfo,
+  type TelemetryCredentialStore,
+  type TelemetryJobsPort,
+  type TelemetrySettingsStore,
+} from '../ports';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import type {
   TelemetryConnectionResponse,
@@ -66,11 +71,12 @@ export class TelemetryConnectionAdminService {
   private readonly logger = new Logger(TelemetryConnectionAdminService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly credentials: CredentialsService,
+    @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
+    @Inject(TELEMETRY_SETTINGS_STORE) private readonly settingsStore: TelemetrySettingsStore,
+    @Inject(TELEMETRY_CREDENTIAL_STORE) private readonly credentials: TelemetryCredentialStore,
     private readonly connection: TelemetryConnectionService,
     private readonly settings: TelemetrySettingsService,
-    private readonly jobs: JobsService,
+    @Inject(TELEMETRY_JOBS) private readonly jobs: TelemetryJobsPort,
   ) {}
 
   /** `GET` — read fresh (this also refreshes this instance's snapshot). */
@@ -157,19 +163,7 @@ export class TelemetryConnectionAdminService {
       }
     }
 
-    await this.prisma.systemSettings.upsert({
-      where: { key: TELEMETRY_CONNECTION_SETTINGS_KEY },
-      update: {
-        value: next as unknown as Prisma.InputJsonValue,
-        updatedByUserId: userId,
-        version: { increment: 1 },
-      },
-      create: {
-        key: TELEMETRY_CONNECTION_SETTINGS_KEY,
-        value: next as unknown as Prisma.InputJsonValue,
-        updatedByUserId: userId,
-      },
-    });
+    await this.settingsStore.writeRow(TELEMETRY_CONNECTION_SETTINGS_KEY, next, userId);
 
     // Step 4 — nothing else awaits between the write and this.
     const after = await this.connection.refresh();
@@ -205,7 +199,7 @@ export class TelemetryConnectionAdminService {
     const before = await this.connection.refresh();
     this.assertVersion(before, expectedVersion);
 
-    await this.prisma.systemSettings.deleteMany({ where: { key: TELEMETRY_CONNECTION_SETTINGS_KEY } });
+    await this.settingsStore.deleteRow(TELEMETRY_CONNECTION_SETTINGS_KEY);
 
     const cleared: TelemetryConnectionRole[] = [];
     for (const role of ['reader', 'admin'] as const) {
@@ -257,9 +251,7 @@ export class TelemetryConnectionAdminService {
   private async applySideEffects(): Promise<void> {
     await this.settings.refreshGate();
 
-    await enqueueHousekeepingJob({
-      jobs: this.jobs,
-      prisma: this.prisma,
+    await this.jobs.enqueueHousekeepingJob({
       logger: this.logger,
       type: TELEMETRY_RETENTION_TYPE,
       what: 'telemetry retention',
@@ -267,14 +259,12 @@ export class TelemetryConnectionAdminService {
   }
 
   private async audit(userId: string, action: string, meta: Record<string, unknown>): Promise<void> {
-    await this.prisma.auditEvent.create({
-      data: {
-        actorUserId: userId,
-        action,
-        targetType: 'system_settings',
-        targetId: TELEMETRY_CONNECTION_SETTINGS_KEY,
-        meta: meta as Prisma.InputJsonValue,
-      },
+    await this.auditSink.record({
+      actorUserId: userId,
+      action,
+      targetType: 'system_settings',
+      targetId: TELEMETRY_CONNECTION_SETTINGS_KEY,
+      meta,
     });
   }
 }

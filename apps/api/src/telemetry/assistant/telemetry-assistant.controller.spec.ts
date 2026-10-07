@@ -2,12 +2,13 @@ import { PassThrough } from 'node:stream';
 
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 
-import { AiEnabledGuard } from '../../ai/config/ai-enabled.guard';
+import { AiError } from '../../ai/core/ai-error';
 import { AI_SSE_HEADERS } from '../../ai/http/ai-sse';
 import { RBAC_EXTENSION_KEY } from '../../auth/decorators/auth.decorator';
 import { PERMISSIONS_KEY } from '../../auth/decorators/permissions.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from '../query/telemetry-query.errors';
+import { TelemetryAiEnabledGuard } from './telemetry-ai-enabled.guard';
 import { TelemetryAssistantController } from './telemetry-assistant.controller';
 import type { TelemetryAssistantStreamOptions } from './telemetry-assistant.service';
 import { formatTelemetrySseFrame } from './telemetry-assistant.sse';
@@ -47,8 +48,17 @@ describe('TelemetryAssistantController', () => {
     });
   });
 
-  it('is behind the AI kill switch (class-level AiEnabledGuard)', () => {
-    expect(Reflect.getMetadata(GUARDS_METADATA, TelemetryAssistantController)).toContain(AiEnabledGuard);
+  it('is behind the AI kill switch (class-level TelemetryAiEnabledGuard)', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, TelemetryAssistantController)).toContain(TelemetryAiEnabledGuard);
+  });
+
+  it("the kill switch is the AI port's assertEnabled: the app's own 403 AI_DISABLED passes through unchanged", async () => {
+    const off = new AiError('AI_DISABLED', 'AI features are disabled');
+    const guard = new TelemetryAiEnabledGuard({ assertEnabled: jest.fn().mockRejectedValue(off) } as never);
+    await expect(guard.canActivate()).rejects.toBe(off);
+
+    const on = new TelemetryAiEnabledGuard({ assertEnabled: jest.fn().mockResolvedValue(undefined) } as never);
+    await expect(on.canActivate()).resolves.toBe(true);
   });
 
   it('streams the service events as `event:`/`data:` frames with the SSE headers', async () => {
