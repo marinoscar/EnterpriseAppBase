@@ -11,9 +11,9 @@
 // =============================================================================
 
 import type { Type } from '@nestjs/common';
+import { parsePrincipalCacheTtlSeconds } from '@marinoscar/platform-api/identity';
 import { SharingModule } from '@marinoscar/platform-api/sharing';
 
-import { parsePrincipalCacheTtlSeconds } from '../../auth/principal-cache';
 import { platformHost } from '../platform-host';
 import { SharingHostModule } from './sharing-host.module';
 

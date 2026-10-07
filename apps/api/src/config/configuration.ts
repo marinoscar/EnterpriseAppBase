@@ -58,7 +58,8 @@ export default () => {
   // permissions may be reused (default 30; `0` disables the cache). A
   // non-numeric or negative value means 30, with one warning. Invalidation on
   // every user/role write keeps changes immediate; the TTL only bounds
-  // staleness while the event bus is down. See auth/principal-cache/.
+  // staleness while the event bus is down. See the identity slice's auth/principal-cache/
+  // (packages/platform-api/src/identity/auth/principal-cache/).
   auth: identity.auth,
 
   // SECRETS_ENCRYPTION_KEY is DELIBERATELY ABSENT from this object (#116,
