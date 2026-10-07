@@ -1,4 +1,4 @@
-import type { AppMetricDef } from '../common/otel/app-metric.registry';
+import type { AppMetricDef } from '@marinoscar/platform-api/otel-core';
 import type { MetricGroupDef } from '../telemetry/metrics/metric-group.registry';
 
 // =============================================================================
@@ -29,7 +29,7 @@ import type { MetricGroupDef } from '../telemetry/metrics/metric-group.registry'
 //   declare module '../telemetry/metrics/metric-group.registry' {
 //     interface MetricGroupIds { coach: true }
 //   }
-//   declare module '../common/otel/app-metric.registry' {
+//   declare module '@marinoscar/platform-api/otel-core' {
 //     interface AppMetricKeys { coachNudgesSent: true }
 //   }
 //

@@ -1,4 +1,4 @@
-import type { AppMetricDef } from '../otel/app-metric.registry';
+import type { AppMetricDef } from '@marinoscar/platform-api/otel-core';
 import type { EventBusAdapterName } from './event-bus.interface';
 
 // =============================================================================

@@ -137,7 +137,7 @@ describe('app-metric registry', () => {
     jest.dontMock('../../app-registrations/telemetry');
   });
 
-  it.each(['./app-metric.registry', './platform-app-metrics', '../../app-registrations/telemetry'])(
+  it.each(['./platform-app-metrics', '../../app-registrations/telemetry'])(
     '%s loads without app-metrics.service.ts (framework-free leaf)',
     (path) => {
       jest.isolateModules(() => {

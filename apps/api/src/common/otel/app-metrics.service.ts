@@ -2,16 +2,19 @@
 // Application metrics (issue #600, epic A)
 // =============================================================================
 //
-// THE ONE PLACE `apps/api/src` CREATES OPENTELEMETRY INSTRUMENTS. Every
+// THE APP'S TYPED RECORDERS, ON THE PLATFORM'S METRICS HOST. Every
 // business-level number the API exports — queue throughput, backup outcomes,
 // sign-ins, AI usage, notification deliveries — goes through a typed method
-// here, so the metric names, units and attribute keys live in exactly one file
-// and a call site cannot invent a label.
+// here, so a call site cannot invent a label. The instruments themselves are
+// created by `MetricsHostService` (`@marinoscar/platform-api/otel-core`, issue
+// #700) from the app-metric registry; this service keeps the domain half (the
+// recorders below and the Prisma-backed gauges), which moves to its slices
+// later (jobs, db-backup, identity, ai, notifications).
 //
 // ONE SANCTIONED SIBLING: `nodes/node-fleet-metrics.service.ts` (#606) creates
 // the `app.nodes.*` gauges, because its callback needs `NodeOffloadService` and
 // the fleet policy, which this global module cannot import without a cycle. It
-// takes its meter, clock and gate from `gaugeContext()` and its names, units
+// takes its meter, clock and gate from `gaugeContext()` (the host's) and its names, units
 // and descriptions from the app-metric registry (`createRegisteredGauge`), so
 // the conventions still have one owner.
 //
@@ -19,10 +22,11 @@
 // DECLARED IN A REGISTRY (issue #680)
 // -----------------------------------------------------------------------------
 //
-// Every metric is declared in the app-metric registry (`app-metric.registry.ts`):
-// the platform's in `platform-app-metrics.ts`, an app's own in `APP_METRICS`
+// Every metric is declared in the app-metric registry (`appMetricRegistry`,
+// `@marinoscar/platform-api/otel-core`): the platform's in
+// `platform-app-metrics.ts`, an app's own in `APP_METRICS`
 // (`app-registrations/telemetry.ts`), both registered by
-// `app-metric.manifest.ts` (imported below). The constructor creates EVERY
+// `app-metric.manifest.ts` (imported below). The host creates EVERY
 // registered counter and histogram from its declaration. The typed methods
 // below (`jobEnqueued`, `aiUsage`, …) are the platform's call sites; `add` and
 // `record` are the generic ones, and the documented way an app emits its own
@@ -34,15 +38,16 @@
 // -----------------------------------------------------------------------------
 //
 // The meter is `metrics.getMeter('app')` from `@opentelemetry/api`. When
-// `OTEL_ENABLED` is not `true`, `instrumentation.ts` installs no SDK, the
+// `OTEL_ENABLED` is not `true`, `instrumentation.ts` (`initializeOtel()`) installs no SDK, the
 // global MeterProvider is the API's no-op one, and every instrument below is a
 // no-op: a counter `add()` costs a function call. When the SDK IS installed
 // but the `telemetry.enabled` setting is off, instruments still aggregate in
-// memory and the gated exporter drops each batch (`telemetry-gate.ts`).
+// memory and the gated exporter drops each batch (the package's `telemetryGate`).
 //
 // The OBSERVABLE GAUGES are different, because their callbacks query the
-// database. They are registered only when `otel.enabled` (the same
-// `OTEL_ENABLED` switch) is true, and each callback also returns early while
+// database. They are registered through the host's `registerGaugeProvider`,
+// only when `otel.enabled` (the same `OTEL_ENABLED` switch) is true, and each
+// callback also returns early while
 // the runtime gate is closed — so a deployment with telemetry off never pays
 // for a single `SELECT` on this account.
 //
@@ -72,7 +77,8 @@
 //
 // Attributes are job type, status/outcome, executor, provider, model,
 // operation, channel and notification event key — NEVER a user id, an email,
-// a URL or an error message. Every free-form string passes `boundLabel`: it
+// a URL or an error message. Every free-form string passes the host's
+// `boundLabel`: it
 // must look like an identifier (≤ 64 chars of `[A-Za-z0-9_.:/@+-]`, never
 // address-shaped), and each
 // attribute key admits at most `MAX_DISTINCT_VALUES` distinct values per
@@ -90,19 +96,29 @@
 
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  metrics,
-  type Attributes,
-  type BatchObservableResult,
-  type Counter,
-  type Histogram,
-  type Meter,
-  type ObservableGauge,
+import type {
+  Attributes,
+  BatchObservableResult,
+  Counter,
+  Histogram,
+  Meter,
+  ObservableGauge,
 } from '@opentelemetry/api';
+import {
+  appMetricRegistry,
+  createRegisteredGauge as createPlatformRegisteredGauge,
+  enumLabel,
+  METRICS_HOST_OPTIONS,
+  MetricsHostService,
+  nonNegative,
+  UNKNOWN_LABEL,
+  type AppGaugeContext,
+  type AppMetricKeys,
+  type MetricsHostOptions,
+} from '@marinoscar/platform-api/otel-core';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import './app-metric.manifest';
-import { appMetricRegistry, type AppMetricDef, type AppMetricKeys } from './app-metric.registry';
 import {
   AI_STATUS_VALUES,
   AUTH_LOGIN_OUTCOME_VALUES,
@@ -115,33 +131,32 @@ import {
   NOTIFICATION_OUTCOME_VALUES,
   type PlatformAppMetricKey,
 } from './platform-app-metrics';
-import { telemetryGate } from './telemetry-gate';
 
+// The generic half, re-exported so the importers keep one path (issue #700).
 export {
+  APP_METER_NAME,
   APP_METRIC_ATTRIBUTE_KEY_PATTERN,
   APP_METRIC_NAME_PATTERN,
+  MAX_DISTINCT_VALUES,
+  OTHER_LABEL,
+  UNKNOWN_LABEL,
   appMetricRegistry,
   registerAppMetrics,
+  shapeLabel,
+  type AppGaugeContext,
   type AppMetricAttribute,
   type AppMetricDef,
   type AppMetricKeys,
   type AppMetricKind,
-} from './app-metric.registry';
+} from '@marinoscar/platform-api/otel-core';
 
-/** The instrumentation scope every application metric is created under. */
-export const APP_METER_NAME = 'app';
+/**
+ * Optional test seam: an explicit meter, clock and gate. Unprovided in
+ * production. The same token as the package's `METRICS_HOST_OPTIONS`.
+ */
+export const APP_METRICS_OPTIONS = METRICS_HOST_OPTIONS;
 
-/** Optional test seam: an explicit meter, clock and gate. Unprovided in production. */
-export const APP_METRICS_OPTIONS = Symbol('APP_METRICS_OPTIONS');
-
-export interface AppMetricsOptions {
-  meter?: Meter;
-  now?: () => number;
-  /** Whether the runtime export gate is open. Defaults to `telemetryGate.isEnabled()`. */
-  gateOpen?: () => boolean;
-  /** Forces gauge registration on or off. Defaults to the `otel.enabled` config value. */
-  gauges?: boolean;
-}
+export type AppMetricsOptions = MetricsHostOptions;
 
 /** A registered metric's code key: the platform's, or one an app declared (and typed by augmentation). */
 export type AppMetricKey = PlatformAppMetricKey | (keyof AppMetricKeys & string);
@@ -157,17 +172,6 @@ export const APP_METRIC_NAMES: Readonly<Record<AppMetricKey, string>> = Object.f
 
 /** How long one gauge snapshot is reused across collections and callbacks. */
 export const GAUGE_CACHE_TTL_MS = 30_000;
-
-/** Per attribute key, how many distinct free-form values are admitted before `other`. */
-export const MAX_DISTINCT_VALUES = 100;
-
-const MAX_LABEL_LENGTH = 64;
-const LABEL_PATTERN = /^[A-Za-z0-9_.:/@+-]+$/;
-/** `@` is allowed for versioned model ids (`model@20240620`), never for an address. */
-const EMAIL_LIKE = /@[^@]*\./;
-
-export const OTHER_LABEL = 'other';
-export const UNKNOWN_LABEL = 'unknown';
 
 // ---- Enumerated attribute values (declared in `platform-app-metrics.ts`) ----
 
@@ -220,60 +224,9 @@ export interface GaugeSnapshot {
 }
 
 /**
- * The SHAPE half of {@link AppMetricsService.boundLabel}, with no distinct-value
- * budget: `unknown` when empty, `other` when the value is not identifier-shaped
- * (≤ 64 chars of `[A-Za-z0-9_.:/@+-]`, never address-shaped), else the trimmed
- * value. For a label that is functionally dependent on another, already-bounded
- * one (a node's name beside its capped `node_id`), where a per-process budget
- * would only fold real values into `other` without bounding anything.
- */
-export function shapeLabel(value: unknown): string {
-  if (typeof value !== 'string') return UNKNOWN_LABEL;
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return UNKNOWN_LABEL;
-  if (trimmed.length > MAX_LABEL_LENGTH || !LABEL_PATTERN.test(trimmed) || EMAIL_LIKE.test(trimmed)) {
-    return OTHER_LABEL;
-  }
-  return trimmed;
-}
-
-/** What a sibling gauge provider needs to follow this service's conventions. */
-export interface AppGaugeContext {
-  /** The `app` meter. */
-  meter: Meter;
-  now: () => number;
-  /** Whether the runtime export gate is open; a callback queries nothing while it is closed. */
-  gateOpen: () => boolean;
-}
-
-/** A created counter or histogram with its declaration and its enum sets, precomputed. */
-interface RegisteredInstrument {
-  def: AppMetricDef;
-  instrument: Counter | Histogram;
-  enums: ReadonlyMap<string, ReadonlySet<string>>;
-}
-
-function registered(def: AppMetricDef, instrument: Counter | Histogram): RegisteredInstrument {
-  const enums = new Map<string, ReadonlySet<string>>();
-  for (const [key, rule] of Object.entries(def.attributes ?? {})) {
-    if (rule.kind === 'enum') enums.set(key, new Set(rule.values));
-  }
-  return { def, instrument, enums };
-}
-
-/** An enumerated value, or `other`. */
-function enumLabel(value: unknown, allowed: ReadonlySet<string>): string {
-  return typeof value === 'string' && allowed.has(value) ? value : OTHER_LABEL;
-}
-
-/** Non-negative finite number, or `null`. */
-function nonNegative(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-/**
  * Creates the observable gauge DECLARED under `key` in the app-metric registry,
- * with its registered name, unit and description. For gauge providers
+ * with its registered name, unit and description (the package's
+ * `createRegisteredGauge`, typed with this app's keys). For gauge providers
  * (`registerGauges()` below, `NodeFleetMetrics`, an app's own provider): the
  * callback is theirs, the descriptor is the registry's.
  *
@@ -281,27 +234,15 @@ function nonNegative(value: unknown): number | null {
  *   `Error` when the declared metric is not a gauge.
  */
 export function createRegisteredGauge(meter: Meter, key: AppMetricKey): ObservableGauge {
-  const def = appMetricRegistry.require(key);
-  if (def.kind !== 'gauge') throw new Error(`App metric "${key}" is a ${def.kind}, not a gauge.`);
-  return meter.createObservableGauge(def.name, { description: def.description, unit: def.unit });
+  return createPlatformRegisteredGauge(meter, key);
 }
 
 @Injectable()
 export class AppMetricsService implements OnModuleInit {
   private readonly logger = new Logger(AppMetricsService.name);
 
-  private readonly meter: Meter;
-  private readonly now: () => number;
-  private readonly gateOpen: () => boolean;
-  private readonly gaugesForced: boolean | undefined;
-
-  /** Every registered counter and histogram, by code key, created from its declaration. */
-  private readonly instruments = new Map<string, RegisteredInstrument>();
-  /** Keys `add`/`record` were given that name no counter (or histogram) of that kind; each logged once. */
-  private readonly unknownKeys = new Set<string>();
-
-  /** Distinct free-form values admitted so far, per attribute key. */
-  private readonly seen = new Map<string, Set<string>>();
+  /** The platform's metrics host: the meter, the instruments, label bounding, the gauge seam. */
+  private readonly host: MetricsHostService;
 
   private gaugesRegistered = false;
   private snapshotCache: { at: number; value: GaugeSnapshot } | null = null;
@@ -309,33 +250,20 @@ export class AppMetricsService implements OnModuleInit {
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
-    @Optional() private readonly config?: ConfigService,
+    @Optional() config?: ConfigService,
     @Optional() @Inject(APP_METRICS_OPTIONS) options?: AppMetricsOptions,
+    @Optional() host?: MetricsHostService,
   ) {
-    // Resolved at construction, which is after `instrumentation.ts` has run
-    // (`main.ts` imports it first), so this is the SDK's meter when there is
-    // one and the API's no-op meter otherwise.
-    this.meter = options?.meter ?? metrics.getMeter(APP_METER_NAME);
-    this.now = options?.now ?? Date.now;
-    this.gateOpen = options?.gateOpen ?? (() => telemetryGate.isEnabled());
-    this.gaugesForced = options?.gauges;
-
-    // Every registered counter and histogram, platform and app alike, with
-    // exactly its declared name, unit, description and buckets. Gauges are
-    // created by their providers (`createRegisteredGauge`).
-    for (const def of appMetricRegistry.list()) {
-      if (def.kind === 'counter') {
-        const instrument = this.meter.createCounter(def.name, { description: def.description, unit: def.unit });
-        this.instruments.set(def.key, registered(def, instrument));
-      } else if (def.kind === 'histogram') {
-        const instrument = this.meter.createHistogram(def.name, {
-          description: def.description,
-          unit: def.unit,
-          ...(def.buckets ? { advice: { explicitBucketBoundaries: [...def.buckets] } } : {}),
-        });
-        this.instruments.set(def.key, registered(def, instrument));
-      }
-    }
+    // In the application the global `OtelMetricsModule` (imported by
+    // `AppMetricsModule`) injects the one host. A hand-built instance (the
+    // specs, `fallbackAppMetrics()`) gets a host of its own with the same
+    // defaults as before: gauges follow `otel.enabled` unless forced.
+    this.host =
+      host ??
+      new MetricsHostService({
+        ...options,
+        gauges: options?.gauges ?? config?.get<boolean>('otel.enabled') === true,
+      });
   }
 
   onModuleInit(): void {
@@ -497,12 +425,7 @@ export class AppMetricsService implements OnModuleInit {
    * monotonic). Never throws.
    */
   add(key: AppMetricKey | (string & {}), value = 1, attributes?: Record<string, unknown>): void {
-    this.safely(() => {
-      const entry = this.instrumentFor(key, 'counter');
-      const amount = nonNegative(value);
-      if (!entry || amount === null) return;
-      (entry.instrument as Counter).add(amount, this.boundAttributes(entry, attributes));
-    });
+    this.host.add(key, value, attributes);
   }
 
   /**
@@ -511,50 +434,17 @@ export class AppMetricsService implements OnModuleInit {
    * Never throws.
    */
   record(key: AppMetricKey | (string & {}), value: number, attributes?: Record<string, unknown>): void {
-    this.safely(() => {
-      const entry = this.instrumentFor(key, 'histogram');
-      const amount = nonNegative(value);
-      if (!entry || amount === null) return;
-      (entry.instrument as Histogram).record(amount, this.boundAttributes(entry, attributes));
-    });
-  }
-
-  /** The declared attributes of the metric, bounded; every other key dropped. */
-  private boundAttributes(entry: RegisteredInstrument, attributes: Record<string, unknown> | undefined): Attributes {
-    const out: Attributes = {};
-    if (!attributes || typeof attributes !== 'object') return out;
-
-    for (const [key, rule] of Object.entries(entry.def.attributes ?? {})) {
-      if (!Object.prototype.hasOwnProperty.call(attributes, key)) continue;
-      const raw = attributes[key];
-      if (raw === undefined || raw === null) continue;
-      const value = typeof raw === 'number' || typeof raw === 'boolean' ? String(raw) : raw;
-      const allowed = entry.enums.get(key);
-      out[key] = rule.kind === 'enum' && allowed ? enumLabel(value, allowed) : this.boundLabel(key, value);
-    }
-    return out;
-  }
-
-  private instrumentFor(key: string, kind: 'counter' | 'histogram'): RegisteredInstrument | null {
-    const entry = this.instruments.get(key);
-    if (entry && entry.def.kind === kind) return entry;
-
-    if (!this.unknownKeys.has(key)) {
-      this.unknownKeys.add(key);
-      const why = entry ? `is a ${entry.def.kind}` : appMetricRegistry.has(key) ? 'is a gauge' : 'is not registered';
-      this.logger.debug(`Metric "${String(key)}" ${why}; ${kind === 'counter' ? 'add' : 'record'}() ignored.`);
-    }
-    return null;
+    this.host.record(key, value, attributes);
   }
 
   /** A platform counter, by key. */
   private counter(key: PlatformAppMetricKey): Counter {
-    return this.instruments.get(key)!.instrument as Counter;
+    return this.host.counter(key);
   }
 
   /** A platform histogram, by key. */
   private histogram(key: PlatformAppMetricKey): Histogram {
-    return this.instruments.get(key)!.instrument as Histogram;
+    return this.host.histogram(key);
   }
 
   // ===========================================================================
@@ -564,31 +454,16 @@ export class AppMetricsService implements OnModuleInit {
   /**
    * A free-form string as a low-cardinality label: `unknown` when empty,
    * `other` when it does not look like an identifier, is too long, or would be
-   * the `MAX_DISTINCT_VALUES + 1`-th distinct value for `key`.
+   * the `MAX_DISTINCT_VALUES + 1`-th distinct value for `key` (the host's
+   * budget, shared with `add`/`record`).
    */
   boundLabel(key: string, value: unknown): string {
-    const trimmed = shapeLabel(value);
-    if (trimmed === UNKNOWN_LABEL || trimmed === OTHER_LABEL) return trimmed;
-
-    let seen = this.seen.get(key);
-    if (!seen) {
-      seen = new Set();
-      this.seen.set(key, seen);
-    }
-    if (seen.has(trimmed)) return trimmed;
-    if (seen.size >= MAX_DISTINCT_VALUES) return OTHER_LABEL;
-    seen.add(trimmed);
-    return trimmed;
+    return this.host.boundLabel(key, value);
   }
 
   // ===========================================================================
   // Observable gauges
   // ===========================================================================
-
-  /** Whether DB-backed gauges may be registered in this process (`otel.enabled`). */
-  private gaugesEnabled(): boolean {
-    return this.gaugesForced ?? this.config?.get<boolean>('otel.enabled') === true;
-  }
 
   /**
    * The meter, clock and export gate for a SIBLING gauge provider that lives in
@@ -597,30 +472,24 @@ export class AppMetricsService implements OnModuleInit {
    * which case the caller registers nothing. `NodeFleetMetrics` is the reader.
    */
   gaugeContext(): AppGaugeContext | null {
-    if (!this.gaugesEnabled()) return null;
-    return { meter: this.meter, now: this.now, gateOpen: this.gateOpen };
+    return this.host.gaugeContext();
   }
 
   /** Registers the DB-backed gauges once, only when OTel is enabled for this process. */
   registerGauges(): void {
     if (this.gaugesRegistered || !this.prisma) return;
 
-    if (!this.gaugesEnabled()) return;
+    this.gaugesRegistered = this.host.registerGaugeProvider(({ meter }) => {
+      const depth = createRegisteredGauge(meter, 'jobsQueueDepth');
+      const oldest = createRegisteredGauge(meter, 'jobsOldestPendingAge');
+      const lastSuccessAt = createRegisteredGauge(meter, 'backupLastSuccessTimestamp');
+      const lastSuccessSize = createRegisteredGauge(meter, 'backupLastSuccessSize');
 
-    try {
-      const depth = createRegisteredGauge(this.meter, 'jobsQueueDepth');
-      const oldest = createRegisteredGauge(this.meter, 'jobsOldestPendingAge');
-      const lastSuccessAt = createRegisteredGauge(this.meter, 'backupLastSuccessTimestamp');
-      const lastSuccessSize = createRegisteredGauge(this.meter, 'backupLastSuccessSize');
-
-      this.meter.addBatchObservableCallback(
+      meter.addBatchObservableCallback(
         (result) => this.observeGauges(result, { depth, oldest, lastSuccessAt, lastSuccessSize }),
         [depth, oldest, lastSuccessAt, lastSuccessSize],
       );
-      this.gaugesRegistered = true;
-    } catch (error) {
-      this.logger.debug(`Could not register application gauges: ${describe(error)}`);
-    }
+    });
   }
 
   /** The batch callback. Never throws; observes nothing when the snapshot is unavailable. */
@@ -658,15 +527,15 @@ export class AppMetricsService implements OnModuleInit {
    * would leave the process, so nothing is queried) or when the read failed.
    */
   async gaugeSnapshot(): Promise<GaugeSnapshot | null> {
-    if (!this.gateOpen()) return null;
+    if (!this.host.gateOpen()) return null;
 
     const cached = this.snapshotCache;
-    if (cached && this.now() - cached.at < GAUGE_CACHE_TTL_MS) return cached.value;
+    if (cached && this.host.now() - cached.at < GAUGE_CACHE_TTL_MS) return cached.value;
 
     if (!this.snapshotInFlight) {
       this.snapshotInFlight = this.readSnapshot()
         .then((value) => {
-          this.snapshotCache = { at: this.now(), value };
+          this.snapshotCache = { at: this.host.now(), value };
           return value;
         })
         .catch((error: unknown) => {
@@ -694,7 +563,7 @@ export class AppMetricsService implements OnModuleInit {
    */
   private async readSnapshot(): Promise<GaugeSnapshot> {
     const prisma = this.prisma as PrismaService;
-    const takenAt = new Date(this.now());
+    const takenAt = new Date(this.host.now());
 
     const [depthRows, oldestRows, lastBackup] = await Promise.all([
       prisma.job.groupBy({
