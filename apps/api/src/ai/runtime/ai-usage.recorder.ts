@@ -24,6 +24,7 @@
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
+import { resolveOrgId } from '../../organizations/org-scope';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
 import type { AiUsage } from '../core/types/responses.types';
@@ -47,6 +48,14 @@ export type AiUsageUnits = Record<string, number>;
 
 export interface AiUsageRecord {
   userId: string | null;
+  /**
+   * The organization that incurred the call (`ai_usage_events` is under
+   * row-level security, #725). Absent: the single-mode default organization;
+   * in multi mode the row cannot be written and a warning is logged, like any
+   * other failure to record. A deployment-wide event (a catalogue sync) is
+   * written by `AiCatalogService` through the system client instead.
+   */
+  orgId?: string;
   provider: string;
   modelId: string;
   operation: AiUsageOperation;
@@ -90,8 +99,11 @@ export class AiUsageRecorder {
     });
 
     try {
-      await this.prisma.aiUsageEvent.create({
+      const orgId = await resolveOrgId(this.prisma, event.orgId, 'AI usage event');
+
+      await this.prisma.forOrg(orgId, { ...(event.userId ? { userId: event.userId } : {}) }).aiUsageEvent.create({
         data: {
+          orgId,
           userId: event.userId,
           provider: event.provider,
           modelId: event.modelId,

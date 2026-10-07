@@ -60,11 +60,13 @@ import { AiError, aiErrorLogDetails } from '../core/ai-error';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AI_RUN_CANCEL_POLL_MS, AI_RUN_TERMINAL_CODES } from './ai-response-run.handler';
 import { aiRunOperation, type AiRunOperation } from './ai-run-operation';
-import { AI_RUN_SUBJECT_TYPE, AiRunsService } from './ai-runs.service';
+import { AI_RUN_SUBJECT_TYPE, AiRunsService, type AiRunsInOrg } from './ai-runs.service';
 import type { AiRunOutput } from './ai-runtime.types';
 
 export const aiMediaRunPayloadSchema = z.object({
   runId: z.string().uuid(),
+  /** The run's organization (#725). Absent on a job enqueued before it existed. */
+  orgId: z.string().uuid().optional(),
 });
 
 /** What `execute` is handed for one claimed run. */
@@ -72,6 +74,8 @@ export interface AiMediaRunContext {
   job: Job;
   runId: string;
   userId: string;
+  /** The run's organization: scope every read and write of tenant data with it (#725). */
+  orgId: string;
   /** The stored request, still unparsed (`execute` validates it). */
   request: Prisma.JsonValue;
   /** Aborted by the owner's cancel or the run's deadline. */
@@ -128,7 +132,9 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
 
     const { runId } = parsed.data;
     const noun = this.noun;
-    const run = await this.runs.load(runId);
+    const orgId = await this.runs.orgOfJob(job);
+    const runs = this.runs.forOrg(orgId);
+    const run = await runs.load(runId);
 
     if (!run) {
       this.logger.warn(`AI ${noun} run ${runId} no longer exists; job ${job.id} is a no-op`);
@@ -145,16 +151,16 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
     }
 
     if (!run.userId) {
-      await this.runs.fail(runId, 'AI_KEY_REQUIRED', 'The user who started this run no longer exists.');
+      await runs.fail(runId, 'AI_KEY_REQUIRED', 'The user who started this run no longer exists.');
       return;
     }
 
     if (!this.operations.includes(aiRunOperation(run.request))) {
-      await this.runs.fail(runId, 'AI_INVALID_REQUEST', `This run is not a ${noun} run.`);
+      await runs.fail(runId, 'AI_INVALID_REQUEST', `This run is not a ${noun} run.`);
       return;
     }
 
-    if (!resuming && !(await this.runs.claim(runId, job.id))) {
+    if (!resuming && !(await runs.claim(runId, job.id))) {
       this.logger.log(`AI ${noun} run ${runId} changed state before it could start; job ${job.id} is a no-op`);
       return;
     }
@@ -168,7 +174,7 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
       controller.abort(new Error(`AI ${noun} run timed out`));
     }, deadlineMs);
     const poll = setInterval(() => {
-      void this.runs
+      void runs
         .isCancelled(runId)
         .then((cancelled) => {
           if (cancelled) controller.abort(new Error('AI run cancelled'));
@@ -187,10 +193,11 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
           job,
           runId,
           userId: run.userId,
+          orgId,
           request: run.request,
           signal: controller.signal,
           cancelledWhileRunning: async () =>
-            controller.signal.aborted && !timedOut && (await this.runs.isCancelled(runId)),
+            controller.signal.aborted && !timedOut && (await runs.isCancelled(runId)),
         });
       } catch (err) {
         throw aiErrorFromStorage(err) ?? err;
@@ -201,12 +208,12 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
         return;
       }
 
-      if (!(await this.runs.complete(runId, result.output))) {
+      if (!(await runs.complete(runId, result.output))) {
         this.logger.log(`AI ${noun} run ${runId} was cancelled while it ran; its output is discarded`);
         await result.discard?.();
       }
     } catch (err) {
-      await this.settleFailure(job, runId, err, controller.signal.aborted, timedOut, deadlineMs);
+      await this.settleFailure(runs, job, runId, err, controller.signal.aborted, timedOut, deadlineMs);
     } finally {
       clearTimeout(deadline);
       clearInterval(poll);
@@ -220,11 +227,9 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
     if (event.subjectType !== AI_RUN_SUBJECT_TYPE || !event.subjectId) return;
 
     try {
-      await this.runs.fail(
-        event.subjectId,
-        'AI_PROVIDER_UNAVAILABLE',
-        `The background job ended before the ${this.noun} run completed.`,
-      );
+      await this.runs
+        .forOrg(await this.runs.orgOfJob(event.job))
+        .fail(event.subjectId, 'AI_PROVIDER_UNAVAILABLE', `The background job ended before the ${this.noun} run completed.`);
     } catch (error) {
       this.logger.warn(
         `Could not mark AI ${this.noun} run ${event.subjectId} failed after job ${event.jobId} settled: ` +
@@ -234,6 +239,7 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
   }
 
   private async settleFailure(
+    runs: AiRunsInOrg,
     job: Job,
     runId: string,
     err: unknown,
@@ -241,13 +247,13 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
     timedOut: boolean,
     deadlineMs: number,
   ): Promise<void> {
-    if (aborted && !timedOut && (await this.runs.isCancelled(runId))) {
+    if (aborted && !timedOut && (await runs.isCancelled(runId))) {
       this.logger.log(`AI ${this.noun} run ${runId} cancelled by its owner (job ${job.id})`);
       return;
     }
 
     if (timedOut) {
-      await this.runs.fail(runId, 'AI_PROVIDER_UNAVAILABLE', `The AI ${this.noun} run timed out.`);
+      await runs.fail(runId, 'AI_PROVIDER_UNAVAILABLE', `The AI ${this.noun} run timed out.`);
       throw new Error(`AI ${this.noun} run ${runId} exceeded its ${deadlineMs}ms deadline`);
     }
 
@@ -255,12 +261,12 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
     const rateLimit = error.toRateLimitError();
 
     if (rateLimit) {
-      await this.runs.release(runId);
+      await runs.release(runId);
       throw rateLimit;
     }
 
     if (AI_RUN_TERMINAL_CODES.has(error.code)) {
-      await this.runs.fail(runId, error.code, error.message);
+      await runs.fail(runId, error.code, error.message);
       // The provider's safe metadata (status, code, request id) says WHY a
       // terminal failure happened; `aiErrorLogDetails` redacts and caps it.
       const details = aiErrorLogDetails(error);
@@ -273,13 +279,13 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
     const attempt = typeof job.attempts === 'number' ? job.attempts : this.profile.maxAttempts;
 
     if (attempt < this.profile.maxAttempts) {
-      await this.runs.release(runId);
+      await runs.release(runId);
       this.logger.warn(
         `AI ${this.noun} run ${runId} failed with ${error.code} on attempt ${attempt}/${this.profile.maxAttempts}; ` +
           'the job will retry it',
       );
     } else {
-      await this.runs.fail(runId, error.code, error.message);
+      await runs.fail(runId, error.code, error.message);
     }
 
     // The error that says what really happened, for the job's `lastError`.

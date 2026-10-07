@@ -127,6 +127,7 @@ import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import { resolveServiceName } from '../../common/otel/telemetry-identity';
 import { userAiSettingsSchema } from '../../common/schemas/settings.schema';
 import { PrismaService } from '../../prisma/prisma.service';
+import { resolveOrgId } from '../../organizations/org-scope';
 import { AiConfigService, providerCallSettings } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
 import type { AiCapability } from '../core/capabilities';
@@ -397,6 +398,15 @@ export interface AiUserClient {
 /** Internal: who a client acts for, and under which job (for usage rows). */
 export interface AiClientScope {
   userId: string;
+  /**
+   * The organization the call runs in (issue #725): `principal.activeOrgId` for
+   * an HTTP call, the job payload's `orgId` for a background run. Resolved to
+   * the single-mode default organization on first use when absent (a caller
+   * that predates organizations); in multi mode an absent organization is an
+   * error, never a guess. `ai_runs`, `ai_usage_events` and the storage objects
+   * a call reads or writes are all under row-level security.
+   */
+  orgId?: string;
   jobId?: string;
   /** The background run being executed — names the folder its outputs are stored in. */
   runId?: string;
@@ -496,6 +506,8 @@ export interface PreparedAiRealtimeCall extends AiCallTarget {
 
 /** `executeImageRun`'s (and the audio runs') options. */
 export interface AiImageRunExecutionOptions extends AiCallOptions {
+  /** The organization the run belongs to: the job payload's `orgId` (#725). */
+  orgId?: string;
   /** The job the round-trip is incurred under, for its usage row. */
   jobId?: string;
   /**
@@ -508,6 +520,8 @@ export interface AiImageRunExecutionOptions extends AiCallOptions {
 
 interface PrepareOptions {
   streaming: boolean;
+  /** The organization stored inputs are read in (row-level security); absent: the single-mode default. */
+  orgId?: string;
 }
 
 /** How one round-trip ended, for its usage row and span. */
@@ -548,8 +562,8 @@ export class AiService {
    * `jobId` is internal plumbing for the background-run handler, so its
    * usage rows name the job they were incurred under.
    */
-  forUser(userId: string, scope: { jobId?: string; runId?: string } = {}): AiUserClient {
-    const bound: AiClientScope = { userId, jobId: scope.jobId, runId: scope.runId };
+  forUser(userId: string, scope: { orgId?: string; jobId?: string; runId?: string } = {}): AiUserClient {
+    const bound: AiClientScope = { userId, orgId: scope.orgId, jobId: scope.jobId, runId: scope.runId };
 
     return {
       userId,
@@ -573,10 +587,25 @@ export class AiService {
     };
   }
 
+  /**
+   * The organization this call runs in: the scope's own, else (single tenancy)
+   * the default organization, else a `MissingOrgScopeError` (multi tenancy).
+   * Memoised on the scope, so one call resolves it once.
+   */
+  private async orgOf(scope: AiClientScope): Promise<string> {
+    scope.orgId ??= await resolveOrgId(
+      this.prisma,
+      scope.orgId,
+      scope.jobId ? `AI call under job ${scope.jobId}` : `AI call for user ${scope.userId}`,
+    );
+
+    return scope.orgId;
+  }
+
   // ---- respond ----------------------------------------------------------------
 
   private async respond(scope: AiClientScope, req: AiRequest, opts: AiCallOptions = {}): Promise<AiResponse> {
-    const call = await this.prepare(scope.userId, req, { streaming: false });
+    const call = await this.prepare(scope.userId, req, { streaming: false, orgId: await this.orgOf(scope) });
 
     return this.invoke(scope, call, opts);
   }
@@ -603,10 +632,12 @@ export class AiService {
       throw new AiError('AI_INVALID_REQUEST', 'Background AI runs are disabled in this deployment.');
     }
 
-    const call = await this.prepare(scope.userId, req, { streaming: false });
+    const orgId = await this.orgOf(scope);
+    const call = await this.prepare(scope.userId, req, { streaming: false, orgId });
 
     return this.runs.create({
       userId: scope.userId,
+      orgId,
       provider: call.provider,
       modelId: call.request.model,
       // Named fields only, and never a key — see `ai-run-request.ts`.
@@ -660,6 +691,7 @@ export class AiService {
     return new AiHostedOutputSettler(
       {
         userId: scope.userId,
+        ...(scope.orgId ? { orgId: scope.orgId } : {}),
         ...(scope.jobId ? { jobId: scope.jobId } : {}),
         ...(scope.runId ? { runId: scope.runId } : {}),
       },
@@ -700,6 +732,7 @@ export class AiService {
 
       const [stored] = await this.outputs.write({
         userId: owner.userId,
+        orgId: owner.orgId ?? (await this.orgOf({ userId: owner.userId, jobId: owner.jobId })),
         runId: folder,
         files: [{ data: image.data, mimeType: image.mimeType }],
         namePrefix: 'ai-image',
@@ -794,10 +827,12 @@ export class AiService {
     operation: AiImageOperation,
     req: AiGenerateImageRequest | AiEditImageRequest,
   ): Promise<AiRunHandle> {
-    const call = await this.prepareImage(scope.userId, operation, req);
+    const orgId = await this.orgOf(scope);
+    const call = await this.prepareImage(scope.userId, operation, req, orgId);
 
     return this.runs.create({
       userId: scope.userId,
+      orgId,
       provider: call.provider,
       modelId: call.modelId,
       request: call.stored,
@@ -816,7 +851,7 @@ export class AiService {
     stored: StoredAiImageRunRequest,
     opts: AiImageRunExecutionOptions = {},
   ): Promise<AiImageResult> {
-    const scope: AiClientScope = { userId, jobId: opts.jobId };
+    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId };
     const edit = stored.operation === 'images.edit';
     const call = await this.prepareImage(userId, stored.operation, {
       ...toImageGenerationRequest(stored),
@@ -827,7 +862,7 @@ export class AiService {
             ...(stored.maskStorageObjectId ? { maskStorageObjectId: stored.maskStorageObjectId } : {}),
           }
         : {}),
-    });
+    }, await this.orgOf(scope));
 
     await opts.beforeCall?.();
 
@@ -871,10 +906,12 @@ export class AiService {
   // ---- transcription ------------------------------------------------------------------
 
   private async startTranscriptionRun(scope: AiClientScope, req: AiTranscribeRequest): Promise<AiRunHandle> {
-    const call = await this.prepareTranscription(scope.userId, req);
+    const orgId = await this.orgOf(scope);
+    const call = await this.prepareTranscription(scope.userId, req, orgId);
 
     return this.runs.create({
       userId: scope.userId,
+      orgId,
       provider: call.provider,
       modelId: call.modelId,
       request: call.stored,
@@ -893,13 +930,13 @@ export class AiService {
     stored: StoredAiTranscriptionRunRequest,
     opts: AiImageRunExecutionOptions = {},
   ): Promise<AiTranscriptionResult> {
-    const scope: AiClientScope = { userId, jobId: opts.jobId };
+    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId };
     const call = await this.prepareTranscription(userId, {
       storageObjectId: stored.storageObjectId,
       provider: stored.provider,
       model: stored.model,
       ...transcriptionFields(stored),
-    });
+    }, await this.orgOf(scope));
 
     await opts.beforeCall?.();
 
@@ -973,10 +1010,12 @@ export class AiService {
   // ---- speech -------------------------------------------------------------------------
 
   private async startSpeechRun(scope: AiClientScope, req: AiSpeakRequest): Promise<AiRunHandle> {
+    const orgId = await this.orgOf(scope);
     const call = await this.prepareSpeech(scope.userId, req);
 
     return this.runs.create({
       userId: scope.userId,
+      orgId,
       provider: call.provider,
       modelId: call.modelId,
       request: call.stored,
@@ -995,7 +1034,7 @@ export class AiService {
     stored: StoredAiSpeechRunRequest,
     opts: AiImageRunExecutionOptions = {},
   ): Promise<AiSpeechResult> {
-    const scope: AiClientScope = { userId, jobId: opts.jobId };
+    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId };
     const call = await this.prepareSpeech(userId, {
       input: stored.input,
       voice: stored.voice,
@@ -1051,7 +1090,7 @@ export class AiService {
     req: AiRequest,
     opts: AiCallOptions = {},
   ): Promise<AsyncIterable<AiStreamEvent>> {
-    const call = await this.prepare(scope.userId, req, { streaming: true });
+    const call = await this.prepare(scope.userId, req, { streaming: true, orgId: await this.orgOf(scope) });
     const storageInputs = await this.materializeStorageInputs(call);
     const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request), storageInputs);
     const tracker = this.track(scope, call, keySource, 'responses.stream');
@@ -1186,6 +1225,7 @@ export class AiService {
 
         await this.usage.record({
           userId: scope.userId,
+          ...(scope.orgId ? { orgId: scope.orgId } : {}),
           provider: call.provider,
           modelId: call.modelId,
           operation: TRACKED_OPERATIONS[operation],
@@ -1258,7 +1298,7 @@ export class AiService {
     }
 
     // 4b. Storage-object inputs: ownership, readiness, modality, size, strategy.
-    const storageInputs = await this.planStorageInputs(userId, provider, model, usable, req.input);
+    const storageInputs = await this.planStorageInputs(userId, provider, model, usable, req.input, opts.orgId);
 
     // 5. Clamp output tokens: the deployment cap and the model's own
     // `ai.limits.perModel` cap (#450) combine — the smaller wins — and bound
@@ -1351,6 +1391,7 @@ export class AiService {
     userId: string,
     operation: AiImageOperation,
     req: AiGenerateImageRequest | AiEditImageRequest,
+    orgId?: string,
   ): Promise<PreparedAiImageCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
@@ -1390,6 +1431,7 @@ export class AiService {
             mimeTypes: AI_IMAGE_INPUT_MIME_TYPES,
             maxBytes: AI_IMAGE_INPUT_MAX_BYTES,
             label: 'image',
+            ...(orgId ? { orgId } : {}),
           }),
         );
       }
@@ -1399,6 +1441,7 @@ export class AiService {
           mimeTypes: AI_IMAGE_MASK_MIME_TYPES,
           maxBytes: AI_IMAGE_INPUT_MAX_BYTES,
           label: 'mask',
+          ...(orgId ? { orgId } : {}),
         });
       }
     }
@@ -1448,6 +1491,7 @@ export class AiService {
     model: string,
     usable: UsableAiModel,
     input: AiResponseRequest['input'],
+    orgId?: string,
   ): Promise<PlannedStorageInput[]> {
     const parts = storageParts(input);
 
@@ -1486,7 +1530,7 @@ export class AiService {
       let plan = planned.get(id);
 
       if (!plan) {
-        const resolved = await this.inputs.resolve(userId, id, { label: part.type });
+        const resolved = await this.inputs.resolve(userId, id, { label: part.type, ...(orgId ? { orgId } : {}) });
         const modality = storageInputModality(resolved.mimeType);
         const maxBytes = storageInputMaxBytes(modality);
 
@@ -1581,7 +1625,11 @@ export class AiService {
    * audio (or MP4/WebM video) type, and the port's size limit — from its row
    * alone. Decrypts nothing and reads no bytes.
    */
-  async prepareTranscription(userId: string, req: AiTranscribeRequest): Promise<PreparedAiTranscriptionCall> {
+  async prepareTranscription(
+    userId: string,
+    req: AiTranscribeRequest,
+    orgId?: string,
+  ): Promise<PreparedAiTranscriptionCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
 
@@ -1611,6 +1659,7 @@ export class AiService {
       mimeTypes: AI_TRANSCRIPTION_INPUT_MIME_TYPES,
       maxBytes,
       label: 'audio',
+      ...(orgId ? { orgId } : {}),
     });
 
     const policy = await this.aiConfig.resolve();
@@ -1834,11 +1883,13 @@ export class AiService {
     }
 
     const { apiKey, keySource } = await this.keyResolver.resolve(scope.userId, call.provider);
+    const orgId = await this.orgOf(scope);
 
     // 6b. Rate limits (#450) — here because the org-key limits need to know
     // whose key pays. A refusal records no usage row: nothing was sent.
     await this.limits.enforce({
       userId: scope.userId,
+      orgId,
       provider: call.provider,
       modelId: call.modelId,
       keySource,

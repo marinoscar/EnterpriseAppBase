@@ -26,7 +26,7 @@ import type { Job } from '@prisma/client';
 import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
 
 /** The job type. PERMANENT once rows of it exist. */
@@ -55,7 +55,9 @@ export class AiUsagePurgeHandler implements JobHandler, OnModuleInit {
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly prisma: PrismaService,
+    // Retention spans every organization (row-level security, #725): the
+    // SYSTEM client, reason `retention`.
+    private readonly prisma: PrismaSystemService,
     private readonly systemSettings: SystemSettingsService,
   ) {}
 
@@ -72,7 +74,7 @@ export class AiUsagePurgeHandler implements JobHandler, OnModuleInit {
     let batches = 0;
 
     for (; batches < AI_USAGE_PURGE_MAX_BATCHES; batches += 1) {
-      const rows = await this.prisma.aiUsageEvent.findMany({
+      const rows = await this.prisma.asSystem('retention').aiUsageEvent.findMany({
         where: { createdAt: { lt: cutoff } },
         select: { id: true },
         orderBy: { createdAt: 'asc' },
@@ -82,7 +84,7 @@ export class AiUsagePurgeHandler implements JobHandler, OnModuleInit {
       if (rows.length === 0) break;
 
       // By the exact ids read, never by re-running the `where`.
-      const result = await this.prisma.aiUsageEvent.deleteMany({
+      const result = await this.prisma.asSystem('retention').aiUsageEvent.deleteMany({
         where: { id: { in: rows.map((row) => row.id) } },
       });
 

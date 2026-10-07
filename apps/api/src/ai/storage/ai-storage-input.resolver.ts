@@ -38,6 +38,7 @@ import { Readable, Transform } from 'node:stream';
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { resolveOrgId } from '../../organizations/org-scope';
 import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/providers/storage-provider.interface';
 import { mimeTypeMatches, normaliseMimeType } from '../../storage/mime-type-match';
 import { AiError } from '../core/ai-error';
@@ -56,6 +57,12 @@ export interface AiStorageInputConstraints {
   maxBytes?: number;
   /** How the input is named in error messages, e.g. `'image'` or `'mask'`. */
   label?: string;
+  /**
+   * The organization the object is read in (`storage_objects` is under
+   * row-level security, #725): another organization's object is "not found".
+   * Absent: the single-mode default organization; in multi mode, an error.
+   */
+  orgId?: string;
 }
 
 /** `AiStorageInputResolver.openCapped`'s answer. */
@@ -98,8 +105,11 @@ export class AiStorageInputResolver {
     objectId: string,
     constraints: AiStorageInputConstraints = {},
   ): Promise<AiStorageInput> {
-    const row = UUID.test(objectId)
-      ? await this.prisma.storageObject.findUnique({
+    const orgId = UUID.test(objectId)
+      ? await resolveOrgId(this.prisma, constraints.orgId, `AI storage input ${objectId}`)
+      : undefined;
+    const row = orgId
+      ? await this.prisma.forOrg(orgId, { userId }).storageObject.findUnique({
           where: { id: objectId },
           select: { id: true, name: true, mimeType: true, size: true, storageKey: true, status: true, uploadedById: true },
         })

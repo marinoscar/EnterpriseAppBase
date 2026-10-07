@@ -89,6 +89,8 @@ const KEY_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,99}$/;
 export interface AiOutputWriteOptions {
   /** Owner of the new objects (and the first key segment). */
   userId: string;
+  /** The organization the objects belong to (`storage_objects` is under row-level security, #725). */
+  orgId: string;
   /** The run the files belong to (the second key segment). */
   runId: string;
   files: AiOutputFile[];
@@ -150,8 +152,9 @@ export class AiOutputWriter {
         });
 
         try {
-          const row = await this.prisma.storageObject.create({
+          const row = await this.prisma.forOrg(opts.orgId, { userId: opts.userId }).storageObject.create({
             data: {
+              orgId: opts.orgId,
               name,
               size: BigInt(bytes.length),
               mimeType: file.mimeType,
@@ -172,7 +175,7 @@ export class AiOutputWriter {
         }
       }
     } catch (err) {
-      await this.removeAll(stored);
+      await this.removeAll(stored, opts.orgId);
       throw err;
     }
 
@@ -180,27 +183,35 @@ export class AiOutputWriter {
   }
 
   /** Deletes objects this writer stored (a run cancelled after its files were written). Best effort. */
-  async discard(storageObjectIds: string[]): Promise<void> {
+  async discard(storageObjectIds: string[], orgId: string): Promise<void> {
     if (storageObjectIds.length === 0) return;
 
     try {
-      const rows = await this.prisma.storageObject.findMany({
+      const rows = await this.prisma.forOrg(orgId).storageObject.findMany({
         where: { id: { in: storageObjectIds } },
         select: { id: true, storageKey: true },
       });
 
-      await this.removeAll(rows.map((row) => ({ storageObjectId: row.id, storageKey: row.storageKey })));
+      await this.removeAll(
+        rows.map((row) => ({ storageObjectId: row.id, storageKey: row.storageKey })),
+        orgId,
+      );
     } catch (err) {
       this.logger.warn(`Could not discard AI outputs: ${describe(err)}`);
     }
   }
 
-  private async removeAll(items: Array<{ storageObjectId: string; storageKey: string }>): Promise<void> {
+  private async removeAll(
+    items: Array<{ storageObjectId: string; storageKey: string }>,
+    orgId: string,
+  ): Promise<void> {
+    const db = this.prisma.forOrg(orgId);
+
     for (const item of items) {
       await this.deleteKey(item.storageKey);
 
       try {
-        await this.prisma.storageObject.delete({ where: { id: item.storageObjectId } });
+        await db.storageObject.delete({ where: { id: item.storageObjectId } });
       } catch (err) {
         this.logger.warn(`Could not delete AI output row ${item.storageObjectId}: ${describe(err)}`);
       }

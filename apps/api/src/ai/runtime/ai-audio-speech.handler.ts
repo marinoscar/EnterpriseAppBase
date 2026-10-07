@@ -74,6 +74,7 @@ export class AiAudioSpeechHandler extends AiMediaRunHandler {
   protected async execute(ctx: AiMediaRunContext): Promise<AiMediaRunResult | null> {
     const stored = parseStoredSpeechRunRequest(ctx.request);
     const result = await this.ai.executeSpeechRun(ctx.userId, stored, {
+      orgId: ctx.orgId,
       jobId: ctx.job.id,
       signal: ctx.signal,
       beforeCall: () => this.outputs.assertWritable(),
@@ -81,15 +82,16 @@ export class AiAudioSpeechHandler extends AiMediaRunHandler {
 
     if (await ctx.cancelledWhileRunning()) return null;
 
-    const file = await this.store(ctx.userId, ctx.runId, stored, result);
+    const file = await this.store(ctx.userId, ctx.orgId, ctx.runId, stored, result);
     const output = toRunOutput(stored, result, file);
 
-    return { output, discard: () => this.outputs.discard([file.storageObjectId]) };
+    return { output, discard: () => this.outputs.discard([file.storageObjectId], ctx.orgId) };
   }
 
   /** The audio as one storage object the user owns. Any failure here is a storage outcome. */
   private async store(
     userId: string,
+    orgId: string,
     runId: string,
     stored: StoredAiSpeechRunRequest,
     result: AiSpeechResult,
@@ -99,6 +101,7 @@ export class AiAudioSpeechHandler extends AiMediaRunHandler {
     try {
       const [file] = await this.outputs.write({
         userId,
+        orgId,
         runId,
         files: [
           {

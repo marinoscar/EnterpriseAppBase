@@ -93,6 +93,8 @@ export type AiLimitName =
 /** One call about to be made, after its key was resolved. */
 export interface AiLimitCall {
   userId: string;
+  /** The organization whose usage rows are counted (`ai_usage_events` is under row-level security, #725). */
+  orgId: string;
   provider: string;
   modelId: string;
   keySource: AiKeySource;
@@ -247,13 +249,13 @@ export class AiLimitsService {
       createdAt: { gt: new Date(now - AI_LIMIT_MINUTE_MS) },
       ...(window.model ? { provider: window.model.provider, modelId: window.model.modelId } : {}),
     };
-    const count = await this.prisma.aiUsageEvent.count({ where });
+    const count = await this.prisma.forOrg(call.orgId).aiUsageEvent.count({ where });
 
     if (count < window.max) return;
 
     // The call that must leave the window for one more to fit is the
     // (count - max + 1)-th oldest. Read only on the refusal path.
-    const [boundary] = await this.prisma.aiUsageEvent.findMany({
+    const [boundary] = await this.prisma.forOrg(call.orgId).aiUsageEvent.findMany({
       where,
       orderBy: { createdAt: 'asc' },
       skip: count - window.max,
@@ -317,14 +319,14 @@ export class AiLimitsService {
     let used: number;
 
     if (window.tokens) {
-      const sums = await this.prisma.aiUsageEvent.aggregate({
+      const sums = await this.prisma.forOrg(call.orgId).aiUsageEvent.aggregate({
         where,
         _sum: { inputTokens: true, outputTokens: true },
       });
 
       used = (sums._sum.inputTokens ?? 0) + (sums._sum.outputTokens ?? 0);
     } else {
-      used = await this.prisma.aiUsageEvent.count({ where });
+      used = await this.prisma.forOrg(call.orgId).aiUsageEvent.count({ where });
     }
 
     if (used < window.max) return;

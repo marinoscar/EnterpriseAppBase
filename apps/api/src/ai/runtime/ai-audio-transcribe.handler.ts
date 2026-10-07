@@ -64,6 +64,7 @@ export class AiAudioTranscribeHandler extends AiMediaRunHandler {
   protected async execute(ctx: AiMediaRunContext): Promise<AiMediaRunResult | null> {
     const stored = parseStoredTranscriptionRunRequest(ctx.request);
     const result = await this.ai.executeTranscriptionRun(ctx.userId, stored, {
+      orgId: ctx.orgId,
       jobId: ctx.job.id,
       signal: ctx.signal,
     });

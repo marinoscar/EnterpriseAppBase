@@ -3,6 +3,7 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -86,12 +87,13 @@ export class AiEmbeddingsController {
   async embed(
     @Body() dto: AiEmbeddingsRequestDto,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<AiEmbeddingsHttpResponse> {
     const disconnect = abortOnDisconnect(reply.raw);
 
     try {
-      const result = await this.ai.forUser(userId).embed(toEmbedRequest(dto), { signal: disconnect.signal });
+      const result = await this.ai.forUser(userId, { orgId }).embed(toEmbedRequest(dto), { signal: disconnect.signal });
 
       return {
         provider: result.provider,
