@@ -1,12 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 
-import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { PrismaService } from '../../prisma/prisma.service';
-import { AuthService } from '../auth.service';
-import { AuthProvidersDoctorCheck } from './auth-providers.doctor-check';
-import { InitialAdminDoctorCheck, decideInitialAdmin } from './initial-admin.doctor-check';
-import { JwtSecretDoctorCheck, decideJwtSecret } from './jwt-secret.doctor-check';
+import { DoctorCheckOutcome } from '../../../../src/doctor/index';
+import { DoctorCheckRegistry } from '../../../../src/doctor/index';
+import { PrismaService } from '../../support/app-doubles';
+import { AuthService } from '../../../../src/identity/auth/auth.service';
+import { AuthProvidersDoctorCheck } from '../../../../src/identity/auth/doctor/auth-providers.doctor-check';
+import { InitialAdminDoctorCheck, decideInitialAdmin } from '../../../../src/identity/auth/doctor/initial-admin.doctor-check';
+import { JwtSecretDoctorCheck, decideJwtSecret } from '../../../../src/identity/auth/doctor/jwt-secret.doctor-check';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
   expect(['warn', 'fail']).toContain(outcome.status);

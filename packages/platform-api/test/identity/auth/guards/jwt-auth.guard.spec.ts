@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { JwtAuthGuard, NODE_ROUTE_PREFIX } from './jwt-auth.guard';
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
-import { authCredentialOf } from '../decorators/auth-credential.decorator';
-import { PatService } from '../../pat/pat.service';
-import { NodeCredentialService } from '../../nodes/node-credential.service';
+import { JwtAuthGuard, NODE_ROUTE_PREFIX } from '../../../../src/identity/auth/guards/jwt-auth.guard';
+import { IS_PUBLIC_KEY } from '../../../../src/identity/auth/decorators/public.decorator';
+import { authCredentialOf } from '../../../../src/identity/auth/decorators/auth-credential.decorator';
+import { PatService } from '../../../../src/identity/pat/pat.service';
+import { NodeCredentialService } from '../../support/app-doubles';
 
 describe('JwtAuthGuard', () => {
   let guard: JwtAuthGuard;

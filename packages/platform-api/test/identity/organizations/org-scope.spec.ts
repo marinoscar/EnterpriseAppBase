@@ -1,5 +1,5 @@
-import { recordTenancyMode } from '../auth/tenancy-mode';
-import { MissingOrgScopeError, orgIdFromPayload, resolveJobOrgId, resolveOrgId } from './org-scope';
+import { recordTenancyMode } from '../../../src/identity/auth/tenancy-mode';
+import { MissingOrgScopeError, orgIdFromPayload, resolveJobOrgId, resolveOrgId } from '../../../src/identity/organizations/org-scope';
 
 // =============================================================================
 // Resolving the organization tenant work runs in (issue #725)

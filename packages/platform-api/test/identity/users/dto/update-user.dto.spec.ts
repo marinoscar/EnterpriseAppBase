@@ -1,4 +1,4 @@
-import { updateUserSchema } from './update-user.dto';
+import { updateUserSchema } from '../../../../src/identity/users/dto/update-user.dto';
 
 describe('UpdateUserDto', () => {
   describe('displayName field', () => {

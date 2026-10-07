@@ -1,22 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotificationsService } from '../notifications/notifications.service';
+import { identityUserPorts, NotificationsService, notifierProvider, NOTIFY_MOCK } from '../support/app-doubles';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
-import { AuthLoginDeniedException } from './auth-error-codes';
-import { AuthService } from './auth.service';
-import { GoogleProfile } from './strategies/google.strategy';
-import { PrismaService } from '../prisma/prisma.service';
-import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
-import { AllowlistService } from '../allowlist/allowlist.service';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { AppMetricsService } from '../common/otel/app-metrics.service';
-import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
-import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from './principal-cache/principal-cache.service';
-import { OrganizationsService } from '../organizations/organizations.service';
-import { TenancyService } from '../organizations/tenancy.service';
-import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
+import { AuthLoginDeniedException } from '../../../src/identity/auth/auth-error-codes';
+import { AuthService } from '../../../src/identity/auth/auth.service';
+import { GoogleProfile } from '../../../src/identity/auth/strategies/google.strategy';
+import { PrismaService } from '../support/app-doubles';
+import { AdminBootstrapService } from '../../../src/identity/auth/admin-bootstrap.service';
+import { AllowlistService } from '../../../src/identity/allowlist/allowlist.service';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { AppMetricsService } from '../support/app-doubles';
+import { EVENT_BUS } from '../support/app-doubles';
+import { InProcessEventBus } from '../support/app-doubles';
+import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import { OrganizationsService } from '../../../src/identity/organizations/organizations.service';
+import { TenancyService } from '../../../src/identity/organizations/tenancy.service';
+import { DefaultOrganizationMissingException } from '../../../src/identity/organizations/organizations.errors';
 
 const DEFAULT_ORG = { id: 'org-default', name: 'Default organization', slug: 'default', isDefault: true };
 
@@ -79,6 +79,7 @@ describe('AuthService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        ...identityUserPorts, notifierProvider,
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwtService },
@@ -107,7 +108,7 @@ describe('AuthService', () => {
         // and a failing provider in
         // notifications/notification-failure-containment.spec.ts.
         {
-          provide: NotificationsService,
+          provide: NOTIFY_MOCK,
           useValue: (mockNotifications = {
             notify: jest.fn().mockResolvedValue(undefined),
             notifyAddress: jest.fn().mockResolvedValue(undefined),

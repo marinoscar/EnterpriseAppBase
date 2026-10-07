@@ -1,9 +1,9 @@
-import type { EventBus, EventBusHealth } from '../../common/event-bus/event-bus.interface';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import type { EventBus, EventBusHealth } from '../../support/app-doubles';
+import { DoctorCheckRegistry } from '../../../../src/doctor/index';
 import { ConfigService } from '@nestjs/config';
 
-import { PrincipalCache, type PrincipalCacheStats } from '../principal-cache/principal-cache.service';
-import { decidePrincipalCache, PrincipalCacheDoctorCheck } from './principal-cache.doctor-check';
+import { PrincipalCache, type PrincipalCacheStats } from '../../../../src/identity/auth/principal-cache/principal-cache.service';
+import { decidePrincipalCache, PrincipalCacheDoctorCheck } from '../../../../src/identity/auth/doctor/principal-cache.doctor-check';
 
 const STATS: PrincipalCacheStats = { size: 3, hits: 40, misses: 5, invalidations: 2 };
 

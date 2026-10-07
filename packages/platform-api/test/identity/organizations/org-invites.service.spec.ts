@@ -1,11 +1,12 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { NotificationsService } from '../notifications/notifications.service';
-import type { AppMetricsService } from '../common/otel/app-metrics.service';
-import { OrgInvitesService, ORG_INVITE_AUDIT, ORG_INVITE_TTL_DAYS } from './org-invites.service';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import type { PrismaService } from '../support/app-doubles';
+import { notifierFromNotify } from '../support/app-doubles';
+import type { NotificationsService } from '../support/app-doubles';
+import type { AppMetricsService } from '../support/app-doubles';
+import { OrgInvitesService, ORG_INVITE_AUDIT, ORG_INVITE_TTL_DAYS } from '../../../src/identity/organizations/org-invites.service';
 
 const ORG = 'org-a';
 const ACTOR = 'user-actor';
@@ -57,7 +58,7 @@ describe('OrgInvitesService (#726)', () => {
     const config = { get: jest.fn((key: string) => (key === 'appUrl' ? 'https://app.example.com' : undefined)) };
     service = new OrgInvitesService(
       prisma as unknown as PrismaService,
-      notifications as unknown as NotificationsService,
+      notifierFromNotify(notifications),
       config as unknown as ConfigService,
       metrics as unknown as AppMetricsService,
     );

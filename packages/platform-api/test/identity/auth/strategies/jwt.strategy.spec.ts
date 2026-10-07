@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { UnauthorizedException } from '@nestjs/common';
-import { JwtStrategy } from './jwt.strategy';
-import { AuthService } from '../auth.service';
+import { JwtStrategy } from '../../../../src/identity/auth/strategies/jwt.strategy';
+import { AuthService } from '../../../../src/identity/auth/auth.service';
 
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;

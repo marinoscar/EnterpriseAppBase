@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { GoogleStrategy, GoogleProfile } from './google.strategy';
+import { GoogleStrategy, GoogleProfile } from '../../../../src/identity/auth/strategies/google.strategy';
 import { Profile } from 'passport-google-oauth20';
 
 /**

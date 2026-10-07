@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 
-import { TenancyService } from './tenancy.service';
-import { currentTenancyMode } from '../auth/tenancy-mode';
+import { TenancyService } from '../../../src/identity/organizations/tenancy.service';
+import { currentTenancyMode } from '../../../src/identity/auth/tenancy-mode';
 
 describe('TenancyService (PP-6.2, #722)', () => {
   function serviceFor(raw: string | undefined): TenancyService {

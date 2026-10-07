@@ -1,12 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { PatService } from './pat.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { CreatePatDto } from './dto/create-pat.dto';
+import { PatService } from '../../../src/identity/pat/pat.service';
+import { PrismaService } from '../support/app-doubles';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { CreatePatDto } from '../../../src/identity/pat/dto/create-pat.dto';
 import { createHash } from 'node:crypto';
-import * as tenancyMode from '../auth/tenancy-mode';
-import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
 
 describe('PatService', () => {
   let service: PatService;

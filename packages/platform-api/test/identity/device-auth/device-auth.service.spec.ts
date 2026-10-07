@@ -5,14 +5,14 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { DeviceAuthService } from '../device-auth.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { AuthService } from '../../auth/auth.service';
-import { PatService } from '../../pat/pat.service';
+import { DeviceAuthService } from '../../../src/identity/device-auth/device-auth.service';
+import { PrismaService } from '../support/app-doubles';
+import { AuthService } from '../../../src/identity/auth/auth.service';
+import { PatService } from '../../../src/identity/pat/pat.service';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../../test/mocks/prisma.mock';
+} from '../support/prisma.mock';
 import { DeviceCodeStatus } from '@prisma/client';
 
 describe('DeviceAuthService', () => {

@@ -14,12 +14,12 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { DeviceCodeStatus } from '@prisma/client';
 
-import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
-import { AuthService } from '../../auth/auth.service';
-import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
-import { PatService } from '../../pat/pat.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { DeviceAuthService } from '../device-auth.service';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { AuthService } from '../../../src/identity/auth/auth.service';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import { PatService } from '../../../src/identity/pat/pat.service';
+import { PrismaService } from '../support/app-doubles';
+import { DeviceAuthService } from '../../../src/identity/device-auth/device-auth.service';
 
 const member = (orgId: string, status = 'active') => ({
   orgId,

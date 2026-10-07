@@ -1,13 +1,14 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
-import type { NotificationsService } from '../notifications/notifications.service';
-import type { AppMetricsService } from '../common/otel/app-metrics.service';
-import { OrgMembersService, ORG_MEMBER_AUDIT } from './org-members.service';
-import { LAST_ORG_ADMIN_REASON } from './org-admin.common';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import type { PrismaService } from '../support/app-doubles';
+import { notifierFromNotify } from '../support/app-doubles';
+import type { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import type { NotificationsService } from '../support/app-doubles';
+import type { AppMetricsService } from '../support/app-doubles';
+import { OrgMembersService, ORG_MEMBER_AUDIT } from '../../../src/identity/organizations/org-members.service';
+import { LAST_ORG_ADMIN_REASON } from '../../../src/identity/organizations/org-admin.common';
 
 const ORG = 'org-a';
 const ACTOR = 'user-actor';
@@ -60,7 +61,7 @@ describe('OrgMembersService (#726)', () => {
     service = new OrgMembersService(
       prisma as unknown as PrismaService,
       principalCache as unknown as PrincipalCache,
-      notifications as unknown as NotificationsService,
+      notifierFromNotify(notifications),
       config as unknown as ConfigService,
       metrics as unknown as AppMetricsService,
     );

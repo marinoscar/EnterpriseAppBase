@@ -1,19 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotificationsService } from '../notifications/notifications.service';
+import { identityUserPorts, NotificationsService, notifierProvider, NOTIFY_MOCK } from '../support/app-doubles';
 import { ConfigService } from '@nestjs/config';
 import {
   ConflictException,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { AllowlistService } from './allowlist.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { AllowlistService } from '../../../src/identity/allowlist/allowlist.service';
+import { PrismaService } from '../support/app-doubles';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { AddEmailDto } from './dto/add-email.dto';
-import { AllowlistQueryDto } from './dto/allowlist-query.dto';
+} from '../support/prisma.mock';
+import { AddEmailDto } from '../../../src/identity/allowlist/dto/add-email.dto';
+import { AllowlistQueryDto } from '../../../src/identity/allowlist/dto/allowlist-query.dto';
 
 describe('AllowlistService', () => {
   let service: AllowlistService;
@@ -59,6 +59,7 @@ describe('AllowlistService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        ...identityUserPorts, notifierProvider,
         AllowlistService,
         { provide: PrismaService, useValue: mockPrisma },
         // #128 wired real notification triggers into this service. The
@@ -70,7 +71,7 @@ describe('AllowlistService', () => {
         // and a failing provider in
         // notifications/notification-failure-containment.spec.ts.
         {
-          provide: NotificationsService,
+          provide: NOTIFY_MOCK,
           useValue: (mockNotifications = {
             notify: jest.fn().mockResolvedValue(undefined),
             notifyAddress: jest.fn().mockResolvedValue(undefined),

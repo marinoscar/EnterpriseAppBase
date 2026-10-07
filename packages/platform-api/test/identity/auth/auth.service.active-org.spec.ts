@@ -22,22 +22,22 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { AllowlistService } from '../allowlist/allowlist.service';
-import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
-import { AppMetricsService } from '../common/otel/app-metrics.service';
-import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { OrganizationsService } from '../organizations/organizations.service';
-import { TenancyService } from '../organizations/tenancy.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { AuthService, ORG_SWITCHED_AUDIT_ACTION } from './auth.service';
-import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from './principal-cache/principal-cache.service';
-import { toPrincipal } from './principal.factory';
-import { toRequestUser, type AuthenticatedUser } from './interfaces/authenticated-user.interface';
-import type { GoogleProfile } from './strategies/google.strategy';
-import * as tenancyMode from './tenancy-mode';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { AllowlistService } from '../../../src/identity/allowlist/allowlist.service';
+import { EVENT_BUS, identityUserPorts, notifierProvider, NOTIFY_MOCK } from '../support/app-doubles';
+import { InProcessEventBus } from '../support/app-doubles';
+import { AppMetricsService } from '../support/app-doubles';
+import { AdminBootstrapService } from '../../../src/identity/auth/admin-bootstrap.service';
+import { NotificationsService } from '../support/app-doubles';
+import { OrganizationsService } from '../../../src/identity/organizations/organizations.service';
+import { TenancyService } from '../../../src/identity/organizations/tenancy.service';
+import { PrismaService } from '../support/app-doubles';
+import { AuthService, ORG_SWITCHED_AUDIT_ACTION } from '../../../src/identity/auth/auth.service';
+import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import { toPrincipal } from '../../../src/identity/auth/principal.factory';
+import { toRequestUser, type AuthenticatedUser } from '../../../src/identity/auth/interfaces/authenticated-user.interface';
+import type { GoogleProfile } from '../../../src/identity/auth/strategies/google.strategy';
+import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
 
 const DEFAULT_ORG = { id: 'org-default', name: 'Default organization', slug: 'default', isDefault: true };
 
@@ -113,6 +113,7 @@ async function build(mode: 'single' | 'multi' = 'single'): Promise<Harness> {
 
   const module = await Test.createTestingModule({
     providers: [
+      ...identityUserPorts, notifierProvider,
       AuthService,
       OrganizationsService,
       TenancyService,
@@ -127,7 +128,7 @@ async function build(mode: 'single' | 'multi' = 'single'): Promise<Harness> {
         provide: AllowlistService,
         useValue: { isEmailAllowed: jest.fn().mockResolvedValue(true), markEmailClaimed: jest.fn() },
       },
-      { provide: NotificationsService, useValue: { notify: jest.fn(), notifyAddress: jest.fn() } },
+      { provide: NOTIFY_MOCK, useValue: { notify: jest.fn(), notifyAddress: jest.fn() } },
       { provide: AppMetricsService, useValue: metrics },
     ],
   }).compile();

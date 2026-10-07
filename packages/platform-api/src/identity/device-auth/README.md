@@ -7,7 +7,7 @@ This module implements the OAuth 2.0 Device Authorization Grant (RFC 8628), enab
 > the code in this directory — and is kept in sync with it. For a narrative
 > walkthrough, use-case framing, and integration examples (Node.js, Python,
 > React Native, Scalar), see
-> [`docs/DEVICE-AUTH.md`](../../../../docs/DEVICE-AUTH.md).
+> [`docs/DEVICE-AUTH.md`](../../../../../docs/DEVICE-AUTH.md).
 
 ## Overview
 
@@ -509,7 +509,7 @@ Each run appears in the admin Jobs page like any other job.
 ### CLI Tool Example
 
 The repository's own CLI (`apps/cli`, documented in
-[`apps/cli/README.md`](../../../cli/README.md)) is the reference consumer of
+[`apps/cli/README.md`](../../../../../apps/cli/README.md)) is the reference consumer of
 this flow. A minimal client looks like this:
 
 ```typescript

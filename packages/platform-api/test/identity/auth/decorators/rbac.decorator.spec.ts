@@ -1,6 +1,6 @@
 import 'reflect-metadata';
-import { Roles, ROLES_KEY } from './roles.decorator';
-import { Permissions, PERMISSIONS_KEY } from './permissions.decorator';
+import { Roles, ROLES_KEY } from '../../../../src/identity/auth/decorators/roles.decorator';
+import { Permissions, PERMISSIONS_KEY } from '../../../../src/identity/auth/decorators/permissions.decorator';
 
 describe('RBAC Decorators', () => {
   describe('@Roles()', () => {

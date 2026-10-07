@@ -1,4 +1,4 @@
-import * as tenancyMode from './tenancy-mode';
+import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
 import {
   PrincipalFactory,
   resolveEffectiveAccess,
@@ -7,8 +7,8 @@ import {
   type PrincipalMembership,
   type PrincipalRole,
   type PrincipalSource,
-} from './principal.factory';
-import { toRequestUser, type AuthenticatedUser } from './interfaces/authenticated-user.interface';
+} from '../../../src/identity/auth/principal.factory';
+import { toRequestUser, type AuthenticatedUser } from '../../../src/identity/auth/interfaces/authenticated-user.interface';
 
 // =============================================================================
 // PrincipalFactory (issue #723, PP-6.3)

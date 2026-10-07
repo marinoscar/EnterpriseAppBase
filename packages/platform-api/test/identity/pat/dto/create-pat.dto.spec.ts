@@ -1,4 +1,4 @@
-import { createPatSchema } from './create-pat.dto';
+import { createPatSchema } from '../../../../src/identity/pat/dto/create-pat.dto';
 
 describe('createPatSchema (Zod validation)', () => {
   // ============================================================================

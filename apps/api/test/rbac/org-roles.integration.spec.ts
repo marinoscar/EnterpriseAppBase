@@ -217,11 +217,14 @@ describe('System roles vs org roles (Integration, #723)', () => {
     });
 
     describe('in multi-org mode', () => {
-      let modeSpy: jest.SpyInstance;
+      // The recorded mode, not a spy: the slice's own modules read it through
+      // their internal binding, which a spy on the package entry cannot reach (#727).
+      let previousMode: ReturnType<typeof tenancyMode.currentTenancyMode>;
       beforeEach(() => {
-        modeSpy = jest.spyOn(tenancyMode, 'currentTenancyMode').mockReturnValue('multi');
+        previousMode = tenancyMode.currentTenancyMode();
+        tenancyMode.recordTenancyMode('multi');
       });
-      afterEach(() => modeSpy.mockRestore());
+      afterEach(() => tenancyMode.recordTenancyMode(previousMode));
 
       it('rejects an org role name with 400 and points to the organization member endpoints', async () => {
         const res = await call(context, { method: 'PUT', path: `/api/users/${target.id}/roles` }, admin.accessToken)

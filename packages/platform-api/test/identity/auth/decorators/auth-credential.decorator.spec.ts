@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import { ExecutionContext } from '@nestjs/common';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 
-import { AuthCredential, authCredentialOf, type AuthCredentialInfo } from './auth-credential.decorator';
-import * as decorators from './index';
+import { AuthCredential, authCredentialOf, type AuthCredentialInfo } from '../../../../src/identity/auth/decorators/auth-credential.decorator';
+import * as decorators from '../../../../src/identity/auth/decorators/index';
 
 /** The factory Nest registered for `@AuthCredential()` on a test method. */
 function factoryOf(): (data: unknown, ctx: ExecutionContext) => AuthCredentialInfo | null {

@@ -1,12 +1,12 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { TenancyService } from './tenancy.service';
-import type { OrgInvitesService } from './org-invites.service';
-import { OrganizationsAdminService, ORGANIZATION_AUDIT } from './organizations-admin.service';
-import { TENANCY_SINGLE_ORG_REASON } from './org-admin.common';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import type { PrismaService } from '../support/app-doubles';
+import type { TenancyService } from '../../../src/identity/organizations/tenancy.service';
+import type { OrgInvitesService } from '../../../src/identity/organizations/org-invites.service';
+import { OrganizationsAdminService, ORGANIZATION_AUDIT } from '../../../src/identity/organizations/organizations-admin.service';
+import { TENANCY_SINGLE_ORG_REASON } from '../../../src/identity/organizations/org-admin.common';
 
 const ACTOR = 'user-admin';
 
