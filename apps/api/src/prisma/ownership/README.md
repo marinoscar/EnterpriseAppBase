@@ -1,14 +1,21 @@
 # User-owned data and scoped access
 
-Issue #688 (PP-1.9). Two things live in this folder:
+Issue #688 (PP-1.9). Since #699 the **mechanism** lives in
+`@marinoscar/platform-api/core` ([core README, "Scoped data access"](../../../../../packages/platform-api/src/core/README.md#scoped-data-access)):
+the registry, the scoped client extension, `asSystem` and
+`ScopedAccessError`, schema-independent so packaged slices use it too. This
+folder holds the **app side**:
 
-1. **The user-owned data registry**: every Prisma model with a foreign key to
-   `User`, with the role of that key, a purge policy, an export policy and a
-   rationale. A tripwire test keeps it in step with the `prisma/schema/` folder.
-2. **Scoped data access**: `ScopedPrismaService.forUser(userId)` returns a
-   Prisma client that cannot read or change another user's rows in a
+1. **The registrations**: every Prisma model of this app with a foreign key
+   to `User`, with the role of that key, a purge policy, an export policy and
+   a rationale, registered into the package's `userOwnedModelRegistry`. A
+   tripwire (the `userOwnedData` conformance suite) keeps it in step with the
+   `prisma/schema/` folder.
+2. **The binding**: `ScopedPrismaService.forUser(userId)` returns this app's
+   Prisma client, typed, unable to read or change another user's rows in a
    registered model, and `asSystem(actor)` is the explicit, named way to run
-   unscoped.
+   unscoped. `PrismaService.forUser(scope)` is the same client without the
+   service.
 
 Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 "Tenancy and access model" → "Enforcement". Security view:
@@ -19,17 +26,19 @@ The principal and scope types: [ADR 0001](../../../../../docs/adr/0001-org-aware
 
 | File | What it holds |
 |---|---|
-| `user-owned-model.registry.ts` | `UserOwnedModelDef`, `PurgePolicy`, `ExportPolicy`, the static `userOwnedModelRegistry`, `registerUserOwnedModels`, `ownerFieldOf`, `ownerRelationOf`. Framework-free (only the Prisma *type* `Prisma.ModelName`). |
-| `platform-user-owned-models.ts` | The platform inventory: 23 models, 25 `User` foreign keys. Pure data. |
-| `user-owned-model.manifest.ts` | Registers the platform inventory, then `app-registrations/user-owned-models.ts`. |
-| `scoped-prisma.service.ts` | `ScopedPrismaService` (`forUser`, `forScope`, `asSystem`) and `buildUserScopedClient`. Provided and exported by the global `PrismaModule`. |
-| `scoped-access.error.ts` | `ScopedAccessError`, thrown when a scoped call would leave its scope. |
-| `index.ts` | The barrel. Import from `'../prisma/ownership'`, which also fills the registry. |
+| `platform-user-owned-models.ts` | The platform inventory: 23 models, 25 `User` foreign keys, typed `UserOwnedModelDef<Prisma.ModelName>`. Pure data. The entries move next to their slices when the slices become packages. |
+| `user-owned-model.manifest.ts` | Registers the platform inventory, then `app-registrations/user-owned-models.ts`, into the package's `userOwnedModelRegistry`. |
+| `scoped-prisma.service.ts` | `ScopedPrismaService` (`forUser`, `forScope`, `asSystem`): a thin Nest wrapper over the package's `userScopeExtension` and `asSystem`, plus the debug log line. Provided and exported by the global `PrismaModule`. |
+| `index.ts` | The barrel (`ScopedPrismaService`, `UserScopedClient`, `PLATFORM_USER_OWNED_MODELS`). Importing it fills the registry. The registry, `ScopedAccessError`, `ownerFieldOf` and friends are imported from `@marinoscar/platform-api/core`. |
+| `../prisma.service.ts` | `PrismaService.forUser(scope)`: `this.$extends(userScopeExtension(scope))`, typed with the generated models. |
 
-Tests: `user-owned-model.registry.spec.ts` and `scoped-prisma.service.spec.ts`
-here; `test/prisma/user-owned-models.spec.ts` (the ownership tripwire),
-`test/prisma/raw-sql-allowlist.spec.ts` (the raw-SQL tripwire) and
-`test/prisma/scoped-access.db.spec.ts` (isolation on a real database).
+Tests: `user-owned-model.registry.spec.ts` (the app's inventory) and
+`scoped-prisma.service.spec.ts` (the binding) here;
+`test/prisma/user-owned-models.spec.ts` (the ownership and raw-SQL tripwires,
+through `runPlatformConformance`) and `test/prisma/scoped-access.db.spec.ts`
+(isolation on a real database). The rewriting rules and the registry's own
+validation are proven in the package
+(`packages/platform-api/test/core/data-access/`).
 
 ## Owner or actor
 
@@ -82,9 +91,10 @@ never to the platform file:
 
 ```typescript
 // apps/api/src/app-registrations/user-owned-models.ts
-import type { UserOwnedModelDef } from '../prisma/ownership/user-owned-model.registry';
+import type { UserOwnedModelDef } from '@marinoscar/platform-api/core';
+import type { Prisma } from '@prisma/client';
 
-export const APP_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
+export const APP_USER_OWNED_MODELS: readonly UserOwnedModelDef<Prisma.ModelName>[] = [
   {
     model: 'Workout',
     ownerField: 'userId',
@@ -99,7 +109,7 @@ Fields:
 
 | Field | Required | Notes |
 |---|---|---|
-| `model` | yes | The Prisma model name (`Prisma.ModelName`). One entry per model. |
+| `model` | yes | The Prisma model name (`Prisma.ModelName`, through the type parameter). One entry per model. |
 | `ownerField` | one of the two | The scalar foreign key naming the owner. |
 | `actorFields` | one of the two | Scalar foreign keys naming who acted. |
 | `ownerRelation` | no | The relation field behind `ownerField`, used for `{ connect: { id } }` creates. Defaults to the owner field without `Id` (`userId` → `user`, `createdById` → `createdBy`); the tripwire tells you when to set it. |
@@ -195,7 +205,8 @@ The other `where: { userId }` call sites are converted slice by slice.
 ## Raw SQL
 
 Raw SQL bypasses the scoped client, so the files allowed to use it are listed,
-with a reason each, in `apps/api/test/prisma/raw-sql-allowlist.ts`.
-`raw-sql-allowlist.spec.ts` fails for a new unlisted file and for a listed
+with a reason each, in `apps/api/test/prisma/raw-sql-allowlist.ts`
+(`{ file, why }` entries). The `userOwnedData` suite run by
+`user-owned-models.spec.ts` fails for a new unlisted file and for a listed
 file that no longer uses raw SQL. A raw statement must never take a
 request-derived id without scoping it to the caller.

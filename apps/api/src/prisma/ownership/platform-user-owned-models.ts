@@ -11,12 +11,14 @@
 //
 // OWNER: the row belongs to the user (a scoped client may read and write it).
 // ACTOR: the row only names a user who acted (a scoped client refuses it).
-// The tripwire (test/prisma/user-owned-models.spec.ts) fails when this list
-// and the schema disagree. A fork registers its own models in
-// app-registrations/user-owned-models.ts, never here.
+// The tripwire (test/prisma/user-owned-models.spec.ts, the `userOwnedData`
+// conformance suite) fails when this list and the schema disagree. A fork
+// registers its own models in app-registrations/user-owned-models.ts, never
+// here. The entry type is the package's, narrowed to this app's model names.
 // =============================================================================
 
-import type { UserOwnedModelDef } from './user-owned-model.registry';
+import type { UserOwnedModelDef } from '@marinoscar/platform-api/core';
+import type { Prisma } from '@prisma/client';
 
 export const PLATFORM_USER_OWNED_MODELS = [
   // ---------------------------------------------------------------------------
@@ -200,4 +202,4 @@ export const PLATFORM_USER_OWNED_MODELS = [
     export: 'exclude',
     rationale: 'The deployment AI model catalog; the user only last changed an entry.',
   },
-] as const satisfies readonly UserOwnedModelDef[];
+] as const satisfies readonly UserOwnedModelDef<Prisma.ModelName>[];

@@ -478,7 +478,7 @@ Existing precedent in the base: Doctor checks and job handlers already register 
 | A domain table that belongs to a user or org | The app's table holds `userId` (and `orgId` once tenancy ships) pointing at the platform table. The reference goes from app to platform, never the reverse. |
 | Extra fields on a platform entity | A **side table** keyed by the platform id (for example `UserFitnessProfile.userId` unique), or the entity's JSONB `metadata` column where the package documents one |
 | Changing a platform table | **Never.** No added columns, no altered constraints. Request a seam. |
-| Privacy and ownership | Register the new model in the user-owned-data registry with a purge and export policy; the tripwire test fails otherwise |
+| Privacy and ownership | Register the new model in the user-owned-data registry (`registerUserOwnedModels()` into `userOwnedModelRegistry`, `@marinoscar/platform-api/core`) with a purge and export policy; the `userOwnedData` conformance suite fails otherwise |
 | Migrations | The app's own migrations live in the app's `prisma/migrations`, after the installed package migrations ([Data, migrations and seeds](#data-migrations-and-seeds)) |
 
 The Prisma relation to a package-owned model is written in the app's fragment as an `extend model` block ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)): `extend model User { workouts Workout[] }` next to the `Workout` model, with no edit to a platform file.
@@ -760,8 +760,8 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 | Layer | Mechanism |
 |---|---|
 | Registry | A registry of user-owned and org-owned models |
-| Scoped data access | A Prisma client extension that applies the scope; an explicit `asSystem()` for system paths |
-| Lint | A rule against unscoped raw SQL (today a Jest tripwire over an allowlist, `apps/api/test/prisma/raw-sql-allowlist.spec.ts`, since the API has no linter) |
+| Scoped data access | A Prisma client extension that applies the scope; an explicit `asSystem()` for system paths (`forUser`, `userScopeExtension`, `asSystem` in `@marinoscar/platform-api/core`, schema-independent, since #699) |
+| Lint | A rule against unscoped raw SQL (today a tripwire over an allowlist, the `userOwnedData` conformance suite run by `apps/api/test/prisma/user-owned-models.spec.ts`, since the API has no linter) |
 | Tripwire test | Fails if a model with an owner or org column is unregistered, or lacks a purge and export policy. It replaces EvoPath's hand-written purge list. |
 | Postgres row-level security (RLS) | On `org_id`, one active org per transaction ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D5). A cross-tenant leak is a contractual breach, so the database enforces it. |
 | App policy | Handles owner, group and grant rules inside one org |

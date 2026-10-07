@@ -1,6 +1,7 @@
 import type { ConformanceReport, ConformanceTestApi } from './conformance-suite';
 import { conformanceSuites } from './conformance-suites';
 import type { CronEnqueueOnlyOptions } from './suites/cron-enqueue-only';
+import type { UserOwnedDataOptions } from './suites/user-owned-data';
 
 /**
  * What an app passes to {@link runPlatformConformance}.
@@ -19,6 +20,8 @@ export interface PlatformConformanceOptions {
   suites: {
     /** The `cron-enqueue-only` suite: its options, or `false` to opt out. */
     cronEnqueueOnly?: CronEnqueueOnlyOptions | false;
+    /** The `user-owned-data` suite: its options, or `false` to opt out. */
+    userOwnedData?: UserOwnedDataOptions | false;
   };
   /** Defaults to the globals `describe`/`it`/`expect` (Jest, or Vitest with `globals: true`). */
   testApi?: ConformanceTestApi;

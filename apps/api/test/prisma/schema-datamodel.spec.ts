@@ -1,97 +1,19 @@
+import { join } from 'node:path';
+
 import { Prisma } from '@prisma/client';
 
-import {
-  effectiveOnDelete,
-  parsePrismaSchema,
-  readSchemaDatamodel,
-  stripLineComment,
-} from './schema-datamodel';
+import { readSchemaDatamodel } from '@marinoscar/platform-api/testing';
 
-// The schema reader behind the ownership tripwire (#688).
+// The schema reader behind the `userOwnedData` conformance suite (#688; moved
+// to @marinoscar/platform-api/testing by #699, where its parsing rules are
+// pinned). This app-side spec is the one thing the package cannot prove: that
+// the reader agrees with this app's generated client on the real schema.
 
-const SAMPLE = `
-// A leading comment with a model User { inside it
-generator client {
-  provider = "prisma-client-js"
-}
+const SCHEMA_PATH = join(__dirname, '..', '..', 'prisma', 'schema');
 
-enum Colour {
-  red
-  blue
-}
-
-/// Doc comment
-model User {
-  id     String  @id @default(uuid()) @db.Uuid
-  avatar String? @default("https://example.test/a.png") // a comment after a // in a string
-  posts  Post[]  @relation("Authored")
-  edits  Post[]  @relation("Edited")
-}
-
-model Post {
-  id         String  @id
-  title      String  // not a relation: @relation(fields: [x])
-  authorId   String  @map("author_id")
-  editorId   String?
-  tags       String[]
-  author     User    @relation("Authored", fields: [authorId], references: [id], onDelete: Cascade)
-  editor     User?   @relation(name: "Edited", fields: [editorId], references: [id])
-
-  @@index([authorId])
-  @@map("posts")
-}
-`;
-
-describe('schema-datamodel', () => {
-  it('strips comments outside string literals only', () => {
-    expect(stripLineComment('a String // comment')).toBe('a String ');
-    expect(stripLineComment('a String @default("http://x") // c')).toBe('a String @default("http://x") ');
-    expect(stripLineComment('/// doc')).toBe('');
-    expect(stripLineComment('a String @default("say \\"//\\"")')).toBe('a String @default("say \\"//\\"")');
-  });
-
-  it('reads models and skips enums, generators, comments and block attributes', () => {
-    const models = parsePrismaSchema(SAMPLE);
-    expect(models.map((m) => m.name)).toEqual(['User', 'Post']);
-    expect(models[1].fields.map((f) => f.name)).toEqual([
-      'id',
-      'title',
-      'authorId',
-      'editorId',
-      'tags',
-      'author',
-      'editor',
-    ]);
-  });
-
-  it('reads field types, lists and optionality', () => {
-    const post = parsePrismaSchema(SAMPLE)[1];
-    const byName = Object.fromEntries(post.fields.map((f) => [f.name, f]));
-    expect(byName.tags).toMatchObject({ type: 'String', isList: true, isOptional: false });
-    expect(byName.editorId).toMatchObject({ type: 'String', isList: false, isOptional: true });
-    expect(byName.title.relation).toBeUndefined();
-  });
-
-  it('reads relation names, foreign keys and onDelete', () => {
-    const [user, post] = parsePrismaSchema(SAMPLE);
-    const author = post.fields.find((f) => f.name === 'author');
-    const editor = post.fields.find((f) => f.name === 'editor');
-
-    expect(author?.relation).toEqual({ name: 'Authored', fields: ['authorId'], references: ['id'], onDelete: 'Cascade' });
-    expect(editor?.relation).toEqual({ name: 'Edited', fields: ['editorId'], references: ['id'] });
-    expect(user.fields.find((f) => f.name === 'posts')?.relation).toEqual({ name: 'Authored', fields: [], references: [] });
-  });
-
-  it("applies Prisma's default onDelete when none is written", () => {
-    const post = parsePrismaSchema(SAMPLE)[1];
-    const field = (name: string) => post.fields.find((f) => f.name === name)!;
-    expect(effectiveOnDelete(field('author'))).toBe('Cascade');
-    expect(effectiveOnDelete(field('editor'))).toBe('SetNull');
-    expect(effectiveOnDelete({ ...field('editor'), isOptional: false })).toBe('Restrict');
-  });
-
+describe('schema reader vs the generated client', () => {
   it('agrees with the generated client on every model and field of the real schema', () => {
-    const parsed = readSchemaDatamodel();
+    const parsed = readSchemaDatamodel(SCHEMA_PATH);
     const generated = Prisma.dmmf.datamodel.models;
 
     expect(parsed.map((m) => m.name)).toEqual(generated.map((m) => m.name));

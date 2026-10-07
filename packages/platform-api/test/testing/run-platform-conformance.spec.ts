@@ -155,7 +155,7 @@ describe('runPlatformConformance', () => {
     runPlatformConformance({ sourceRoots: [compliantRoot()], suites: {}, testApi: api });
 
     expect(conformanceSuites.frozen).toBe(true);
-    expect(conformanceSuites.ids()).toEqual(['cron-enqueue-only']);
+    expect(conformanceSuites.ids()).toEqual(['cron-enqueue-only', 'user-owned-data']);
     expect(() => conformanceSuites.register({ id: 'late', title: 't', description: 'd', check: () => ({ scanned: {}, scannedFiles: {}, findings: [] }), cases: () => [] })).toThrow(
       expect.objectContaining({ code: 'FROZEN' }),
     );

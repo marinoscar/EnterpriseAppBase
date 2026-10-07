@@ -2,6 +2,7 @@ import { defineRegistry } from '../core/index';
 
 import type { ConformanceSuite } from './conformance-suite';
 import { cronEnqueueOnlySuite } from './suites/cron-enqueue-only';
+import { userOwnedDataSuite } from './suites/user-owned-data';
 
 /**
  * Every conformance suite `runPlatformConformance` can run, keyed by suite id.
@@ -23,3 +24,4 @@ export const conformanceSuites = defineRegistry<ConformanceSuite<any>>({
 });
 
 conformanceSuites.register(cronEnqueueOnlySuite);
+conformanceSuites.register(userOwnedDataSuite);

@@ -1,9 +1,10 @@
 // =============================================================================
 // Real-Postgres test: a user-scoped client never reaches another user's rows
-// (issue #688, PP-1.9)
+// (issue #688, PP-1.9; mechanism in @marinoscar/platform-api/core since #699)
 // =============================================================================
 //
-// scoped-prisma.service.spec.ts proves the argument rewriting; only a real
+// The package's unit tests prove the argument rewriting against a fake
+// client (packages/platform-api/test/core/data-access/); only a real
 // Prisma client against a real server proves the rewritten arguments are
 // accepted (extra filters on a unique where, the owner set on create, the
 // relation connect form) and actually isolate users. Two users each own two
@@ -23,8 +24,9 @@ import { randomUUID } from 'node:crypto';
 
 import { Prisma, type PrismaClient } from '@prisma/client';
 
-import { ScopedAccessError, ScopedPrismaService, type UserScopedClient } from '../../src/prisma/ownership';
-import type { PrismaService } from '../../src/prisma/prisma.service';
+import { ScopedAccessError, forUser } from '@marinoscar/platform-api/core';
+import { ScopedPrismaService, type UserScopedClient } from '../../src/prisma/ownership';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('scoped-access.db.spec');
@@ -201,5 +203,19 @@ describeWithDb('scoped data access (real Postgres)', () => {
   it('asSystem returns the unscoped client', async () => {
     const system = scoped.asSystem({ kind: 'system', reason: 'test' });
     await expect(system.userCredential.count({ where: { userId: bob } })).resolves.toBe(2);
+  });
+
+  it("PrismaService.forUser and the package's forUser isolate the same way on the app's real client", async () => {
+    const typed = PrismaService.prototype.forUser.call(client as unknown as PrismaService, { userId: alice });
+    await expect(typed.userCredential.count({ where: { userId: bob } })).resolves.toBe(0);
+    const alicesOwn = await client.userCredential.count({ where: { userId: alice, purpose: 'scoped-test' } });
+    expect(alicesOwn).toBeGreaterThan(0);
+    await expect(typed.userCredential.count({ where: { purpose: 'scoped-test' } })).resolves.toBe(alicesOwn);
+
+    // The schema-independent entry point: the client arrives untyped, as a packaged slice sees it.
+    const generic = forUser(client, { userId: alice }) as unknown as typeof typed;
+    await expect(generic.userCredential.findMany({ where: { userId: bob } })).resolves.toEqual([]);
+    await expect(generic.userCredential.updateMany({ where: { id: bobFirstId }, data: { label: 'stolen' } })).resolves.toEqual({ count: 0 });
+    await expect(bobsRows()).resolves.toEqual(bobBefore);
   });
 });

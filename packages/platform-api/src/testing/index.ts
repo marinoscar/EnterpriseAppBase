@@ -27,3 +27,10 @@ export {
   TEST_PERMISSIONS_HEADER,
   TEST_REQUIRED_PERMISSIONS_KEY,
 } from './host/index';
+
+// The `user-owned-data` suite (issue #699; origin #688) and the small Prisma
+// schema reader behind it (models, fields, relations, onDelete).
+export { userOwnedDataSuite } from './suites/user-owned-data';
+export type { UserOwnedDataOptions } from './suites/user-owned-data';
+export { effectiveOnDelete, parsePrismaSchema, readSchemaDatamodel, readSchemaText } from './prisma-schema';
+export type { DatamodelField, DatamodelModel, DatamodelRelation } from './prisma-schema';

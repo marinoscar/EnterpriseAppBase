@@ -57,3 +57,26 @@ export {
   openApiTags,
 } from './openapi/openapi-tag.registry';
 export type { OpenApiTag, OpenApiTagGroup } from './openapi/openapi-tag.registry';
+
+// Scoped data access (issue #699; origin #688): the user-owned data registry,
+// the user-scoped client extension and the explicit unscoped escape. The app
+// fills the registry and injects its generated client; nothing here imports a
+// generated model type (`@prisma/client/extension` only).
+export {
+  ScopedAccessError,
+  asSystem,
+  forUser,
+  ownerFieldOf,
+  ownerRelationOf,
+  registerUserOwnedModels,
+  userOwnedModelRegistry,
+  userScopeExtension,
+} from './data-access/index';
+export type {
+  ExportPolicy,
+  ExtendableClient,
+  PurgePolicy,
+  UserOwnedModelDef,
+  UserOwnedModelLookup,
+  UserScopeExtension,
+} from './data-access/index';

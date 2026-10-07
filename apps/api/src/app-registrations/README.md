@@ -54,7 +54,7 @@ registry:
 
 | File | Registry | Recipe |
 |---|---|---|
-| `user-owned-models.ts` | `userOwnedModelRegistry`: every model with a foreign key to `User` | [prisma/ownership/README.md](../prisma/ownership/README.md) |
+| `user-owned-models.ts` | `userOwnedModelRegistry` (`@marinoscar/platform-api/core`): every model with a foreign key to `User` | [prisma/ownership/README.md](../prisma/ownership/README.md) |
 
 | File | Registries it feeds | Recipe |
 |---|---|---|
