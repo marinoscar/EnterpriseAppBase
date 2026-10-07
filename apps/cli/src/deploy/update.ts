@@ -269,7 +269,7 @@ async function compose(
   // with a message about compose, not about the network. See install.ts.
   await ensureStackNetworks(context, extra, groupsOf(context));
 
-  const argv = composeArgv(extra, composeProjectFor(context.state), groupsOf(context));
+  const argv = composeArgv(extra, composeProjectFor(context.state), groupsOf(context), composeCwd(context.options.deployRoot));
   const result = await context.runCommand(argv, {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
@@ -937,7 +937,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           },
           manualCommand:
             `cd ${composeCwd(context.options.deployRoot)} && ` +
-            composeArgv([...RECREATE_NGINX], project, groupsOf(context)).join(' '),
+            composeArgv([...RECREATE_NGINX], project, groupsOf(context), composeCwd(context.options.deployRoot)).join(' '),
           line: (text) => context.journal.line(text),
           notice: (text) => context.hooks?.onProgress?.(text),
         });

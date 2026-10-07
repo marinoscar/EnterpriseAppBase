@@ -200,7 +200,7 @@ If you don't have a specific reason to rename the binary, don't — leave
 
 ## The manual steps
 
-The codemod handles everything a file edit can handle. Four things need a
+The codemod handles everything a file edit can handle. Five things need a
 human, in this order:
 
 1. **`npm install`.** The npm workspace root name lives in the lockfile as
@@ -208,7 +208,18 @@ human, in this order:
    Dockerfiles run as their first step — fails hard if the two disagree.
    Skipping this step doesn't fail quietly; it fails the very next build.
 
-2. **Regenerate the visual baselines**, from inside the pinned container
+2. **Re-render the infra files.** `infra/compose/` and `infra/nginx/` are
+   generated from `@marinoscar/platform-infra`, rendered with the identity
+   (the service name, the test database, and with `--cli-name` the worker
+   variables' prefix), and `infra/platform-infra.lock.json` records a
+   checksum per file. The codemod's edits to those files leave the lock
+   stale, so CI's `platform:infra:sync -- --check` fails until you run:
+
+   ```bash
+   npm run build:packages && npm run platform:infra:sync
+   ```
+
+3. **Regenerate the visual baselines**, from inside the pinned container
    (never a local browser — see `tests/visual/playwright.config.ts` for why
    rendering differences between browser builds would produce false diffs):
 
@@ -230,13 +241,13 @@ human, in this order:
    See [CI will be red until you regenerate the baselines](#ci-will-be-red-until-you-regenerate-the-baselines)
    below for why this isn't optional.
 
-3. **Rename the repository on GitHub, then re-point the local remote:**
+4. **Rename the repository on GitHub, then re-point the local remote:**
 
    ```bash
    git remote set-url origin https://github.com/oscar/acme-hub.git
    ```
 
-4. **Update the OAuth redirect URIs** in the Google Cloud Console (and any
+5. **Update the OAuth redirect URIs** in the Google Cloud Console (and any
    other provider you've enabled), so the callback still matches `APP_URL`.
    Nothing in this repository can reach into a third-party console for you.
 

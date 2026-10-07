@@ -119,11 +119,51 @@ jobs:
       - run: npm run test:run --workspace=stack-agent
       - run: npm run build --workspace=stack-agent
 
-      # The telemetry compose files and collector config under infra/ are
-      # GENERATED from @marinoscar/platform-infra (issue #705). A hand edit
-      # fails here, naming the file and the fix: re-run the sync, or move the
-      # change into infra/otel/app-collector.yaml or a compose overlay.
+      # The compose files, nginx config, env templates and collector config
+      # under infra/ are GENERATED from @marinoscar/platform-infra (issues
+      # #705, #714), rendered with the app identity; the lock
+      # (infra/platform-infra.lock.json) records each body's sha256. A hand
+      # edit, or a lock that does not match, fails here naming the file and
+      # the fix: re-run the sync, or move the change into an overlay
+      # (infra/compose/app.*.compose.yml, infra/nginx/app.d/,
+      # infra/compose/app.env.example, infra/otel/app-collector.yaml).
       - run: npm run platform:infra:sync -- --check
+
+      # `nginx -t` with the image base.compose.yml pins, mounted exactly as
+      # base.compose.yml mounts it (nginx.conf, csp.conf, platform/, app.d/),
+      # for the reference app.d/, the dev CSP, and EvoPath's overlay fixture
+      # (two SSE locations and its Permissions-Policy) layered on app.d/
+      # (#714). The upstream hosts must resolve for nginx to load the config,
+      # hence --add-host.
+      - name: nginx -t on the composed configuration (pinned image)
+        run: |
+          set -euo pipefail
+          image="$(sed -n 's/^ *image: \(nginx:[^ ]*\)$/\1/p' infra/compose/base.compose.yml)"
+          test -n "$image" || { echo "no pinned nginx image in base.compose.yml" >&2; exit 1; }
+          echo "nginx image: $image"
+          nginx_t() {
+            docker run --rm --add-host api:127.0.0.1 --add-host web:127.0.0.1 \
+              -v "$PWD/infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+              -v "$2:/etc/nginx/csp.conf:ro" \
+              -v "$PWD/infra/nginx/platform:/etc/nginx/platform:ro" \
+              -v "$1:/etc/nginx/app.d:ro" \
+              "$image" nginx -t
+          }
+          nginx_t "$PWD/infra/nginx/app.d" "$PWD/infra/nginx/csp.conf"
+          nginx_t "$PWD/infra/nginx/app.d" "$PWD/infra/nginx/csp.dev.conf"
+          evopath="$(mktemp -d)"
+          cp -R infra/nginx/app.d/. "$evopath/"
+          cp -R packages/platform-infra/test/fixtures/overlays/evopath/nginx/app.d/. "$evopath/"
+          chmod -R a+rX "$evopath"
+          nginx_t "$evopath" "$PWD/infra/nginx/csp.conf"
+
+      # The documented commands still render (CLAUDE.md): the dev stack with
+      # its database, and the disposable test database on 5433.
+      - name: Render the reference compose stacks
+        run: |
+          set -euo pipefail
+          (cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml config -q)
+          docker compose -f infra/compose/test.compose.yml config -q
 
   api-test:
     name: API Tests (shard ${{ matrix.shard }}/2)

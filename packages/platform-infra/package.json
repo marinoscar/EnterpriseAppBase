@@ -37,6 +37,7 @@
     "bin",
     "compose",
     "nginx",
+    "env",
     "otel",
     "telemetry",
     "README.md",

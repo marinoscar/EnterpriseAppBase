@@ -407,6 +407,40 @@ GreptimeDB's PostgreSQL wire port is published on
 [specs/telemetry.md](telemetry.md) and the
 [telemetry runbook](../runbooks/telemetry.md).
 
+### Where the fragments come from, and app overlays
+
+Every platform file of the stack (the compose files, `infra/nginx/` and
+`infra/compose/.env.example`) is generated from
+[`@marinoscar/platform-infra`](../../packages/platform-infra/README.md) by
+`npm run platform:infra:sync` and **committed**: the deploy clones the app and
+runs Compose from `repo/infra/compose` with no `npm ci` first, so a file only
+in `node_modules/` would not exist there. The sync renders the app identity
+(CLI name, env prefix, service name) into the files and records the version,
+the identity and a sha256 per file in `infra/platform-infra.lock.json`; CI's
+`npm run platform:infra:sync -- --check` fails on a hand edit or a stale lock.
+Relative paths (`context: ../..`, `../nginx/...`) keep resolving against
+`infra/compose`, exactly as before.
+
+The full file list, from `composeFilesFor()` (which takes the order from the
+package's `composeFilesForMode('vps')`):
+
+```text
+base, prod, telemetry, vps, vps.telemetry, then app overlays sorted by name
+```
+
+An app never edits a platform file. It adds `infra/compose/app.<name>.compose.yml`
+(every mode built on `base`) or `app.<scope>.<name>.compose.yml` (`prod`: prod
+and VPS; `vps`: VPS only), which the deploy finds in the checkout and applies
+after every platform file, so it wins: other memory limits
+(`deploy.resources.limits.memory`), an extra service, or the stack agent
+switched off (`stack-agent: { profiles: ["disabled"] }`). A file ending in
+`.example.compose.yml` is never applied. nginx routes go in
+`infra/nginx/app.d/locations/` (an SSE route is one
+`include /etc/nginx/platform/sse-proxy.conf;`), the `Permissions-Policy` in
+`infra/nginx/app.d/permissions-policy.conf`. A changed `app.d/` file needs
+nginx recreated (`up -d --force-recreate nginx`): the update's edge-config
+check compares `nginx.conf` and `csp.conf` only.
+
 ### Permissions and API
 
 | Method + route | Purpose | Permission |
@@ -415,7 +449,10 @@ GreptimeDB's PostgreSQL wire port is published on
 
 ## 4. Extending it in a fork
 
-- **New environment variables.** Add them to `infra/compose/.env.example`; the
+- **New environment variables.** Add an app variable to
+  `infra/compose/app.env.example` (a platform one to
+  `packages/platform-infra/env/base.env.example`) and run
+  `npm run platform:infra:sync`, which writes `infra/compose/.env.example`; the
   wizard picks them up. Add an `env-metadata.ts` entry for anything secret
   (`secret: true`), generated, derived, essential or grouped, or register an
   env-spec fragment for a set of keys that belongs together
@@ -423,6 +460,8 @@ GreptimeDB's PostgreSQL wire port is published on
   [the CLI README](../../apps/cli/README.md#extending-the-cli-from-an-app)). Never add a
   commented `# KEY=value` example line that is not a real optional key: the
   parser treats it as a declaration.
+- **A different stack.** Add an `infra/compose/app.*.compose.yml` overlay
+  (above); never edit a generated compose or nginx file.
 - **A new doctor check.** Add it to the matching module in `checks/` and to
   its registry export; `doctor` and `preflight` both read it.
 - **A new pipeline step.** Add it to `install.ts` and/or `update.ts`. Make it

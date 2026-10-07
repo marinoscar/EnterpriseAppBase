@@ -1,7 +1,8 @@
 // The `platform-infra` command (bin/platform-infra.mjs): argument parsing and
 // output around ./sync.ts. Kept free of process.exit so tests drive it.
 
-import { PLATFORM_PACKAGE } from './index.js';
+import { PLATFORM_PACKAGE } from './package-name.js';
+import { DEFAULT_IDENTITY_FILE } from './app-identity.js';
 import { checkInfra, LOCK_PATH, syncInfra, type SyncOptions } from './sync.js';
 
 /**
@@ -9,15 +10,21 @@ import { checkInfra, LOCK_PATH, syncInfra, type SyncOptions } from './sync.js';
  *
  * @internal
  */
-export const USAGE = `Usage: platform-infra sync [--check] [--root <dir>]
+export const USAGE = `Usage: platform-infra sync [--check] [--root <dir>] [--identity <file>]
 
-  sync           Materialise the infra fragments of ${PLATFORM_PACKAGE} into the
-                 app's infra/ folder, with a generated-file header, and write
-                 ${LOCK_PATH}. App-owned files (infra/otel/app-collector.yaml)
-                 are created from their example only when absent.
-  --check        Write nothing; exit 1 when a generated file differs from the
-                 package or from the lock (for CI).
-  --root <dir>   The app's repository root (default: the current directory).
+  sync              Materialise the infra fragments of ${PLATFORM_PACKAGE} into
+                    the app's infra/ folder (compose, nginx, env templates,
+                    telemetry), rendered with the app identity and with a
+                    generated-file header, and write ${LOCK_PATH}.
+                    App-owned files (overlays, infra/nginx/app.d/,
+                    infra/compose/app.env.example, infra/otel/app-collector.yaml)
+                    are created from their example only when absent.
+  --check           Write nothing; exit 1 when a generated file differs from the
+                    package (rendered) or from the lock (for CI).
+  --root <dir>      The app's repository root (default: the current directory).
+  --identity <file> The app identity, relative to the root (default:
+                    ${DEFAULT_IDENTITY_FILE}, with the CLI name from
+                    apps/cli/package.json's bin when the file has no cliName).
 `;
 
 /**
@@ -59,6 +66,7 @@ export function main(argv: readonly string[], io: CliIo = DEFAULT_IO, overrides:
 
   let check = false;
   let root = process.cwd();
+  let identityFile: string | undefined;
   while (args.length > 0) {
     const arg = args.shift();
     if (arg === '--check') {
@@ -70,6 +78,13 @@ export function main(argv: readonly string[], io: CliIo = DEFAULT_IO, overrides:
         return 2;
       }
       root = value;
+    } else if (arg === '--identity') {
+      const value = args.shift();
+      if (value === undefined || value.startsWith('--')) {
+        io.err(`platform-infra: --identity needs a file\n\n${USAGE}`);
+        return 2;
+      }
+      identityFile = value;
     } else {
       io.err(`platform-infra: unknown option "${arg ?? ''}"\n\n${USAGE}`);
       return 2;
@@ -78,7 +93,7 @@ export function main(argv: readonly string[], io: CliIo = DEFAULT_IO, overrides:
 
   try {
     if (check) {
-      const result = checkInfra({ ...overrides, root });
+      const result = checkInfra({ ...overrides, root, ...(identityFile === undefined ? {} : { identityFile }) });
       for (const w of result.warnings) io.err(`warning: ${w.file}: ${w.message}`);
       for (const p of result.problems) io.err(`error: ${p.file}: ${p.message}`);
       if (result.problems.length > 0) {
@@ -89,7 +104,7 @@ export function main(argv: readonly string[], io: CliIo = DEFAULT_IO, overrides:
       return 0;
     }
 
-    const result = syncInfra({ ...overrides, root });
+    const result = syncInfra({ ...overrides, root, ...(identityFile === undefined ? {} : { identityFile }) });
     for (const file of result.written) io.out(`wrote    ${file}`);
     for (const file of result.created) io.out(`created  ${file} (app-owned: edit it freely)`);
     for (const file of result.kept) io.out(`kept     ${file} (app-owned)`);

@@ -76,11 +76,22 @@ function parsePermissionsPolicy(header: string): Record<string, string[]> {
   return directives;
 }
 
-describe('nginx.conf Permissions-Policy header', () => {
+// The header lives in the app-owned include point (issue #714): nginx.conf
+// includes platform/security-headers.conf, which includes this one file.
+const PERMISSIONS_POLICY = 'infra/nginx/app.d/permissions-policy.conf';
+
+describe('nginx Permissions-Policy header (app.d/permissions-policy.conf)', () => {
+  it('is set once, through the security-header snippet nginx.conf includes', () => {
+    expect(withoutComments(read('infra/nginx/nginx.conf'))).toContain('include /etc/nginx/platform/security-headers.conf;');
+    const headers = withoutComments(read('infra/nginx/platform/security-headers.conf'));
+    expect(headers).toContain('include /etc/nginx/app.d/permissions-policy.conf;');
+    expect(headers).not.toMatch(/add_header\s+Permissions-Policy/);
+  });
+
   function permissionsPolicyDirectives(): Record<string, string[]> {
-    const conf = withoutComments(read('infra/nginx/nginx.conf'));
+    const conf = withoutComments(read(PERMISSIONS_POLICY));
     const matches = [...conf.matchAll(/add_header\s+Permissions-Policy\s+"([^"]*)"/g)];
-    expect(matches, 'expected exactly one add_header Permissions-Policy in nginx.conf').toHaveLength(1);
+    expect(matches, `expected exactly one add_header Permissions-Policy in ${PERMISSIONS_POLICY}`).toHaveLength(1);
     return parsePermissionsPolicy(matches[0]![1]!);
   }
 

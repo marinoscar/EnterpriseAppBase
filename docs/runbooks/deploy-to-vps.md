@@ -388,6 +388,22 @@ from *that* checkout, and run `deploy install` from inside it. It deploys
 your fork, at your fork's default branch, asking about your fork's own
 environment variables, automatically.
 
+**Where the compose and nginx files come from.** The platform's files under
+`infra/` (every `*.compose.yml` the deploy uses, `infra/nginx/` and
+`infra/compose/.env.example`) are generated from `@marinoscar/platform-infra`
+and committed, so the clone on the server has them without `npm ci`. Before
+you push a change that upgrades the package or renames the app, run the sync
+and commit what it writes:
+
+```bash
+npm run build:packages            # the sync runs the package's built dist/
+npm run platform:infra:sync       # renders infra/ and rewrites infra/platform-infra.lock.json
+npm run platform:infra:sync -- --check   # what CI runs: exit 1 on a hand edit or a stale lock
+```
+
+Never edit a generated file to change your deployment (the check fails, and
+the next sync undoes it); add an overlay instead (section 6.2).
+
 ### 6.1 Use the published stack-agent image
 
 `vps.compose.yml` builds the `stack-agent` sidecar from source on the server
@@ -401,19 +417,22 @@ than build its own copy, can swap the build for that image with an overlay of
 its own, layered **after** `vps.compose.yml`:
 
 ```yaml
-# infra/compose/stack-agent-image.compose.yml (yours; not part of the template)
+# infra/compose/app.vps.stack-agent-image.compose.yml (yours; not part of the template)
 services:
   stack-agent:
     build: !reset null
     image: ghcr.io/<owner>/<repo>-stack-agent:<version>   # or @sha256:<digest>
 ```
 
+Committed in your app's checkout under that name, `appctl deploy` applies it
+after every platform file (section 6.2). To apply it by hand:
+
 ```bash
 cd infra/compose
 docker compose -p <project> \
   -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml \
   -f vps.compose.yml -f vps.telemetry.compose.yml \
-  -f stack-agent-image.compose.yml up -d stack-agent
+  -f app.vps.stack-agent-image.compose.yml up -d stack-agent
 ```
 
 Use the deployment's recorded project name for `<project>`
@@ -428,9 +447,60 @@ the platform version your app's `@marinoscar/platform-*` packages are on, and
 verify the digest with `cosign verify` before you deploy it
 ([container-images.md §5](container-images.md#5-verify-a-signature)).
 
-`appctl deploy install`/`update` do not layer this file: they use their own
-fixed file list (`apps/cli/src/deploy/compose-files.ts`) and build on the
-server, so a later `update` rebuilds the sidecar from source.
+A file under another name (one that does not match `app.*.compose.yml`) is
+not layered by `appctl deploy install`/`update`, so a later `update` would
+rebuild the sidecar from source.
+
+### 6.2 Change the stack with an overlay
+
+The deploy's file list (`apps/cli/src/deploy/compose-files.ts`) is the
+platform's files in their fixed order, then **your overlays** found in the
+checkout's `infra/compose/`, sorted by file name, so an overlay always wins:
+
+```text
+base, prod, telemetry, vps, vps.telemetry, app.*.compose.yml
+```
+
+| File name | Applied to |
+|---|---|
+| `app.<name>.compose.yml` | every stack built on `base` (dev, devdb, prod, VPS) |
+| `app.prod.<name>.compose.yml` | prod and VPS |
+| `app.vps.<name>.compose.yml` | VPS only |
+| `app.dev.<name>.compose.yml` | dev and devdb (`appctl init` prints it in its start command) |
+| `*.example.compose.yml` | never: documentation (`app.example.compose.yml` ships with the template) |
+
+Two examples, both from the package's tested fixtures:
+
+```yaml
+# infra/compose/app.prod.memory-limits.compose.yml: other memory limits
+services:
+  api:
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEM_LIMIT:-512M}
+```
+
+```yaml
+# infra/compose/app.vps.no-stack-agent.compose.yml: run without the stack agent
+services:
+  stack-agent:
+    profiles: ["disabled"]
+```
+
+Commit the overlay and run `appctl deploy update`. Check the merged result on
+the server with the same file list:
+`docker compose -p <project> -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml -f vps.compose.yml -f vps.telemetry.compose.yml -f app.<...>.compose.yml config`.
+A variable an overlay reads (`API_MEM_LIMIT`) belongs in
+`infra/compose/app.env.example`, so the environment wizard asks for it.
+
+nginx is extended the same way, in `infra/nginx/app.d/`: a route in
+`locations/<name>.conf` (an SSE route is
+`location /api/<path>/stream { include /etc/nginx/platform/sse-proxy.conf; }`,
+which keeps the security headers), maps and upstreams in `http/`, and the
+`Permissions-Policy` in `permissions-policy.conf`. The update's edge-config
+check compares `nginx.conf` and `csp.conf` only, so after changing a file in
+`app.d/` recreate nginx: `docker compose -p <project> <the same -f list> up -d --force-recreate nginx`.
 
 ## 7. Logs
 

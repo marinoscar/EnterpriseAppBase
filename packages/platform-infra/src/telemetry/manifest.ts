@@ -9,6 +9,20 @@ export interface InfraFile {
   readonly from: string;
   /** Path relative to the app's repository root, using `/`, for example `infra/compose/telemetry.compose.yml`. */
   readonly to: string;
+  /**
+   * Generated files only: the app path of an app-owned file whose content is
+   * appended to the rendered package file, after one blank line. The
+   * materialised `infra/compose/.env.example` is the platform variables
+   * followed by the app's own `infra/compose/app.env.example`.
+   */
+  readonly append?: string;
+  /**
+   * App-owned files only: a placeholder that keeps an otherwise empty
+   * directory in git (a `.gitkeep`). Created only when its directory is
+   * missing or empty, and never reported missing by `sync --check`, because
+   * an app that has put real files in the directory may delete it.
+   */
+  readonly keep?: boolean;
 }
 
 /**
@@ -52,12 +66,14 @@ export interface InfraFragment {
   readonly id: 'telemetry';
   /** The env group whose presence adds these compose files (the app CLI's `EnvGroup`). */
   readonly envGroup: 'observability';
-  /** Compose files and where each sits in the load-bearing order. */
-  readonly composeFiles: readonly InfraComposeFile[];
+  /** Where an app changes what this fragment ships, named in every generated header and drift error. */
+  readonly extendThrough: string;
   /** Platform-owned files copied into the app on every sync (package path to app path). They are generated: never edit them in the app. */
   readonly files: readonly InfraFile[];
   /** App-owned files created from a package template only when absent, and never overwritten afterwards. */
   readonly appOwnedFiles: readonly InfraFile[];
+  /** Compose files and where each sits in the load-bearing order. */
+  readonly composeFiles: readonly InfraComposeFile[];
   /** Collector configs (app paths) in `--config` order: the platform base first, then the app-owned overlay. */
   readonly collectorConfigs: {
     /** App path of the generated platform config, the first `--config`. */
@@ -99,6 +115,7 @@ export interface InfraFragment {
 export const telemetryInfraFragment: InfraFragment = deepFreeze({
   id: 'telemetry',
   envGroup: 'observability',
+  extendThrough: 'infra/otel/app-collector.yaml or a compose overlay',
   composeFiles: [
     { file: 'telemetry.compose.yml', slot: 'after-prod' },
     { file: 'vps.telemetry.compose.yml', slot: 'after-vps' },

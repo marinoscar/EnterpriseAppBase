@@ -1,3 +1,5 @@
+# GENERATED from @marinoscar/platform-infra@0.1.0-next.3 (compose) — do not edit; extend through an infra/compose/app.*.compose.yml overlay
+# Source of truth: @marinoscar/platform-infra/compose/base.compose.yml; re-materialise with `npx platform-infra sync`
 # =============================================================================
 # Docker Compose - Base Services
 # =============================================================================
@@ -11,6 +13,9 @@
 #   docker compose -f base.compose.yml -f prod.compose.yml up
 #
 # Note: .env file is in this folder (infra/compose/)
+#
+# GENERATED into the app from @marinoscar/platform-infra; an app changes it
+# with an infra/compose/app.*.compose.yml overlay, applied after this file.
 # =============================================================================
 
 services:
@@ -27,6 +32,13 @@ services:
     volumes:
       - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ../nginx/csp.conf:/etc/nginx/csp.conf:ro
+      # The platform's snippets (security headers, the SSE proxy body) and
+      # the app's include points (app.d/http, app.d/server, app.d/locations,
+      # app.d/permissions-policy.conf). DIRECTORY mounts, so a file added or
+      # replaced by `git checkout` is seen by path (a single-file mount pins
+      # an inode); nginx still needs a reload or a recreate to read it.
+      - ../nginx/platform:/etc/nginx/platform:ro
+      - ../nginx/app.d:/etc/nginx/app.d:ro
     # Open-file limit for long-lived SSE (issue #684). nginx.conf raises
     # worker_rlimit_nofile to 65536, which only takes effect when the
     # container's HARD limit allows it; without this the limit is whatever the

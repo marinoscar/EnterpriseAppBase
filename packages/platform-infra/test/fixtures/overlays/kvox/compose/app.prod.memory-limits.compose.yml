@@ -1,0 +1,14 @@
+# kvox's memory limits, as an overlay instead of an edit of vps.compose.yml
+# (#714). Scoped `prod`: applied to the prod and vps stacks, after every
+# platform file, so these limits win over prod.compose.yml's.
+services:
+  api:
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEM_LIMIT:-512M}
+  web:
+    deploy:
+      resources:
+        limits:
+          memory: ${WEB_MEM_LIMIT:-128M}

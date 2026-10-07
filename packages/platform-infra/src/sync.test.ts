@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished } from 'vit
 import {
   bodyChecksum,
   checkInfra,
+  INFRA_FRAGMENTS,
   generatedHeader,
   LOCK_PATH,
   splitGenerated,
@@ -20,6 +21,8 @@ const REPO_ROOT = join(PACKAGE_ROOT, '..', '..');
 const VERSION = (JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version: string }).version;
 const GENERATED = telemetryInfraFragment.files.map((file) => file.to);
 const OVERLAY = telemetryInfraFragment.collectorConfigs.app;
+/** These cases are about the mechanism, shown on the telemetry fragment alone (platform-fragments.test.ts covers the rest). */
+const TELEMETRY_ONLY = { fragments: [telemetryInfraFragment] };
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
 const packageFile = (from: string): string => readFileSync(join(PACKAGE_ROOT, from), 'utf8');
@@ -39,7 +42,7 @@ afterEach(() => {
 
 describe('syncInfra()', () => {
   it('copies every generated file with a header, then the package content verbatim', () => {
-    const result = syncInfra({ root: app });
+    const result = syncInfra({ ...TELEMETRY_ONLY, root: app });
 
     expect(result.written).toEqual(GENERATED);
     for (const file of telemetryInfraFragment.files) {
@@ -57,7 +60,7 @@ describe('syncInfra()', () => {
   });
 
   it('writes the lock with the version and the sha256 of each body (content after the header)', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
 
     const lock = readLock();
     expect(lock.version).toBe(VERSION);
@@ -72,7 +75,7 @@ describe('syncInfra()', () => {
   });
 
   it('creates the app-owned overlay from the example only when it is absent', () => {
-    const first = syncInfra({ root: app });
+    const first = syncInfra({ ...TELEMETRY_ONLY, root: app });
     expect(first.created).toEqual([OVERLAY]);
     expect(read(OVERLAY)).toBe(packageFile('telemetry/otel/app-collector.example.yaml'));
     // The overlay is the app's: no generated header, and not in the lock.
@@ -81,11 +84,11 @@ describe('syncInfra()', () => {
   });
 
   it('never overwrites the app-owned overlay', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const mine = 'service:\n  pipelines:\n    metrics/app:\n      receivers: [otlp]\n';
     write(OVERLAY, mine);
 
-    const again = syncInfra({ root: app });
+    const again = syncInfra({ ...TELEMETRY_ONLY, root: app });
 
     expect(again.created).toEqual([]);
     expect(again.kept).toEqual([OVERLAY]);
@@ -93,11 +96,11 @@ describe('syncInfra()', () => {
   });
 
   it('is idempotent: a second run writes nothing and changes no byte', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const before = new Map([...GENERATED, LOCK_PATH, OVERLAY].map((to) => [to, read(to)]));
     const mtimes = new Map(GENERATED.map((to) => [to, statSync(join(app, to)).mtimeMs]));
 
-    const again = syncInfra({ root: app });
+    const again = syncInfra({ ...TELEMETRY_ONLY, root: app });
 
     expect(again.written).toEqual([]);
     expect(again.unchanged).toEqual(GENERATED);
@@ -107,11 +110,11 @@ describe('syncInfra()', () => {
   });
 
   it('restores a hand-edited generated file', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const original = read('infra/compose/vps.telemetry.compose.yml');
     write('infra/compose/vps.telemetry.compose.yml', original.replace('memory: 256M', 'memory: 512M'));
 
-    const result = syncInfra({ root: app });
+    const result = syncInfra({ ...TELEMETRY_ONLY, root: app });
 
     expect(result.written).toEqual(['infra/compose/vps.telemetry.compose.yml']);
     expect(read('infra/compose/vps.telemetry.compose.yml')).toBe(original);
@@ -121,7 +124,7 @@ describe('syncInfra()', () => {
     const pkg = fakePackage();
     rmSync(join(pkg, 'telemetry', 'otel', 'otel-collector-config.yaml'));
 
-    expect(() => syncInfra({ root: app, packageRoot: pkg })).toThrow(/ENOENT/);
+    expect(() => syncInfra({ ...TELEMETRY_ONLY, root: app, packageRoot: pkg })).toThrow(/ENOENT/);
     expect(existsSync(join(app, 'infra'))).toBe(false);
   });
 
@@ -130,7 +133,7 @@ describe('syncInfra()', () => {
       ...telemetryInfraFragment,
       files: [...telemetryInfraFragment.files, { from: 'telemetry/otel/app-collector.example.yaml', to: OVERLAY }],
     };
-    expect(() => syncInfra({ root: app, fragments: [bad] })).toThrow(/app-owned and never overwritten/);
+    expect(() => syncInfra({ ...TELEMETRY_ONLY, root: app, fragments: [bad] })).toThrow(/app-owned and never overwritten/);
   });
 
   it.each(['../escape.yml', '/etc/escape.yml', 'infra/../../escape.yml'])('refuses the app path %s', (to) => {
@@ -138,7 +141,7 @@ describe('syncInfra()', () => {
       ...telemetryInfraFragment,
       files: [{ from: 'telemetry/compose/telemetry.compose.yml', to }],
     };
-    expect(() => syncInfra({ root: app, fragments: [bad] })).toThrow(/app root/);
+    expect(() => syncInfra({ ...TELEMETRY_ONLY, root: app, fragments: [bad] })).toThrow(/app root/);
   });
 
   it('refuses a package path that leaves the package', () => {
@@ -146,7 +149,7 @@ describe('syncInfra()', () => {
       ...telemetryInfraFragment,
       files: [{ from: '../platform-api/package.json', to: 'infra/x.yml' }],
     };
-    expect(() => syncInfra({ root: app, fragments: [bad] })).toThrow(/outside @marinoscar\/platform-infra/);
+    expect(() => syncInfra({ ...TELEMETRY_ONLY, root: app, fragments: [bad] })).toThrow(/outside @marinoscar\/platform-infra/);
   });
 
   it('refuses a generated file whose syntax has no comments', () => {
@@ -155,26 +158,26 @@ describe('syncInfra()', () => {
       files: [{ from: 'package.json', to: 'infra/x.json' }],
       appOwnedFiles: [],
     };
-    expect(() => syncInfra({ root: app, fragments: [bad] })).toThrow(/no comment syntax/);
+    expect(() => syncInfra({ ...TELEMETRY_ONLY, root: app, fragments: [bad] })).toThrow(/no comment syntax/);
   });
 });
 
 describe('checkInfra() (`sync --check`)', () => {
   it('passes right after a sync', () => {
-    syncInfra({ root: app });
-    const result = checkInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
+    const result = checkInfra({ ...TELEMETRY_ONLY, root: app });
     expect(result.problems).toEqual([]);
     expect(result.warnings).toEqual([]);
     expect(result.checked).toEqual(GENERATED);
   });
 
   it.each(GENERATED)('fails on a hand edit of %s, naming the file, the line and the fix', (to) => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const lines = read(to).split('\n');
     lines.splice(10, 0, '# a local tweak');
     write(to, lines.join('\n'));
 
-    const { problems } = checkInfra({ root: app });
+    const { problems } = checkInfra({ ...TELEMETRY_ONLY, root: app });
 
     expect(problems).toHaveLength(1);
     expect(problems[0]!.file).toBe(`${to}:11`);
@@ -185,105 +188,105 @@ describe('checkInfra() (`sync --check`)', () => {
   });
 
   it('fails when the header was removed', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const to = 'infra/otel/otel-collector-config.yaml';
     write(to, splitGenerated(read(to)).body);
 
-    const { problems } = checkInfra({ root: app });
+    const { problems } = checkInfra({ ...TELEMETRY_ONLY, root: app });
     expect(problems.map((p) => p.file)).toEqual([to]);
     expect(problems[0]!.message).toMatch(/no generated header/);
   });
 
   it('fails when a generated file is missing', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     rmSync(join(app, 'infra/compose/telemetry.compose.yml'));
 
-    const { problems } = checkInfra({ root: app });
+    const { problems } = checkInfra({ ...TELEMETRY_ONLY, root: app });
     expect(problems).toEqual([expect.objectContaining({ file: 'infra/compose/telemetry.compose.yml' })]);
     expect(problems[0]!.message).toMatch(/missing/);
   });
 
   it('fails when the app-owned overlay is missing (the collector mounts it)', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     rmSync(join(app, OVERLAY));
 
-    const { problems } = checkInfra({ root: app });
+    const { problems } = checkInfra({ ...TELEMETRY_ONLY, root: app });
     expect(problems).toEqual([expect.objectContaining({ file: OVERLAY })]);
     expect(problems[0]!.message).toContain('app-collector.example.yaml');
   });
 
   it('accepts any content in the app-owned overlay', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     write(OVERLAY, 'receivers: {}\n');
-    expect(checkInfra({ root: app }).problems).toEqual([]);
+    expect(checkInfra({ ...TELEMETRY_ONLY, root: app }).problems).toEqual([]);
   });
 
   it('fails when the lock is missing', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     rmSync(join(app, LOCK_PATH));
 
-    const { problems } = checkInfra({ root: app });
+    const { problems } = checkInfra({ ...TELEMETRY_ONLY, root: app });
     expect(problems).toEqual([expect.objectContaining({ file: LOCK_PATH })]);
   });
 
   it('fails when the lock checksum differs from the file', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const lock = readLock();
     lock.fragments['telemetry']!.files['infra/compose/telemetry.compose.yml'] = '0'.repeat(64);
     write(LOCK_PATH, JSON.stringify(lock));
 
-    const { problems } = checkInfra({ root: app });
+    const { problems } = checkInfra({ ...TELEMETRY_ONLY, root: app });
     expect(problems).toHaveLength(1);
     expect(problems[0]!.file).toBe(LOCK_PATH);
     expect(problems[0]!.message).toContain('infra/compose/telemetry.compose.yml');
   });
 
   it('fails when the lock has no entry for a generated file', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const lock = readLock();
     delete lock.fragments['telemetry']!.files['infra/otel/otel-collector-config.yaml'];
     write(LOCK_PATH, JSON.stringify(lock));
 
-    expect(checkInfra({ root: app }).problems).toEqual([
+    expect(checkInfra({ ...TELEMETRY_ONLY, root: app }).problems).toEqual([
       expect.objectContaining({ file: LOCK_PATH, message: expect.stringContaining('no checksum for infra/otel/otel-collector-config.yaml') }),
     ]);
   });
 
   it('fails when the package changed and the app was not re-synced', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const pkg = fakePackage();
     const config = join(pkg, 'telemetry', 'otel', 'otel-collector-config.yaml');
     writeFileSync(config, readFileSync(config, 'utf8').replace('limit_mib: 400', 'limit_mib: 500'));
 
-    const { problems } = checkInfra({ root: app, packageRoot: pkg });
+    const { problems } = checkInfra({ ...TELEMETRY_ONLY, root: app, packageRoot: pkg });
     expect(problems.map((p) => p.file)).toEqual([expect.stringMatching(/^infra\/otel\/otel-collector-config\.yaml:\d+$/)]);
   });
 
   it('only warns when the content matches but the version moved on', () => {
-    syncInfra({ root: app, version: '0.0.0-old' });
+    syncInfra({ ...TELEMETRY_ONLY, root: app, version: '0.0.0-old' });
 
-    const result = checkInfra({ root: app, version: '0.1.0' });
+    const result = checkInfra({ ...TELEMETRY_ONLY, root: app, version: '0.1.0' });
 
     expect(result.problems).toEqual([]);
     expect(result.warnings.map((w) => w.file).sort()).toEqual([...GENERATED, LOCK_PATH].sort());
     // A re-sync clears the warnings and touches only headers and the lock.
-    syncInfra({ root: app, version: '0.1.0' });
-    expect(checkInfra({ root: app, version: '0.1.0' }).warnings).toEqual([]);
+    syncInfra({ ...TELEMETRY_ONLY, root: app, version: '0.1.0' });
+    expect(checkInfra({ ...TELEMETRY_ONLY, root: app, version: '0.1.0' }).warnings).toEqual([]);
   });
 
   it('does not read CRLF line endings as drift', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     for (const to of GENERATED) write(to, read(to).replace(/\n/g, '\r\n'));
-    expect(checkInfra({ root: app }).problems).toEqual([]);
+    expect(checkInfra({ ...TELEMETRY_ONLY, root: app }).problems).toEqual([]);
   });
 
   it('warns about a lock entry the fragment no longer generates', () => {
-    syncInfra({ root: app });
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
     const lock = readLock();
     lock.fragments['telemetry']!.files['infra/compose/gone.compose.yml'] = '0'.repeat(64);
     write(LOCK_PATH, JSON.stringify(lock));
 
-    const result = checkInfra({ root: app });
+    const result = checkInfra({ ...TELEMETRY_ONLY, root: app });
     expect(result.problems).toEqual([]);
     expect(result.warnings).toEqual([expect.objectContaining({ message: expect.stringContaining('gone.compose.yml') })]);
   });
@@ -308,7 +311,8 @@ describe('this repository is its own first consumer', () => {
   it('has committed infra/ files that match the package and the lock', () => {
     const result = checkInfra({ root: REPO_ROOT });
     expect(result.problems).toEqual([]);
-    expect(result.checked).toEqual(GENERATED);
+    expect(result.checked).toEqual(INFRA_FRAGMENTS.flatMap((fragment) => fragment.files.map((file) => file.to)));
+    expect(result.checked).toEqual(expect.arrayContaining(GENERATED));
   });
 });
 

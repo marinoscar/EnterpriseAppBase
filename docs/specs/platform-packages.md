@@ -512,13 +512,13 @@ const { user, can } = useAuth();   // from '@marinoscar/platform-web/headless'
 App differences are overlay files, not forks.
 
 ```bash
-docker compose -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml -f app.overlay.compose.yml up
+docker compose -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml -f app.prod.limits.compose.yml up
 otelcol --config=platform-collector.yaml --config=app-collector.yaml   # the files merge
 ```
 
 The overlay adds the app's own services, environment and collector pipelines. Platform fragments are never edited.
 
-Because a VPS deploy runs compose from the cloned app repository, where no `node_modules` exists, fragments are **materialised** into the app's `infra/` by `npx platform-infra sync` and committed, with a generated-file header and `infra/platform-infra.lock.json`; `sync --check` in CI fails on a hand edit. App-owned overlays such as `infra/otel/app-collector.yaml` are created once and never overwritten. The collector merges its `--config` files with maps merged and lists replaced, so an overlay adds a new named pipeline (`metrics/app`) rather than restating a platform one ([telemetry runbook §2.4](../runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)).
+Because a VPS deploy runs compose from the cloned app repository, where no `node_modules` exists, fragments are **materialised** into the app's `infra/` by `npx platform-infra sync` and committed, with a generated-file header and `infra/platform-infra.lock.json`; `sync --check` in CI fails on a hand edit. They land at the paths the stack always used (`infra/compose/*.compose.yml`, `infra/nginx/`, `infra/compose/.env.example`), not in a separate `infra/platform/` folder, so Compose keeps resolving `context: ../..` against `infra/compose` and every documented command is unchanged. The sync renders the app identity (`@@PLATFORM_ENV_PREFIX@@` and the other placeholders: CLI name, service name, worker image, test database) before write, and the lock records it. The app's overlay points ([platform-infra README](../../packages/platform-infra/README.md#extension-point-catalog)): `infra/compose/app[.<scope>].<name>.compose.yml`, applied after the platform files sorted by name (`composeFilesForMode()`); `infra/nginx/app.d/{http,server,locations}/*.conf` and `app.d/permissions-policy.conf`, with `platform/sse-proxy.conf` as the body of an SSE location (it repeats the security headers); and `infra/compose/app.env.example`, appended to `.env.example`. App-owned overlays such as `infra/otel/app-collector.yaml` are created once and never overwritten. The collector merges its `--config` files with maps merged and lists replaced, so an overlay adds a new named pipeline (`metrics/app`) rather than restating a platform one ([telemetry runbook §2.4](../runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)).
 
 #### CLI
 
