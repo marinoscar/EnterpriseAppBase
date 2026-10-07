@@ -64,7 +64,9 @@ import {
   TRACES_TABLE,
   unknownRoutesTotalsSql,
 } from './telemetry-dashboard.sql';
-import { computeVerdict } from './telemetry-dashboard.verdict';
+import { TELEMETRY_VERDICT_THRESHOLDS } from '../telemetry.options';
+import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from './telemetry-dashboard.verdict';
+import { DefaultVerdictPolicy, VERDICT_POLICY, type VerdictPolicy } from './verdict-policy';
 
 // =============================================================================
 // TelemetryDashboardService — the fixed dashboard over the telemetry store
@@ -408,6 +410,10 @@ export class TelemetryDashboardService {
     private readonly settings: TelemetrySettingsService,
     private readonly schema: TelemetrySchemaService,
     @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
+    // Rung 3 (#703): the verdict is the bound policy's, over the resolved
+    // thresholds. The defaults serve a hand-built instance (unit tests).
+    @Inject(VERDICT_POLICY) private readonly verdictPolicy: VerdictPolicy = new DefaultVerdictPolicy(),
+    @Inject(TELEMETRY_VERDICT_THRESHOLDS) private readonly thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
   ) {}
 
   async summary(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardSummary> {
@@ -710,7 +716,7 @@ export class TelemetryDashboardService {
       ? unknownRoutesOf(unknownTotals, unknownTop, [unknownSql.top, unknownSql.totals].filter((q): q is string => !!q))
       : null;
 
-    const verdict = computeVerdict({
+    const verdict = this.verdictPolicy.compute({
       now,
       lastDataAt,
       requests,
@@ -729,7 +735,7 @@ export class TelemetryDashboardService {
           }
         : null,
       ...infrastructure,
-    });
+    }, this.thresholds);
 
     const starts = bucketStarts(window.from, window.to, window.bucketSeconds);
     const apiBuckets = byBucket(apiSeries);

@@ -1,4 +1,4 @@
-import { DynamicModule, Module } from '@nestjs/common';
+import { DynamicModule, Module, type Provider } from '@nestjs/common';
 
 import { TelemetryAiEnabledGuard } from './assistant/telemetry-ai-enabled.guard';
 import { createTelemetryAssistantController } from './assistant/telemetry-assistant.controller';
@@ -31,9 +31,12 @@ import { TelemetryExportDoctorCheck } from './doctor/telemetry-export.doctor-che
 import { TelemetryFreshnessDoctorCheck } from './doctor/telemetry-freshness.doctor-check';
 import { TelemetryReachableDoctorCheck } from './doctor/telemetry-reachable.doctor-check';
 import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-check';
+import { MetricGroupRegistry } from './metrics/metric-group-registry.service';
 import { registerMetricGroups, metricGroupRegistry } from './metrics/metric-group.registry';
+import { DefaultVerdictPolicy, VERDICT_POLICY } from './dashboard/verdict-policy';
 import {
   TELEMETRY_OPTIONS,
+  TELEMETRY_VERDICT_THRESHOLDS,
   resolveTelemetryModuleOptions,
   type TelemetryModuleOptions,
 } from './telemetry.options';
@@ -91,6 +94,8 @@ import {
 // =============================================================================
 
 const PROVIDERS = [
+  // Rung 2 (#703): the metric-group registry, injectable; frozen on bootstrap.
+  MetricGroupRegistry,
   TelemetryConnectionService,
   TelemetryConnectionAdminService,
   TelemetryConnectionTestService,
@@ -139,8 +144,12 @@ export class TelemetryModule {
    *
    * @param options - the module options.
    * @returns the dynamic module. It exports `GreptimeClient`,
-   *   `TelemetrySettingsService`, `TelemetryQueryService` and `TelemetrySchemaService`.
-   * @throws Error when an option is invalid, or an extra metric group is refused.
+   *   `TelemetrySettingsService`, `TelemetryQueryService`, `TelemetrySchemaService`,
+   *   `MetricGroupRegistry`, `DefaultVerdictPolicy`, `VERDICT_POLICY` and
+   *   `TELEMETRY_VERDICT_THRESHOLDS`.
+   * @throws Error when an option is invalid (a bad verdict threshold names the
+   *   field); RegistryError when an extra metric group is refused (a duplicate id
+   *   or family key fails boot here).
    *
    * @example
    * ```ts
@@ -170,8 +179,26 @@ export class TelemetryModule {
         createTelemetryStackController(resolved),
         createTelemetryDashboardController(resolved),
       ],
-      providers: [{ provide: TELEMETRY_OPTIONS, useValue: resolved }, ...PROVIDERS],
-      exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
+      providers: [
+        { provide: TELEMETRY_OPTIONS, useValue: resolved },
+        // Rung 1: the resolved, frozen thresholds every reader injects.
+        { provide: TELEMETRY_VERDICT_THRESHOLDS, useValue: resolved.verdictThresholds },
+        // Rung 3: the verdict policy. The default is always provided, so an
+        // app policy can inject it and delegate.
+        DefaultVerdictPolicy,
+        { provide: VERDICT_POLICY, ...(resolved.verdictPolicy ?? { useExisting: DefaultVerdictPolicy }) } as Provider,
+        ...PROVIDERS,
+      ],
+      exports: [
+        GreptimeClient,
+        TelemetrySettingsService,
+        TelemetryQueryService,
+        TelemetrySchemaService,
+        MetricGroupRegistry,
+        DefaultVerdictPolicy,
+        VERDICT_POLICY,
+        TELEMETRY_VERDICT_THRESHOLDS,
+      ],
     };
   }
 }

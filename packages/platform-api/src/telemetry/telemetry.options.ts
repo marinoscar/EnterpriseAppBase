@@ -15,15 +15,46 @@
 //   actorId       how a route reads the caller's user id off the request
 //                 (default: `request.requestUser.id ?? request.user.id`, the
 //                 reference app's `@CurrentUser('id')`).
+//   dashboard     `verdictThresholds`: deep-merged over
+//                 `DEFAULT_VERDICT_THRESHOLDS` (zod-validated); `verdictPolicy`:
+//                 what `VERDICT_POLICY` is bound to (rung 3; default
+//                 `DefaultVerdictPolicy`).
 //
 // Validated once, in `forRoot`: a bad option fails boot with a message naming
 // it.
 // =============================================================================
 
 import { createParamDecorator, type ExecutionContext, type ModuleMetadata } from '@nestjs/common';
+import { z } from 'zod';
 
-import { definePlatformHost, type PlatformHost } from '../core/index';
+import { definePlatformHost, type PlatformHost, type PortBinding } from '../core/index';
+import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from './dashboard/telemetry-dashboard.verdict';
+import type { VerdictPolicy } from './dashboard/verdict-policy';
 import type { MetricGroupDef } from './metrics/metric-group.registry';
+
+/**
+ * A partial {@link VerdictThresholds}: any field, at any depth, may be left out
+ * and keeps its default.
+ *
+ * @stability experimental
+ */
+export type VerdictThresholdsOverride = {
+  -readonly [K in keyof VerdictThresholds]?: VerdictThresholds[K] extends object
+    ? { -readonly [L in keyof VerdictThresholds[K]]?: VerdictThresholds[K][L] }
+    : VerdictThresholds[K];
+};
+
+/**
+ * The dashboard's options.
+ *
+ * @stability experimental
+ */
+export interface TelemetryDashboardOptions {
+  /** Deep-merged over `DEFAULT_VERDICT_THRESHOLDS`; validated at boot. */
+  verdictThresholds?: VerdictThresholdsOverride;
+  /** What `VERDICT_POLICY` is bound to; default `{ useClass: DefaultVerdictPolicy }`. Its own dependencies come from `imports`. */
+  verdictPolicy?: PortBinding<VerdictPolicy>;
+}
 
 /**
  * Options of `TelemetryModule.forRoot()`.
@@ -51,6 +82,8 @@ export interface TelemetryModuleOptions {
    * @returns the user id, or `undefined` for an anonymous request (the access decorators refuse those first).
    */
   actorId?: (request: unknown) => string | undefined;
+  /** The dashboard's verdict thresholds and policy. */
+  dashboard?: TelemetryDashboardOptions;
 }
 
 /**
@@ -70,6 +103,10 @@ export interface ResolvedTelemetryModuleOptions {
   readonly actorId: (request: unknown) => string | undefined;
   /** A parameter decorator injecting `actorId(request)` into a route handler. */
   readonly actorIdParam: () => ParameterDecorator;
+  /** The resolved, frozen verdict thresholds (`TELEMETRY_VERDICT_THRESHOLDS`). */
+  readonly verdictThresholds: VerdictThresholds;
+  /** The binding of `VERDICT_POLICY`, or `undefined` for the default policy. */
+  readonly verdictPolicy: PortBinding<VerdictPolicy> | undefined;
 }
 
 /**
@@ -78,6 +115,114 @@ export interface ResolvedTelemetryModuleOptions {
  * @stability experimental
  */
 export const TELEMETRY_OPTIONS: unique symbol = Symbol.for('@marinoscar/platform/telemetry/OPTIONS');
+
+/**
+ * Injection token of the resolved {@link VerdictThresholds}: the defaults with
+ * the app's `dashboard.verdictThresholds` deep-merged over them, frozen. Every
+ * reader of a threshold injects this.
+ *
+ * @extensionPoint token
+ * @stability experimental
+ */
+export const TELEMETRY_VERDICT_THRESHOLDS: unique symbol = Symbol.for('@marinoscar/platform/telemetry/VERDICT_THRESHOLDS');
+
+const amount = z.number().finite().nonnegative();
+const count = z.number().int().positive();
+const levels = z.object({ degraded: amount, critical: amount }).partial().strict();
+
+/** What a `dashboard.verdictThresholds` override may contain. */
+const verdictThresholdsOverrideSchema = z
+  .object({
+    minRequests: z.number().int().nonnegative(),
+    errorRatePct: levels,
+    p95Ms: levels,
+    errorLogs: z
+      .object({ minCurrent: z.number().int().nonnegative(), degradedRatio: amount, criticalRatio: amount })
+      .partial()
+      .strict(),
+    noDataMinutes: z.number().finite().positive(),
+    unknownRoutes: z.object({ criticalBearerRequests: count, criticalDistinctRoutes: count }).partial().strict(),
+    diskUtilizationPct: levels,
+    memoryUtilizationPct: levels,
+    dbConnectionsPct: levels,
+    oldestPendingJobMinutes: levels,
+    tlsDaysLeft: levels,
+    uptimeMinChecksForCritical: count,
+    collectorFailedPct: z.object({ critical: amount }).partial().strict(),
+    backupAgeHours: levels,
+  })
+  .partial()
+  .strict();
+
+/** The `{ degraded, critical }` pairs whose degraded bound must not exceed the critical one (`>`/`>=` rules). */
+const RISING: ReadonlyArray<keyof VerdictThresholds> = [
+  'errorRatePct',
+  'p95Ms',
+  'diskUtilizationPct',
+  'memoryUtilizationPct',
+  'dbConnectionsPct',
+  'oldestPendingJobMinutes',
+  'backupAgeHours',
+];
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const inner of Object.values(value)) deepFreeze(inner);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/**
+ * The verdict thresholds for an override: validated, deep-merged over
+ * {@link DEFAULT_VERDICT_THRESHOLDS} and frozen.
+ *
+ * @param override - the app's `dashboard.verdictThresholds`, or `undefined`.
+ * @returns the resolved thresholds.
+ * @throws Error naming every invalid field, or a degraded bound beyond its critical one.
+ *
+ * @stability experimental
+ */
+export function resolveVerdictThresholds(override: VerdictThresholdsOverride | undefined): VerdictThresholds {
+  const parsed = verdictThresholdsOverrideSchema.safeParse(override ?? {});
+  if (!parsed.success) {
+    const problems = parsed.error.issues
+      .map((issue) => `${issue.path.length ? issue.path.join('.') : '(root)'}: ${issue.message}`)
+      .join('; ');
+    fail(`\`dashboard.verdictThresholds\` is invalid (${problems})`);
+  }
+
+  const merged: Record<string, unknown> = structuredClone(DEFAULT_VERDICT_THRESHOLDS) as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value === undefined) continue;
+    merged[key] =
+      value !== null && typeof value === 'object'
+        ? { ...(merged[key] as Record<string, unknown>), ...value }
+        : value;
+  }
+  const resolved = merged as unknown as VerdictThresholds;
+
+  for (const key of RISING) {
+    const pair = resolved[key] as { degraded: number; critical: number };
+    if (pair.degraded > pair.critical) {
+      fail(`\`dashboard.verdictThresholds.${key}\`: degraded (${pair.degraded}) must not exceed critical (${pair.critical})`);
+    }
+  }
+  if (resolved.tlsDaysLeft.degraded < resolved.tlsDaysLeft.critical) {
+    fail(
+      `\`dashboard.verdictThresholds.tlsDaysLeft\`: degraded (${resolved.tlsDaysLeft.degraded}) must not be below ` +
+        `critical (${resolved.tlsDaysLeft.critical}); fewer days left is worse`,
+    );
+  }
+  if (resolved.errorLogs.degradedRatio > resolved.errorLogs.criticalRatio) {
+    fail(
+      `\`dashboard.verdictThresholds.errorLogs\`: degradedRatio (${resolved.errorLogs.degradedRatio}) must not exceed ` +
+        `criticalRatio (${resolved.errorLogs.criticalRatio})`,
+    );
+  }
+
+  return deepFreeze(resolved);
+}
 
 /**
  * The default caller resolver: the authenticated user's `id`, from
@@ -118,6 +263,18 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
   }
   if (options.metricGroups !== undefined && !Array.isArray(options.metricGroups)) fail('`metricGroups` must be an array');
   if (options.actorId !== undefined && typeof options.actorId !== 'function') fail('`actorId` must be a function');
+  if (options.dashboard !== undefined && (options.dashboard === null || typeof options.dashboard !== 'object')) {
+    fail('`dashboard` must be an object');
+  }
+  const verdictPolicy = options.dashboard?.verdictPolicy;
+  if (verdictPolicy !== undefined) {
+    const kinds =
+      verdictPolicy && typeof verdictPolicy === 'object'
+        ? ['useExisting', 'useClass', 'useFactory'].filter((k) => k in verdictPolicy)
+        : [];
+    if (kinds.length !== 1) fail('`dashboard.verdictPolicy` needs exactly one of useExisting, useClass or useFactory');
+  }
+  const verdictThresholds = resolveVerdictThresholds(options.dashboard?.verdictThresholds);
 
   const actorId = options.actorId ?? defaultTelemetryActorId;
   const param = createParamDecorator((_data: unknown, ctx: ExecutionContext) => actorId(ctx.switchToHttp().getRequest()));
@@ -128,5 +285,7 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
     metricGroups: Object.freeze([...(options.metricGroups ?? [])]),
     actorId,
     actorIdParam: () => param(),
+    verdictThresholds,
+    verdictPolicy,
   });
 }

@@ -1,11 +1,12 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 
 import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/index';
 import { DoctorCheckRegistry } from '../../doctor/index';
 import { LAST_DATA_LOOKBACK_MS, toDate } from '../dashboard/telemetry-dashboard.service';
 import { lastDataSql } from '../dashboard/telemetry-dashboard.sql';
-import { DASHBOARD_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.verdict';
+import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from '../dashboard/telemetry-dashboard.verdict';
 import { GreptimeClient, rowsAsObjects } from '../greptime/greptime.client';
+import { TELEMETRY_VERDICT_THRESHOLDS } from '../telemetry.options';
 import { TELEMETRY_SETTINGS_PATH } from './telemetry-export.doctor-check';
 
 /** Per-statement ceiling, the same as the status reads. */
@@ -13,13 +14,13 @@ const FRESHNESS_QUERY_TIMEOUT_MS = 5_000;
 
 /**
  * Pure: is data ACTUALLY arriving? The threshold is the dashboard verdict's
- * own `noDataMinutes`, so this check and the dashboard's "no data" banner
- * agree by construction.
+ * own `noDataMinutes` (the RESOLVED one, an app's override included, #703),
+ * so this check and the dashboard's "no data" banner agree by construction.
  */
 export function decideTelemetryFreshness(
   last: { traces: Date | null; logs: Date | null },
   now: Date = new Date(),
-  noDataMinutes: number = DASHBOARD_VERDICT_THRESHOLDS.noDataMinutes,
+  noDataMinutes: number = DEFAULT_VERDICT_THRESHOLDS.noDataMinutes,
 ): DoctorCheckOutcome {
   const age = (d: Date | null) => (d === null ? null : Math.max(0, Math.floor((now.getTime() - d.getTime()) / 60_000)));
   const tracesAge = age(last.traces);
@@ -78,6 +79,7 @@ export class TelemetryFreshnessDoctorCheck implements DoctorCheck, OnModuleInit 
   constructor(
     private readonly registry: DoctorCheckRegistry,
     private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_VERDICT_THRESHOLDS) private readonly thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
   ) {}
 
   onModuleInit(): void {
@@ -95,6 +97,10 @@ export class TelemetryFreshnessDoctorCheck implements DoctorCheck, OnModuleInit 
 
     const row = rowsAsObjects(await this.greptime.queryReader(sql, { timeoutMs: FRESHNESS_QUERY_TIMEOUT_MS }))[0] ?? {};
 
-    return decideTelemetryFreshness({ traces: toDate(row.traces_last), logs: toDate(row.logs_last) }, now);
+    return decideTelemetryFreshness(
+      { traces: toDate(row.traces_last), logs: toDate(row.logs_last) },
+      now,
+      this.thresholds.noDataMinutes,
+    );
   }
 }

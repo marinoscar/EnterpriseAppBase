@@ -48,6 +48,8 @@ import {
   type TelemetrySettingsStore,
 } from '../ports';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
+import { TELEMETRY_VERDICT_THRESHOLDS } from '../telemetry.options';
+import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from '../dashboard/telemetry-dashboard.verdict';
 import {
   assistantMetricWindow,
   compareNodesOutput,
@@ -370,6 +372,9 @@ export class TelemetryAssistantService {
     @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
     @Inject(TELEMETRY_SETTINGS_STORE) private readonly systemSettings: TelemetrySettingsStore,
     @Inject(TELEMETRY_APP_INFO) private readonly appInfo: TelemetryAppInfo,
+    // The resolved verdict thresholds (#703), for the saturation section's
+    // levels; the default serves a hand-built instance (unit tests).
+    @Inject(TELEMETRY_VERDICT_THRESHOLDS) private readonly thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
   ) {}
 
   /**
@@ -928,7 +933,7 @@ export class TelemetryAssistantService {
     >;
 
     return {
-      ...saturationOutput(inputs, ran, tc.shareResults),
+      ...saturationOutput(inputs, ran, tc.shareResults, this.thresholds),
       ...(runner.unavailable.length ? { unavailable: runner.unavailable } : {}),
     };
   }

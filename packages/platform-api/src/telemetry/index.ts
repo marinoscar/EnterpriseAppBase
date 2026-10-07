@@ -3,8 +3,34 @@
 
 // ---- the module and its options (rung 1) ------------------------------------------
 export { TelemetryModule } from './telemetry.module';
-export { TELEMETRY_OPTIONS, defaultTelemetryActorId } from './telemetry.options';
-export type { ResolvedTelemetryModuleOptions, TelemetryModuleOptions } from './telemetry.options';
+export {
+  TELEMETRY_OPTIONS,
+  TELEMETRY_VERDICT_THRESHOLDS,
+  defaultTelemetryActorId,
+  resolveVerdictThresholds,
+} from './telemetry.options';
+export type {
+  ResolvedTelemetryModuleOptions,
+  TelemetryDashboardOptions,
+  TelemetryModuleOptions,
+  VerdictThresholdsOverride,
+} from './telemetry.options';
+
+// ---- the dashboard's verdict: thresholds (rung 1) and policy (rung 3) -------------
+export { DefaultVerdictPolicy, VERDICT_POLICY } from './dashboard/verdict-policy';
+export type { VerdictPolicy } from './dashboard/verdict-policy';
+export {
+  DASHBOARD_VERDICT_THRESHOLDS,
+  DEFAULT_VERDICT_THRESHOLDS,
+  VERDICT_LEVELS,
+  computeVerdict,
+} from './dashboard/telemetry-dashboard.verdict';
+export type {
+  DashboardVerdict,
+  VerdictInput,
+  VerdictLevel,
+  VerdictThresholds,
+} from './dashboard/telemetry-dashboard.verdict';
 
 // ---- the host ports: one token per app capability ----------------------------------
 export {
@@ -103,6 +129,8 @@ export {
   metricGroups,
   registerMetricGroups,
 } from './metrics/metric-catalog';
+export { MetricGroupRegistry, registerMetricGroup } from './metrics/metric-group-registry.service';
+export type { MetricGroupDefinition } from './metrics/metric-group-registry.service';
 export type {
   BucketAggregate,
   CounterFamily,

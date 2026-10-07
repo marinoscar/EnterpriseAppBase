@@ -1,5 +1,6 @@
 import { Controller, Get, Inject, Query, Type } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { createZodDto } from 'nestjs-zod';
 
 import { ErrorDto } from '../../core/index';
 import {
@@ -11,8 +12,8 @@ import {
   TelemetryDashboardEventsQueryDto,
   TelemetryDashboardFiltersDto,
   TelemetryDashboardMetricGroupsDto,
-  TelemetryDashboardMetricsDto,
-  TelemetryDashboardMetricsQueryDto,
+  createTelemetryDashboardMetricsDtoSchema,
+  createTelemetryDashboardMetricsQueryDtoSchema,
   TelemetryDashboardQueryDto,
   TelemetryDashboardSummaryDto,
   TelemetryDashboardTimeseriesDto,
@@ -21,7 +22,7 @@ import {
   TelemetryDashboardTopQueryDto,
   type TelemetryDashboardMetricGroups,
 } from '../dto/telemetry-dashboard.dto';
-import { METRIC_GROUPS, metricGroups } from '../metrics/metric-catalog';
+import { metricGroupIds, metricGroups, type MetricGroup } from '../metrics/metric-catalog';
 import { TelemetryDashboardService } from './telemetry-dashboard.service';
 import type { ResolvedTelemetryModuleOptions } from '../telemetry.options';
 import { TELEMETRY_PERMISSIONS } from '../telemetry.permissions';
@@ -89,6 +90,14 @@ function CommonQueries(): MethodDecorator {
 export function createTelemetryDashboardController(options: ResolvedTelemetryModuleOptions): Type<unknown> {
   const access = options.host.access;
   const ActorId = options.actorIdParam;
+
+  // The metric groups registered when `forRoot` runs: the six platform groups
+  // and the app's `metricGroups` (#703). They are the documented `group` enum;
+  // validation still reads the live registry, so a group an app registers
+  // later (from its own `onModuleInit`) is served, only not documented.
+  const groups = metricGroupIds() as [MetricGroup, ...MetricGroup[]];
+  class TelemetryDashboardMetricsQueryDto extends createZodDto(createTelemetryDashboardMetricsQueryDtoSchema(groups)) {}
+  class TelemetryDashboardMetricsDto extends createZodDto(createTelemetryDashboardMetricsDtoSchema(groups)) {}
 
   @ApiTags('Telemetry')
   @Controller('admin/telemetry/dashboard')
@@ -207,7 +216,7 @@ export function createTelemetryDashboardController(options: ResolvedTelemetryMod
         '`instance` apply to the API\'s own metrics (`queue`, `nodes`). `sql` lists every statement run.\n\n' +
         COMMON_DOC.replace('`service` and `instance` must', '`service`, `instance` and `host` must'),
     })
-    @ApiQuery({ name: 'group', required: true, enum: METRIC_GROUPS })
+    @ApiQuery({ name: 'group', required: true, enum: groups })
     @ApiQuery({ name: 'host', required: false, type: String, description: 'Only this host (<= 200 chars).' })
     @CommonQueries()
     @ApiResponse({ status: 200, description: 'The metric group', type: TelemetryDashboardMetricsDto })

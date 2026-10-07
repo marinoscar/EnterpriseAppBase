@@ -9,9 +9,10 @@
 // platform groups. Imported once by `app.module.ts`, at the position the app
 // module always held telemetry. Same shape as `doctor/doctor.config.ts`.
 //
-// Rung 3 of the Extension Contract, the verdict policy, is overridden in the
-// app's host module, never here: `{ provide: VERDICT_POLICY, useClass:
-// AppVerdictPolicy }` in `TelemetryHostModule`'s providers and exports.
+// The other two rungs are options here too: `dashboard.verdictThresholds`
+// (deep-merged over DEFAULT_VERDICT_THRESHOLDS) and `dashboard.verdictPolicy`
+// (`{ useClass: AppVerdictPolicy }`, an app policy that delegates to the
+// exported DefaultVerdictPolicy). Upstream uses the defaults.
 // =============================================================================
 
 import type { Type } from '@nestjs/common';

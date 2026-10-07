@@ -1,6 +1,6 @@
 import { METRIC_UNITS } from '@marinoscar/platform-contract/telemetry';
 
-import { DASHBOARD_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.verdict';
+import { DEFAULT_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.verdict';
 import type { MetricFilterKey, MetricPredicate } from './metric-catalog';
 
 // =============================================================================
@@ -50,7 +50,7 @@ export const HOST_TABLES = {
 export const LARGEST_TABLES_MAX_ROWS = 500;
 
 /** The dashboard's verdict thresholds, which several families declare (documentary). */
-export const T = DASHBOARD_VERDICT_THRESHOLDS;
+export const T = DEFAULT_VERDICT_THRESHOLDS;
 
 /** A fixed label predicate. Values are catalog constants, never request input. */
 export const eq = (column: string, value: string): MetricPredicate => ({ column, op: '=', value });

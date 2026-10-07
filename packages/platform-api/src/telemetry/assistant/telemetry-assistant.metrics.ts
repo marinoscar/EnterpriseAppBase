@@ -1,5 +1,5 @@
 import { resolveWindow } from '../dashboard/telemetry-dashboard.service';
-import { DASHBOARD_VERDICT_THRESHOLDS, type VerdictInput } from '../dashboard/telemetry-dashboard.verdict';
+import { DEFAULT_VERDICT_THRESHOLDS, type VerdictInput, type VerdictThresholds } from '../dashboard/telemetry-dashboard.verdict';
 import type { TelemetryQueryResult } from '../greptime/greptime.client';
 import {
   familiesOf,
@@ -489,15 +489,16 @@ function round(value: number): number {
 /**
  * The saturation section of `health_overview`: the verdict probes' readings
  * (`verdictInputsFrom`), each with a level against the dashboard's own
- * verdict thresholds. A probe whose tables are absent is listed in
+ * verdict thresholds (the resolved ones, #703). A probe whose tables are absent is listed in
  * `skipped`; one that ran but had no fresh reading in `noReading`.
  */
 export function saturationOutput(
   inputs: Partial<VerdictInput>,
   ran: Record<VerdictProbe, boolean>,
   share: boolean,
+  thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
 ): Record<string, unknown> {
-  const t = DASHBOARD_VERDICT_THRESHOLDS;
+  const t = thresholds;
   const label = (value: string | null | undefined) => (share ? (value ?? null) : null);
   const out: Record<string, unknown> = {};
 

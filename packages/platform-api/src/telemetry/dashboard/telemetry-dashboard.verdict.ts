@@ -45,7 +45,66 @@
 
 import { VERDICT_LEVELS, type VerdictLevel } from '@marinoscar/platform-contract/telemetry';
 
-export const DASHBOARD_VERDICT_THRESHOLDS = {
+// THE THRESHOLDS ARE OPTIONS (#703). `DEFAULT_VERDICT_THRESHOLDS` are the
+// values above; an app deep-merges its own over them with
+// `TelemetryModule.forRoot({ dashboard: { verdictThresholds } })`, and every
+// reader (`computeVerdict`, the freshness Doctor check, the assistant's
+// saturation section) takes the RESOLVED thresholds from DI
+// (`TELEMETRY_VERDICT_THRESHOLDS`). The metric catalog's documentary
+// `verdict` fields keep the defaults: they are documentation only.
+
+/**
+ * The thresholds of the dashboard's health verdict, as numbers. See
+ * {@link DEFAULT_VERDICT_THRESHOLDS} for the shipped values and their meaning.
+ *
+ * @stability experimental
+ */
+export interface VerdictThresholds {
+  /** Requests needed before the 5xx and p95 rules may fire. */
+  readonly minRequests: number;
+  /** 5xx rate, %, `>`. */
+  readonly errorRatePct: { readonly degraded: number; readonly critical: number };
+  /** Window p95, ms, `>`. */
+  readonly p95Ms: { readonly degraded: number; readonly critical: number };
+  /** Error logs against the previous window. */
+  readonly errorLogs: {
+    /** Error logs needed in the current window before the ratio rule may fire. */
+    readonly minCurrent: number;
+    /** Ratio, `>=`, for degraded. */
+    readonly degradedRatio: number;
+    /** Ratio, `>=`, for critical. */
+    readonly criticalRatio: number;
+  };
+  /** Minutes without any trace or log after which the verdict is `no_data`. */
+  readonly noDataMinutes: number;
+  /** Unknown API routes, bearer requests only: any is degraded; either bound, `>=`, is critical. */
+  readonly unknownRoutes: { readonly criticalBearerRequests: number; readonly criticalDistinctRoutes: number };
+  /** Worst mountpoint, %, `>=`. */
+  readonly diskUtilizationPct: { readonly degraded: number; readonly critical: number };
+  /** Worst host, %, `>=`. */
+  readonly memoryUtilizationPct: { readonly degraded: number; readonly critical: number };
+  /** Backends against `max_connections`, %, worst server, `>=`. */
+  readonly dbConnectionsPct: { readonly degraded: number; readonly critical: number };
+  /** Oldest due pending job, minutes, worst job type, `>=`. */
+  readonly oldestPendingJobMinutes: { readonly degraded: number; readonly critical: number };
+  /** Certificate lifetime left, days, soonest URL, `<`. */
+  readonly tlsDaysLeft: { readonly degraded: number; readonly critical: number };
+  /** Checks an uptime target must have in the lookback before "every check failed" may be critical. */
+  readonly uptimeMinChecksForCritical: number;
+  /** Share of attempted exporter points that failed, %, `>=`, for critical (any failure is degraded). */
+  readonly collectorFailedPct: { readonly critical: number };
+  /** Age of the last successful backup, hours, `>`. */
+  readonly backupAgeHours: { readonly degraded: number; readonly critical: number };
+}
+
+/**
+ * The shipped verdict thresholds (the values of the rules in this file's
+ * header). An app overrides any of them with
+ * `TelemetryModule.forRoot({ dashboard: { verdictThresholds } })`.
+ *
+ * @stability stable
+ */
+export const DEFAULT_VERDICT_THRESHOLDS = {
   /** Requests needed before the 5xx and p95 rules may fire. */
   minRequests: 20,
   errorRatePct: { degraded: 2, critical: 5 },
@@ -80,7 +139,17 @@ export const DASHBOARD_VERDICT_THRESHOLDS = {
   collectorFailedPct: { critical: 10 },
   /** Age of the last successful backup, `>`. */
   backupAgeHours: { degraded: 26, critical: 50 },
-} as const;
+} as const satisfies VerdictThresholds;
+
+/**
+ * The shipped verdict thresholds, under their pre-#703 name.
+ *
+ * @deprecated Use {@link DEFAULT_VERDICT_THRESHOLDS}, or inject the resolved
+ *   thresholds (`TELEMETRY_VERDICT_THRESHOLDS`) to honour an app's override.
+ *
+ * @stability experimental
+ */
+export const DASHBOARD_VERDICT_THRESHOLDS = DEFAULT_VERDICT_THRESHOLDS;
 
 // The levels are part of the wire (the summary's `verdict.level`), so they live
 // in `@marinoscar/platform-contract/telemetry` (#702); re-exported here.
@@ -142,8 +211,21 @@ const RANK: Record<VerdictLevel, number> = { healthy: 0, degraded: 1, critical: 
 /** Characters of an offender (route or message) a reason line keeps. */
 export const VERDICT_OFFENDER_CHARS = 80;
 
-export function computeVerdict(input: VerdictInput): DashboardVerdict {
-  const t = DASHBOARD_VERDICT_THRESHOLDS;
+/**
+ * The dashboard's health verdict: the worst rule that fired, with one reason
+ * per fired rule. The default {@link VerdictPolicy}'s rule set.
+ *
+ * @param input - the numbers the summary computed.
+ * @param thresholds - the resolved thresholds; defaults to {@link DEFAULT_VERDICT_THRESHOLDS}.
+ * @returns the level and the reasons.
+ *
+ * @stability stable
+ */
+export function computeVerdict(
+  input: VerdictInput,
+  thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
+): DashboardVerdict {
+  const t = thresholds;
 
   // No data overrides everything: the other rules would be judging silence.
   const staleMs = input.lastDataAt ? input.now.getTime() - input.lastDataAt.getTime() : Number.POSITIVE_INFINITY;
@@ -214,7 +296,7 @@ export function computeVerdict(input: VerdictInput): DashboardVerdict {
     );
   }
 
-  infrastructureRules(input, fire);
+  infrastructureRules(input, fire, t);
 
   return { level, reasons };
 }
@@ -227,9 +309,7 @@ function atLeast(value: number, levels: { degraded: number; critical: number }):
 }
 
 /** The infrastructure rules (#601). Each runs only when its input is present. */
-function infrastructureRules(input: VerdictInput, fire: Fire): void {
-  const t = DASHBOARD_VERDICT_THRESHOLDS;
-
+function infrastructureRules(input: VerdictInput, fire: Fire, t: VerdictThresholds): void {
   if (input.disk) {
     const at = atLeast(input.disk.utilizationPct, t.diskUtilizationPct);
     if (at) {

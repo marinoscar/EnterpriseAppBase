@@ -44,7 +44,7 @@ import { TELEMETRY_PERMISSIONS } from './telemetry.permissions';
 import { TelemetryDashboardService } from './dashboard/telemetry-dashboard.service';
 import { VERDICT_LEVELS } from './dashboard/telemetry-dashboard.verdict';
 import { GreptimeClient } from './greptime/greptime.client';
-import { METRIC_GROUPS } from './metrics/metric-catalog';
+import { metricGroupIds } from './metrics/metric-catalog';
 import { STACK_SERVICE_HEALTH, STACK_SERVICE_STATES } from './stack/stack-agent.client';
 import { TELEMETRY_STACK_AGENT_STATES } from './stack/dto/telemetry-stack.dto';
 import { TelemetryStackService } from './stack/telemetry-stack.service';
@@ -175,7 +175,7 @@ export class TelemetrySupportBundleSection implements SupportBundleSection<Telem
           }
         : null,
       summaryError: summary.error,
-      metricGroups: [...METRIC_GROUPS],
+      metricGroups: metricGroupIds(),
     };
   }
 }

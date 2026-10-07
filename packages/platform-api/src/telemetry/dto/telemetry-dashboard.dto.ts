@@ -17,7 +17,7 @@ import {
   telemetryDashboardTopSchema,
 } from '@marinoscar/platform-contract/telemetry';
 
-import { isMetricGroup, METRIC_GROUPS, metricGroupIds } from '../metrics/metric-catalog';
+import { isMetricGroup, METRIC_GROUPS, metricGroupIds, type MetricGroup } from '../metrics/metric-catalog';
 
 // =============================================================================
 // Telemetry dashboard — request and response shapes (issue #577, epic #576)
@@ -102,9 +102,24 @@ export class TelemetryDashboardTimeseriesQueryDto extends createZodDto(telemetry
 export class TelemetryDashboardTopQueryDto extends createZodDto(telemetryDashboardTopQuerySchema) {}
 export class TelemetryDashboardEventsQueryDto extends createZodDto(telemetryDashboardEventsQuerySchema) {}
 
-export const telemetryDashboardMetricsQuerySchema = createTelemetryDashboardMetricsQuerySchema(
-  metricGroupQuerySchema({ documented: METRIC_GROUPS, isKnown: isMetricGroup, knownIds: metricGroupIds }),
-);
+/**
+ * The `/metrics` query schema, its `group` documented as an enum of `groups`
+ * and checked against the LIVE registry (so a group registered after the
+ * documentation was built is still served). The dashboard controller factory
+ * builds its own with every group registered when `forRoot` ran (#703).
+ */
+export function createTelemetryDashboardMetricsQueryDtoSchema(groups: readonly [MetricGroup, ...MetricGroup[]]) {
+  return createTelemetryDashboardMetricsQuerySchema(
+    metricGroupQuerySchema({ documented: groups, isKnown: isMetricGroup, knownIds: metricGroupIds }),
+  );
+}
+
+/** The `/metrics` response schema, its `group` documented as an enum of `groups` (#703; see above). */
+export function createTelemetryDashboardMetricsDtoSchema(groups: readonly [MetricGroup, ...MetricGroup[]]) {
+  return createTelemetryDashboardMetricsSchema(z.enum(groups));
+}
+
+export const telemetryDashboardMetricsQuerySchema = createTelemetryDashboardMetricsQueryDtoSchema(METRIC_GROUPS);
 export class TelemetryDashboardMetricsQueryDto extends createZodDto(telemetryDashboardMetricsQuerySchema) {}
 export type TelemetryDashboardMetricsQuery = z.infer<typeof telemetryDashboardMetricsQuerySchema>;
 
@@ -114,7 +129,7 @@ export class TelemetryDashboardTopDto extends createZodDto(telemetryDashboardTop
 export class TelemetryDashboardEventsDto extends createZodDto(telemetryDashboardEventsSchema) {}
 export class TelemetryDashboardFiltersDto extends createZodDto(telemetryDashboardFiltersSchema) {}
 
-export const telemetryDashboardMetricsSchema = createTelemetryDashboardMetricsSchema(z.enum(METRIC_GROUPS));
+export const telemetryDashboardMetricsSchema = createTelemetryDashboardMetricsDtoSchema(METRIC_GROUPS);
 export class TelemetryDashboardMetricsDto extends createZodDto(telemetryDashboardMetricsSchema) {}
 export type TelemetryDashboardMetrics = z.infer<typeof telemetryDashboardMetricsSchema>;
 

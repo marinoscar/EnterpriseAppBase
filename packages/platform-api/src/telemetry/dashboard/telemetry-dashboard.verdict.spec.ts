@@ -1,4 +1,11 @@
-import { computeVerdict, DASHBOARD_VERDICT_THRESHOLDS, type VerdictInput } from './telemetry-dashboard.verdict';
+import {
+  computeVerdict as computeVerdictFn,
+  DASHBOARD_VERDICT_THRESHOLDS,
+  DEFAULT_VERDICT_THRESHOLDS,
+  type DashboardVerdict,
+  type VerdictInput,
+} from './telemetry-dashboard.verdict';
+import { DefaultVerdictPolicy } from './verdict-policy';
 
 // =============================================================================
 // Dashboard verdict boundaries (issue #577)
@@ -19,7 +26,14 @@ function input(overrides: Partial<VerdictInput> = {}): VerdictInput {
   };
 }
 
-describe('computeVerdict', () => {
+// Every case runs twice (#703): through `computeVerdict` with the default
+// thresholds, and through the default `VERDICT_POLICY`, which must equal it.
+const IMPLEMENTATIONS: ReadonlyArray<[string, (input: VerdictInput) => DashboardVerdict]> = [
+  ['computeVerdict', (i) => computeVerdictFn(i)],
+  ['DefaultVerdictPolicy', (i) => new DefaultVerdictPolicy().compute(i, DEFAULT_VERDICT_THRESHOLDS)],
+];
+
+describe.each(IMPLEMENTATIONS)('%s', (_name, computeVerdict) => {
   it('is healthy when nothing fires', () => {
     expect(computeVerdict(input())).toEqual({ level: 'healthy', reasons: [] });
   });
