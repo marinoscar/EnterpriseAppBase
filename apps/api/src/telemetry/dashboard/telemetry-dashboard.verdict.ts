@@ -43,6 +43,8 @@
 //   last backup        > 26 h degraded, > 50 h critical
 // =============================================================================
 
+import { VERDICT_LEVELS, type VerdictLevel } from '@marinoscar/platform-contract/telemetry';
+
 export const DASHBOARD_VERDICT_THRESHOLDS = {
   /** Requests needed before the 5xx and p95 rules may fire. */
   minRequests: 20,
@@ -80,8 +82,9 @@ export const DASHBOARD_VERDICT_THRESHOLDS = {
   backupAgeHours: { degraded: 26, critical: 50 },
 } as const;
 
-export const VERDICT_LEVELS = ['healthy', 'degraded', 'critical', 'no_data'] as const;
-export type VerdictLevel = (typeof VERDICT_LEVELS)[number];
+// The levels are part of the wire (the summary's `verdict.level`), so they live
+// in `@marinoscar/platform-contract/telemetry` (#702); re-exported here.
+export { VERDICT_LEVELS, type VerdictLevel };
 
 export interface DashboardVerdict {
   level: VerdictLevel;

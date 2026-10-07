@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { TELEMETRY_STACK_SERVICE_HEALTH, TELEMETRY_STACK_SERVICE_STATES } from '@marinoscar/platform-contract/telemetry';
 import { z } from 'zod';
 
 // =============================================================================
@@ -40,17 +41,11 @@ export const STACK_AGENT_STATUS_TIMEOUT_MS = 5_000;
  */
 export const STACK_AGENT_UP_TIMEOUT_MS = 11 * 60 * 1000;
 
-export const STACK_SERVICE_STATES = [
-  'running',
-  'restarting',
-  'exited',
-  'created',
-  'paused',
-  'dead',
-  'missing',
-] as const;
-
-export const STACK_SERVICE_HEALTH = ['healthy', 'unhealthy', 'starting'] as const;
+// The container states and health values are part of the wire
+// (`GET /api/admin/telemetry/stack`), so they live in
+// `@marinoscar/platform-contract/telemetry` (#702).
+export const STACK_SERVICE_STATES = TELEMETRY_STACK_SERVICE_STATES;
+export const STACK_SERVICE_HEALTH = TELEMETRY_STACK_SERVICE_HEALTH;
 
 export const stackServiceSchema = z.object({
   name: z.string().min(1),
