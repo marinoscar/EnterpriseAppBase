@@ -57,7 +57,7 @@ const { describeWithDb } = resolveDbSuite('db-backup-rls.db.spec');
 
 const run = promisify(execFile);
 const API_ROOT = join(__dirname, '..', '..');
-const CLI_RUNNER = join(__dirname, '..', 'helpers', 'cli-node-dump.runner.mts');
+const CLI_RUNNER = join(__dirname, '..', 'helpers', 'cli-node-dump.runner.mjs');
 
 const TABLES = ['storage_objects', 'storage_object_chunks', 'ai_runs', 'ai_usage_events'] as const;
 type Table = (typeof TABLES)[number];

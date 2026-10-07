@@ -85,15 +85,17 @@ describeWithDb('Cost of the organization scope (real Postgres)', () => {
   }, 60_000);
 
   it('adds a bounded, small cost per scoped query (printed for the pull request)', async () => {
-    const list = (client: { storageObject: PrismaClient['storageObject'] }) =>
+    // The scoped client is an extended PrismaClient; for the two calls timed here its type is the base one.
+    const scoped = () => services.prisma.forOrg(ORG_A, { userId }) as unknown as PrismaClient;
+    const list = (client: PrismaClient) =>
       client.storageObject.findMany({ where: { orgId: ORG_A, uploadedById: userId }, orderBy: { createdAt: 'desc' }, take: 20 });
-    const count = (client: { storageObject: PrismaClient['storageObject'] }) =>
+    const count = (client: PrismaClient) =>
       client.storageObject.count({ where: { orgId: ORG_A, uploadedById: userId } });
 
     const baselineList = await time(() => list(superuser));
-    const scopedList = await time(() => list(services.prisma.forOrg(ORG_A, { userId })));
+    const scopedList = await time(() => list(scoped()));
     const baselineCount = await time(() => count(superuser));
-    const scopedCount = await time(() => count(services.prisma.forOrg(ORG_A, { userId })));
+    const scopedCount = await time(() => count(scoped()));
 
     const fmt = (n: number) => n.toFixed(2);
     // eslint-disable-next-line no-console

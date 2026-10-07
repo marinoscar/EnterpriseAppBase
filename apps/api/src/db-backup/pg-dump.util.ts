@@ -417,7 +417,7 @@ export function resolvePgConnection(env: DatabaseEnv = process.env): PgConnectio
  * stays off and `pg_dump` refuses a table it cannot read in full); the
  * `--enable-row-security` flag alone EXITS 0 AND WRITES AN ARCHIVE WITH ZERO
  * ROWS. A silent empty backup is the failure this pair exists to prevent, and
- * the Doctor's `db.backup_rls` check compares a bypass-side row count with a
+ * the Doctor's `backup.rls-bypass` check compares a bypass-side row count with a
  * count over a connection carrying this option, to catch the day one half is
  * lost.
  */

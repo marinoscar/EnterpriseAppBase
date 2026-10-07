@@ -137,8 +137,9 @@ bypass option exits 0 and writes a valid archive with the schema and no rows.
 
 - **Both halves, always.** `buildPgDumpArgs` adds `--enable-row-security`; the
   child's environment gets `PGOPTIONS=-c app.rls_bypass=on`
-  (`RLS_BYPASS_PGOPTIONS`, set by `spawnPgDump`; any inherited `PGOPTIONS` is
-  replaced, and the option never appears in argv). The option without the flag
+  (`RLS_BYPASS_PGOPTIONS`, set by `spawnPgDump`; the API merges it into any
+  `PGOPTIONS` already set, the node's CLI clears every inherited libpq variable
+  and sets exactly this one, and the option never appears in argv). The option without the flag
   is refused by `pg_dump`. The same pair is in `buildPgRestoreArgs` /
   `spawnPgRestore` and in the CLI's node-side dump
   (`apps/cli/src/node/pg-dump.ts`).

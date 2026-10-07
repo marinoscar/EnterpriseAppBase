@@ -6,7 +6,7 @@
 // package that must not import the API. The API's Jest runs CommonJS, so the
 // spec starts this file in a child process (`node --import tsx`) instead of
 // importing the CLI. Usage: NODE_DUMP_CONNECTION='<json>' node --import tsx
-// cli-node-dump.runner.mts <output-file>. Exit code 0 only when the dump
+// cli-node-dump.runner.mjs <output-file>. Exit code 0 only when the dump
 // exited 0 and every byte reached the file. NOT A SPEC FILE.
 // =============================================================================
 
@@ -18,7 +18,7 @@ import { spawnPgDump } from '../../../cli/src/node/pg-dump.ts';
 const output = process.argv[2];
 const raw = process.env.NODE_DUMP_CONNECTION;
 if (!output || !raw) {
-  console.error('usage: NODE_DUMP_CONNECTION=<json> cli-node-dump.runner.mts <output-file>');
+  console.error('usage: NODE_DUMP_CONNECTION=<json> cli-node-dump.runner.mjs <output-file>');
   process.exit(2);
 }
 
