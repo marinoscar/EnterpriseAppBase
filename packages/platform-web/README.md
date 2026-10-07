@@ -11,6 +11,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-web/core`: the web host ports every packaged page reuses (`PlatformHostProvider`, `PlatformApiClient`, `PlatformViewer`, `PlatformSettingsPage`). [README](src/core/README.md).
 - `@marinoscar/platform-web/testing`: test doubles for those ports (`createTestPlatformHost`). [README](src/testing/README.md).
 - `@marinoscar/platform-web/doctor/headless` and `@marinoscar/platform-web/doctor/ui`: the admin Doctor page, its hook and client, and its settings-page descriptor (#696). [README](src/doctor/README.md).
+- `@marinoscar/platform-web/telemetry/headless` and `@marinoscar/platform-web/telemetry/ui` (plus `/telemetry/ui/settings-page`, `/explorer-page`, `/dashboard-page`): the telemetry settings page, explorer and dashboard, their client, hooks, app adapters, admin cards and theme-token contract (#704). [README](src/telemetry/README.md).
 
 ## Install and peer dependencies
 
@@ -29,6 +30,8 @@ Install these in the app; the package never bundles its own copy (a second copy 
 | `react` | `^19.2.7` |
 | `react-dom` | `^19.2.7` |
 | `react-router-dom` | `^7.17.0` |
+
+Optional peers, needed only by `@marinoscar/platform-web/telemetry/ui` (#704): `@mui/x-charts` `^9.14.0`, `@mui/x-data-grid` `^9.10.1`, `@uiw/react-codemirror` `^4.25.12` and `@codemirror/lang-sql` `^6.10.0`.
 
 ## Quick start
 

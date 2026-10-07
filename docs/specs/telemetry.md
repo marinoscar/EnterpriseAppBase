@@ -1,6 +1,6 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** shipped · **Code:** `packages/platform-api/src/telemetry/` (`@marinoscar/platform-api/telemetry`, bound by the app in `apps/api/src/platform/telemetry/`), `packages/platform-api/src/telemetry/connection/`, `packages/platform-api/src/telemetry/stack/`, `packages/platform-api/src/telemetry/dashboard/`, `apps/stack-agent/`, `packages/platform-api/src/otel-core/` (`@marinoscar/platform-api/otel-core`: the SDK bootstrap, the export gate, the metrics host), `apps/api/src/instrumentation.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/telemetry/` (`@marinoscar/platform-api/telemetry`, bound by the app in `apps/api/src/platform/telemetry/`), `packages/platform-api/src/telemetry/connection/`, `packages/platform-api/src/telemetry/stack/`, `packages/platform-api/src/telemetry/dashboard/`, `apps/stack-agent/`, `packages/platform-api/src/otel-core/` (`@marinoscar/platform-api/otel-core`: the SDK bootstrap, the export gate, the metrics host), `apps/api/src/instrumentation.ts`, `packages/platform-web/src/telemetry/` (`@marinoscar/platform-web/telemetry/headless` and `/ui`, #704) · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
@@ -340,11 +340,27 @@ schemas with their inferred types, and the zod-free limits and enums they are
 built from ([slice README](../../packages/platform-contract/src/telemetry/README.md)).
 The API's DTO files (`packages/platform-api/src/telemetry/**/dto/*.ts`) only wrap those
 schemas with `createZodDto`, so the OpenAPI document is generated from them; the
-web client (`apps/web/src/services/telemetry.ts`, `telemetryDashboard.ts`)
-aliases their types and imports their constants, never zod, and states each
-deliberate difference (a field it treats as optional, an open-ended name, a
-per-panel narrowing), which `apps/web/src/services/telemetryContract.typecheck.ts`
-pins at compile time. A change to a field, a limit or a rule is made once, in
+web client (`@marinoscar/platform-web/telemetry/headless`: `headless/services/telemetry.ts`,
+`telemetryDashboard.ts`, since #704) aliases their types and imports their
+constants, never zod, and states each deliberate difference (a field it treats
+as optional, an open-ended name, a per-panel narrowing), which
+`packages/platform-web/test/telemetry/contract.typecheck.ts` pins at compile time.
+
+**Web code (#704).** The telemetry UI is the `telemetry` slice of
+`@marinoscar/platform-web` ([slice README](../../packages/platform-web/src/telemetry/README.md)):
+`@marinoscar/platform-web/telemetry/headless` holds the client
+(`createTelemetryClient` over the app's `PlatformApiClient`), the hooks, the
+config provider and `RequireTelemetryEnabled`, the app adapters
+(`TelemetryWebAdapters`: AI on/off, the assistant model catalogue, the
+spinner), the token contract (§11.16) and the pure helpers;
+`@marinoscar/platform-web/telemetry/ui` holds the three pages and
+`telemetryAdminCards`, and each page has its own subpath
+(`/telemetry/ui/settings-page`, `/explorer-page`, `/dashboard-page`) for a
+lazy route. The reference app places the cards in its registry, routes the
+pages behind its own permission gate, and implements the adapters in
+`apps/web/src/platform/telemetryAdapters.ts`. Paths below written relative to
+`components/`, `hooks/` or `services/` are under the slice's `ui/` or
+`headless/` folders. A change to a field, a limit or a rule is made once, in
 the contract.
 
 The collector also scrapes the host it runs on and the telemetry pipeline
@@ -779,7 +795,7 @@ recommendations, first query), bounded to `ASSISTANT_HISTORY_ANSWER_MAX`
 **Copy and download.** The panel can hand a conversation to a person or to
 another AI agent. It is client-side only: no route, permission or audit row
 is added, and nothing leaves the browser except through the clipboard or a
-file save. `components/telemetry/assistantExport.ts` holds the pure
+file save. `headless/lib/assistantExport.ts` holds the pure
 functions; `AssistantPanel.tsx` wires them to the buttons.
 
 - **Per-reply Copy** (`replyToMarkdown`): the Markdown of that reply's answer
@@ -1209,7 +1225,7 @@ deployment settings, not a telemetry-policy edit.
   external service.
 
 The **Telemetry services** section of `/admin/settings/telemetry`
-(`apps/web/src/components/telemetry/TelemetryServicesSection.tsx`) shows the
+(`packages/platform-web/src/telemetry/ui/components/TelemetryServicesSection.tsx`) shows the
 two containers and a **Deploy GreptimeDB** / **Redeploy** button, polls the
 job while it runs, and shows the tail of its output on failure. Every message
 shown to an administrator is about "the telemetry services" or "GreptimeDB" —
@@ -1298,7 +1314,7 @@ a dead end:
   disabled until the panel has data (and so has `sql`).
 - **"Ask assistant"** on every panel, and **"Explain this"** on the verdict
   banner: opens the shared `AssistantPanel` with a question built by
-  `buildAssistantQuestion` (`components/telemetry/dashboard/assistantPrompt.ts`)
+  `buildAssistantQuestion` (`headless/lib/dashboard/assistantPrompt.ts`)
   describing what that panel currently shows, prefilled into the input and
   **never sent** — the reader edits it and presses Ask. Offered only where
   `useTelemetryAssistantAvailable` (below) says the assistant may be shown.
@@ -1321,7 +1337,7 @@ a dead end:
   route's own gates, re-checked rather than assumed (`TelemetryCrossLink`).
 
 **Assistant availability** is one condition, `useTelemetryAssistantAvailable`
-(`hooks/useTelemetryAssistantAvailable.ts`), shared by the Dashboard and the
+(`headless/hooks/useTelemetryAssistantAvailable.ts`), shared by the Dashboard and the
 Explorer so the two can never disagree: the Telemetry assistant switch is on
 (`GET /api/telemetry/config` → `assistantEnabled`), AI is on for the
 deployment (`GET /api/ai/config` → `enabled`), and the viewer holds `ai:use`.
@@ -1767,7 +1783,7 @@ page checks it again as defence, not the gate.
   under its API `title`.
 
   Which tiles, series and tables a platform section draws is declared as data
-  (`SECTION_SPECS` in `components/telemetry/dashboard/metrics/MetricSections.tsx`);
+  (`SECTION_SPECS` in `ui/components/dashboard/metrics/MetricSections.tsx`);
   a group without an entry (an app group) draws every tile, one chart per
   series key and every table, in the response's order. All of it renders
   over three generic renderers: the headline `KpiTiles` (reused as is),
@@ -1883,7 +1899,7 @@ controls instead, just not by selecting a span on the chart itself.
   "Explain this" on the verdict banner, "View trace" gated on a real trace
   id, the assistant frame per layout, and focus returning to the invoking
   control.
-- `apps/web/src/__tests__/components/telemetry/dashboard/assistantPrompt.test.ts`
+- `packages/platform-web/test/telemetry/dashboard/assistantPrompt.test.ts`
   — `buildAssistantQuestion` per panel kind and its length/count bounds.
 - `apps/web/src/__tests__/pages/Admin/TelemetryDashboardPage.metrics.test.tsx`
   (#602) — the infrastructure sections in order below the application
@@ -1892,22 +1908,22 @@ controls instead, just not by selecting a span on the chart itself.
   filter (sent to `/metrics` only, from the URL, hidden without hosts, in the
   phone dialog), verdict reasons linking to and focusing their section, and
   each section's "Open in Explorer" and "Ask assistant".
-- `apps/web/src/__tests__/components/telemetry/dashboard/metrics/` (#602) —
+- `packages/platform-web/test/telemetry/dashboard/metrics/` (#602) —
   each section's tiles, chart and tables, and the unavailable, skipped,
   truncated, empty, loading and error states (`MetricSections.test.tsx`);
   unit-aware cells, virtual columns, row order and status as icon + word
   (`MetricTable.test.tsx`); the chart's accessible name and line cap
   (`MetricSeriesChart.test.tsx`); the reason-to-section mapping
   (`metricSections.test.ts`). `format.test.ts` covers every metric unit;
-  `apps/web/src/__tests__/services/telemetryDashboard.test.ts` and
-  `apps/web/src/__tests__/hooks/useTelemetryDashboard.test.tsx` the
+  `packages/platform-web/test/telemetry/services/telemetryDashboard.test.ts` and
+  `packages/platform-web/test/telemetry/hooks/useTelemetryDashboard.test.tsx` the
   `/metrics` query (with `host`) and `useDashboardMetrics`.
-- `apps/web/src/__tests__/components/telemetry/dashboard/traceLink.test.ts` —
+- `packages/platform-web/test/telemetry/dashboard/traceLink.test.ts` —
   `isTraceId` and `traceExplorerSql`, including the injection argument above.
-- `apps/web/src/__tests__/components/telemetry/explorerHandoff.test.ts` — the
+- `packages/platform-web/test/telemetry/components/explorerHandoff.test.ts` — the
   `state`-vs-`?sql=` precedence, the `TELEMETRY_SQL_MAX_LENGTH` bound, and
   that a handoff is read once and cleared.
-- `apps/web/src/__tests__/hooks/useTelemetryAssistantAvailable.test.tsx` — the
+- `packages/platform-web/test/telemetry/hooks/useTelemetryAssistantAvailable.test.tsx` — the
   shared availability condition (assistant switch, AI switch, `ai:use`).
 - `tests/visual/specs/telemetry-dashboard.spec.ts` — 15 pixel baselines: the
   `critical` (every infrastructure section available, #602) and `no_data`
@@ -2409,12 +2425,13 @@ unknown-route request with a bearer.
 
 ### 11.16 Theme tokens (#686)
 
-The telemetry UI (`components/telemetry/**`, `pages/Admin/Telemetry*.tsx`)
+The telemetry UI (`packages/platform-web/src/telemetry/ui/**` and `headless/**`)
 never reads a raw MUI palette role to mean "status" or "chart series", and
 never carries a colour literal. It reads two palette roles the app's theme
-owns, declared by MUI module augmentation in `apps/web/src/theme/augment.ts`
-and read through `apps/web/src/theme/telemetryTokens.ts`. This is the
-token contract the telemetry package keeps when it is extracted
+owns, declared by MUI module augmentation in `packages/platform-web/src/telemetry/theme/augment.ts`
+and read through `packages/platform-web/src/telemetry/theme/telemetryTokens.ts`, both exported by
+`@marinoscar/platform-web/telemetry/headless` since #704. This is the
+token contract the telemetry package keeps
 ([platform-packages.md](platform-packages.md), UI extensibility): the
 package owns structure, the app owns appearance.
 
@@ -2450,7 +2467,7 @@ applies the defaults for the rest:
 
 ```ts
 import { createTheme } from '@mui/material/styles';
-import { withTelemetryTokens } from './theme/telemetryTokens';
+import { withTelemetryTokens } from '@marinoscar/platform-web/telemetry/headless';
 
 export const theme = withTelemetryTokens(
   createTheme({
@@ -2469,13 +2486,13 @@ and `Palette.chart: PaletteChart` match an existing app augmentation
 different declaration. `palette.chart` is an object rather than a bare
 array so later chart tokens (grid, axis) have room.
 
-**Tripwire.** `apps/web/src/__tests__/theme/telemetryTokenUsage.test.ts`
+**Tripwire.** `packages/platform-web/test/telemetry/theme/telemetryTokenUsage.test.ts`
 scans the telemetry UI (comments stripped) and fails on
 `theme.palette.(success|error|warning|info|secondary|grey)`, a quoted
 `(success|error|warning|info|secondary).(main|light|dark)` path, a hex
 literal and `rgb(`/`rgba(`/`hsl(`, naming each offending line.
 `telemetryTokens.test.tsx` holds the defaults to the palette reads they
-replaced on both themes, and `telemetryTokenTheming.test.tsx` and
+replaced on both themes (and `apps/web/src/__tests__/theme/telemetryTokens.test.ts` on the app's own two), and `telemetryTokenTheming.test.tsx` and
 `KpiTiles.test.tsx` render under an overriding theme to prove the 5xx bar,
 the error log band, the first metric line and the tile colours follow it.
 
@@ -2558,3 +2575,4 @@ the error log band, the first metric line and the tile colours follow it.
 - #650: unknown API routes and client errors (§11.15) — an `onRequest` hook writes `http.route`, `app.route.matched=false` and the `app.request.bearer` presence flag on the server span; the summary's "Unknown API routes" tile and `unknownRoutes` block; a verdict rule that degrades on any unknown-route request with a bearer (critical at 20 requests or 3 routes) and never on anonymous ones; `clientErrors`/`unknownRequests`/`unknown` on problem routes, now ordered 5xx, then 4xx except 401, then p95; `httpStatuses`, `unknownRoutes` and `unknownRoutePaths` in the assistant's `health_overview`.
 - #654: copy and download of the assistant conversation (§6) — a per-reply Copy, and header Copy conversation and Download (`.md`), all client-side Markdown from `assistantExport.ts`.
 - #686: the telemetry theme-token contract (§11.16) — `palette.status.{ok,warn,crit,info,neutral}` and `palette.chart.series` by MUI augmentation, `withTelemetryTokens` on both app themes with defaults equal to the palette reads they replace, every status and series colour in the telemetry UI read through `useTelemetryTokens()`, and a tripwire against raw palette reads and colour literals.
+- #704: the telemetry UI becomes the `telemetry` slice of `@marinoscar/platform-web` (`/telemetry/headless`, `/telemetry/ui` and a subpath per page): the client over the app's `PlatformApiClient` (which gains request options, `postBlob` and `postSse`), `TelemetryWebAdapters` for AI on/off and the model catalogue, `telemetryAdminCards` placed in the app registry where its literals were, and the token contract with its augmentation. Behaviour, texts, colours and test ids unchanged.
