@@ -29,7 +29,7 @@ import { NotificationDeliveriesPurgeHandler } from '../../src/notifications/rete
 import { NotificationInboxPurgeHandler } from '../../src/notifications/retention/notification-inbox-purge.handler';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
-import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('retention-purge.db.spec');
 
@@ -44,6 +44,8 @@ const NEW = () => new Date(Date.now() - (DAYS - 1) * DAY_MS);
 describeWithDb('retention purges (real Postgres)', () => {
   let client: PrismaClient;
   let user: { id: string };
+  let services: ReturnType<typeof createDbServices>;
+  let orgId: string;
   const marker = `retention-${randomUUID().slice(0, 8)}`;
   let policy: SystemRetentionValue;
 
@@ -61,6 +63,8 @@ describeWithDb('retention purges (real Postgres)', () => {
 
   beforeAll(async () => {
     client = createDbClient();
+    services = createDbServices();
+    orgId = await defaultOrgId(client);
     user = await client.user.create({
       data: { email: `${marker}@example.com` },
       select: { id: true },
@@ -73,6 +77,7 @@ describeWithDb('retention purges (real Postgres)', () => {
     await client.auditEvent.deleteMany({ where: { action: marker } });
     await client.aiRun.deleteMany({ where: { provider: marker } });
     await client.user.deleteMany({ where: { id: user.id } });
+    await services.close();
     await client.$disconnect();
   });
 
@@ -169,7 +174,7 @@ describeWithDb('retention purges (real Postgres)', () => {
 
   describe('ai.runs.purge', () => {
     it('deletes terminal runs older than the cutoff and never a pending or running one', async () => {
-      const base = { userId: user.id, provider: marker, modelId: 'm', request: { input: 'secret prompt' } };
+      const base = { orgId, userId: user.id, provider: marker, modelId: 'm', request: { input: 'secret prompt' } };
       const rows = await Promise.all(
         [
           ['oldSucceeded', 'succeeded', OLD()],
@@ -188,7 +193,7 @@ describeWithDb('retention purges (real Postgres)', () => {
       );
       const id = Object.fromEntries(rows);
 
-      await new AiRunsPurgeHandler(registry, prisma(), settings).process(JOB);
+      await new AiRunsPurgeHandler(registry, services.system, settings).process(JOB);
 
       const left = await client.aiRun.findMany({ where: { provider: marker }, select: { id: true } });
       expect(left.map((row) => row.id).sort()).toEqual(

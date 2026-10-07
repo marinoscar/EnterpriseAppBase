@@ -74,7 +74,6 @@ import { NodeDataPlaneService } from '../../src/nodes/node-data-plane.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { JobStuckService } from '../../src/jobs/job-stuck.service';
 import { NodesService } from '../../src/nodes/nodes.service';
-import type { PrismaService } from '../../src/prisma/prisma.service';
 import type {
   MultipartUploadInit,
   SignedPutUrlOptions,
@@ -85,7 +84,7 @@ import type {
   UploadPart,
 } from '../../src/storage/providers';
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../../src/storage/storage-job-input';
-import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
 import { NodeOffloadService } from '../../src/jobs/node-offload.service';
 import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 
@@ -320,6 +319,8 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
 
   let ownerId: string;
   let nodeId: string;
+  let services: ReturnType<typeof createDbServices>;
+  let orgId: string;
 
   /** Config answers: everything defaults, except a short signed-URL expiry. */
   const config = {
@@ -330,12 +331,14 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
   beforeAll(async () => {
     prisma = createDbClient();
     await prisma.$connect();
+    services = createDbServices();
+    orgId = await defaultOrgId(prisma);
 
     root = mkdtempSync(join(tmpdir(), 'node-checksum-'));
     storage = new LocalFileStorageProvider(root);
 
     registry = new JobHandlerRegistry();
-    const service = prisma as unknown as PrismaService;
+    const service = services.prisma;
 
     handler = new ExampleChecksumHandler(registry, service, storage);
     // Self-registration, exactly as `JobsModule` triggers it — this is what
@@ -417,6 +420,7 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
     await prisma?.storageObject.deleteMany({ where: { name: { startsWith: PREFIX } } });
     await prisma?.workerNode.deleteMany({ where: { name: { startsWith: PREFIX } } });
     await prisma?.user.deleteMany({ where: { email: OWNER_EMAIL } });
+    await services?.close();
     await prisma?.$disconnect();
     rmSync(root, { recursive: true, force: true });
   });
@@ -428,6 +432,7 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
 
     const object = await prisma.storageObject.create({
       data: {
+        orgId,
         name: `${PREFIX}payload.bin`,
         size: BigInt(content.length),
         mimeType: 'application/octet-stream',

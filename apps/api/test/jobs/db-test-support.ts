@@ -22,6 +22,8 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 import { buildDatabaseUrl } from '../../src/common/database-url';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { PrismaSystemService } from '../../src/prisma/prisma-system.service';
 
 /**
  * Whether something is actually listening on host:port, checked with a real
@@ -116,4 +118,42 @@ export function createDbClient(): PrismaClient {
   return new PrismaClient({
     adapter: new PrismaPg(buildDatabaseUrl(envWithoutDatabaseUrl)),
   });
+}
+
+/**
+ * The two Nest providers the application's database access is made of, built
+ * against the SAME database `createDbClient` reaches: the tenant client
+ * (`PrismaService`, which has `forOrg` / `runInOrg`) and the bypass client
+ * (`PrismaSystemService`). For a service under test whose constructor takes
+ * either. Row-level security is inert on this suite's superuser connection, so
+ * the isolation proofs live in `test/tenancy/rls-isolation.db.spec.ts`, which
+ * builds its own ordinary role; this helper is for the suites that need real
+ * SQL and a real `organization` to hang rows on.
+ *
+ * `close()` disconnects both pools.
+ */
+export function createDbServices(): { prisma: PrismaService; system: PrismaSystemService; close: () => Promise<void> } {
+  // Both constructors read `DATABASE_URL` once; see `createDbClient` for why it must not win here.
+  const saved = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  try {
+    const prisma = new PrismaService();
+    const system = new PrismaSystemService();
+    return {
+      prisma,
+      system,
+      close: async () => {
+        await prisma.$disconnect();
+        await system.$disconnect();
+      },
+    };
+  } finally {
+    if (saved !== undefined) process.env.DATABASE_URL = saved;
+  }
+}
+
+/** The id of the default organization (every installation has exactly one). */
+export async function defaultOrgId(client: PrismaClient): Promise<string> {
+  const org = await client.organization.findFirstOrThrow({ where: { isDefault: true }, select: { id: true } });
+  return org.id;
 }
