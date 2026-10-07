@@ -201,7 +201,7 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
 
     try {
       await this.runs
-        .forOrg(await this.runs.orgOfJob(event.job))
+        .forOrg(await this.runs.orgOfEvent(event))
         .fail(event.subjectId, 'AI_PROVIDER_UNAVAILABLE', 'The background job ended before the run completed.');
     } catch (error) {
       this.logger.warn(

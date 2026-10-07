@@ -182,8 +182,8 @@ describe('AiAudioSpeechHandler', () => {
     it('unconfigured storage on attempt 1 of 2 fails the run at once: never released, never retried, the job returns', async () => {
       const { h, handler, jobFor, row, speak } = setup();
       const handle = await speak();
-      const release = jest.spyOn(h.runs, 'release');
-      const fail = jest.spyOn(h.runs, 'fail');
+      const release = jest.spyOn(h.orgRuns, 'release');
+      const fail = jest.spyOn(h.orgRuns, 'fail');
 
       h.storage.setConfigured(false);
 
@@ -241,7 +241,7 @@ describe('AiAudioSpeechHandler', () => {
       const { h, handler, jobFor, row, speak } = setup();
       const handle = await speak();
 
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await handler.process(jobFor(handle, 1));
 
       expect(row(handle.runId).status).toBe('cancelled');
@@ -256,7 +256,7 @@ describe('AiAudioSpeechHandler', () => {
       const running = handler.process(jobFor(handle, 1));
 
       await new Promise((resolve) => setTimeout(resolve, 20));
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await running;
 
       expect(row(handle.runId).status).toBe('cancelled');

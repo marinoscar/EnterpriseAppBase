@@ -26,7 +26,8 @@ describe('AiUsagePurgeHandler', () => {
     register = jest.fn();
     handler = new AiUsagePurgeHandler(
       { register } as never,
-      { aiUsageEvent: { findMany, deleteMany } } as never,
+      // Retention reads through the system client (#725).
+      { asSystem: () => ({ aiUsageEvent: { findMany, deleteMany } }) } as never,
       { getAiPolicy } as never,
     );
   });

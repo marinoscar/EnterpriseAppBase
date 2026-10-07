@@ -28,7 +28,8 @@ describe('AiRunsPurgeHandler', () => {
     register = jest.fn();
     handler = new AiRunsPurgeHandler(
       { register } as never,
-      { aiRun: { findMany, deleteMany } } as never,
+      // Retention reads through the system client (#725).
+      { asSystem: () => ({ aiRun: { findMany, deleteMany } }) } as never,
       { getRetentionPolicy } as never,
     );
   });

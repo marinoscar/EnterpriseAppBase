@@ -49,6 +49,8 @@ import { createInMemoryAiStorage } from './in-memory-ai-storage';
 
 export const HARNESS_USER = '11111111-1111-4111-8111-111111111111';
 export const HARNESS_OTHER_USER = '22222222-2222-4222-8222-222222222222';
+/** The organization every harness call runs in (the single-mode default). */
+export const HARNESS_ORG = '33333333-3333-4333-8333-333333333333';
 export const HARNESS_USER_KEY = 'sk-user-own-key-1111';
 export const HARNESS_ORG_KEY = 'sk-org-admin-key-9999';
 export const HARNESS_PROVIDER = 'openai';
@@ -264,7 +266,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
 
   const storage = createInMemoryAiStorage();
 
-  const prisma = {
+  const prisma: any = {
     ...db.prisma,
     ...storage.prisma,
     userSettings: {
@@ -361,6 +363,12 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
       }),
     },
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma)),
+    // Organization scope (#725): the in-memory tables have no row-level
+    // security, so a scoped client is the client itself. The default
+    // organization answers the single-mode fallback for legacy callers.
+    forOrg: jest.fn(() => prisma),
+    runInOrg: jest.fn(async (_orgId: string, fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => prisma.$transaction(fn)),
+    organization: { findFirst: jest.fn(async () => ({ id: HARNESS_ORG })) },
   };
 
   const jobs = {
@@ -410,6 +418,8 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const usableModels = new UsableModelsService(prisma as never, aiConfig, registry, resolver);
   const recorder = new AiUsageRecorder(prisma as never);
   const runs = new AiRunsService(prisma as never, jobs as never);
+  // The run state machine in the harness organization: what the handlers see.
+  const orgRuns = runs.forOrg(HARNESS_ORG);
   const inputs = new AiStorageInputResolver(prisma as never, storage.provider);
   const outputs = new AiOutputWriter(prisma as never, storage.provider, storage.storageConfig as never);
   const limits = new AiLimitsService(prisma as never, aiConfig, clock);
@@ -435,6 +445,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     usableModels,
     recorder,
     runs,
+    orgRuns,
     inputs,
     outputs,
     limits,

@@ -127,7 +127,10 @@ export function createInMemoryAiStorage() {
     activeProvider: jest.fn(async () => 's3' as const),
   };
 
-  const prisma = {
+  const prisma: any = {
+    // Organization scope (#725): no row-level security in memory, so a scoped client is the client.
+    forOrg: jest.fn(() => prisma),
+    organization: { findFirst: jest.fn(async () => ({ id: '33333333-3333-4333-8333-333333333333' })) },
     storageObject: {
       findUnique: jest.fn(async (args: { where: { id: string }; select?: Record<string, boolean> }) => {
         const row = objects.find((o) => o.id === args.where.id);

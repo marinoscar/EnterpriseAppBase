@@ -14,6 +14,7 @@ import {
   createAiRuntimeHarness,
   HARNESS_EMBEDDING_MODEL,
   HARNESS_MODEL,
+  HARNESS_ORG,
   HARNESS_OTHER_USER,
   HARNESS_USER,
 } from '../testing/ai-runtime-harness';
@@ -62,7 +63,7 @@ function setup(limits: SystemAiLimitsValue) {
   };
 }
 
-const userCall: AiLimitCall = { userId: HARNESS_USER, provider: 'openai', modelId: HARNESS_MODEL, keySource: 'user' };
+const userCall: AiLimitCall = { userId: HARNESS_USER, orgId: HARNESS_ORG, provider: 'openai', modelId: HARNESS_MODEL, keySource: 'user' };
 const orgCall: AiLimitCall = { ...userCall, keySource: 'org' };
 const keylessCall: AiLimitCall = { ...userCall, keySource: 'none' };
 

@@ -108,21 +108,27 @@ interface UnitsRow {
 @Injectable()
 export class AiUsageService {
   constructor(
-    // Kept for the constructor's shape; the report reads through `system`.
     private readonly prisma: PrismaService,
     private readonly registry: AiProviderRegistry,
-    // The report is a DEPLOYMENT-WIDE administrator aggregate over every
+    // The ADMINISTRATOR's report is a DEPLOYMENT-WIDE aggregate over every
     // organization's usage rows (`ai_usage_events` is under row-level
-    // security, #725): the SYSTEM client, reason `admin-aggregate`.
+    // security, #725): the SYSTEM client, reason `admin-aggregate`. A user's
+    // own view reads through `prisma.forOrg(orgId)` instead.
     private readonly system: PrismaSystemService,
   ) {}
 
-  async report(query: AiUsageQuery, now: Date = new Date()): Promise<AiUsageReport> {
+  /**
+   * The usage report. With `orgId` (a per-user view: `GET /api/ai/usage/me`)
+   * it reads through a client scoped to that organization, so it can only see
+   * that organization's rows; without it (the administrator's report) it reads
+   * every organization's through the system client.
+   */
+  async report(query: AiUsageQuery, now: Date = new Date(), orgId?: string): Promise<AiUsageReport> {
     const range = resolveAiUsageRange(query.from, query.to, now);
     const key = GROUP_KEY_SQL[query.groupBy];
     const where = whereSql(range, query);
 
-    const db = this.system.asSystem('admin-aggregate');
+    const db = orgId ? this.prisma.forOrg(orgId) : this.system.asSystem('admin-aggregate');
     const [rows, unitRows] = await Promise.all([
       db.$queryRaw<AggregateRow[]>(Prisma.sql`
         SELECT

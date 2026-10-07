@@ -144,7 +144,7 @@ describe('AiResponseRunHandler', () => {
       expect(h.fake.apiKeys).toEqual([HARNESS_USER_KEY]);
       expect(h.usageEvents).toEqual([expect.objectContaining({ jobId: handle.jobId, status: 'succeeded' })]);
 
-      const view = await h.runs.get(HARNESS_USER, handle.runId);
+      const view = await h.orgRuns.get(HARNESS_USER, handle.runId);
       expect((view.output as AiResponse | null)?.outputText).toBe('the summary');
     });
 
@@ -171,7 +171,7 @@ describe('AiResponseRunHandler', () => {
       const { h, handler, jobFor, row } = setup();
       const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
 
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await handler.process(jobFor(handle));
 
       expect(h.fake.calls).toHaveLength(0);
@@ -185,7 +185,7 @@ describe('AiResponseRunHandler', () => {
 
       const processing = handler.process(jobFor(handle));
       await new Promise((resolve) => setTimeout(resolve, 20));
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await expect(processing).resolves.toBeUndefined();
 
       expect(h.fake.calls[0].aborted).toBe(true);
@@ -245,7 +245,7 @@ describe('AiResponseRunHandler', () => {
         const create = h.fake.responses!.create;
         h.fake.responses!.create = async (req, ctx) => {
           const response = await create(req, ctx);
-          await h.runs.cancel(HARNESS_USER, handle.runId);
+          await h.orgRuns.cancel(HARNESS_USER, handle.runId);
           return response;
         };
 
@@ -396,7 +396,7 @@ describe('AiResponseRunHandler', () => {
     it('leaves finished runs and other job types alone', async () => {
       const { h, handler, row } = setup();
       const handle = await h.ai.forUser(HARNESS_USER).startRun({ model: HARNESS_MODEL, input: 'x' });
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
 
       await handler.onJobSettled(settled(handle.jobId, handle.runId, 'failed'));
       await handler.onJobSettled(settled(handle.jobId, handle.runId, 'succeeded'));

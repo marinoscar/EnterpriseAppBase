@@ -169,6 +169,8 @@ function makeHarness(options: HarnessOptions = {}) {
     { getSecret } as unknown as CredentialsService,
     registry,
     { enqueue } as unknown as JobsService,
+    // The catalogue sync's usage row has no organization: the system client (#725).
+    { asSystem: () => prisma } as never,
   );
 
   return { service, prisma, provider, getSecret, enqueue, getAiPolicy };

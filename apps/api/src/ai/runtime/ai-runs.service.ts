@@ -61,6 +61,9 @@ export const AI_AUDIO_SPEECH_TYPE = 'ai.audio.speech';
 /** `Job.subjectType` of an `ai.response.run` job; `subjectId` is the run id. */
 export const AI_RUN_SUBJECT_TYPE = 'ai_run';
 
+/** How many organizations' scoped views are kept. */
+const SCOPED_VIEWS_MAX = 64;
+
 const ACTIVE: AiRunStatus[] = ['pending', 'running'];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -94,6 +97,9 @@ export interface AiRunExecutionRow {
 export class AiRunsService {
   /** Provider calls this process is executing, by run id — for cancel. */
   private readonly inFlight = new Map<string, AbortController>();
+
+  /** Scoped views by organization, least recently used first. */
+  private readonly scoped = new Map<string, AiRunsInOrg>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -156,9 +162,31 @@ export class AiRunsService {
     return resolveJobOrgId(this.prisma, job);
   }
 
-  /** The run state machine, scoped to one organization (row-level security, #725). */
+  /**
+   * The organization a settled job's event belongs to (see {@link orgOfJob});
+   * the event carries the job row, whose payload names it.
+   */
+  orgOfEvent(event: { jobId: string; type: string; job?: { payload: unknown } | undefined }): Promise<string> {
+    return resolveJobOrgId(this.prisma, { id: event.jobId, type: event.type, payload: event.job?.payload });
+  }
+
+  /**
+   * The run state machine, scoped to one organization (row-level security,
+   * #725). Memoised for the most recently used organizations, so a handler's
+   * polling timer and its settle listener share one scoped client.
+   */
   forOrg(orgId: string): AiRunsInOrg {
-    return new AiRunsInOrg(this.prisma.forOrg(orgId), this.inFlight);
+    const cached = this.scoped.get(orgId);
+    if (cached) {
+      this.scoped.delete(orgId);
+      this.scoped.set(orgId, cached);
+      return cached;
+    }
+
+    const created = new AiRunsInOrg(this.prisma.forOrg(orgId), this.inFlight);
+    this.scoped.set(orgId, created);
+    if (this.scoped.size > SCOPED_VIEWS_MAX) this.scoped.delete(this.scoped.keys().next().value as string);
+    return created;
   }
 
   /** Registers this process's controller for a running run; returns the unregister. */

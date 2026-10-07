@@ -240,7 +240,7 @@ describe('AiImageGenerateHandler', () => {
       const { h, handler, jobFor, row, generate } = setup();
       const handle = await generate();
 
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await handler.process(jobFor(handle));
 
       expect(row(handle.runId).status).toBe('cancelled');
@@ -255,7 +255,7 @@ describe('AiImageGenerateHandler', () => {
       const running = handler.process(jobFor(handle));
 
       await new Promise((resolve) => setTimeout(resolve, 20));
-      await h.runs.cancel(HARNESS_USER, handle.runId);
+      await h.orgRuns.cancel(HARNESS_USER, handle.runId);
       await running;
 
       expect(row(handle.runId).status).toBe('cancelled');
