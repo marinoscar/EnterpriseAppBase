@@ -154,6 +154,7 @@ export interface TelemetryGate {
  * telemetryGate.setEnabled(settings.enabled);
  * ```
  *
+ * @extensionPoint hook
  * @stability stable
  */
 export const telemetryGate: TelemetryGate = {

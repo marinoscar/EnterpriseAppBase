@@ -40,7 +40,6 @@ export class OtelMetricsModule {
    * @param options - See {@link MetricsHostOptions}.
    * @returns A global dynamic module.
    *
-   * @extensionPoint option
    * @stability experimental
    */
   static forRoot(options: MetricsHostOptions = {}): DynamicModule {

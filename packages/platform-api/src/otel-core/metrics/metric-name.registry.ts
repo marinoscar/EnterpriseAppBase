@@ -50,7 +50,17 @@ export type AppMetricKind = 'counter' | 'histogram' | 'gauge';
  *
  * @stability stable
  */
-export type AppMetricAttribute = { kind: 'enum'; values: readonly string[] } | { kind: 'free' };
+export type AppMetricAttribute =
+  | {
+      /** One of `values`, else `other`. */
+      kind: 'enum';
+      /** The allowed values, non-empty strings. */
+      values: readonly string[];
+    }
+  | {
+      /** An identifier-shaped string, bounded per key. */
+      kind: 'free';
+    };
 
 /**
  * One declared `app.*` metric.

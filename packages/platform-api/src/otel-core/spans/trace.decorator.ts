@@ -52,6 +52,7 @@ export interface TraceOptions {
  * }
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function Trace(spanName?: string, options: TraceOptions = {}): MethodDecorator {
