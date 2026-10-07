@@ -161,6 +161,13 @@ function withoutIncludePoints(project: unknown): unknown {
   if (nginx?.volumes !== undefined) {
     nginx.volumes = nginx.volumes.filter((v) => !INCLUDE_POINT_TARGETS.includes(v.target ?? ''));
   }
+  // Newer Compose releases spell out the short-syntax bind default `create_host_path: true`; older
+  // ones leave `bind: {}`. Drop the default so the snapshot does not depend on the Compose version.
+  for (const service of Object.values(copy.services ?? {})) {
+    for (const volume of (service.volumes ?? []) as { bind?: { create_host_path?: boolean } }[]) {
+      if (volume.bind?.create_host_path === true) delete volume.bind.create_host_path;
+    }
+  }
   return copy;
 }
 
