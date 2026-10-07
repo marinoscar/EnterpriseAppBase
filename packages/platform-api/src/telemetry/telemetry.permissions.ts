@@ -48,6 +48,7 @@ export interface TelemetryPermissionDeclaration<Id extends string = string> {
  * registerPermissions(TELEMETRY_PERMISSION_DECLARATIONS);
  * ```
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export const TELEMETRY_PERMISSION_DECLARATIONS: {

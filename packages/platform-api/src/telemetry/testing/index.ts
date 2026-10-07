@@ -35,6 +35,8 @@ export {
 } from './conformance';
 export type {
   ComputeMetricGroup,
+  ComputedMetricGroup,
+  ConformanceSecrets,
   CreateConformanceApp,
   StubAppInput,
   TelemetryConformanceOptions,

@@ -56,7 +56,7 @@ import { TELEMETRY_AUDIT_SINK, TELEMETRY_JOBS } from '../ports';
 import { TELEMETRY_ERROR_REASONS } from '../query/telemetry-query.errors';
 import { TELEMETRY_HOST_PERMISSIONS, TELEMETRY_PERMISSIONS } from '../telemetry.permissions';
 import { TelemetryModule } from '../telemetry.module';
-import { computeMetricGroup, type MetricGroupResult } from '../metrics/metric-group';
+import { computeMetricGroup } from '../metrics/metric-group';
 import { METRIC_UNITS } from '../metrics/metric-catalog.helpers';
 import { METRIC_FILTER_COLUMNS } from '../metrics/metric-catalog.helpers';
 import { metricTablesOf, type MetricGroup } from '../metrics/metric-catalog';
@@ -170,8 +170,30 @@ export function checkMetricGroups(groups: readonly MetricGroupDef[]): Conformanc
   return out;
 }
 
-/** What {@link checkMetricGroupsOnEmptySchema} runs per group; `computeMetricGroup` by default. */
-export type ComputeMetricGroup = (group: string) => Promise<Pick<MetricGroupResult, 'available' | 'tiles' | 'series' | 'tables' | 'skipped'>>;
+/**
+ * The part of a computed group {@link checkMetricGroupsOnEmptySchema} reads.
+ *
+ * @stability experimental
+ */
+export interface ComputedMetricGroup {
+  /** Whether any family of the group has data. */
+  available: boolean;
+  /** The rendered tiles. */
+  tiles: readonly unknown[];
+  /** The rendered series. */
+  series: readonly unknown[];
+  /** The rendered tables. */
+  tables: readonly unknown[];
+  /** The keys of the families, ratios and tables that were skipped. */
+  skipped: readonly string[];
+}
+
+/**
+ * What {@link checkMetricGroupsOnEmptySchema} runs per group; `computeMetricGroup` by default.
+ *
+ * @stability experimental
+ */
+export type ComputeMetricGroup = (group: string) => Promise<ComputedMetricGroup>;
 
 /**
  * Check 1, dynamic half: every group computes against an EMPTY schema (the
@@ -200,7 +222,7 @@ export async function checkMetricGroupsOnEmptySchema(
   const out: ConformanceFinding[] = [];
   for (const group of groups) {
     const where = `group "${group.id}"`;
-    let result: Awaited<ReturnType<ComputeMetricGroup>>;
+    let result: ComputedMetricGroup;
     try {
       result = await compute(group.id);
     } catch (error) {
@@ -406,7 +428,11 @@ export function checkDoctorReadOnly(checks: readonly Type<unknown>[]): Conforman
 
 // ---- check 5: the queue rule ---------------------------------------------------------
 
-/** The slice's cron, relative to its source root. */
+/**
+ * The slice's cron, relative to its source root.
+ *
+ * @stability experimental
+ */
 export const TELEMETRY_CRON_FILE = 'tasks/telemetry-retention.task.ts';
 
 /**
@@ -446,7 +472,11 @@ export interface StubAppInput {
   greptime?: Record<string, unknown>;
 }
 
-/** Builds the app a booted check talks to; the default is {@link bootStubApp}. */
+/**
+ * Builds the app a booted check talks to; the default is {@link bootStubApp}.
+ *
+ * @stability experimental
+ */
 export type CreateConformanceApp = (input: StubAppInput) => Promise<NestFastifyApplication>;
 
 /**
@@ -484,13 +514,34 @@ export const bootStubApp: CreateConformanceApp = async (input) => {
   return app;
 };
 
-/** The passwords check 4 seeds. Distinctive on purpose: a substring match can only be the secret. */
-export const CONFORMANCE_SECRETS = {
+/**
+ * The four passwords check 4 seeds.
+ *
+ * @stability experimental
+ */
+export interface ConformanceSecrets {
+  /** The reader password in the credential store. */
+  readonly storedReader: string;
+  /** The admin password in the credential store. */
+  readonly storedAdmin: string;
+  /** The reader password in the `greptime` deployment default. */
+  readonly environmentReader: string;
+  /** The admin password in the `greptime` deployment default. */
+  readonly environmentAdmin: string;
+}
+
+/**
+ * The passwords check 4 seeds. Distinctive on purpose: a substring match can
+ * only be the secret.
+ *
+ * @stability experimental
+ */
+export const CONFORMANCE_SECRETS: ConformanceSecrets = {
   storedReader: 'conformance-stored-reader-secret-7f3a',
   storedAdmin: 'conformance-stored-admin-secret-91c2',
   environmentReader: 'conformance-env-reader-secret-5d08',
   environmentAdmin: 'conformance-env-admin-secret-b64e',
-} as const;
+};
 
 /**
  * Check 4: `GET /admin/telemetry/connection` and `GET /admin/telemetry/config`
