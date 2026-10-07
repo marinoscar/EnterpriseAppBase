@@ -18,6 +18,7 @@ import { PgJobRoleBroker } from './pg-job-role.broker';
 import { DatabaseRestorePreflightService } from './restore-preflight.service';
 import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 import { BackupPgClientDoctorCheck } from './doctor/backup-pg-client.doctor-check';
+import { BackupRlsDoctorCheck } from './doctor/backup-rls.doctor-check';
 import { BackupScheduleDoctorCheck } from './doctor/backup-schedule.doctor-check';
 
 // =============================================================================
@@ -293,6 +294,7 @@ import { BackupScheduleDoctorCheck } from './doctor/backup-schedule.doctor-check
     // Doctor checks (#634): read-only — never the backup or restore paths.
     BackupScheduleDoctorCheck,
     BackupPgClientDoctorCheck,
+    BackupRlsDoctorCheck,
   ],
   exports: [DatabaseBackupRunnerService, DatabaseBackupRetentionService],
 })

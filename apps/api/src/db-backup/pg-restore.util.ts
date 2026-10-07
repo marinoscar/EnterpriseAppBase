@@ -5,6 +5,7 @@ import {
   PgProcess,
   PgSpawnFn,
   pgClientEnv,
+  rlsBypassEnv,
   spawnPgProcess,
   type PgConnection,
 } from './pg-dump.util';
@@ -82,6 +83,9 @@ export interface PgRestoreArgsOptions {
  *  - `--exit-on-error` — see the module header. Load-bearing.
  *  - `--no-owner` / `--no-acl` mirror the dump's: the archive carries no
  *    ownership, and the restore must not try to reapply any.
+ *  - `--enable-row-security` (issue #725) with the `app.rls_bypass` option in
+ *    the child's environment (`spawnPgRestore` adds it): a parallel restore
+ *    fails on a FORCEd table without the pair.
  *  - `--no-password` fails instead of prompting; nothing is watching a
  *    terminal on a restore either.
  *  - `-j <N>` ONLY when restoring from a file. Parallel restore seeks around
@@ -107,6 +111,10 @@ export function buildPgRestoreArgs(options: PgRestoreArgsOptions): string[] {
     '--no-password',
     '--no-owner',
     '--no-acl',
+    // A parallel restore fails on a FORCEd table without this (and the
+    // `app.rls_bypass` option `rlsBypassEnv()` adds to the child's
+    // environment): issue #725, ADR 0002 D5.
+    '--enable-row-security',
     '--exit-on-error',
   ];
 
@@ -155,7 +163,7 @@ export function spawnPgRestore(options: SpawnPgRestoreOptions): PgProcess {
     command: command ?? PG_RESTORE_COMMAND,
     args: buildPgRestoreArgs({ connection, file, jobs }),
     password: connection.password,
-    extraEnv: pgClientEnv(connection),
+    extraEnv: { ...pgClientEnv(connection), ...rlsBypassEnv() },
     stdin,
     timeoutMs,
     spawnFn,
