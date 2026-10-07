@@ -30,7 +30,7 @@ import request from 'supertest';
 const ORIGINAL_KEY_ENV = process.env.SECRETS_ENCRYPTION_KEY;
 process.env.SECRETS_ENCRYPTION_KEY = Buffer.alloc(32, 5).toString('base64');
 
-import { readSchemaText } from '../prisma/schema-datamodel';
+import { readSchemaText } from '@marinoscar/platform-api/testing';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

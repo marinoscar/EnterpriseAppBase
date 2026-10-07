@@ -2,9 +2,13 @@ import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/commo
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
+import { userScopeExtension, type Scope } from '@marinoscar/platform-api/core';
+
 // One shared builder rather than a third private copy of the formula; the
 // header of that module explains what the three copies did to each other.
 import { buildDatabaseUrl } from '../common/database-url';
+// Fills the user-owned registry that forUser() reads (platform, then app).
+import './ownership/user-owned-model.manifest';
 
 @Injectable()
 export class PrismaService
@@ -42,6 +46,18 @@ export class PrismaService
   async onModuleDestroy() {
     await this.$disconnect();
     this.logger.log('Database disconnected');
+  }
+
+  /**
+   * A client whose queries on registered user-owned models are confined to
+   * `scope.userId`, typed with this app's generated models. The mechanism is
+   * `userScopeExtension` from `@marinoscar/platform-api/core` (issue #699);
+   * Nest code usually reaches it through `ScopedPrismaService.forUser(userId)`.
+   *
+   * @throws ScopedAccessError when `scope.userId` is empty.
+   */
+  forUser(scope: Scope) {
+    return this.$extends(userScopeExtension(scope));
   }
 
   /**

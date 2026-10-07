@@ -220,12 +220,12 @@ function assertScope(scope: Scope): void {
 /**
  * The Prisma client extension {@link userScopeExtension} returns: a function
  * of a client, as `Prisma.defineExtension` builds it, that adds no models,
- * results or client methods (so the extended client keeps the app's generated
- * types).
+ * results or client methods (all four type arguments empty), so the extended
+ * client keeps the app's generated types.
  *
  * @stability experimental
  */
-export type UserScopeExtension = ReturnType<typeof Prisma.defineExtension>;
+export type UserScopeExtension = ReturnType<typeof Prisma.defineExtension<{}, {}, {}, {}>>;
 
 /**
  * The extension behind {@link forUser}: confines queries on registered owner
