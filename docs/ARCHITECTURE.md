@@ -150,7 +150,7 @@ Organization membership at sign-in follows `TENANCY_MODE` ([§10.4](#104-environ
 
 ### 5.2 Role-based access control
 
-Three roles (Admin, Contributor, Viewer) grant 31 permissions named `resource:action`. Each role and permission is declared once, with its description and default role grants, in a file beside the module that enforces it (`<module>.permissions.ts`), and registered into the role and permission registries (`apps/api/src/common/permissions/`). `roles.constants.ts` derives `ROLES` and `PERMISSIONS` from those declarations, and `npm run catalog:permissions --workspace=api` writes them to the committed `apps/api/prisma/catalog/permissions.json`, which the seed reads (the production image has no `src/`) and hands to `seedPlatform` (`@marinoscar/platform-db/seed`). Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`); the seed only upserts them. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show. An app adds its own roles and permissions in `apps/api/src/app-registrations/permissions.ts`.
+Four roles grant 35 permissions named `resource:action`, split by scope (#723): the **system** role Admin (held in `user_roles`) operates the deployment, and the **org** roles Org admin, Contributor and Viewer (held on a membership, `memberships.role_id`) operate one organization; a request's permissions are the system roles' grants plus the current-org membership role's (`PrincipalFactory`, [§7](#7-authorization)). Each role and permission is declared once, with its description and default role grants, in a file beside the module that enforces it (`<module>.permissions.ts`), and registered into the role and permission registries (`apps/api/src/common/permissions/`). `roles.constants.ts` derives `ROLES` and `PERMISSIONS` from those declarations, and `npm run catalog:permissions --workspace=api` writes them to the committed `apps/api/prisma/catalog/permissions.json`, which the seed reads (the production image has no `src/`) and hands to `seedPlatform` (`@marinoscar/platform-db/seed`). Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`); the seed only upserts them. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show. An app adds its own roles and permissions in `apps/api/src/app-registrations/permissions.ts`.
 
 - **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/permissions/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/catalog/permissions.json`, `apps/api/prisma/seed-data.ts`, `apps/api/prisma/seed-app.ts`
 - **Recipe:** [common/permissions/README.md](../apps/api/src/common/permissions/README.md)
@@ -389,12 +389,12 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
 | Identity | `Organization` | `organizations` | A tenancy boundary; exactly one row is the default organization (`is_default`) |
-| Identity | `Membership` | `memberships` | A user's membership of an organization, `active` or `suspended`; unique per `(org_id, user_id)` |
-| Identity | `Invite` | `org_invites` | An invitation of an email address to an organization; unique per `(org_id, email)` |
-| RBAC | `Role` | `roles` | Admin, Contributor, Viewer |
-| RBAC | `Permission` | `permissions` | The 28 `resource:action` permissions |
-| RBAC | `RolePermission` | `role_permissions` | Role-to-permission grants |
-| RBAC | `UserRole` | `user_roles` | User-to-role assignments |
+| Identity | `Membership` | `memberships` | A user's membership of an organization, `active` or `suspended`, with its org role (`role_id`, required); unique per `(org_id, user_id)` |
+| Identity | `Invite` | `org_invites` | An invitation of an email address to an organization, with the org role it grants (`role_id`; NULL means the default org role); unique per `(org_id, email)` |
+| RBAC | `Role` | `roles` | Admin (scope `system`), Org admin, Contributor, Viewer (scope `org`) |
+| RBAC | `Permission` | `permissions` | The `resource:action` permissions, each `system` or `org` scope |
+| RBAC | `RolePermission` | `role_permissions` | Role-to-permission grants (same scope only) |
+| RBAC | `UserRole` | `user_roles` | User-to-SYSTEM-role assignments (org roles live on `memberships.role_id`) |
 | Settings | `SystemSettings` | `system_settings` | Keyed JSONB rows for deployment settings |
 | Settings | `UserSettings` | `user_settings` | One JSONB settings document per user |
 | Secrets | `Credential` | `credentials` | Encrypted deployment-owned secrets by `(purpose, name)` |
@@ -461,11 +461,18 @@ Every read completes missing namespaces from each namespace's declared defaults,
 
 ### 7.1 Roles
 
-| Role | Intended for |
-|---|---|
-| Admin | Operators. Holds every permission. |
-| Contributor | Standard users who may also use AI. |
-| Viewer | Least privilege. The default role for every new user. |
+Roles come in two kinds (issue #723; spec: [platform packages, "Tenancy and access model"](specs/platform-packages.md#tenancy-and-access-model)). Every role and every permission declares its **scope**, and a role is granted only permissions of its own scope (the permission registry refuses anything else at import time).
+
+| Role | Scope | Held through | Intended for |
+|---|---|---|---|
+| Admin (`admin`) | system | `user_roles` | Deployment operators. Holds every **system** permission. `ROLES.ADMIN`, and so every `@Auth({ roles: [ROLES.ADMIN] })`, means this role. |
+| Org admin (`org_admin`) | org | the membership's `role_id` | An organization's administrator. Holds every **org** permission, including `org_members:*` and `org_invites:*`. Not a deployment operator. |
+| Contributor (`contributor`) | org | the membership's `role_id` | Organization members who may also use AI. |
+| Viewer (`viewer`) | org | the membership's `role_id` | Least privilege. `DEFAULT_ORG_ROLE`: the role of every new membership, and what a NULL `org_invites.role_id` means. |
+
+**Effective permissions** are the union of the user's system roles' grants and the grants of the role on the user's **current-org membership** (`PrincipalFactory`, `apps/api/src/auth/principal.factory.ts`, used by the guards, `/api/auth/me` and the users list). Until the active org travels in the token (PP-6.4), the current org is the default organization in single-org mode, and the active membership with the latest `lastActiveAt` in multi-org mode. A suspended membership contributes nothing. `roles` on `/api/auth/me` and on the users list is the system role names plus the current org role name, so a system administrator shows `admin` and `org_admin`.
+
+The initial administrator gets the system `admin` role plus `org_admin` on the default organization. In single-org mode, `PUT /api/users/:id/roles` keeps its body: `admin` toggles the system role and sets the membership role to `org_admin`; `contributor`/`viewer` set the membership role. In multi-org mode it changes system roles only and answers 400 for an org role name.
 
 `ai:use` is withheld from Viewer so that a brand-new account cannot spend the deployment's org AI key without an administrator deciding it should. Grant it to a specific Viewer with a `role_permissions` row, or promote the account to Contributor.
 
@@ -473,39 +480,43 @@ Every read completes missing namespaces from each namespace's declared defaults,
 
 This is the single home for the matrix. Source: each permission's `defaultGrants` in its declaration file (`apps/api/src/<module>/<module>.permissions.ts`, registered by `apps/api/src/common/permissions/permission.manifest.ts`), generated into `rolePermissions` in `apps/api/prisma/catalog/permissions.json`, which the seed reads and passes to `seedPlatform` as `roleGrants`. The registry is the source of truth, not `seed-data.ts`, which only loads the catalog (`ROLE_PERMISSIONS` there is a derived view for tests). `apps/api/test/prisma/permission-catalog.spec.ts` fails when a row here disagrees with those grants.
 
-| Permission | Admin | Contributor | Viewer | Gates |
-|---|:-:|:-:|:-:|---|
-| `system_settings:read` | ✓ | | | Read system settings, email, notification policy, maintenance, About; run the Doctor (`GET /api/admin/doctor`, `/admin/settings/doctor`) and download its support bundle (`GET /api/admin/doctor/support-bundle`); reach `/admin/settings`; view the telemetry services status |
-| `system_settings:write` | ✓ | | | Change system settings, email, notification policy; open or close maintenance; (re)deploy the telemetry services |
-| `user_settings:read` | ✓ | ✓ | ✓ | Read own settings and own uploaded profile picture |
-| `user_settings:write` | ✓ | ✓ | ✓ | Change own settings; upload or remove own profile picture |
-| `users:read` | ✓ | | | List and view users; reach `/admin/settings` |
-| `users:write` | ✓ | | | Update users (for example, activation) |
-| `rbac:manage` | ✓ | | | Assign roles |
-| `allowlist:read` | ✓ | | | View the allowlist |
-| `allowlist:write` | ✓ | | | Add or remove allowlist entries |
-| `storage:read` | ✓ | ✓ | ✓ | List, get and download storage objects |
-| `storage:write` | ✓ | ✓ | | Upload objects, update metadata, delete own objects |
-| `storage:delete_any` | ✓ | | | Delete another user's object (except their profile image) |
-| `jobs:read` | ✓ | | | Inspect the job queue and insights |
-| `jobs:write` | ✓ | | | Retry, reset, delete jobs; reset insight history |
-| `nodes:read` | ✓ | | | View worker nodes and node credentials |
-| `nodes:write` | ✓ | | | Register nodes, mint and revoke `nod_` credentials, claim jobs |
-| `db_backup:read` | ✓ | | | View backup policy, runs, preflight |
-| `db_backup:write` | ✓ | | | Change policy; start, cancel, delete backups |
-| `db_backup:restore` | ✓ | | | Restore a backup or roll a restore back |
-| `broadcasts:read` | ✓ | | | View broadcasts |
-| `broadcasts:write` | ✓ | | | Create, schedule, send, resume broadcasts |
-| `push:read` | ✓ | | | View Web Push configuration |
-| `push:write` | ✓ | | | Generate, rotate, enable, remove VAPID keys |
-| `storage_config:read` | ✓ | | | View object-storage configuration |
-| `storage_config:write` | ✓ | | | Change storage configuration, test it, create the bucket |
-| `ai_config:read` | ✓ | | | View AI configuration, model catalog, usage report |
-| `ai_config:write` | ✓ | | | Change AI configuration, admin keys, models; refresh the catalog |
-| `ai:use` | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
-| `telemetry:read` | ✓ | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
-| `telemetry:write` | ✓ | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
-| `telemetry:query` | ✓ | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
+| Permission | Scope | Admin | Org admin | Contributor | Viewer | Gates |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `system_settings:read` | system | ✓ | | | | Read system settings, email, notification policy, maintenance, About; run the Doctor (`GET /api/admin/doctor`, `/admin/settings/doctor`) and download its support bundle (`GET /api/admin/doctor/support-bundle`); reach `/admin/settings`; view the telemetry services status |
+| `system_settings:write` | system | ✓ | | | | Change system settings, email, notification policy; open or close maintenance; (re)deploy the telemetry services |
+| `user_settings:read` | org | | ✓ | ✓ | ✓ | Read own settings and own uploaded profile picture |
+| `user_settings:write` | org | | ✓ | ✓ | ✓ | Change own settings; upload or remove own profile picture |
+| `users:read` | system | ✓ | | | | List and view users; reach `/admin/settings` |
+| `users:write` | system | ✓ | | | | Update users (for example, activation) |
+| `rbac:manage` | system | ✓ | | | | Assign roles |
+| `allowlist:read` | system | ✓ | | | | View the allowlist |
+| `allowlist:write` | system | ✓ | | | | Add or remove allowlist entries |
+| `storage:read` | org | | ✓ | ✓ | ✓ | List, get and download storage objects |
+| `storage:write` | org | | ✓ | ✓ | | Upload objects, update metadata, delete own objects |
+| `storage:delete_any` | system | ✓ | | | | Delete another user's object (except their profile image) |
+| `jobs:read` | system | ✓ | | | | Inspect the job queue and insights |
+| `jobs:write` | system | ✓ | | | | Retry, reset, delete jobs; reset insight history |
+| `nodes:read` | system | ✓ | | | | View worker nodes and node credentials |
+| `nodes:write` | system | ✓ | | | | Register nodes, mint and revoke `nod_` credentials, claim jobs |
+| `db_backup:read` | system | ✓ | | | | View backup policy, runs, preflight |
+| `db_backup:write` | system | ✓ | | | | Change policy; start, cancel, delete backups |
+| `db_backup:restore` | system | ✓ | | | | Restore a backup or roll a restore back |
+| `broadcasts:read` | system | ✓ | | | | View broadcasts |
+| `broadcasts:write` | system | ✓ | | | | Create, schedule, send, resume broadcasts |
+| `push:read` | system | ✓ | | | | View Web Push configuration |
+| `push:write` | system | ✓ | | | | Generate, rotate, enable, remove VAPID keys |
+| `storage_config:read` | system | ✓ | | | | View object-storage configuration |
+| `storage_config:write` | system | ✓ | | | | Change storage configuration, test it, create the bucket |
+| `ai_config:read` | system | ✓ | | | | View AI configuration, model catalog, usage report |
+| `ai_config:write` | system | ✓ | | | | Change AI configuration, admin keys, models; refresh the catalog |
+| `ai:use` | org | | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
+| `telemetry:read` | system | ✓ | | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
+| `telemetry:write` | system | ✓ | | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
+| `telemetry:query` | system | ✓ | | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
+| `org_members:read` | org | | ✓ | | | View the organization's members and their org roles (enforced by the org admin endpoints, PP-6.8) |
+| `org_members:write` | org | | ✓ | | | Change a member's org role, suspend or remove members (PP-6.8) |
+| `org_invites:read` | org | | ✓ | | | View the organization's invitations (PP-6.8) |
+| `org_invites:write` | org | | ✓ | | | Invite people to the organization, revoke invitations (PP-6.8) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
@@ -513,7 +524,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 7.3 Principal cache
 
-`AuthService.validateJwtPayload` resolves a JWT's user, roles and permissions through `PrincipalCache` (`apps/api/src/auth/principal-cache/`, a leaf `PrincipalCacheModule` imported by each module that reads or invalidates it, one instance per process): an in-process map keyed by user id, at most 10,000 deep-frozen entries, each kept for `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` disables it). The device-session (`did`) check runs first and is never cached; PATs and node credentials bypass the cache. The invalidation sites, each called after its write commits and outside any transaction, are `UsersService.updateUser` and `updateUserRoles`, `AuthService` (first-login admin grant, provider-profile update), `AdminBootstrapService.assignAdminRole`, `UserSettingsService` (display-name sync) and `TestAuthService` (role swap). `invalidate` drops the local entry synchronously and publishes on `auth.principal.invalidate` ([§5.21](#521-event-bus)), so other replicas follow within bus latency; the TTL bounds staleness when the bus is down. `test/auth/principal-invalidation-sites.spec.ts` fails when a new `user`/`userRole`/`role`/`rolePermission` write appears in a file that never invalidates. Doctor: `auth.principal-cache`. Guarantee: [SECURITY-ARCHITECTURE.md §1](SECURITY-ARCHITECTURE.md#1-authentication).
+`AuthService.validateJwtPayload` resolves a JWT's user, roles and permissions through `PrincipalCache` (`apps/api/src/auth/principal-cache/`, a leaf `PrincipalCacheModule` imported by each module that reads or invalidates it, one instance per process): an in-process map keyed by user id, at most 10,000 deep-frozen entries, each kept for `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` disables it). The device-session (`did`) check runs first and is never cached; PATs and node credentials bypass the cache. The cached entry is the principal graph (system roles and memberships with their org roles, `PRINCIPAL_USER_INCLUDE`); `PrincipalFactory` derives the effective permissions from it on every request. The invalidation sites, each called after its write commits and outside any transaction, are `UsersService.updateUser` and `updateUserRoles` (system roles and the membership role), `AuthService` (first-login admin grant, provider-profile update), `AdminBootstrapService.assignAdminRole`, `UserSettingsService` (display-name sync) and `TestAuthService` (role swap). `invalidate` drops the local entry synchronously and publishes on `auth.principal.invalidate` ([§5.21](#521-event-bus)), so other replicas follow within bus latency; the TTL bounds staleness when the bus is down. `test/auth/principal-invalidation-sites.spec.ts` fails when a new `user`/`userRole`/`role`/`rolePermission`/`membership` write appears in a file that never invalidates. Doctor: `auth.principal-cache`. Guarantee: [SECURITY-ARCHITECTURE.md §1](SECURITY-ARCHITECTURE.md#1-authentication).
 
 ---
 

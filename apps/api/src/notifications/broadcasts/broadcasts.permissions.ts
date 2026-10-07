@@ -36,11 +36,13 @@ export const BROADCASTS_PERMISSIONS = {
   BROADCASTS_READ: {
     id: 'broadcasts:read',
     description: 'View notification broadcasts and their delivery history',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   BROADCASTS_WRITE: {
     id: 'broadcasts:write',
     description: 'Compose, schedule, cancel and send notification broadcasts',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

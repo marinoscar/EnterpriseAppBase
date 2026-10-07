@@ -29,16 +29,19 @@ export const DB_BACKUP_PERMISSIONS = {
   DB_BACKUP_READ: {
     id: 'db_backup:read',
     description: 'View backup schedule, history and status',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   DB_BACKUP_WRITE: {
     id: 'db_backup:write',
     description: 'Configure the backup schedule and run a backup',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   DB_BACKUP_RESTORE: {
     id: 'db_backup:restore',
     description: 'Restore the database from a backup',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

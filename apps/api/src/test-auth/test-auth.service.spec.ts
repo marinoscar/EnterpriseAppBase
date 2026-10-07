@@ -168,18 +168,19 @@ describe('TestAuthService', () => {
 
       await service.loginAsTestUser(dto);
 
-      expect(mockPrisma.membership.upsert).toHaveBeenCalledTimes(1);
-      expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { orgId_userId: { orgId: 'org-default', userId: 'user-9' } },
-        }),
-      );
+      // Joined once on creation (ensureMembership, with the viewer org role).
+      expect(mockPrisma.membership.upsert.mock.calls[0]![0]).toMatchObject({
+        where: { orgId_userId: { orgId: 'org-default', userId: 'user-9' } },
+        update: {},
+        create: { orgId: 'org-default', userId: 'user-9', roleId: mockViewerRole.id },
+      });
       // The user is created and joined inside the first transaction.
       expect(order.slice(0, 3)).toEqual(['tx:begin', 'membership', 'tx:end']);
     });
 
     it('rejects, without issuing tokens, when the membership write fails for a new user', async () => {
       const dto: TestLoginDto = { email: 'rollback@example.com', role: 'viewer' };
+      mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
       mockPrisma.user.findUnique.mockResolvedValueOnce(null);
       mockPrisma.user.create.mockResolvedValue({ id: 'user-10', email: dto.email, userRoles: [] } as any);
       mockPrisma.membership.upsert.mockRejectedValue(new Error('membership insert failed'));
@@ -189,7 +190,7 @@ describe('TestAuthService', () => {
       expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
     });
 
-    it('does not create a membership for an existing user', async () => {
+    it('sets the org role on an existing user\'s default-org membership (#723)', async () => {
       const dto: TestLoginDto = { email: 'already@example.com', role: 'viewer' };
       const mockUser = { id: 'user-11', email: dto.email, userRoles: [{ role: mockViewerRole }] };
       // PP-6.2 (#722): the user already belongs to the default org (the
@@ -203,7 +204,13 @@ describe('TestAuthService', () => {
 
       await service.loginAsTestUser(dto);
 
-      expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+      expect(mockPrisma.membership.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-11', org: { isDefault: true } },
+        data: { roleId: mockViewerRole.id },
+      });
+      // viewer is an org role: no system role is written.
+      expect(mockPrisma.userRole.create).not.toHaveBeenCalled();
     });
 
     it('should find existing user if email exists', async () => {
@@ -237,6 +244,44 @@ describe('TestAuthService', () => {
       expect(result.user.email).toBe(dto.email);
       expect(mockPrisma.user.create).not.toHaveBeenCalled();
       expect(result.user.id).toBe('existing-user');
+    });
+
+    it('logs an admin in as the system admin role plus org_admin on the default org (#723)', async () => {
+      const dto: TestLoginDto = { email: 'split-admin@example.com', role: 'admin' };
+      const orgAdminRole = { id: 'role-org-admin', name: 'org_admin', description: 'Org admin' };
+      const reloaded = {
+        id: 'user-split-admin',
+        email: dto.email,
+        displayName: 'split-admin',
+        isActive: true,
+        userRoles: [{ role: { ...mockAdminRole, rolePermissions: [] } }],
+        memberships: [
+          {
+            orgId: 'org-default',
+            status: 'active',
+            lastActiveAt: new Date(),
+            org: { id: 'org-default', isDefault: true },
+            role: { ...orgAdminRole, rolePermissions: [] },
+          },
+        ],
+      };
+      mockPrisma.role.findUnique.mockImplementation((async (args: any) =>
+        args.where.name === 'org_admin' ? orgAdminRole : args.where.name === 'admin' ? mockAdminRole : null) as any);
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: reloaded.id } as any).mockResolvedValueOnce(reloaded as any);
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.userRole.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      const result = await service.loginAsTestUser(dto);
+
+      expect(mockPrisma.userRole.create).toHaveBeenCalledWith({
+        data: { userId: reloaded.id, roleId: mockAdminRole.id },
+      });
+      expect(mockPrisma.membership.updateMany).toHaveBeenCalledWith({
+        where: { userId: reloaded.id, org: { isDefault: true } },
+        data: { roleId: orgAdminRole.id },
+      });
+      expect(result.user.roles).toEqual(['admin', 'org_admin']);
     });
 
     it('should assign the specified role', async () => {

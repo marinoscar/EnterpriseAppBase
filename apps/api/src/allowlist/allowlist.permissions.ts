@@ -17,11 +17,13 @@ export const ALLOWLIST_PERMISSIONS = {
   ALLOWLIST_READ: {
     id: 'allowlist:read',
     description: 'View allowlisted emails',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   ALLOWLIST_WRITE: {
     id: 'allowlist:write',
     description: 'Manage allowlisted emails',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

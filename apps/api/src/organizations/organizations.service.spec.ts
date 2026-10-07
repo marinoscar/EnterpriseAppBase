@@ -74,7 +74,7 @@ describe('OrganizationsService', () => {
       const membership = { id: 'm1', orgId: 'org-default', userId: 'u1' };
       tx.membership.upsert.mockResolvedValue(membership as any);
 
-      const result = await service.ensureMembership(tx as any, 'org-default', 'u1');
+      const result = await service.ensureMembership(tx as any, 'org-default', 'u1', 'role-viewer');
 
       expect(result).toBe(membership);
       expect(tx.membership.upsert).toHaveBeenCalledWith({
@@ -83,17 +83,18 @@ describe('OrganizationsService', () => {
         create: {
           orgId: 'org-default',
           userId: 'u1',
+          roleId: 'role-viewer',
           lastActiveAt: expect.any(Date),
         },
       });
       expect(prisma.membership.upsert).not.toHaveBeenCalled();
     });
 
-    it('leaves an existing membership untouched (empty update)', async () => {
+    it('leaves an existing membership untouched, role included (empty update)', async () => {
       const tx = createMockPrismaService();
       tx.membership.upsert.mockResolvedValue({ id: 'm1', status: 'suspended' } as any);
 
-      await service.ensureMembership(tx as any, 'org-default', 'u1');
+      await service.ensureMembership(tx as any, 'org-default', 'u1', 'role-org-admin');
 
       expect(tx.membership.upsert.mock.calls[0]![0]).toMatchObject({ update: {} });
     });
@@ -119,20 +120,44 @@ describe('OrganizationsService', () => {
       expect(prisma.membership.upsert).not.toHaveBeenCalled();
     });
 
-    it('creates the missing membership through the idempotent upsert', async () => {
+    it('creates the missing membership through the idempotent upsert, with the default org role', async () => {
       prisma.membership.findUnique.mockResolvedValue(null);
       prisma.membership.upsert.mockResolvedValue({ id: 'm-2' } as any);
+      prisma.role.findUnique.mockResolvedValue({ id: 'role-viewer' } as any);
 
       await expect(service.ensureDefaultOrgMembership('user-1')).resolves.toEqual({
         orgId: 'org-default',
         created: true,
       });
+      expect(prisma.role.findUnique).toHaveBeenCalledWith({ where: { name: 'viewer' }, select: { id: true } });
       expect(prisma.membership.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { orgId_userId: { orgId: 'org-default', userId: 'user-1' } },
           update: {},
+          create: expect.objectContaining({ roleId: 'role-viewer' }),
         }),
       );
+    });
+
+    it('restores a membership with the org role it is given (an administrator: org_admin, #723)', async () => {
+      prisma.membership.findUnique.mockResolvedValue(null);
+      prisma.membership.upsert.mockResolvedValue({ id: 'm-3' } as any);
+      prisma.role.findUnique.mockResolvedValue({ id: 'role-org-admin' } as any);
+
+      await service.ensureDefaultOrgMembership('user-1', 'org_admin');
+
+      expect(prisma.role.findUnique).toHaveBeenCalledWith({ where: { name: 'org_admin' }, select: { id: true } });
+      expect(prisma.membership.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ create: expect.objectContaining({ roleId: 'role-org-admin' }) }),
+      );
+    });
+
+    it('fails with a seed error, writing nothing, when the role row is missing', async () => {
+      prisma.membership.findUnique.mockResolvedValue(null);
+      prisma.role.findUnique.mockResolvedValue(null);
+
+      await expect(service.ensureDefaultOrgMembership('user-1')).rejects.toThrow(/Role "viewer"/);
+      expect(prisma.membership.upsert).not.toHaveBeenCalled();
     });
 
     it('throws DefaultOrganizationMissingException when the default org is missing', async () => {

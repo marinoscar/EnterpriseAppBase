@@ -79,11 +79,15 @@ export class UsersController {
 
   @Put(':id/roles')
   @Auth({ permissions: [PERMISSIONS.RBAC_MANAGE] })
-  @ApiOperation({ summary: 'Update user roles (Admin only)' })
+  @ApiOperation({
+    summary: 'Update user roles (Admin only)',
+    description:
+      'Single-org mode: `admin` sets the system administrator role and `org_admin` on the default-organization membership; `contributor` or `viewer` set the membership role (the highest named wins). Multi-org mode: changes system roles only; an organization role name is refused with 400.',
+  })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Updated user with new roles' })
   @ApiResponse({ status: 404, description: 'User not found' })
-  @ApiResponse({ status: 400, description: 'Invalid role names' })
+  @ApiResponse({ status: 400, description: 'Invalid role names, or (multi-org mode) an organization role name' })
   @ApiResponse({ status: 403, description: 'Cannot remove own admin role' })
   async updateUserRoles(
     @Param('id', ParseUUIDPipe) id: string,

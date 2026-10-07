@@ -67,9 +67,12 @@ const WORKING_EMAIL_SETTINGS: EmailSettings = {
   fromName: 'Enterprise App Foundation',
 };
 
+// `scope` mirrors `roles.scope` (#723): admin is the system role, the others
+// are org roles held on the default-org membership.
 const ROLES = {
-  admin: { id: 'admin-role-id', name: 'admin' },
-  viewer: { id: 'viewer-role-id', name: 'viewer' },
+  admin: { id: 'admin-role-id', name: 'admin', scope: 'system' },
+  viewer: { id: 'viewer-role-id', name: 'viewer', scope: 'org' },
+  org_admin: { id: 'org-admin-role-id', name: 'org_admin', scope: 'org' },
 };
 
 describe('a notification send failure never fails or rolls back its trigger', () => {
@@ -128,6 +131,11 @@ describe('a notification send failure never fails or rolls back its trigger', ()
     });
 
     prisma.role.findMany.mockResolvedValue([ROLES.viewer] as any);
+    // #723: single-org role changes set the default-org membership role.
+    prisma.role.findUnique.mockImplementation(((args: any) =>
+      Promise.resolve((ROLES as Record<string, unknown>)[args.where.name] ?? null)) as any);
+    prisma.organization.findFirst.mockResolvedValue({ id: 'org-default' } as any);
+    prisma.membership.upsert.mockResolvedValue({} as any);
     prisma.$transaction.mockImplementation(async (cb: any) => cb(prisma));
     prisma.userRole.deleteMany.mockResolvedValue({ count: 1 } as any);
     prisma.userRole.createMany.mockResolvedValue({ count: 1 } as any);
@@ -216,9 +224,11 @@ describe('a notification send failure never fails or rolls back its trigger', ()
     expect(prisma.userRole.deleteMany).toHaveBeenCalledWith({
       where: { userId: RECIPIENT.id },
     });
-    expect(prisma.userRole.createMany).toHaveBeenCalledWith({
-      data: [{ userId: RECIPIENT.id, roleId: ROLES.viewer.id }],
-    });
+    // #723: viewer is an org role, so the change lands on the default-org
+    // membership; the system roles were cleared above.
+    expect(prisma.membership.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: { roleId: ROLES.viewer.id } }),
+    );
     expect(prisma.auditEvent.create).toHaveBeenCalled();
 
     // 3. The dispatch had not even run yet when the action returned — that is
@@ -264,6 +274,6 @@ describe('a notification send failure never fails or rolls back its trigger', ()
     // rejection behind — `flush` resolving is the assertion.
     await expect(notifications.flush()).resolves.toBeUndefined();
 
-    expect(prisma.userRole.createMany).toHaveBeenCalled();
+    expect(prisma.membership.upsert).toHaveBeenCalled();
   });
 });

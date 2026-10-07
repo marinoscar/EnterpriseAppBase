@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from '../../prisma/seed-data';
+import { PERMISSIONS, ROLES, ROLE_GRANTS, ROLE_PERMISSIONS } from '../../prisma/seed-data';
 import {
   PERMISSION_CATALOG_PATH,
   buildPermissionCatalog,
@@ -25,64 +25,70 @@ import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 // the seed reads) is not stale, an app entry lands after the platform entries,
 // and the permission matrix in docs/ARCHITECTURE.md §7.2 agrees with the grants.
 //
+// Issue #723 (PP-6.3) changed it on purpose: every role and permission gained
+// a `scope`; `org_admin` and the four `org_*` permissions were added; the
+// org-scoped permissions moved from `admin` (now system-only) to `org_admin`.
+// The admin + org_admin union is the old admin set plus the four new ids.
+//
 // ⚠ This baseline is deliberately NOT derived from anything. When a permission
 // or grant changes on purpose, edit the literal here in the same commit, so the
 // change is visible in review as a change to seeded RBAC data.
 // =============================================================================
 
 const BASELINE_ROLES = [
-  { name: 'admin', description: 'Full system access - manage users, roles, and all settings' },
-  { name: 'contributor', description: 'Standard user - can manage own settings and future features' },
-  { name: 'viewer', description: 'Read-only access - can view content and manage own settings' },
+  { name: 'admin', description: 'System administrator - operate the deployment: users, roles and all system settings', scope: 'system' },
+  { name: 'contributor', description: 'Organization member - manage own settings and storage objects, use AI', scope: 'org' },
+  { name: 'viewer', description: 'Read-only organization member - view content and manage own settings', scope: 'org' },
+  { name: 'org_admin', description: 'Organization administrator - everything a contributor can do, plus manage the organization members and invites', scope: 'org' },
 ];
 
 const BASELINE_PERMISSIONS = [
-  { name: 'system_settings:read', description: 'Read system settings' },
-  { name: 'system_settings:write', description: 'Modify system settings' },
-  { name: 'user_settings:read', description: 'Read own user settings' },
-  { name: 'user_settings:write', description: 'Modify own user settings' },
-  { name: 'users:read', description: 'View user list and details' },
-  { name: 'users:write', description: 'Modify user accounts' },
-  { name: 'rbac:manage', description: 'Manage roles and permissions' },
-  { name: 'allowlist:read', description: 'View allowlisted emails' },
-  { name: 'allowlist:write', description: 'Manage allowlisted emails' },
-  { name: 'storage:read', description: 'Read object metadata, get download URLs' },
-  { name: 'storage:write', description: 'Upload, update metadata' },
-  { name: 'storage:delete_any', description: 'Admin: delete any object' },
-  { name: 'jobs:read', description: 'View queued, running and completed jobs' },
-  { name: 'jobs:write', description: 'Enqueue, retry and cancel jobs' },
-  { name: 'nodes:read', description: 'View worker nodes and their health' },
-  { name: 'nodes:write', description: 'Register, drain and remove worker nodes' },
-  { name: 'db_backup:read', description: 'View backup schedule, history and status' },
-  { name: 'db_backup:write', description: 'Configure the backup schedule and run a backup' },
-  { name: 'db_backup:restore', description: 'Restore the database from a backup' },
-  { name: 'broadcasts:read', description: 'View notification broadcasts and their delivery history' },
-  { name: 'broadcasts:write', description: 'Compose, schedule, cancel and send notification broadcasts' },
-  { name: 'push:read', description: 'View Web Push (VAPID) configuration' },
-  { name: 'push:write', description: 'Generate, rotate, enable/disable and remove Web Push VAPID keys' },
-  { name: 'storage_config:read', description: 'View the object-storage configuration and the masked status of its stored secret key' },
-  { name: 'storage_config:write', description: 'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket' },
-  { name: 'ai_config:read', description: 'View the deployment-wide AI platform policy' },
-  { name: 'ai_config:write', description: 'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults' },
-  { name: 'ai:use', description: 'Call AI models using a saved key' },
-  { name: 'telemetry:read', description: 'View telemetry settings and status' },
-  { name: 'telemetry:write', description: 'Change telemetry settings' },
-  { name: 'telemetry:query', description: 'Run SQL, export and use the AI assistant against telemetry' },
+  { name: 'system_settings:read', description: 'Read system settings', scope: 'system' },
+  { name: 'system_settings:write', description: 'Modify system settings', scope: 'system' },
+  { name: 'user_settings:read', description: 'Read own user settings', scope: 'org' },
+  { name: 'user_settings:write', description: 'Modify own user settings', scope: 'org' },
+  { name: 'users:read', description: 'View user list and details', scope: 'system' },
+  { name: 'users:write', description: 'Modify user accounts', scope: 'system' },
+  { name: 'rbac:manage', description: 'Manage roles and permissions', scope: 'system' },
+  { name: 'allowlist:read', description: 'View allowlisted emails', scope: 'system' },
+  { name: 'allowlist:write', description: 'Manage allowlisted emails', scope: 'system' },
+  { name: 'storage:read', description: 'Read object metadata, get download URLs', scope: 'org' },
+  { name: 'storage:write', description: 'Upload, update metadata', scope: 'org' },
+  { name: 'storage:delete_any', description: 'Admin: delete any object', scope: 'system' },
+  { name: 'jobs:read', description: 'View queued, running and completed jobs', scope: 'system' },
+  { name: 'jobs:write', description: 'Enqueue, retry and cancel jobs', scope: 'system' },
+  { name: 'nodes:read', description: 'View worker nodes and their health', scope: 'system' },
+  { name: 'nodes:write', description: 'Register, drain and remove worker nodes', scope: 'system' },
+  { name: 'db_backup:read', description: 'View backup schedule, history and status', scope: 'system' },
+  { name: 'db_backup:write', description: 'Configure the backup schedule and run a backup', scope: 'system' },
+  { name: 'db_backup:restore', description: 'Restore the database from a backup', scope: 'system' },
+  { name: 'broadcasts:read', description: 'View notification broadcasts and their delivery history', scope: 'system' },
+  { name: 'broadcasts:write', description: 'Compose, schedule, cancel and send notification broadcasts', scope: 'system' },
+  { name: 'push:read', description: 'View Web Push (VAPID) configuration', scope: 'system' },
+  { name: 'push:write', description: 'Generate, rotate, enable/disable and remove Web Push VAPID keys', scope: 'system' },
+  { name: 'storage_config:read', description: 'View the object-storage configuration and the masked status of its stored secret key', scope: 'system' },
+  { name: 'storage_config:write', description: 'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket', scope: 'system' },
+  { name: 'ai_config:read', description: 'View the deployment-wide AI platform policy', scope: 'system' },
+  { name: 'ai_config:write', description: 'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults', scope: 'system' },
+  { name: 'ai:use', description: 'Call AI models using a saved key', scope: 'org' },
+  { name: 'telemetry:read', description: 'View telemetry settings and status', scope: 'system' },
+  { name: 'telemetry:write', description: 'Change telemetry settings', scope: 'system' },
+  { name: 'telemetry:query', description: 'Run SQL, export and use the AI assistant against telemetry', scope: 'system' },
+  { name: 'org_members:read', description: 'View the members of the organization and their organization roles', scope: 'org' },
+  { name: 'org_members:write', description: 'Change organization members: their organization role, suspend or remove them', scope: 'org' },
+  { name: 'org_invites:read', description: 'View pending and past invitations to the organization', scope: 'org' },
+  { name: 'org_invites:write', description: 'Invite people to the organization and revoke invitations', scope: 'org' },
 ];
 
-const BASELINE_ROLE_PERMISSIONS: Record<string, string[]> = {
+const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
   admin: [
     'system_settings:read',
     'system_settings:write',
-    'user_settings:read',
-    'user_settings:write',
     'users:read',
     'users:write',
     'rbac:manage',
     'allowlist:read',
     'allowlist:write',
-    'storage:read',
-    'storage:write',
     'storage:delete_any',
     'jobs:read',
     'jobs:write',
@@ -99,7 +105,6 @@ const BASELINE_ROLE_PERMISSIONS: Record<string, string[]> = {
     'storage_config:write',
     'ai_config:read',
     'ai_config:write',
-    'ai:use',
     'telemetry:read',
     'telemetry:write',
     'telemetry:query',
@@ -116,6 +121,17 @@ const BASELINE_ROLE_PERMISSIONS: Record<string, string[]> = {
     'user_settings:write',
     'storage:read',
   ],
+  org_admin: [
+    'user_settings:read',
+    'user_settings:write',
+    'storage:read',
+    'storage:write',
+    'ai:use',
+    'org_members:read',
+    'org_members:write',
+    'org_invites:read',
+    'org_invites:write',
+  ],
 };
 
 describe('seeded RBAC baseline', () => {
@@ -128,8 +144,22 @@ describe('seeded RBAC baseline', () => {
   });
 
   it('seeds the baseline role grants', () => {
-    expect(ROLE_PERMISSIONS).toEqual(BASELINE_ROLE_PERMISSIONS);
-    expect(Object.keys(ROLE_PERMISSIONS)).toEqual(Object.keys(BASELINE_ROLE_PERMISSIONS));
+    expect(ROLE_GRANTS).toEqual(BASELINE_ROLE_GRANTS);
+    expect(Object.keys(ROLE_GRANTS)).toEqual(Object.keys(BASELINE_ROLE_GRANTS));
+  });
+});
+
+describe('ROLE_PERMISSIONS, the effective view the RBAC matrix suites use (#723)', () => {
+  it('gives admin the system admin grants plus the org_admin grants', () => {
+    expect([...ROLE_PERMISSIONS.admin].sort()).toEqual(
+      [...BASELINE_ROLE_GRANTS.admin, ...BASELINE_ROLE_GRANTS.org_admin].sort(),
+    );
+  });
+
+  it('gives every other role exactly its own grants', () => {
+    for (const role of ['contributor', 'viewer', 'org_admin']) {
+      expect(ROLE_PERMISSIONS[role]).toEqual(BASELINE_ROLE_GRANTS[role]);
+    }
   });
 });
 
@@ -147,7 +177,7 @@ describe('prisma/catalog/permissions.json', () => {
     expect(catalog).toEqual({
       roles: BASELINE_ROLES,
       permissions: BASELINE_PERMISSIONS,
-      rolePermissions: BASELINE_ROLE_PERMISSIONS,
+      rolePermissions: BASELINE_ROLE_GRANTS,
     });
   });
 
@@ -162,7 +192,7 @@ describe('prisma/catalog/permissions.json', () => {
 
     await withTemporaryEntries(
       permissionRegistry,
-      [{ id: 'stale_check:read', description: 'Added without regenerating', defaultGrants: ['admin'] }],
+      [{ id: 'stale_check:read', description: 'Added without regenerating', scope: 'system', defaultGrants: ['admin'] }],
       () => {
         expect(checkPermissionCatalog(committed)).toContain(
           'run npm run catalog:permissions --workspace=api',
@@ -185,26 +215,27 @@ describe('an app permission (app-registrations/permissions.ts)', () => {
   it('appears after every platform entry, with its grants', async () => {
     const platform = buildPermissionCatalog();
 
-    await withTemporaryEntries(roleRegistry, [{ id: 'coach', description: 'Coaches athletes' }], () =>
+    await withTemporaryEntries(roleRegistry, [{ id: 'coach', description: 'Coaches athletes', scope: 'org' }], () =>
       withTemporaryEntries(
         permissionRegistry,
         [
-          { id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'contributor', 'viewer', 'coach'] },
-          { id: 'workouts:write', description: 'Log own workouts', defaultGrants: ['admin', 'coach'] },
+          { id: 'workouts:read', description: 'Read own workouts', scope: 'org', defaultGrants: ['org_admin', 'contributor', 'viewer', 'coach'] },
+          { id: 'workouts:write', description: 'Log own workouts', scope: 'org', defaultGrants: ['org_admin', 'coach'] },
         ],
         () => {
           const catalog = buildPermissionCatalog();
 
-          expect(catalog.roles).toEqual([...platform.roles, { name: 'coach', description: 'Coaches athletes' }]);
+          expect(catalog.roles).toEqual([...platform.roles, { name: 'coach', description: 'Coaches athletes', scope: 'org' }]);
           expect(catalog.permissions).toEqual([
             ...platform.permissions,
-            { name: 'workouts:read', description: 'Read own workouts' },
-            { name: 'workouts:write', description: 'Log own workouts' },
+            { name: 'workouts:read', description: 'Read own workouts', scope: 'org' },
+            { name: 'workouts:write', description: 'Log own workouts', scope: 'org' },
           ]);
           expect(catalog.rolePermissions).toEqual({
-            admin: [...platform.rolePermissions.admin, 'workouts:read', 'workouts:write'],
+            admin: platform.rolePermissions.admin,
             contributor: [...platform.rolePermissions.contributor, 'workouts:read'],
             viewer: [...platform.rolePermissions.viewer, 'workouts:read'],
+            org_admin: [...platform.rolePermissions.org_admin, 'workouts:read', 'workouts:write'],
             coach: ['workouts:read', 'workouts:write'],
           });
         },
@@ -217,20 +248,24 @@ describe('an app permission (app-registrations/permissions.ts)', () => {
 });
 
 describe('docs/ARCHITECTURE.md §7.2 permission matrix', () => {
-  // A cheap docs tripwire: every registered permission has a row, and its
-  // Admin/Contributor/Viewer ticks match the default grants the seed writes.
+  // A cheap docs tripwire: every registered permission has a row, its scope
+  // cell names its registry scope, and its Admin/Org admin/Contributor/Viewer
+  // ticks match the default grants the seed writes (issue #723).
   const architecture = readFileSync(resolve(apiRoot, '..', '..', 'docs', 'ARCHITECTURE.md'), 'utf8');
   const start = architecture.indexOf('### 7.2 Permission matrix');
   const end = architecture.indexOf('\n## ', start);
   const section = architecture.slice(start, end);
 
+  const MATRIX_ROLES = ['admin', 'org_admin', 'contributor', 'viewer'] as const;
   const rows = new Map<string, string[]>();
+  const scopes = new Map<string, string>();
   for (const line of section.split('\n')) {
     const match = /^\| `([^`]+)` \|(.*)$/.exec(line);
     if (!match) continue;
-    const cells = match[2].split('|').map((cell) => cell.trim());
-    const granted = (['admin', 'contributor', 'viewer'] as const).filter((_role, index) => cells[index] === '✓');
+    const [scope, ...cells] = match[2].split('|').map((cell) => cell.trim());
+    const granted = MATRIX_ROLES.filter((_role, index) => cells[index] === '✓');
     rows.set(match[1], [...granted]);
+    scopes.set(match[1], scope);
   }
 
   it('finds the section', () => {
@@ -247,9 +282,18 @@ describe('docs/ARCHITECTURE.md §7.2 permission matrix', () => {
   it('ticks exactly the roles each permission is granted by default', () => {
     const catalog = buildPermissionCatalog();
     const mismatched = permissionRegistry.ids().filter((id) => {
-      const expected = ['admin', 'contributor', 'viewer'].filter((role) => catalog.rolePermissions[role]?.includes(id));
+      const expected = MATRIX_ROLES.filter((role) => catalog.rolePermissions[role]?.includes(id));
       return JSON.stringify(rows.get(id)) !== JSON.stringify(expected);
     });
+
+    expect(mismatched).toEqual([]);
+  });
+
+  it('names each permission\'s scope in the Scope column', () => {
+    const mismatched = permissionRegistry
+      .list()
+      .filter((entry) => scopes.get(entry.id) !== entry.scope)
+      .map((entry) => `${entry.id}: ${scopes.get(entry.id)} (registry: ${entry.scope})`);
 
     expect(mismatched).toEqual([]);
   });

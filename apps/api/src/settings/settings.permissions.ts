@@ -17,23 +17,29 @@ export const SETTINGS_PERMISSIONS = {
   SYSTEM_SETTINGS_READ: {
     id: 'system_settings:read',
     description: 'Read system settings',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   SYSTEM_SETTINGS_WRITE: {
     id: 'system_settings:write',
     description: 'Modify system settings',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 
-  // User settings
+  // User settings. ORG scope (issue #723): held through the membership role,
+  // so the system `admin` role no longer carries them; an administrator's
+  // `org_admin` membership does.
   USER_SETTINGS_READ: {
     id: 'user_settings:read',
     description: 'Read own user settings',
-    defaultGrants: ['admin', 'contributor', 'viewer'],
+    scope: 'org',
+    defaultGrants: ['org_admin', 'contributor', 'viewer'],
   },
   USER_SETTINGS_WRITE: {
     id: 'user_settings:write',
     description: 'Modify own user settings',
-    defaultGrants: ['admin', 'contributor', 'viewer'],
+    scope: 'org',
+    defaultGrants: ['org_admin', 'contributor', 'viewer'],
   },
 } as const satisfies PermissionDeclarationMap;

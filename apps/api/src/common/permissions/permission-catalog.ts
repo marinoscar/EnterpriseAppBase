@@ -10,13 +10,14 @@
 // =============================================================================
 
 import { permissionRegistry, roleRegistry } from './permission.registry';
+import type { PermissionScope } from './permission.types';
 
 /** What `prisma/seed.ts` upserts: roles, permissions and default role grants. */
 export interface PermissionCatalog {
-  /** Every registered role, in registration order. */
-  roles: Array<{ name: string; description: string }>;
-  /** Every registered permission, in registration order. */
-  permissions: Array<{ name: string; description: string }>;
+  /** Every registered role, in registration order, with its scope (issue #723). */
+  roles: Array<{ name: string; description: string; scope: PermissionScope }>;
+  /** Every registered permission, in registration order, with its scope (issue #723). */
+  permissions: Array<{ name: string; description: string; scope: PermissionScope }>;
   /** Role → permission ids it is granted by default, in permission registration order. Every role has a key. */
   rolePermissions: Record<string, string[]>;
 }
@@ -37,10 +38,11 @@ export function buildPermissionCatalog(): PermissionCatalog {
   }
 
   return {
-    roles: roles.map((role) => ({ name: role.id, description: role.description })),
+    roles: roles.map((role) => ({ name: role.id, description: role.description, scope: role.scope })),
     permissions: permissions.map((permission) => ({
       name: permission.id,
       description: permission.description,
+      scope: permission.scope,
     })),
     rolePermissions,
   };

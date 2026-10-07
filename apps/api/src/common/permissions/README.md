@@ -8,7 +8,7 @@ declarations:
 
 | Derived | From | Read by |
 |---|---|---|
-| `ROLES`, `PERMISSIONS`, `RoleName`, `PermissionName`, `DEFAULT_ROLE` (`common/constants/roles.constants.ts`) | The declaration files, imported directly | `@Auth()`, `@Permissions()`, `@Roles()`, guards, services |
+| `ROLES`, `PERMISSIONS`, `RoleName`, `PermissionName`, `DEFAULT_ORG_ROLE` (alias `DEFAULT_ROLE`), `ORG_ADMIN_ROLE` (`common/constants/roles.constants.ts`) | The declaration files, imported directly | `@Auth()`, `@Permissions()`, `@Roles()`, guards, services |
 | `roleRegistry`, `permissionRegistry` (this folder) | The manifest, at import time | `buildPermissionCatalog()`, tests |
 | `apps/api/prisma/catalog/permissions.json` (generated, committed) | `buildPermissionCatalog()` | `prisma/seed-data.ts`, so `npm run prisma:seed` |
 
@@ -24,7 +24,7 @@ Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 | `permission.types.ts` | `RoleDeclaration`, `PermissionDeclaration`, the map types and the augmentable `AppPermissionIds` / `AppRoleIds`. Types only. |
 | `permission-ids.ts` | `permissionIds(map)` (alias `roleIds`): a declaration map to its id map, keeping literal types. Imports nothing. |
 | `permission.registry.ts` | `roleRegistry`, `permissionRegistry`, `registerRoles()`, `registerPermissions()`. |
-| `platform-roles.ts` | `PLATFORM_ROLES`: `admin`, `contributor`, `viewer`. |
+| `platform-roles.ts` | `PLATFORM_ROLES`: `admin` (system), `contributor`, `viewer`, `org_admin` (org). |
 | `permission.manifest.ts` | Registers every declaration in seed order. |
 | `permission-catalog.ts` | `buildPermissionCatalog()`, `renderPermissionCatalog()`, `checkPermissionCatalog()`. |
 | `index.ts` | The barrel. Importing it runs the manifest, so the registries are full. |
@@ -44,6 +44,7 @@ The platform declarations, one per owning module:
 | `notifications/push.permissions.ts` | `push:read`, `push:write` |
 | `storage/config/storage-config.permissions.ts` | `storage_config:read`, `storage_config:write` |
 | `ai/ai.permissions.ts` | `ai_config:read`, `ai_config:write`, `ai:use` |
+| `organizations/organizations.permissions.ts` | `org_members:read`, `org_members:write`, `org_invites:read`, `org_invites:write` |
 | `@marinoscar/platform-api/telemetry` (`TELEMETRY_PERMISSION_DECLARATIONS`) | `telemetry:read`, `telemetry:write`, `telemetry:query` |
 | `app-registrations/permissions.ts` (app-owned) | `APP_ROLES`, `APP_PERMISSIONS`: empty upstream |
 
@@ -57,7 +58,8 @@ The platform declarations, one per owning module:
 | Duplicates | An id registered twice, including an app id equal to a platform id, is `DUPLICATE_ID`. Nothing is replaced. |
 | Order | Platform roles, app roles, platform permissions (manifest order), app permissions. The catalog, and so the seed, follows it. |
 | When | A bad declaration fails **at import time**, as a `RegistryError` naming the registry (`roles` or `permissions`) and the id, so the API, the generator and the tests all refuse to start. |
-| Admin | Admin holds every permission (`permission.registry.spec.ts` asserts it). Give every new permission `'admin'` in `defaultGrants`. |
+| Scope | Every role and every permission declares `scope: 'system' \| 'org'` (issue #723); there is no default. A `defaultGrants` entry naming a role of the other scope is `INVALID_ENTRY`. System roles are held in `user_roles`; org roles on a membership. |
+| Admin | The system `admin` role holds every **system** permission and `org_admin` every **org** permission (`permission.registry.spec.ts` asserts both). Give a new system permission `'admin'` in `defaultGrants`, a new org permission `'org_admin'`. |
 | Strings are permanent | A permission id is stored in `permissions.name` and mirrored by the web app's settings cards ([settings-ui spec](../../../../../docs/specs/settings-ui.md), rule 3). Do not rename one; add a new one. |
 
 ### Choosing default grants
@@ -75,8 +77,14 @@ already handed it out.
   user at once (`storage_config:*`, `push:*`, `ai_config:*`, `db_backup:restore`)
   is its own permission, never folded into `system_settings:*` or into an
   everyday permission like `storage:*`.
-- **Mind the default role.** Viewer is what every new account gets
-  (`DEFAULT_ROLE`). `ai:use` is withheld from it so a fresh signup cannot spend
+- **Choose the scope by what it operates.** A permission over the deployment
+  (configuration, other users, the queue, backups) is `system`. A permission a
+  member uses inside their organization (their own settings and objects, AI
+  use, the org's members) is `org`. Granting a system permission to an org
+  role would let a customer's org admin operate the deployment, which is what
+  the split prevents; the registry refuses it.
+- **Mind the default role.** Viewer is what every new membership gets
+  (`DEFAULT_ORG_ROLE`). `ai:use` is withheld from it so a fresh signup cannot spend
   the deployment's org AI key; anything with a cost or a privacy edge should be
   withheld the same way.
 
@@ -91,8 +99,8 @@ already handed it out.
    import type { PermissionDeclarationMap } from '../common/permissions/permission.types';
 
    export const JOBS_PERMISSIONS = {
-     JOBS_READ: { id: 'jobs:read', description: 'View queued, running and completed jobs', defaultGrants: ['admin'] },
-     JOBS_WRITE: { id: 'jobs:write', description: 'Enqueue, retry and cancel jobs', defaultGrants: ['admin'] },
+     JOBS_READ: { id: 'jobs:read', description: 'View queued, running and completed jobs', scope: 'system', defaultGrants: ['admin'] },
+     JOBS_WRITE: { id: 'jobs:write', description: 'Enqueue, retry and cancel jobs', scope: 'system', defaultGrants: ['admin'] },
    } as const satisfies PermissionDeclarationMap;
    ```
 
@@ -125,12 +133,12 @@ An app (a fork) never edits a platform declaration, the manifest or
 import type { PermissionDeclaration, RoleDeclaration } from '../common/permissions/permission.types';
 
 export const APP_ROLES: readonly RoleDeclaration[] = [
-  { id: 'coach', description: 'Reviews the workouts of assigned athletes' },
+  { id: 'coach', description: 'Reviews the workouts of assigned athletes', scope: 'org' },
 ];
 
 export const APP_PERMISSIONS: readonly PermissionDeclaration[] = [
-  { id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'contributor', 'viewer', 'coach'] },
-  { id: 'workouts:write', description: 'Log and edit own workouts', defaultGrants: ['admin', 'contributor', 'coach'] },
+  { id: 'workouts:read', description: 'Read own workouts', scope: 'org', defaultGrants: ['org_admin', 'contributor', 'viewer', 'coach'] },
+  { id: 'workouts:write', description: 'Log and edit own workouts', scope: 'org', defaultGrants: ['org_admin', 'contributor', 'coach'] },
 ];
 
 // Typed ids: without this, `@Auth({ permissions: ['workouts:read'] })` does not type-check.

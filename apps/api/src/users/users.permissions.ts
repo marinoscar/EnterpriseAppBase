@@ -17,11 +17,13 @@ export const USERS_PERMISSIONS = {
   USERS_READ: {
     id: 'users:read',
     description: 'View user list and details',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   USERS_WRITE: {
     id: 'users:write',
     description: 'Modify user accounts',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 
@@ -29,6 +31,7 @@ export const USERS_PERMISSIONS = {
   RBAC_MANAGE: {
     id: 'rbac:manage',
     description: 'Manage roles and permissions',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

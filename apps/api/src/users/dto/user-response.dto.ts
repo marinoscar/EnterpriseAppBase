@@ -11,7 +11,11 @@ export const userResponseSchema = z.object({
   profileImageUrl: z.string().nullable(),
   providerProfileImageUrl: z.string().url().nullable(),
   isActive: z.boolean(),
-  roles: z.array(z.string()),
+  roles: z
+    .array(z.string())
+    .describe(
+      'System roles (`admin`) plus the role on the current organization membership (`org_admin`, `contributor` or `viewer`)',
+    ),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

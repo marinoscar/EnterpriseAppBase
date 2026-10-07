@@ -14,7 +14,7 @@ const OWNERSHIP: Record<string, string[]> = {
   identity: [
     'User', 'UserIdentity', 'Role', 'Permission', 'RolePermission', 'UserRole', 'RefreshToken',
     'PersonalAccessToken', 'DeviceCode', 'AllowedEmail', 'AuditEvent', 'PatDurationUnit', 'DeviceCodeStatus',
-    'Organization', 'Membership', 'Invite', 'MembershipStatus', 'InviteStatus',
+    'Organization', 'Membership', 'Invite', 'MembershipStatus', 'InviteStatus', 'RoleScope',
   ],
   settings: ['SystemSettings', 'UserSettings'],
   storage: ['StorageObject', 'StorageObjectChunk', 'StorageObjectStatus'],
@@ -43,10 +43,10 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 34 models and 12 enums, each once', () => {
+  it('declare 34 models and 13 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
     expect(all.filter((b) => b.kind === 'model')).toHaveLength(34);
-    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(12);
+    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(13);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
 

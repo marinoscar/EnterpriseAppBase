@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { createHash, randomBytes } from 'node:crypto';
 import { CreatePatDto } from './dto/create-pat.dto';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
 
 @Injectable()
 export class PatService {
@@ -124,21 +125,9 @@ export class PatService {
     const pat = await this.prisma.personalAccessToken.findUnique({
       where: { tokenHash },
       include: {
-        user: {
-          include: {
-            userRoles: {
-              include: {
-                role: {
-                  include: {
-                    rolePermissions: {
-                      include: { permission: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        // System roles and memberships with their org roles (PP-6.3, #723):
+        // the graph every credential path loads (auth/principal.factory.ts).
+        user: { include: PRINCIPAL_USER_INCLUDE },
       },
     });
 

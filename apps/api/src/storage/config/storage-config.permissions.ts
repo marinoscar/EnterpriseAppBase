@@ -48,12 +48,14 @@ export const STORAGE_CONFIG_PERMISSIONS = {
     id: 'storage_config:read',
     description:
       'View the object-storage configuration and the masked status of its stored secret key',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   STORAGE_CONFIG_WRITE: {
     id: 'storage_config:write',
     description:
       'Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

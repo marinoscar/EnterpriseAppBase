@@ -30,11 +30,13 @@ export const NODES_PERMISSIONS = {
   NODES_READ: {
     id: 'nodes:read',
     description: 'View worker nodes and their health',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   NODES_WRITE: {
     id: 'nodes:write',
     description: 'Register, drain and remove worker nodes',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

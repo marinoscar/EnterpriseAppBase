@@ -63,7 +63,12 @@ export function ManageRolesDialog({ user, onClose, onSave }: ManageRolesDialogPr
   const userId = user?.id ?? null;
   const rolesKey = user?.roles.join(',') ?? '';
   useEffect(() => {
-    setSelected(rolesKey ? rolesKey.split(',') : []);
+    // Only the roles this dialog offers. The API also reports the org role an
+    // administrator holds alongside `admin` (`org_admin`, issue #723), which is
+    // implied by `admin` and is not assigned here; carrying it through a save
+    // would keep it after `admin` is unticked.
+    const offered: readonly string[] = AVAILABLE_ROLES;
+    setSelected(rolesKey ? rolesKey.split(',').filter((role) => offered.includes(role)) : []);
     setError(null);
   }, [userId, rolesKey]);
 

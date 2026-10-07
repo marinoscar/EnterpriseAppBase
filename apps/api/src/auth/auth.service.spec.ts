@@ -72,6 +72,10 @@ describe('AuthService', () => {
     // PP-6.1 (#721): the default organization every sign-up joins.
     mockPrisma.organization.findFirst.mockResolvedValue(DEFAULT_ORG as any);
     mockPrisma.membership.upsert.mockResolvedValue({ id: 'membership-1' } as any);
+    // PP-6.3 (#723): a restored membership (sign-in self-heal) looks up its org
+    // role by name, so the role rows exist like they do after the seed.
+    mockPrisma.role.findUnique.mockImplementation((async (args: any) =>
+      ({ id: `role-${args.where.name}`, name: args.where.name, rolePermissions: [] })) as any);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -474,13 +478,13 @@ describe('AuthService', () => {
       );
     });
 
-    it('should assign default role to new users', async () => {
+    it('should give new users the default org role on their membership, and no system role (#723)', async () => {
       const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
       const mockUser = {
         id: 'new-user-2',
         email: mockGoogleProfile.email,
         isActive: true,
-        userRoles: [{ role: mockRole }],
+        userRoles: [],
       };
 
       mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
@@ -493,17 +497,42 @@ describe('AuthService', () => {
 
       await service.handleGoogleLogin(mockGoogleProfile);
 
-      // Verify default role was assigned in transaction
-      expect(mockPrisma.user.create).toHaveBeenCalledWith(
+      expect(mockPrisma.role.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { name: 'viewer' } }),
+      );
+      // No `user_roles` row: viewer is an org role.
+      expect(mockPrisma.user.create.mock.calls[0]![0].data).not.toHaveProperty('userRoles');
+      expect(mockPrisma.userRole.upsert).not.toHaveBeenCalled();
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            userRoles: expect.objectContaining({
-              create: expect.objectContaining({
-                roleId: mockRole.id,
-              }),
-            }),
-          }),
+          create: expect.objectContaining({ userId: 'new-user-2', roleId: mockRole.id }),
         }),
+      );
+    });
+
+    it('gives the initial administrator the system admin role and org_admin on the default org (#723)', async () => {
+      const orgAdmin = { id: 'role-org-admin', name: 'org_admin', rolePermissions: [] };
+      const admin = { id: 'role-admin', name: 'admin' };
+      const mockUser = { id: 'new-admin', email: mockGoogleProfile.email, isActive: true, userRoles: [] };
+
+      mockAdminBootstrap.shouldGrantAdminRole.mockResolvedValue(true);
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValue(mockUser as any);
+      mockPrisma.role.findUnique.mockImplementation((async (args: any) =>
+        args.where.name === 'org_admin' ? orgAdmin : args.where.name === 'admin' ? admin : null) as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.userRole.upsert.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ create: expect.objectContaining({ roleId: orgAdmin.id }) }),
+      );
+      expect(mockPrisma.userRole.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ create: { userId: 'new-admin', roleId: admin.id } }),
       );
     });
 

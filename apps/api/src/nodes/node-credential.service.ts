@@ -64,6 +64,7 @@ import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
 import { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
 
 /**
@@ -394,21 +395,9 @@ export class NodeCredentialService {
     const credential = await this.prisma.nodeCredential.findUnique({
       where: { tokenHash },
       include: {
-        user: {
-          include: {
-            userRoles: {
-              include: {
-                role: {
-                  include: {
-                    rolePermissions: {
-                      include: { permission: true },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        // System roles and memberships with their org roles (PP-6.3, #723):
+        // the graph every credential path loads (auth/principal.factory.ts).
+        user: { include: PRINCIPAL_USER_INCLUDE },
       },
     });
 

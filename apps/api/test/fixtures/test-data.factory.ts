@@ -218,23 +218,56 @@ export const mockPermissions = {
     name: 'telemetry:query',
     description: 'Run SQL, export and use the AI assistant against telemetry',
   },
+  // The organization permissions (#723, PP-6.3). ORG scope, seeded to
+  // `org_admin` only; enforced by the org admin endpoints (#726).
+  orgMembersRead: {
+    id: randomUUID(),
+    name: 'org_members:read',
+    description: 'View the members of the organization and their organization roles',
+  },
+  orgMembersWrite: {
+    id: randomUUID(),
+    name: 'org_members:write',
+    description: 'Change organization members: their organization role, suspend or remove them',
+  },
+  orgInvitesRead: {
+    id: randomUUID(),
+    name: 'org_invites:read',
+    description: 'View pending and past invitations to the organization',
+  },
+  orgInvitesWrite: {
+    id: randomUUID(),
+    name: 'org_invites:write',
+    description: 'Invite people to the organization and revoke invitations',
+  },
 };
 
+// `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
+// the others are org roles held on a membership.
 export const mockRoles = {
   admin: {
     id: randomUUID(),
     name: 'admin',
     description: 'Full system access',
+    scope: 'system' as const,
   },
   contributor: {
     id: randomUUID(),
     name: 'contributor',
     description: 'Standard user capabilities',
+    scope: 'org' as const,
   },
   viewer: {
     id: randomUUID(),
     name: 'viewer',
     description: 'Read-only access',
+    scope: 'org' as const,
+  },
+  org_admin: {
+    id: randomUUID(),
+    name: 'org_admin',
+    description: 'Organization administrator',
+    scope: 'org' as const,
   },
 };
 
@@ -250,7 +283,22 @@ export interface CreateMockUserOptions {
   profileImageUrl?: string | null;
   providerProfileImageUrl?: string | null;
   isActive?: boolean;
+  /**
+   * PRE-SPLIT shape: the role is held in `user_roles` with its full grant set
+   * (admin: every permission). The principal factory still honours it, so the
+   * existing RBAC suites run unchanged. Ignored when `systemRoles` or
+   * `orgRoleName` is given.
+   */
   roleName?: 'admin' | 'contributor' | 'viewer';
+  /**
+   * SPLIT shape (#723): system roles held in `user_roles`, with system grants
+   * only. Giving this or `orgRoleName` selects the split shape.
+   */
+  systemRoles?: Array<'admin'>;
+  /** SPLIT shape (#723): the org role on the default-org membership; `null` for no membership. */
+  orgRoleName?: 'org_admin' | 'contributor' | 'viewer' | null;
+  /** SPLIT shape (#723): the membership's status (default `active`). */
+  membershipStatus?: 'active' | 'suspended';
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -568,6 +616,52 @@ export const rolePermissionsMap = {
   ],
 };
 
+/** Org-scoped permission names (#723): the grants that live on org roles. */
+const ORG_SCOPED_PERMISSIONS = new Set([
+  'user_settings:read',
+  'user_settings:write',
+  'storage:read',
+  'storage:write',
+  'ai:use',
+  'org_members:read',
+  'org_members:write',
+  'org_invites:read',
+  'org_invites:write',
+]);
+
+/**
+ * The grants after the RBAC split (#723), mirroring the seeded catalog: the
+ * system `admin` role holds every system permission, `org_admin` every org
+ * permission; contributor and viewer are unchanged.
+ */
+export const splitRolePermissionsMap = {
+  admin: rolePermissionsMap.admin.filter((permission) => !ORG_SCOPED_PERMISSIONS.has(permission.name)),
+  org_admin: [
+    ...rolePermissionsMap.admin.filter((permission) => ORG_SCOPED_PERMISSIONS.has(permission.name)),
+    mockPermissions.orgMembersRead,
+    mockPermissions.orgMembersWrite,
+    mockPermissions.orgInvitesRead,
+    mockPermissions.orgInvitesWrite,
+  ],
+  contributor: rolePermissionsMap.contributor,
+  viewer: rolePermissionsMap.viewer,
+};
+
+/** The default organization every mock membership belongs to (matches `setupBaseMocks`). */
+export const MOCK_DEFAULT_ORG_ID = 'org-default';
+
+function roleWithGrants(roleName: keyof typeof splitRolePermissionsMap, grants: Array<{ id: string; name: string; description: string | null }>) {
+  const role = mockRoles[roleName];
+  return {
+    ...role,
+    rolePermissions: grants.map((permission) => ({
+      roleId: role.id,
+      permissionId: permission.id,
+      permission,
+    })),
+  };
+}
+
 // ============================================================================
 // Complete User with Relations
 // ============================================================================
@@ -596,6 +690,7 @@ export interface MockUserWithRelations {
       }>;
     };
   }>;
+  memberships?: any[];
   identities?: any[];
   userSettings?: any;
 }
@@ -603,6 +698,9 @@ export interface MockUserWithRelations {
 export function createMockUserWithRelations(
   options: CreateMockUserOptions = {},
 ): MockUserWithRelations {
+  if (options.systemRoles !== undefined || options.orgRoleName !== undefined) {
+    return createSplitMockUser(options);
+  }
   const user = createMockUser(options);
   const roleName = options.roleName || 'viewer';
   const role = mockRoles[roleName];
@@ -639,5 +737,41 @@ export function createMockUserWithRelations(
     userRoles: [{ ...userRole, role: roleWithPermissions }],
     identities: [identity],
     userSettings: settings,
+  };
+}
+
+/**
+ * A user in the post-split shape (#723): `userRoles` holds system roles with
+ * system grants, and the default-org membership carries the org role.
+ */
+function createSplitMockUser(options: CreateMockUserOptions): MockUserWithRelations {
+  const user = createMockUser(options);
+  const systemRoles = options.systemRoles ?? [];
+  const orgRoleName = options.orgRoleName === undefined ? 'viewer' : options.orgRoleName;
+
+  return {
+    ...user,
+    userRoles: systemRoles.map((roleName) => ({
+      ...createMockUserRole({ userId: user.id, roleId: mockRoles[roleName].id }),
+      role: roleWithGrants(roleName, splitRolePermissionsMap[roleName]),
+    })),
+    memberships: orgRoleName
+      ? [
+          {
+            id: randomUUID(),
+            orgId: MOCK_DEFAULT_ORG_ID,
+            userId: user.id,
+            status: options.membershipStatus ?? 'active',
+            lastActiveAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            roleId: mockRoles[orgRoleName].id,
+            org: { id: MOCK_DEFAULT_ORG_ID, isDefault: true },
+            role: roleWithGrants(orgRoleName, splitRolePermissionsMap[orgRoleName]),
+          },
+        ]
+      : [],
+    identities: [createMockUserIdentity({ userId: user.id, providerEmail: user.email })],
+    userSettings: createMockUserSettings({ userId: user.id }),
   };
 }

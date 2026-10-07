@@ -66,9 +66,12 @@ const WORKING_EMAIL_SETTINGS: EmailSettings = {
   fromName: 'Enterprise App Foundation',
 };
 
+// `scope` mirrors `roles.scope` (#723): admin is the system role, the others
+// are org roles held on the default-org membership.
 const ROLES = {
-  admin: { id: 'admin-role-id', name: 'admin' },
-  viewer: { id: 'viewer-role-id', name: 'viewer' },
+  admin: { id: 'admin-role-id', name: 'admin', scope: 'system' },
+  viewer: { id: 'viewer-role-id', name: 'viewer', scope: 'org' },
+  org_admin: { id: 'org-admin-role-id', name: 'org_admin', scope: 'org' },
 };
 
 describe('security.role_changed: mandatory, both channels, and the before/after delta', () => {
@@ -130,6 +133,11 @@ describe('security.role_changed: mandatory, both channels, and the before/after 
     });
 
     prisma.role.findMany.mockResolvedValue([ROLES.viewer] as any);
+    // #723: single-org role changes set the default-org membership role.
+    prisma.role.findUnique.mockImplementation(((args: any) =>
+      Promise.resolve((ROLES as Record<string, unknown>)[args.where.name] ?? null)) as any);
+    prisma.organization.findFirst.mockResolvedValue({ id: 'org-default' } as any);
+    prisma.membership.upsert.mockResolvedValue({} as any);
     prisma.$transaction.mockImplementation(async (cb: any) => cb(prisma));
     prisma.userRole.deleteMany.mockResolvedValue({ count: 1 } as any);
     prisma.userRole.createMany.mockResolvedValue({ count: 1 } as any);

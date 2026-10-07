@@ -55,19 +55,26 @@ export const AI_PERMISSIONS = {
   AI_CONFIG_READ: {
     id: 'ai_config:read',
     description: 'View the deployment-wide AI platform policy',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   AI_CONFIG_WRITE: {
     id: 'ai_config:write',
     description:
       'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults',
+    scope: 'system',
     defaultGrants: ['admin'],
   },
   AI_USE: {
     id: 'ai:use',
     description: 'Call AI models using a saved key',
+    scope: 'org',
     defaultGrants: [
-      'admin',
+      // Issue #723: `ai:use` is ORG scope, so the organization administrator
+      // holds it, not the system `admin` role. A system administrator keeps it
+      // through the `org_admin` role on their membership (the migration moves
+      // the grant), so nobody loses it.
+      'org_admin',
       // #423, epic #419 — `ai:use` only, never `ai_config:*`: a Contributor may
       // call AI with their own saved key, and has no say over whether AI is
       // enabled for anyone else or under which policy.

@@ -15,8 +15,9 @@ contract lives in the generated OpenAPI document (`/api/docs`).
 - **Other credentials**: personal access tokens (`pat_`), worker-node
   credentials (`nod_`), device-flow tokens, and per-job brokered secrets. See
   [Credential kinds](#2-credential-kinds).
-- **Authorization**: RBAC with three roles (Admin, Contributor, Viewer) and
-  fine-grained permissions, enforced server-side by guards.
+- **Authorization**: RBAC with a system role (Admin) and org roles (Org admin,
+  Contributor, Viewer) held on a membership, and fine-grained permissions,
+  enforced server-side by guards.
 - **Secrets at rest**: runtime-configured secrets are encrypted with
   AES-256-GCM under `SECRETS_ENCRYPTION_KEY`.
 - **Edge**: Nginx serves UI and API from one origin and sets HSTS, CSP,
@@ -482,31 +483,63 @@ the job queue.
 
 ### Model
 
+RBAC is split into **system roles**, which operate the deployment, and **org
+roles**, which operate one organization (issue #723). Roles stay global rows
+of one table with a `scope` (`system` or `org`); what differs is where a user
+holds them.
+
 ```mermaid
 erDiagram
-    User ||--o{ UserRole : has
+    User ||--o{ UserRole : "system roles"
     UserRole }o--|| Role : references
+    User ||--o{ Membership : "member of"
+    Membership }o--|| Organization : in
+    Membership }o--|| Role : "org role"
     Role ||--o{ RolePermission : has
     RolePermission }o--|| Permission : references
 ```
 
-Three seeded roles:
+Four seeded roles:
 
-- **Admin**: every permission.
-- **Contributor**: manage own settings and storage objects, use AI.
-- **Viewer**: the default for new users. Manage own settings, read storage.
+- **Admin** (system, `user_roles`): every system permission. Backups, the
+  Doctor, telemetry, storage and AI configuration, nodes, users and roles.
+- **Org admin** (org, on a membership): every org permission, including the
+  organization's members and invites (`org_members:*`, `org_invites:*`). A
+  customer's org admin manages their members without becoming a deployment
+  operator: none of these is a system permission.
+- **Contributor** (org): manage own settings and storage objects, use AI.
+- **Viewer** (org): the default membership role (`DEFAULT_ORG_ROLE`). Manage
+  own settings, read storage. No `ai:use`.
+
+A role is granted only permissions of its own scope; the permission registry
+refuses a declaration that crosses scopes, so a system permission can never be
+seeded onto an org role.
+
+**Effective permissions.** A request's permissions are the union of the
+user's system roles' grants and the grants of the role on the user's
+**current-org membership**, computed in one place, `PrincipalFactory`
+(`apps/api/src/auth/principal.factory.ts`), for the guards, `/api/auth/me`
+and the users list. Until the active organization travels in the token
+(PP-6.4), the current organization is the default one in single-org mode and
+the active membership used most recently in multi-org mode. A suspended
+membership, or none, contributes nothing. JWT, PAT and node credentials all
+load the same graph (`PRINCIPAL_USER_INCLUDE`), so the three cannot disagree.
+The system administrator holds the system `admin` role and `org_admin` on the
+default organization; `ROLES.ADMIN` in `@Auth({ roles })` means the system
+role.
 
 The full permission list and the role-to-permission matrix are in
 [ARCHITECTURE.md](ARCHITECTURE.md#7-authorization).
 
 Where RBAC data is declared: each permission, with its description and
 default role grants, in a declaration file beside the module whose controller
-enforces it (`apps/api/src/<module>/<module>.permissions.ts`); the three roles
-in `apps/api/src/common/permissions/platform-roles.ts`; an app's own roles and
+enforces it (`apps/api/src/<module>/<module>.permissions.ts`); the four roles
+in `apps/api/src/common/permissions/platform-roles.ts` (each with its scope); an app's own roles and
 permissions in `apps/api/src/app-registrations/permissions.ts`. The role and
 permission registries (`apps/api/src/common/permissions/`) validate them at
-import time (id shape, non-empty description, every grant names a registered
-role, no duplicate id), so a malformed declaration stops the API from
+import time (id shape, non-empty description, a `system` or `org` scope,
+every grant names a registered role of the same scope, no duplicate id), so a
+malformed declaration stops the API from
 starting. `roles.constants.ts` derives the `PERMISSIONS` constants `@Auth()`
 names from the same files, so the enforced string and the seeded string
 cannot drift.
@@ -540,9 +573,10 @@ flowchart TD
 
 - **JwtAuthGuard**: skips `@Public()` routes; handles `pat_` and `nod_`
   bearers; otherwise runs the JWT strategy.
-- **RolesGuard**: if `roles` is set, the user needs **any** of them.
+- **RolesGuard**: if `roles` is set, the user needs **any** of them. Every
+  role named in `@Auth({ roles })` today is the system `admin` role.
 - **PermissionsGuard**: if `permissions` is set, the user needs **all** of
-  them. The 403 names the missing ones.
+  them, out of the effective set above. The 403 names the missing ones.
 
 A route with neither `@Auth()` nor `@Public()` is unauthenticated. Every new
 controller therefore needs `@Auth()` at class or method level.

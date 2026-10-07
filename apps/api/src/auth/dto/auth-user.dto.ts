@@ -75,14 +75,16 @@ export class CurrentUserDto {
 
   @ApiProperty({
     type: [RoleDto],
-    description: 'User roles',
+    description:
+      'User roles: the system roles (`admin`) plus the role on the current organization membership (`org_admin`, `contributor` or `viewer`). A system administrator lists `admin` and `org_admin`.',
   })
   roles!: RoleDto[];
 
   @ApiProperty({
     type: [String],
     example: ['system_settings:read', 'users:write'],
-    description: 'User permissions (aggregated from roles)',
+    description:
+      'Effective permissions: the grants of the system roles plus those of the current organization membership role',
   })
   permissions!: string[];
 

@@ -40,7 +40,7 @@ import { systemSettingsSchema } from '../../src/settings/registry/composed';
 const SEED_INPUT = platformSeedInputFrom(SEED_SNAPSHOT, {});
 const ROLES = SEED_INPUT.roles;
 const PERMISSIONS = SEED_INPUT.permissions;
-const ROLE_PERMISSIONS = SEED_INPUT.roleGrants;
+const ROLE_GRANTS = SEED_INPUT.roleGrants;
 const SEEDED_SYSTEM_SETTINGS = SEED_INPUT.systemSettingsDefaults;
 
 describe('seed data', () => {
@@ -125,7 +125,7 @@ describe('seed data', () => {
   describe('role-permission mappings', () => {
     it('names only roles that are seeded', () => {
       const roles = new Set<string>(ROLES.map((role) => role.name));
-      const unknown = Object.keys(ROLE_PERMISSIONS).filter(
+      const unknown = Object.keys(ROLE_GRANTS).filter(
         (role) => !roles.has(role),
       );
 
@@ -138,7 +138,7 @@ describe('seed data', () => {
       const seeded = new Set<string>(
         PERMISSIONS.map((permission) => permission.name),
       );
-      const unknown = Object.entries(ROLE_PERMISSIONS).flatMap(
+      const unknown = Object.entries(ROLE_GRANTS).flatMap(
         ([role, permissions]) =>
           permissions
             .filter((permission) => !seeded.has(permission))
@@ -151,7 +151,7 @@ describe('seed data', () => {
     it('grants each permission to a role at most once', () => {
       // The upsert makes a repeat harmless; it still means the list was edited
       // by someone who could not see what was already in it.
-      const duplicated = Object.entries(ROLE_PERMISSIONS).flatMap(
+      const duplicated = Object.entries(ROLE_GRANTS).flatMap(
         ([role, permissions]) =>
           permissions
             .filter(
@@ -176,14 +176,14 @@ describe('seed data', () => {
       ];
 
       for (const permission of operations) {
-        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+        expect(ROLE_GRANTS.admin).toContain(permission);
       }
 
       // Including the READ halves. The queue, the fleet and the backup history
       // are operational surfaces; a later issue can widen one of them with an
       // argument for that surface, and widening is the direction that costs
       // nothing (these are rows, not a migration).
-      const leaked = Object.entries(ROLE_PERMISSIONS)
+      const leaked = Object.entries(ROLE_GRANTS)
         .filter(([role]) => role !== 'admin')
         .flatMap(([role, permissions]) =>
           permissions
@@ -198,10 +198,10 @@ describe('seed data', () => {
       const storageConfig = ['storage_config:read', 'storage_config:write'];
 
       for (const permission of storageConfig) {
-        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+        expect(ROLE_GRANTS.admin).toContain(permission);
       }
 
-      const leaked = Object.entries(ROLE_PERMISSIONS)
+      const leaked = Object.entries(ROLE_GRANTS)
         .filter(([role]) => role !== 'admin')
         .flatMap(([role, permissions]) =>
           permissions
@@ -218,20 +218,20 @@ describe('seed data', () => {
       // `storage_config:*` decides which object store the deployment uses and
       // under whose credential. Folding them together would put a
       // credential-bearing configuration screen in front of the whole user base.
-      expect(ROLE_PERMISSIONS.viewer).toContain('storage:read');
-      expect(ROLE_PERMISSIONS.viewer).not.toContain('storage_config:read');
-      expect(ROLE_PERMISSIONS.contributor).toContain('storage:write');
-      expect(ROLE_PERMISSIONS.contributor).not.toContain('storage_config:write');
+      expect(ROLE_GRANTS.viewer).toContain('storage:read');
+      expect(ROLE_GRANTS.viewer).not.toContain('storage_config:read');
+      expect(ROLE_GRANTS.contributor).toContain('storage:write');
+      expect(ROLE_GRANTS.contributor).not.toContain('storage_config:write');
     });
 
     it('grants the broadcasts permissions to Admin and to nobody else (#320)', () => {
       const broadcasts = ['broadcasts:read', 'broadcasts:write'];
 
       for (const permission of broadcasts) {
-        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+        expect(ROLE_GRANTS.admin).toContain(permission);
       }
 
-      const leaked = Object.entries(ROLE_PERMISSIONS)
+      const leaked = Object.entries(ROLE_GRANTS)
         .filter(([role]) => role !== 'admin')
         .flatMap(([role, permissions]) =>
           permissions
@@ -242,7 +242,7 @@ describe('seed data', () => {
       expect(leaked).toEqual([]);
     });
 
-    it('grants ai_config:* to Admin only, and ai:use to Admin and Contributor but NOT Viewer (#423, #499)', () => {
+    it('grants ai_config:* to Admin only, and ai:use to Org admin and Contributor but NOT Viewer (#423, #499, #723)', () => {
       // `ai_config:*` is the deployment-wide policy — same "narrow,
       // operational surface" posture as `storage_config:*`, `push:*`,
       // `broadcasts:*` and `nodes:*` above: Admin only, including the read
@@ -250,10 +250,10 @@ describe('seed data', () => {
       const aiConfig = ['ai_config:read', 'ai_config:write'];
 
       for (const permission of aiConfig) {
-        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+        expect(ROLE_GRANTS.admin).toContain(permission);
       }
 
-      const leakedConfig = Object.entries(ROLE_PERMISSIONS)
+      const leakedConfig = Object.entries(ROLE_GRANTS)
         .filter(([role]) => role !== 'admin')
         .flatMap(([role, permissions]) =>
           permissions
@@ -264,14 +264,16 @@ describe('seed data', () => {
       expect(leakedConfig).toEqual([]);
 
       // `ai:use` is the opposite axis — may this caller invoke AI with their
-      // OWN key. Admin and Contributor hold it; Viewer deliberately does NOT
+      // OWN key. It is ORG scope since #723, so the org roles hold it: Org admin
+      // (which every system administrator also holds on their membership) and
+      // Contributor. Viewer deliberately does NOT
       // (#499) — Viewer is the DEFAULT role every new signup lands in, and
       // under `byok_with_org_fallback` a default grant would let a brand-new
       // account spend the deployment's own org key with no administrator
       // having decided that.
-      expect(ROLE_PERMISSIONS.admin).toContain('ai:use');
-      expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
-      expect(ROLE_PERMISSIONS.viewer).not.toContain('ai:use');
+      expect(ROLE_GRANTS.org_admin).toContain('ai:use');
+      expect(ROLE_GRANTS.contributor).toContain('ai:use');
+      expect(ROLE_GRANTS.viewer).not.toContain('ai:use');
     });
 
     it('⚠ keeps ai_config:* distinct from ai:use, and withholds ai:use from Viewer (#423, #499)', () => {
@@ -281,20 +283,20 @@ describe('seed data', () => {
       // `ai_config:*` decides whether AI is enabled for the whole deployment
       // and under which policy; `ai:use` decides whether one caller, with
       // their own key, may call it at all.
-      expect(ROLE_PERMISSIONS.viewer).not.toContain('ai:use');
-      expect(ROLE_PERMISSIONS.viewer).not.toContain('ai_config:read');
-      expect(ROLE_PERMISSIONS.contributor).toContain('ai:use');
-      expect(ROLE_PERMISSIONS.contributor).not.toContain('ai_config:write');
+      expect(ROLE_GRANTS.viewer).not.toContain('ai:use');
+      expect(ROLE_GRANTS.viewer).not.toContain('ai_config:read');
+      expect(ROLE_GRANTS.contributor).toContain('ai:use');
+      expect(ROLE_GRANTS.contributor).not.toContain('ai_config:write');
     });
 
     it('grants the telemetry permissions to Admin only (epic #528, story #533)', () => {
       const telemetry = ['telemetry:read', 'telemetry:write', 'telemetry:query'];
 
       for (const permission of telemetry) {
-        expect(ROLE_PERMISSIONS.admin).toContain(permission);
+        expect(ROLE_GRANTS.admin).toContain(permission);
       }
 
-      const leaked = Object.entries(ROLE_PERMISSIONS)
+      const leaked = Object.entries(ROLE_GRANTS)
         .filter(([role]) => role !== 'admin')
         .flatMap(([role, permissions]) =>
           permissions
@@ -303,6 +305,33 @@ describe('seed data', () => {
         );
 
       expect(leaked).toEqual([]);
+    });
+  });
+
+  describe('role and permission scopes (#723)', () => {
+    const OPERATIONAL = [
+      'system_settings:read', 'system_settings:write', 'users:read', 'users:write', 'rbac:manage',
+      'allowlist:read', 'allowlist:write', 'storage:delete_any', 'jobs:read', 'jobs:write', 'nodes:read',
+      'nodes:write', 'db_backup:read', 'db_backup:write', 'db_backup:restore', 'broadcasts:read',
+      'broadcasts:write', 'push:read', 'push:write', 'storage_config:read', 'storage_config:write',
+      'ai_config:read', 'ai_config:write', 'telemetry:read', 'telemetry:write', 'telemetry:query',
+    ];
+
+    it('scopes every operational permission to the system and grants it to the system admin role only', () => {
+      for (const name of OPERATIONAL) {
+        expect(PERMISSIONS.find((permission) => permission.name === name)?.scope).toBe('system');
+        expect(ROLE_GRANTS.admin).toContain(name);
+        for (const role of ['org_admin', 'contributor', 'viewer']) expect(ROLE_GRANTS[role]).not.toContain(name);
+      }
+    });
+
+    it('scopes admin to the system and the other platform roles to an organization', () => {
+      expect(Object.fromEntries(ROLES.map((role) => [role.name, role.scope]))).toEqual({
+        admin: 'system',
+        contributor: 'org',
+        viewer: 'org',
+        org_admin: 'org',
+      });
     });
   });
 

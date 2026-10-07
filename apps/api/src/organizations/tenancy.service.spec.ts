@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 
 import { TenancyService } from './tenancy.service';
+import { currentTenancyMode } from '../auth/tenancy-mode';
 
 describe('TenancyService (PP-6.2, #722)', () => {
   function serviceFor(raw: string | undefined): TenancyService {
@@ -26,6 +27,16 @@ describe('TenancyService (PP-6.2, #722)', () => {
 
     expect(service.mode()).toBe('multi');
     expect(service.isSingle()).toBe(false);
+  });
+
+  it('records the mode for the principal factory (PP-6.3, #723)', () => {
+    try {
+      serviceFor('multi');
+      expect(currentTenancyMode()).toBe('multi');
+    } finally {
+      serviceFor('single');
+    }
+    expect(currentTenancyMode()).toBe('single');
   });
 
   it('fails construction on an invalid value', () => {

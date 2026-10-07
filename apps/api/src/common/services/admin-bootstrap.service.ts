@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
+import { ORG_ADMIN_ROLE, ROLES } from '../constants/roles.constants';
 
 @Injectable()
 export class AdminBootstrapService implements OnModuleInit {
@@ -83,16 +84,26 @@ export class AdminBootstrapService implements OnModuleInit {
   }
 
   /**
-   * Assigns admin role to a user
+   * Assigns the system admin role to a user, and `org_admin` on their
+   * default-organization membership (PP-6.3, #723: an administrator holds
+   * both, as the initial administrator does).
    */
   async assignAdminRole(userId: string): Promise<void> {
     const adminRole = await this.prisma.role.findUnique({
-      where: { name: 'admin' },
+      where: { name: ROLES.ADMIN },
+    });
+    const orgAdminRole = await this.prisma.role.findUnique({
+      where: { name: ORG_ADMIN_ROLE },
     });
 
-    if (!adminRole) {
+    if (!adminRole || !orgAdminRole) {
       throw new Error('Admin role not found - run seeds first');
     }
+
+    await this.prisma.membership.updateMany({
+      where: { userId, org: { isDefault: true } },
+      data: { roleId: orgAdminRole.id },
+    });
 
     await this.prisma.userRole.upsert({
       where: {

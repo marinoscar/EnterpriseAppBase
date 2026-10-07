@@ -453,6 +453,24 @@ describe('UserList', () => {
       });
     });
 
+    it('drops the implied org_admin role an administrator is listed with, so unticking admin removes it (#723)', async () => {
+      const user = userEvent.setup();
+      setHookState({ users: [{ ...activeUser, roles: ['admin', 'org_admin'] }], total: 1 });
+      renderList();
+
+      const dialog = await openDialog(user);
+      expect(within(dialog).getByRole('checkbox', { name: 'admin' })).toBeChecked();
+      expect(within(dialog).queryByRole('checkbox', { name: 'org_admin' })).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole('checkbox', { name: 'contributor' }));
+      await user.click(within(dialog).getByRole('checkbox', { name: 'admin' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Save roles' }));
+
+      await waitFor(() => {
+        expect(mockUpdateUserRoles).toHaveBeenCalledWith('user-1', ['contributor']);
+      });
+    });
+
     it('blocks an empty role set inline — the replacement for window.alert', async () => {
       const user = userEvent.setup();
       setHookState({ users: [activeUser], total: 1 });

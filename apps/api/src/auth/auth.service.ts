@@ -16,7 +16,11 @@ import {
 import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
 import { DatabaseSeedException } from '@marinoscar/platform-api/core';
-import { DEFAULT_ROLE } from '../common/constants/roles.constants';
+import {
+  DEFAULT_ORG_ROLE,
+  ORG_ADMIN_ROLE,
+  ROLES,
+} from '../common/constants/roles.constants';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import {
   normalizeProfileSettings,
@@ -26,6 +30,7 @@ import { AuthLoginDeniedException } from './auth-error-codes';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
+import { PRINCIPAL_USER_INCLUDE, principalFactory } from './principal.factory';
 import { TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -95,23 +100,8 @@ export class AuthService {
         },
       },
       include: {
-        user: {
-          include: {
-            userRoles: {
-              include: {
-                role: {
-                  include: {
-                    rolePermissions: {
-                      include: {
-                        permission: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        // System roles and memberships with their org roles (PP-6.3, #723).
+        user: { include: PRINCIPAL_USER_INCLUDE },
       },
     });
 
@@ -127,21 +117,7 @@ export class AuthService {
       // Check if user exists by email (identity linking case)
       const existingUser = await this.prisma.user.findUnique({
         where: { email: profile.email },
-        include: {
-          userRoles: {
-            include: {
-              role: {
-                include: {
-                  rolePermissions: {
-                    include: {
-                      permission: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        include: PRINCIPAL_USER_INCLUDE,
       });
 
       if (existingUser) {
@@ -197,6 +173,11 @@ export class AuthService {
     await this.applyTenancyAtSignIn(user.id, {
       isInitialAdmin,
       userWasCreated,
+      // A restored membership's org role (PP-6.3, #723): an administrator's
+      // is org_admin, everyone else's the default org role.
+      orgRoleName: user.userRoles.some((ur) => ur.role.name === ROLES.ADMIN)
+        ? ORG_ADMIN_ROLE
+        : DEFAULT_ORG_ROLE,
     });
 
     // Generate JWT tokens
@@ -247,7 +228,8 @@ export class AuthService {
         // Optional fields spread in conditionally rather than assigned
         // `undefined` — same convention as the notification channels.
         ...(profile.displayName ? { recipientName: profile.displayName } : {}),
-        roles: user.userRoles.map((ur) => ur.role.name),
+        // System roles plus the default-org role (PP-6.3, #723).
+        roles: principalFactory.access(user).roles,
         ...(appUrl ? { appUrl: appUrl.replace(/\/+$/, '') } : {}),
       };
 
@@ -274,7 +256,11 @@ export class AuthService {
    */
   private async applyTenancyAtSignIn(
     userId: string,
-    { isInitialAdmin, userWasCreated }: { isInitialAdmin: boolean; userWasCreated: boolean },
+    {
+      isInitialAdmin,
+      userWasCreated,
+      orgRoleName,
+    }: { isInitialAdmin: boolean; userWasCreated: boolean; orgRoleName: string },
   ): Promise<void> {
     trace.getActiveSpan()?.setAttribute('tenancy.mode', this.tenancy.mode());
 
@@ -282,8 +268,11 @@ export class AuthService {
     // under the same rule, inside its transaction: nothing to heal.
     if (!userWasCreated && this.tenancy.autoJoinsDefaultOrg(isInitialAdmin)) {
       const { orgId, created } =
-        await this.organizations.ensureDefaultOrgMembership(userId);
+        await this.organizations.ensureDefaultOrgMembership(userId, orgRoleName);
       if (created) {
+        // Principal cache (PP-1.12, #683): the restored membership carries an
+        // org role (PP-6.3, #723), so the next request must see it.
+        this.principalCache.invalidate({ userId });
         this.logger.log(
           `User ${userId} joined default organization ${orgId} at sign-in (self-heal)`,
         );
@@ -307,20 +296,28 @@ export class AuthService {
   }
 
   /**
-   * Creates a new user with default role, settings, and identity
-   * Handles admin bootstrap if applicable
+   * Creates a new user with identity and settings. Handles admin bootstrap
+   * if applicable.
    *
    * Joins the default organization in the same transaction when the tenancy
    * mode says so (always in single mode; only the initial admin in multi).
+   *
+   * Roles after the RBAC split (PP-6.3, #723): an ordinary sign-up holds NO
+   * system role and gets `DEFAULT_ORG_ROLE` (viewer) on its membership. The
+   * initial administrator gets the system `admin` role in `user_roles` plus
+   * `ORG_ADMIN_ROLE` on the default-org membership.
    */
   private async createNewUser(profile: GoogleProfile, isInitialAdmin: boolean) {
     // Check if this should be the initial admin
     const shouldGrantAdmin =
       await this.adminBootstrapService.shouldGrantAdminRole(profile.email);
 
-    // Get default role
-    const defaultRole = await this.prisma.role.findUnique({
-      where: { name: DEFAULT_ROLE },
+    // The membership's org role, with its permissions (the returned principal
+    // carries them). Resolved before the transaction: a missing row is a seed
+    // problem and must fail before anything is written.
+    const membershipRoleName = shouldGrantAdmin ? ORG_ADMIN_ROLE : DEFAULT_ORG_ROLE;
+    const membershipRole = await this.prisma.role.findUnique({
+      where: { name: membershipRoleName },
       include: {
         rolePermissions: {
           include: {
@@ -330,13 +327,13 @@ export class AuthService {
       },
     });
 
-    if (!defaultRole) {
+    if (!membershipRole) {
       this.logger.error(
-        `CRITICAL: Default role "${DEFAULT_ROLE}" not found in database. ` +
+        `CRITICAL: Role "${membershipRoleName}" not found in database. ` +
           'Database seeds have not been run. Cannot create new users.',
       );
       throw new DatabaseSeedException(
-        `Role "${DEFAULT_ROLE}"`,
+        `Role "${membershipRoleName}"`,
         'npm run prisma:seed',
       );
     }
@@ -350,9 +347,10 @@ export class AuthService {
       ? await this.organizations.getDefaultOrg()
       : null;
 
-    // Create user with identity, role, settings and membership in transaction
+    // Create user with identity, settings and membership in a transaction
     const user = await this.prisma.$transaction(async (tx) => {
-      // Create user
+      // Create user. No system role: an ordinary member holds only the
+      // membership role below.
       const newUser = await tx.user.create({
         data: {
           email: profile.email,
@@ -367,12 +365,6 @@ export class AuthService {
               providerEmail: profile.email,
             },
           },
-          // Assign default role
-          userRoles: {
-            create: {
-              roleId: defaultRole.id,
-            },
-          },
           // Create default user settings
           userSettings: {
             create: {
@@ -380,33 +372,24 @@ export class AuthService {
             },
           },
         },
-        include: {
-          userRoles: {
-            include: {
-              role: {
-                include: {
-                  rolePermissions: {
-                    include: {
-                      permission: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        include: PRINCIPAL_USER_INCLUDE,
       });
 
-      // Join the default organization, in the same transaction as the user.
-      if (defaultOrg) {
-        await this.organizations.ensureMembership(tx, defaultOrg.id, newUser.id);
-      }
+      // Join the default organization with its org role, in the same
+      // transaction as the user.
+      const membership = defaultOrg
+        ? await this.organizations.ensureMembership(
+            tx,
+            defaultOrg.id,
+            newUser.id,
+            membershipRole.id,
+          )
+        : null;
 
-      // Grant admin role if applicable
+      // Grant the system admin role if applicable
       if (shouldGrantAdmin) {
-        // Get admin role and assign within transaction
         const adminRole = await tx.role.findUnique({
-          where: { name: 'admin' },
+          where: { name: ROLES.ADMIN },
         });
 
         if (!adminRole) {
@@ -431,30 +414,30 @@ export class AuthService {
         });
         this.logger.log(`Admin role assigned to user: ${newUser.id}`);
 
-        // Reload user with admin role included
+        // Reload with the principal graph: the system role and the membership.
         const userWithAdmin = await tx.user.findUnique({
           where: { id: newUser.id },
-          include: {
-            userRoles: {
-              include: {
-                role: {
-                  include: {
-                    rolePermissions: {
-                      include: {
-                        permission: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
+          include: PRINCIPAL_USER_INCLUDE,
         });
 
         return userWithAdmin!;
       }
 
-      return newUser;
+      // The principal graph without a second read: the user was created with
+      // no system role, and the membership (if any) was written just above.
+      return {
+        ...newUser,
+        memberships:
+          membership && defaultOrg
+            ? [
+                {
+                  ...membership,
+                  org: { id: defaultOrg.id, isDefault: defaultOrg.isDefault },
+                  role: membershipRole,
+                },
+              ]
+            : [],
+      };
     });
 
     // Principal cache (PP-1.12, #683): after the transaction (which may have
@@ -464,7 +447,7 @@ export class AuthService {
 
     if (defaultOrg) {
       this.logger.log(
-        `User ${user.id} joined default organization ${defaultOrg.id}`,
+        `User ${user.id} joined default organization ${defaultOrg.id} as ${membershipRoleName}`,
       );
     }
     this.logger.log(`User created successfully: ${user.email}`);
@@ -889,23 +872,12 @@ export class AuthService {
     // flight, `set` refuses to store what may be the pre-change principal.
     const generation = this.principalCache.generation(payload.sub);
 
+    // System roles plus memberships with their org roles (PP-6.3, #723): the
+    // shared graph every credential path loads; `PrincipalFactory` derives the
+    // effective permissions from it.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: {
-        userRoles: {
-          include: {
-            role: {
-              include: {
-                rolePermissions: {
-                  include: {
-                    permission: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      include: PRINCIPAL_USER_INCLUDE,
     });
 
     if (!user) {
@@ -976,19 +948,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        userRoles: {
-          include: {
-            role: {
-              include: {
-                rolePermissions: {
-                  include: {
-                    permission: true,
-                  },
-                },
-              },
-            },
-          },
-        },
+        ...PRINCIPAL_USER_INCLUDE,
         userSettings: {
           select: { value: true },
         },
@@ -1015,19 +975,13 @@ export class AuthService {
     const hasUploadedProfileImage =
       normalizeProfileSettings(storedProfile).imageObjectId !== null;
 
-    // Extract roles
-    const roles = user.userRoles.map((ur) => ({
-      name: ur.role.name,
-    }));
-
-    // Aggregate permissions
-    const permissionsSet = new Set<string>();
-    user.userRoles.forEach((ur) => {
-      ur.role.rolePermissions.forEach((rp) => {
-        permissionsSet.add(rp.permission.name);
-      });
-    });
-    const permissions = Array.from(permissionsSet);
+    // Roles and permissions from `PrincipalFactory` (PP-6.3, #723): system
+    // roles plus the current org's membership role. The shape is unchanged
+    // (`roles: [{ name }]`); a system administrator now lists `admin` and
+    // `org_admin`.
+    const access = principalFactory.access(user);
+    const roles = access.roles.map((name) => ({ name }));
+    const permissions = access.permissions;
 
     return {
       id: user.id,

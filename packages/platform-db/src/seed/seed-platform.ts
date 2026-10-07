@@ -2,7 +2,7 @@
 // the reference app's prisma/seed.ts with the same writes, in the same order,
 // under the same console lines.
 
-import type { PlatformSeedInput, SeedJsonValue, SeedLogger, SeedPrisma, SeedSummary } from './types.js';
+import type { PlatformSeedInput, SeedJsonValue, SeedLogger, SeedNamedEntry, SeedPrisma, SeedScope, SeedSummary } from './types.js';
 
 /** The `global` row's key: the one `system_settings` row the platform owns. */
 const GLOBAL_SETTINGS_KEY = 'global';
@@ -15,8 +15,14 @@ const INITIAL_ADMIN_NOTE = 'Initial admin (auto-seeded)';
 
 const SILENT: SeedLogger = { info: () => undefined };
 
+/** `{ scope }` when the entry declares one, `{}` otherwise (a catalog from before scopes). */
+function scopeOf(entry: SeedNamedEntry): { scope?: SeedScope } {
+  return entry.scope ? { scope: entry.scope } : {};
+}
+
 /**
- * Seed the platform's roles, permissions, default grants, the `global` system
+ * Seed the platform's roles and permissions (each with its `system` or `org`
+ * scope, refreshed on every run like the description), default grants, the `global` system
  * settings row, the initial administrator's allowlist entry and the default
  * organization.
  *
@@ -44,8 +50,8 @@ export async function seedPlatform(prisma: SeedPrisma, input: PlatformSeedInput,
   for (const role of input.roles) {
     await prisma.role.upsert({
       where: { name: role.name },
-      update: { description: role.description },
-      create: { name: role.name, description: role.description },
+      update: { description: role.description, ...scopeOf(role) },
+      create: { name: role.name, description: role.description, ...scopeOf(role) },
     });
   }
   log.info(`✓ Seeded ${input.roles.length} roles`);
@@ -54,8 +60,8 @@ export async function seedPlatform(prisma: SeedPrisma, input: PlatformSeedInput,
   for (const permission of input.permissions) {
     await prisma.permission.upsert({
       where: { name: permission.name },
-      update: { description: permission.description },
-      create: { name: permission.name, description: permission.description },
+      update: { description: permission.description, ...scopeOf(permission) },
+      create: { name: permission.name, description: permission.description, ...scopeOf(permission) },
     });
   }
   log.info(`✓ Seeded ${input.permissions.length} permissions`);

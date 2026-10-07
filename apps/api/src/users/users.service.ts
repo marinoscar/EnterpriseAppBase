@@ -10,11 +10,50 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UserListQueryDto } from './dto/user-list-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
-import { ROLES } from '../common/constants/roles.constants';
+import {
+  DEFAULT_ORG_ROLE,
+  ORG_ADMIN_ROLE,
+  ROLES,
+} from '../common/constants/roles.constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { RoleChangedEmailData } from '../email';
 import { resolveProfileImageUrl } from '../common/profile-image/profile-image';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import { principalFactory } from '../auth/principal.factory';
+import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
+
+/**
+ * What the users endpoints load for a user's roles (PP-6.3, #723): the system
+ * roles and every membership with its org role, so `roles` can combine them
+ * through `PrincipalFactory` exactly as `/api/auth/me` does.
+ */
+const USER_ROLES_INCLUDE = {
+  userRoles: {
+    include: { role: true },
+  },
+  memberships: {
+    include: {
+      org: { select: { id: true, isDefault: true } },
+      role: true,
+    },
+  },
+} as const;
+
+/**
+ * Precedence among org roles when a request names several, highest first.
+ * Any other org role (an app's own) ranks below these, in request order.
+ */
+const ORG_ROLE_PRECEDENCE: readonly string[] = [
+  ORG_ADMIN_ROLE,
+  ROLES.CONTRIBUTOR,
+  ROLES.VIEWER,
+];
+
+/** Where org roles are managed in multi-org mode (PP-6.8, #726). */
+const ORG_ROLES_ELSEWHERE =
+  'are organization roles. In multi-organization mode this endpoint changes system roles only ' +
+  `(${ROLES.ADMIN}); manage organization roles through the organization member endpoints ` +
+  '(/api/orgs/:orgId/members).';
 
 @Injectable()
 export class UsersService {
@@ -47,11 +86,17 @@ export class UsersService {
     }
 
     if (role) {
-      where.userRoles = {
-        some: {
-          role: { name: role },
+      // A system role is in `user_roles`; an org role on an active membership
+      // (PP-6.3, #723).
+      // ANDed, so it composes with the search `OR` above.
+      where.AND = [
+        {
+          OR: [
+            { userRoles: { some: { role: { name: role } } } },
+            { memberships: { some: { status: 'active', role: { name: role } } } },
+          ],
         },
-      };
+      ];
     }
 
     if (isActive !== undefined) {
@@ -66,9 +111,7 @@ export class UsersService {
         take: pageSize,
         orderBy: { [sortBy]: sortOrder },
         include: {
-          userRoles: {
-            include: { role: true },
-          },
+          ...USER_ROLES_INCLUDE,
           // Same query, no N+1: needed to resolve `profileImageUrl` (#367).
           userSettings: {
             select: { value: true },
@@ -87,7 +130,7 @@ export class UsersService {
       profileImageUrl: this.resolveImage(user),
       providerProfileImageUrl: user.providerProfileImageUrl,
       isActive: user.isActive,
-      roles: user.userRoles.map((ur) => ur.role.name),
+      roles: this.roleNames(user),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     }));
@@ -108,9 +151,7 @@ export class UsersService {
     const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
-        userRoles: {
-          include: { role: true },
-        },
+        ...USER_ROLES_INCLUDE,
         identities: {
           select: {
             provider: true,
@@ -136,7 +177,7 @@ export class UsersService {
       profileImageUrl: this.resolveImage(user),
       providerProfileImageUrl: user.providerProfileImageUrl,
       isActive: user.isActive,
-      roles: user.userRoles.map((ur) => ur.role.name),
+      roles: this.roleNames(user),
       identities: user.identities,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -169,9 +210,7 @@ export class UsersService {
         isActive: dto.isActive,
       },
       include: {
-        userRoles: {
-          include: { role: true },
-        },
+        ...USER_ROLES_INCLUDE,
         userSettings: {
           select: { value: true },
         },
@@ -198,14 +237,27 @@ export class UsersService {
       profileImageUrl: this.resolveImage(updated),
       providerProfileImageUrl: updated.providerProfileImageUrl,
       isActive: updated.isActive,
-      roles: updated.userRoles.map((ur) => ur.role.name),
+      roles: this.roleNames(updated),
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };
   }
 
   /**
-   * Update user roles
+   * Update user roles.
+   *
+   * The body keeps its pre-split shape (`roleNames` from `admin`,
+   * `contributor`, `viewer`); what it changes depends on the tenancy mode
+   * (PP-6.3, #723):
+   *
+   * - **single:** the system roles named become the user's `user_roles`
+   *   (`admin` toggles the system administrator), and the default-org
+   *   membership role becomes `org_admin` when `admin` is named, otherwise the
+   *   highest org role named (`contributor` > `viewer`), otherwise the default
+   *   org role. So `['admin']` is an administrator, `['contributor']` a
+   *   contributor with no system role.
+   * - **multi:** system roles only. An org role name is a 400 pointing to the
+   *   organization member endpoints (#726); memberships are not touched.
    */
   async updateUserRoles(
     id: string,
@@ -225,18 +277,15 @@ export class UsersService {
     // lost it), so the before-state has to be captured on this side of it.
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: {
-        userRoles: {
-          include: { role: true },
-        },
-      },
+      include: USER_ROLES_INCLUDE,
     });
 
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    const previousRoles = user.userRoles.map((ur) => ur.role.name);
+    // System roles plus the current org role, as `/api/auth/me` shows them.
+    const previousRoles = this.roleNames(user);
 
     // Validate all roles exist
     const roles = await this.prisma.role.findMany({
@@ -249,19 +298,77 @@ export class UsersService {
       throw new BadRequestException(`Invalid roles: ${invalid.join(', ')}`);
     }
 
-    // Replace all roles in a transaction
+    const systemRoles = roles.filter((role) => role.scope === 'system');
+    const orgRoles = roles.filter((role) => role.scope === 'org');
+    const singleOrg = principalFactory.mode() === 'single';
+
+    if (!singleOrg && orgRoles.length > 0) {
+      throw new BadRequestException(
+        `${orgRoles.map((role) => role.name).join(', ')} ${ORG_ROLES_ELSEWHERE}`,
+      );
+    }
+
+    // Single mode: the default-org membership role this request implies.
+    let membershipRole: { id: string; name: string } | null = null;
+    let defaultOrgId: string | null = null;
+    if (singleOrg) {
+      const membershipRoleName = systemRoles.some((role) => role.name === ROLES.ADMIN)
+        ? ORG_ADMIN_ROLE
+        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? DEFAULT_ORG_ROLE;
+      membershipRole =
+        orgRoles.find((role) => role.name === membershipRoleName) ??
+        (await this.prisma.role.findUnique({ where: { name: membershipRoleName } }));
+      if (!membershipRole) {
+        throw new BadRequestException(`Invalid roles: ${membershipRoleName}`);
+      }
+      // The same lookup as `OrganizationsService.getDefaultOrg` (kept local so
+      // this service's dependencies do not change).
+      const defaultOrg = await this.prisma.organization.findFirst({
+        where: { isDefault: true },
+        select: { id: true },
+      });
+      if (!defaultOrg) throw new DefaultOrganizationMissingException();
+      defaultOrgId = defaultOrg.id;
+    }
+
+    // Replace the system roles (and, in single mode, set the membership role)
+    // in one transaction.
     await this.prisma.$transaction(async (tx) => {
-      // Remove existing roles
+      // Remove existing roles. Every row goes, including a pre-split row of an
+      // org role: from here on org roles live on the membership.
       await tx.userRole.deleteMany({ where: { userId: id } });
 
       // Add new roles
-      await tx.userRole.createMany({
-        data: roles.map((role) => ({
-          userId: id,
-          roleId: role.id,
-        })),
-      });
+      if (systemRoles.length > 0) {
+        await tx.userRole.createMany({
+          data: systemRoles.map((role) => ({
+            userId: id,
+            roleId: role.id,
+          })),
+        });
+      }
+
+      if (membershipRole && defaultOrgId) {
+        await tx.membership.upsert({
+          where: { orgId_userId: { orgId: defaultOrgId, userId: id } },
+          update: { roleId: membershipRole.id },
+          create: {
+            orgId: defaultOrgId,
+            userId: id,
+            roleId: membershipRole.id,
+            lastActiveAt: new Date(),
+          },
+        });
+      }
     });
+
+    // What the user holds now, in the same terms as `previousRoles`.
+    const currentRoles = [
+      ...new Set([
+        ...systemRoles.map((role) => role.name),
+        ...(membershipRole ? [membershipRole.name] : this.currentOrgRole(user)),
+      ]),
+    ];
 
     // Principal cache (PP-1.12, #683): AFTER the transaction committed, never
     // inside it — a removed role stops authorising the next request.
@@ -270,6 +377,8 @@ export class UsersService {
     // Log audit event
     await this.createAuditEvent(adminUserId, 'user:roles_update', 'user', id, {
       newRoles: dto.roleNames,
+      systemRoles: systemRoles.map((role) => role.name),
+      ...(membershipRole ? { orgRole: membershipRole.name } : {}),
     });
 
     this.logger.log(
@@ -311,7 +420,7 @@ export class UsersService {
     const payload: RoleChangedEmailData = {
       recipientEmail: user.email,
       previousRoles,
-      currentRoles: dto.roleNames,
+      currentRoles,
       changedAt: new Date(),
       appUrl: this.appUrl(),
     };
@@ -322,6 +431,26 @@ export class UsersService {
     await this.notifications.notify('security.role_changed', id, payload);
 
     return this.getUserById(id);
+  }
+
+  /**
+   * A user's role names as the API reports them: system roles plus the
+   * current org role (`PrincipalFactory`, PP-6.3).
+   */
+  private roleNames(user: Parameters<typeof principalFactory.access>[0]): string[] {
+    return principalFactory.access(user).roles;
+  }
+
+  /** The current org role of a loaded user, as a 0- or 1-element list. */
+  private currentOrgRole(user: Parameters<typeof principalFactory.access>[0]): string[] {
+    const orgRole = principalFactory.access(user).orgRole;
+    return orgRole ? [orgRole] : [];
+  }
+
+  /** The highest-ranked org role among `names`, or `undefined` when there is none. */
+  private highestOrgRole(names: string[]): string | undefined {
+    const ranked = ORG_ROLE_PRECEDENCE.find((name) => names.includes(name));
+    return ranked ?? names[0];
   }
 
   /**
