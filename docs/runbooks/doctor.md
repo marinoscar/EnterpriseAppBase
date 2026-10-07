@@ -122,7 +122,7 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 
 ## 5. Send a support bundle
 
-When you need help from whoever supports your deployment, send ONE file instead of screenshots: the support bundle holds the Doctor report, the versions from the About page and a 24-hour telemetry summary, with secrets and personal data removed. Design and the exact redaction rules: [Doctor spec §2.10](../specs/doctor.md#210-support-bundle).
+When you need help from whoever supports your deployment, send ONE file instead of screenshots: the support bundle holds the Doctor report, the versions from the About page, a 24-hour telemetry summary and the outbound-dependency inventory (hosts only), with secrets and personal data removed. Design and the exact redaction rules: [Doctor spec §2.10](../specs/doctor.md#210-support-bundle).
 
 1. Open the Doctor (`/admin/settings/doctor`) and choose **Download support bundle**, next to **Run again**. The browser saves `support-bundle-<app>-<yyyyMMddTHHmmssZ>.json`.
    Over HTTP: `curl -sS -OJ "https://<your-deployment>/api/admin/doctor/support-bundle" -H "Authorization: Bearer $TOKEN"` (`-OJ` keeps the server's filename).
