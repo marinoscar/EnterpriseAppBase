@@ -7,6 +7,9 @@ import type { PlatformSeedInput, SeedJsonValue, SeedLogger, SeedPrisma, SeedSumm
 /** The `global` row's key: the one `system_settings` row the platform owns. */
 const GLOBAL_SETTINGS_KEY = 'global';
 
+/** The default organization when the input names none. Mirrors the migration's backfill row. */
+const DEFAULT_ORGANIZATION = { name: 'Default organization', slug: 'default' } as const;
+
 /** The note on the initial administrator's allowlist row. */
 const INITIAL_ADMIN_NOTE = 'Initial admin (auto-seeded)';
 
@@ -14,7 +17,8 @@ const SILENT: SeedLogger = { info: () => undefined };
 
 /**
  * Seed the platform's roles, permissions, default grants, the `global` system
- * settings row and the initial administrator's allowlist entry.
+ * settings row, the initial administrator's allowlist entry and the default
+ * organization.
  *
  * Idempotent: every write is an upsert keyed on a natural unique (`name`,
  * `roleId_permissionId`, `key`, `email`), so a second run updates the same
@@ -22,8 +26,10 @@ const SILENT: SeedLogger = { info: () => undefined };
  * row until an explicit migration removes it (expand/contract). It never
  * overwrites an admin-edited value either: the settings row and the allowlist
  * row are created with `update: {}`. Writes are sequential, in a fixed order
- * (roles, permissions, grants, settings, allowlist), so the log reads the same
- * on every run.
+ * (roles, permissions, grants, settings, allowlist, default organization), so
+ * the log reads the same on every run. The default organization is created only
+ * when no organization is flagged default (found by `isDefault`, not by slug),
+ * so a renamed default is left alone and the one-default index is never hit.
  *
  * @param prisma - The app's Prisma client, or any object with the delegates of {@link SeedPrisma}.
  * @param input - What to write; see {@link PlatformSeedInput}.
@@ -102,5 +108,27 @@ export async function seedPlatform(prisma: SeedPrisma, input: PlatformSeedInput,
     log.info('⊘ INITIAL_ADMIN_EMAIL not set, skipping allowlist seed');
   }
 
-  return { roles: input.roles.length, permissions: input.permissions.length, rolePermissions, skippedGrants, allowlistedEmail };
+  log.info('Seeding default organization...');
+  const defaultOrganization = input.defaultOrganization ?? DEFAULT_ORGANIZATION;
+  const existingDefault = await prisma.organization.findFirst({ where: { isDefault: true } });
+  const defaultOrganizationCreated = existingDefault === null;
+  if (defaultOrganizationCreated) {
+    await prisma.organization.upsert({
+      where: { slug: defaultOrganization.slug },
+      update: {}, // Don't overwrite an administrator's edits
+      create: { name: defaultOrganization.name, slug: defaultOrganization.slug, isDefault: true },
+    });
+    log.info(`✓ Created default organization "${defaultOrganization.slug}"`);
+  } else {
+    log.info('✓ Default organization already exists');
+  }
+
+  return {
+    roles: input.roles.length,
+    permissions: input.permissions.length,
+    rolePermissions,
+    skippedGrants,
+    allowlistedEmail,
+    defaultOrganizationCreated,
+  };
 }

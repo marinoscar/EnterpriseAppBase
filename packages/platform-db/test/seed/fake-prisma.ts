@@ -22,6 +22,7 @@ export function createFakePrisma(): { prisma: SeedPrisma; calls: RecordedCall[];
     rolePermission: new Map(),
     systemSettings: new Map(),
     allowedEmail: new Map(),
+    organization: new Map(),
   };
   let nextId = 1;
 
@@ -48,6 +49,11 @@ export function createFakePrisma(): { prisma: SeedPrisma; calls: RecordedCall[];
               : { id: `id-${nextId++}`, ...(args.create as object) };
             table.set(key, row);
             return row;
+          }
+          if (method === 'findFirst') {
+            // Only `organization.findFirst({ where: { isDefault: true } })` exists.
+            const where = args.where as Record<string, unknown>;
+            return [...table.values()].find((row) => Object.entries(where).every(([k, v]) => row[k] === v)) ?? null;
           }
           if (method === 'findUnique') {
             return table.get(keyOf(delegate, args.where as Record<string, unknown>)) ?? null;

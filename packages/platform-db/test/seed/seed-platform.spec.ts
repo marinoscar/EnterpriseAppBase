@@ -96,7 +96,7 @@ describe('seedPlatform', () => {
     expect(log.lines).toContain('⊘ INITIAL_ADMIN_EMAIL not set, skipping allowlist seed');
   });
 
-  it('a second run makes the same calls and leaves the same rows', async () => {
+  it('a second run leaves the same rows and only looks the default organization up again', async () => {
     const { prisma, calls, tables } = createFakePrisma();
     await seedPlatform(prisma, INPUT);
     const first = calls.splice(0).map((c) => ({ delegate: c.delegate, method: c.method, args: normalise(c.args) }));
@@ -105,7 +105,11 @@ describe('seedPlatform', () => {
     await seedPlatform(prisma, INPUT);
     const second = calls.map((c) => ({ delegate: c.delegate, method: c.method, args: normalise(c.args) }));
 
-    expect(second).toEqual(first);
+    // The default organization is created once: the second run finds it and writes nothing.
+    const isOrgWrite = (c: { delegate: string; method: string }) => c.delegate === 'organization' && c.method === 'upsert';
+    expect(first.filter(isOrgWrite)).toHaveLength(1);
+    expect(second.filter(isOrgWrite)).toHaveLength(0);
+    expect(second).toEqual(first.filter((c) => !isOrgWrite(c)));
     expect(snapshot(tables)).toEqual(rowsAfterFirst);
   });
 
@@ -113,7 +117,7 @@ describe('seedPlatform', () => {
     const { prisma, calls } = createFakePrisma();
     await seedPlatform(prisma, INPUT);
 
-    expect([...new Set(calls.map((c) => c.method))].sort()).toEqual(['findUnique', 'upsert']);
+    expect([...new Set(calls.map((c) => c.method))].sort()).toEqual(['findFirst', 'findUnique', 'upsert']);
   });
 
   it('keeps a row that left the input (a removed permission stays)', async () => {
@@ -150,9 +154,49 @@ describe('seedPlatform', () => {
       '✓ Seeded default system settings',
       'Seeding initial admin allowlist...',
       '✓ Added Admin@Example.TEST to allowlist',
+      'Seeding default organization...',
+      '✓ Created default organization "default"',
     ]);
     const order = [...new Set(calls.map((c) => c.delegate))];
-    expect(order).toEqual(['role', 'permission', 'rolePermission', 'systemSettings', 'allowedEmail']);
+    expect(order).toEqual(['role', 'permission', 'rolePermission', 'systemSettings', 'allowedEmail', 'organization']);
+  });
+
+  it('creates the default organization once, flagged default, with the default name and slug', async () => {
+    const { prisma, calls, tables } = createFakePrisma();
+    const summary = await seedPlatform(prisma, INPUT);
+
+    const org = calls.filter((c) => c.delegate === 'organization');
+    expect(org.map((c) => [c.method, c.args])).toEqual([
+      ['findFirst', { where: { isDefault: true } }],
+      ['upsert', { where: { slug: 'default' }, update: {}, create: { name: 'Default organization', slug: 'default', isDefault: true } }],
+    ]);
+    expect(summary.defaultOrganizationCreated).toBe(true);
+    expect(tables.organization!.size).toBe(1);
+
+    expect((await seedPlatform(prisma, INPUT)).defaultOrganizationCreated).toBe(false);
+    expect(tables.organization!.size).toBe(1);
+  });
+
+  it('leaves a renamed default organization alone instead of creating a second one', async () => {
+    const { prisma, calls, tables } = createFakePrisma();
+    tables.organization!.set('acme', { id: 'org-1', name: 'Acme', slug: 'acme', isDefault: true });
+
+    const summary = await seedPlatform(prisma, INPUT);
+
+    expect(summary.defaultOrganizationCreated).toBe(false);
+    expect(calls.some((c) => c.delegate === 'organization' && c.method === 'upsert')).toBe(false);
+    expect([...tables.organization!.keys()]).toEqual(['acme']);
+  });
+
+  it('takes the default organization name and slug from the input', async () => {
+    const { prisma, calls } = createFakePrisma();
+    await seedPlatform(prisma, { ...INPUT, defaultOrganization: { name: 'Acme', slug: 'acme' } });
+
+    expect(calls.find((c) => c.delegate === 'organization' && c.method === 'upsert')!.args).toEqual({
+      where: { slug: 'acme' },
+      update: {},
+      create: { name: 'Acme', slug: 'acme', isDefault: true },
+    });
   });
 
   it('is silent without a logger', async () => {
