@@ -63,7 +63,7 @@ const membership = (orgId: string, overrides: Record<string, unknown> = {}) => (
 });
 
 /** A user graph as `PRINCIPAL_USER_INCLUDE` loads it. */
-const userGraph = (memberships: unknown[] = [membership(DEFAULT_ORG.id)], overrides: Record<string, unknown> = {}) => ({
+const userGraph = (memberships: any[] = [membership(DEFAULT_ORG.id)], overrides: Record<string, unknown> = {}): any => ({
   id: 'user-1',
   email: 'person@example.test',
   isActive: true,

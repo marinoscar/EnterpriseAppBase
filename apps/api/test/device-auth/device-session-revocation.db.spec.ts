@@ -31,6 +31,8 @@ import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.s
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 import { DeviceAuthService } from '../../src/device-auth/device-auth.service';
 import { PatService } from '../../src/pat/pat.service';
+import { OrganizationsService } from '../../src/organizations/organizations.service';
+import { TenancyService } from '../../src/organizations/tenancy.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
@@ -52,6 +54,13 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
       select: { id: true },
     });
     createdUserIds.push(user.id);
+    // #724: a device session is bound to an org the approver is an active
+    // member of, as every signed-in user is in single mode.
+    const [org, viewer] = await Promise.all([
+      client.organization.findFirstOrThrow({ where: { isDefault: true }, select: { id: true } }),
+      client.role.findUniqueOrThrow({ where: { name: 'viewer' }, select: { id: true } }),
+    ]);
+    await client.membership.create({ data: { orgId: org.id, userId: user.id, roleId: viewer.id } });
     return user.id;
   }
 
@@ -95,10 +104,10 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
       // PP-1.12 (#683): a real, enabled principal cache — revocation must
       // still bite on the next request while the principal is cached.
       (principalCache = new PrincipalCache(config, new InProcessEventBus())),
-      // PP-6.1 (#721): only `createNewUser` uses it; device revocation never signs up.
-      {} as never,
-      // PP-6.2 (#722): tenancy is a sign-in concern; device revocation never signs in.
-      {} as never,
+      // PP-6.4 (#724): a device session is bound to the approver's org, chosen
+      // by the sign-in rule (single mode: the default org).
+      new OrganizationsService(prisma, principalCache),
+      new TenancyService(config),
     );
     deviceAuth = new DeviceAuthService(
       prisma,
