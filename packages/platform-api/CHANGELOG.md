@@ -1,5 +1,20 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.3
+
+### Minor Changes
+
+- 76fb492: Export `deriveSigningKey(purpose)` from `@marinoscar/platform-api/core`: a 32-byte HMAC key derived from `SECRETS_ENCRYPTION_KEY` under the permanent label `enterpriseappbase:signing-key:v1:`, byte-identical to the app-side copy it replaces (#822).
+- 55a3402: Add the support bundle: `@marinoscar/platform-contract/doctor` (`supportBundleSchema`), `GET <doctor path>/support-bundle` with `SupportBundleRegistry`, `SupportBundleService`, redaction rules v1 and the built-in `meta`, `doctor` and `egress` sections in `@marinoscar/platform-api/doctor`, and the "Download support bundle" button and `useSupportBundleDownload` hook in `@marinoscar/platform-web/doctor` (plus the optional `PlatformApiClient.getBlob`).
+- f1fff88: Add the `telemetry` slice (`@marinoscar/platform-api/telemetry` and `/telemetry/testing`): `TelemetryModule.forRoot({ host, imports, ... })` with host ports for audit, settings, credentials, jobs, AI and app identity, the metric-group registry, the `VERDICT_POLICY` token with configurable verdict thresholds, and the five telemetry Doctor checks.
+
+### Patch Changes
+
+- Updated dependencies [738d71c]
+- Updated dependencies [55a3402]
+- Updated dependencies [bd9ad6f]
+  - @marinoscar/platform-contract@0.1.0-next.3
+
 ## 0.1.0-next.2
 
 ### Minor Changes
