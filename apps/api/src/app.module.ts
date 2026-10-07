@@ -41,6 +41,7 @@ import { telemetryModule } from './platform/telemetry/telemetry.config';
 import { doctorModule } from './doctor/doctor.config';
 import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
+import { sharingModule } from './platform/sharing/sharing.config';
 
 import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -241,6 +242,14 @@ import configuration from './config/configuration';
     // delivery-log and AI-run purges live with their tables, in
     // `NotificationsModule` and `AiRuntimeModule`.
     RetentionModule,
+
+    // Sharing (#728, epic #666): groups inside an organization, their members
+    // and invites (`/api/groups`), the ownership contract for group-owned rows
+    // and the principal's `Scope.groupIds`. Packaged as
+    // `@marinoscar/platform-api/sharing`; the app's binding is
+    // `platform/sharing/sharing.config.ts` (`SharingModule.forRoot({ host,
+    // imports: [SharingHostModule] })`).
+    sharingModule,
 
     // The platform host ports (#696): binds AUDIT_SINK, SYSTEM_SETTINGS_STORE
     // and PLATFORM_PRISMA to the app's adapters, once, globally, so every

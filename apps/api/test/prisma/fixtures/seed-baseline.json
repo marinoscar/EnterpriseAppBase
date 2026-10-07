@@ -1,11 +1,11 @@
 {
-  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin.",
+  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin).",
   "counts": {
     "roles": 4,
-    "permissions": 37,
+    "permissions": 40,
     "allowedEmails": 1,
     "systemSettings": 1,
-    "rolePermissions": 45
+    "rolePermissions": 51
   },
   "roles": [
     {
@@ -65,6 +65,18 @@
     {
       "name": "db_backup:write",
       "description": "Configure the backup schedule and run a backup"
+    },
+    {
+      "name": "groups:admin",
+      "description": "View and administer every group of the organization, including groups you do not belong to"
+    },
+    {
+      "name": "groups:read",
+      "description": "View the groups you belong to, answer your group invitations and leave a group"
+    },
+    {
+      "name": "groups:write",
+      "description": "Create groups and manage the members and invitations of groups you administer"
     },
     {
       "name": "jobs:read",
@@ -208,6 +220,8 @@
     ],
     "contributor": [
       "ai:use",
+      "groups:read",
+      "groups:write",
       "storage:read",
       "storage:write",
       "user_settings:read",
@@ -215,6 +229,9 @@
     ],
     "org_admin": [
       "ai:use",
+      "groups:admin",
+      "groups:read",
+      "groups:write",
       "org_invites:read",
       "org_invites:write",
       "org_members:read",
@@ -225,6 +242,7 @@
       "user_settings:write"
     ],
     "viewer": [
+      "groups:read",
       "storage:read",
       "user_settings:read",
       "user_settings:write"

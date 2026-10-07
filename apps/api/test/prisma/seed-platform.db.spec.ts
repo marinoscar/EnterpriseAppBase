@@ -113,6 +113,9 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     const orgScoped = afterFirst.permissions.filter((p) => p.scope === 'org').map((p) => p.name);
     expect(orgScoped).toEqual([
       'ai:use',
+      'groups:admin',
+      'groups:read',
+      'groups:write',
       'org_invites:read',
       'org_invites:write',
       'org_members:read',
@@ -148,7 +151,7 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     // #723 (PP-6.3): org_admin and the four org_* permissions; admin's org
     // grants moved to org_admin, so 4 more grants in all. #726 (PP-6.7): the
     // two system organizations:* permissions, granted to admin.
-    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 37 permissions', '✓ Seeded 45 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
+    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 40 permissions', '✓ Seeded 51 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
       expect(firstRun).toContain(line);
     }
   });

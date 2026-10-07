@@ -6,7 +6,7 @@ The data layer of the platform: Prisma schema fragments (`schema/`), SQL migrati
 
 Schema fragments, migrations and seeds of the platform's data slices, and the **composer** that turns the fragments into the Prisma schema an app generates its client from.
 
-What ships today: the schema fragments (`schema/`, 34 models and 12 enums in eight slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
+What ships today: the schema fragments (`schema/`, 37 models and 14 enums in nine slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
 
 Status: pre-release (version `0.0.0`). The `extend model` seam is `experimental` until the extension contract is frozen.
 
@@ -130,7 +130,7 @@ Run `npm run db:compose`, then `include: { workouts: true }` type-checks on the 
 
 Rules:
 
-- Only a model its owner marked `// @extensible` can be extended: `User`, `Job` and `StorageObject` today. Everything else is closed; opening one more is a minor-version change reached through a seam request, never an app edit.
+- Only a model its owner marked `// @extensible` can be extended: `User`, `Job`, `StorageObject`, `Organization` and `Group` today. Everything else is closed; opening one more is a minor-version change reached through a seam request, never an app edit.
 - An `extend` block holds back-relation fields only: no scalar field (it would add a column), no relation with `fields: [...]` (it would add a foreign key column), no `@@` attribute.
 - The slice or app that owns the foreign key writes the back-relation; the composer merges what is written and generates nothing.
 - Fragments are `prisma format` shaped: a block header is `<kind> <Name> {` on one line at column 0, and the block ends with `}` alone at column 0.
@@ -158,6 +158,7 @@ The migration tooling adds no row to the catalog. How an app extends the migrati
 | `jobs.prisma` | `Job` (`@extensible`), `JobStatsRollup`, `WorkerNode`, `NodeCredential`, `JobNodeSecret` |
 | `db-backup.prisma` | `DatabaseBackupRun` |
 | `ai.prisma` | `AiModel`, `UserAiKey`, `AiRun`, `AiUsageEvent` |
+| `sharing.prisma` | `Group` (`@extensible`), `GroupMember`, `GroupInvite` |
 
 A slice declares the back-relations that point **into** another slice as `extend model` blocks in its own fragment (the 17 `User` fields that leave identity, and `Job.backupRun` in `db-backup.prisma`). Every block comment of the original schema is kept verbatim: they are the design documentation.
 
@@ -170,6 +171,8 @@ A slice declares the back-relations that point **into** another slice as `extend
 **Organizations.** The identity fragment owns `Organization`, `Membership` and `Invite` (tables `organizations`, `memberships`, `org_invites`) and the nullable `org_id` on `refresh_tokens`, `personal_access_tokens` and `device_codes` (migration `0023_add_organizations`). The migration backfills the default organization (slug `default`), one active membership per existing user and the default `org_id` on every existing credential row. The columns stay nullable (the expand step). Exactly one organization is the default, enforced by the raw-SQL index `organizations_default_uniq_idx`. These are identity tables read across organizations at login: no RLS on them.
 
 **Tenant tables (`0025_org_scoped_rls`).** `org_id` (with a foreign key to `organizations`) is on `storage_objects`, `storage_object_chunks`, `ai_runs` (NOT NULL, `Restrict`), `ai_usage_events` (nullable, `SetNull`: a deployment-wide event and the history of a deleted organization keep no organization) and `audit_events` (nullable, `SetNull`, no policy). The four tables other than `audit_events` `ENABLE` and `FORCE ROW LEVEL SECURITY` with one policy each ([below](#row-level-security-policies)); `storage_object_chunks` links to its object with the composite `(object_id, org_id)`, because a foreign-key check bypasses row-level security. The migration backfills every existing row to the default organization (system audit actions and catalogue-sync usage keep NULL) inside a transaction that raises `app.rls_bypass`.
+
+**Groups (`0026_add_groups`, #728).** The `sharing` fragment owns `Group`, `GroupMember` and `GroupInvite` (tables `groups`, `group_members`, `group_invites`) and the enum `GroupRole` (`admin`, `editor`, `viewer`). A group is a set of users inside one organization, never a tenant. All three carry a NOT NULL `org_id` (foreign key `Cascade`), `ENABLE` and `FORCE ROW LEVEL SECURITY` and a `<table>_org_isolation` policy; a member and an invite reach their group through the composite `(group_id, org_id)` -> `groups (id, org_id)` (the target of `@@unique([id, orgId])`). `group_invites_pending_uniq_idx` is the one raw-SQL index. `Group` is `// @extensible`, so an app table owned by a group adds its back-relation with `extend model Group`. New tables, so no backfill.
 
 **System and org roles.** Migration `0024_split_system_org_roles` (#723) adds the `RoleScope` enum (`system`, `org`), `roles.scope` and `permissions.scope` (default `system`), the required `memberships.role_id` (the member's org role, `onDelete: Restrict`) and the nullable `org_invites.role_id` (NULL means the default org role). Its data step creates `org_admin`, scopes `contributor`, `viewer` and the org permissions to `org`, moves `admin`'s org-permission grants to `org_admin`, sets each membership's role from the user's global roles (`admin` to `org_admin`, otherwise `contributor` over `viewer`, otherwise `viewer`) and deletes the `user_roles` rows of org roles; `user_roles` keeps its shape. `seedPlatform` writes the scope of every role and permission entry that carries one.
 
@@ -242,6 +245,7 @@ Prisma's schema language cannot express a partial index or an expression index, 
 | `jobs_succeeded_duration_idx` | `jobs` | no | `0008_add_jobs` | finished succeeded jobs, for the duration percentiles | [job-queue](../../docs/specs/job-queue.md) |
 | `database_backup_runs_active_uniq_idx` | `database_backup_runs` | yes | `0010_add_database_backup_runs`, re-created in `0012_add_backup_run_job_link` | at most one pending or running backup (a constant-expression key) | [database-backup](../../docs/specs/database-backup.md) |
 | `organizations_default_uniq_idx` | `organizations` | yes | `0023_add_organizations` | exactly one default organization (a constant-expression key over `is_default`) | [platform-packages](../../docs/specs/platform-packages.md#tenancy-and-access-model) |
+| `group_invites_pending_uniq_idx` | `group_invites` | yes | `0026_add_groups` | at most one PENDING invite per group and address; a declined, revoked or accepted one does not block a re-invite | [platform-packages](../../docs/specs/platform-packages.md#tenancy-and-access-model) |
 
 `raw-sql-indexes.json` is the one list (`name`, `table`, `unique`, `definition`, `reason`, `doc`, `createdIn`), exported as `RAW_SQL_INDEXES`. `platform db drift` asserts each against `pg_indexes` by name and definition, and `assertRawSqlIndexes` is the tripwire that travels with the package. It scans every manifest migration (ignoring comments, following `DROP INDEX` and `ALTER INDEX ... RENAME`) for a `CREATE [UNIQUE] INDEX` with a `WHERE` clause or an expression key, and fails when
 
@@ -253,7 +257,7 @@ An app's own raw-SQL indexes go in its `platform.lock` under `rawSqlIndexes`; th
 
 ### Row-level security policies
 
-Prisma's schema language cannot express a policy either, and `prisma migrate diff` does not see one, so the four tenant-isolation policies of `0025_org_scoped_rls` exist only in migration SQL, like the raw-SQL indexes. They are intentional drift too: never remove one to "fix" a diff.
+Prisma's schema language cannot express a policy either, and `prisma migrate diff` does not see one, so the tenant-isolation policies of `0025_org_scoped_rls` and `0026_add_groups` exist only in migration SQL, like the raw-SQL indexes. They are intentional drift too: never remove one to "fix" a diff.
 
 | Policy | Table | Created in |
 |---|---|---|
@@ -261,6 +265,9 @@ Prisma's schema language cannot express a policy either, and `prisma migrate dif
 | `storage_object_chunks_org_isolation` | `storage_object_chunks` | `0025_org_scoped_rls` |
 | `ai_runs_org_isolation` | `ai_runs` | `0025_org_scoped_rls` |
 | `ai_usage_events_org_isolation` | `ai_usage_events` | `0025_org_scoped_rls` |
+| `groups_org_isolation` | `groups` | `0026_add_groups` |
+| `group_members_org_isolation` | `group_members` | `0026_add_groups` |
+| `group_invites_org_isolation` | `group_invites` | `0026_add_groups` |
 
 `rls-policies.json` is the one list (`name`, `table`, `reason`, `doc`, `createdIn`), exported as `RLS_POLICIES` beside `RAW_SQL_INDEXES`. `platform db drift` reads `pg_policies` and `pg_class` and reports `POLICY_MISSING` (a listed policy is not in the database), `POLICY_UNLISTED` (the database has one nobody listed), `RLS_NOT_ENABLED`, `RLS_NOT_FORCED` (the table does not `FORCE` it, so the owner, which is the application role, bypasses the policy) and `RLS_FORCED_WITHOUT_POLICY` (everything would be denied). `assertRlsPolicies` is the offline tripwire (`runDbConformance` runs it as `rls-policies`): it scans the manifest migrations and fails on `UNLISTED_POLICY`, `LISTED_POLICY_NOT_FOUND`, `LISTED_POLICY_MISMATCH` (`createdIn` disagrees) and a policy whose table the migrations never `ENABLE` / `FORCE`. The policy text and the settings it reads (`app.org_id`, `app.user_id`, `app.rls_bypass`, always `set_config(..., true)`) are specified in [SECURITY-ARCHITECTURE.md §18](../../docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls); the clients that set them are `PrismaService.forOrg` / `runInOrg` and `PrismaSystemService` in the reference app, built on the row-level-security helpers of `@marinoscar/platform-api/core` ([core README](../platform-api/src/core/README.md)).
 

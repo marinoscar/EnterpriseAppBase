@@ -181,9 +181,9 @@ describe('permission registry', () => {
       expect(permissionRegistry.ids()).toEqual(Object.values(PERMISSIONS));
     });
 
-    it('declares 37 permissions and 4 roles, each exactly once', () => {
-      expect(permissionRegistry.size).toBe(37);
-      expect(new Set(Object.values(PERMISSIONS)).size).toBe(37);
+    it('declares 40 permissions and 4 roles, each exactly once', () => {
+      expect(permissionRegistry.size).toBe(40);
+      expect(new Set(Object.values(PERMISSIONS)).size).toBe(40);
       expect(roleRegistry.size).toBe(4);
     });
   });
@@ -237,6 +237,10 @@ describe('permission registry', () => {
         'org_members:write',
         'org_invites:read',
         'org_invites:write',
+        // The sharing slice (#728): groups live inside one organization.
+        'groups:read',
+        'groups:write',
+        'groups:admin',
       ]);
     });
 
@@ -267,8 +271,10 @@ describe('permission registry', () => {
         'storage:read',
         'storage:write',
         'ai:use',
+        'groups:read',
+        'groups:write',
       ]);
-      expect(catalog.rolePermissions.viewer).toEqual(['user_settings:read', 'user_settings:write', 'storage:read']);
+      expect(catalog.rolePermissions.viewer).toEqual(['user_settings:read', 'user_settings:write', 'storage:read', 'groups:read']);
     });
 
     it('keeps admin + org_admin equal to what admin alone held before the split, plus the four org_* permissions', () => {

@@ -82,6 +82,13 @@ model User {
   userSettings           UserSettings?
   settingsUpdates        SystemSettings[]        @relation("SettingsUpdater")
 
+  // composed from package:sharing.prisma
+  groupsCreated       Group[]       @relation("GroupCreatedBy")
+  groupMemberships    GroupMember[] @relation("GroupMemberUser")
+  groupMembersAdded   GroupMember[] @relation("GroupMemberAddedBy")
+  groupInvitesSent    GroupInvite[] @relation("GroupInviteInvitedBy")
+  groupInvitesClaimed GroupInvite[] @relation("GroupInviteAcceptedBy")
+
   // composed from package:storage.prisma
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
 
@@ -420,6 +427,11 @@ model Organization {
   // for why one is `Restrict` and the other `SetNull`.
   aiRuns        AiRun[]
   aiUsageEvents AiUsageEvent[]
+
+  // composed from package:sharing.prisma
+  groups       Group[]
+  groupMembers GroupMember[]
+  groupInvites GroupInvite[]
 
   // composed from package:storage.prisma
   storageObjects      StorageObject[]

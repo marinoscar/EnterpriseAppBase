@@ -23,6 +23,7 @@ const OWNERSHIP: Record<string, string[]> = {
   jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'JobStatus', 'JobReason', 'NodeStatus'],
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
   ai: ['AiModel', 'UserAiKey', 'AiRun', 'AiUsageEvent'],
+  sharing: ['Group', 'GroupMember', 'GroupInvite', 'GroupRole'],
 };
 
 const files = readdirSync(SCHEMA_DIR).filter((f) => f.endsWith('.prisma')).sort();
@@ -43,10 +44,10 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 34 models and 13 enums, each once', () => {
+  it('declare 37 models and 14 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
-    expect(all.filter((b) => b.kind === 'model')).toHaveLength(34);
-    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(13);
+    expect(all.filter((b) => b.kind === 'model')).toHaveLength(37);
+    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(14);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
 
@@ -58,15 +59,15 @@ describe('the shipped platform fragments', () => {
     }
   });
 
-  it('mark exactly User, Job, StorageObject and Organization as extensible', () => {
-    expect(composeFragments(inputs).extensible).toEqual(['Job', 'Organization', 'StorageObject', 'User']);
+  it('mark exactly User, Job, StorageObject, Organization and Group as extensible', () => {
+    expect(composeFragments(inputs).extensible).toEqual(['Group', 'Job', 'Organization', 'StorageObject', 'User']);
   });
 
   it('compose on their own with no warning and no rejection', () => {
     expect(composeFragments(inputs).warnings).toEqual([]);
   });
 
-  it('move the 17 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
+  it('move the 22 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
     const { extensions } = composeFragments(inputs);
     const by = (m: string): string[] => extensions.filter((e) => e.model === m).map((e) => `${e.from.replace('package:', '').replace('.prisma', '')}:${e.field}`).sort();
     expect(by('User')).toEqual([
@@ -76,10 +77,37 @@ describe('the shipped platform fragments', () => {
       'jobs:nodeCredentials', 'jobs:workerNodes',
       'notifications:broadcastsCreated', 'notifications:notificationDeliveries', 'notifications:notifications', 'notifications:pushSubscriptions',
       'settings:settingsUpdates', 'settings:userSettings',
+      'sharing:groupInvitesClaimed', 'sharing:groupInvitesSent', 'sharing:groupMembersAdded', 'sharing:groupMemberships', 'sharing:groupsCreated',
       'storage:storageObjects',
     ]);
     expect(by('Job')).toEqual(['db-backup:backupRun']);
     expect(by('StorageObject')).toEqual([]);
+    expect(by('Group')).toEqual([]);
+  });
+
+  it('let an app add a back-relation to Group, so an app table can be owned by a group (#728)', () => {
+    const app: FragmentInput = {
+      origin: 'app',
+      name: 'albums.prisma',
+      text: [
+        'model Album {',
+        '  id           String  @id @default(uuid()) @db.Uuid',
+        '  ownerGroupId String? @map("owner_group_id") @db.Uuid',
+        '  ownerGroup   Group?  @relation(fields: [ownerGroupId], references: [id], onDelete: Restrict)',
+        '',
+        '  @@map("albums")',
+        '}',
+        '',
+        'extend model Group {',
+        '  albums Album[]',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    const result = composeFragments([...inputs, app]);
+    expect(result.extensions.filter((e) => e.model === 'Group').map((e) => e.field)).toEqual(['albums']);
+    const group = result.files.get('platform.sharing.prisma')!.split('\nmodel Group {\n')[1]!.split('\n}\n')[0]!;
+    expect(group).toMatch(/\n  albums\s+Album\[\]/);
   });
 
   it('keep the identity-owned User relations in the identity fragment', () => {

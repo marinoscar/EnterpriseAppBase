@@ -28,6 +28,7 @@ import { STORAGE_PERMISSIONS } from '../../storage/storage.permissions';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
 import { USERS_PERMISSIONS } from '../../users/users.permissions';
 import { ORGANIZATIONS_PERMISSIONS } from '../../organizations/organizations.permissions';
+import { SHARING_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/sharing';
 import { registerPermissions, registerRoles } from './permission.registry';
 import { PLATFORM_ROLES } from './platform-roles';
 
@@ -49,6 +50,7 @@ registerPermissions(STORAGE_CONFIG_PERMISSIONS);
 registerPermissions(AI_PERMISSIONS);
 registerPermissions(TELEMETRY_PERMISSION_DECLARATIONS);
 registerPermissions(ORGANIZATIONS_PERMISSIONS);
+registerPermissions(SHARING_PERMISSION_DECLARATIONS);
 
 // 4. App-owned permissions last, so a collision with a platform id names the app.
 registerPermissions(APP_PERMISSIONS);

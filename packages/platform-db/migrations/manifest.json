@@ -252,5 +252,16 @@
       "ai",
       "identity"
     ]
+  },
+  {
+    "dir": "0026_add_groups",
+    "id": "0026_add_groups",
+    "requires": [
+      "identity"
+    ],
+    "rls": true,
+    "sha256": "93e97e6b72578a89bf5232a036ecfe6a067c883c7f3c9f091bfdc00475c6e714",
+    "since": "1.0.0",
+    "slice": "sharing"
   }
 ]

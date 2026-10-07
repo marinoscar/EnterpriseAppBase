@@ -60,7 +60,7 @@
   {
     "key": "admin.broadcast_critical",
     "label": "Important announcements",
-    "description": "Messages an administrator has marked as important — service interruptions, security notices and anything else everyone needs to see. These cannot be turned off.",
+    "description": "Messages an administrator has marked as important \u2014 service interruptions, security notices and anything else everyone needs to see. These cannot be turned off.",
     "channels": [
       "email",
       "browser",
@@ -141,6 +141,21 @@
     ],
     "declaredChannels": [
       "email"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
+  },
+  {
+    "key": "groups.invitation",
+    "label": "Invitation to a group",
+    "description": "Sent when a group admin invites your email address to join a group in your organization.",
+    "channels": [
+      "email",
+      "browser"
+    ],
+    "declaredChannels": [
+      "email",
+      "browser"
     ],
     "defaultEnabled": true,
     "mandatory": false

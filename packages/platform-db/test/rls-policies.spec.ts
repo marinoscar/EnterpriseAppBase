@@ -39,8 +39,16 @@ describe('the shipped package', () => {
     }
   });
 
-  it('lists the four org-owned tables, each with a policy named <table>_org_isolation and a document that exists', () => {
-    expect(RLS_POLICIES.map((p) => p.table).sort()).toEqual(['ai_runs', 'ai_usage_events', 'storage_object_chunks', 'storage_objects']);
+  it('lists the seven org-owned tables, each with a policy named <table>_org_isolation and a document that exists', () => {
+    expect(RLS_POLICIES.map((p) => p.table).sort()).toEqual([
+      'ai_runs',
+      'ai_usage_events',
+      'group_invites',
+      'group_members',
+      'groups',
+      'storage_object_chunks',
+      'storage_objects',
+    ]);
     for (const policy of RLS_POLICIES) {
       expect(policy.name).toBe(`${policy.table}_org_isolation`);
       expect(manifest.map((e) => e.id)).toContain(policy.createdIn);
@@ -48,21 +56,24 @@ describe('the shipped package', () => {
     }
   });
 
-  it('flags the migration that creates them with rls: true in the manifest', () => {
+  it('flags the migrations that create them with rls: true in the manifest', () => {
     const flagged = manifest.filter((e) => e.rls === true).map((e) => e.id);
-    expect(flagged).toEqual(['0025_org_scoped_rls']);
+    expect(flagged).toEqual(['0025_org_scoped_rls', '0026_add_groups']);
     expect(new Set(RLS_POLICIES.map((p) => p.createdIn))).toEqual(new Set(flagged));
   });
 
   it('puts the standard policy shape in the SQL: NULLIF guard, bypass flag and WITH CHECK', () => {
-    const sql = readFileSync(join(MIGRATIONS, '0025_org_scoped_rls', 'migration.sql'), 'utf8');
+    const sqlOf = (id: string) => readFileSync(join(MIGRATIONS, id, 'migration.sql'), 'utf8');
     for (const policy of RLS_POLICIES) {
+      const sql = sqlOf(policy.createdIn);
       const block = new RegExp(`CREATE POLICY "${policy.name}" ON "${policy.table}"[\\s\\S]*?;`).exec(sql)?.[0] ?? '';
       expect(block, policy.name).toContain("NULLIF(current_setting('app.org_id', true), '')::uuid");
       expect(block, policy.name).toContain("current_setting('app.rls_bypass', true) = 'on'");
       expect(block, policy.name).toContain('WITH CHECK');
     }
-    expect(sql).not.toMatch(/set_config\([^)]*,\s*false\)/);
+    for (const id of new Set(RLS_POLICIES.map((p) => p.createdIn))) {
+      expect(sqlOf(id)).not.toMatch(/set_config\([^)]*,\s*false\)/);
+    }
   });
 });
 

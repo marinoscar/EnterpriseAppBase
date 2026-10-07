@@ -11,11 +11,14 @@
 // =============================================================================
 
 import { registerUserOwnedModels } from '@marinoscar/platform-api/core';
+import { SHARING_USER_OWNED_MODELS } from '@marinoscar/platform-api/sharing';
 
 import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models';
 import { PLATFORM_USER_OWNED_MODELS } from './platform-user-owned-models';
 
 registerUserOwnedModels(PLATFORM_USER_OWNED_MODELS);
+// The sharing slice's models (#728), declared by the package.
+registerUserOwnedModels(SHARING_USER_OWNED_MODELS);
 
 // App-owned entries last.
 registerUserOwnedModels(APP_USER_OWNED_MODELS);

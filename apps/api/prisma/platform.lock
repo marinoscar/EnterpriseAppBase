@@ -150,6 +150,12 @@
       "originId": "platform:0025_org_scoped_rls",
       "sha256": "f6a0a61d07e5b91767b9bf18824ae1872e236f566877282c4cb2332f024dd636",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261007222406_add_groups",
+      "originId": "platform:0026_add_groups",
+      "sha256": "93e97e6b72578a89bf5232a036ecfe6a067c883c7f3c9f091bfdc00475c6e714",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"

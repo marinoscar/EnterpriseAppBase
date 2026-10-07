@@ -268,7 +268,7 @@ Three routes stream `text/event-stream`:
 ## Rate Limiting
 
 There is no global HTTP rate limiter in the API or in Nginx. Add one (for
-example `@nestjs/throttler`, or `limit_req` in Nginx) if you need it. Two
+example `@nestjs/throttler`, or `limit_req` in Nginx) if you need it. Three
 targeted limits exist:
 
 - **AI**: administrators set per-user, org-key and per-model limits in the `ai`
@@ -277,6 +277,12 @@ targeted limits exist:
   and a `Retry-After` header. See [AI Platform](specs/ai-platform.md).
 - **Device token polling**: polling faster than the issued `interval` returns
   the RFC 8628 `slow_down` error.
+- **Group member lookup by email** (`POST /api/groups/:id/members` with
+  `email`): ten failed lookups per account in ten minutes, then `429` with
+  `details.reason: "LOOKUP_THROTTLED"`, `details.retryAfterMs` and a
+  `Retry-After` header. It blunts probing which addresses have accounts. The
+  counts live in each API process, so with several replicas the limit is
+  approximate (up to the limit per replica), as it is for the AI limits.
 
 ## Maintenance Mode
 
@@ -332,6 +338,7 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `allowlist` | Email allowlist | `allowlist:*` | [SECURITY-ARCHITECTURE](SECURITY-ARCHITECTURE.md) |
 | `org/members`, `org/invites` | The active organization's members and invitations (never another org's) | `org_members:*`, `org_invites:*` (org) | [platform-packages](specs/platform-packages.md#tenancy-and-access-model) |
 | `admin/organizations` | The deployment's organizations: list, create with a first-admin invitation, rename | `organizations:*` (system) | [platform-packages](specs/platform-packages.md#tenancy-and-access-model) |
+| `groups` | Groups of the active organization, their members and invitations; `groups/invites/mine` and its accept and decline for the invitee. A group the caller may not see is `404`, never `403` | `groups:read`, `groups:write`, `groups:admin` (org) | [sharing README](../packages/platform-api/src/sharing/README.md) |
 | `user-settings` | Current user's settings | `user_settings:*` | [settings-ui](specs/settings-ui.md) |
 | `user-settings/profile-image` | Upload, preview, remove profile picture | `user_settings:*` | [storage-providers](specs/storage-providers.md) |
 | `system-settings` | Global settings (JSONB namespaces) | `system_settings:*` | [settings-ui](specs/settings-ui.md) |

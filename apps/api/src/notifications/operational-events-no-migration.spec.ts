@@ -89,6 +89,9 @@ const MIGRATIONS_AT_288 = [
   // #725 (PP-6.5): org_id on the tenant tables and row-level security. About
   // tenant isolation, not the operational notification events.
   '20261007202337_org_scoped_rls',
+  // #728 (PP-7.1): groups, group members and group invites with row-level
+  // security. About sharing, not the operational notification events.
+  '20261007222406_add_groups',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
