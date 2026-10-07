@@ -90,7 +90,7 @@ describe('ObjectProcessingService', () => {
         } as any);
         mockPrisma.storageObject.updateMany.mockResolvedValue({ count: 1 } as any);
 
-        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(true);
+        await expect(service.markAbandoned('obj-123', 'job gave up', 'org-123')).resolves.toBe(true);
 
         expect(mockPrisma.storageObject.updateMany).toHaveBeenCalledWith({
           where: { id: 'obj-123', status: 'processing' },
@@ -113,14 +113,14 @@ describe('ObjectProcessingService', () => {
           metadata: null,
         } as any);
 
-        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(false);
+        await expect(service.markAbandoned('obj-123', 'job gave up', 'org-123')).resolves.toBe(false);
         expect(mockPrisma.storageObject.updateMany).not.toHaveBeenCalled();
       });
 
       it('leaves a deleted object alone', async () => {
         mockPrisma.storageObject.findUnique.mockResolvedValue(null);
 
-        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(false);
+        await expect(service.markAbandoned('obj-123', 'job gave up', 'org-123')).resolves.toBe(false);
         expect(mockPrisma.storageObject.updateMany).not.toHaveBeenCalled();
       });
 
@@ -131,7 +131,7 @@ describe('ObjectProcessingService', () => {
         } as any);
         mockPrisma.storageObject.updateMany.mockResolvedValue({ count: 0 } as any);
 
-        await expect(service.markAbandoned('obj-123', 'job gave up')).resolves.toBe(false);
+        await expect(service.markAbandoned('obj-123', 'job gave up', 'org-123')).resolves.toBe(false);
       });
     });
   });

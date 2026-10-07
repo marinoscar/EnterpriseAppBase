@@ -115,6 +115,8 @@ describe('StorageConfigAdminService', () => {
       systemSettings as never,
       credentials as never,
       storageConfig as never,
+      // The usage count reads every organization's rows through the system client (#725).
+      { asSystem: jest.fn().mockReturnValue(prisma) } as never,
     );
   });
 

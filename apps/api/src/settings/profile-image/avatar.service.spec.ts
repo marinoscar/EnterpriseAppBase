@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 
 import { AvatarService } from './avatar.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import {
   createMockPrismaService,
@@ -43,6 +44,8 @@ describe('AvatarService (#367)', () => {
       providers: [
         AvatarService,
         { provide: PrismaService, useValue: mockPrisma },
+        // The public avatar route has no organization: the object is read through the system client (#725).
+        { provide: PrismaSystemService, useValue: { asSystem: () => mockPrisma } },
         { provide: STORAGE_PROVIDER, useValue: mockStorageProvider },
       ],
     }).compile();

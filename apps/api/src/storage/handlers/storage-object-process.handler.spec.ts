@@ -30,6 +30,7 @@ import { STORAGE_OBJECT_PROCESS_TYPE, StorageObjectProcessHandler } from './stor
 
 const OBJECT_ID = 'object-1';
 const JOB_ID = 'job-1';
+const ORG_ID = '11111111-1111-4111-8111-111111111111';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -37,6 +38,8 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     type: STORAGE_OBJECT_PROCESS_TYPE,
     subjectType: STORAGE_OBJECT_SUBJECT_TYPE,
     subjectId: OBJECT_ID,
+    // The upload's organization (#725): `ObjectsService` puts it in the payload.
+    payload: { objectId: OBJECT_ID, orgId: ORG_ID },
     ...overrides,
   } as Job;
 }
@@ -69,6 +72,7 @@ function settledEvent(overrides: Partial<JobSettledEvent> = {}): JobSettledEvent
     subjectType: STORAGE_OBJECT_SUBJECT_TYPE,
     subjectId: OBJECT_ID,
     lastError: 'ran out of attempts',
+    job: makeJob(),
     ...overrides,
   } as JobSettledEvent;
 }
@@ -222,11 +226,13 @@ describe('StorageObjectProcessHandler', () => {
       expect(processing.markAbandoned).toHaveBeenCalledTimes(1);
       expect(processing.markAbandoned).toHaveBeenCalledWith(
         OBJECT_ID,
-        expect.stringContaining(JOB_ID)
+        expect.stringContaining(JOB_ID),
+        ORG_ID
       );
       expect(processing.markAbandoned).toHaveBeenCalledWith(
         OBJECT_ID,
-        expect.stringContaining('ran out of attempts')
+        expect.stringContaining('ran out of attempts'),
+        ORG_ID
       );
     });
 
@@ -259,7 +265,8 @@ describe('StorageObjectProcessHandler', () => {
 
       expect(processing.markAbandoned).toHaveBeenCalledWith(
         OBJECT_ID,
-        expect.stringContaining('no error recorded')
+        expect.stringContaining('no error recorded'),
+        ORG_ID
       );
     });
 
