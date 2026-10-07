@@ -46,7 +46,7 @@ Every id the check can report, what stops working offline, and how to make it in
 
 - **Hosts:** `accounts.google.com` (browser), `oauth2.googleapis.com`, `www.googleapis.com` (API). **Required** while Google is the only enabled sign-in provider, which it is in this template.
 - **Offline:** nobody can sign in. This is the `fail`.
-- **Make it internal:** there is no offline alternative today. Per-organisation OIDC and SAML, which would let an install use an internal identity provider, are deferred in the platform epic ([#672](https://github.com/marinoscar/EnterpriseAppBase/issues/672)). Until then an air-gapped install needs a proxy that lets the API and browsers reach those three Google hosts, or a fork that adds an internal provider (then `auth.google` is no longer required and grades as a `warn`).
+- **Make it internal:** there is no offline alternative today. Per-organisation OIDC and SAML, which would let an install use an internal identity provider, are deferred in the platform epic, issue #672 (see the [platform packages spec](../specs/platform-packages.md#deployment-modes)). Until then an air-gapped install needs a proxy that lets the API and browsers reach those three Google hosts, or a fork that adds an internal provider (then `auth.google` is no longer required and grades as a `warn`).
 
 ### `auth.google.avatars`: Google profile pictures
 
