@@ -15,6 +15,68 @@ export interface BaselineRefusal {
 }
 
 /**
+ * A migration `prisma migrate resolve --applied` runs for.
+ *
+ * @stability experimental
+ */
+export interface BaselineResolveItem {
+  /** `platform:NNNN_slug`. */
+  originId: string;
+  /** The directory that is marked applied. */
+  localDir: string;
+  /** Whether the directory is created first (a migration with no directory), or already exists (a mapped one the ledger lacks). */
+  install: boolean;
+}
+
+/**
+ * A migration above `--through`: installed only.
+ *
+ * @stability experimental
+ */
+export interface BaselineInstallItem {
+  /** `platform:NNNN_slug`. */
+  originId: string;
+  /** The directory that is created. */
+  localDir: string;
+}
+
+/**
+ * The statements of `prisma migrate diff` from the replayed package history to the live database.
+ *
+ * @stability experimental
+ */
+export interface BaselineDiff {
+  /** Statements a declared deviation (`platform.lock` `deviations[].expectDiff`) expects, normalised. */
+  allowed: string[];
+  /** Every other statement, normalised; each one blocks the baseline. */
+  blocking: string[];
+}
+
+/**
+ * What the baseline found in `_prisma_migrations`.
+ *
+ * @stability experimental
+ */
+export interface BaselineLedgerState {
+  /** False when the table does not exist (a database Prisma never managed). */
+  managed: boolean;
+  /** One line per failed, rolled-back, missing or mismatching row. */
+  problems: string[];
+}
+
+/**
+ * The result of step B6.
+ *
+ * @stability experimental
+ */
+export interface BaselineVerification {
+  /** True when status, the offline check and the ledger comparison all passed. */
+  ok: boolean;
+  /** One line per failure. */
+  problems: string[];
+}
+
+/**
  * What `platform db baseline` found and did.
  *
  * @stability experimental
@@ -25,19 +87,19 @@ export interface BaselineReport {
   /** Package migrations matched to an existing directory (step B1). */
   matched: MatchedMigration[];
   /** Migrations `prisma migrate resolve --applied` runs for; `install` says whether the directory is created first. */
-  toResolve: Array<{ originId: string; localDir: string; install: boolean }>;
+  toResolve: BaselineResolveItem[];
   /** Migrations above `--through`: installed only, `prisma migrate deploy` applies them. */
-  toInstall: Array<{ originId: string; localDir: string }>;
+  toInstall: BaselineInstallItem[];
   /** Local directories no package migration matched; they are app history and left alone. */
   appOnly: string[];
   /** Package origin ids with no local directory. */
   unmatched: string[];
   /** `prisma migrate diff` from the package history (to `--through`) to the live database. `allowed` are statements a declared deviation expects; `blocking` is everything else. */
-  diff: { allowed: string[]; blocking: string[] };
+  diff: BaselineDiff;
   /** Raw-SQL indexes that are missing or whose definition differs (step B4). */
   indexProblems: RawIndexProblem[];
   /** The `_prisma_migrations` ledger: whether Prisma manages the database, and the problems found. */
-  ledger: { managed: boolean; problems: string[] };
+  ledger: BaselineLedgerState;
   /** Everything that blocks `--apply`; empty when the baseline can proceed. */
   refusals: BaselineRefusal[];
   /** Warnings that do not block. */
@@ -45,7 +107,9 @@ export interface BaselineReport {
   /** What `--apply` did, in order (empty on a dry run). */
   actions: string[];
   /** The result of step B6 (only after `--apply`). */
-  verify?: { ok: boolean; problems: string[] };
+  verify?: BaselineVerification;
+  /** True when `platform.lock` already holds exactly what the plan would write. */
+  lockUpToDate: boolean;
   /** True when files were written and migrations resolved. */
   applied: boolean;
 }
@@ -108,8 +172,10 @@ export function renderReport(report: BaselineReport): string[] {
     for (const r of report.refusals) lines.push(`  ${r.code}  ${r.message}`);
   } else if (report.applied) {
     lines.push(report.verify?.ok === false ? 'baseline applied, but verification FAILED (see above)' : 'baseline applied and verified');
+  } else if (report.unmatched.length === 0 && report.toResolve.length === 0 && report.lockUpToDate) {
+    lines.push('nothing to do: platform.lock maps every package migration and the database records them');
   } else if (report.unmatched.length === 0 && report.toResolve.length === 0) {
-    lines.push('nothing to do: every package migration up to --through is mapped and recorded');
+    lines.push('dry run clean: every package migration is mapped and recorded; --apply writes platform.lock only (nothing is resolved)');
   } else {
     lines.push('dry run clean: re-run with --apply to write the lock and resolve');
   }

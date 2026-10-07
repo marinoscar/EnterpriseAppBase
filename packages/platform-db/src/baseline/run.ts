@@ -14,7 +14,7 @@ import {
   type ManifestEntry,
   type PlatformLock,
 } from '../lock/index.js';
-import { checkLedger, checkLock, type LedgerRow } from '../sync/index.js';
+import { checkLedger, checkLock, compareVersions, type LedgerRow } from '../sync/index.js';
 import { BaselineError } from './errors.js';
 import { installMigration, listDirs, readLocalMigrations, removeInstalled } from './fs.js';
 import { proposeMapping } from './mapping.js';
@@ -150,6 +150,7 @@ function emptyReport(through: string): BaselineReport {
     refusals: [],
     notes: [],
     actions: [],
+    lockUpToDate: false,
     applied: false,
   };
 }
@@ -198,7 +199,10 @@ export async function runBaseline(opts: BaselineOptions, deps: BaselineDeps): Pr
   const manifestFile = join(opts.packageDir, 'migrations', 'manifest.json');
   if (!existsSync(manifestFile)) throw new BaselineError('THROUGH_UNKNOWN', `${manifestFile} does not exist; is --package-dir the @marinoscar/platform-db package?`);
   const manifest = parseManifest(readFileSync(manifestFile, 'utf8'), manifestFile);
-  const version = (JSON.parse(readFileSync(join(opts.packageDir, 'package.json'), 'utf8')) as { version: string }).version;
+  const packageVersion = (JSON.parse(readFileSync(join(opts.packageDir, 'package.json'), 'utf8')) as { version: string }).version;
+  // The lock reads x.y.z only, so a prerelease tag is dropped; it never records less than the newest `since` it holds.
+  const core = /^\d+\.\d+\.\d+/.exec(packageVersion)?.[0] ?? '0.0.0';
+  const version = manifest.reduce((best, e) => (compareVersions(e.since, best) > 0 ? e.since : best), core);
   const throughEntry = resolveThrough(manifest, opts.through);
   const through = sequenceOf(throughEntry.id);
   const report = emptyReport(originIdOf(throughEntry));
@@ -291,6 +295,10 @@ export async function runBaseline(opts: BaselineOptions, deps: BaselineDeps): Pr
     .filter((p) => p.resolve)
     .map((p) => ({ originId: p.originId, localDir: p.localDir, install: p.action !== 'mapped' }));
   report.toInstall = plan.filter((p) => p.action === 'install').map((p) => ({ originId: p.originId, localDir: p.localDir }));
+
+  if (existingLock && plan.length > 0) {
+    report.lockUpToDate = serializeLock(buildLock(plan, existingLock, existingLock.platformVersion)) === serializeLock(existingLock);
+  }
 
   // B3 diff: the package history up to --through, replayed, against the LIVE database.
   const deviations = existingLock?.deviations ?? [];

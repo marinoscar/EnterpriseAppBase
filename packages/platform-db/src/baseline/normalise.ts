@@ -3,7 +3,7 @@ import { sha256Hex } from '../lock/index.js';
 /**
  * Normalises migration SQL for matching a fork that edited comments or
  * whitespace: strips `--` line comments and block comments, collapses runs of
- * whitespace and lower-cases everything outside string literals and quoted
+ * whitespace (dropping it next to `(`, `)`, `,` and `;`) and lower-cases everything outside string literals and quoted
  * identifiers (so keywords compare equal while `"User"` stays distinct from
  * `"user"`).
  *
@@ -16,6 +16,13 @@ import { sha256Hex } from '../lock/index.js';
  */
 export function normaliseSql(sql: string): string {
   let out = '';
+  let pendingSpace = false;
+  const emit = (token: string): void => {
+    // One space between tokens, none next to punctuation: `(\n  "id"` and `("id"` are the same text.
+    if (pendingSpace && out !== '' && !/[(),;]$/.test(out) && !/^[(),;]/.test(token)) out += ' ';
+    pendingSpace = false;
+    out += token;
+  };
   let i = 0;
   const n = sql.length;
   while (i < n) {
@@ -23,6 +30,7 @@ export function normaliseSql(sql: string): string {
     const next = sql[i + 1];
     if (c === '-' && next === '-') {
       while (i < n && sql[i] !== '\n') i += 1;
+      pendingSpace = true;
     } else if (c === '/' && next === '*') {
       let depth = 1;
       i += 2;
@@ -37,7 +45,7 @@ export function normaliseSql(sql: string): string {
           i += 1;
         }
       }
-      out += ' ';
+      pendingSpace = true;
     } else if (c === "'" || c === '"') {
       // A literal or a quoted identifier: copied verbatim, doubled quotes are escapes.
       let j = i + 1;
@@ -49,24 +57,24 @@ export function normaliseSql(sql: string): string {
           j += 1;
         }
       }
-      out += sql.slice(i, j + 1);
+      emit(sql.slice(i, j + 1));
       i = j + 1;
     } else if (c === '$' && /^\$[A-Za-z_]*\$/.test(sql.slice(i, i + 64))) {
       // A dollar-quoted body (a DO block, a function): verbatim up to the matching tag.
       const tag = /^\$[A-Za-z_]*\$/.exec(sql.slice(i, i + 64))![0];
       const end = sql.indexOf(tag, i + tag.length);
       const stop = end === -1 ? n : end + tag.length;
-      out += sql.slice(i, stop);
+      emit(sql.slice(i, stop));
       i = stop;
     } else if (/\s/.test(c)) {
-      out += ' ';
+      pendingSpace = true;
       i += 1;
     } else {
-      out += c.toLowerCase();
+      emit(c.toLowerCase());
       i += 1;
     }
   }
-  return out.replace(/ {2,}/g, ' ').trim();
+  return out;
 }
 
 /**

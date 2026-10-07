@@ -39,7 +39,7 @@ export interface MatchedMigration {
  * @param manifest - The package history, in order.
  * @param localDirs - Directory name to `migration.sql` bytes, for every directory of the app's `prisma/migrations`.
  * @param packageFile - Reads the package's `migration.sql` for a manifest entry (the normalised pass compares against it).
- * @param map - Operator overrides, `platform:NNNN_slug` (or `NNNN_slug`) to a local directory name. An override wins over both automatic passes.
+ * @param map - Operator overrides, `platform:NNNN_slug` (or `NNNN_slug`) to a local directory name. An override replaces the automatic match of its own entry; a directory that already matches another migration exactly is refused.
  * @returns One entry per matched package migration, in package order.
  * @throws BaselineError `MAP_INVALID` when `map` names an unknown entry or directory, or a directory that another migration already matched.
  * @stability experimental
