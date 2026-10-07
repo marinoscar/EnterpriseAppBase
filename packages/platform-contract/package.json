@@ -40,6 +40,16 @@
         "default": "./dist/cjs/doctor/index.js"
       }
     },
+    "./telemetry": {
+      "import": {
+        "types": "./dist/esm/telemetry/index.d.ts",
+        "default": "./dist/esm/telemetry/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/telemetry/index.d.ts",
+        "default": "./dist/cjs/telemetry/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
