@@ -116,7 +116,7 @@ describe('GET /api/admin/doctor/support-bundle (DoctorModule.forRoot, test host)
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.headers['content-disposition']).toMatch(/^attachment; filename="support-bundle-acme-\d{8}T\d{6}Z\.json"$/);
     const bundle = supportBundleSchema.parse(JSON.parse(response.body));
-    expect(Object.keys(bundle.sections).sort()).toEqual(['doctor', 'meta', 'telemetry']);
+    expect(Object.keys(bundle.sections).sort()).toEqual(['doctor', 'egress', 'meta', 'telemetry']);
     expect(bundle.sections.telemetry).toEqual({ status: 'omitted', reason: 'requires the telemetry:query permission' });
 
     const doctor = bundle.sections.doctor as { status: 'ok'; data: { checks: Array<{ id: string; detail: string }> } };
@@ -124,7 +124,7 @@ describe('GET /api/admin/doctor/support-bundle (DoctorModule.forRoot, test host)
 
     const meta = bundle.sections.meta as { status: 'ok'; data: { platformPackages: Record<string, string>; sections: string[] } };
     expect(meta.data.platformPackages['@marinoscar/platform-api']).toEqual(expect.any(String));
-    expect([...meta.data.sections].sort()).toEqual(['doctor', 'meta', 'telemetry']);
+    expect([...meta.data.sections].sort()).toEqual(['doctor', 'egress', 'meta', 'telemetry']);
     expect(response.body).not.toContain('user-7');
 
     expect(audit.events).toEqual([
@@ -135,8 +135,8 @@ describe('GET /api/admin/doctor/support-bundle (DoctorModule.forRoot, test host)
 
   it('includes a permission-gated section for a caller who holds it, and an omission it returns', async () => {
     const off: SupportBundleSection = {
-      id: 'egress',
-      label: 'Egress',
+      id: 'billing',
+      label: 'Billing',
       schema: z.object({}).strict(),
       collect: async () => omitSupportBundleSection('not configured'),
     };
@@ -150,7 +150,7 @@ describe('GET /api/admin/doctor/support-bundle (DoctorModule.forRoot, test host)
     const bundle = supportBundleSchema.parse(JSON.parse(response.body));
 
     expect(bundle.sections.telemetry).toEqual({ status: 'ok', data: { verdict: 'ok' } });
-    expect(bundle.sections.egress).toEqual({ status: 'omitted', reason: 'not configured' });
+    expect(bundle.sections.billing).toEqual({ status: 'omitted', reason: 'not configured' });
     await app.close();
   });
 

@@ -162,7 +162,8 @@ describe('Support bundle API (Integration)', () => {
       expect(response.headers['content-disposition']).toMatch(/^attachment; filename="support-bundle-my-app-\d{8}T\d{6}Z\.json"$/);
 
       const bundle = supportBundleSchema.parse(JSON.parse(response.body as string));
-      expect(Object.keys(bundle.sections).sort()).toEqual(['doctor', 'meta', 'telemetry', 'versions']);
+      expect(Object.keys(bundle.sections).sort()).toEqual(['doctor', 'egress', 'meta', 'telemetry', 'versions']);
+      expect(bundle.sections.egress.status).toBe('ok');
       expect(bundle.sections.meta.status).toBe('ok');
       expect(bundle.sections.doctor.status).toBe('ok');
       expect(bundle.sections.versions.status).toBe('ok');
@@ -309,7 +310,7 @@ describe('Support bundle API (Integration)', () => {
           targetType: 'deployment',
           targetId: 'support_bundle',
           meta: {
-            sections: expect.stringMatching(/^(meta|doctor|versions|telemetry)=(ok|omitted|error)(,(meta|doctor|versions|telemetry)=(ok|omitted|error)){3}$/),
+            sections: expect.stringMatching(/^(meta|doctor|egress|versions|telemetry)=(ok|omitted|error)(,(meta|doctor|egress|versions|telemetry)=(ok|omitted|error)){4}$/),
             bytes: expect.any(Number),
             replacements: expect.any(Number),
           },
