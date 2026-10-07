@@ -540,4 +540,107 @@ describe('JwtAuthGuard', () => {
       expect(patService.resolveToken).not.toHaveBeenCalled();
     });
   });
+  // ============================================================================
+  // request.principal (ADR 0001, #724)
+  // ============================================================================
+
+  describe('request.principal', () => {
+    const graph = (binding: { activeOrgId?: string | null; tokenKind: string }) => {
+      const user: any = {
+        id: 'user-1',
+        email: 'user@example.com',
+        isActive: true,
+        userRoles: [{ role: { name: 'admin', rolePermissions: [{ permission: { name: 'nodes:read' } }] } }],
+        memberships: [
+          {
+            orgId: 'org-a',
+            status: 'active',
+            lastActiveAt: null,
+            org: { id: 'org-a', isDefault: true },
+            role: { name: 'org_admin', rolePermissions: [{ permission: { name: 'org_members:read' } }] },
+          },
+        ],
+      };
+      Object.defineProperty(user, 'tokenKind', { value: binding.tokenKind, enumerable: false });
+      if (binding.activeOrgId !== undefined) {
+        Object.defineProperty(user, 'activeOrgId', { value: binding.activeOrgId, enumerable: false });
+      }
+      return user;
+    };
+
+    it('a session JWT yields a session user principal bound to its org', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      const context = createMockContext('Bearer eyJ.session');
+      const request = context.switchToHttp().getRequest();
+      // What `JwtStrategy` would have attached.
+      jest.spyOn(Object.getPrototypeOf(JwtAuthGuard.prototype), 'canActivate').mockImplementation(async () => {
+        request.user = graph({ activeOrgId: 'org-a', tokenKind: 'session' });
+        return true;
+      });
+
+      await guard.canActivate(context);
+
+      expect(request.principal).toMatchObject({
+        kind: 'user',
+        credential: 'session',
+        userId: 'user-1',
+        activeOrgId: 'org-a',
+        memberships: [{ orgId: 'org-a', role: 'org_admin', status: 'active' }],
+        groups: [],
+      });
+      expect(request.principal.permissions).toEqual(expect.arrayContaining(['nodes:read', 'org_members:read']));
+    });
+
+    it('a device JWT yields tokenKind device', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      const context = createMockContext('Bearer eyJ.device');
+      const request = context.switchToHttp().getRequest();
+      jest.spyOn(Object.getPrototypeOf(JwtAuthGuard.prototype), 'canActivate').mockImplementation(async () => {
+        request.user = graph({ activeOrgId: 'org-a', tokenKind: 'device' });
+        return true;
+      });
+
+      await guard.canActivate(context);
+
+      expect(request.principal).toMatchObject({ kind: 'user', credential: 'device', activeOrgId: 'org-a' });
+    });
+
+    it('a PAT yields tokenKind pat', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      patService.resolveToken.mockResolvedValue({
+        user: graph({ activeOrgId: 'org-a', tokenKind: 'pat' }),
+        tokenId: 'pat-1',
+      });
+      const context = createMockContext('Bearer pat_abc');
+      const request = context.switchToHttp().getRequest();
+
+      await guard.canActivate(context);
+
+      expect(request.principal).toMatchObject({ kind: 'user', credential: 'pat', activeOrgId: 'org-a' });
+    });
+
+    it('a node credential yields a system-scoped node principal: no activeOrgId, no org grants', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      nodeCredentialService.validateToken.mockResolvedValue(graph({ activeOrgId: null, tokenKind: 'node' }));
+      const context = createMockContext('Bearer nod_0011', `${NODE_ROUTE_PREFIX}/heartbeat`);
+      const request = context.switchToHttp().getRequest();
+
+      await guard.canActivate(context);
+
+      expect(request.principal).toMatchObject({ kind: 'node', credential: 'node', roles: ['admin'] });
+      expect(request.principal).not.toHaveProperty('activeOrgId');
+      expect(request.principal.permissions).toEqual(['nodes:read']);
+    });
+
+    it('is not attached for a request.user that is not a loaded graph', async () => {
+      reflector.getAllAndOverride.mockReturnValue(false);
+      patService.resolveToken.mockResolvedValue({ user: { id: 'u' } as any, tokenId: 'pat-1' });
+      const context = createMockContext('Bearer pat_abc');
+      const request = context.switchToHttp().getRequest();
+
+      await guard.canActivate(context);
+
+      expect(request.principal).toBeUndefined();
+    });
+  });
 });

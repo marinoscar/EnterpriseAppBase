@@ -1,14 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PatService } from './pat.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import { CreatePatDto } from './dto/create-pat.dto';
 import { createHash } from 'node:crypto';
+import * as tenancyMode from '../auth/tenancy-mode';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 
 describe('PatService', () => {
   let service: PatService;
   let mockPrisma: MockPrismaService;
+  const principalCache = { invalidateUser: jest.fn(), invalidate: jest.fn() };
 
   const mockUserId = 'user-123';
 
@@ -62,6 +65,7 @@ describe('PatService', () => {
       providers: [
         PatService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: PrincipalCache, useValue: principalCache },
       ],
     }).compile();
 
@@ -581,6 +585,116 @@ describe('PatService', () => {
 
       expect(revokedThreshold.getTime()).toBeGreaterThanOrEqual(expectedMin.getTime());
       expect(revokedThreshold.getTime()).toBeLessThanOrEqual(expectedMax.getTime());
+    });
+  });
+  // ============================================================================
+  // Org binding (#724)
+  // ============================================================================
+
+  describe('org binding (#724)', () => {
+    const dto: CreatePatDto = { name: 'CI', durationValue: 30, durationUnit: 'days' };
+    const member = (orgId: string, status = 'active') => ({
+      orgId,
+      status,
+      lastActiveAt: null,
+      org: { id: orgId, isDefault: false },
+      role: { name: 'viewer', rolePermissions: [] },
+    });
+    const tokenRow = (orgId: string | null, memberships: unknown[]) => ({
+      ...mockPatRecord,
+      orgId,
+      expiresAt: new Date(Date.now() + 86400000),
+      revokedAt: null,
+      user: { ...mockUserWithRelations, memberships },
+    });
+
+    afterEach(() => jest.restoreAllMocks());
+
+    it('binds a new token to the caller\'s active org, with no second lookup', async () => {
+      mockPrisma.personalAccessToken.create.mockResolvedValue({ ...mockPatRecord, orgId: 'org-a' } as any);
+
+      const result = await service.createToken(mockUserId, dto, { activeOrgId: 'org-a' });
+
+      expect(mockPrisma.personalAccessToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ orgId: 'org-a' }),
+      });
+      expect(mockPrisma.membership.findUnique).not.toHaveBeenCalled();
+      expect(result.orgId).toBe('org-a');
+    });
+
+    it('binds to an explicit orgId the caller is an active member of', async () => {
+      mockPrisma.membership.findUnique.mockResolvedValue({ status: 'active' } as any);
+      mockPrisma.personalAccessToken.create.mockResolvedValue(mockPatRecord as any);
+
+      await service.createToken(mockUserId, { ...dto, orgId: 'org-b' }, { activeOrgId: 'org-a' });
+
+      expect(mockPrisma.membership.findUnique).toHaveBeenCalledWith({
+        where: { orgId_userId: { orgId: 'org-b', userId: mockUserId } },
+        select: { status: true },
+      });
+      expect(mockPrisma.personalAccessToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ orgId: 'org-b' }),
+      });
+    });
+
+    it('refuses (400) an orgId the caller is not an active member of, writing nothing', async () => {
+      for (const membership of [null, { status: 'suspended' }]) {
+        mockPrisma.membership.findUnique.mockResolvedValueOnce(membership as any);
+        await expect(
+          service.createToken(mockUserId, { ...dto, orgId: 'org-x' }, { activeOrgId: 'org-a' }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      }
+      expect(mockPrisma.personalAccessToken.create).not.toHaveBeenCalled();
+    });
+
+    it('audits create and revoke with the bound org in meta, and invalidates after a revoke', async () => {
+      mockPrisma.personalAccessToken.create.mockResolvedValue({ ...mockPatRecord, orgId: 'org-a' } as any);
+      await service.createToken(mockUserId, dto, { activeOrgId: 'org-a' });
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'pat:created',
+          targetType: 'personal_access_token',
+          targetId: mockPatRecord.id,
+          meta: { name: 'CI', orgId: 'org-a' },
+        }),
+      });
+
+      mockPrisma.personalAccessToken.findFirst.mockResolvedValue({ ...mockPatRecord, orgId: 'org-a' } as any);
+      mockPrisma.personalAccessToken.update.mockResolvedValue({} as any);
+      await service.revokeToken(mockUserId, mockPatRecord.id);
+      expect(mockPrisma.auditEvent.create).toHaveBeenLastCalledWith({
+        data: expect.objectContaining({ action: 'pat:revoked', meta: { name: mockPatRecord.name, orgId: 'org-a' } }),
+      });
+      expect(principalCache.invalidateUser).toHaveBeenCalledWith(mockUserId);
+      expect(principalCache.invalidateUser.mock.invocationCallOrder[0]).toBeGreaterThan(
+        (mockPrisma.personalAccessToken.update as jest.Mock).mock.invocationCallOrder[0],
+      );
+    });
+
+    it('honours a bound token while the membership is active, binding the org to the user', async () => {
+      mockPrisma.personalAccessToken.findUnique.mockResolvedValue(tokenRow('org-a', [member('org-a')]) as any);
+      mockPrisma.personalAccessToken.update.mockResolvedValue({} as any);
+
+      const resolved = await service.resolveToken('pat_' + 'd'.repeat(64));
+
+      expect(resolved?.user.activeOrgId).toBe('org-a');
+      expect(resolved?.user.tokenKind).toBe('pat');
+    });
+
+    it('refuses a bound token once the membership is removed or suspended', async () => {
+      for (const memberships of [[], [member('org-a', 'suspended')], [member('org-b')]]) {
+        mockPrisma.personalAccessToken.findUnique.mockResolvedValueOnce(tokenRow('org-a', memberships) as any);
+        await expect(service.validateToken('pat_' + 'e'.repeat(64))).resolves.toBeNull();
+      }
+    });
+
+    it('a token from before #724 (no org) is honoured in single mode only', async () => {
+      mockPrisma.personalAccessToken.update.mockResolvedValue({} as any);
+      mockPrisma.personalAccessToken.findUnique.mockResolvedValue(tokenRow(null, []) as any);
+      await expect(service.validateToken('pat_' + 'f'.repeat(64))).resolves.not.toBeNull();
+
+      jest.spyOn(tenancyMode, 'currentTenancyMode').mockReturnValue('multi');
+      await expect(service.validateToken('pat_' + 'f'.repeat(64))).resolves.toBeNull();
     });
   });
 });

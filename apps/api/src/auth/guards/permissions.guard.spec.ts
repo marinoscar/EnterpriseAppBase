@@ -214,4 +214,34 @@ describe('PermissionsGuard', () => {
       expect((request as any).requestUser.permissions).toContain('users:write');
     });
   });
+  // #724: the request principal's permissions (the active org's) decide.
+  describe('request.principal', () => {
+    function contextWith(request: Record<string, unknown>): ExecutionContext {
+      return {
+        switchToHttp: () => ({ getRequest: () => request }),
+        getHandler: () => jest.fn(),
+        getClass: () => jest.fn(),
+      } as any;
+    }
+
+    it('grants what the principal holds, whatever the raw graph would', () => {
+      reflector.getAllAndOverride.mockReturnValue(['org_members:read']);
+      const request = {
+        user: createUserWithPermissions([]),
+        principal: { kind: 'user', permissions: ['org_members:read'] },
+      };
+
+      expect(guard.canActivate(contextWith(request))).toBe(true);
+    });
+
+    it('refuses what the principal lacks, naming it', () => {
+      reflector.getAllAndOverride.mockReturnValue(['org_members:read']);
+      const request = {
+        user: createUserWithPermissions(['org_members:read']),
+        principal: { kind: 'user', permissions: [] },
+      };
+
+      expect(() => guard.canActivate(contextWith(request))).toThrow('Missing permissions: org_members:read');
+    });
+  });
 });
