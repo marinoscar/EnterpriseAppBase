@@ -8,7 +8,13 @@ import {
   PRINCIPAL_CACHE_MAX_ENTRIES,
   PRINCIPAL_INVALIDATE_CHANNEL,
   PrincipalCache,
+  type PrincipalCacheKey,
 } from './principal-cache.service';
+
+/** A session entry of `userId` in the default org (the shape most tests need). */
+function k(userId: string, overrides: Partial<PrincipalCacheKey> = {}): PrincipalCacheKey {
+  return { userId, orgId: 'org-default', tokenKind: 'session', ...overrides };
+}
 
 function configWith(ttlSeconds: unknown): ConfigService {
   return {
@@ -64,7 +70,7 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
   }
 
   function store(c: PrincipalCache, value: AuthenticatedUser) {
-    return c.set(value.id, value, c.generation(value.id));
+    return c.set(k(value.id), value, c.generation(value.id));
   }
 
   describe('TTL', () => {
@@ -84,19 +90,19 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       store(c, principal('u1'));
 
       clock += 29_999;
-      expect(c.get('u1')?.id).toBe('u1');
+      expect(c.get(k('u1'))?.id).toBe('u1');
 
       clock += 1;
-      expect(c.get('u1')).toBeUndefined();
+      expect(c.get(k('u1'))).toBeUndefined();
       expect(c.stats().size).toBe(0);
     });
 
     it('counts hits and misses', () => {
       const c = cache();
-      expect(c.get('u1')).toBeUndefined();
+      expect(c.get(k('u1'))).toBeUndefined();
       store(c, principal('u1'));
-      c.get('u1');
-      c.get('u1');
+      c.get(k('u1'));
+      c.get(k('u1'));
       expect(c.stats()).toMatchObject({ hits: 2, misses: 1, size: 1 });
     });
   });
@@ -109,10 +115,10 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       }
 
       expect(c.stats().size).toBe(PRINCIPAL_CACHE_MAX_ENTRIES);
-      expect(c.get('u0')).toBeUndefined();
-      expect(c.get('u24')).toBeUndefined();
-      expect(c.get('u25')?.id).toBe('u25');
-      expect(c.get(`u${PRINCIPAL_CACHE_MAX_ENTRIES + 24}`)).toBeDefined();
+      expect(c.get(k('u0'))).toBeUndefined();
+      expect(c.get(k('u24'))).toBeUndefined();
+      expect(c.get(k('u25'))?.id).toBe('u25');
+      expect(c.get(k(`u${PRINCIPAL_CACHE_MAX_ENTRIES + 24}`))).toBeDefined();
     });
 
     it('moves a re-stored key to the back of the eviction order', () => {
@@ -123,8 +129,8 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       store(c, principal('u0'));
       store(c, principal('new'));
 
-      expect(c.get('u0')).toBeDefined();
-      expect(c.get('u1')).toBeUndefined();
+      expect(c.get(k('u0'))).toBeDefined();
+      expect(c.get(k('u1'))).toBeUndefined();
     });
   });
 
@@ -146,7 +152,7 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       expect(() => {
         (stored.userRoles as unknown[]).push({});
       }).toThrow(TypeError);
-      expect(c.get('u1')?.isActive).toBe(true);
+      expect(c.get(k('u1'))?.isActive).toBe(true);
     });
   });
 
@@ -158,18 +164,18 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       // ... the database read is in flight, then an admin demotes the user:
       c.invalidate({ userId: 'u1' });
 
-      expect(c.set('u1', principal('u1'), before)).toBeUndefined();
-      expect(c.get('u1')).toBeUndefined();
+      expect(c.set(k('u1'), principal('u1'), before)).toBeUndefined();
+      expect(c.get(k('u1'))).toBeUndefined();
 
       // A read that starts after the invalidation stores normally.
-      expect(c.set('u1', principal('u1'), c.generation('u1'))).toBeDefined();
+      expect(c.set(k('u1'), principal('u1'), c.generation('u1'))).toBeDefined();
     });
 
     it('refuses after an `all` invalidation too', () => {
       const c = cache();
       const before = c.generation('u1');
       c.invalidate({ all: true });
-      expect(c.set('u1', principal('u1'), before)).toBeUndefined();
+      expect(c.set(k('u1'), principal('u1'), before)).toBeUndefined();
     });
 
     it('refuses after a REMOTE invalidation that lands mid-read', async () => {
@@ -181,14 +187,14 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       a.invalidate({ userId: 'u1' });
       await flush();
 
-      expect(b.set('u1', principal('u1'), before)).toBeUndefined();
+      expect(b.set(k('u1'), principal('u1'), before)).toBeUndefined();
     });
 
     it('is unaffected by an invalidation of a different user', () => {
       const c = cache();
       const before = c.generation('u1');
       c.invalidate({ userId: 'u2' });
-      expect(c.set('u1', principal('u1'), before)).toBeDefined();
+      expect(c.set(k('u1'), principal('u1'), before)).toBeDefined();
     });
   });
 
@@ -203,8 +209,8 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       c.invalidate({ userId: 'u1' });
 
       // No await between the call and these assertions: local drop is synchronous.
-      expect(c.get('u1')).toBeUndefined();
-      expect(c.get('u2')).toBeDefined();
+      expect(c.get(k('u1'))).toBeUndefined();
+      expect(c.get(k('u2'))).toBeDefined();
       expect(publish).toHaveBeenCalledWith(PRINCIPAL_INVALIDATE_CHANNEL, { userId: 'u1' });
 
       c.invalidate({ all: true });
@@ -222,12 +228,12 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       store(b, principal('u2'));
 
       a.invalidate({ userId: 'u1' });
-      expect(b.get('u1')).toBeDefined(); // not yet: delivery is asynchronous
+      expect(b.get(k('u1'))).toBeDefined(); // not yet: delivery is asynchronous
       await flush();
 
-      expect(a.get('u1')).toBeUndefined();
-      expect(b.get('u1')).toBeUndefined();
-      expect(b.get('u2')).toBeDefined();
+      expect(a.get(k('u1'))).toBeUndefined();
+      expect(b.get(k('u1'))).toBeUndefined();
+      expect(b.get(k('u2'))).toBeDefined();
 
       a.invalidate({ all: true });
       await flush();
@@ -252,7 +258,7 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       await a.publish(PRINCIPAL_INVALIDATE_CHANNEL, 'u1');
       await flush();
 
-      expect(b.get('u1')).toBeDefined();
+      expect(b.get(k('u1'))).toBeDefined();
     });
 
     it('never throws, even when the bus does', () => {
@@ -269,7 +275,7 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       store(c, principal('u1'));
 
       expect(() => c.invalidate({ userId: 'u1' })).not.toThrow();
-      expect(c.get('u1')).toBeUndefined();
+      expect(c.get(k('u1'))).toBeUndefined();
     });
 
     it('works without an EVENT_BUS provider (a feature-module test graph): local-only', () => {
@@ -277,7 +283,7 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       c.onModuleInit();
       store(c, principal('u1'));
       expect(() => c.invalidate({ userId: 'u1' })).not.toThrow();
-      expect(c.get('u1')).toBeUndefined();
+      expect(c.get(k('u1'))).toBeUndefined();
       expect(c.busHealth().adapter).toBe('in-process');
     });
 
@@ -296,7 +302,7 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       expect(c.enabled).toBe(false);
       expect(c.ttlMs).toBe(0);
       expect(store(c, principal('u1'))).toBeUndefined();
-      expect(c.get('u1')).toBeUndefined();
+      expect(c.get(k('u1'))).toBeUndefined();
       expect(c.stats()).toEqual({ size: 0, hits: 0, misses: 0, invalidations: 0 });
     });
 
@@ -305,6 +311,57 @@ describe('PrincipalCache (PP-1.12, #683)', () => {
       const publish = jest.spyOn(bus, 'publish');
       cache(0, bus).invalidate({ userId: 'u1' });
       expect(publish).toHaveBeenCalledWith(PRINCIPAL_INVALIDATE_CHANNEL, { userId: 'u1' });
+    });
+  });
+  // PP-6.4 (#724): the key carries the active org and the credential kind.
+  describe('key (userId, orgId, tokenKind) and invalidateUser', () => {
+    it('keeps one entry per org and per credential kind', () => {
+      const c = cache();
+      const u = principal('u1');
+      c.set(k('u1'), u, c.generation('u1'));
+
+      expect(c.get(k('u1'))).toBeDefined();
+      expect(c.get(k('u1', { orgId: 'org-b' }))).toBeUndefined();
+      expect(c.get(k('u1', { tokenKind: 'pat' }))).toBeUndefined();
+      expect(c.get(k('u1', { orgId: null, tokenKind: 'node' }))).toBeUndefined();
+
+      c.set(k('u1', { orgId: 'org-b' }), u, c.generation('u1'));
+      expect(c.get(k('u1', { orgId: 'org-b' }))).toBeDefined();
+      expect(c.stats().size).toBe(2);
+    });
+
+    it('invalidateUser drops every entry of the user, in every org and kind, and no one else\'s', () => {
+      const c = cache();
+      for (const key of [k('u1'), k('u1', { orgId: 'org-b' }), k('u1', { tokenKind: 'device' }), k('u2')]) {
+        c.set(key, principal(key.userId), c.generation(key.userId));
+      }
+
+      c.invalidateUser('u1');
+
+      expect(c.get(k('u1'))).toBeUndefined();
+      expect(c.get(k('u1', { orgId: 'org-b' }))).toBeUndefined();
+      expect(c.get(k('u1', { tokenKind: 'device' }))).toBeUndefined();
+      expect(c.get(k('u2'))).toBeDefined();
+      expect(c.stats().size).toBe(1);
+    });
+
+    it('invalidateUser publishes the per-user invalidation to other replicas', async () => {
+      const network = new FakeEventBusNetwork();
+      const a = cache(30, network.join('a'));
+      const b = cache(30, network.join('b'));
+      b.set(k('u1', { orgId: 'org-b' }), principal('u1'), b.generation('u1'));
+
+      a.invalidateUser('u1');
+      await flush();
+
+      expect(b.get(k('u1', { orgId: 'org-b' }))).toBeUndefined();
+    });
+
+    it('a read that started before invalidateUser cannot store its result', () => {
+      const c = cache();
+      const before = c.generation('u1');
+      c.invalidateUser('u1');
+      expect(c.set(k('u1', { orgId: 'org-b' }), principal('u1'), before)).toBeUndefined();
     });
   });
 });

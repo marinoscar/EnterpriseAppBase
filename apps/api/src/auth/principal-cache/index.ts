@@ -5,7 +5,7 @@ export {
   PRINCIPAL_INVALIDATE_CHANNEL,
   PrincipalCache,
 } from './principal-cache.service';
-export type { PrincipalCacheStats, PrincipalInvalidation } from './principal-cache.service';
+export type { PrincipalCacheKey, PrincipalCacheStats, PrincipalInvalidation } from './principal-cache.service';
 export {
   DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS,
   parsePrincipalCacheTtlSeconds,
