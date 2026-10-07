@@ -4,12 +4,10 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AiConfigProvider } from './contexts/AiConfigContext';
-import { TelemetryConfigProvider } from './contexts/TelemetryConfigContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { ProtectedRoute } from './components/common/ProtectedRoute';
 import { RequirePermission } from './components/common/RequirePermission';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
-import { RequireTelemetryEnabled } from './components/common/RequireTelemetryEnabled';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 // Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error
@@ -25,7 +23,15 @@ import { MaintenanceGate } from './components/common/MaintenanceGate';
 import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { InstallPrompt } from './components/pwa/InstallPrompt';
 // The platform host every packaged page reads (#696).
-import { AppPlatformHostProvider } from './platform/platformHost';
+import { AppPlatformHostProvider, appPlatformApi } from './platform/platformHost';
+// The telemetry slice (#704): its config provider, route guard and the app's
+// adapters (AI on/off, the model catalogue, the spinner).
+import {
+  RequireTelemetryEnabled,
+  TelemetryConfigProvider,
+  TelemetryWebAdaptersProvider,
+} from '@marinoscar/platform-web/telemetry/headless';
+import { appTelemetryAdapters } from './platform/telemetryAdapters';
 
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
@@ -97,12 +103,14 @@ const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
-// editor, so neither weighs on the entry chunk.
-const TelemetrySettingsPage = lazy(() => import('./pages/Admin/TelemetrySettingsPage'));
-const TelemetryExplorerPage = lazy(() => import('./pages/Admin/TelemetryExplorerPage'));
+// editor, so neither weighs on the entry chunk. Packaged since #704
+// (`@marinoscar/platform-web/telemetry/ui`): each page has a subpath of its
+// own so it stays in a chunk of its own.
+const TelemetrySettingsPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/settings-page'));
+const TelemetryExplorerPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/explorer-page'));
 // Issue #578, epic #576 — the at-a-glance dashboard; lazy, and its charts
 // (`@mui/x-charts`) travel in its own chunk.
-const TelemetryDashboardPage = lazy(() => import('./pages/Admin/TelemetryDashboardPage'));
+const TelemetryDashboardPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/dashboard-page'));
 const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
 
 // Test login page (development only)
@@ -176,7 +184,12 @@ function AppRoutes() {
                     chrome (rail, bottom bar, menu, AppBar) and every routed
                     page, instead of one request per consumer.
                     `TelemetryConfigProvider` (#537, epic #528) is its twin for
-                    `GET /api/telemetry/config`. */}
+                    `GET /api/telemetry/config`; packaged since #704, it takes
+                    the app's transport as a prop because it sits ABOVE the
+                    platform host (which reads the feature it answers).
+                    `TelemetryWebAdaptersProvider` (#704) hands the packaged
+                    telemetry pages the app's AI hooks and spinner
+                    (`platform/telemetryAdapters.ts`). */}
                 {/* `AppPlatformHostProvider` (#696) is the platform host every
                     packaged page reads (`@marinoscar/platform-web`): the app's
                     transport, the viewer's permissions and the feature map.
@@ -188,10 +201,12 @@ function AppRoutes() {
                   element={
                     <NotificationProvider>
                       <AiConfigProvider>
-                        <TelemetryConfigProvider>
-                          <AppPlatformHostProvider>
-                            <Layout />
-                          </AppPlatformHostProvider>
+                        <TelemetryConfigProvider api={appPlatformApi}>
+                          <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
+                            <AppPlatformHostProvider>
+                              <Layout />
+                            </AppPlatformHostProvider>
+                          </TelemetryWebAdaptersProvider>
                         </TelemetryConfigProvider>
                       </AiConfigProvider>
                     </NotificationProvider>

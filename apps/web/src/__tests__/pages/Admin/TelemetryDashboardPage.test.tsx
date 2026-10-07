@@ -19,7 +19,7 @@ import {
   mockDashboardEventsPage1,
   mockDashboardSummary,
 } from '../../mocks/fixtures/telemetryDashboard';
-import TelemetryDashboardPage from '../../../pages/Admin/TelemetryDashboardPage';
+import TelemetryDashboardPage from '@marinoscar/platform-web/telemetry/ui/dashboard-page';
 
 const API = '*/api/admin/telemetry/dashboard';
 

@@ -39,6 +39,26 @@
       "types": "./dist/doctor/ui/index.d.ts",
       "default": "./dist/doctor/ui/index.js"
     },
+    "./telemetry/headless": {
+      "types": "./dist/telemetry/headless/index.d.ts",
+      "default": "./dist/telemetry/headless/index.js"
+    },
+    "./telemetry/ui": {
+      "types": "./dist/telemetry/ui/index.d.ts",
+      "default": "./dist/telemetry/ui/index.js"
+    },
+    "./telemetry/ui/settings-page": {
+      "types": "./dist/telemetry/ui/settings-page.d.ts",
+      "default": "./dist/telemetry/ui/settings-page.js"
+    },
+    "./telemetry/ui/explorer-page": {
+      "types": "./dist/telemetry/ui/explorer-page.d.ts",
+      "default": "./dist/telemetry/ui/explorer-page.js"
+    },
+    "./telemetry/ui/dashboard-page": {
+      "types": "./dist/telemetry/ui/dashboard-page.d.ts",
+      "default": "./dist/telemetry/ui/dashboard-page.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -52,7 +72,7 @@
     "prepack": "node ../../scripts/copy-license.mjs",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry",
     "docs": "typedoc --options typedoc.json",
     "test": "vitest",
     "test:run": "vitest run"
@@ -61,23 +81,48 @@
     "@marinoscar/platform-contract": "0.1.0-next.2"
   },
   "peerDependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^9.1.0",
     "@mui/material": "^9.1.0",
+    "@mui/x-charts": "^9.14.0",
+    "@mui/x-data-grid": "^9.10.1",
+    "@uiw/react-codemirror": "^4.25.12",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.17.0",
     "zod": "^4.4.3"
   },
+  "peerDependenciesMeta": {
+    "@codemirror/lang-sql": {
+      "optional": true
+    },
+    "@mui/x-charts": {
+      "optional": true
+    },
+    "@mui/x-data-grid": {
+      "optional": true
+    },
+    "@uiw/react-codemirror": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^9.1.0",
     "@mui/material": "^9.1.0",
+    "@mui/x-charts": "^9.14.0",
+    "@mui/x-data-grid": "^9.10.1",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.15.32",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@uiw/react-codemirror": "^4.25.12",
     "jsdom": "^29.1.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

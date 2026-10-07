@@ -2,8 +2,10 @@ import { createTheme, ThemeOptions } from '@mui/material/styles';
 import { lightPalette } from './light';
 import { darkPalette } from './dark';
 import { componentOverrides } from './components';
-import './augment';
-import { withTelemetryTokens } from './telemetryTokens';
+// The telemetry token contract (#686) and its MUI augmentation ship with the
+// telemetry slice (#704); importing it brings the `palette.status` and
+// `palette.chart` types with it.
+import { withTelemetryTokens } from '@marinoscar/platform-web/telemetry/headless';
 
 const baseTheme: ThemeOptions = {
   typography: {
@@ -21,7 +23,7 @@ const baseTheme: ThemeOptions = {
 };
 
 // Both themes carry the telemetry token contract (`palette.status`,
-// `palette.chart.series`, issue #686); see `telemetryTokens.ts`.
+// `palette.chart.series`, issue #686); see `@marinoscar/platform-web/telemetry`.
 export const lightTheme = withTelemetryTokens(createTheme({
   ...baseTheme,
   palette: {

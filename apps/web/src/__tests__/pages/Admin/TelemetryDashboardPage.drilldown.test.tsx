@@ -21,7 +21,7 @@ import {
   mockDashboardTopRoutes,
   mockUnknownRoutesTopSql,
 } from '../../mocks/fixtures/telemetryDashboard';
-import TelemetryDashboardPage from '../../../pages/Admin/TelemetryDashboardPage';
+import TelemetryDashboardPage from '@marinoscar/platform-web/telemetry/ui/dashboard-page';
 import { http, HttpResponse } from 'msw';
 
 const DASHBOARD = '/admin/settings/telemetry/dashboard';

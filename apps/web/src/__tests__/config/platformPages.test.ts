@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { PlatformSettingsPage } from '@marinoscar/platform-web/core';
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
+import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 
 import { ADMIN_SECTIONS } from '../../config/adminSections';
 import type { SettingsCardDef } from '../../config/adminSections';
@@ -79,3 +80,48 @@ describe('packaged settings pages', () => {
     });
   }
 });
+
+/**
+ * The telemetry slice (#704) contributes its three Observability cards as data;
+ * the app spreads them where its literals were and keeps its own routes.
+ */
+describe('packaged telemetry cards', () => {
+  const observability = ADMIN_SECTIONS.find((section) => section.label === 'Observability');
+  const cards = [...ADMIN_SECTIONS, ...USER_SETTINGS_SECTIONS].flatMap((section) => section.cards);
+
+  it('sit in the Observability section, in their order, before the Doctor card', () => {
+    expect(observability?.cards.map((card) => card.path)).toEqual([
+      ...telemetryAdminCards.map((card) => card.path),
+      doctorSettingsPage.card.path,
+    ]);
+  });
+
+  it("are each card's only registration, unchanged", () => {
+    for (const card of telemetryAdminCards) {
+      const matching = cards.filter((entry) => entry.path === card.path);
+      expect(matching).toHaveLength(1);
+      expect(matching[0]).toEqual(card);
+    }
+  });
+
+  it('are assignable to the app card type', () => {
+    expectTypeOf<(typeof telemetryAdminCards)[number]>().toMatchTypeOf<SettingsCardDef>();
+  });
+
+  it('each have exactly one route, gated on the card permission', () => {
+    for (const card of telemetryAdminCards) {
+      const routes = declaredRouteGates().filter((route) => route.path === card.path);
+      expect(routes, card.path).toHaveLength(1);
+      expect(routes[0]?.permission).toBe(card.permission ?? null);
+    }
+  });
+
+  it('feature-gated cards have feature-gated routes; the Telemetry page is reachable while telemetry is off', () => {
+    const source = readFileSync(APP_TSX, 'utf8');
+    for (const card of telemetryAdminCards) {
+      const chunk = source.split('<Route').find((part) => part.includes(`path="${card.path}"`)) ?? '';
+      expect(chunk.includes('<RequireTelemetryEnabled>'), card.path).toBe(card.feature === 'telemetry');
+    }
+  });
+});
+

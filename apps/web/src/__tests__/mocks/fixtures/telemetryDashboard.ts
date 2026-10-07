@@ -21,7 +21,7 @@ import type {
   DashboardSummary,
   DashboardTopErrors,
   DashboardTopRoutes,
-} from '../../../services/telemetryDashboard';
+} from '@marinoscar/platform-web/telemetry/headless';
 
 const API_BASE = '*/api/admin/telemetry/dashboard';
 
