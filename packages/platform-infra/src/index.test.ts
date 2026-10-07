@@ -13,9 +13,9 @@ describe('@marinoscar/platform-infra', () => {
 
   describe('infraFile()', () => {
     it('returns an absolute path inside the package', () => {
-      const file = infraFile('compose/.gitkeep');
+      const file = infraFile('compose/base.compose.yml');
       expect(isAbsolute(file)).toBe(true);
-      expect(file).toBe(join(packageRoot, 'compose', '.gitkeep'));
+      expect(file).toBe(join(packageRoot, 'compose', 'base.compose.yml'));
       expect(existsSync(file)).toBe(true);
     });
 

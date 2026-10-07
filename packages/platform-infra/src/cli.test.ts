@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -11,6 +11,9 @@ const io: CliIo = { out: (line) => out.push(line), err: (line) => err.push(line)
 
 beforeEach(() => {
   app = mkdtempSync(join(tmpdir(), 'platform-infra-cli-'));
+  // The app identity the compose, nginx and env fragments are rendered with.
+  mkdirSync(join(app, 'packages', 'shared'), { recursive: true });
+  writeFileSync(join(app, 'packages', 'shared', 'identity.json'), JSON.stringify({ productName: 'Acme Hub', cliName: 'acmectl' }));
   out = [];
   err = [];
 });
@@ -24,15 +27,35 @@ describe('platform-infra command', () => {
     expect(main(['sync', '--root', app], io)).toBe(0);
     expect(out).toContain('wrote    infra/compose/telemetry.compose.yml');
     expect(out).toContain('created  infra/otel/app-collector.yaml (app-owned: edit it freely)');
+    expect(out).toContain('wrote    infra/compose/worker.compose.yml');
+    expect(out).toContain('created  infra/nginx/app.d/permissions-policy.conf (app-owned: edit it freely)');
     expect(out).toContain('wrote    infra/platform-infra.lock.json');
-    expect(out.at(-1)).toBe('platform-infra sync: 3 written, 0 unchanged, 1 created.');
+    expect(out.at(-1)).toBe('platform-infra sync: 18 written, 0 unchanged, 7 created.');
+    expect(readFileSync(join(app, 'infra/compose/worker.compose.yml'), 'utf8')).toContain('ACMECTL_SERVER_URL');
+  });
+
+  it('renders with --identity <file> instead of packages/shared/identity.json', () => {
+    writeFileSync(join(app, 'identity.json'), JSON.stringify({ productName: 'EvoPath', cliName: 'evopathcli' }));
+    expect(main(['sync', '--root', app, '--identity', 'identity.json'], io)).toBe(0);
+    expect(readFileSync(join(app, 'infra/compose/worker.compose.yml'), 'utf8')).toContain('EVOPATHCLI_TOKEN');
+    expect(readFileSync(join(app, 'infra/compose/base.compose.yml'), 'utf8')).toContain('OTEL_SERVICE_NAME:-evopath-api}');
+    out = [];
+    expect(main(['sync', '--check', '--root', app, '--identity', 'identity.json'], io)).toBe(0);
+    // The default identity renders other names, so the same files are drift for it.
+    expect(main(['sync', '--check', '--root', app], io)).toBe(1);
+  });
+
+  it('fails with the fix when a rendered fragment has no identity to render with', () => {
+    rmSync(join(app, 'packages'), { recursive: true, force: true });
+    expect(main(['sync', '--root', app], io)).toBe(1);
+    expect(err.join('\n')).toMatch(/rendered with the app identity, and none was found/);
   });
 
   it('exits 0 from --check after a sync', () => {
     main(['sync', '--root', app], io);
     out = [];
     expect(main(['sync', '--check', '--root', app], io)).toBe(0);
-    expect(out.at(-1)).toMatch(/^platform-infra sync --check: 3 generated file\(s\) match @marinoscar\/platform-infra@/);
+    expect(out.at(-1)).toMatch(/^platform-infra sync --check: 18 generated file\(s\) match @marinoscar\/platform-infra@/);
     expect(err).toEqual([]);
   });
 
@@ -60,6 +83,7 @@ describe('platform-infra command', () => {
     [['sync', '--force'], 2],
     [['sync', '--root'], 2],
     [['sync', '--root', '--check'], 2],
+    [['sync', '--identity'], 2],
   ] as const)('%j exits %i with the usage', (argv, code) => {
     expect(main(argv, io)).toBe(code);
     expect([...out, ...err].join('\n')).toContain(USAGE.split('\n')[0]!);

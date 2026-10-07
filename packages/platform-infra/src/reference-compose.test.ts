@@ -6,7 +6,11 @@
 // materialising them back into infra/compose/ with `platform-infra sync`)
 // changes nothing a deployment runs: each mode's merged project is compared
 // with the snapshot of the files as they were before the move
-// (test/snapshots/compose/<mode>.json). `docker compose config` needs the
+// (test/snapshots/compose/<mode>.json, written from the pre-move files and
+// never regenerated). The one intended difference is the two nginx include
+// point mounts (`platform/`, `app.d/`), which are asserted on their own and
+// removed before the comparison. The overlay fixtures (kvox's memory limits
+// and stack-agent opt-out) are rendered over the same files. `docker compose config` needs the
 // Compose CLI but no daemon, so this runs wherever Compose is installed; the
 // GitHub runners have it, so CI always runs it. Without Compose the suite is
 // skipped with a message saying so.
@@ -19,13 +23,16 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+
+import { appComposeOverlays, composeFilesForMode } from './compose-order.js';
 
 const PACKAGE_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const REPO_ROOT = join(PACKAGE_ROOT, '..', '..');
 const SNAPSHOTS = join(PACKAGE_ROOT, 'test', 'snapshots', 'compose');
+const OVERLAY_FIXTURES = join(PACKAGE_ROOT, 'test', 'fixtures', 'overlays', 'kvox', 'compose');
 
 /** The CLI name of the reference app: the single `bin` key of apps/cli/package.json. */
 function referenceCliName(): string {
@@ -41,8 +48,8 @@ const ENV_PREFIX = `${referenceCliName().toUpperCase().replace(/[^A-Z0-9]/g, '_'
 
 /**
  * The file list of each mode, as the documented commands and the deploy
- * (`composeFilesFor()`) spell them today. Spelled out on purpose: this is the
- * baseline the platform's own ordering is compared with.
+ * (`composeFilesFor()`) spelled them before the move. Spelled out on purpose:
+ * this is the baseline `composeFilesForMode()` is compared with.
  */
 const BASELINE_MODES: Record<string, readonly string[]> = {
   dev: ['base.compose.yml', 'dev.compose.yml'],
@@ -92,6 +99,7 @@ function renderCompose(
   composeDir: string,
   files: readonly string[],
   extraEnv: Record<string, string> = {},
+  extraFiles: readonly string[] = [],
 ): unknown {
   const scratch = mkdtempSync(join(tmpdir(), 'platform-infra-compose-'));
   try {
@@ -100,6 +108,7 @@ function renderCompose(
     for (const name of readdirSync(composeDir)) {
       if (name.endsWith('.yml') || name.endsWith('.yaml')) cpSync(join(composeDir, name), join(target, name));
     }
+    for (const path of extraFiles) cpSync(path, join(target, basename(path)));
     const result = spawnSync(
       'docker',
       ['compose', ...files.flatMap((file) => ['-f', file]), 'config', '--format', 'json'],
@@ -134,11 +143,108 @@ function stableJson(value: unknown): string {
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
+/** The same project without the two nginx include-point mounts this story added. */
+function withoutIncludePoints(project: unknown): unknown {
+  const copy = JSON.parse(JSON.stringify(project)) as { services?: Record<string, { volumes?: { target?: string }[] }> };
+  const nginx = copy.services?.nginx;
+  if (nginx?.volumes !== undefined) {
+    nginx.volumes = nginx.volumes.filter((v) => !INCLUDE_POINT_TARGETS.includes(v.target ?? ''));
+  }
+  return copy;
+}
+
+const INCLUDE_POINT_TARGETS = ['/etc/nginx/platform', '/etc/nginx/app.d'];
+
+type Project = { services: Record<string, Record<string, unknown> & { volumes?: { source?: string; target?: string; read_only?: boolean }[] }> };
+
+/** The current mode lists, from the package's resolver. */
+const CURRENT_MODES: Record<string, readonly string[]> = {
+  dev: composeFilesForMode('dev'),
+  devdb: composeFilesForMode('devdb'),
+  'dev-telemetry': composeFilesForMode('dev', { telemetry: true }),
+  prod: composeFilesForMode('prod'),
+  vps: composeFilesForMode('vps', { telemetry: true }),
+  worker: composeFilesForMode('worker'),
+  'worker-build': composeFilesForMode('worker', { build: true }),
+  test: ['test.compose.yml'],
+};
+
+describe('composeFilesForMode() keeps the documented order', () => {
+  it.each(Object.keys(BASELINE_MODES))('%s: the same files in the same order as before the move', (mode) => {
+    expect(CURRENT_MODES[mode]).toEqual(BASELINE_MODES[mode]);
+  });
+});
+
 describe.skipIf(!HAS_COMPOSE)('the reference app compose stacks (docker compose config)', () => {
   const composeDir = join(REPO_ROOT, 'infra', 'compose');
 
-  it.each(Object.entries(BASELINE_MODES))('%s renders exactly as before the move', async (mode, files) => {
-    const rendered = renderCompose(composeDir, files);
+  it.each(Object.entries(CURRENT_MODES))('%s renders exactly as before the move', async (mode, files) => {
+    const rendered = withoutIncludePoints(renderCompose(composeDir, files));
     await expect(stableJson(rendered)).toMatchFileSnapshot(join(SNAPSHOTS, `${mode}.json`));
+  });
+
+  it('mounts the nginx include points read-only, beside nginx.conf and csp.conf (the only difference)', () => {
+    const project = renderCompose(composeDir, CURRENT_MODES.vps ?? []) as Project;
+    const mounts = (project.services.nginx?.volumes ?? []).map((v) => [v.source, v.target, v.read_only]);
+    expect(mounts).toEqual([
+      ['<ROOT>/infra/nginx/nginx.conf', '/etc/nginx/nginx.conf', true],
+      ['<ROOT>/infra/nginx/csp.conf', '/etc/nginx/csp.conf', true],
+      ['<ROOT>/infra/nginx/platform', '/etc/nginx/platform', true],
+      ['<ROOT>/infra/nginx/app.d', '/etc/nginx/app.d', true],
+    ]);
+  });
+
+  it('builds every image from the repository root on the deploy file list (R2)', () => {
+    const project = renderCompose(composeDir, CURRENT_MODES.vps ?? []) as Project;
+    const builds = Object.entries(project.services)
+      .filter(([, service]) => service.build !== undefined)
+      .map(([name, service]) => [name, (service.build as { context: string; dockerfile: string }).context]);
+    expect(builds).toEqual([
+      ['api', '<ROOT>'],
+      ['stack-agent', '<ROOT>'],
+      ['web', '<ROOT>'],
+    ]);
+  });
+
+  it('never applies the shipped example overlay', () => {
+    const listing = readdirSync(composeDir);
+    expect(listing).toContain('app.example.compose.yml');
+    expect(appComposeOverlays(listing, 'vps')).toEqual([]);
+  });
+});
+
+describe.skipIf(!HAS_COMPOSE)('app compose overlays, with no platform file edited (kvox fixtures)', () => {
+  const composeDir = join(REPO_ROOT, 'infra', 'compose');
+  const fixtures = readdirSync(OVERLAY_FIXTURES).map((name) => join(OVERLAY_FIXTURES, name));
+  const names = fixtures.map((path) => basename(path));
+
+  it('appends the overlays after every platform file, sorted by name, each only in its scope', () => {
+    expect(composeFilesForMode('vps', { telemetry: true, overlays: names }).slice(-2)).toEqual([
+      'app.prod.memory-limits.compose.yml',
+      'app.vps.no-stack-agent.compose.yml',
+    ]);
+    expect(composeFilesForMode('prod', { overlays: names }).slice(-1)).toEqual(['app.prod.memory-limits.compose.yml']);
+    expect(composeFilesForMode('dev', { overlays: names })).toEqual(composeFilesForMode('dev'));
+  });
+
+  it('sets the memory limits from the environment, with a default', () => {
+    const files = composeFilesForMode('vps', { telemetry: true, overlays: names });
+    const byDefault = renderCompose(composeDir, files, {}, fixtures) as Project;
+    const raised = renderCompose(composeDir, files, { API_MEM_LIMIT: '768M', WEB_MEM_LIMIT: '256M' }, fixtures) as Project;
+    const memory = (project: Project, service: string): unknown =>
+      (project.services[service]?.deploy as { resources: { limits: { memory: unknown } } }).resources.limits.memory;
+    expect(memory(byDefault, 'api')).toBe(String(512 * 1024 * 1024));
+    expect(memory(raised, 'api')).toBe(String(768 * 1024 * 1024));
+    expect(memory(raised, 'web')).toBe(String(256 * 1024 * 1024));
+  });
+
+  it('switches the stack agent off, leaving every other service as the platform defines it', () => {
+    const plain = renderCompose(composeDir, CURRENT_MODES.vps ?? []) as Project;
+    const files = composeFilesForMode('vps', { telemetry: true, overlays: ['app.vps.no-stack-agent.compose.yml'] });
+    const overlaid = renderCompose(composeDir, files, {}, fixtures) as Project;
+    expect(Object.keys(plain.services)).toContain('stack-agent');
+    expect(Object.keys(overlaid.services)).not.toContain('stack-agent');
+    const { ['stack-agent']: _agent, ...rest } = plain.services;
+    expect(overlaid.services).toEqual(rest);
   });
 });

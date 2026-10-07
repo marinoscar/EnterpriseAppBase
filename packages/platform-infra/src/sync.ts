@@ -12,31 +12,46 @@
 // THREE KINDS OF FILE:
 //
 //   - Generated (`fragment.files`): rewritten on every sync, with a header in
-//     the file's own comment syntax. Never edited in the app.
+//     the file's own comment syntax. Never edited in the app. Rendered from
+//     the app identity first (`@@PLATFORM_*@@` placeholders, identity.ts);
+//     a file with `append` gets an app-owned file's content after it (the
+//     app's own variables after the platform's, in `.env.example`).
 //   - App-owned (`fragment.appOwnedFiles`): created from a package template
-//     only when absent; never overwritten, never checked for content.
-//   - The lock (`infra/platform-infra.lock.json`): the platform version and
-//     the sha256 of each generated file's body (its content after the header),
-//     so a reviewer sees an upgrade's effect as a lock diff.
+//     only when absent; never overwritten, never checked for content. A
+//     `keep` file (`.gitkeep`) is created only in a missing or empty directory
+//     and is never reported missing.
+//   - The lock (`infra/platform-infra.lock.json`): the platform version, the
+//     identity the files were rendered with, and the sha256 of each generated
+//     file's body (its content after the header), so a reviewer sees an
+//     upgrade's effect as a lock diff.
 //
 // Line endings are normalised to `\n` before hashing and comparing, so a
 // Windows checkout with `core.autocrlf` does not read as drift.
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { PLATFORM_PACKAGE } from './index.js';
-import { telemetryInfraFragment, type InfraFile, type InfraFragment } from './telemetry/index.js';
+import { readAppIdentity } from './app-identity.js';
+import type { InfraFile, InfraFragmentFiles } from './fragment.js';
+import { composeInfraFragment, envInfraFragment, nginxInfraFragment } from './fragments.js';
+import { hasPlaceholder, renderInfraText, type InfraIdentity } from './identity.js';
+import { PLATFORM_PACKAGE } from './package-name.js';
+import { telemetryInfraFragment } from './telemetry/index.js';
 
 /**
  * Every fragment the package ships, in sync order.
  *
  * @internal
  */
-export const INFRA_FRAGMENTS: readonly InfraFragment[] = [telemetryInfraFragment];
+export const INFRA_FRAGMENTS: readonly InfraFragmentFiles[] = [
+  composeInfraFragment,
+  nginxInfraFragment,
+  envInfraFragment,
+  telemetryInfraFragment,
+];
 
 /**
  * Where the lock file lives, relative to the app's repository root.
@@ -60,6 +75,8 @@ export const SYNC_COMMAND = 'npx platform-infra sync';
 export interface InfraLock {
   /** The `@marinoscar/platform-infra` version the files were materialised from. */
   version: string;
+  /** The app identity the placeholders were rendered with (absent when no file needed one). */
+  identity?: InfraIdentity;
   /** Per fragment id: app path of each generated file to the sha256 (hex) of its body. */
   fragments: Record<string, { files: Record<string, string> }>;
 }
@@ -77,7 +94,15 @@ export interface SyncOptions {
   /** The package version written into headers and the lock. Defaults to this package's `version`. */
   version?: string;
   /** The fragments to materialise. Defaults to {@link INFRA_FRAGMENTS}. */
-  fragments?: readonly InfraFragment[];
+  fragments?: readonly InfraFragmentFiles[];
+  /**
+   * The app identity placeholders are rendered with. Defaults to the one read
+   * from the app (`readAppIdentity`): `packages/shared/identity.json`, with
+   * the CLI name from `apps/cli/package.json`'s `bin`.
+   */
+  identity?: InfraIdentity;
+  /** The identity file to read instead, relative to `root` (the `--identity` option). */
+  identityFile?: string;
 }
 
 /**
@@ -133,6 +158,8 @@ const COMMENT_PREFIX: Record<string, string> = {
   '.conf': '# ',
   '.sh': '# ',
   '.env': '# ',
+  // `.env.example`, `.env.worker.example`: dotenv files.
+  '.example': '# ',
 };
 
 const HEADER_MARK = `GENERATED from ${PLATFORM_PACKAGE}@`;
@@ -163,10 +190,10 @@ function commentPrefix(path: string): string {
  *
  * @internal
  */
-export function generatedHeader(fragment: InfraFragment, file: InfraFile, version: string): string {
+export function generatedHeader(fragment: InfraFragmentFiles, file: InfraFile, version: string): string {
   const c = commentPrefix(file.to);
   return (
-    `${c}${HEADER_MARK}${version} (${fragment.id}) — do not edit; extend through ${fragment.collectorConfigs.app} or a compose overlay\n` +
+    `${c}${HEADER_MARK}${version} (${fragment.id}) — do not edit; extend through ${fragment.extendThrough}\n` +
     `${c}Source of truth: ${PLATFORM_PACKAGE}/${file.from}; re-materialise with \`${SYNC_COMMAND}\`\n`
   );
 }
@@ -223,7 +250,7 @@ function packageText(packageRoot: string, from: string): string {
 }
 
 /** Refuses a manifest that would make sync overwrite an app-owned file, or write one path twice. */
-function assertConsistent(fragments: readonly InfraFragment[]): void {
+function assertConsistent(fragments: readonly InfraFragmentFiles[]): void {
   const generated = new Map<string, string>();
   const owned = new Set<string>();
   for (const fragment of fragments) {
@@ -243,16 +270,76 @@ function assertConsistent(fragments: readonly InfraFragment[]): void {
   }
 }
 
-function resolved(options: SyncOptions): { root: string; packageRoot: string; version: string; fragments: readonly InfraFragment[] } {
+interface Resolved {
+  root: string;
+  packageRoot: string;
+  version: string;
+  fragments: readonly InfraFragmentFiles[];
+  /** Read lazily: only an app whose files carry a placeholder needs an identity. */
+  identity: () => InfraIdentity | undefined;
+}
+
+function resolved(options: SyncOptions): Resolved {
   const packageRoot = options.packageRoot ?? DEFAULT_PACKAGE_ROOT;
   const fragments = options.fragments ?? INFRA_FRAGMENTS;
   assertConsistent(fragments);
+  const root = resolve(options.root);
+  let identity: InfraIdentity | undefined = options.identity;
+  let read = identity !== undefined;
   return {
-    root: resolve(options.root),
+    root,
     packageRoot,
     version: options.version ?? readPackageVersion(packageRoot),
     fragments,
+    identity: () => {
+      if (!read) {
+        read = true;
+        identity = readAppIdentity(root, options.identityFile);
+      }
+      return identity;
+    },
   };
+}
+
+/**
+ * The body sync writes for one generated file (after the header): the package
+ * file rendered with the app identity, then the app-owned file it appends.
+ * `appended` is the app-owned file's content, or undefined to read it.
+ */
+function expectedBody(context: Resolved, file: InfraFile, appended?: string): { body: string; rendered: boolean } {
+  const raw = packageText(context.packageRoot, file.from);
+  let body = raw;
+  let rendered = false;
+  if (hasPlaceholder(raw)) {
+    const identity = context.identity();
+    if (identity === undefined) {
+      throw new Error(
+        `platform-infra: ${file.from} is rendered with the app identity, and none was found: ` +
+          `add packages/shared/identity.json ({ "productName", "cliName" }) or pass --identity <file>`,
+      );
+    }
+    body = renderInfraText(raw, identity, `${PLATFORM_PACKAGE}/${file.from}`);
+    rendered = true;
+  }
+  if (file.append !== undefined) {
+    const extra = appended ?? appOwnedText(context, file.append);
+    if (extra !== undefined && extra !== '') body = `${body.endsWith('\n') ? body : `${body}\n`}\n${extra}`;
+  }
+  return { body, rendered };
+}
+
+/** An app-owned file's current content, or its template when absent (what sync would create). */
+function appOwnedText(context: Resolved, to: string): string | undefined {
+  const target = appPath(context.root, to);
+  if (existsSync(target)) return normaliseEol(readFileSync(target, 'utf8'));
+  const template = context.fragments.flatMap((fragment) => fragment.appOwnedFiles).find((file) => file.to === to);
+  return template === undefined ? undefined : packageText(context.packageRoot, template.from);
+}
+
+/** Whether a `keep` placeholder is due: its directory is missing or empty. */
+function keepDue(target: string): boolean {
+  const dir = dirname(target);
+  return !existsSync(dir) || readdirSync(dir).length === 0;
 }
 
 function lockText(lock: InfraLock): string {
@@ -291,34 +378,48 @@ function writeIfChanged(path: string, content: string): boolean {
  * @internal
  */
 export function syncInfra(options: SyncOptions): SyncResult {
-  const { root, packageRoot, version, fragments } = resolved(options);
+  const context = resolved(options);
+  const { root, packageRoot, version, fragments } = context;
   const result: SyncResult = { written: [], unchanged: [], created: [], kept: [], lockWritten: false };
   const lock: InfraLock = { version, fragments: {} };
 
   // Plan first, write after: a missing package file or a bad path must fail
-  // the sync before it has touched anything in the app.
+  // the sync before it has touched anything in the app. App-owned files are
+  // planned first, because a generated file may append one of them.
+  const owned: { to: string; target: string; content: string | undefined; keep: boolean }[] = [];
+  const ownedText = new Map<string, string>();
+  for (const fragment of fragments) {
+    for (const file of fragment.appOwnedFiles) {
+      const target = appPath(root, file.to);
+      const keep = file.keep === true;
+      const create = keep ? keepDue(target) && !existsSync(target) : !existsSync(target);
+      const content = create ? packageText(packageRoot, file.from) : undefined;
+      owned.push({ to: file.to, target, content, keep });
+      ownedText.set(file.to, content ?? (existsSync(target) ? normaliseEol(readFileSync(target, 'utf8')) : ''));
+    }
+  }
   const generated: { to: string; target: string; content: string }[] = [];
-  const owned: { to: string; target: string; content: string | undefined }[] = [];
+  let rendered = false;
   for (const fragment of fragments) {
     const checksums: Record<string, string> = {};
     for (const file of fragment.files) {
-      const body = packageText(packageRoot, file.from);
-      generated.push({ to: file.to, target: appPath(root, file.to), content: generatedHeader(fragment, file, version) + body });
-      checksums[file.to] = bodyChecksum(body);
+      const appended = file.append === undefined ? undefined : (ownedText.get(file.append) ?? appOwnedText(context, file.append));
+      const expected = expectedBody(context, file, appended);
+      rendered ||= expected.rendered;
+      generated.push({ to: file.to, target: appPath(root, file.to), content: generatedHeader(fragment, file, version) + expected.body });
+      checksums[file.to] = bodyChecksum(expected.body);
     }
     lock.fragments[fragment.id] = { files: checksums };
-    for (const file of fragment.appOwnedFiles) {
-      const target = appPath(root, file.to);
-      owned.push({ to: file.to, target, content: existsSync(target) ? undefined : packageText(packageRoot, file.from) });
-    }
   }
+  const identity = rendered ? context.identity() : undefined;
+  const lockOut: InfraLock = identity === undefined ? lock : { version, identity: { ...identity }, fragments: lock.fragments };
 
   for (const file of generated) {
     (writeIfChanged(file.target, file.content) ? result.written : result.unchanged).push(file.to);
   }
   for (const file of owned) {
     if (file.content === undefined) {
-      result.kept.push(file.to);
+      if (!file.keep) result.kept.push(file.to);
       continue;
     }
     mkdirSync(dirname(file.target), { recursive: true });
@@ -326,7 +427,7 @@ export function syncInfra(options: SyncOptions): SyncResult {
     writeFileSync(file.target, file.content, { encoding: 'utf8', flag: 'wx' });
     result.created.push(file.to);
   }
-  result.lockWritten = writeIfChanged(appPath(root, LOCK_PATH), lockText(lock));
+  result.lockWritten = writeIfChanged(appPath(root, LOCK_PATH), lockText(lockOut));
   return result;
 }
 
@@ -352,7 +453,8 @@ function firstDifference(actual: string, expected: string, offset: number): numb
  * @internal
  */
 export function checkInfra(options: SyncOptions): CheckResult {
-  const { root, packageRoot, version, fragments } = resolved(options);
+  const context = resolved(options);
+  const { root, version, fragments } = context;
   const result: CheckResult = { version, problems: [], warnings: [], checked: [] };
   const lock = readLock(root);
   const restore = `run \`${SYNC_COMMAND}\` to restore it`;
@@ -367,7 +469,7 @@ export function checkInfra(options: SyncOptions): CheckResult {
   }
 
   for (const fragment of fragments) {
-    const overlay = `move your change into ${fragment.collectorConfigs.app} (collector) or a compose overlay of your own (compose services)`;
+    const overlay = `move your change into ${fragment.extendThrough}`;
     const known = new Set(fragment.files.map((file) => file.to));
 
     for (const file of fragment.files) {
@@ -376,7 +478,7 @@ export function checkInfra(options: SyncOptions): CheckResult {
         result.problems.push({ file: file.to, message: `missing; it is generated by ${PLATFORM_PACKAGE} (${fragment.id}): ${restore}` });
         continue;
       }
-      const expected = packageText(packageRoot, file.from);
+      const expected = expectedBody(context, file).body;
       const { header, version: headerVersion, body } = splitGenerated(readFileSync(target, 'utf8'));
       let ok = true;
 
@@ -426,10 +528,10 @@ export function checkInfra(options: SyncOptions): CheckResult {
     }
 
     for (const file of fragment.appOwnedFiles) {
-      if (!existsSync(appPath(root, file.to))) {
+      if (file.keep !== true && !existsSync(appPath(root, file.to))) {
         result.problems.push({
           file: file.to,
-          message: `missing; this app-owned file is mounted by the ${fragment.id} fragment. Run \`${SYNC_COMMAND}\` to create it from ${PLATFORM_PACKAGE}/${file.from}`,
+          message: `missing; this app-owned file is used by the ${fragment.id} fragment. Run \`${SYNC_COMMAND}\` to create it from ${PLATFORM_PACKAGE}/${file.from}`,
         });
       }
     }

@@ -1,16 +1,22 @@
+/**
+ * `@marinoscar/platform-infra`: the platform's Compose fragments, nginx
+ * configuration and env templates, the app overlay order, and identity
+ * rendering. The files ship in the package and are materialised into the app
+ * by `platform-infra sync`.
+ *
+ * @packageDocumentation
+ */
 import { isAbsolute, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/**
- * The npm name of this package, which holds Compose fragments, nginx and OpenTelemetry collector configuration of the platform.
- *
- * A placeholder export so the build, the pack check and the smoke imports in
- * CI have something to load end to end. Real slices arrive as subpath
- * exports (`@marinoscar/platform-infra/<slice>`).
- *
- * @stability experimental
- */
-export const PLATFORM_PACKAGE = '@marinoscar/platform-infra' as const;
+export { PLATFORM_PACKAGE } from './package-name.js';
+export type { InfraFile, InfraFragmentFiles } from './fragment.js';
+export type { PlatformInfraFragment } from './fragments.js';
+export { composeInfraFragment, envInfraFragment, nginxInfraFragment } from './fragments.js';
+export type { ComposeFilesOptions, ComposeMode } from './compose-order.js';
+export { appComposeOverlays, COMPOSE_MODES, composeFilesForMode } from './compose-order.js';
+export type { InfraIdentity, InfraIdentityInput } from './identity.js';
+export { DEFAULT_WORKER_IMAGE, deriveInfraIdentity, INFRA_PLACEHOLDERS, renderInfraText } from './identity.js';
 
 /**
  * The package root as a URL. `../` from this module is the package root both
