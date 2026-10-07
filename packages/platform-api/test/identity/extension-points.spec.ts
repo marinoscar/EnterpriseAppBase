@@ -111,7 +111,7 @@ describe('roles and permissions as data', () => {
   });
 
   it('grants every permission only to roles of its own scope', () => {
-    const scopes = new Map(Object.values(IDENTITY_ROLES).map((role) => [role.id, role.scope]));
+    const scopes = new Map<string, string>(Object.values(IDENTITY_ROLES).map((role) => [role.id, role.scope]));
     for (const permission of Object.values(IDENTITY_PERMISSION_DECLARATIONS)) {
       for (const role of permission.defaultGrants) expect(`${permission.id} -> ${role}:${scopes.get(role)}`).toBe(`${permission.id} -> ${role}:${permission.scope}`);
     }

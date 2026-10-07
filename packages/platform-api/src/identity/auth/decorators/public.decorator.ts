@@ -2,6 +2,8 @@ import { SetMetadata } from '@nestjs/common';
 
 /**
  * Metadata key for public routes
+ *
+ * @stability stable
  */
 export const IS_PUBLIC_KEY = 'isPublic';
 
@@ -16,5 +18,7 @@ export const IS_PUBLIC_KEY = 'isPublic';
  *   return { status: 'ok' };
  * }
  * ```
+ *
+ * @stability stable
  */
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);

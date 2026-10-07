@@ -28,6 +28,8 @@ import { DeviceAuthService } from '../device-auth.service';
  * The handler key, and therefore the `Job.type` every device-code-cleanup row
  * carries. PERMANENT — rows outlive handlers. Exported so the scheduling task
  * asks about the same string it queues.
+ *
+ * @stability stable
  */
 export const DEVICE_CODE_CLEANUP_TYPE = 'device-auth.code.cleanup';
 

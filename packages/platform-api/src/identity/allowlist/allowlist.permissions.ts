@@ -10,9 +10,21 @@
 // Recipe: common/permissions/README.md.
 // =============================================================================
 
-import type { IdentityPermissionDeclarationMap as PermissionDeclarationMap } from '../identity.permissions';
+import type { IdentityPermissionDeclaration as PermissionDeclaration } from '../identity.permissions';
 
-export const ALLOWLIST_PERMISSIONS = {
+/**
+ * The permissions of the allowlist: `allowlist:read`, `allowlist:write` (system), with descriptions and default grants, keyed by
+ * the `PERMISSIONS` constant name the reference app derives from them.
+ * Register them with the app's permission registry.
+ *
+ * @stability stable
+ */
+export const ALLOWLIST_PERMISSIONS: {
+  /** `allowlist:read`: view allowlisted emails. */
+  readonly ALLOWLIST_READ: PermissionDeclaration<'allowlist:read'>;
+  /** `allowlist:write`: manage allowlisted emails. */
+  readonly ALLOWLIST_WRITE: PermissionDeclaration<'allowlist:write'>;
+} = {
   // Allowlist
   ALLOWLIST_READ: {
     id: 'allowlist:read',
@@ -26,4 +38,4 @@ export const ALLOWLIST_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies PermissionDeclarationMap;
+};

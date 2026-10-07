@@ -38,10 +38,18 @@ import { z } from 'zod';
 
 export type { TenancyMode };
 
-/** The environment variable this module parses. */
+/**
+ * The environment variable this module parses.
+ *
+ * @stability stable
+ */
 export const TENANCY_MODE_ENV_VAR = 'TENANCY_MODE';
 
-/** Every tenancy mode, in the order they are documented. */
+/**
+ * Every tenancy mode, in the order they are documented.
+ *
+ * @stability stable
+ */
 export const TENANCY_MODES = ['single', 'multi'] as const satisfies readonly TenancyMode[];
 
 // Compile-time guard: the list above covers every `TenancyMode` ADR 0001 names.
@@ -50,7 +58,11 @@ type MissingTenancyMode = Exclude<TenancyMode, (typeof TENANCY_MODES)[number]>;
 const tenancyModesAreComplete: [MissingTenancyMode] extends [never] ? true : never = true;
 void tenancyModesAreComplete;
 
-/** What an unset or empty `TENANCY_MODE` means. */
+/**
+ * What an unset or empty `TENANCY_MODE` means.
+ *
+ * @stability stable
+ */
 export const DEFAULT_TENANCY_MODE: TenancyMode = 'single';
 
 const tenancyModeSchema = z.enum(TENANCY_MODES);
@@ -66,7 +78,9 @@ const tenancyModeSchema = z.enum(TENANCY_MODES);
  * - Anything else throws, with a message naming the variable and the allowed
  *   values, so the deploy log says exactly what to fix.
  *
- * @throws {Error} on any value that is not a tenancy mode.
+ * @throws Error on any value that is not a tenancy mode.
+ *
+ * @stability stable
  */
 export function parseTenancyMode(raw: string | undefined): TenancyMode {
   const value = (raw ?? '').trim();
@@ -88,6 +102,8 @@ export function parseTenancyMode(raw: string | undefined): TenancyMode {
 /**
  * What a tenancy mode does at sign-in. One table, so the auth path asks a
  * capability rather than repeating `mode === 'single'` checks.
+ *
+ * @stability stable
  */
 export interface TenancyCapabilities {
   /**
@@ -104,7 +120,11 @@ export interface TenancyCapabilities {
   requireActiveMembership: boolean;
 }
 
-/** Pure. The capability table, by mode. */
+/**
+ * Pure. The capability table, by mode.
+ *
+ * @stability stable
+ */
 export function tenancyCapabilitiesFor(mode: TenancyMode): TenancyCapabilities {
   switch (mode) {
     case 'single':
@@ -114,7 +134,11 @@ export function tenancyCapabilitiesFor(mode: TenancyMode): TenancyCapabilities {
   }
 }
 
-/** One line for the startup log. */
+/**
+ * One line for the startup log.
+ *
+ * @stability stable
+ */
 export function describeTenancyMode(mode: TenancyMode): string {
   return mode === 'single'
     ? `Tenancy mode: single (${TENANCY_MODE_ENV_VAR}). Every user joins the default organization.`
@@ -126,6 +150,8 @@ export function describeTenancyMode(mode: TenancyMode): string {
  * The bootstrap check: parse the variable, log the mode once, return it.
  * Called from `main.ts` beside `verifyDeploymentModeAtStartup`, before the Nest
  * application exists, so a typo never opens a database connection.
+ *
+ * @stability stable
  */
 export function verifyTenancyModeAtStartup(
   env: Record<string, string | undefined>,

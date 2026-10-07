@@ -57,7 +57,11 @@ import type { AuthenticatedUser } from '../interfaces/authenticated-user.interfa
 // in `nodes/node-credential.controller.ts`.
 // =============================================================================
 
-/** The one route prefix a `nod_` credential may reach. No trailing slash. */
+/**
+ * The one route prefix a `nod_` credential may reach. No trailing slash.
+ *
+ * @stability stable
+ */
 export const NODE_ROUTE_PREFIX = '/api/nodes';
 
 /** The `Authorization` value prefixes each token family is recognized by. */
@@ -87,6 +91,8 @@ const BEARER_OFFSET = 'Bearer '.length;
  * security model: a PAT is a human deliberately delegating their own
  * authority to a script they control, while a node credential is authority
  * handed to an unattended process on a machine the deployment may not own.
+ *
+ * @stability stable
  */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {

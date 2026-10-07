@@ -9,10 +9,23 @@ import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import type { Principal } from '../../../core/index';
 import { toRequestUser, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
+/**
+ * Admits a caller holding ALL the permissions `@Permissions(...)` names, in
+ * their effective set (system grants plus the current organization's).
+ * Applied by `@Auth()` after `JwtAuthGuard`.
+ *
+ * @stability stable
+ */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
+  /**
+   * Whether the request's user holds every required permission.
+   *
+   * @param context - the execution context.
+   * @returns `true` to admit; throws `ForbiddenException` otherwise.
+   */
   canActivate(context: ExecutionContext): boolean {
     const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
       PERMISSIONS_KEY,

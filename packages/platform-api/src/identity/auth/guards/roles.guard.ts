@@ -8,10 +8,22 @@ import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { toRequestUser, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
+/**
+ * Admits a caller holding ANY of the system roles `@Roles(...)` names (no
+ * roles named: everyone authenticated). Applied by `@Auth()` after `JwtAuthGuard`.
+ *
+ * @stability stable
+ */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
+  /**
+   * Whether the request's user holds one of the required roles.
+   *
+   * @param context - the execution context.
+   * @returns `true` to admit; throws `ForbiddenException` otherwise.
+   */
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(
       ROLES_KEY,

@@ -20,6 +20,12 @@ import { PrincipalCache } from './principal-cache.service';
 // never reaches.
 // =============================================================================
 
+/**
+ * Provides the one {@link PrincipalCache} of the process. Import it where a
+ * service invalidates principals.
+ *
+ * @stability stable
+ */
 @Module({
   providers: [PrincipalCache],
   exports: [PrincipalCache],

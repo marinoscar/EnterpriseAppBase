@@ -79,6 +79,8 @@ export interface RevokedCredentials {
  * alone. An access token already issued stops validating within the
  * principal-cache TTL (at once on this replica), because its `org` claim is
  * no longer an active membership.
+ *
+ * @internal
  */
 @Injectable()
 export class OrgMembersService {

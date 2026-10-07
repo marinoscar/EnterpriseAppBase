@@ -12,6 +12,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-api/testing`: the conformance harness (`runPlatformConformance`, `conformanceSuites`, the `cron-enqueue-only` and `user-owned-data` suites, and the small Prisma schema reader behind the latter). [README](src/testing/README.md).
 - `@marinoscar/platform-api/doctor`: the admin Doctor, `GET /api/admin/doctor` (`DoctorModule.forRoot({ host })`, `DoctorCheckRegistry`, the check contract). The first packaged slice (#696). [README](src/doctor/README.md).
 - `@marinoscar/platform-api/otel-core` and `@marinoscar/platform-api/otel-core/sdk`: the emitting half of telemetry (#700): `initializeOtel` (the Nest-free SDK bootstrap, loaded first), the runtime export gate `telemetryGate`, the metrics host `MetricsHostService` with the app-metric name registry and the gauge-provider seam, `registerRequestSpanAttributes` and `@Trace()`. [README](src/otel-core/README.md).
+- `@marinoscar/platform-api/identity` and `@marinoscar/platform-api/identity/testing`: identity (#727): `IdentityModule.forRoot()`, the route-access decorators and guards (`@Auth`, `@Public`, `@CurrentUser`, `@CurrentPrincipal`, `JwtAuthGuard`), sessions and refresh tokens, personal access tokens, worker-node credentials, the device flow, users, the allowlist, organizations and tenancy, the sign-in provider registry, the `identity.*` events and the host ports identity reaches the app through; the test login, the stub host and the `identity` conformance suite. [README](src/identity/README.md).
 
 The `core` slice also holds the **host ports** (#696: `definePlatformHost`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`, `PlatformHostModule`), the one mechanism every packaged slice uses to reach app-owned capabilities, with test doubles in `testing`. [Host ports](src/core/README.md#host-ports).
 
@@ -29,11 +30,15 @@ Install these in the app; the package never bundles its own copy (a second copy 
 |---|---|
 | `@nestjs/common` | `^11.1.12` |
 | `@nestjs/core` | `^11.1.12` |
+| `@nestjs/event-emitter` | `^3.0.1` (identity) |
+| `@nestjs/jwt` | `^11.0.2` (identity) |
+| `@nestjs/passport` | `^11.0.5` (identity) |
 | `@nestjs/swagger` | `^11.2.5` |
 | `@opentelemetry/api` | `^1.9.1` |
 | `@prisma/client` | `^7.8.0` |
 | `fastify` | `^5` |
 | `nestjs-zod` | `^5.4.0` |
+| `passport` | `^0.7.0` (identity) |
 | `reflect-metadata` | `^0.2.2` |
 | `rxjs` | `^7.8.1` |
 | `zod` | `^4.4.3` |

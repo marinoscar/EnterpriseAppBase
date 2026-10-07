@@ -83,6 +83,7 @@ export { USERS_PERMISSIONS } from './users/users.permissions';
 export { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 export { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
 export { ORGANIZATIONS_APP_METRICS } from './organizations/organizations.metrics';
+export type { IdentityAppMetricDef } from './organizations/organizations.metrics';
 
 // ---- route access: decorators and guards (stable) -------------------------------------
 export { Auth, RBAC_EXTENSION_KEY } from './auth/decorators/auth.decorator';
@@ -100,10 +101,17 @@ export { JwtAuthGuard, NODE_ROUTE_PREFIX } from './auth/guards/jwt-auth.guard';
 export { RolesGuard } from './auth/guards/roles.guard';
 export { PermissionsGuard } from './auth/guards/permissions.guard';
 export { GoogleOAuthGuard } from './auth/guards/google-oauth.guard';
+export type { GoogleAuthenticateOptions } from './auth/guards/google-oauth.guard';
 
 // ---- the request user and the principal ------------------------------------------------
 export { toRequestUser } from './auth/interfaces/authenticated-user.interface';
-export type { AuthenticatedUser, RequestUser } from './auth/interfaces/authenticated-user.interface';
+export type {
+  AuthenticatedMembership,
+  AuthenticatedPermission,
+  AuthenticatedRole,
+  AuthenticatedUser,
+  RequestUser,
+} from './auth/interfaces/authenticated-user.interface';
 export {
   PRINCIPAL_USER_INCLUDE,
   PrincipalFactory,

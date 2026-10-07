@@ -3,6 +3,16 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthLoginDeniedException } from '../auth-error-codes';
 
 /**
+ * Per-request `passport.authenticate` options of {@link GoogleOAuthGuard}.
+ *
+ * @stability stable
+ */
+export interface GoogleAuthenticateOptions {
+  /** `select_account`: show Google's account chooser. */
+  prompt: 'select_account';
+}
+
+/**
  * Google OAuth guard for Fastify
  *
  * Initiates the Google OAuth flow when applied to a route.
@@ -12,9 +22,19 @@ import { AuthLoginDeniedException } from '../auth-error-codes';
  * This guard overrides getRequest/getResponse to return raw Node.js http objects
  * that Passport can work with. After authentication, it copies the user back
  * to the Fastify request so controllers can access req.user normally.
+ *
+ * The guard of the `google` sign-in provider (`registerAuthProvider`).
+ *
+ * @stability stable
  */
 @Injectable()
 export class GoogleOAuthGuard extends AuthGuard('google') {
+  /**
+   * The raw Node.js request, for Passport.
+   *
+   * @param context - the execution context.
+   * @returns the raw request.
+   */
   getRequest(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest();
     // Return the raw Node.js IncomingMessage for Passport compatibility
@@ -31,8 +51,11 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
    *
    * The query is read from the FASTIFY request: `getRequest` above returns the
    * raw `IncomingMessage`, which has no parsed `query`.
+   *
+   * @param context - the execution context.
+   * @returns the options, or `undefined`.
    */
-  getAuthenticateOptions(context: ExecutionContext) {
+  getAuthenticateOptions(context: ExecutionContext): GoogleAuthenticateOptions | undefined {
     const query = context.switchToHttp().getRequest()?.query as
       | Record<string, unknown>
       | undefined;
@@ -42,12 +65,28 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
       : undefined;
   }
 
+  /**
+   * The raw Node.js response, for Passport.
+   *
+   * @param context - the execution context.
+   * @returns the raw response.
+   */
   getResponse(context: ExecutionContext) {
     const response = context.switchToHttp().getResponse();
     // Return the raw Node.js ServerResponse for Passport compatibility
     return response.raw || response;
   }
 
+  /**
+   * Turns a consent denial into `AuthLoginDeniedException('access_denied')`,
+   * rethrows any other error, and returns the profile.
+   *
+   * @param err - Passport's error.
+   * @param user - the profile, or `false`.
+   * @param _info - Passport's info.
+   * @param context - the execution context.
+   * @returns the profile.
+   */
   handleRequest<TUser = unknown>(
     err: Error | null,
     user: TUser | false,

@@ -20,13 +20,26 @@ import { toPrincipal } from '../principal.factory';
 // the same way the guard builds it. A public route has neither: `undefined`.
 // =============================================================================
 
-/** The request properties the decorator reads. */
+/**
+ * The request properties the decorator reads.
+ *
+ * @stability stable
+ */
 export interface RequestWithPrincipal {
+  /** Set by `JwtAuthGuard` (ADR 0001). */
   principal?: Principal;
+  /** The loaded user graph, set by the credential path that admitted the request. */
   user?: AuthenticatedUser;
 }
 
-/** The request's principal, or `undefined` on a public route. */
+/**
+ * The request's principal, or `undefined` on a public route.
+ *
+ * @param request - the request.
+ * @returns the principal the guard set, or one built from `request.user`.
+ *
+ * @stability stable
+ */
 export function principalOf(request: RequestWithPrincipal | undefined): Principal | undefined {
   if (!request) return undefined;
   if (request.principal) return request.principal;
@@ -46,6 +59,8 @@ export function principalOf(request: RequestWithPrincipal | undefined): Principa
  *   return this.items.list({ userId: principal.userId, orgId: principal.activeOrgId });
  * }
  * ```
+ *
+ * @stability stable
  */
 export const CurrentPrincipal = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): Principal | undefined =>

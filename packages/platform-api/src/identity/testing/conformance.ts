@@ -97,6 +97,34 @@ export interface IdentityConformanceRlsOptions {
 }
 
 /**
+ * One role-to-permission grant.
+ *
+ * @stability experimental
+ */
+export interface IdentityConformanceGrant {
+  /** The role. */
+  readonly role: string;
+  /** The permission it is granted. */
+  readonly permission: string;
+}
+
+/**
+ * The authentication guard class check 4 exercises.
+ *
+ * @stability experimental
+ */
+export interface IdentityConformanceGuardClass {
+  /**
+   * Builds the guard over stub resolvers.
+   *
+   * @param reflector - a fresh `Reflector`.
+   * @param pats - resolves `pat_conformance` only.
+   * @param nodes - resolves `nod_conformance` only.
+   */
+  new (reflector: Reflector, pats: PatService, nodes: IdentityNodeCredentials): CanActivate;
+}
+
+/**
  * What an app passes as `suites.identity` to `runPlatformConformance()`.
  *
  * @example
@@ -124,12 +152,12 @@ export interface IdentityConformanceOptions {
   /** Every registered role, with its scope. */
   readonly roles: readonly IdentityConformanceAccessEntry[];
   /** Every role-to-permission grant the app seeds. */
-  readonly grants: ReadonlyArray<{ readonly role: string; readonly permission: string }>;
+  readonly grants: ReadonlyArray<IdentityConformanceGrant>;
   /**
    * The authentication guard to exercise for check 4; the slice's
    * `JwtAuthGuard` by default. Constructed as `new guard(reflector, pats, nodes)`.
    */
-  readonly guard?: new (reflector: Reflector, pats: PatService, nodes: IdentityNodeCredentials) => CanActivate;
+  readonly guard?: IdentityConformanceGuardClass;
   /** The db-tier row-level security check; skipped when absent. */
   readonly rls?: IdentityConformanceRlsOptions;
   /** Fewest routes the walk must find (a vacuity guard); 1 by default. */
@@ -427,6 +455,7 @@ const FILE_ROUTES = 'routes';
  * The `identity` conformance suite. Registered when
  * `@marinoscar/platform-api/identity/testing` is imported.
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export const identityConformanceSuite: ConformanceSuite<IdentityConformanceOptions> = {

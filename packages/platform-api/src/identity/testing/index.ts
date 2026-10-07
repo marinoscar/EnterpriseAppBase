@@ -24,10 +24,12 @@ export {
 } from './conformance';
 export type {
   IdentityConformanceAccessEntry,
+  IdentityConformanceGrant,
+  IdentityConformanceGuardClass,
   IdentityConformanceOptions,
   IdentityConformanceRlsOptions,
   IdentityConformanceRlsTable,
   IdentityRoute,
 } from './conformance';
 export { createStubIdentityHost } from './stub-host';
-export type { StubIdentityHostOptions, StubIdentityHostState } from './stub-host';
+export type { StubIdentityHost, StubIdentityHostOptions, StubIdentityHostState, StubIdentityNotification } from './stub-host';

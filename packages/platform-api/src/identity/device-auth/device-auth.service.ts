@@ -25,6 +25,8 @@ import { deviceTokenError } from './exceptions/device-token-error.exception';
 
 /**
  * Service for handling Device Authorization Flow (RFC 8628)
+ *
+ * @internal
  */
 @Injectable()
 export class DeviceAuthService {

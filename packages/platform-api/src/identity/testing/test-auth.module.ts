@@ -7,6 +7,11 @@ import { TestAuthController } from './test-auth.controller';
 import { TestAuthService } from './test-auth.service';
 import { requireJwtSecret } from '../identity.configuration';
 
+/**
+ * The test-only login (`POST /api/auth/test/login`), for e2e suites. Mount it with `IdentityModule.forRoot({ enableTestAuth })`, which refuses it in production.
+ *
+ * @stability experimental
+ */
 @Module({
   imports: [
     // PP-1.12 (#683): the role swap invalidates principals.

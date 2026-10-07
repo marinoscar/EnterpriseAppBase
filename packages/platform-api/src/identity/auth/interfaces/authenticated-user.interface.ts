@@ -2,15 +2,66 @@ import { User, MembershipStatus } from '@prisma/client';
 import type { CredentialKind } from '../../../core/index';
 import { principalFactory } from '../principal.factory';
 
-/** A role row with its permissions, as the principal graph loads it. */
-interface AuthenticatedRole {
+/**
+ * A role row with its permissions, as the principal graph loads it.
+ *
+ * @stability stable
+ */
+export interface AuthenticatedRole {
+  /** The role's id. */
   id: string;
+  /** The role name (`admin`, `viewer`, ...). */
   name: string;
+  /** Its description. */
   description: string | null;
+  /** `system` or `org`. */
   scope?: 'system' | 'org';
+  /** Its grants. */
   rolePermissions: Array<{
-    permission: { id: string; name: string; description: string | null; scope?: 'system' | 'org' };
+    /** The granted permission. */
+    permission: AuthenticatedPermission;
   }>;
+}
+
+/**
+ * A permission row, as the principal graph loads it.
+ *
+ * @stability stable
+ */
+export interface AuthenticatedPermission {
+  /** The permission's id. */
+  id: string;
+  /** The permission string (`users:read`). */
+  name: string;
+  /** Its description. */
+  description: string | null;
+  /** `system` or `org`. */
+  scope?: 'system' | 'org';
+}
+
+/**
+ * One membership of the user, with its org role, as the principal graph loads it.
+ *
+ * @stability stable
+ */
+export interface AuthenticatedMembership {
+  /** The organization. */
+  orgId: string;
+  /** `active` or `suspended`. */
+  status: MembershipStatus;
+  /** When the user last acted in the organization. */
+  lastActiveAt: Date | null;
+  /** When the membership was created. */
+  createdAt?: Date;
+  /** The organization's id and whether it is the default one. */
+  org?: {
+    /** The organization's id. */
+    id: string;
+    /** Whether it is the deployment's default organization. */
+    isDefault: boolean;
+  } | null;
+  /** The org role on the membership. */
+  role: AuthenticatedRole;
 }
 
 /**
@@ -20,19 +71,17 @@ interface AuthenticatedRole {
  * (`auth/principal.factory.ts`). `memberships` is optional so a graph loaded
  * without it (an older caller, a test fixture) still type-checks; it then
  * contributes no org role.
+ *
+ * @stability stable
  */
 export interface AuthenticatedUser extends User {
+  /** The user's SYSTEM roles (`user_roles`). */
   userRoles: Array<{
+    /** The role. */
     role: AuthenticatedRole;
   }>;
-  memberships?: Array<{
-    orgId: string;
-    status: MembershipStatus;
-    lastActiveAt: Date | null;
-    createdAt?: Date;
-    org?: { id: string; isDefault: boolean } | null;
-    role: AuthenticatedRole;
-  }>;
+  /** The user's memberships, each with its ORG role. */
+  memberships?: AuthenticatedMembership[];
   /**
    * The org this request's credential is bound to (#724), stamped by the
    * credential path that admitted it: the access token's `org` claim, the
@@ -46,15 +95,20 @@ export interface AuthenticatedUser extends User {
 }
 
 /**
- * Simplified user info for request context
+ * Simplified user info for request context.
+ *
+ * @stability stable
  */
 export interface RequestUser {
+  /** The user's id. */
   id: string;
+  /** The user's email. */
   email: string;
   /** System role names plus the current org role name (issue #723). */
   roles: string[];
   /** Effective permissions: system grants ∪ current-org membership grants. */
   permissions: string[];
+  /** Whether the account is active. */
   isActive: boolean;
   /** The active org (#724): present when the credential path stamped one; `null` for a node. */
   activeOrgId?: string | null;
@@ -63,6 +117,11 @@ export interface RequestUser {
 /**
  * Extract RequestUser from AuthenticatedUser. The roles and permissions come
  * from `PrincipalFactory` (system roles ∪ current-org membership role).
+ *
+ * @param user - the loaded user graph.
+ * @returns the simplified view.
+ *
+ * @stability stable
  */
 export function toRequestUser(user: AuthenticatedUser): RequestUser {
   const { roles, permissions } = principalFactory.access(user);

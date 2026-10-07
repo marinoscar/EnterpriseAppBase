@@ -39,11 +39,13 @@ export type IdentityPermissionScope = 'system' | 'org';
 /**
  * A role every deployment seeds into `roles`.
  *
+ * @typeParam Id - the role name.
+ *
  * @stability stable
  */
-export interface IdentityRoleDeclaration {
+export interface IdentityRoleDeclaration<Id extends string = string> {
   /** The role name, e.g. `'admin'`. Never rename one that has been seeded. */
-  readonly id: string;
+  readonly id: Id;
   /** Seeded into `roles.description`. */
   readonly description: string;
   /** `'system'` (assigned in `user_roles`) or `'org'` (assigned on a membership). */
@@ -54,11 +56,13 @@ export interface IdentityRoleDeclaration {
  * A permission every deployment seeds into `permissions`, with its default
  * role grants.
  *
+ * @typeParam Id - the permission string.
+ *
  * @stability stable
  */
-export interface IdentityPermissionDeclaration {
+export interface IdentityPermissionDeclaration<Id extends string = string> {
   /** `'<resource>:<action>'`: the exact string `@Auth({ permissions })` enforces. */
-  readonly id: string;
+  readonly id: Id;
   /** Seeded into `permissions.description`. */
   readonly description: string;
   /** `'system'` or `'org'`; every role in `defaultGrants` has the same scope. */
@@ -86,7 +90,16 @@ export type IdentityRoleDeclarationMap = Readonly<Record<string, IdentityRoleDec
  *
  * @stability stable
  */
-export const IDENTITY_ROLES = {
+export const IDENTITY_ROLES: {
+  /** `admin` (system). */
+  readonly ADMIN: IdentityRoleDeclaration<'admin'>;
+  /** `contributor` (org). */
+  readonly CONTRIBUTOR: IdentityRoleDeclaration<'contributor'>;
+  /** `viewer` (org). */
+  readonly VIEWER: IdentityRoleDeclaration<'viewer'>;
+  /** `org_admin` (org). */
+  readonly ORG_ADMIN: IdentityRoleDeclaration<'org_admin'>;
+} = {
   /** System administrator. */
   ADMIN: {
     id: 'admin',
@@ -111,7 +124,7 @@ export const IDENTITY_ROLES = {
     description: 'Organization administrator - everything a contributor can do, plus manage the organization members and invites',
     scope: 'org',
   },
-} as const satisfies IdentityRoleDeclarationMap;
+};
 
 /**
  * Every permission identity enforces, in seed order: users and RBAC, the
@@ -119,11 +132,11 @@ export const IDENTITY_ROLES = {
  *
  * @stability stable
  */
-export const IDENTITY_PERMISSION_DECLARATIONS = {
+export const IDENTITY_PERMISSION_DECLARATIONS: typeof USERS_PERMISSIONS & typeof ALLOWLIST_PERMISSIONS & typeof ORGANIZATIONS_PERMISSIONS = {
   ...USERS_PERMISSIONS,
   ...ALLOWLIST_PERMISSIONS,
   ...ORGANIZATIONS_PERMISSIONS,
-} as const satisfies IdentityPermissionDeclarationMap;
+};
 
 /** Turns a declaration map into a map of its ids, keeping the literal types. */
 function idsOf<M extends Readonly<Record<string, { readonly id: string }>>>(map: M): { readonly [K in keyof M]: M[K]['id'] } {
@@ -137,7 +150,16 @@ function idsOf<M extends Readonly<Record<string, { readonly id: string }>>>(map:
  *
  * @stability stable
  */
-export const IDENTITY_ROLE_IDS = idsOf(IDENTITY_ROLES);
+export const IDENTITY_ROLE_IDS: {
+  /** `admin`. */
+  readonly ADMIN: 'admin';
+  /** `contributor`. */
+  readonly CONTRIBUTOR: 'contributor';
+  /** `viewer`. */
+  readonly VIEWER: 'viewer';
+  /** `org_admin`. */
+  readonly ORG_ADMIN: 'org_admin';
+} = idsOf(IDENTITY_ROLES);
 
 /**
  * The permission ids identity enforces, keyed by constant name
@@ -145,7 +167,30 @@ export const IDENTITY_ROLE_IDS = idsOf(IDENTITY_ROLES);
  *
  * @stability stable
  */
-export const IDENTITY_PERMISSION_IDS = idsOf(IDENTITY_PERMISSION_DECLARATIONS);
+export const IDENTITY_PERMISSION_IDS: {
+  /** `users:read`. */
+  readonly USERS_READ: 'users:read';
+  /** `users:write`. */
+  readonly USERS_WRITE: 'users:write';
+  /** `rbac:manage`. */
+  readonly RBAC_MANAGE: 'rbac:manage';
+  /** `allowlist:read`. */
+  readonly ALLOWLIST_READ: 'allowlist:read';
+  /** `allowlist:write`. */
+  readonly ALLOWLIST_WRITE: 'allowlist:write';
+  /** `org_members:read`. */
+  readonly ORG_MEMBERS_READ: 'org_members:read';
+  /** `org_members:write`. */
+  readonly ORG_MEMBERS_WRITE: 'org_members:write';
+  /** `org_invites:read`. */
+  readonly ORG_INVITES_READ: 'org_invites:read';
+  /** `org_invites:write`. */
+  readonly ORG_INVITES_WRITE: 'org_invites:write';
+  /** `organizations:read`. */
+  readonly ORGANIZATIONS_READ: 'organizations:read';
+  /** `organizations:write`. */
+  readonly ORGANIZATIONS_WRITE: 'organizations:write';
+} = idsOf(IDENTITY_PERMISSION_DECLARATIONS);
 
 /**
  * The org role a new membership gets: every sign-up's role in the default

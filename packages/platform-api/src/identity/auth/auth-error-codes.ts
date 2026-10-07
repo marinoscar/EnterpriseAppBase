@@ -10,7 +10,11 @@ import { AUTH_ERROR_CODES, DEFAULT_AUTH_ERROR_CODE, type AuthErrorCode } from '@
 export { AUTH_ERROR_CODES, DEFAULT_AUTH_ERROR_CODE };
 export type { AuthErrorCode };
 
-/** Reasons a login can be refused, a subset of `AuthErrorCode`. */
+/**
+ * Reasons a login can be refused, a subset of `AuthErrorCode`.
+ *
+ * @stability stable
+ */
 export type AuthLoginDeniedReason = Extract<
   AuthErrorCode,
   'not_allowlisted' | 'account_disabled' | 'access_denied' | 'no_organization'
@@ -25,9 +29,16 @@ export type AuthLoginDeniedReason = Extract<
  * the OpenAPI document) is unchanged; `reason` is what the OAuth callback turns
  * into the redirect's `error` code. The human message stays for logs and API
  * consumers and is never put in the redirect.
+ *
+ * @stability stable
  */
 export class AuthLoginDeniedException extends ForbiddenException {
+  /**
+   * @param reason - the redirect's `error` code.
+   * @param message - the human message, for logs and API consumers; never put in the redirect.
+   */
   constructor(
+    /** The sign-in error code the OAuth callback redirects with. */
     readonly reason: AuthLoginDeniedReason,
     message: string,
   ) {
@@ -38,6 +49,8 @@ export class AuthLoginDeniedException extends ForbiddenException {
 /**
  * Builds the frontend callback URL for a failed sign-in:
  * `${appUrl}/auth/callback?error=<code>`.
+ *
+ * @stability stable
  */
 export function buildAuthErrorRedirectUrl(
   appUrl: string | undefined,
@@ -59,6 +72,8 @@ export function buildAuthErrorRedirectUrl(
  * Matched structurally (name and code) rather than with `instanceof`, because
  * the class belongs to `passport-oauth2`, a transitive dependency this module
  * should not import, and more than one copy of it can be installed.
+ *
+ * @stability stable
  */
 export function isOAuthAccessDenied(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
@@ -70,6 +85,8 @@ export function isOAuthAccessDenied(error: unknown): boolean {
  * Maps anything thrown on the Google sign-in path to a code from the closed
  * set. Anything unrecognised is `authentication_failed`, so a new failure mode
  * can never leak its message into the redirect.
+ *
+ * @stability stable
  */
 export function resolveAuthErrorCode(error: unknown): AuthErrorCode {
   if (error instanceof AuthLoginDeniedException) return error.reason;

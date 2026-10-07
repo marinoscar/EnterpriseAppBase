@@ -5,11 +5,17 @@ import { Strategy, VerifyCallback, Profile } from 'passport-google-oauth20';
 
 /**
  * Google OAuth profile information extracted from the provider
+ *
+ * @stability stable
  */
 export interface GoogleProfile {
+  /** Google's subject id. */
   id: string;
+  /** The account's email. */
   email: string;
+  /** The account's display name. */
   displayName: string;
+  /** The account's picture URL, when it has one. */
   picture?: string;
 }
 

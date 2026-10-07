@@ -29,6 +29,8 @@ interface FastifyRequestWithUser {
  *   return { email };
  * }
  * ```
+ *
+ * @stability stable
  */
 export const CurrentUser = createParamDecorator(
   (data: keyof RequestUser | undefined, ctx: ExecutionContext) => {

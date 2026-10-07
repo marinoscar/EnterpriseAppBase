@@ -17,11 +17,23 @@ import { Logger } from '@nestjs/common';
 //                        is the safe, documented value.
 // =============================================================================
 
+/**
+ * The principal cache's TTL when `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` is unset or invalid.
+ *
+ * @stability stable
+ */
 export const DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS = 30;
 
 const logger = new Logger('PrincipalCache');
 
-/** Pure apart from the one warning: the TTL, in seconds, for a configured value. */
+/**
+ * Pure apart from the one warning: the TTL, in seconds, for a configured value.
+ *
+ * @param raw - `AUTH_PRINCIPAL_CACHE_TTL_SECONDS`.
+ * @returns a non-negative whole number of seconds (0 disables the cache).
+ *
+ * @stability stable
+ */
 export function parsePrincipalCacheTtlSeconds(raw: unknown): number {
   if (raw === undefined || raw === null) {
     return DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS;
