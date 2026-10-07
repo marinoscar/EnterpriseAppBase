@@ -6,10 +6,14 @@ import type { RawSqlIndex } from '../lock/index.js';
 import type { LedgerRow } from '../sync/index.js';
 import { checkRawSqlIndexes, type IndexRow, type RawIndexProblem } from './raw-sql-indexes.js';
 
-/** The slice of the `pg` client this module uses. */
-interface PgClient {
+/**
+ * The slice of the `pg` client the platform tools use.
+ *
+ * @internal
+ */
+export interface PgClient {
   connect(): Promise<void>;
-  query(sql: string): Promise<{ rows: Record<string, string | Date | null>[] }>;
+  query(sql: string, values?: unknown[]): Promise<{ rows: Record<string, string | Date | null>[] }>;
   end(): Promise<void>;
 }
 type PgClientCtor = new (config: { connectionString: string }) => PgClient;
@@ -48,7 +52,12 @@ export interface DriftResult {
   indexProblems: RawIndexProblem[];
 }
 
-function loadPg(cwd: string): PgClientCtor {
+/**
+ * Resolves the `pg` client constructor from the app, falling back to this package's own copy.
+ *
+ * @internal
+ */
+export function loadPg(cwd: string): PgClientCtor {
   const req = createRequire(join(resolve(cwd), 'noop.js'));
   try {
     return (req('pg') as { Client: PgClientCtor }).Client;
@@ -67,7 +76,12 @@ function withDatabase(url: string, database: string): string {
 const databaseOf = (url: string): string => decodeURIComponent(new URL(url).pathname.replace(/^\//, ''));
 const quoteIdent = (name: string): string => `"${name.replace(/"/g, '""')}"`;
 
-function prismaCli(cwd: string): string {
+/**
+ * The path of the `prisma` CLI entry point resolved from the app.
+ *
+ * @internal
+ */
+export function prismaCli(cwd: string): string {
   const req = createRequire(join(resolve(cwd), 'noop.js'));
   const found = req.resolve('prisma/build/index.js');
   if (!existsSync(found)) throw new Error('the prisma CLI was not found; install `prisma` in the app');
@@ -86,19 +100,7 @@ function prismaCli(cwd: string): string {
  * @stability experimental
  */
 export async function schemaDiff(options: DriftOptions): Promise<string> {
-  const Client = loadPg(options.cwd);
-  let shadowUrl = options.shadowDatabaseUrl;
-  let created: { admin: PgClient; name: string } | undefined;
-  if (!shadowUrl) {
-    const name = `${databaseOf(options.databaseUrl)}_drift_shadow_${process.pid}`;
-    const admin = new Client({ connectionString: withDatabase(options.databaseUrl, 'postgres') });
-    await admin.connect();
-    await admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`);
-    await admin.query(`CREATE DATABASE ${quoteIdent(name)}`);
-    created = { admin, name };
-    shadowUrl = withDatabase(options.databaseUrl, name);
-  }
-  try {
+  return withShadowDatabase(options, async (shadowUrl) => {
     const result = spawnSync(
       process.execPath,
       [
@@ -123,6 +125,37 @@ export async function schemaDiff(options: DriftOptions): Promise<string> {
     if (result.status === 0) return '';
     if (result.status === 2) return stripBanner(result.stdout);
     throw new Error(`prisma migrate diff failed (exit ${result.status}): ${(result.stderr || result.stdout).trim()}`);
+  });
+}
+
+/**
+ * Runs `body` with a shadow database URL: the supplied one, or a throwaway
+ * database created next to the live one (through the `postgres` maintenance
+ * database) and dropped afterwards. The live database is never touched.
+ *
+ * @param options - `cwd` (where `pg` resolves from), the live `databaseUrl` and an optional `shadowDatabaseUrl`.
+ * @param body - Receives the shadow database URL.
+ * @returns What `body` returns.
+ * @internal
+ */
+export async function withShadowDatabase<T>(
+  options: { cwd: string; databaseUrl: string; shadowDatabaseUrl?: string | undefined },
+  body: (shadowUrl: string) => Promise<T>,
+): Promise<T> {
+  const Client = loadPg(options.cwd);
+  let shadowUrl = options.shadowDatabaseUrl;
+  let created: { admin: PgClient; name: string } | undefined;
+  if (!shadowUrl) {
+    const name = `${databaseOf(options.databaseUrl)}_drift_shadow_${process.pid}`;
+    const admin = new Client({ connectionString: withDatabase(options.databaseUrl, 'postgres') });
+    await admin.connect();
+    await admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(name)} WITH (FORCE)`);
+    await admin.query(`CREATE DATABASE ${quoteIdent(name)}`);
+    created = { admin, name };
+    shadowUrl = withDatabase(options.databaseUrl, name);
+  }
+  try {
+    return await body(shadowUrl);
   } finally {
     if (created) {
       await created.admin.query(`DROP DATABASE IF EXISTS ${quoteIdent(created.name)} WITH (FORCE)`);
@@ -131,10 +164,15 @@ export async function schemaDiff(options: DriftOptions): Promise<string> {
   }
 }
 
-function stripBanner(stdout: string): string {
+/**
+ * Removes the Prisma CLI's banner and environment-loader lines from its output.
+ *
+ * @internal
+ */
+export function stripBanner(stdout: string): string {
   return stdout
     .split('\n')
-    .filter((line) => !/^(Loaded Prisma config|◇ injected env)/.test(line))
+    .filter((line) => !/^(Loaded Prisma config|Prisma schema loaded|Datasource |◇ injected env|\[dotenv)/.test(line))
     .join('\n')
     .trim();
 }

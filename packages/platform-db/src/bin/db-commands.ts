@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
+import { createBaselineDeps, isBaselineClean, renderReport, runBaseline } from '../baseline/index.js';
 import { readLedgerRows, readPackageRawSqlIndexes, runDrift } from '../drift/index.js';
 import { emptyLock, parseLock, parseManifest, serializeJson, serializeLock, type ManifestEntry, type PlatformLock } from '../lock/index.js';
 import {
@@ -241,8 +242,55 @@ async function runDriftCommand(
   return 0;
 }
 
+interface BaselineFlags {
+  through?: string;
+  map?: string;
+  apply?: boolean;
+  dryRun?: boolean;
+  forceRemap?: boolean;
+  shadowDatabaseUrl?: string;
+  prismaScript?: string;
+}
+
+async function runBaselineCommand(ctx: DbCommandContext, options: CommonOptions & BaselineFlags): Promise<number> {
+  const l = layout(ctx, options);
+  const root = resolve(ctx.cwd, options.root ?? '.');
+  if (options.apply && options.dryRun) {
+    ctx.err('platform db baseline: --apply and --dry-run exclude each other (a dry run is the default)');
+    return 2;
+  }
+  const url = ctx.env.DATABASE_URL;
+  if (!url) {
+    ctx.err('platform db baseline: DATABASE_URL is not set (the api scripts build it from POSTGRES_*; run `npm run db:baseline`)');
+    return 2;
+  }
+  const deps = createBaselineDeps({
+    root,
+    databaseUrl: url,
+    env: ctx.env,
+    shadowDatabaseUrl: options.shadowDatabaseUrl ?? ctx.env.SHADOW_DATABASE_URL,
+    prismaScript: options.prismaScript ? resolve(ctx.cwd, options.prismaScript) : undefined,
+    log: (line) => ctx.out(`platform db baseline: ${line}`),
+    now: ctx.now,
+  });
+  const report = await runBaseline(
+    {
+      appPrismaDir: l.prismaDir,
+      packageDir: l.packageDir,
+      ...(options.map ? { mapFile: resolve(ctx.cwd, options.map) } : {}),
+      apply: options.apply === true,
+      forceRemap: options.forceRemap === true,
+      ...(options.through ? { through: options.through } : {}),
+    },
+    deps,
+  );
+  const clean = isBaselineClean(report);
+  for (const line of renderReport(report)) (clean ? ctx.out : ctx.err)(line);
+  return clean ? 0 : 1;
+}
+
 /**
- * Registers `sync`, `check`, `promote` and `drift` on the `platform db` command.
+ * Registers `sync`, `check`, `promote`, `drift` and `baseline` on the `platform db` command.
  *
  * @param db - The `db` subcommand of the `platform` program.
  * @param ctx - Output sinks and environment.
@@ -288,4 +336,17 @@ export function registerDbSyncCommands(db: Command, ctx: DbCommandContext): void
       .option('--schema <path>', 'the composed schema folder or file (default: prisma/schema, else prisma/schema.prisma)')
       .option('--shadow-database-url <url>', 'an empty database to replay into (default: a throwaway one is created)'),
   ).action((options) => guarded(ctx, () => runDriftCommand(ctx, options)));
+
+  common(
+    db
+      .command('baseline')
+      .description('adopt the package history in a database that already has its schema: map, diff, then migrate resolve --applied (dry run unless --apply)')
+      .option('--through <migration>', 'the package migration the database equals: 22, 0022 or platform:0022_slug (default: the newest)')
+      .option('--map <file>', 'JSON file mapping platform:NNNN_slug to a local directory, for migrations the automatic passes cannot match')
+      .option('--apply', 'write platform.lock, install missing migrations and run migrate resolve --applied (default: a dry run that changes nothing)')
+      .option('--dry-run', 'explicit form of the default')
+      .option('--force-remap', 'allow --apply when platform.lock already has entries (they are recomputed from the files)')
+      .option('--shadow-database-url <url>', 'an empty database to replay the package history into (default: a throwaway one is created and dropped)')
+      .option('--prisma-script <file>', 'the script that runs Prisma with DATABASE_URL (default: <root>/scripts/prisma-env.js)'),
+  ).action((options) => guarded(ctx, () => runBaselineCommand(ctx, options)));
 }
