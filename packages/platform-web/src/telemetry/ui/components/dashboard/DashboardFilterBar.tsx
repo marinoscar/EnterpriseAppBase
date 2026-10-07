@@ -9,7 +9,7 @@
  * - Desktop (≥ lg): everything inline, range as a ToggleButtonGroup.
  * - Tablet (sm–md): range Select inline; service, instance and auto-refresh
  *   behind a "Filters" button in a popover.
- * - Phone (< sm): a sticky compact bar (range chip + Filters) whose button
+ * - Phone (below sm): a sticky compact bar (range chip + Filters) whose button
  *   opens a full-screen dialog with every control, applied on "Apply" (a
  *   draft, so a half-made choice never fires five requests) or "Reset".
  */

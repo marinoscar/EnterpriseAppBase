@@ -29,7 +29,7 @@
  * these sections only (the API applies it to the collector's tables), and a
  * verdict reason about one of them links to it.
  *
- * Layout: phone < 600 (`xs`), tablet 600–1199 (`sm`–`md`), desktop ≥ 1200
+ * Layout: phone under 600 (`xs`), tablet 600–1199 (`sm`–`md`), desktop ≥ 1200
  * (`lg`), decided HERE only — none of the shell's five coupled breakpoint
  * gates is touched.
  */

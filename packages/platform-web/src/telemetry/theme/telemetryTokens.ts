@@ -59,8 +59,9 @@ export interface TelemetryStatusTokens {
  */
 export interface TelemetryChartTokens {
   /**
-   * Series colours, in assignment order. Default `primary, secondary,
-   * warning, success, error, info` `.main`, then `grey[500]`, `text.primary`.
+   * Series colours, in assignment order. Default: the `.main` of `primary`,
+   * `secondary`, `warning`, `success`, `error` and `info`, then `grey[500]`
+   * and `text.primary`.
    */
   series: string[];
 }
@@ -137,8 +138,9 @@ export function telemetryTokens(theme: Theme): TelemetryTokens {
  * `palette.chart` are complete. Tokens the app already set win; missing ones
  * derive from the theme's own palette (`ok` = `success.main`, `warn` =
  * `warning.main`, `crit` = `error.main`, `info` = `info.main`, `neutral` =
- * `grey[500]`, `chart.series` = `primary, secondary, warning, success, error,
- * info` `.main` then `grey[500]`, `text.primary`). The input theme is not
+ * `grey[500]`, `chart.series` = the `.main` of `primary`, `secondary`,
+ * `warning`, `success`, `error` and `info`, then `grey[500]` and
+ * `text.primary`). The input theme is not
  * mutated, and nothing else in it changes. A package never creates a theme:
  * the app passes its own through this.
  *

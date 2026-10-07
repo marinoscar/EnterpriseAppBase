@@ -7,6 +7,11 @@
  * reads as an empty history.
  */
 
+/**
+ * The `localStorage` key of the explorer's query history.
+ *
+ * @stability experimental
+ */
 export const QUERY_HISTORY_KEY = 'telemetry-explorer:history';
 export const QUERY_HISTORY_LIMIT = 20;
 

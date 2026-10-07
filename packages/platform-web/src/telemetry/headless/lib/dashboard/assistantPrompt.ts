@@ -5,8 +5,8 @@
  * A pure function of what the panel SHOWS and the dashboard's window and
  * filters, so the assistant starts from the same picture as the reader:
  *
- *   Investigate "<panel title>" for <window> (<filters | all services>).
- *   Current state: <what the panel shows>.
+ *   Investigate "\<panel title\>" for \<window\> (\<filters | all services\>).
+ *   Current state: \<what the panel shows\>.
  *   What is most likely causing this, and what should I check next?
  *
  * Bounds: the whole question is at most {@link ASSISTANT_PROMPT_MAX}

@@ -98,6 +98,9 @@ export {
   explorerSqlUrl,
 } from './lib/explorerHandoff.js';
 export { METRIC_SECTION_TITLES, metricSectionTitle } from './lib/metrics/metricSections.js';
+export { STARTER_QUERIES, traceQuery } from './lib/starterQueries.js';
+export type { StarterQuery } from './lib/starterQueries.js';
+export { QUERY_HISTORY_KEY } from './lib/queryHistory.js';
 
 // The theme-token contract (`palette.status`, `palette.chart.series`).
 export { telemetryTokens, useTelemetryTokens, withTelemetryTokens } from '../theme/telemetryTokens.js';

@@ -245,6 +245,34 @@ export const CONTRACT_RESTRICTED_IMPORT_PATHS = builtinModules
   .filter((name) => !name.startsWith('_'))
   .map((name) => ({ name, message: 'The contract runs in the browser too: no Node built-in.' }));
 
+/**
+ * A web slice's headless entry (issue #704): hooks, services and helpers with
+ * no component, so an app can build its own UI on them. It may use MUI's
+ * theme module (`@mui/material/styles`: the token contract and `useTheme`)
+ * and nothing else of `@mui/*`, no `@emotion/*` and no `@mui/x-*` chart or
+ * grid. The slice's theme-token folder is exported through `/headless`, so it
+ * follows the same rule.
+ */
+export const WEB_HEADLESS_SOURCE_FILES = [
+  'packages/platform-web/src/*/headless/**/*.{ts,tsx}',
+  'packages/platform-web/src/*/theme/**/*.{ts,tsx}',
+];
+
+export const WEB_HEADLESS_RESTRICTED_IMPORT_PATTERNS = [
+  {
+    group: ['@mui/*', '@mui/*/**', '!@mui/material', '!@mui/material/styles'],
+    message: 'A headless entry imports no MUI component module; only @mui/material/styles (theme types and useTheme).',
+  },
+  {
+    group: ['@emotion/*', '@emotion/*/**'],
+    message: 'A headless entry renders no styled component.',
+  },
+];
+
+export const WEB_HEADLESS_RESTRICTED_IMPORT_PATHS = [
+  { name: '@mui/material', message: 'A headless entry imports no MUI component; only @mui/material/styles.' },
+];
+
 /** The whole flat config for a given slice graph. */
 export function createPlatformLintConfig({ graph = readSliceGraph(), rootPath = ROOT } = {}) {
   return [
@@ -300,6 +328,21 @@ export function createPlatformLintConfig({ graph = readSliceGraph(), rootPath = 
       files: PLATFORM_SOURCE_FILES,
       plugins: { tsdoc: tsdocAtRepoRoot },
       rules: { 'tsdoc/syntax': 'error' },
+    },
+    // A web slice's headless entry imports no MUI component (issue #704). A
+    // later block replaces `no-restricted-imports` for these files, so it
+    // repeats the deep-import patterns of rule A.
+    {
+      files: WEB_HEADLESS_SOURCE_FILES,
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            paths: WEB_HEADLESS_RESTRICTED_IMPORT_PATHS,
+            patterns: [...DEEP_IMPORT_PATTERNS, ...WEB_HEADLESS_RESTRICTED_IMPORT_PATTERNS],
+          },
+        ],
+      },
     },
     // The contract's import rules (issue #701). A later block replaces the
     // options of `no-restricted-imports` for these files, so it repeats the

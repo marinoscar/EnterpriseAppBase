@@ -7,14 +7,27 @@
  * {@link quoteIdentifier}).
  */
 
+/**
+ * One starter query of the explorer's menu.
+ *
+ * @stability experimental
+ */
 export interface StarterQuery {
+  /** A stable id (`recent-errors`, ...). */
   id: string;
+  /** The menu label. */
   title: string;
+  /** The statement the editor is seeded with. */
   sql: string;
 }
 
 export const TRACE_ID_PLACEHOLDER = '<trace_id>';
 
+/**
+ * The explorer's starter queries, in menu order; the first seeds the editor.
+ *
+ * @stability experimental
+ */
 export const STARTER_QUERIES: StarterQuery[] = [
   {
     id: 'recent-errors',
@@ -57,6 +70,11 @@ export function sqlStringLiteral(value: string): string {
  * The query a click on a `trace_id` value runs: every span of the trace, then
  * every log line that carries it, in one result (a UNION over the shared
  * columns, labelled by `kind`).
+ *
+ * @param traceId - the trace id (escaped as a string literal).
+ * @returns the statement.
+ *
+ * @stability experimental
  */
 export function traceQuery(traceId: string): string {
   const id = sqlStringLiteral(traceId);
