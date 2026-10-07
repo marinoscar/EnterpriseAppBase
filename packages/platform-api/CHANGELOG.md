@@ -1,5 +1,19 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.2
+
+### Minor Changes
+
+- fd29180: Add `@marinoscar/platform-contract/doctor`, the first contract slice (#701): the Doctor's report, row, status and query schemas, their types and the zod-free status constants. `platform-api`'s Doctor DTOs now wrap these schemas and `platform-web`'s Doctor takes its types from them; both re-export the old names (`DOCTOR_STATUS_ORDER` and `DoctorReportQuery` in `platform-web` are deprecated aliases). No wire or OpenAPI change. Sets the contract conventions (slice layout, zod-free constants, import rules, `schema` catalog kind).
+- c41df57: Doctor slice: add the egress inventory (`EgressRegistry`, `EgressContributor`, `EgressDependency`, `classifyHost`) and the `network.egress` air-gap readiness check (`NetworkEgressDoctorCheck`, graded by `DEPLOYMENT_NETWORK_SOURCE`); `network` joins `PLATFORM_DOCTOR_CATEGORIES`.
+- a2db925: Add the `otel-core` slice: `@marinoscar/platform-api/otel-core/sdk` (the Nest-free `initializeOtel()` bootstrap, the runtime `telemetryGate` and its gated exporters, the service-name and instance-id resolvers) and `@marinoscar/platform-api/otel-core` (the `MetricsHostService` metrics host and `OtelMetricsModule`, the app-metric name registry, label bounding, the gauge-provider seam, `registerRequestSpanAttributes` and `@Trace()`).
+- ab888f5: Scoped data access in `@marinoscar/platform-api/core` (the user-owned data registry, `forUser`/`userScopeExtension`, `asSystem`, `ScopedAccessError`; schema-independent via `@prisma/client/extension`) and the `userOwnedData` conformance suite in `@marinoscar/platform-api/testing`.
+
+### Patch Changes
+
+- Updated dependencies [fd29180]
+  - @marinoscar/platform-contract@0.1.0-next.2
+
 ## 0.1.0-next.1
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # @marinoscar/platform-db
 
+## 0.1.0-next.2
+
+### Minor Changes
+
+- c91cf7b: Add the `@marinoscar/platform-db/seed` slice: `seedPlatform(prisma, input)` upserts the platform's roles, permissions, default grants, the `global` system settings row and the initial administrator's allowlist entry (never deleting, never overwriting an admin-edited value), with `platformSeedInputFrom` and `readSeedSnapshot` to build the input from the registries' committed catalogs.
+- 9734a55: `platform db baseline`: adopt the package migration history in a database that already has its schema, without re-running a migration. Dry run by default; `--apply` maps the app's directories to the platform migrations (exact hash, comment-stripped hash, or a `--map` file), refuses on a failed `_prisma_migrations` row, a live schema difference no declared deviation explains, or a missing raw-SQL index, then writes `platform.lock` and marks the migrations that have no directory applied with `prisma migrate resolve --applied`. `--through` adopts a database that is behind. Adds `runBaseline`, `proposeMapping`, `planBaseline`, `renderReport` and `createBaselineDeps`.
+
+### Patch Changes
+
+- 2235f8a: `platform.lock` and `manifest.json` accept semantic versions with a prerelease or build suffix (`0.1.0-next.1`), so `platform db sync` at a prerelease package version writes a lock `parseLock` reads back. `compareVersions` orders versions by semver precedence (a prerelease is below its release, numeric identifiers compare numerically), and `nextPlatformVersion` gives a prerelease package the release it leads to. Adds `SEMVER_PATTERN`.
+
 ## 0.1.0-next.1
 
 ### Minor Changes

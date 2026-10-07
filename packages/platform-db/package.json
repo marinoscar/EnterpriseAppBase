@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-db",
-  "version": "0.1.0-next.1",
+  "version": "0.1.0-next.2",
   "description": "Prisma schema fragments, SQL migrations and seed functions of the platform (CommonJS).",
   "license": "MIT",
   "type": "commonjs",

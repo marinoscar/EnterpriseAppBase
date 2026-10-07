@@ -15,13 +15,20 @@
     "@app/shared": "1.0.0"
   },
   "changesets": [
+    "contract-doctor-schemas",
     "db-schema-fragments",
+    "db-seed-platform",
+    "doctor-egress-inventory",
     "doctor-slice",
     "fastify-optional-peer",
     "initial-platform-scaffold",
+    "otel-core-slice",
     "platform-api-core-slice",
+    "platform-db-baseline",
     "platform-db-cipher-comments",
     "platform-db-migration-sync",
-    "platform-history-v1"
+    "platform-db-prerelease-lock",
+    "platform-history-v1",
+    "scoped-data-access"
   ]
 }
