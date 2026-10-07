@@ -220,7 +220,7 @@ export class UsersService {
     // Principal cache (PP-1.12, #683): ALWAYS, after the write committed —
     // cheap, and it is what makes `isActive: false` reject the user's very
     // next request (on this replica now, on others within bus latency).
-    this.principalCache.invalidate({ userId: id });
+    this.principalCache.invalidateUser(id);
 
     // Log audit event
     await this.createAuditEvent(adminUserId, 'user:update', 'user', id, {
@@ -372,7 +372,7 @@ export class UsersService {
 
     // Principal cache (PP-1.12, #683): AFTER the transaction committed, never
     // inside it — a removed role stops authorising the next request.
-    this.principalCache.invalidate({ userId: id });
+    this.principalCache.invalidateUser(id);
 
     // Log audit event
     await this.createAuditEvent(adminUserId, 'user:roles_update', 'user', id, {
