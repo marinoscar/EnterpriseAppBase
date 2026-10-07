@@ -173,13 +173,25 @@ export class TestAuthService {
       throw new Error('Failed to reload user after role assignment');
     }
 
+    // The active organization (#724), by the same rule as a Google sign-in:
+    // single mode, the default org's membership; multi mode, the most
+    // recently used active membership.
+    const orgId = await this.organizations.signInOrgId(reloaded, this.tenancy.mode());
+    if (!orgId) {
+      throw new AuthLoginDeniedException(
+        'no_organization',
+        'Your account is not a member of any organization. Ask an organization administrator to invite you.',
+      );
+    }
+
     // System roles plus the current org role (`admin` + `org_admin` for an admin).
-    const roles = principalFactory.access(reloaded).roles;
+    const roles = principalFactory.access({ ...reloaded, activeOrgId: orgId }).roles;
 
     const payload: JwtPayload = {
       sub: reloaded.id,
       email: reloaded.email,
       roles,
+      org: orgId,
     };
 
     const accessTtlMinutes = this.configService.get<number>(
@@ -189,8 +201,9 @@ export class TestAuthService {
 
     const accessToken = this.jwtService.sign(payload);
 
-    // Create refresh token
-    const refreshToken = await this.createRefreshToken(reloaded.id);
+    // Create refresh token, bound to the same organization
+    const refreshToken = await this.createRefreshToken(reloaded.id, orgId);
+    await this.organizations.touchMembership(orgId, reloaded.id);
 
     this.logger.log(`Test login successful for user: ${reloaded.email} with roles: ${roles.join(', ')}`);
 
@@ -216,7 +229,7 @@ export class TestAuthService {
   /**
    * Create a new refresh token (copied from AuthService)
    */
-  private async createRefreshToken(userId: string): Promise<string> {
+  private async createRefreshToken(userId: string, orgId: string): Promise<string> {
     const refreshTtlDays = this.configService.get<number>(
       'jwt.refreshTtlDays',
       14,
@@ -234,6 +247,7 @@ export class TestAuthService {
         userId,
         tokenHash,
         expiresAt,
+        orgId,
       },
     });
 

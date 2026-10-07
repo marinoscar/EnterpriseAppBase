@@ -327,6 +327,8 @@ describe('Test Auth Integration', () => {
           userId: 'refresh-user',
           tokenHash: expect.any(String),
           expiresAt: expect.any(Date),
+          // #724: the refresh token is bound to the session's org.
+          orgId: 'org-default',
         },
       });
     });

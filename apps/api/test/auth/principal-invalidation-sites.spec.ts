@@ -37,16 +37,9 @@ import { join, relative } from 'node:path';
 const SRC = join(__dirname, '..', '..', 'src');
 
 /** Files under `src/` that may write without invalidating. Each entry says why. */
-const ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
-  {
-    file: 'organizations/organizations.service.ts',
-    why:
-      '`ensureMembership` and `ensureDefaultOrgMembership` only CREATE a missing membership (an existing ' +
-      'one is left untouched, role included), the former through the caller\'s transaction client; their ' +
-      'callers (AuthService sign-up and sign-in self-heal, TestAuthService) invalidate after the write ' +
-      'commits (PP-6.3, #723).',
-  },
-];
+// Empty since PP-6.4 (#724): `organizations/organizations.service.ts` now
+// invalidates after its own committed membership writes.
+const ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [];
 
 const WRITE = '(?:create|createMany|createManyAndReturn|upsert|update|updateMany|updateManyAndReturn|delete|deleteMany)';
 
@@ -60,7 +53,8 @@ const WRITE_MARKERS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
   { pattern: new RegExp(`\\bmembership\\.${WRITE}\\(`), what: 'a membership write' },
 ];
 
-const INVALIDATION = /\bprincipalCache\.invalidate\(/;
+// `invalidateUser(userId)` (#724) is `invalidate({ userId })` under its own name.
+const INVALIDATION = /\bprincipalCache\.invalidate(?:User)?\(/;
 
 /** Every non-test `.ts` file under `dir`. */
 function sourceFiles(dir: string): string[] {
@@ -106,6 +100,7 @@ describe('principal cache invalidation sites (PP-1.12, #683)', () => {
 
     expect(invalidates('this.principalCache.invalidate({ userId });')).toBe(true);
     expect(invalidates('// remember principalCache.invalidate(')).toBe(false);
+    expect(invalidates('this.principalCache.invalidateUser(userId);')).toBe(true);
   });
 
   it('finds the known write sites (so the scan cannot silently rot to "nothing to check")', () => {
@@ -116,6 +111,7 @@ describe('principal cache invalidation sites (PP-1.12, #683)', () => {
       'common/services/admin-bootstrap.service.ts',
       'test-auth/test-auth.service.ts',
       'settings/user-settings/user-settings.service.ts',
+      'organizations/organizations.service.ts',
     ]) {
       expect(found).toContain(known);
     }

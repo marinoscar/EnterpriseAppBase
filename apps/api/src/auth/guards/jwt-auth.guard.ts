@@ -10,6 +10,9 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PatService } from '../../pat/pat.service';
 import { NodeCredentialService } from '../../nodes/node-credential.service';
 import type { AuthCredentialInfo } from '../decorators/auth-credential.decorator';
+import type { CredentialKind } from '@marinoscar/platform-api/core';
+import { toPrincipal } from '../principal.factory';
+import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 // =============================================================================
 // The `nod_` route allowlist (issue #267, epic #254)
@@ -127,6 +130,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       request.user = resolved.user;
       // Which PAT it was (its id, never the token): `@AuthCredential()`.
       request.authCredential = { kind: 'pat', tokenId: resolved.tokenId } satisfies AuthCredentialInfo;
+      this.attachPrincipal(request, 'pat');
       return true;
     }
 
@@ -172,12 +176,33 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       }
       request.user = user;
       request.authCredential = { kind: 'node' } satisfies AuthCredentialInfo;
+      this.attachPrincipal(request, 'node');
       return true;
     }
 
     const admitted = await (super.canActivate(context) as Promise<boolean>);
-    if (admitted) request.authCredential = { kind: 'jwt' } satisfies AuthCredentialInfo;
+    if (admitted) {
+      request.authCredential = { kind: 'jwt' } satisfies AuthCredentialInfo;
+      // `session` or `device`: stamped by `AuthService.validateJwtPayload`.
+      this.attachPrincipal(request, request.user?.tokenKind ?? 'session');
+    }
     return admitted;
+  }
+
+  /**
+   * Sets `request.principal` (ADR 0001, #724) beside `request.user`: the
+   * same graph, bound to the org the credential path validated, with the
+   * credential kind this branch admitted. A node principal has no
+   * `activeOrgId`. Skipped for a `request.user` that is not a loaded graph
+   * (a unit test's stub), which then has no principal.
+   */
+  private attachPrincipal(
+    request: { user?: AuthenticatedUser; principal?: unknown },
+    kind: CredentialKind,
+  ): void {
+    const user = request.user;
+    if (!user || !Array.isArray(user.userRoles)) return;
+    request.principal = toPrincipal(user, kind);
   }
 
   /**

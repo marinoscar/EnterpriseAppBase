@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import type { Principal } from '@marinoscar/platform-api/core';
 import { toRequestUser, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 @Injectable()
@@ -32,14 +33,21 @@ export class PermissionsGuard implements CanActivate {
 
     const requestUser = toRequestUser(user);
 
+    // The request's principal (#724) is authoritative when `JwtAuthGuard` set
+    // it: its permissions are the active org's. Both are derived from the same
+    // bound graph, so they agree; the fallback serves a request whose
+    // principal was never attached (a unit test's hand-built request).
+    const principal = request.principal as Principal | undefined;
+    const granted: readonly string[] = principal?.permissions ?? requestUser.permissions;
+
     // Check if user has ALL required permissions
     const hasAllPermissions = requiredPermissions.every((permission) =>
-      requestUser.permissions.includes(permission),
+      granted.includes(permission),
     );
 
     if (!hasAllPermissions) {
       const missing = requiredPermissions.filter(
-        (p) => !requestUser.permissions.includes(p),
+        (p) => !granted.includes(p),
       );
       throw new ForbiddenException(
         `Missing permissions: ${missing.join(', ')}`,

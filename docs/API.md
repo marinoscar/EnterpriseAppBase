@@ -49,8 +49,8 @@ health, the device-code and device-token polls, avatar images).
 
 | Credential | How it is sent | Accepted on | Issued by |
 |------------|----------------|-------------|-----------|
-| Session access token (JWT, 15 min default) | `Authorization: Bearer <jwt>` | Every authenticated route | OAuth callback, `POST /api/auth/refresh` |
-| Refresh token (opaque, 14 days default) | `refresh_token` cookie, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth` | `POST /api/auth/refresh`, `POST /api/auth/logout` | OAuth callback, rotated on every refresh |
+| Session access token (JWT, 15 min default) | `Authorization: Bearer <jwt>` | Every authenticated route | OAuth callback, `POST /api/auth/refresh`, `POST /api/auth/switch-org` |
+| Refresh token (opaque, 14 days default) | `refresh_token` cookie, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth` | `POST /api/auth/refresh`, `POST /api/auth/switch-org`, `POST /api/auth/logout` | OAuth callback, rotated on every refresh and switch-org |
 | Personal access token (`pat_…`) | `Authorization: Bearer pat_…` | Every authenticated route | `POST /api/pat`, or the device flow |
 | Node credential (`nod_…`) | `Authorization: Bearer nod_…` | Only `/api/nodes` and `/api/nodes/*`; `403` elsewhere | `POST /api/node-credentials` |
 
@@ -62,6 +62,40 @@ health, the device-code and device-token polls, avatar images).
 - Browserless clients such as `appctl` use the
   [device authorization grant](DEVICE-AUTH.md). Every sign-in path is gated by
   the email allowlist.
+
+### Active organization and `switch-org`
+
+Every user credential acts in exactly **one organization**, and no request
+input chooses it: the API never reads an org id from a header or a query
+parameter. The org comes from the credential (#724):
+
+- a session access token carries it as the signed `org` claim (single mode:
+  the default organization; multi mode: the membership used most recently
+  at sign-in);
+- a personal access token and a device session are bound to one org when
+  they are created or approved, for life.
+
+`GET /api/auth/me` reports it as `activeOrg` (`{ id, name, slug }`) with the
+roles and permissions computed for it, plus `memberships` (every org the user
+is an active member of, with the org role). A browser changes org with
+
+```http
+POST /api/auth/switch-org
+Authorization: Bearer <session access token>
+Cookie: refresh_token=…
+Content-Type: application/json
+
+{ "orgId": "0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11" }
+```
+
+which answers like `POST /api/auth/refresh` (`{ accessToken, expiresIn }` and a
+rotated `refresh_token` cookie), with the new access token bound to `orgId`.
+`404` means `orgId` is not an organization the caller is an active member of
+(in single mode, anything but the default org); `403` means the caller used a
+PAT or a device credential, which cannot switch; `401` means the refresh
+cookie is missing or spent. The client discards its old access token and uses
+the new one: there is no way to act in two organizations with one token. A
+credential whose membership is removed or suspended is refused with `401`.
 
 ### Google sign-in redirects
 

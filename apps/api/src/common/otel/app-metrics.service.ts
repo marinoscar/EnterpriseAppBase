@@ -197,7 +197,8 @@ export type AuthRefreshOutcome =
   | 'reuse_detected'
   | 'expired'
   | 'user_inactive'
-  | 'device_revoked';
+  | 'device_revoked'
+  | 'no_organization';
 const AUTH_REFRESH_OUTCOMES = new Set<string>(AUTH_REFRESH_OUTCOME_VALUES);
 
 const AI_STATUSES = new Set<string>(AI_STATUS_VALUES);

@@ -72,9 +72,26 @@ acts on the caller's own tokens. Full schemas are in `/api/docs` under
 | `name` | string | Required, trimmed, 1–100 characters |
 | `durationValue` | integer | Required, 1–999 (a JSON number, not a string) |
 | `durationUnit` | string | Required: `minutes`, `days` or `months` |
+| `orgId` | UUID | Optional. The organization the token acts in; must be one you are an active member of (else `400`). Defaults to your active organization |
 
 So the shortest token lives 1 minute and the longest 999 months. Anything
 outside these rules is a `400`.
+
+### Organization binding
+
+A token is bound to **one organization** for its whole life (#724): your
+active organization when you create it (the org your session is in), or the
+`orgId` you name. Every request made with it acts in that organization,
+with your roles there, and nowhere else; it cannot switch organization
+(`POST /api/auth/switch-org` answers `403`). If your membership in that
+organization is removed or suspended, the token stops working (`401`) within
+the principal cache TTL (30 seconds by default), at once on the replica that
+made the change; it works again only if the membership becomes active again
+before the token expires. A token created before organizations were bound to
+tokens has no organization: it keeps working in a single-organization
+deployment (the default organization) and is refused in multi-organization
+mode. Creating and revoking a token writes the `pat:created` / `pat:revoked`
+audit events, whose `meta` names the organization.
 
 ### Create response
 
@@ -86,7 +103,8 @@ outside these rules is a `400`.
     "name": "CI pipeline",
     "tokenPrefix": "pat_3f9c",
     "expiresAt": "2026-12-25T12:00:00.000Z",
-    "createdAt": "2026-09-26T12:00:00.000Z"
+    "createdAt": "2026-09-26T12:00:00.000Z",
+    "orgId": "0b6f…"
   },
   "meta": { "timestamp": "2026-09-26T12:00:00.000Z" }
 }
@@ -104,8 +122,10 @@ clear so you can recognize a token in the list.
 | `expiresAt`, `createdAt` | ISO 8601 |
 | `lastUsedAt` | ISO 8601, or `null` if never used |
 | `revokedAt` | ISO 8601, or `null` if not revoked |
+| `orgId` | The organization the token is bound to; `null` only for a token created before #724 |
 
-The list includes expired and revoked tokens until the cleanup job removes
+The list covers your tokens in **every** organization; `orgId` tells them
+apart. It includes expired and revoked tokens until the cleanup job removes
 them (see below). The raw token is never returned.
 
 ## Tokens Minted by the Device Flow
@@ -144,6 +164,9 @@ When the user approves the code at `/activate`, the next poll of
   [Device Session Management](DEVICE-AUTH.md#device-session-management))
   revokes this token too; revoking from either side first makes the other a
   no-op.
+- It is bound to the organization the approving user was active in when they
+  approved the code (#724), and is minted only while they are still an active
+  member there.
 - Without `tokenType` (or with `"session"`), the flow returns a session JWT and
   refresh token instead.
 

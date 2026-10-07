@@ -25,7 +25,7 @@ import {
 } from './notification.types';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 
-const principalCacheStub = { invalidate: jest.fn() };
+const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
 // =============================================================================
 // `security.role_changed` reaches both channels, mandatory, with the delta

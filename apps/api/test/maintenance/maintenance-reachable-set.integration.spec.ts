@@ -73,6 +73,9 @@ const EXPECTED_REACHABLE = [
   'POST /api/auth/logout',
   'POST /api/auth/logout-all',
   'POST /api/auth/refresh',
+  // Switching the active organization (#724) is a rotation for another org,
+  // as necessary to staying signed in as `refresh`.
+  'POST /api/auth/switch-org',
 
   // Device ACTIVATION: the browser half of RFC 8628, driven by a signed-in
   // human. The polling half (`device/code`, `device/token`) is deliberately

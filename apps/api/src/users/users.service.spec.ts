@@ -11,7 +11,7 @@ import { ROLES } from '../common/constants/roles.constants';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import * as tenancyMode from '../auth/tenancy-mode';
 
-const principalCacheStub = { invalidate: jest.fn() };
+const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -99,7 +99,7 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
-        // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
+        // PP-1.12 (#683): the JWT principal cache; only `invalidateUser` (#724) is written to.
         { provide: PrincipalCache, useValue: principalCacheStub },
         // #128 wired real notification triggers into this service. The
         // dispatcher is mocked here because these tests are about the
@@ -1084,11 +1084,11 @@ describe('UsersService', () => {
         return { ...mockOtherUser, isActive: false, userRoles: [] };
       }) as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
-      principalCacheStub.invalidate.mockImplementation(() => order.push('invalidate'));
+      principalCacheStub.invalidateUser.mockImplementation(() => order.push('invalidate'));
 
       await service.updateUser(mockOtherUser.id, { isActive: false }, mockAdminUser.id);
 
-      expect(principalCacheStub.invalidate).toHaveBeenCalledWith({ userId: mockOtherUser.id });
+      expect(principalCacheStub.invalidateUser).toHaveBeenCalledWith(mockOtherUser.id);
       expect(order).toEqual(['user.update', 'invalidate']);
     });
 
@@ -1099,7 +1099,7 @@ describe('UsersService', () => {
 
       await service.updateUser(mockOtherUser.id, { displayName: 'New' }, mockAdminUser.id);
 
-      expect(principalCacheStub.invalidate).toHaveBeenCalledTimes(1);
+      expect(principalCacheStub.invalidateUser).toHaveBeenCalledTimes(1);
     });
 
     it('updateUserRoles invalidates AFTER the transaction resolved, never inside it', async () => {
@@ -1117,11 +1117,11 @@ describe('UsersService', () => {
         return result;
       }) as any);
       mockPrisma.auditEvent.create.mockResolvedValue({} as any);
-      principalCacheStub.invalidate.mockImplementation(() => order.push('invalidate'));
+      principalCacheStub.invalidateUser.mockImplementation(() => order.push('invalidate'));
 
       await service.updateUserRoles(mockOtherUser.id, { roleNames: ['viewer'] }, mockAdminUser.id);
 
-      expect(principalCacheStub.invalidate).toHaveBeenCalledWith({ userId: mockOtherUser.id });
+      expect(principalCacheStub.invalidateUser).toHaveBeenCalledWith(mockOtherUser.id);
       expect(order).toEqual(['transaction:start', 'transaction:committed', 'invalidate']);
     });
 
@@ -1133,7 +1133,7 @@ describe('UsersService', () => {
         service.updateUserRoles(mockOtherUser.id, { roleNames: ['invalid-role'] }, mockAdminUser.id),
       ).rejects.toThrow(BadRequestException);
 
-      expect(principalCacheStub.invalidate).not.toHaveBeenCalled();
+      expect(principalCacheStub.invalidateUser).not.toHaveBeenCalled();
     });
   });
 

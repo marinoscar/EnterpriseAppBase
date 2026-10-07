@@ -10,6 +10,7 @@ import {
   HttpStatus,
   Logger,
   UnauthorizedException,
+  Body,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DatabaseSeedException } from '@marinoscar/platform-api/core';
@@ -31,13 +32,17 @@ import { GoogleOAuthExceptionFilter } from './filters/google-oauth-exception.fil
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { Auth } from './decorators/auth.decorator';
+import { CurrentPrincipal } from './decorators/current-principal.decorator';
+import type { Principal } from '@marinoscar/platform-api/core';
 import { RequestUser } from './interfaces/authenticated-user.interface';
+import { SwitchOrgDto } from './dto/switch-org.dto';
 import { GoogleProfile } from './strategies/google.strategy';
 import {
   AuthProvidersResponseDto,
   AuthProviderDto,
 } from './dto/auth-provider.dto';
-import { CurrentUserDto } from './dto/auth-user.dto';
+import { CurrentUserDto, TokenResponseDto } from './dto/auth-user.dto';
 import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
 
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
@@ -60,7 +65,8 @@ const COOKIE_OPTIONS = {
  *     nothing to an administrator who cannot obtain a token, and the only way
  *     back would be the environment break-glass and a restart.
  *   * `refresh` — STAYING signed in. An access token is minutes long; a window
- *     that outlives one would evict the very admin who opened it.
+ *     that outlives one would evict the very admin who opened it. The same
+ *     holds for `switch-org` (#724), a rotation for another organization.
  *   * `me` — the identity lookup the maintenance page itself needs, to decide
  *     whether the person looking at it is an admin who can carry on.
  *   * `logout` / `logout-all` — signing OUT must never be the thing that is
@@ -240,7 +246,11 @@ export class AuthController {
   async getCurrentUser(
     @CurrentUser() user: RequestUser,
   ): Promise<{ data: CurrentUserDto }> {
-    const currentUser = await this.authService.getCurrentUser(user.id);
+    // #724: computed for the org the presented credential is bound to.
+    const currentUser =
+      user.activeOrgId === undefined
+        ? await this.authService.getCurrentUser(user.id)
+        : await this.authService.getCurrentUser(user.id, user.activeOrgId);
     return {
       data: currentUser,
     };
@@ -281,6 +291,61 @@ export class AuthController {
     res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
 
     // Return new access token
+    return {
+      accessToken: tokens.accessToken,
+      expiresIn: tokens.expiresIn,
+    };
+  }
+
+  /**
+   * POST /auth/switch-org
+   * Re-issue the session for another organization (#724)
+   */
+  @Post('switch-org')
+  @Auth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Switch the active organization',
+    description:
+      'Re-issues the session for another organization the caller is an active member of: the ' +
+      'presented refresh token (the HttpOnly `refresh_token` cookie) is revoked, a new one bound ' +
+      'to `orgId` is set, and a new access token whose `org` claim is `orgId` is returned, in the ' +
+      'same shape as `POST /api/auth/refresh`. Only a browser session can switch: a personal ' +
+      'access token or a device credential is bound to one organization for life (403). In ' +
+      'single-organization mode only the default organization qualifies, so switching to it is ' +
+      'a no-op re-issue. Writes the `auth:org_switched` audit event.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'New access token for the requested organization (the refresh cookie is rotated)',
+    type: TokenResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Validation failed (`orgId` is not a UUID)' })
+  @ApiResponse({ status: 401, description: 'Missing or invalid access token or refresh token' })
+  @ApiResponse({
+    status: 403,
+    description: 'The credential is a personal access token or a device credential, which cannot switch organization',
+  })
+  @ApiResponse({ status: 404, description: 'Not an organization the caller is an active member of' })
+  async switchOrg(
+    @Body() dto: SwitchOrgDto,
+    @CurrentPrincipal() principal: Principal,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ) {
+    const tokens = await this.authService.switchOrg(
+      {
+        id: principal.userId,
+        tokenKind: principal.credential,
+        activeOrgId: principal.activeOrgId ?? null,
+      },
+      dto.orgId,
+      req.cookies[REFRESH_TOKEN_COOKIE],
+    );
+
+    // Same cookie, same attributes as a rotation (SECURITY-ARCHITECTURE §3).
+    res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
+
     return {
       accessToken: tokens.accessToken,
       expiresIn: tokens.expiresIn,

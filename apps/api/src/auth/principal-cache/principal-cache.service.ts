@@ -7,6 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { CredentialKind } from '@marinoscar/platform-api/core';
 
 import {
   EVENT_BUS,
@@ -17,6 +18,7 @@ import {
 import { InProcessEventBus } from '../../common/event-bus/in-process-event-bus';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import { DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS } from './principal-cache.config';
+import { stampCredential } from '../credential-binding';
 
 // =============================================================================
 // PrincipalCache — short-TTL principals for JWT validation (PP-1.12, #683)
@@ -24,8 +26,12 @@ import { DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS } from './principal-cache.config';
 //
 // Every JWT request used to run a four-level join (user → userRoles → role →
 // rolePermissions → permission) before its controller ran. This cache holds
-// the result of that join, keyed by user id, for at most
-// `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` turns it off).
+// the result of that join for at most `AUTH_PRINCIPAL_CACHE_TTL_SECONDS`
+// (default 30; `0` turns it off), keyed by `(userId, orgId, tokenKind)`
+// (PP-6.4, #724): the active org and the credential kind are part of what a
+// request's principal is, so an entry is never served to a request bound to
+// another org. Invalidation is per USER (`invalidateUser`): it drops every
+// entry of that user, whatever the org or kind.
 //
 // THE SECURITY PROPERTY IT MUST NOT BREAK (docs/SECURITY-ARCHITECTURE.md §1):
 // the database is authoritative for roles and `isActive`, so a role change or
@@ -68,11 +74,28 @@ export const PRINCIPAL_CACHE_MAX_ENTRIES = 10_000;
 export const PRINCIPAL_CACHE_CLOCK = Symbol('PRINCIPAL_CACHE_CLOCK');
 
 /**
- * What to drop: one user's principal, or every principal (a role ↔ permission
- * change affects everyone holding that role, and there is no index from role
- * to user in the cache).
+ * What to drop: every entry of one user (all orgs, all credential kinds), or
+ * every principal (a role ↔ permission change affects everyone holding that
+ * role, and there is no index from role to user in the cache).
  */
 export type PrincipalInvalidation = { userId: string } | { all: true };
+
+/**
+ * One cache entry's identity (#724): the user, the org the credential is
+ * bound to, and the credential kind. `orgId: null` is a credential bound to
+ * NO org: a pre-#724 access token (the compatibility path in
+ * `AuthService.validateJwtPayload`). Node credentials are never cached.
+ */
+export interface PrincipalCacheKey {
+  userId: string;
+  orgId: string | null;
+  tokenKind: CredentialKind;
+}
+
+/** The map key. NUL separators: none of the three parts can contain one. */
+function keyString(key: PrincipalCacheKey): string {
+  return `${key.userId}\u0000${key.orgId ?? ''}\u0000${key.tokenKind}`;
+}
 
 export interface PrincipalCacheStats {
   size: number;
@@ -82,6 +105,7 @@ export interface PrincipalCacheStats {
 }
 
 interface Entry {
+  userId: string;
   value: AuthenticatedUser;
   expiresAt: number;
 }
@@ -141,6 +165,9 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
   readonly ttlMs: number;
 
   private readonly entries = new Map<string, Entry>();
+
+  /** userId → the keys of its entries, so `invalidateUser` drops them all. */
+  private readonly keysByUser = new Map<string, Set<string>>();
 
   // ---------------------------------------------------------------------------
   // Generations (the in-flight read race)
@@ -222,20 +249,45 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.entries.clear();
+    this.keysByUser.clear();
   }
 
-  /** The cached principal, or `undefined` when absent, expired or disabled. */
-  get(userId: string): AuthenticatedUser | undefined {
+  /** A key of `userId`'s entries: a live one first, else any (so `get` expires it). */
+  private anyKeyOf(userId: string): string | undefined {
+    const keys = [...(this.keysByUser.get(userId) ?? [])];
+    const now = this.now();
+    return keys.find((id) => (this.entries.get(id)?.expiresAt ?? 0) > now) ?? keys[0];
+  }
+
+  /** Removes one entry and its index slot. */
+  private deleteEntry(id: string): void {
+    const entry = this.entries.get(id);
+    if (!entry) return;
+    this.entries.delete(id);
+    const keys = this.keysByUser.get(entry.userId);
+    keys?.delete(id);
+    if (keys && keys.size === 0) this.keysByUser.delete(entry.userId);
+  }
+
+  /**
+   * The cached principal, or `undefined` when absent, expired or disabled.
+   *
+   * With a bare user id (diagnostics and tests): any live entry of that user,
+   * whatever its org or credential kind. Request paths always pass the full
+   * {@link PrincipalCacheKey}.
+   */
+  get(key: PrincipalCacheKey | string): AuthenticatedUser | undefined {
     if (!this.enabled) return undefined;
 
-    const entry = this.entries.get(userId);
+    const id = typeof key === 'string' ? this.anyKeyOf(key) : keyString(key);
+    const entry = id === undefined ? undefined : this.entries.get(id);
     if (!entry) {
       this.misses += 1;
       return undefined;
     }
 
     if (entry.expiresAt <= this.now()) {
-      this.entries.delete(userId);
+      this.deleteEntry(id!);
       this.misses += 1;
       return undefined;
     }
@@ -254,34 +306,60 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Stores a deep-frozen copy of `value` and returns it — unless the cache is
-   * disabled, or `expectedGeneration` is no longer current (an invalidation
-   * happened while the caller was reading), in which case nothing is stored
-   * and `undefined` is returned. Never throws.
+   * Stores a deep-frozen copy of `value`, BOUND to the key (#724: its
+   * `activeOrgId` is `key.orgId` when that is set, its `tokenKind` is
+   * `key.tokenKind`; see `credential-binding.ts`), and returns it — unless
+   * the cache is disabled, or `expectedGeneration` is no longer current (an
+   * invalidation happened while the caller was reading), in which case
+   * nothing is stored and `undefined` is returned. Never throws.
    */
-  set(userId: string, value: AuthenticatedUser, expectedGeneration: number): AuthenticatedUser | undefined {
+  set(key: PrincipalCacheKey, value: AuthenticatedUser, expectedGeneration: number): AuthenticatedUser | undefined {
     if (!this.enabled) return undefined;
+    const { userId } = key;
     if (this.generation(userId) !== expectedGeneration) return undefined;
 
     let frozen: AuthenticatedUser;
     try {
-      frozen = deepFreeze(deepCopy(value));
+      frozen = deepFreeze(
+        stampCredential(deepCopy(value), {
+          activeOrgId: key.orgId ?? undefined,
+          tokenKind: key.tokenKind,
+        }),
+      );
     } catch {
       // Not cloneable (never true of a Prisma row graph). Do not cache it.
       return undefined;
     }
 
     // Re-insert so a refreshed key moves to the back of the eviction order.
-    this.entries.delete(userId);
-    this.entries.set(userId, { value: frozen, expiresAt: this.now() + this.ttlMs });
+    const id = keyString(key);
+    this.entries.delete(id);
+    this.entries.set(id, { userId, value: frozen, expiresAt: this.now() + this.ttlMs });
+    let keys = this.keysByUser.get(userId);
+    if (!keys) {
+      keys = new Set();
+      this.keysByUser.set(userId, keys);
+    }
+    keys.add(id);
 
     while (this.entries.size > PRINCIPAL_CACHE_MAX_ENTRIES) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;
-      this.entries.delete(oldest);
+      this.deleteEntry(oldest);
     }
 
     return frozen;
+  }
+
+  /**
+   * Drops every entry of `userId` (every org, every credential kind) here and
+   * on every other replica: {@link invalidate} with `{ userId }`. The one call
+   * the principal-changing writes make (#724), after their transaction
+   * commits: membership create, delete, status or role change; system role
+   * change; user deactivation; PAT revoke; device-session revoke. Never throws.
+   */
+  invalidateUser(userId: string): void {
+    this.invalidate({ userId });
   }
 
   /**
@@ -328,10 +406,12 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
       this.epoch = this.counter;
       this.generations.clear();
       this.entries.clear();
+      this.keysByUser.clear();
       return;
     }
 
-    this.entries.delete(target.userId);
+    for (const id of this.keysByUser.get(target.userId) ?? []) this.entries.delete(id);
+    this.keysByUser.delete(target.userId);
     this.generations.delete(target.userId);
     this.generations.set(target.userId, this.counter);
 

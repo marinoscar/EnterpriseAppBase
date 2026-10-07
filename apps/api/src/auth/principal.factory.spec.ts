@@ -3,6 +3,7 @@ import {
   PrincipalFactory,
   resolveEffectiveAccess,
   selectCurrentMembership,
+  toPrincipal,
   type PrincipalMembership,
   type PrincipalRole,
   type PrincipalSource,
@@ -168,14 +169,18 @@ describe('PrincipalFactory', () => {
       roles: ['admin', 'org_admin'],
       permissions: expect.arrayContaining(['jobs:read', 'org_members:read']),
       activeOrgId: 'org-default',
-      memberships: [{ orgId: 'org-default', role: 'org_admin' }],
+      // #724: every membership with its status; no groups until PP-7.
+      memberships: [{ orgId: 'org-default', role: 'org_admin', status: 'active' }],
+      groups: [],
     });
   });
 
-  it('builds a NodePrincipal with no active organization', () => {
+  it('builds a NodePrincipal with no active organization: system grants only (#724)', () => {
     const principal = factory.forNode(loaded, 'node-1');
 
-    expect(principal).toMatchObject({ kind: 'node', credential: 'node', nodeId: 'node-1', roles: ['admin', 'org_admin'] });
+    expect(principal).toMatchObject({ kind: 'node', credential: 'node', nodeId: 'node-1', roles: ['admin'] });
+    expect(principal.permissions).toContain('jobs:read');
+    expect(principal.permissions).not.toContain('org_members:read');
     expect(principal).not.toHaveProperty('activeOrgId');
   });
 
@@ -184,5 +189,65 @@ describe('PrincipalFactory', () => {
 
     expect(requestUser.roles).toEqual(['admin', 'org_admin']);
     expect(requestUser.permissions.sort()).toEqual(factory.access(loaded).permissions.sort());
+  });
+});
+
+// PP-6.4 (#724): the ACTIVE ORG the credential is bound to decides whose
+// membership role counts; the sign-in rule only applies to an unbound graph.
+describe('the bound active org (#724)', () => {
+  const twoOrgs = (activeOrgId?: string | null) => ({
+    id: 'u1',
+    email: 'u1@example.test',
+    ...user([], [
+      membership({ orgId: 'org-default', role: VIEWER, lastActiveAt: new Date('2026-10-05T00:00:00Z') }),
+      membership({ orgId: 'org-b', role: CONTRIBUTOR, lastActiveAt: new Date('2026-10-01T00:00:00Z') }),
+      membership({ orgId: 'org-c', role: ORG_ADMIN, status: 'suspended' }),
+    ]),
+    ...(activeOrgId !== undefined ? { activeOrgId } : {}),
+  });
+
+  it('a bound org selects that membership, in either mode, over the sign-in rule', () => {
+    expect(resolveEffectiveAccess(twoOrgs('org-b'), 'single').orgRole).toBe('contributor');
+    expect(resolveEffectiveAccess(twoOrgs('org-b'), 'multi').orgRole).toBe('contributor');
+    expect(resolveEffectiveAccess(twoOrgs(), 'multi').orgRole).toBe('viewer');
+  });
+
+  it('a bound org whose membership is suspended or missing grants no org role', () => {
+    expect(resolveEffectiveAccess(twoOrgs('org-c'), 'multi').orgRole).toBeNull();
+    expect(resolveEffectiveAccess(twoOrgs('org-x'), 'multi').orgRole).toBeNull();
+  });
+
+  it('null (system-scoped) grants no org role at all', () => {
+    expect(resolveEffectiveAccess(twoOrgs(null), 'single').membership).toBeNull();
+  });
+
+  it('a UserPrincipal carries the bound org, every membership with its status, and no groups', () => {
+    const principal = toPrincipal(twoOrgs('org-b'), 'pat');
+
+    expect(principal).toMatchObject({ kind: 'user', credential: 'pat', activeOrgId: 'org-b', groups: [] });
+    expect(principal.memberships).toEqual([
+      { orgId: 'org-default', role: 'viewer', status: 'active' },
+      { orgId: 'org-b', role: 'contributor', status: 'active' },
+      { orgId: 'org-c', role: 'org_admin', status: 'suspended' },
+    ]);
+    expect(principal.roles).toEqual(['contributor']);
+  });
+
+  it('an unbound graph (a pre-#724 token) maps to the default org in single mode', () => {
+    expect(toPrincipal(twoOrgs(), 'session').activeOrgId).toBe('org-default');
+  });
+
+  it('a node principal is system-scoped whatever the graph says', () => {
+    const principal = toPrincipal(twoOrgs('org-b'), 'node');
+
+    expect(principal.kind).toBe('node');
+    expect(principal).not.toHaveProperty('activeOrgId');
+    expect(principal.roles).toEqual([]);
+  });
+
+  it('session, device and pat credentials each yield a user principal of that kind', () => {
+    for (const kind of ['session', 'device', 'pat'] as const) {
+      expect(toPrincipal(twoOrgs('org-b'), kind)).toMatchObject({ kind: 'user', credential: kind });
+    }
   });
 });

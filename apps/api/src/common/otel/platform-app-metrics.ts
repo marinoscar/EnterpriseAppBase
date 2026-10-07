@@ -49,6 +49,9 @@ export const AUTH_REFRESH_OUTCOME_VALUES = [
   'expired',
   'user_inactive',
   'device_revoked',
+  // PP-6.4 (#724): the refresh token's organization membership is no longer
+  // active (removed or suspended). Never the org id itself.
+  'no_organization',
 ] as const;
 export const AI_STATUS_VALUES = ['succeeded', 'failed', 'cancelled'] as const;
 export const NOTIFICATION_OUTCOME_VALUES = ['sent', 'failed', 'rate_limited', 'error'] as const;

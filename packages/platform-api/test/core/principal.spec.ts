@@ -73,7 +73,7 @@ export type ContractUnions = [
 export type ContractFields = [
   Expect<Equal<Scope, { readonly userId: string; readonly orgId?: string; readonly groupIds?: readonly string[] }>>,
   Expect<Equal<SystemActor, { readonly kind: 'system'; readonly reason: string }>>,
-  Expect<Equal<OrgMembership, { readonly orgId: string; readonly role: string }>>,
+  Expect<Equal<OrgMembership, { readonly orgId: string; readonly role: string; readonly status?: 'active' | 'suspended' }>>,
   Expect<Equal<GroupMembership, { readonly groupId: string; readonly orgId: string; readonly role: string }>>,
   Expect<Equal<Principal['userId'], string>>,
   Expect<Equal<Principal['email'], string>>,
