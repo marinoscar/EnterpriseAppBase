@@ -18,7 +18,9 @@ import {
 
 import { PatService } from './pat.service';
 import { Auth } from '../auth/decorators/auth.decorator';
+import type { Principal } from '@marinoscar/platform-api/core';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
 import { CreatePatDto } from './dto/create-pat.dto';
 import { PatCreatedResponseDto, PatListItemDto } from './dto/pat-response.dto';
 
@@ -36,16 +38,26 @@ export class PatController {
     description: 'Token created - raw token is shown only once',
     type: PatCreatedResponseDto,
   })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation failed, or `orgId` is not an organization the caller is an active member of',
+  })
   async createToken(
     @Body() dto: CreatePatDto,
-    @CurrentUser('id') userId: string,
+    @CurrentPrincipal() principal: Principal,
   ): Promise<PatCreatedResponseDto> {
-    return this.patService.createToken(userId, dto);
+    // #724: bound to the caller's active org unless `orgId` names another.
+    return this.patService.createToken(principal.userId, dto, {
+      activeOrgId: principal.activeOrgId,
+    });
   }
 
   @Get()
   @Auth()
-  @ApiOperation({ summary: 'List all Personal Access Tokens for current user' })
+  @ApiOperation({
+    summary: 'List all Personal Access Tokens for current user',
+    description: 'Every token of the caller, across all organizations; `orgId` names the one each is bound to.',
+  })
   @ApiResponse({
     status: 200,
     description: 'List of PATs (raw tokens are never returned in list)',
@@ -63,6 +75,7 @@ export class PatController {
       lastUsedAt: t.lastUsedAt ? t.lastUsedAt.toISOString() : null,
       createdAt: t.createdAt.toISOString(),
       revokedAt: t.revokedAt ? t.revokedAt.toISOString() : null,
+      orgId: t.orgId ?? null,
     }));
   }
 

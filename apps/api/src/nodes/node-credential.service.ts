@@ -64,6 +64,7 @@ import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { stampCredential } from '../auth/credential-binding';
 import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
 import { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
 
@@ -447,6 +448,12 @@ export class NodeCredentialService {
       .update({ where: { id: credential.id }, data: { lastUsedAt: new Date() } })
       .catch(() => {});
 
-    return credential.user as AuthenticatedUser;
+    // System-scoped (ADR 0001, #724): a node credential acts in no
+    // organization, so only its owner's SYSTEM grants count (`activeOrgId`
+    // null), and the principal records `tokenKind: 'node'`.
+    return stampCredential(credential.user as AuthenticatedUser, {
+      activeOrgId: null,
+      tokenKind: 'node',
+    });
   }
 }

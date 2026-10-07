@@ -21,6 +21,9 @@ export class PatCreatedResponseDto {
 
   @ApiProperty({ description: 'ISO 8601 creation timestamp' })
   createdAt!: string;
+
+  @ApiProperty({ description: 'The organization the token is bound to (UUID)', format: 'uuid' })
+  orgId!: string;
 }
 
 /**
@@ -56,4 +59,13 @@ export class PatListItemDto {
 
   @ApiPropertyOptional({ description: 'ISO 8601 revocation timestamp, null if not revoked' })
   revokedAt!: string | null;
+
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    nullable: true,
+    description:
+      'The organization the token is bound to (#724). Null only for a token created before organizations were bound to tokens.',
+  })
+  orgId!: string | null;
 }

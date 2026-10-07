@@ -11,6 +11,15 @@ export const createPatSchema = z.object({
   durationUnit: z.enum(['minutes', 'days', 'months'], {
     error: 'Duration unit must be one of: minutes, days, months',
   }),
+  // #724: the organization the token acts in, for its whole life. Must be an
+  // active membership of the caller (else 400); defaults to the caller's
+  // active organization.
+  orgId: z
+    .uuid('orgId must be a UUID')
+    .optional()
+    .describe(
+      "The organization the token is bound to. Must be one you are an active member of; defaults to the caller's active organization.",
+    ),
 });
 
 export class CreatePatDto extends createZodDto(createPatSchema) {}
