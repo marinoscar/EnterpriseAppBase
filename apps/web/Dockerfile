@@ -45,10 +45,16 @@ COPY packages/shared ./packages/shared/
 # nothing further.
 COPY tsconfig.base.json ./
 COPY packages/platform-web ./packages/platform-web/
+# `@marinoscar/platform-contract` (issue #701) is a dependency of
+# `@marinoscar/platform-web` and of this app: the Doctor's wire types and
+# status constants come from it. Copied whole and built before platform-web
+# below, for the same reasons. Only its zod-free constants reach the bundle.
+COPY packages/platform-contract ./packages/platform-contract/
 # The root postinstall (patch-react-transition-group.js) runs during npm ci
 COPY scripts ./scripts
 RUN npm ci --workspace=web --include-workspace-root
-RUN npm run build --workspace=@marinoscar/platform-web
+RUN npm run build --workspace=@marinoscar/platform-contract && \
+    npm run build --workspace=@marinoscar/platform-web
 
 # -----------------------------------------------------------------------------
 # Development stage

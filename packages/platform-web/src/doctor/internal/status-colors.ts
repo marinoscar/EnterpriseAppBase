@@ -5,8 +5,7 @@
 // roles the tokens default to, so it looks as it always did. Not exported.
 
 import type { Theme } from '@mui/material/styles';
-
-import type { DoctorStatus } from '../headless/index.js';
+import type { DoctorStatus } from '@marinoscar/platform-contract/doctor';
 
 type StatusToken = 'ok' | 'warn' | 'crit' | 'neutral';
 
