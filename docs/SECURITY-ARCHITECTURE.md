@@ -162,8 +162,13 @@ redirect with a code), `apps/web/src/__tests__/pages/AuthCallbackPage.test.tsx`,
 2. Look up the identity by `(provider, providerSubject)`. If absent, look up
    the user by email and link the identity.
 3. If there is no user, create one inside a transaction: the user row, the
-   identity, default user settings, the default role (`viewer`) and, when
-   `AdminBootstrapService.shouldGrantAdminRole` says so, the `admin` role.
+   identity, default user settings, the default role (`viewer`), an active
+   membership in the default organization (`OrganizationsService.ensureMembership`)
+   and, when `AdminBootstrapService.shouldGrantAdminRole` says so, the `admin`
+   role. A missing default organization (neither the migration backfill nor
+   the seed ran) fails the sign-up before anything is written, like a missing
+   default role. Joining the default organization is unconditional until
+   tenancy mode lands.
    The allowlist entry is then marked claimed.
 4. Reject an inactive user (`isActive = false`).
 5. Refresh the provider display name and picture.
