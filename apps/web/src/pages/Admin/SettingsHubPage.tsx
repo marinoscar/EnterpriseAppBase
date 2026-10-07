@@ -27,6 +27,7 @@
 import { SettingsHub } from '../../components/settings/SettingsHub';
 import { ADMIN_SECTIONS, ADMIN_HUB_TITLE } from '../../config/adminSections';
 import { useAiConfig } from '../../hooks/useAiConfig';
+import { useOrgsFeature } from '../../hooks/useOrgsFeature';
 import { isTelemetryOn, useTelemetryConfig } from '@marinoscar/platform-web/telemetry/headless';
 
 export default function SettingsHubPage() {
@@ -36,6 +37,8 @@ export default function SettingsHubPage() {
   const { config: aiConfig } = useAiConfig();
   // `Telemetry Explorer` (#537) is declared with `feature: 'telemetry'`.
   const { config: telemetryConfig } = useTelemetryConfig();
+  // The Organization and Organizations cards (#726) carry `feature: 'orgs'`.
+  const orgs = useOrgsFeature();
   return (
     <SettingsHub
       sections={ADMIN_SECTIONS}
@@ -45,7 +48,7 @@ export default function SettingsHubPage() {
       hubKey="admin-settings-hub"
       title={ADMIN_HUB_TITLE}
       subtitle="Manage system configuration, providers, and operational settings."
-      features={{ ai: aiConfig.enabled, telemetry: isTelemetryOn(telemetryConfig) }}
+      features={{ ai: aiConfig.enabled, telemetry: isTelemetryOn(telemetryConfig), orgs }}
     />
   );
 }

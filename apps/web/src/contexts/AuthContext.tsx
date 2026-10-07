@@ -10,7 +10,12 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../services/api';
 import { removePushSubscription } from '../services/pushSubscription';
-import { User, AuthProvider as AuthProviderType } from '../types';
+import type {
+  User,
+  AuthProvider as AuthProviderType,
+  OrgMembershipSummary,
+  OrgSummary,
+} from '../types';
 
 export interface LoginOptions {
   /**
@@ -35,7 +40,26 @@ interface AuthContextValue {
   login: (provider: string, options?: LoginOptions) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  /** The organization this session acts in (#724, #726), from `/api/auth/me`. */
+  activeOrg: OrgSummary | null;
+  /** The organizations the user can switch to (active memberships), from `/api/auth/me`. */
+  memberships: OrgMembershipSummary[];
+  /**
+   * Re-issue the session for another organization (#726): calls
+   * `POST /api/auth/switch-org` (which rotates the refresh cookie), keeps the
+   * new access token and reloads the user, so permissions follow the org.
+   * Rejects when the API refuses; the current session is then unchanged.
+   */
+  switchOrg: (orgId: string) => Promise<void>;
 }
+
+/** What `POST /api/auth/switch-org` returns (the same shape as a refresh). */
+interface SwitchOrgResponse {
+  accessToken: string;
+  expiresIn: number;
+}
+
+const NO_MEMBERSHIPS: OrgMembershipSummary[] = [];
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -166,6 +190,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await fetchUser();
   }, [fetchUser]);
 
+  const switchOrg = useCallback(
+    async (orgId: string) => {
+      // The API decides whether the caller may act in `orgId`; the browser
+      // only carries the answer (a new token bound to it) and re-reads `me`.
+      const tokens = await api.post<SwitchOrgResponse>('/auth/switch-org', { orgId });
+      api.setAccessToken(tokens.accessToken);
+      await fetchUser();
+    },
+    [fetchUser],
+  );
+
   const value: AuthContextValue = {
     user,
     isLoading,
@@ -175,6 +210,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     login,
     logout,
     refreshUser,
+    activeOrg: user?.activeOrg ?? null,
+    memberships: user?.memberships ?? NO_MEMBERSHIPS,
+    switchOrg,
   };
 
   return (
