@@ -4,20 +4,27 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Inject,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
 import { UserListQueryDto } from './dto/user-list-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import {
-  DEFAULT_ORG_ROLE,
   ORG_ADMIN_ROLE,
   ROLES,
-} from '../common/constants/roles.constants';
-import { NotificationsService } from '../notifications/notifications.service';
-import type { RoleChangedEmailData } from '../email';
-import { resolveProfileImageUrl } from '../common/profile-image/profile-image';
+} from '../identity.constants';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
+import {
+  IDENTITY_NOTIFIER,
+  IDENTITY_PROFILE_IMAGES,
+  type IdentityNotifier,
+  type IdentityProfileImages,
+  type RoleChangedNotice,
+} from '../ports';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { principalFactory } from '../auth/principal.factory';
 import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
@@ -60,11 +67,15 @@ export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly notifications: NotificationsService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
+    @Inject(IDENTITY_NOTIFIER) private readonly notifications: IdentityNotifier,
     private readonly config: ConfigService,
     // PP-1.12 (#683): every write here changes what the user's JWT resolves to.
     private readonly principalCache: PrincipalCache,
+    // #727: how a user's picture resolves from their stored profile settings.
+    @Inject(IDENTITY_PROFILE_IMAGES) private readonly profileImages: IdentityProfileImages,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
   ) {}
 
   /**
@@ -314,7 +325,7 @@ export class UsersService {
     if (singleOrg) {
       const membershipRoleName = systemRoles.some((role) => role.name === ROLES.ADMIN)
         ? ORG_ADMIN_ROLE
-        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? DEFAULT_ORG_ROLE;
+        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? this.identityOptions.defaultOrgRole;
       membershipRole =
         orgRoles.find((role) => role.name === membershipRoleName) ??
         (await this.prisma.role.findUnique({ where: { name: membershipRoleName } }));
@@ -417,7 +428,7 @@ export class UsersService {
     // notification. Suppressing it would be a rule with no security value —
     // the alerting case is precisely the one where the actor and the account
     // owner are believed to be the same person and are not.
-    const payload: RoleChangedEmailData = {
+    const payload: RoleChangedNotice = {
       recipientEmail: user.email,
       previousRoles,
       currentRoles,
@@ -428,7 +439,7 @@ export class UsersService {
     // The ACTOR IS NOT IN THE PAYLOAD, deliberately — see the long note in
     // role-changed.email.ts. `audit_events` above records who made the change,
     // which is the controlled place for it.
-    await this.notifications.notify('security.role_changed', id, payload);
+    await this.notifications.roleChanged(id, payload);
 
     return this.getUserById(id);
   }
@@ -465,7 +476,7 @@ export class UsersService {
     const storedProfile = (
       user.userSettings?.value as { profile?: unknown } | null | undefined
     )?.profile;
-    return resolveProfileImageUrl(user, storedProfile);
+    return this.profileImages.resolveImageUrl(user, storedProfile);
   }
 
   /**

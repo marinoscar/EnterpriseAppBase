@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import type { TenancyMode } from '@marinoscar/platform-api/core';
+import type { TenancyMode } from '../../../core/index';
 
 /**
  * Role information

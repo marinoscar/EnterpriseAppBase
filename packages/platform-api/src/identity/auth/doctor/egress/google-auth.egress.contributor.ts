@@ -5,7 +5,7 @@ import {
   EgressDependency,
   EgressRegistry,
   egressDependency,
-} from '@marinoscar/platform-api/doctor';
+} from '../../../../doctor/index';
 
 import { AuthService } from '../../auth.service';
 

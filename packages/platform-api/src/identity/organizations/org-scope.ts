@@ -20,7 +20,7 @@
 // =============================================================================
 
 import { currentTenancyMode } from '../auth/tenancy-mode';
-import type { PrismaService } from '../prisma/prisma.service';
+import type { IdentityPrisma as PrismaService } from '../ports';
 
 /**
  * The work has no organization and the deployment is multi-tenant. A

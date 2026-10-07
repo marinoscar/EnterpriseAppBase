@@ -1,6 +1,7 @@
 import {
   ExecutionContext,
   ForbiddenException,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -8,9 +9,9 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PatService } from '../../pat/pat.service';
-import { NodeCredentialService } from '../../nodes/node-credential.service';
+import { IDENTITY_NODE_CREDENTIALS, type IdentityNodeCredentials } from '../../ports';
 import type { AuthCredentialInfo } from '../decorators/auth-credential.decorator';
-import type { CredentialKind } from '@marinoscar/platform-api/core';
+import type { CredentialKind } from '../../../core/index';
 import { toPrincipal } from '../principal.factory';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
@@ -92,7 +93,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(
     private reflector: Reflector,
     private patService: PatService,
-    private nodeCredentialService: NodeCredentialService,
+    @Inject(IDENTITY_NODE_CREDENTIALS) private nodeCredentialService: IdentityNodeCredentials,
   ) {
     super();
   }

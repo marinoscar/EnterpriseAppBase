@@ -54,7 +54,7 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: "Backup run: reads current_setting('server_version') to record the dump's server version.",
   },
   {
-    file: 'organizations/doctor/rls-role.doctor-check.ts',
+    file: 'health/doctor/rls-role.doctor-check.ts',
     why: 'Doctor check: reads pg_roles and pg_class (the API role and the FORCEd tables). Read-only catalogue reads, no user ids.',
   },
   {

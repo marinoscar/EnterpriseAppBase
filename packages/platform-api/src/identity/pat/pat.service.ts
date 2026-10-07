@@ -3,9 +3,9 @@ import {
   Injectable,
   NotFoundException,
   Logger,
-  Optional,
-} from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+  Optional, Inject } from '@nestjs/common';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
 import { createHash, randomBytes } from 'node:crypto';
 import { CreatePatDto } from './dto/create-pat.dto';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
@@ -29,7 +29,7 @@ export class PatService {
   private readonly logger = new Logger(PatService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     // #724: a PAT revoke invalidates the owner's principals. Belt and braces
     // (a PAT is validated against its row on every request, never cached),
     // so a test graph without `PrincipalCacheModule` still works without it.

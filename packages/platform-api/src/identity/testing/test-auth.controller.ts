@@ -8,12 +8,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { FastifyReply } from 'fastify';
+import type { CookieReply as FastifyReply } from '../auth/cookie-http';
 import { Public } from '../auth/decorators/public.decorator';
 import { TestEnvironmentGuard } from './guards/test-environment.guard';
 import { TestAuthService } from './test-auth.service';
 import { TestLoginDto } from './dto/test-login.dto';
-import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
+import { AllowDuringMaintenance } from '../../core/index';
 import {
   AuthLoginDeniedException,
   buildAuthErrorRedirectUrl,

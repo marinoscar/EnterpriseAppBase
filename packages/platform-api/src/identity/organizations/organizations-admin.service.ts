@@ -1,9 +1,10 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, Inject } from '@nestjs/common';
 import { trace } from '@opentelemetry/api';
 import { Prisma } from '@prisma/client';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { ORG_ADMIN_ROLE } from '../common/constants/roles.constants';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
+import { ORG_ADMIN_ROLE } from '../identity.constants';
 import { TenancyService } from './tenancy.service';
 import { OrgInvitesService } from './org-invites.service';
 import { TENANCY_SINGLE_ORG_REASON, writeAudit } from './org-admin.common';
@@ -55,7 +56,7 @@ export class OrganizationsAdminService {
   private readonly logger = new Logger(OrganizationsAdminService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly tenancy: TenancyService,
     private readonly invites: OrgInvitesService,
   ) {}

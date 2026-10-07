@@ -48,7 +48,7 @@ import type {
   Principal,
   TenancyMode,
   UserPrincipal,
-} from '@marinoscar/platform-api/core';
+} from '../../core/index';
 
 import { currentTenancyMode } from './tenancy-mode';
 

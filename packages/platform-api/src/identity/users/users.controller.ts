@@ -17,10 +17,10 @@ import {
 } from '@nestjs/swagger';
 
 import { UsersService } from './users.service';
-import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
+import { ApiDataResponse } from '../../core/index';
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { PERMISSIONS } from '../common/constants/roles.constants';
+import { PERMISSIONS } from '../identity.constants';
 import { UserListQueryDto } from './dto/user-list-query.dto';
 import { UserDetailResponseDto, UserResponseDto } from './dto/user-response.dto';
 import { UpdateUserDto } from './dto/update-user.dto';

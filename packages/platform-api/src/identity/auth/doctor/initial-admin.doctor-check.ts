@@ -1,10 +1,12 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../../identity.options';
 import { ConfigService } from '@nestjs/config';
 
-import { ROLES } from '../../common/constants/roles.constants';
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { PrismaService } from '../../prisma/prisma.service';
+import { ROLES } from '../../identity.constants';
+import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/index';
+import { DoctorCheckRegistry } from '../../../doctor/index';
+import { PLATFORM_PRISMA } from '../../../core/index';
+import type { IdentityPrisma } from '../../ports';
 
 /** Pure: judges the bootstrap variable and the number of active admins. */
 export function decideInitialAdmin(input: { initialAdminEmailSet: boolean; activeAdmins: number }): DoctorCheckOutcome {
@@ -47,7 +49,9 @@ export class InitialAdminDoctorCheck implements DoctorCheck, OnModuleInit {
   constructor(
     private readonly registry: DoctorCheckRegistry,
     private readonly config: ConfigService,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
   ) {}
 
   onModuleInit(): void {
@@ -55,7 +59,7 @@ export class InitialAdminDoctorCheck implements DoctorCheck, OnModuleInit {
   }
 
   async run(): Promise<DoctorCheckOutcome> {
-    const email = this.config.get<string>('INITIAL_ADMIN_EMAIL');
+    const email = this.config.get<string>(this.identityOptions.initialAdminEmailEnv);
     const activeAdmins = await this.prisma.user.count({
       where: { isActive: true, userRoles: { some: { role: { name: ROLES.ADMIN } } } },
     });

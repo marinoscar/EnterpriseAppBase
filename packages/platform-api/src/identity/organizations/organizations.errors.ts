@@ -1,4 +1,4 @@
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
+import { DatabaseSeedException } from '../../core/index';
 
 /**
  * Raised when the default organization does not exist: the migration's

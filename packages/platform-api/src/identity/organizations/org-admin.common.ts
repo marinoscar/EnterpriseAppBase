@@ -1,8 +1,8 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type { Principal } from '@marinoscar/platform-api/core';
+import type { Principal } from '../../core/index';
 
-import { ORG_ADMIN_ROLE } from '../common/constants/roles.constants';
+import { ORG_ADMIN_ROLE } from '../identity.constants';
 
 // =============================================================================
 // Shared rules of the org administration API (#726, PP-6.7)

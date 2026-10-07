@@ -11,12 +11,12 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import type { Principal } from '@marinoscar/platform-api/core';
+import type { Principal } from '../../core/index';
 
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
-import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { PERMISSIONS } from '../common/constants/roles.constants';
+import { ApiDataResponse } from '../../core/index';
+import { PERMISSIONS } from '../identity.constants';
 import { OrgInvitesService } from './org-invites.service';
 import { requireActiveOrgId } from './org-admin.common';
 import {

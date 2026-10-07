@@ -4,31 +4,38 @@ import {
   Logger,
   NotFoundException,
   Optional,
-  UnauthorizedException,
-} from '@nestjs/common';
-import type { CredentialKind } from '@marinoscar/platform-api/core';
+  UnauthorizedException, Inject } from '@nestjs/common';
+import type { CredentialKind } from '../../core/index';
 import { ConfigService } from '@nestjs/config';
 import { trace } from '@opentelemetry/api';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
-import { PrismaService } from '../prisma/prisma.service';
+import type { Prisma } from '@prisma/client';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
-  AppMetricsService,
-  fallbackAppMetrics,
-} from '../common/otel/app-metrics.service';
-import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
+  IDENTITY_METRICS,
+  IDENTITY_NOTIFIER,
+  IDENTITY_PROFILE_IMAGES,
+  NOOP_IDENTITY_METRICS,
+  USER_DEFAULTS,
+  type IdentityMetrics,
+  type IdentityNotifier,
+  type IdentityProfileImages,
+  type UserDefaults,
+  type UserWelcomeNotice,
+} from '../ports';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
+import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
+import { authProviderRegistry } from './providers/auth-provider.registry';
+import { AdminBootstrapService } from './admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
+import { DatabaseSeedException } from '../../core/index';
 import {
-  DEFAULT_ORG_ROLE,
   ORG_ADMIN_ROLE,
   ROLES,
-} from '../common/constants/roles.constants';
-import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
-import {
-  normalizeProfileSettings,
-  resolveProfileImageUrl,
-} from '../common/profile-image/profile-image';
+} from '../identity.constants';
 import { AuthLoginDeniedException } from './auth-error-codes';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
@@ -42,8 +49,6 @@ import {
 import { bindCredential, hasActiveMembership } from './credential-binding';
 import { TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
-import { NotificationsService } from '../notifications/notifications.service';
-import type { UserWelcomeEmailData } from '../email';
 import { PrincipalCache } from './principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { TenancyService } from '../organizations/tenancy.service';
@@ -95,12 +100,12 @@ export class AuthService {
   private defaultOrgMemo: { id: string; at: number } | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly adminBootstrapService: AdminBootstrapService,
     private readonly allowlistService: AllowlistService,
-    private readonly notifications: NotificationsService,
+    @Inject(IDENTITY_NOTIFIER) private readonly notifications: IdentityNotifier,
     // PP-1.12 (#683): JWT principals are read through this short-TTL cache.
     private readonly principalCache: PrincipalCache,
     // PP-6.1 (#721): new users join the default organization.
@@ -108,9 +113,16 @@ export class AuthService {
     // PP-6.2 (#722): TENANCY_MODE decides who joins the default org and who
     // is refused for having no organization.
     private readonly tenancy: TenancyService,
-    // #600. Optional: see `fallbackAppMetrics`.
-    @Optional()
-    private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    // #600. Optional: without the app's instruments nothing is recorded.
+    @Optional() @Inject(IDENTITY_METRICS)
+    private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
+    // #727: what a new user's settings row holds, and how a picture resolves.
+    @Inject(USER_DEFAULTS) private readonly userDefaults: UserDefaults,
+    @Inject(IDENTITY_PROFILE_IMAGES) private readonly profileImages: IdentityProfileImages,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
+    // #727: `identity.user.created` and `identity.org.switched`, after commit.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /**
@@ -237,7 +249,7 @@ export class AuthService {
       // is org_admin, everyone else's the default org role.
       orgRoleName: user.userRoles.some((ur) => ur.role.name === ROLES.ADMIN)
         ? ORG_ADMIN_ROLE
-        : DEFAULT_ORG_ROLE,
+        : this.identityOptions.defaultOrgRole,
     });
 
     // The active organization (#724): single mode, the default org; multi
@@ -300,7 +312,7 @@ export class AuthService {
     // rendered or sent, so it adds no latency to the OAuth callback.
     if (userWasCreated) {
       const appUrl = this.configService.get<string>('appUrl');
-      const payload: UserWelcomeEmailData = {
+      const payload: UserWelcomeNotice = {
         recipientEmail: user.email,
         // Optional fields spread in conditionally rather than assigned
         // `undefined` — same convention as the notification channels.
@@ -310,7 +322,7 @@ export class AuthService {
         ...(appUrl ? { appUrl: appUrl.replace(/\/+$/, '') } : {}),
       };
 
-      await this.notifications.notify('user.welcome', user.id, payload);
+      await this.notifications.userWelcomed(user.id, payload);
     }
 
     return tokens;
@@ -392,7 +404,7 @@ export class AuthService {
     // The membership's org role, with its permissions (the returned principal
     // carries them). Resolved before the transaction: a missing row is a seed
     // problem and must fail before anything is written.
-    const membershipRoleName = shouldGrantAdmin ? ORG_ADMIN_ROLE : DEFAULT_ORG_ROLE;
+    const membershipRoleName = shouldGrantAdmin ? ORG_ADMIN_ROLE : this.identityOptions.defaultOrgRole;
     const membershipRole = await this.prisma.role.findUnique({
       where: { name: membershipRoleName },
       include: {
@@ -445,7 +457,7 @@ export class AuthService {
           // Create default user settings
           userSettings: {
             create: {
-              value: DEFAULT_USER_SETTINGS as any,
+              value: this.userDefaults.userSettings() as Prisma.InputJsonValue,
             },
           },
         },
@@ -528,6 +540,13 @@ export class AuthService {
       );
     }
     this.logger.log(`User created successfully: ${user.email}`);
+    // #727: after the transaction committed, for app side tables.
+    emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.USER_CREATED, {
+      userId: user.id,
+      email: user.email,
+      source: 'google',
+      orgId: defaultOrg?.id ?? null,
+    });
     return user;
   }
 
@@ -1228,6 +1247,7 @@ export class AuthService {
     this.logger.log(
       `User ${caller.id} switched organization to ${orgId} (from ${fromOrgId ?? '(none)'})`,
     );
+    emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.ORG_SWITCHED, { userId: caller.id, orgId });
 
     return {
       accessToken: accessToken.token,
@@ -1264,20 +1284,12 @@ export class AuthService {
    * Returns list of enabled OAuth providers
    */
   async getEnabledProviders(): Promise<AuthProviderDto[]> {
-    const providers: AuthProviderDto[] = [];
-
-    // Check if Google OAuth is configured
-    const googleClientId = this.configService.get<string>('google.clientId');
-    const googleClientSecret = this.configService.get<string>(
-      'google.clientSecret',
-    );
-
-    if (googleClientId && googleClientSecret) {
-      providers.push({
-        name: 'google',
-        enabled: true,
-      });
-    }
+    // The provider registry (#727), in registration order: Google first, then
+    // any provider the app registered. Only configured ones are listed.
+    const providers: AuthProviderDto[] = authProviderRegistry
+      .list()
+      .filter((provider) => provider.isEnabled(this.configService))
+      .map((provider) => ({ name: provider.id, enabled: true }));
 
     return providers;
   }
@@ -1311,9 +1323,8 @@ export class AuthService {
     const storedProfile = (
       user.userSettings?.value as { profile?: unknown } | null | undefined
     )?.profile;
-    const profileImageUrl = resolveProfileImageUrl(user, storedProfile);
-    const hasUploadedProfileImage =
-      normalizeProfileSettings(storedProfile).imageObjectId !== null;
+    const profileImageUrl = this.profileImages.resolveImageUrl(user, storedProfile);
+    const hasUploadedProfileImage = this.profileImages.hasUploadedImage(storedProfile);
 
     // Roles and permissions from `PrincipalFactory` (PP-6.3, #723): system
     // roles plus the current org's membership role. The shape is unchanged
@@ -1369,7 +1380,7 @@ export class AuthService {
    * Check if email matches the initial admin email
    */
   private isInitialAdminEmail(email: string): boolean {
-    const initialAdminEmail = this.configService.get<string>('INITIAL_ADMIN_EMAIL');
+    const initialAdminEmail = this.configService.get<string>(this.identityOptions.initialAdminEmailEnv);
     return initialAdminEmail ? email === initialAdminEmail.toLowerCase() : false;
   }
 }

@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from '../prisma/prisma.module';
 import { PrincipalCacheModule } from '../auth/principal-cache/principal-cache.module';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationsService } from './organizations.service';
 import { TenancyService } from './tenancy.service';
 import { TenancyModeDoctorCheck } from './doctor/tenancy-mode.doctor-check';
@@ -11,7 +9,6 @@ import { OrganizationsAdminService } from './organizations-admin.service';
 import { OrgMembersController } from './org-members.controller';
 import { OrgInvitesController } from './org-invites.controller';
 import { OrganizationsAdminController } from './organizations-admin.controller';
-import { RlsRoleDoctorCheck } from './doctor/rls-role.doctor-check';
 
 /**
  * Organizations (PP-6.1). Switch-org (PP-6.4) is `POST /api/auth/switch-org`
@@ -27,13 +24,13 @@ import { RlsRoleDoctorCheck } from './doctor/rls-role.doctor-check';
 @Module({
   // PP-6.4 (#724): membership mutations invalidate the principal cache.
   // #726: invitations are emailed through the notification dispatcher.
-  imports: [PrismaModule, PrincipalCacheModule, NotificationsModule],
+  // The database, the notifier and the bypass client are the app's global host ports.
+  imports: [PrincipalCacheModule],
   controllers: [OrgMembersController, OrgInvitesController, OrganizationsAdminController],
   providers: [
     OrganizationsService,
     TenancyService,
     TenancyModeDoctorCheck,
-    RlsRoleDoctorCheck,
     OrgMembersService,
     OrgInvitesService,
     OrganizationsAdminService,

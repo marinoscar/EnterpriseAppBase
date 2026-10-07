@@ -10,10 +10,10 @@ import { RolesGuard } from '../guards/roles.guard';
 import { PermissionsGuard } from '../guards/permissions.guard';
 import { Roles } from './roles.decorator';
 import { Permissions } from './permissions.decorator';
-import { ErrorDto } from '@marinoscar/platform-api/core';
-import { RoleName, PermissionName } from '../../common/constants/roles.constants';
+import { ErrorDto } from '../../../core/index';
+import { RoleName, PermissionName } from '../../identity.constants';
 
-interface AuthOptions {
+export interface AuthOptions {
   /**
    * SYSTEM roles (held in `user_roles`), any of which admits the caller. Today
    * that is only `ROLES.ADMIN`, the deployment operator: an org role on a

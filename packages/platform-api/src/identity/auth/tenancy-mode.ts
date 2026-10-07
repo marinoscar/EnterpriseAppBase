@@ -16,7 +16,7 @@
 // with `TENANCY_MODE` set.
 // =============================================================================
 
-import type { TenancyMode } from '@marinoscar/platform-api/core';
+import type { TenancyMode } from '../../core/index';
 
 let recorded: TenancyMode = 'single';
 

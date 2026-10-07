@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import type { EventBusHealth } from '../../common/event-bus/event-bus.interface';
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import type { IdentityEventBusHealth as EventBusHealth } from '../../ports';
+import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/index';
+import { DoctorCheckRegistry } from '../../../doctor/index';
 import { PrincipalCache, type PrincipalCacheStats } from '../principal-cache/principal-cache.service';
 
 /**

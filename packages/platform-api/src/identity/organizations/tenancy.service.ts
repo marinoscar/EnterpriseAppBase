@@ -6,7 +6,7 @@ import {
   tenancyCapabilitiesFor,
   type TenancyCapabilities,
   type TenancyMode,
-} from '../common/deployment/tenancy-mode';
+} from './tenancy-mode';
 import { recordTenancyMode } from '../auth/tenancy-mode';
 
 /**

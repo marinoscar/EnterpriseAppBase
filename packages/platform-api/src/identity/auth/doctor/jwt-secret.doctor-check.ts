@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/index';
+import { DoctorCheckRegistry } from '../../../doctor/index';
 
 /** `jwt.strategy.ts` and `maintenance.module.ts` fall back to this when JWT_SECRET is unset. */
 export const JWT_FALLBACK_SECRET = 'fallback-secret';

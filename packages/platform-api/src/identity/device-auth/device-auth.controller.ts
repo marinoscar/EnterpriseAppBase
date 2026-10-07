@@ -35,7 +35,7 @@ import { DeviceTokenErrorDto } from './dto/device-token-error.dto';
 import { DeviceActivateResponseDto } from './dto/device-activate-response.dto';
 import { DeviceAuthorizeResponseDto } from './dto/device-authorize-response.dto';
 import { DeviceSessionsResponseDto } from './dto/device-session.dto';
-import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
+import { AllowDuringMaintenance } from '../../core/index';
 
 @ApiTags('Device Authorization')
 @Controller('auth/device')

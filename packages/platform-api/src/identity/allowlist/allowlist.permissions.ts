@@ -10,7 +10,7 @@
 // Recipe: common/permissions/README.md.
 // =============================================================================
 
-import type { PermissionDeclarationMap } from '../common/permissions/permission.types';
+import type { IdentityPermissionDeclarationMap as PermissionDeclarationMap } from '../identity.permissions';
 
 export const ALLOWLIST_PERMISSIONS = {
   // Allowlist

@@ -14,12 +14,10 @@
 // deployment would rather spend when nobody is waiting on it.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import { JobsService } from '../../jobs/jobs.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { IDENTITY_JOBS, type IdentityJobsPort } from '../../ports';
 import { AUTH_TOKEN_CLEANUP_TYPE } from '../handlers/token-cleanup.handler';
 
 @Injectable()
@@ -27,15 +25,12 @@ export class TokenCleanupTask {
   private readonly logger = new Logger(TokenCleanupTask.name);
 
   constructor(
-    private readonly jobs: JobsService,
-    private readonly prisma: PrismaService
+    @Inject(IDENTITY_JOBS) private readonly jobs: IdentityJobsPort,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async handleCron(): Promise<void> {
-    await enqueueHousekeepingJob({
-      jobs: this.jobs,
-      prisma: this.prisma,
+    await this.jobs.enqueueHousekeepingJob({
       logger: this.logger,
       type: AUTH_TOKEN_CLEANUP_TYPE,
       what: 'token cleanup',

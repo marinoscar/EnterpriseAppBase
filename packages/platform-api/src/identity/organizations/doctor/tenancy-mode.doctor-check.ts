@@ -1,12 +1,13 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Inject } from '@nestjs/common';
 
 import {
   DoctorCheck,
   DoctorCheckOutcome,
   DoctorCheckRegistry,
-} from '@marinoscar/platform-api/doctor';
-import { TENANCY_MODE_ENV_VAR, type TenancyMode } from '../../common/deployment/tenancy-mode';
-import { PrismaService } from '../../prisma/prisma.service';
+} from '../../../doctor/index';
+import { TENANCY_MODE_ENV_VAR, type TenancyMode } from '../tenancy-mode';
+import { PLATFORM_PRISMA } from '../../../core/index';
+import type { IdentityPrisma } from '../../ports';
 import { TenancyService } from '../tenancy.service';
 
 /** What the check reads from the database. */
@@ -105,7 +106,7 @@ export class TenancyModeDoctorCheck implements DoctorCheck, OnModuleInit {
   constructor(
     private readonly registry: DoctorCheckRegistry,
     private readonly tenancy: TenancyService,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
   ) {}
 
   onModuleInit(): void {

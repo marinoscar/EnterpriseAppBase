@@ -6,6 +6,7 @@ import { MaintenanceModule } from '../common/maintenance/maintenance.module';
 import { DbConnectionDoctorCheck } from './doctor/db-connection.doctor-check';
 import { DbMigrationsDoctorCheck } from './doctor/db-migrations.doctor-check';
 import { EncryptionKeyDoctorCheck } from './doctor/encryption-key.doctor-check';
+import { RlsRoleDoctorCheck } from './doctor/rls-role.doctor-check';
 
 @Module({
   // MaintenanceModule (#257) for `MaintenanceModeService`: the readiness probe
@@ -22,6 +23,10 @@ import { EncryptionKeyDoctorCheck } from './doctor/encryption-key.doctor-check';
     DbConnectionDoctorCheck,
     DbMigrationsDoctorCheck,
     EncryptionKeyDoctorCheck,
+    // `db.rls_role` (#725): the API's database role does not bypass row-level
+    // security. A database fact, so it lives with the other two; it moved here
+    // from `organizations/` when identity became a package (#727).
+    RlsRoleDoctorCheck,
   ],
   // Exported for `AboutModule` (#401, epic #397): `GET /api/admin/about`
   // reports a database liveness fact and must use THIS indicator rather than a

@@ -4,18 +4,25 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  Optional,
-} from '@nestjs/common';
+  Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { trace } from '@opentelemetry/api';
 import type { MembershipStatus, Prisma } from '@prisma/client';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityPrisma } from '../ports';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import type { RoleChangedEmailData } from '../email';
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
-import { ORG_ADMIN_ROLE } from '../common/constants/roles.constants';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  IDENTITY_METRICS,
+  IDENTITY_NOTIFIER,
+  NOOP_IDENTITY_METRICS,
+  type IdentityMetrics,
+  type IdentityNotifier,
+  type RoleChangedNotice,
+} from '../ports';
+import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
+import { ORG_ADMIN_ROLE } from '../identity.constants';
 import { lastOrgAdminConflict, lockOrganization, writeAudit } from './org-admin.common';
 import type { OrgMemberListQueryDto, UpdateOrgMemberDto } from './dto/org-member.dto';
 
@@ -78,12 +85,14 @@ export class OrgMembersService {
   private readonly logger = new Logger(OrgMembersService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly principalCache: PrincipalCache,
-    private readonly notifications: NotificationsService,
+    @Inject(IDENTITY_NOTIFIER) private readonly notifications: IdentityNotifier,
     private readonly config: ConfigService,
-    @Optional()
-    private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() @Inject(IDENTITY_METRICS)
+    private readonly metrics: IdentityMetrics = NOOP_IDENTITY_METRICS,
+    // #727: `identity.membership.changed`, after commit.
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /** The organization's members, by email. */
@@ -166,7 +175,7 @@ export class OrgMembersService {
       }
 
       if (!roleChanges && !statusChanges) {
-        return { member, previousRole: member.role.name, roleChanged: false };
+        return { member, previousRole: member.role.name, roleChanged: false, statusChanged: false };
       }
 
       const updated = await tx.membership.update({
@@ -185,24 +194,34 @@ export class OrgMembersService {
         ...(statusChanges ? { previousStatus: member.status, status: newStatus } : {}),
       });
 
-      return { member: updated, previousRole: member.role.name, roleChanged: roleChanges };
+      return { member: updated, previousRole: member.role.name, roleChanged: roleChanges, statusChanged: statusChanges };
     });
 
     // Committed. The member's next request sees the new role or status.
     this.principalCache.invalidateUser(userId);
 
+    if (result.roleChanged || result.statusChanged) {
+      emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.MEMBERSHIP_CHANGED, {
+        userId,
+        orgId,
+        change: result.roleChanged ? 'role_changed' : 'status_changed',
+        role: result.member.role.name,
+        actorUserId,
+      });
+    }
+
     if (result.roleChanged) {
       // `security.role_changed` (mandatory, email + in-app), after the commit
       // and outside the transaction. The actor is not in the payload; the
       // audit row records who made the change.
-      const payload: RoleChangedEmailData = {
+      const payload: RoleChangedNotice = {
         recipientEmail: result.member.user.email,
         previousRoles: [result.previousRole],
         currentRoles: [result.member.role.name],
         changedAt: new Date(),
         ...(this.appUrl() ? { appUrl: this.appUrl() } : {}),
       };
-      await this.notifications.notify('security.role_changed', userId, payload);
+      await this.notifications.roleChanged(userId, payload);
     }
 
     return toMemberView(result.member);
@@ -263,6 +282,13 @@ export class OrgMembersService {
     // org stops validating (#724), at once on this replica.
     this.principalCache.invalidateUser(userId);
     this.metrics.add('orgMembersRemoved');
+    emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.MEMBERSHIP_CHANGED, {
+      userId,
+      orgId,
+      change: 'removed',
+      role: null,
+      actorUserId,
+    });
     this.logger.log(`User ${userId} removed from organization ${orgId} by ${actorUserId}`);
     return revoked;
   }

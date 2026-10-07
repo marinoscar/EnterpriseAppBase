@@ -2,18 +2,14 @@ import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { CommonModule } from '../common/common.module';
 import { AllowlistModule } from '../allowlist/allowlist.module';
-import { PatModule } from '../pat/pat.module';
-import { OrganizationsModule } from '../organizations/organizations.module';
-import { NotificationsModule } from '../notifications/notifications.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { AdminBootstrapService } from './admin-bootstrap.service';
+import { requireJwtSecret } from '../identity.configuration';
 import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { TokenCleanupHandler } from './handlers/token-cleanup.handler';
-import { JobsModule } from '../jobs/jobs.module';
 import { AuthProvidersDoctorCheck } from './doctor/auth-providers.doctor-check';
 import { GoogleAuthEgressContributor } from './doctor/egress/google-auth.egress.contributor';
 import { InitialAdminDoctorCheck } from './doctor/initial-admin.doctor-check';
@@ -21,24 +17,34 @@ import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
 import { PrincipalCacheModule } from './principal-cache/principal-cache.module';
 import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check';
 
+/**
+ * Sign-in, sessions and tokens: `AuthController` (`/api/auth/*`), `AuthService`,
+ * the JWT strategy, the initial-administrator bootstrap, the nightly
+ * `auth.token.cleanup` job with its enqueue-only cron, and the `auth.*` Doctor
+ * checks. Mounted by `IdentityModule.forRoot()`, which adds the host-port
+ * modules, `PatModule`, `OrganizationsModule` and every registered sign-in
+ * provider's strategy; never import it directly.
+ *
+ * Exports `AuthService`, `AdminBootstrapService` and `JwtModule`.
+ *
+ * @stability experimental
+ */
 @Module({
   imports: [
     // Passport configuration
     PassportModule.register({ defaultStrategy: 'jwt' }),
 
-    // JWT configuration
+    // JWT configuration. No fallback secret: a missing JWT_SECRET is a boot
+    // error (`requireJwtSecret`), never a key published in this package.
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('jwt.secret'),
+        secret: requireJwtSecret(config),
         signOptions: {
           expiresIn: `${config.get<number>('jwt.accessTtlMinutes', 15)}m`,
         },
       }),
     }),
-
-    // Common module for AdminBootstrapService
-    CommonModule,
 
     // PP-1.12 (#683): `validateJwtPayload` reads principals through it.
     PrincipalCacheModule,
@@ -46,26 +52,16 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
     // Allowlist module for email allowlist checks
     AllowlistModule,
 
-    // PAT module for Personal Access Token validation in JwtAuthGuard
-    PatModule,
-
-    // PP-6.1 (#721): `createNewUser` joins a new user to the default org.
-    OrganizationsModule,
-
-    // Notifications: `handleGoogleLogin` raises `user.welcome` the first time
-    // a user record is created through OAuth (#128).
-    NotificationsModule,
-
-    // #353 (epic #345): the nightly token cleanup is a queue job now, so this
-    // module needs `JobsService` to enqueue it and `JobHandlerRegistry` for
-    // the handler to register itself with. One-way — nothing in `JobsModule`
-    // imports auth.
-    JobsModule,
+    // `IdentityModule.forRoot()` appends, in this order: the app's host-port
+    // modules (the notifier `handleGoogleLogin` raises `user.welcome` through,
+    // and the jobs port the nightly token cleanup is queued through),
+    // `PatModule` (PAT validation in JwtAuthGuard) and `OrganizationsModule`
+    // (`createNewUser` joins a new user to the default org).
   ],
   controllers: [AuthController],
   providers: [
     AuthService,
-    GoogleStrategy,
+    AdminBootstrapService,
     JwtStrategy,
     TokenCleanupTask,
     TokenCleanupHandler,
@@ -78,6 +74,6 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
     // Egress inventory (#773): Google sign-in's outbound hosts.
     GoogleAuthEgressContributor,
   ],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, AdminBootstrapService, JwtModule],
 })
 export class AuthModule {}

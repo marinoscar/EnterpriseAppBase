@@ -33,7 +33,7 @@
 // `@marinoscar/platform-api/core`; it is never redefined here.
 // =============================================================================
 
-import type { TenancyMode } from '@marinoscar/platform-api/core';
+import type { TenancyMode } from '../../core/index';
 import { z } from 'zod';
 
 export type { TenancyMode };

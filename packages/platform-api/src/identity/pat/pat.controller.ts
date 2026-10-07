@@ -18,7 +18,7 @@ import {
 
 import { PatService } from './pat.service';
 import { Auth } from '../auth/decorators/auth.decorator';
-import type { Principal } from '@marinoscar/platform-api/core';
+import type { Principal } from '../../core/index';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
 import { CreatePatDto } from './dto/create-pat.dto';

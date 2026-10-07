@@ -19,10 +19,10 @@ import {
 } from '@nestjs/swagger';
 
 import { AllowlistService } from './allowlist.service';
-import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
+import { ApiDataResponse } from '../../core/index';
 import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { PERMISSIONS } from '../common/constants/roles.constants';
+import { PERMISSIONS } from '../identity.constants';
 import { AddEmailDto } from './dto/add-email.dto';
 import { AllowlistQueryDto } from './dto/allowlist-query.dto';
 import { AllowlistEntryDto } from './dto/allowlist-response.dto';

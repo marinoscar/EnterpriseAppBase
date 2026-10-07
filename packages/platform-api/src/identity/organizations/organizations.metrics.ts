@@ -1,4 +1,4 @@
-import type { AppMetricDef } from '@marinoscar/platform-api/otel-core';
+import type { AppMetricDef } from '../../otel-core/index';
 
 // =============================================================================
 // Organization administration metrics (issue #726, PP-6.7)
