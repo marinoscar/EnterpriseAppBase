@@ -108,10 +108,12 @@ describe('JWT principal cache (integration, PP-1.12 #683)', () => {
 
       await probe(context, target).expect(200); // cached as admin
 
-      // The mocked database applies the role swap the way Postgres would.
-      (prismaMock.userRole.createMany as jest.Mock).mockImplementation(async ({ data }: any) => {
+      // The mocked database applies the role swap the way Postgres would. Since
+      // PP-6.3 (#723) a viewer holds no system role: the swap lands as the
+      // default-org membership role write.
+      (prismaMock.membership.upsert as jest.Mock).mockImplementation(async ({ create }: any) => {
         setupMockUserList([{ email: target.email, roleName: 'viewer' }]);
-        return { count: Array.isArray(data) ? data.length : 1 };
+        return { id: 'membership-mock', status: 'active', ...create };
       });
 
       await request(context.app.getHttpServer())

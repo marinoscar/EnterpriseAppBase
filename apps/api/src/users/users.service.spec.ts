@@ -9,6 +9,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 import { ROLES } from '../common/constants/roles.constants';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import * as tenancyMode from '../auth/tenancy-mode';
 
 const principalCacheStub = { invalidate: jest.fn() };
 
@@ -63,21 +64,31 @@ describe('UsersService', () => {
     ],
   };
 
+  // `scope` mirrors `roles.scope` (#723).
   const mockRoles = {
     admin: {
       id: 'admin-role-id',
       name: 'admin',
       description: 'Admin role',
+      scope: 'system',
     },
     contributor: {
       id: 'contributor-role-id',
       name: 'contributor',
       description: 'Contributor role',
+      scope: 'org',
     },
     viewer: {
       id: 'viewer-role-id',
       name: 'viewer',
       description: 'Viewer role',
+      scope: 'org',
+    },
+    org_admin: {
+      id: 'org-admin-role-id',
+      name: 'org_admin',
+      description: 'Org admin role',
+      scope: 'org',
     },
   };
 
@@ -113,6 +124,13 @@ describe('UsersService', () => {
     }).compile();
 
     service = module.get<UsersService>(UsersService);
+
+    // #723: single-org role changes look up the implied org role and the
+    // default organization, and write the membership role.
+    mockPrisma.role.findUnique.mockImplementation(((args: any) =>
+      Promise.resolve((mockRoles as Record<string, unknown>)[args.where.name] ?? null)) as any);
+    mockPrisma.organization.findFirst.mockResolvedValue({ id: 'org-default' } as any);
+    mockPrisma.membership.upsert.mockResolvedValue({} as any);
   });
 
   afterEach(() => {
@@ -172,6 +190,13 @@ describe('UsersService', () => {
             userRoles: {
               include: { role: true },
             },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
+            },
             // Needed to resolve `profileImageUrl` (#367) — see
             // UsersService.updateUser.
             userSettings: {
@@ -213,6 +238,13 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
             },
             // Needed to resolve `profileImageUrl` (#367) — see
             // UsersService.updateUser.
@@ -311,6 +343,13 @@ describe('UsersService', () => {
             userRoles: {
               include: { role: true },
             },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
+            },
             // Needed to resolve `profileImageUrl` (#367) — see
             // UsersService.listUsers.
             userSettings: {
@@ -338,14 +377,19 @@ describe('UsersService', () => {
 
         expect(result.items).toHaveLength(1);
         expect(result.items[0].roles).toContain('admin');
+        // A system role is in `user_roles`, an org role on an active
+        // membership (#723), so the filter matches either.
         expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: {
-              userRoles: {
-                some: {
-                  role: { name: 'admin' },
+              AND: [
+                {
+                  OR: [
+                    { userRoles: { some: { role: { name: 'admin' } } } },
+                    { memberships: { some: { status: 'active', role: { name: 'admin' } } } },
+                  ],
                 },
-              },
+              ],
             },
           }),
         );
@@ -579,6 +623,13 @@ describe('UsersService', () => {
           include: {
             userRoles: {
               include: { role: true },
+            },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
             },
             identities: {
               select: {
@@ -1083,6 +1134,138 @@ describe('UsersService', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(principalCacheStub.invalidate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // System roles vs org roles (#723, PP-6.3)
+  // ===========================================================================
+  describe('role mapping after the system/org split (#723)', () => {
+    const splitUser = (systemRoles: string[], orgRole: string | null, overrides: Record<string, unknown> = {}) => ({
+      ...mockOtherUser,
+      userRoles: systemRoles.map((name) => ({ role: (mockRoles as Record<string, any>)[name] })),
+      memberships: orgRole
+        ? [
+            {
+              orgId: 'org-default',
+              status: 'active',
+              lastActiveAt: new Date(),
+              org: { id: 'org-default', isDefault: true },
+              role: (mockRoles as Record<string, any>)[orgRole],
+            },
+          ]
+        : [],
+      identities: [],
+      ...overrides,
+    });
+
+    function arrangeUpdate(before: unknown, found: Array<keyof typeof mockRoles>) {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(before as any).mockResolvedValue(splitUser([], 'viewer') as any);
+      mockPrisma.role.findMany.mockResolvedValue(found.map((name) => mockRoles[name]) as any);
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma));
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 } as any);
+      mockPrisma.userRole.createMany.mockResolvedValue({ count: 0 } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+    }
+
+    it('reports system roles plus the current org role, an administrator as admin and org_admin', async () => {
+      mockPrisma.user.findMany.mockResolvedValue([splitUser(['admin'], 'org_admin'), splitUser([], 'contributor')] as any);
+      mockPrisma.user.count.mockResolvedValue(2);
+
+      const result = await service.listUsers({ page: 1, pageSize: 20, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      expect(result.items.map((item) => item.roles)).toEqual([['admin', 'org_admin'], ['contributor']]);
+    });
+
+    it('does not report the role of a suspended membership', async () => {
+      const suspended = splitUser([], 'contributor');
+      (suspended.memberships[0] as any).status = 'suspended';
+      mockPrisma.user.findUnique.mockResolvedValue(suspended as any);
+
+      expect((await service.getUserById(mockOtherUser.id)).roles).toEqual([]);
+    });
+
+    describe('PUT roles in single-org mode', () => {
+      it('admin: sets the system admin role and org_admin on the default-org membership', async () => {
+        arrangeUpdate(splitUser([], 'viewer'), ['admin']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['admin'] }, mockAdminUser.id);
+
+        expect(mockPrisma.userRole.createMany).toHaveBeenCalledWith({
+          data: [{ userId: mockOtherUser.id, roleId: mockRoles.admin.id }],
+        });
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { orgId_userId: { orgId: 'org-default', userId: mockOtherUser.id } },
+            update: { roleId: mockRoles.org_admin.id },
+          }),
+        );
+      });
+
+      it('contributor: clears the system roles and sets the membership role', async () => {
+        arrangeUpdate(splitUser(['admin'], 'org_admin'), ['contributor']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor'] }, mockAdminUser.id);
+
+        expect(mockPrisma.userRole.deleteMany).toHaveBeenCalledWith({ where: { userId: mockOtherUser.id } });
+        expect(mockPrisma.userRole.createMany).not.toHaveBeenCalled();
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ update: { roleId: mockRoles.contributor.id } }),
+        );
+      });
+
+      it('contributor + viewer: the highest org role wins', async () => {
+        arrangeUpdate(splitUser([], 'viewer'), ['viewer', 'contributor']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['viewer', 'contributor'] }, mockAdminUser.id);
+
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ update: { roleId: mockRoles.contributor.id } }),
+        );
+      });
+
+      it('reports the before and after roles in security.role_changed, in the same combined terms', async () => {
+        arrangeUpdate(splitUser(['admin'], 'org_admin'), ['viewer']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['viewer'] }, mockAdminUser.id);
+
+        expect(mockNotifications.notify).toHaveBeenCalledWith(
+          'security.role_changed',
+          mockOtherUser.id,
+          expect.objectContaining({ previousRoles: ['admin', 'org_admin'], currentRoles: ['viewer'] }),
+        );
+      });
+    });
+
+    describe('PUT roles in multi-org mode', () => {
+      let modeSpy: jest.SpyInstance;
+      beforeEach(() => {
+        modeSpy = jest.spyOn(tenancyMode, 'currentTenancyMode').mockReturnValue('multi');
+      });
+      afterEach(() => modeSpy.mockRestore());
+
+      it('rejects an org role name with 400, pointing to the organization member endpoints', async () => {
+        arrangeUpdate(splitUser([], 'viewer'), ['contributor']);
+
+        const attempt = service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor'] }, mockAdminUser.id);
+
+        await expect(attempt).rejects.toBeInstanceOf(BadRequestException);
+        await expect(
+          service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor'] }, mockAdminUser.id),
+        ).rejects.toThrow(/organization member endpoints/);
+        expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      });
+
+      it('changes the system roles only and leaves the membership alone', async () => {
+        arrangeUpdate(splitUser([], 'contributor'), ['admin']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['admin'] }, mockAdminUser.id);
+
+        expect(mockPrisma.userRole.createMany).toHaveBeenCalledWith({
+          data: [{ userId: mockOtherUser.id, roleId: mockRoles.admin.id }],
+        });
+        expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
+      });
     });
   });
 });
