@@ -880,7 +880,7 @@ export type TelemetryDashboardMetricTable = z.infer<typeof metricTableSchema>;
 /**
  * Builds the `GET …/dashboard/metrics` response schema around a `group`
  * schema: `range`, `generatedAt`, `truncated`, `sql`, `group`, `available`,
- * `tiles`, `series`, `tables` and `skipped`.
+ * `tiles`, `series`, `tables`, `skipped` and the optional `freshMs`.
  *
  * @extensionPoint schema
  * @stability stable
@@ -909,6 +909,16 @@ export function createTelemetryDashboardMetricsSchema<G extends z.ZodType<string
     skipped: z
       .array(z.string())
       .describe('Catalog keys (families, ratios, tables) skipped because a table or column they need is absent.'),
+    /** The freshness window in milliseconds: a table cell older than its table's newest reading by more than this is not current. Absent from servers that predate it. */
+    freshMs: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "The freshness window in milliseconds: a table cell older than its table's newest reading by more than " +
+          'this is not current. Absent from servers that predate it.'
+      ),
   });
 }
 

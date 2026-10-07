@@ -4,14 +4,17 @@
 // ---- the module and its options (rung 1) ------------------------------------------
 export { TelemetryModule } from './telemetry.module';
 export {
+  TELEMETRY_METRIC_FRESH_MS,
   TELEMETRY_OPTIONS,
   TELEMETRY_VERDICT_THRESHOLDS,
   defaultTelemetryActorId,
+  resolveMetricFreshMs,
   resolveVerdictThresholds,
 } from './telemetry.options';
 export type {
   ResolvedTelemetryModuleOptions,
   TelemetryDashboardOptions,
+  TelemetryMetricsOptions,
   TelemetryModuleOptions,
   VerdictThresholdsOverride,
 } from './telemetry.options';
@@ -134,6 +137,7 @@ export {
   metricGroups,
   registerMetricGroups,
 } from './metrics/metric-catalog';
+export { METRIC_FRESH_MS } from './metrics/metric-group';
 export { MetricGroupRegistry, registerMetricGroup } from './metrics/metric-group-registry.service';
 export type { MetricGroupDefinition } from './metrics/metric-group-registry.service';
 export type {

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import {
   DASHBOARD_BUCKET_COUNTS,
@@ -26,7 +26,7 @@ import { TelemetrySchemaService } from '../query/telemetry-schema.service';
 import { TELEMETRY_AUDIT_SINK, type TelemetryAuditSink } from '../ports';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import { HOST_DISTINCT_TABLE, metricTablesOf, type MetricTables } from '../metrics/metric-catalog';
-import { computeMetricGroup } from '../metrics/metric-group';
+import { computeMetricGroup, METRIC_FRESH_MS } from '../metrics/metric-group';
 import { distinctHostsSql } from '../metrics/metric-sql';
 import { VERDICT_PROBES, verdictInputsFrom, verdictProbeSql } from '../metrics/metric-verdict';
 import {
@@ -64,7 +64,7 @@ import {
   TRACES_TABLE,
   unknownRoutesTotalsSql,
 } from './telemetry-dashboard.sql';
-import { TELEMETRY_VERDICT_THRESHOLDS } from '../telemetry.options';
+import { TELEMETRY_METRIC_FRESH_MS, TELEMETRY_VERDICT_THRESHOLDS } from '../telemetry.options';
 import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from './telemetry-dashboard.verdict';
 import { DefaultVerdictPolicy, VERDICT_POLICY, type VerdictPolicy } from './verdict-policy';
 
@@ -414,6 +414,8 @@ export class TelemetryDashboardService {
     // thresholds. The defaults serve a hand-built instance (unit tests).
     @Inject(VERDICT_POLICY) private readonly verdictPolicy: VerdictPolicy = new DefaultVerdictPolicy(),
     @Inject(TELEMETRY_VERDICT_THRESHOLDS) private readonly thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
+    // `forRoot({ metrics: { freshMs } })`; optional so a host that predates it boots.
+    @Optional() @Inject(TELEMETRY_METRIC_FRESH_MS) private readonly metricFreshMs: number = METRIC_FRESH_MS,
   ) {}
 
   async summary(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardSummary> {
@@ -845,7 +847,8 @@ export class TelemetryDashboardService {
     group: TelemetryDashboardMetricsQuery['group'],
   ): Promise<TelemetryDashboardMetrics> {
     const now = new Date(Date.now());
-    const result = await computeMetricGroup({ group, window, filters, tables, runner, now });
+    const freshMs = this.metricFreshMs ?? METRIC_FRESH_MS;
+    const result = await computeMetricGroup({ group, window, filters, tables, runner, now, freshMs });
     return {
       range: { from: window.from.toISOString(), to: window.to.toISOString(), bucketSeconds: result.bucketSeconds },
       generatedAt: now.toISOString(),
@@ -857,6 +860,7 @@ export class TelemetryDashboardService {
       series: result.series,
       tables: result.tables,
       skipped: result.skipped,
+      freshMs,
     };
   }
 

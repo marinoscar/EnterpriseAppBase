@@ -419,6 +419,27 @@ describe('computeMetricGroup', () => {
       expect(METRIC_FRESH_MS).toBe(150_000);
     });
 
+    it('take the freshness window from `freshMs` when given', async () => {
+      const answer = byTable([
+        [
+          'app_nodes_cpu_utilization',
+          latest([
+            ['cpuCores', 'node-a', 0.5, T('21:59')],
+            ['cpuCores', 'node-b', 1.5, T('21:55')], // 4 min older than the newest reading
+          ]),
+          /UNION ALL/,
+        ],
+      ]);
+      const cpu = async (freshMs?: number) => {
+        const r = runner(answer);
+        const out = await computeMetricGroup({ group: 'nodes', window: WINDOW, filters: {}, tables: ALL, runner: r, now: NOW, freshMs });
+        return out.tables.find((t) => t.key === 'nodes')!.rows.find((row) => row.key === 'node-b')!.cpuCores;
+      };
+      expect(await cpu()).toBeNull(); // default 150 s: not current
+      expect(await cpu(300_000)).toBe(1.5); // 5 min: current
+      expect(await cpu(60_000)).toBeNull();
+    });
+
     it('turn a boolean part into true/false', async () => {
       const { out } = await compute(
         'nodes',

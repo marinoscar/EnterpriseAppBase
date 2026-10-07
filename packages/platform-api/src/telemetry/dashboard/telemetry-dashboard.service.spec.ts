@@ -960,6 +960,23 @@ describe('metrics route', () => {
     ]);
   });
 
+  it('reports the freshness window: the default, or the one forRoot resolved', async () => {
+    const { service } = setup({ schema: METRIC_SCHEMA });
+    expect((await service.metrics('u1', { group: 'host' })).freshMs).toBe(150_000);
+
+    const { greptime, settings, schema, audit } = setup({ schema: METRIC_SCHEMA });
+    const custom = new TelemetryDashboardService(
+      greptime as never,
+      settings as never,
+      schema as never,
+      audit as never,
+      undefined,
+      undefined,
+      300_000,
+    );
+    expect((await custom.metrics('u1', { group: 'host' })).freshMs).toBe(300_000);
+  });
+
   it('keeps metric buckets at least one minute wide', async () => {
     const { service } = setup({ schema: METRIC_SCHEMA });
     const metrics = await service.metrics('u1', { group: 'pipeline', range: '15m' });
