@@ -109,6 +109,17 @@ describe('isExpectedAbsence - a genuinely new key', () => {
   });
 });
 
+describe('isExpectedAbsence - TENANCY_MODE (#722)', () => {
+  it('is a genuinely new key for a deployment that predates it, so update adds its default', () => {
+    const spec = specFor('TENANCY_MODE');
+    expect(spec.optional).toBe(false);
+    expect(spec.defaultValue).toBe('single');
+
+    expect(isExpectedAbsence(spec, { groups: [] })).toBe(false);
+    expect(genuinelyNewKeys([spec], { groups: [] }).map((s) => s.key)).toEqual(['TENANCY_MODE']);
+  });
+});
+
 describe('genuinelyNewKeys', () => {
   it('filters a mixed list down to only the keys none of the three classes explain', () => {
     const missing = [

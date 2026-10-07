@@ -39,7 +39,9 @@ export const JOB_REAP_OUTCOME_VALUES = ['requeued', 'failed'] as const;
 /** The queue statuses the depth gauge reports (terminal rows are history, not depth). */
 export const JOB_DEPTH_STATUS_VALUES = ['pending', 'running'] as const;
 export const BACKUP_OUTCOME_VALUES = ['completed', 'failed'] as const;
-export const AUTH_LOGIN_OUTCOME_VALUES = ['success', 'allowlist_rejected', 'disabled'] as const;
+// `no_organization` (PP-6.2, #722): a multi-org sign-in refused for having no
+// active membership. Never an org id: org goes on spans and logs, not labels.
+export const AUTH_LOGIN_OUTCOME_VALUES = ['success', 'allowlist_rejected', 'disabled', 'no_organization'] as const;
 export const AUTH_REFRESH_OUTCOME_VALUES = [
   'success',
   'invalid',

@@ -98,4 +98,61 @@ describe('OrganizationsService', () => {
       expect(tx.membership.upsert.mock.calls[0]![0]).toMatchObject({ update: {} });
     });
   });
+
+  // PP-6.2 (#722): the sign-in self-heal and the multi-mode membership count.
+  describe('ensureDefaultOrgMembership', () => {
+    beforeEach(() => {
+      prisma.organization.findFirst.mockResolvedValue(defaultOrg as any);
+    });
+
+    it('writes nothing when the user is already a member (any status)', async () => {
+      prisma.membership.findUnique.mockResolvedValue({ id: 'm-1' } as any);
+
+      await expect(service.ensureDefaultOrgMembership('user-1')).resolves.toEqual({
+        orgId: 'org-default',
+        created: false,
+      });
+      expect(prisma.membership.findUnique).toHaveBeenCalledWith({
+        where: { orgId_userId: { orgId: 'org-default', userId: 'user-1' } },
+        select: { id: true },
+      });
+      expect(prisma.membership.upsert).not.toHaveBeenCalled();
+    });
+
+    it('creates the missing membership through the idempotent upsert', async () => {
+      prisma.membership.findUnique.mockResolvedValue(null);
+      prisma.membership.upsert.mockResolvedValue({ id: 'm-2' } as any);
+
+      await expect(service.ensureDefaultOrgMembership('user-1')).resolves.toEqual({
+        orgId: 'org-default',
+        created: true,
+      });
+      expect(prisma.membership.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { orgId_userId: { orgId: 'org-default', userId: 'user-1' } },
+          update: {},
+        }),
+      );
+    });
+
+    it('throws DefaultOrganizationMissingException when the default org is missing', async () => {
+      prisma.organization.findFirst.mockResolvedValue(null);
+
+      await expect(service.ensureDefaultOrgMembership('user-1')).rejects.toBeInstanceOf(
+        DefaultOrganizationMissingException,
+      );
+      expect(prisma.membership.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('countActiveMemberships', () => {
+    it('counts only active memberships, in any organization', async () => {
+      prisma.membership.count.mockResolvedValue(2);
+
+      await expect(service.countActiveMemberships('user-1')).resolves.toBe(2);
+      expect(prisma.membership.count).toHaveBeenCalledWith({
+        where: { userId: 'user-1', status: 'active' },
+      });
+    });
+  });
 });

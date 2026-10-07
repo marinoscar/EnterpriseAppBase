@@ -1,6 +1,7 @@
 import { buildDatabaseUrl } from '../common/database-url';
 import { resolveServiceName } from '../common/otel/telemetry-identity';
 import { parsePrincipalCacheTtlSeconds } from '../auth/principal-cache/principal-cache.config';
+import { parseTenancyMode } from '../common/deployment/tenancy-mode';
 
 export default () => {
   const host = process.env.POSTGRES_HOST || 'localhost';
@@ -265,6 +266,20 @@ export default () => {
     // raw-string rule as `mode`: `common/deployment/deployment-network.ts` is
     // the single parser (bootstrap in `main.ts`, then `DeploymentNetworkService`).
     network: process.env.DEPLOYMENT_NETWORK,
+  },
+
+  // Tenancy mode (PP-6.2, #722): `single` (default) or `multi`. DEPLOYMENT-LEVEL
+  // like `deployment.mode`, and for a stronger reason: switching it changes who
+  // is joined to which organization at sign-in, so it is never a runtime
+  // setting.
+  //
+  // ⚠ PARSED HERE, UNLIKE `deployment.mode`: an invalid value throws from this
+  // factory, so `ConfigModule` fails the boot (and any test module or script
+  // that loads this configuration) with a message naming the variable and its
+  // allowed values. `parseTenancyMode` (common/deployment/tenancy-mode.ts) is
+  // still the single parser; `main.ts` and `TenancyService` call the same one.
+  tenancy: {
+    mode: parseTenancyMode(process.env.TENANCY_MODE),
   },
 
   // Observability

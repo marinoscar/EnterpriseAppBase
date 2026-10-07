@@ -134,3 +134,40 @@ describe('update environment-drift: allowBlank keys need no answer (#598)', () =
     await expect(driftStep().run(context as never)).rejects.toBeInstanceOf(UsageError);
   });
 });
+
+// =============================================================================
+// A deployment that predates TENANCY_MODE (#722) takes the template default
+// =============================================================================
+//
+// TENANCY_MODE is neither essential nor secret, so an update whose template
+// adds it writes `single` (the behaviour every existing deployment already
+// has) without opening the wizard and without needing a recorded domain.
+// =============================================================================
+
+describe('update environment-drift: TENANCY_MODE is added with its default (#722)', () => {
+  it('writes TENANCY_MODE=single without asking, even with no domain recorded', async () => {
+    const { deployRoot, context } = fixture({
+      template: `${BASE_TEMPLATE}\nTENANCY_MODE=single\n`,
+      env: `${BASE_ENV}\n`,
+      domain: undefined,
+    });
+
+    await expect(driftStep().run(context as never)).resolves.toBeUndefined();
+
+    const written = parseEnvFile(readFileSync(envFilePath(deployRoot), 'utf8'));
+    expect(written.get('TENANCY_MODE')).toBe('single');
+    expect(written.get('POSTGRES_HOST')).toBe('db.example.test');
+  });
+
+  it('keeps an operator-set multi untouched', async () => {
+    const { deployRoot, context } = fixture({
+      template: `${BASE_TEMPLATE}\nTENANCY_MODE=single\n`,
+      env: `${BASE_ENV}\nTENANCY_MODE=multi\n`,
+      domain: undefined,
+    });
+
+    await driftStep().run(context as never);
+
+    expect(parseEnvFile(readFileSync(envFilePath(deployRoot), 'utf8')).get('TENANCY_MODE')).toBe('multi');
+  });
+});

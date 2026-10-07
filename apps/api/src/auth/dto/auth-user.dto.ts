@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type { TenancyMode } from '@marinoscar/platform-api/core';
 
 /**
  * Role information
@@ -84,6 +85,16 @@ export class CurrentUserDto {
     description: 'User permissions (aggregated from roles)',
   })
   permissions!: string[];
+
+  @ApiProperty({
+    enum: ['single', 'multi'],
+    example: 'single',
+    description:
+      "The deployment's tenancy mode (`TENANCY_MODE`). `single`: everyone is in one " +
+      'organization and organization management is hidden. `multi`: one organization per ' +
+      'customer. A deployment-level fact, fixed until the API restarts.',
+  })
+  tenancyMode!: TenancyMode;
 }
 
 /**

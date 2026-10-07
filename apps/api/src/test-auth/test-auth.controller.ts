@@ -14,6 +14,10 @@ import { TestEnvironmentGuard } from './guards/test-environment.guard';
 import { TestAuthService } from './test-auth.service';
 import { TestLoginDto } from './dto/test-login.dto';
 import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
+import {
+  AuthLoginDeniedException,
+  buildAuthErrorRedirectUrl,
+} from '../auth/auth-error-codes';
 
 const REFRESH_TOKEN_COOKIE = 'refresh_token';
 const COOKIE_OPTIONS = {
@@ -58,7 +62,9 @@ export class TestAuthController {
   })
   @ApiResponse({
     status: 302,
-    description: 'Redirects to /auth/callback with access token',
+    description:
+      'Redirects to /auth/callback with an access token, or to /auth/callback?error=<code> when the ' +
+      'login is refused by policy (no_organization in multi-org tenancy mode)',
   })
   @ApiResponse({
     status: 403,
@@ -70,7 +76,20 @@ export class TestAuthController {
   ): Promise<void> {
     this.logger.log(`Test login request for: ${dto.email}`);
 
-    const result = await this.testAuthService.loginAsTestUser(dto);
+    let result;
+    try {
+      result = await this.testAuthService.loginAsTestUser(dto);
+    } catch (error) {
+      // A policy refusal (PP-6.2, #722: `no_organization` in multi-org mode)
+      // lands where a Google sign-in's does, `/auth/callback?error=<code>`, so
+      // an e2e suite sees the real sign-in error page.
+      if (error instanceof AuthLoginDeniedException) {
+        return res
+          .status(302)
+          .redirect(buildAuthErrorRedirectUrl(this.configService.get<string>('appUrl'), error.reason));
+      }
+      throw error;
+    }
 
     // Set refresh token in HttpOnly cookie
     res.setCookie(REFRESH_TOKEN_COOKIE, result.refreshToken, COOKIE_OPTIONS);

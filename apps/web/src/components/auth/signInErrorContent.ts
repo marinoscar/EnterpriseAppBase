@@ -4,6 +4,7 @@ import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import UndoOutlinedIcon from '@mui/icons-material/UndoOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
+import GroupOffOutlinedIcon from '@mui/icons-material/GroupOffOutlined';
 import { APP_NAME } from '@app/shared';
 
 /**
@@ -19,6 +20,7 @@ export const SIGN_IN_ERROR_CODES = [
   'access_denied',
   'authentication_failed',
   'server_misconfigured',
+  'no_organization',
 ] as const;
 
 export type SignInErrorCode = (typeof SIGN_IN_ERROR_CODES)[number];
@@ -96,6 +98,19 @@ export const SIGN_IN_ERROR_CONTENT: Record<SignInErrorCode, SignInErrorContent> 
     explanation: `${APP_NAME} is missing setup that has to be completed on the server.`,
     nextSteps: ['An administrator needs to fix this before anyone can sign in.'],
     primaryAction: 'none',
+  },
+  // Multi-organization deployments only (TENANCY_MODE=multi, #722): the account
+  // signed in fine but belongs to no organization yet.
+  no_organization: {
+    severity: 'info',
+    Icon: GroupOffOutlinedIcon,
+    headline: "You're not part of an organization yet",
+    explanation: `Your account signed in fine, but it isn't a member of any organization in ${APP_NAME}.`,
+    nextSteps: [
+      'Ask an administrator of your organization to invite you.',
+      'Or sign in with a different Google account.',
+    ],
+    primaryAction: 'different-account',
   },
 };
 

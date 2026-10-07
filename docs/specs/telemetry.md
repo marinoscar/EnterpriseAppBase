@@ -2091,7 +2091,7 @@ Every table has `greptime_timestamp`, `greptime_value`, `service_name`, a `job` 
 | `app.backup.runs` | `app_backup_runs_total` | counter | `{run}` | `outcome` (`completed`, `failed`) | A backup run settles. |
 | `app.backup.duration` | `app_backup_duration_seconds_{bucket,sum,count}` | histogram | `s` | `outcome` | With `runs`. |
 | `app.backup.size` | `app_backup_size_bytes_{bucket,sum,count}` | histogram | `By` | `outcome` (`completed`) | A backup completes. |
-| `app.auth.logins` | `app_auth_logins_total` | counter | `{login}` | `provider` (`google`), `outcome` (`success`, `allowlist_rejected`, `disabled`) | An OAuth sign-in resolves. |
+| `app.auth.logins` | `app_auth_logins_total` | counter | `{login}` | `provider` (`google`), `outcome` (`success`, `allowlist_rejected`, `disabled`, `no_organization`) | An OAuth sign-in resolves (`no_organization`: refused in multi-org tenancy mode for having no active membership). | |
 | `app.auth.refreshes` | `app_auth_refreshes_total` | counter | `{refresh}` | `outcome` (`success`, `invalid`, `reuse_detected`, `expired`, `user_inactive`, `device_revoked`) | A refresh-token rotation is attempted. |
 | `app.ai.requests` | `app_ai_requests_total` | counter | `{request}` | `provider`, `model`, `operation`, `status` (`succeeded`, `failed`, `cancelled`), `key_source` | An AI usage event is recorded. |
 | `app.ai.tokens` | `app_ai_tokens_total` | counter | `{token}` | `provider`, `model`, `operation`, `token_type` (`input`, `output`) | With the usage event. |

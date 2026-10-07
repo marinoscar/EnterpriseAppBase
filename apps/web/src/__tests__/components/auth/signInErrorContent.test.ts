@@ -34,6 +34,7 @@ describe('signInErrorContent (#652)', () => {
 
   it('resolves known codes and falls back for everything else', () => {
     expect(resolveSignInErrorCode('not_allowlisted')).toBe('not_allowlisted');
+    expect(resolveSignInErrorCode('no_organization')).toBe('no_organization');
     for (const bad of [null, undefined, '', 'nope', '<b>x</b>', 'constructor', '__proto__']) {
       expect(resolveSignInErrorCode(bad)).toBe(DEFAULT_SIGN_IN_ERROR_CODE);
     }

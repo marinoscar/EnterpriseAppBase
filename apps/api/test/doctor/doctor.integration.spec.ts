@@ -153,6 +153,44 @@ describe('Doctor API (Integration)', () => {
       });
     }, 30000);
 
+    it('includes tenancy.mode in the auth category, passing for a single-org database (PP-6.2, #722)', async () => {
+      context.prismaMock.organization.count.mockImplementation(async (args?: { where?: { isDefault?: boolean } }) =>
+        args?.where?.isDefault ? 1 : 1,
+      );
+      context.prismaMock.user.count.mockResolvedValue(0);
+
+      const { body } = await request(server())
+        .get(`${ROUTE}?category=auth&refresh=true`)
+        .set(await adminAuth())
+        .expect(200);
+
+      const check = (body.data.checks as Array<Record<string, any>>).find((entry) => entry.id === 'tenancy.mode');
+
+      expect(check).toMatchObject({
+        category: 'auth',
+        status: 'pass',
+        settingsPath: '/admin/settings/users',
+        data: { mode: 'single', organizations: 1, usersWithoutMembership: 0 },
+      });
+    }, 30000);
+
+    it('fails tenancy.mode when single mode meets several organizations (PP-6.2, #722)', async () => {
+      context.prismaMock.organization.count.mockImplementation(async (args?: { where?: { isDefault?: boolean } }) =>
+        args?.where?.isDefault ? 1 : 2,
+      );
+      context.prismaMock.user.count.mockResolvedValue(0);
+
+      const { body } = await request(server())
+        .get(`${ROUTE}?category=auth&refresh=true`)
+        .set(await adminAuth())
+        .expect(200);
+
+      const check = (body.data.checks as Array<Record<string, any>>).find((entry) => entry.id === 'tenancy.mode');
+
+      expect(check).toMatchObject({ status: 'fail', detail: 'Single-org mode, but 2 organizations exist' });
+      expect(check?.remedy).toMatch(/TENANCY_MODE=multi/);
+    }, 30000);
+
     it('rejects a malformed category with 400', async () => {
       await request(server()).get(`${ROUTE}?category=${encodeURIComponent('DROP TABLE')}`).set(await adminAuth()).expect(400);
     });

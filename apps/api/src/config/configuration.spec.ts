@@ -214,3 +214,36 @@ describe('configuration() — auth.principalCacheTtlSeconds (PP-1.12, #683)', ()
     expect(configuration().auth.principalCacheTtlSeconds).toBe(30);
   });
 });
+
+describe('configuration() — tenancy.mode (PP-6.2, #722)', () => {
+  let saved: string | undefined;
+
+  beforeEach(() => {
+    saved = process.env.TENANCY_MODE;
+  });
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TENANCY_MODE;
+    else process.env.TENANCY_MODE = saved;
+  });
+
+  it('is single when unset or blank', () => {
+    delete process.env.TENANCY_MODE;
+    expect(configuration().tenancy.mode).toBe('single');
+    process.env.TENANCY_MODE = '';
+    expect(configuration().tenancy.mode).toBe('single');
+  });
+
+  it('is multi when set to multi', () => {
+    process.env.TENANCY_MODE = 'multi';
+    expect(configuration().tenancy.mode).toBe('multi');
+  });
+
+  it.each(['bogus', 'Multi', 'single-org'])(
+    'fails the factory (and so the boot) for %p, naming the variable and the allowed values',
+    (raw) => {
+      process.env.TENANCY_MODE = raw;
+      expect(() => configuration()).toThrow(/TENANCY_MODE=.*Allowed values: single, multi/);
+    },
+  );
+});

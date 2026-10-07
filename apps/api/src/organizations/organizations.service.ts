@@ -69,4 +69,40 @@ export class OrganizationsService {
       create: { orgId, userId, lastActiveAt: new Date() },
     });
   }
+
+  /**
+   * The sign-in self-heal (PP-6.2, #722): make sure an EXISTING user is a
+   * member of the default organization, writing only when the row is missing.
+   *
+   * Reads first, so the common case (the member is already there) costs one
+   * indexed read and no write on every sign-in. The write is still the
+   * idempotent `ensureMembership` upsert, so two concurrent sign-ins cannot
+   * produce a duplicate (the `orgId_userId` unique key decides). A suspended
+   * membership is left suspended: this restores a missing row, never a
+   * revoked one.
+   *
+   * @returns the default organization's id, and whether a membership was created.
+   * @throws {@link DefaultOrganizationMissingException} when the default org is missing.
+   */
+  async ensureDefaultOrgMembership(
+    userId: string,
+  ): Promise<{ orgId: string; created: boolean }> {
+    const org = await this.getDefaultOrg();
+    const existing = await this.prisma.membership.findUnique({
+      where: { orgId_userId: { orgId: org.id, userId } },
+      select: { id: true },
+    });
+    if (existing) {
+      return { orgId: org.id, created: false };
+    }
+    await this.ensureMembership(this.prisma, org.id, userId);
+    return { orgId: org.id, created: true };
+  }
+
+  /** How many active (not suspended) memberships the user holds, in any org. */
+  async countActiveMemberships(userId: string): Promise<number> {
+    return this.prisma.membership.count({
+      where: { userId, status: 'active' },
+    });
+  }
 }

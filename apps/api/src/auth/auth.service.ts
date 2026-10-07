@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { trace } from '@opentelemetry/api';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,6 +32,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import type { UserWelcomeEmailData } from '../email';
 import { PrincipalCache } from './principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { TenancyService } from '../organizations/tenancy.service';
 
 export interface FullTokenResponse {
   accessToken: string;
@@ -53,6 +55,9 @@ export class AuthService {
     private readonly principalCache: PrincipalCache,
     // PP-6.1 (#721): new users join the default organization.
     private readonly organizations: OrganizationsService,
+    // PP-6.2 (#722): TENANCY_MODE decides who joins the default org and who
+    // is refused for having no organization.
+    private readonly tenancy: TenancyService,
     // #600. Optional: see `fallbackAppMetrics`.
     @Optional()
     private readonly metrics: AppMetricsService = fallbackAppMetrics(),
@@ -156,7 +161,7 @@ export class AuthService {
       } else {
         // Create new user with identity
         this.logger.log(`Creating new user: ${profile.email}`);
-        user = await this.createNewUser(profile);
+        user = await this.createNewUser(profile, isInitialAdmin);
         userWasCreated = true;
 
         // Mark email as claimed in allowlist
@@ -184,6 +189,15 @@ export class AuthService {
         'User account is disabled',
       );
     }
+
+    // Tenancy mode (PP-6.2, #722): self-heal the default-org membership, or
+    // refuse a multi-org sign-in that belongs to no organization. After the
+    // disabled check, so a deactivated account is told that first and never
+    // written to.
+    await this.applyTenancyAtSignIn(user.id, {
+      isInitialAdmin,
+      userWasCreated,
+    });
 
     // Generate JWT tokens
     const tokens = await this.generateFullTokens(user);
@@ -244,10 +258,62 @@ export class AuthService {
   }
 
   /**
+   * Tenancy at sign-in (PP-6.2, #722), by `TENANCY_MODE`:
+   *
+   * - **single**: every signing-in user is ensured a membership in the default
+   *   organization. A new user already got one inside `createNewUser`'s
+   *   transaction; a returning user who somehow lacks one gets it here, so the
+   *   auto-join is self-healing rather than only applied at creation.
+   * - **multi**: nobody is auto-joined except the `INITIAL_ADMIN_EMAIL`
+   *   account (so the deployment can be administered), and a user with zero
+   *   active memberships is refused with `no_organization`. Invite claiming
+   *   (#726) will run before this check.
+   *
+   * The mode goes on the active (HTTP request) span as `tenancy.mode`; the
+   * auth path has no span of its own. Never an org id on a metric label.
+   */
+  private async applyTenancyAtSignIn(
+    userId: string,
+    { isInitialAdmin, userWasCreated }: { isInitialAdmin: boolean; userWasCreated: boolean },
+  ): Promise<void> {
+    trace.getActiveSpan()?.setAttribute('tenancy.mode', this.tenancy.mode());
+
+    // A user created on this sign-in was joined (or not) by `createNewUser`,
+    // under the same rule, inside its transaction: nothing to heal.
+    if (!userWasCreated && this.tenancy.autoJoinsDefaultOrg(isInitialAdmin)) {
+      const { orgId, created } =
+        await this.organizations.ensureDefaultOrgMembership(userId);
+      if (created) {
+        this.logger.log(
+          `User ${userId} joined default organization ${orgId} at sign-in (self-heal)`,
+        );
+      }
+    }
+
+    if (this.tenancy.capabilities.requireActiveMembership) {
+      const active = await this.organizations.countActiveMemberships(userId);
+      if (active === 0) {
+        // Audit: the user id only, never the email.
+        this.logger.warn(
+          `Login denied - user ${userId} has no active organization membership (tenancy mode multi)`,
+        );
+        this.metrics.authLogin('no_organization');
+        throw new AuthLoginDeniedException(
+          'no_organization',
+          'Your account is not a member of any organization. Ask an organization administrator to invite you.',
+        );
+      }
+    }
+  }
+
+  /**
    * Creates a new user with default role, settings, and identity
    * Handles admin bootstrap if applicable
+   *
+   * Joins the default organization in the same transaction when the tenancy
+   * mode says so (always in single mode; only the initial admin in multi).
    */
-  private async createNewUser(profile: GoogleProfile) {
+  private async createNewUser(profile: GoogleProfile, isInitialAdmin: boolean) {
     // Check if this should be the initial admin
     const shouldGrantAdmin =
       await this.adminBootstrapService.shouldGrantAdminRole(profile.email);
@@ -275,12 +341,14 @@ export class AuthService {
       );
     }
 
-    // The default organization every new user joins (PP-6.1, #721). Resolved
-    // before the transaction like the default role: a missing row is a seed
-    // problem and must fail before anything is written.
-    // Unconditional here, which is the single-org behaviour; tenancy mode
-    // (#722) makes it mode-aware.
-    const defaultOrg = await this.organizations.getDefaultOrg();
+    // The default organization a new user joins (PP-6.1, #721), when the
+    // tenancy mode auto-joins this user (PP-6.2, #722): everyone in single
+    // mode, only the initial admin in multi. Resolved before the transaction
+    // like the default role: a missing row is a seed problem and must fail
+    // before anything is written.
+    const defaultOrg = this.tenancy.autoJoinsDefaultOrg(isInitialAdmin)
+      ? await this.organizations.getDefaultOrg()
+      : null;
 
     // Create user with identity, role, settings and membership in transaction
     const user = await this.prisma.$transaction(async (tx) => {
@@ -330,7 +398,9 @@ export class AuthService {
       });
 
       // Join the default organization, in the same transaction as the user.
-      await this.organizations.ensureMembership(tx, defaultOrg.id, newUser.id);
+      if (defaultOrg) {
+        await this.organizations.ensureMembership(tx, defaultOrg.id, newUser.id);
+      }
 
       // Grant admin role if applicable
       if (shouldGrantAdmin) {
@@ -392,9 +462,11 @@ export class AuthService {
     // be cached for it — belt and braces.
     this.principalCache.invalidate({ userId: user.id });
 
-    this.logger.log(
-      `User ${user.id} joined default organization ${defaultOrg.id}`,
-    );
+    if (defaultOrg) {
+      this.logger.log(
+        `User ${user.id} joined default organization ${defaultOrg.id}`,
+      );
+    }
     this.logger.log(`User created successfully: ${user.email}`);
     return user;
   }
@@ -967,6 +1039,8 @@ export class AuthService {
       isActive: user.isActive,
       roles,
       permissions,
+      // PP-6.2 (#722): so the web can hide organization UI in single mode.
+      tenancyMode: this.tenancy.mode(),
     };
   }
 

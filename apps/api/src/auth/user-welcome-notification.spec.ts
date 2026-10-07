@@ -23,6 +23,7 @@ import { AuthService } from './auth.service';
 import { GoogleProfile } from './strategies/google.strategy';
 import { PrincipalCache } from './principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { TenancyService } from '../organizations/tenancy.service';
 import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
 
@@ -123,6 +124,8 @@ describe('user.welcome: fires after commit, and the dispatcher reads the recipie
         PrincipalCache,
         // PP-6.1 (#721): new users join the default org.
         OrganizationsService,
+        // PP-6.2 (#722): the tenancy mode (single, from the stub ConfigService).
+        TenancyService,
         { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prisma },
         // #226. The dispatcher now reads the deployment-wide notification

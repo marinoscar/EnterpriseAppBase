@@ -15,6 +15,7 @@ import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
 import { verifyDeploymentModeAtStartup } from './common/deployment/deployment-mode';
 import { verifyDeploymentNetworkAtStartup } from './common/deployment/deployment-network';
+import { verifyTenancyModeAtStartup } from './common/deployment/tenancy-mode';
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
 import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
@@ -45,6 +46,12 @@ async function bootstrap() {
   // DEPLOYMENT_NETWORK (#773). Same fail-fast rule and place as DEPLOYMENT_MODE:
   // an invalid value stops the boot here, naming the variable and its values.
   verifyDeploymentNetworkAtStartup(process.env, logger);
+
+  // TENANCY_MODE (PP-6.2, #722). Same fail-fast rule and place: an invalid
+  // value stops the boot here, naming the variable and its values, and the
+  // mode is logged once. The config factory parses it again through the same
+  // function (so a boot path that skips main.ts fails too).
+  verifyTenancyModeAtStartup(process.env, logger);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
