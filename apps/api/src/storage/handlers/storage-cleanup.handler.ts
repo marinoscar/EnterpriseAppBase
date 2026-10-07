@@ -48,7 +48,7 @@ import type { Job } from '@prisma/client';
 
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER, StorageProvider } from '../providers';
 
 /**
@@ -85,7 +85,9 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly prisma: PrismaService,
+    // Cross-organization sweep: the SYSTEM client (reason `purge`), because a
+    // stale upload of any organization is reclaimed (row-level security, #725).
+    private readonly prisma: PrismaSystemService,
     @Inject(STORAGE_PROVIDER)
     private readonly storageProvider: StorageProvider
   ) {}
@@ -136,7 +138,9 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
     const cleanupBefore = new Date();
     cleanupBefore.setHours(cleanupBefore.getHours() - CLEANUP_AGE_HOURS);
 
-    const staleUploads = await this.prisma.storageObject.findMany({
+    const db = this.prisma.asSystem('purge');
+
+    const staleUploads = await db.storageObject.findMany({
       where: {
         status: { in: ['pending', 'uploading'] },
         createdAt: { lt: cleanupBefore },
@@ -166,7 +170,7 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
         }
 
         // Chunks cascade.
-        await this.prisma.storageObject.delete({ where: { id: upload.id } });
+        await db.storageObject.delete({ where: { id: upload.id } });
 
         removed++;
         this.logger.debug(`Cleaned up stale upload: ${upload.id}`);

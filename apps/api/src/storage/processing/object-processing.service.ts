@@ -96,7 +96,7 @@ export class ObjectProcessingService {
 
     if (applicableProcessors.length === 0) {
       this.logger.debug(`No processors applicable for object ${object.id}`);
-      await this.markReady(object.id, {});
+      await this.markReady(object.id, object.orgId, {});
       return 'ready';
     }
 
@@ -137,11 +137,11 @@ export class ObjectProcessingService {
     }
 
     if (hasError) {
-      await this.markFailed(object.id, allMetadata);
+      await this.markFailed(object.id, object.orgId, allMetadata);
       return 'failed';
     }
 
-    await this.markReady(object.id, allMetadata);
+    await this.markReady(object.id, object.orgId, allMetadata);
     return 'ready';
   }
 
@@ -156,16 +156,20 @@ export class ObjectProcessingService {
    *
    * ONE bounded row: a read for the metadata merge and a compare-and-swap
    * write. That is what lets it run from a `job.settled` listener.
+   *
+   * `orgId` is the object's organization (the job payload's `orgId`): the
+   * object is invisible outside it (row-level security, issue #725).
    */
-  async markAbandoned(objectId: string, reason: string): Promise<boolean> {
-    const existing = await this.prisma.storageObject.findUnique({
+  async markAbandoned(objectId: string, reason: string, orgId: string): Promise<boolean> {
+    const db = this.prisma.forOrg(orgId);
+    const existing = await db.storageObject.findUnique({
       where: { id: objectId },
       select: { status: true, metadata: true },
     });
 
     if (!existing || existing.status !== 'processing') return false;
 
-    const result = await this.prisma.storageObject.updateMany({
+    const result = await db.storageObject.updateMany({
       where: { id: objectId, status: 'processing' },
       data: {
         status: 'failed',
@@ -186,14 +190,16 @@ export class ObjectProcessingService {
 
   private async markReady(
     objectId: string,
+    orgId: string,
     processingMetadata: Record<string, unknown>,
   ): Promise<void> {
-    const existing = await this.prisma.storageObject.findUnique({
+    const db = this.prisma.forOrg(orgId);
+    const existing = await db.storageObject.findUnique({
       where: { id: objectId },
       select: { metadata: true },
     });
 
-    await this.prisma.storageObject.update({
+    await db.storageObject.update({
       where: { id: objectId },
       data: {
         status: 'ready',
@@ -206,14 +212,16 @@ export class ObjectProcessingService {
 
   private async markFailed(
     objectId: string,
+    orgId: string,
     processingMetadata: Record<string, unknown>,
   ): Promise<void> {
-    const existing = await this.prisma.storageObject.findUnique({
+    const db = this.prisma.forOrg(orgId);
+    const existing = await db.storageObject.findUnique({
       where: { id: objectId },
       select: { metadata: true },
     });
 
-    await this.prisma.storageObject.update({
+    await db.storageObject.update({
       where: { id: objectId },
       data: {
         status: 'failed',

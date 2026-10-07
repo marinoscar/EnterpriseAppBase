@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
 import { StorageConfigService } from '../../storage/config/storage-config.service';
@@ -58,12 +59,19 @@ export class ProfileImageService {
     // `StorageProvidersModule`, which this module already imports.
     private readonly storageConfig: StorageConfigService,
     private readonly userSettings: UserSettingsService,
+    // A profile picture is the USER's, and outlives an organization switch: the
+    // row is created in the organization that is active at upload (scoped
+    // client), but replacing or removing it later may happen with another
+    // organization active, where the row is invisible. Removing the user's own
+    // avatar therefore goes through the SYSTEM client, reason `purge`, behind
+    // the same owner and key-prefix check as before (#725).
+    private readonly system: PrismaSystemService,
   ) {}
 
   /**
    * Store a validated avatar, select it, and delete the one it replaces.
    */
-  async upload(userId: string, buffer: Buffer): Promise<ProfileImageResult> {
+  async upload(userId: string, buffer: Buffer, orgId: string): Promise<ProfileImageResult> {
     // Defence in depth: the controller already enforces this via multipart
     // limits, but this method must be safe on its own.
     if (buffer.length > AVATAR_MAX_BYTES) {
@@ -96,8 +104,9 @@ export class ProfileImageService {
 
     let objectId: string;
     try {
-      const object = await this.prisma.storageObject.create({
+      const object = await this.prisma.forOrg(orgId, { userId }).storageObject.create({
         data: {
+          orgId,
           name: `avatar.${detected.extension}`,
           size: BigInt(buffer.length),
           mimeType: detected.mimeType,
@@ -128,7 +137,7 @@ export class ProfileImageService {
       throw error;
     }
 
-    await this.createAuditEvent(userId, 'user_settings:profile_image:upload', {
+    await this.createAuditEvent(userId, 'user_settings:profile_image:upload', orgId, {
       objectId,
       size: buffer.length,
       mimeType: detected.mimeType,
@@ -171,8 +180,8 @@ export class ProfileImageService {
     }
 
     if (objectId) {
-      await this.removeAvatarObject(userId, objectId, 'avatar_removed');
-      await this.createAuditEvent(userId, 'user_settings:profile_image:delete', {
+      const removedFrom = await this.removeAvatarObject(userId, objectId, 'avatar_removed');
+      await this.createAuditEvent(userId, 'user_settings:profile_image:delete', removedFrom, {
         objectId,
       });
       this.logger.log(`Profile image removed for user ${userId}: ${objectId}`);
@@ -209,9 +218,10 @@ export class ProfileImageService {
     userId: string,
     objectId: string,
     reason: string,
-  ): Promise<void> {
+  ): Promise<string | null> {
     try {
-      const object = await this.prisma.storageObject.findUnique({
+      const db = this.system.asSystem('purge');
+      const object = await db.storageObject.findUnique({
         where: { id: objectId },
       });
       if (
@@ -219,18 +229,19 @@ export class ProfileImageService {
         object.uploadedById !== userId ||
         !object.storageKey.startsWith(avatarKeyPrefix(userId))
       ) {
-        return;
+        return null;
       }
 
       if (!(await this.deleteStoredBytes(object.storageKey))) {
-        return;
+        return null;
       }
 
-      await this.prisma.storageObject.delete({ where: { id: objectId } });
+      await db.storageObject.delete({ where: { id: objectId } });
 
       await this.prisma.auditEvent.create({
         data: {
           actorUserId: userId,
+          orgId: object.orgId,
           action: 'storage:object:delete',
           targetType: 'storage_object',
           targetId: objectId,
@@ -242,12 +253,15 @@ export class ProfileImageService {
           } as Prisma.InputJsonValue,
         },
       });
+
+      return object.orgId;
     } catch (error) {
       this.logger.warn(
         `Failed to remove avatar object ${objectId} for user ${userId} (${reason}): ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      return null;
     }
   }
 
@@ -268,11 +282,13 @@ export class ProfileImageService {
   private async createAuditEvent(
     userId: string,
     action: string,
+    orgId: string | null,
     meta: Record<string, unknown>,
   ): Promise<void> {
     await this.prisma.auditEvent.create({
       data: {
         actorUserId: userId,
+        orgId,
         action,
         targetType: 'user',
         targetId: userId,

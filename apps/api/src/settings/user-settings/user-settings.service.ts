@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
 import { UpdateUserSettingsDto } from '../dto/update-user-settings.dto';
 import { PatchUserSettingsDto } from '../dto/update-user-settings.dto';
@@ -58,6 +59,11 @@ export class UserSettingsService {
     private readonly prisma: PrismaService,
     // PP-1.12 (#683): `syncDisplayName` writes a column the cached principal carries.
     private readonly principalCache: PrincipalCache,
+    // Validating the selected profile image reads the user's OWN avatar row,
+    // which may belong to an organization other than the active one (a picture
+    // outlives an org switch): one lookup by id through the SYSTEM client,
+    // reason `admin-aggregate`, re-checked against the owner (#725).
+    private readonly system: PrismaSystemService,
   ) {}
 
   /**
@@ -373,7 +379,7 @@ export class UserSettingsService {
       return;
     }
 
-    const object = await this.prisma.storageObject.findUnique({
+    const object = await this.system.asSystem('admin-aggregate').storageObject.findUnique({
       where: { id: nextObjectId },
       select: {
         uploadedById: true,

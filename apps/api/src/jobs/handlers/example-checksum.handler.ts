@@ -70,6 +70,7 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job, Prisma, StorageObject } from '@prisma/client';
 import { createHash } from 'node:crypto';
 
+import { resolveJobOrgId } from '../../organizations/org-scope';
 import { PrismaService } from '../../prisma/prisma.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
@@ -165,7 +166,8 @@ export class ExampleChecksumHandler implements JobHandler, OnModuleInit {
   async process(job: Job): Promise<void> {
     // Named failures, never an empty path — see `storage-job-input.ts`'s
     // header for the `ENOENT … open ''` failure this prevents.
-    const object = await resolveStorageObjectInput(this.prisma, job);
+    const orgId = await resolveJobOrgId(this.prisma, job);
+    const object = await resolveStorageObjectInput(this.prisma.forOrg(orgId), job);
 
     const stream = await this.storage.download(object.storageKey);
     const hash = createHash('sha256');
@@ -220,7 +222,8 @@ export class ExampleChecksumHandler implements JobHandler, OnModuleInit {
     // Prisma "record to update not found" — and a row that has lost its
     // storage key is a row whose checksum would describe bytes that are gone,
     // which is worth refusing rather than storing.
-    const object = await resolveStorageObjectInput(this.prisma, job);
+    const orgId = await resolveJobOrgId(this.prisma, job);
+    const object = await resolveStorageObjectInput(this.prisma.forOrg(orgId), job);
 
     await this.writeChecksum(object, parsed, 'node');
 
@@ -286,7 +289,7 @@ export class ExampleChecksumHandler implements JobHandler, OnModuleInit {
       [CHECKSUM_METADATA_KEY]: checksum,
     };
 
-    await this.prisma.storageObject.update({
+    await this.prisma.forOrg(object.orgId).storageObject.update({
       where: { id: object.id },
       // Cast through `unknown`: `InputJsonValue` is a recursive union that a
       // structurally-typed `Record<string, unknown>` cannot be narrowed to,

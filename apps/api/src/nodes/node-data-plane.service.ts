@@ -99,6 +99,7 @@ import { randomUUID } from 'node:crypto';
 
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveJobOrgId } from '../organizations/org-scope';
 import { STORAGE_PROVIDER } from '../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import {
@@ -411,7 +412,10 @@ export class NodeDataPlaneService {
    */
   private async resolveInput(job: Job) {
     try {
-      return await resolveStorageObjectInput(this.prisma, job);
+      // The job's organization: a node principal has none, but the job it holds
+      // does (payload `orgId`; a pre-#725 job gets the single-mode default).
+      const orgId = await resolveJobOrgId(this.prisma, job);
+      return await resolveStorageObjectInput(this.prisma.forOrg(orgId), job);
     } catch (error) {
       if (!(error instanceof JobInputResolutionError)) {
         throw error;

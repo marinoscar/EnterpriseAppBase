@@ -21,6 +21,7 @@ import {
 import { FastifyReply, FastifyRequest } from 'fastify';
 
 import { Auth } from '../../auth/decorators/auth.decorator';
+import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
@@ -129,6 +130,7 @@ export class ProfileImageController {
   async upload(
     @Req() req: FastifyRequest,
     @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
   ) {
     if (!req.isMultipart()) {
       throw new BadRequestException(
@@ -158,7 +160,7 @@ export class ProfileImageController {
       throw toClientError(error);
     }
 
-    return this.profileImages.upload(userId, buffer);
+    return this.profileImages.upload(userId, buffer, orgId);
   }
 
   @Delete()

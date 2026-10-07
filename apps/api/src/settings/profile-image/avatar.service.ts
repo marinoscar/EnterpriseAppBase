@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Readable } from 'node:stream';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
 import {
@@ -35,6 +36,15 @@ export class AvatarService {
 
   constructor(
     private readonly prisma: PrismaService,
+    // The avatar URL is PUBLIC (an `<img>` cannot send a bearer token), so a
+    // request has no principal and no organization, and an avatar must keep
+    // rendering for the OTHER users of the organization (and wherever the
+    // product shows another user). The single object lookup below therefore
+    // goes through the SYSTEM client, reason `admin-aggregate`: display only,
+    // one row by id, then re-checked against the avatar's owner and the
+    // owner's CURRENT selection. Never a listing, never object content beyond
+    // that avatar's bytes. See docs/SECURITY-ARCHITECTURE.md, "Tenant isolation (RLS)".
+    private readonly system: PrismaSystemService,
     @Inject(STORAGE_PROVIDER)
     private readonly storageProvider: StorageProvider,
   ) {}
@@ -94,7 +104,7 @@ export class AvatarService {
     userId: string,
     objectId: string,
   ): Promise<OpenedAvatar> {
-    const object = await this.prisma.storageObject.findUnique({
+    const object = await this.system.asSystem('admin-aggregate').storageObject.findUnique({
       where: { id: objectId },
     });
     if (!object || !isAvatarObjectFor(object, userId)) {
