@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { getHeapStatistics, writeHeapSnapshot as v8WriteHeapSnapshot } from 'node:v8';
 
 import { envFlagOff } from './env-flags.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 // =============================================================================
 // Heap snapshots  (issue #277, epic #254)
@@ -69,14 +69,14 @@ export interface SnapshotResult {
  * advance is a diagnostic that is never on when it matters.
  */
 export function heapSnapshotsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return !envFlagOff(env[WORKER_ENV.heapSnapshots]);
+  return !envFlagOff(env[workerEnv().heapSnapshots]);
 }
 
 /** Write a heap snapshot, or explain precisely why one was not written. */
 export function writeHeapSnapshot(options: WriteSnapshotOptions): SnapshotResult {
   const env = options.env ?? process.env;
   if (!heapSnapshotsEnabled(env)) {
-    return { written: false, skipped: `Heap snapshots are disabled (${WORKER_ENV.heapSnapshots}).` };
+    return { written: false, skipped: `Heap snapshots are disabled (${workerEnv().heapSnapshots}).` };
   }
 
   const heapUsed = options.heapUsedBytes ?? safeHeapUsed();

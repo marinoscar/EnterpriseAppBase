@@ -1,7 +1,8 @@
 import { applyRegisteredCommands } from '@marinoscar/platform-cli/core';
 import { Command, CommanderError } from 'commander';
 
-import { CLI_DISPLAY_NAME, CLI_NAME } from './branding.js';
+import { CLI_IDENTITY } from './branding.js';
+import { cliDisplayName, cliName, cliVersion, setCliIdentity } from './identity.js';
 import { registerApiCommand } from './commands/api.js';
 import { registerConfigCommand } from './commands/config.js';
 import { registerDeployCommand } from './commands/deploy.js';
@@ -41,12 +42,15 @@ import { evaluateTuiGate, type TtyContext } from './tui/tty.js';
 // =============================================================================
 
 export function buildProgram(): Command {
+  // The identity every module reads at call time (#715). Set-once, and a
+  // repeat with the same identity is a no-op, so building twice is safe.
+  setCliIdentity(CLI_IDENTITY, CLI_VERSION);
   const program = new Command();
 
   program
-    .name(CLI_NAME)
-    .description(`${CLI_DISPLAY_NAME} — command-line client for the API.`)
-    .version(CLI_VERSION, '-v, --version', 'Print the version and exit')
+    .name(cliName())
+    .description(`${cliDisplayName()} — command-line client for the API.`)
+    .version(cliVersion(), '-v, --version', 'Print the version and exit')
     // Commander's default is to exit the process itself. We take that over so
     // every exit in this package goes through one place with one set of codes
     // — otherwise an unknown-command error would exit with commander's 1 while

@@ -3,7 +3,7 @@ import { basename, join, resolve } from 'node:path';
 
 import type { Command } from 'commander';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import {
   ALL_CHECKS,
   checksPassed,
@@ -180,9 +180,9 @@ export function registerDeployCommand(
       [
         '',
         'Examples:',
-        `  ${CLI_NAME} deploy doctor`,
-        `  ${CLI_NAME} deploy doctor --domain app.example.com`,
-        `  ${CLI_NAME} deploy doctor --json | jq '.checks[] | select(.status=="fail")'`,
+        `  ${cliName()} deploy doctor`,
+        `  ${cliName()} deploy doctor --domain app.example.com`,
+        `  ${cliName()} deploy doctor --json | jq '.checks[] | select(.status=="fail")'`,
         '',
         'Exit codes:',
         '  0  every required check passed (warnings do not fail the run)',
@@ -246,9 +246,9 @@ export function registerDeployCommand(
       [
         '',
         'Examples:',
-        `  ${CLI_NAME} deploy install --domain app.example.com`,
-        `  ${CLI_NAME} deploy install --domain app.example.com --staging`,
-        `  ${CLI_NAME} deploy install --non-interactive --domain app.example.com`,
+        `  ${cliName()} deploy install --domain app.example.com`,
+        `  ${cliName()} deploy install --domain app.example.com --staging`,
+        `  ${cliName()} deploy install --non-interactive --domain app.example.com`,
         '',
         'What it does, in order: checks prerequisites, clones the repository,',
         'collects the environment, validates the database and the Google OAuth',
@@ -311,9 +311,9 @@ export function registerDeployCommand(
       [
         '',
         'Examples:',
-        `  ${CLI_NAME} deploy update`,
-        `  ${CLI_NAME} deploy update --ref v1.4.0`,
-        `  ${CLI_NAME} deploy update --maintenance`,
+        `  ${cliName()} deploy update`,
+        `  ${cliName()} deploy update --ref v1.4.0`,
+        `  ${cliName()} deploy update --maintenance`,
         '',
         'Exits 0 without doing anything when the revision has not moved, so it',
         'is safe to run from cron.',
@@ -359,9 +359,9 @@ export function registerDeployCommand(
       [
         '',
         'Examples:',
-        `  ${CLI_NAME} deploy status`,
-        `  ${CLI_NAME} deploy status --domain app.example.com`,
-        `  ${CLI_NAME} deploy status --json || alert 'deployment unhealthy'`,
+        `  ${cliName()} deploy status`,
+        `  ${cliName()} deploy status --domain app.example.com`,
+        `  ${cliName()} deploy status --json || alert 'deployment unhealthy'`,
         '',
         'Exit codes:',
         '  0  serving, and the schema is current',
@@ -1118,7 +1118,7 @@ export async function runStatusCommand(
   const state = readState(app.deployRoot);
   if (state === undefined && !isDeployment(app.deployRoot)) {
     throw new UsageError(
-      `No deployment found at ${app.deployRoot}. Run \`${CLI_NAME} deploy install\` first, or pass --root.`,
+      `No deployment found at ${app.deployRoot}. Run \`${cliName()} deploy install\` first, or pass --root.`,
     );
   }
 

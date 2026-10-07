@@ -2,7 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { CLI_NAME } from '../../../branding.js';
+import { cliName } from '../../../identity.js';
 import type { DeployHooks, StepResult } from '../../../deploy/hooks.js';
 import { formatError } from '../../../errors.js';
 import { ErrorNotice, Field, Frame } from '../../layout.js';
@@ -417,7 +417,7 @@ function FailedFrame({ action, report }: { action: string; report: FailureReport
         )}
         <Text dimColor>
           {rerun === undefined
-            ? `The same run is \`${CLI_NAME} deploy ${action}\`, which exits non-zero.`
+            ? `The same run is \`${cliName()} deploy ${action}\`, which exits non-zero.`
             : 'Fix the cause, then continue from a shell (this one exits non-zero on failure):'}
         </Text>
         {rerun === undefined ? null : <Text color="cyan">{'  '}{rerun}</Text>}

@@ -1,4 +1,4 @@
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { HttpNodeApi, type NodeApi } from './node-api.js';
 import { registerNode } from './enrollment.js';
 import { NodeEngine } from './node-engine.js';
@@ -272,7 +272,7 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
         `  Concurrency ${config.node.concurrency}; types ${
           engine.claimableTypes().length > 0 ? engine.claimableTypes().join(', ') : '(none — this node has no executors)'
         }\n` +
-        `  Attach from another terminal: ${CLI_NAME} node status\n`,
+        `  Attach from another terminal: ${cliName()} node status\n`,
     );
   }
 

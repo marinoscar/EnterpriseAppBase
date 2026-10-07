@@ -1,6 +1,6 @@
 import { hostname } from 'node:os';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import {
   readConfigFile,
   requireCredentials,
@@ -11,7 +11,7 @@ import {
 } from '../config.js';
 import { ConfigError, UsageError } from '../errors.js';
 import { nodeStateDir, type NodePathsContext } from './paths.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 // =============================================================================
 // Worker node configuration  (issue #272, epic #254)
@@ -111,10 +111,10 @@ export interface ResolveNodeConfigOptions extends NodePathsContext {
 
 /** Default node name: the hostname, so the common case needs no flags. */
 export function defaultNodeName(ctx?: NodePathsContext): string {
-  const fromEnv = (ctx?.env ?? process.env)[WORKER_ENV.nodeName]?.trim();
+  const fromEnv = (ctx?.env ?? process.env)[workerEnv().nodeName]?.trim();
   if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv;
   const host = hostname().trim();
-  return host.length > 0 ? host : `${CLI_NAME}-node`;
+  return host.length > 0 ? host : `${cliName()}-node`;
 }
 
 /**
@@ -202,7 +202,7 @@ export function resolveNodeConfig(options?: ResolveNodeConfigOptions): ResolvedN
   const file = readConfigFile(options);
   const stored: StoredNodeConfig = file?.node ?? {};
 
-  const envTypes = env[WORKER_ENV.types]?.trim();
+  const envTypes = env[workerEnv().types]?.trim();
   const eligibleTypes =
     envTypes !== undefined && envTypes.length > 0
       ? parseEligibleTypes(envTypes)
@@ -212,18 +212,18 @@ export function resolveNodeConfig(options?: ResolveNodeConfigOptions): ResolvedN
     assertKnownTypes(eligibleTypes, options.knownTypes);
   }
 
-  const envConcurrency = envInteger(WORKER_ENV.concurrency, env[WORKER_ENV.concurrency]);
+  const envConcurrency = envInteger(workerEnv().concurrency, env[workerEnv().concurrency]);
   const concurrency = assertConcurrency(
     envConcurrency ?? stored.concurrency ?? options?.defaultConcurrency ?? DEFAULT_NODE_CONCURRENCY,
   );
 
-  const envPoll = envInteger(WORKER_ENV.pollMs, env[WORKER_ENV.pollMs]);
+  const envPoll = envInteger(workerEnv().pollMs, env[workerEnv().pollMs]);
   const pollIntervalMs = clampPollInterval(envPoll ?? stored.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
 
-  const envName = env[WORKER_ENV.nodeName]?.trim();
+  const envName = env[workerEnv().nodeName]?.trim();
   const name = envName !== undefined && envName.length > 0 ? envName : (stored.name ?? defaultNodeName(options));
 
-  const envNodeId = env[WORKER_ENV.nodeId]?.trim();
+  const envNodeId = env[workerEnv().nodeId]?.trim();
   const nodeId = envNodeId !== undefined && envNodeId.length > 0 ? envNodeId : file?.nodeId;
 
   return {
@@ -233,7 +233,7 @@ export function resolveNodeConfig(options?: ResolveNodeConfigOptions): ResolvedN
     tokenSource: credentials.tokenSource,
     nodeId,
     node: { name, concurrency, eligibleTypes, pollIntervalMs },
-    headless: envFlag(env[WORKER_ENV.headless]),
+    headless: envFlag(env[workerEnv().headless]),
     stateDir: nodeStateDir(options),
     synthesised: file === undefined,
   };
@@ -276,7 +276,7 @@ export function saveNodeConfig(
     warn(
       `Warning: could not persist worker settings (${
         error instanceof ConfigError ? error.message : String(error)
-      }). Continuing with the settings from the environment; set ${WORKER_ENV.nodeId} to re-attach after a restart.`,
+      }). Continuing with the settings from the environment; set ${workerEnv().nodeId} to re-attach after a restart.`,
     );
     return undefined;
   }

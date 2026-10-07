@@ -1,5 +1,5 @@
-import { envVar } from '../branding.js';
-import { SERVER_URL_ENV_VAR, TOKEN_ENV_VAR } from '../config.js';
+import { envVar } from '../identity.js';
+import { serverUrlEnvVar, tokenEnvVar } from '../config.js';
 
 // =============================================================================
 // Worker environment variables — one map, one source of truth  (issue #272, epic #254)
@@ -15,14 +15,14 @@ import { SERVER_URL_ENV_VAR, TOKEN_ENV_VAR } from '../config.js';
 //
 // So every variable the worker reads is declared HERE, once, built through
 // the existing `envVar()` so it inherits `ENV_PREFIX` from `CLI_NAME`. Call
-// sites read `WORKER_ENV.concurrency`, never `process.env.APPCTL_CONCURRENCY`.
+// sites read `workerEnv().concurrency`, never `process.env.APPCTL_CONCURRENCY`.
 // A rename is then still a one-line edit in `branding.ts`.
 //
 // -----------------------------------------------------------------------------
 // WHY `serverUrl` AND `token` ARE NOT NEW NAMES
 // -----------------------------------------------------------------------------
 //
-// They are the EXISTING `SERVER_URL_ENV_VAR` / `TOKEN_ENV_VAR` from
+// They are the EXISTING `serverUrlEnvVar` / `tokenEnvVar` from
 // `config.ts`, re-exported through this map rather than minted again. Two
 // reasons, and both matter more than the small ugliness of a map whose first
 // two entries come from somewhere else:
@@ -57,48 +57,50 @@ import { SERVER_URL_ENV_VAR, TOKEN_ENV_VAR } from '../config.js';
  * asserts this map and the container files agree in BOTH directions, so a
  * variable that exists in only one of the two places is a failing test.
  */
-export const WORKER_ENV = {
-  /** `APPCTL_SERVER_URL` — reused from `config.ts`, never minted again. */
-  serverUrl: SERVER_URL_ENV_VAR,
-  /** `APPCTL_TOKEN` — reused from `config.ts`. A `nod_` credential, normally. */
-  token: TOKEN_ENV_VAR,
-  /** The node row this process re-attaches to, so a restart is not a new node. */
-  nodeId: envVar('NODE_ID'),
-  /** Display name; defaults to the hostname. Reattachment keys on it server-side. */
-  nodeName: envVar('NODE_NAME'),
-  /** How many jobs this process runs at once. 1–64, per the server's own cap. */
-  concurrency: envVar('CONCURRENCY'),
-  /** Comma-separated job types this node will claim. Empty means "all it can". */
-  types: envVar('ELIGIBLE_TYPES'),
-  /** Idle poll interval in milliseconds. */
-  pollMs: envVar('POLL_INTERVAL_MS'),
-  /** `true` to run without a TTY and drain on SIGTERM WITHOUT deregistering. */
-  headless: envVar('HEADLESS'),
-  /** Overrides the state directory. The one variable a container almost always sets. */
-  stateDir: envVar('STATE_DIR'),
-  /** Old-space limit in MB for the re-exec. `0` disables re-tuning entirely. */
-  heapLimitMb: envVar('HEAP_LIMIT_MB'),
-  /**
-   * The re-exec LATCH. Set by the parent shim on the child it spawns.
-   *
-   * Not an operator knob — it exists so the re-exec cannot loop. It is still
-   * declared here rather than read as a literal, because the rule this map
-   * enforces has no exceptions: a variable the code reads is a variable a
-   * rename must reach.
-   */
-  heapTuned: envVar('HEAP_TUNED'),
-  /** `false` to disable the memory watchdog and its pre-OOM valve. */
-  memoryWatchdog: envVar('MEMORY_WATCHDOG'),
-  /** heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. */
-  memoryThreshold: envVar('MEMORY_THRESHOLD'),
-  /** `false` to disable ALL THREE heap-snapshot paths. */
-  heapSnapshots: envVar('HEAP_SNAPSHOTS'),
-} as const;
+export function workerEnv() {
+  return {
+    /** `APPCTL_SERVER_URL` — reused from `config.ts`, never minted again. */
+    serverUrl: serverUrlEnvVar(),
+    /** `APPCTL_TOKEN` — reused from `config.ts`. A `nod_` credential, normally. */
+    token: tokenEnvVar(),
+    /** The node row this process re-attaches to, so a restart is not a new node. */
+    nodeId: envVar('NODE_ID'),
+    /** Display name; defaults to the hostname. Reattachment keys on it server-side. */
+    nodeName: envVar('NODE_NAME'),
+    /** How many jobs this process runs at once. 1–64, per the server's own cap. */
+    concurrency: envVar('CONCURRENCY'),
+    /** Comma-separated job types this node will claim. Empty means "all it can". */
+    types: envVar('ELIGIBLE_TYPES'),
+    /** Idle poll interval in milliseconds. */
+    pollMs: envVar('POLL_INTERVAL_MS'),
+    /** `true` to run without a TTY and drain on SIGTERM WITHOUT deregistering. */
+    headless: envVar('HEADLESS'),
+    /** Overrides the state directory. The one variable a container almost always sets. */
+    stateDir: envVar('STATE_DIR'),
+    /** Old-space limit in MB for the re-exec. `0` disables re-tuning entirely. */
+    heapLimitMb: envVar('HEAP_LIMIT_MB'),
+    /**
+     * The re-exec LATCH. Set by the parent shim on the child it spawns.
+     *
+     * Not an operator knob — it exists so the re-exec cannot loop. It is still
+     * declared here rather than read as a literal, because the rule this map
+     * enforces has no exceptions: a variable the code reads is a variable a
+     * rename must reach.
+     */
+    heapTuned: envVar('HEAP_TUNED'),
+    /** `false` to disable the memory watchdog and its pre-OOM valve. */
+    memoryWatchdog: envVar('MEMORY_WATCHDOG'),
+    /** heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. */
+    memoryThreshold: envVar('MEMORY_THRESHOLD'),
+    /** `false` to disable ALL THREE heap-snapshot paths. */
+    heapSnapshots: envVar('HEAP_SNAPSHOTS'),
+  } as const;
+}
 
 /** The key set of `WORKER_ENV`, for exhaustive iteration in guards and docs. */
-export type WorkerEnvKey = keyof typeof WORKER_ENV;
+export type WorkerEnvKey = keyof ReturnType<typeof workerEnv>;
 
 /** Every variable name the worker reads, deduplicated and sorted. */
 export function workerEnvNames(): string[] {
-  return [...new Set(Object.values(WORKER_ENV))].sort();
+  return [...new Set(Object.values(workerEnv()))].sort();
 }

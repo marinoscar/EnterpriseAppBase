@@ -11,7 +11,7 @@ import {
   type MemorySample,
 } from './memory-watchdog.js';
 import { EXIT_MEMORY_VALVE } from './runtime-tuning.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 const MB = 1024 * 1024;
 
@@ -64,17 +64,17 @@ describe('trendMbPerHour (issue #277)', () => {
 describe('configuration', () => {
   it('is enabled by default and disabled only by an explicit negative', () => {
     expect(memoryWatchdogEnabled({})).toBe(true);
-    expect(memoryWatchdogEnabled({ [WORKER_ENV.memoryWatchdog]: '' })).toBe(true);
-    expect(memoryWatchdogEnabled({ [WORKER_ENV.memoryWatchdog]: 'false' })).toBe(false);
-    expect(memoryWatchdogEnabled({ [WORKER_ENV.memoryWatchdog]: 'off' })).toBe(false);
+    expect(memoryWatchdogEnabled({ [workerEnv().memoryWatchdog]: '' })).toBe(true);
+    expect(memoryWatchdogEnabled({ [workerEnv().memoryWatchdog]: 'false' })).toBe(false);
+    expect(memoryWatchdogEnabled({ [workerEnv().memoryWatchdog]: 'off' })).toBe(false);
   });
 
   it('clamps the threshold so a typo cannot disable the valve', () => {
     expect(resolveThreshold({})).toBe(DEFAULT_THRESHOLD);
-    expect(resolveThreshold({ [WORKER_ENV.memoryThreshold]: '0.75' })).toBe(0.75);
-    expect(resolveThreshold({ [WORKER_ENV.memoryThreshold]: '0.01' })).toBe(0.5);
-    expect(resolveThreshold({ [WORKER_ENV.memoryThreshold]: '9' })).toBe(0.99);
-    expect(resolveThreshold({ [WORKER_ENV.memoryThreshold]: 'nonsense' })).toBe(DEFAULT_THRESHOLD);
+    expect(resolveThreshold({ [workerEnv().memoryThreshold]: '0.75' })).toBe(0.75);
+    expect(resolveThreshold({ [workerEnv().memoryThreshold]: '0.01' })).toBe(0.5);
+    expect(resolveThreshold({ [workerEnv().memoryThreshold]: '9' })).toBe(0.99);
+    expect(resolveThreshold({ [workerEnv().memoryThreshold]: 'nonsense' })).toBe(DEFAULT_THRESHOLD);
   });
 });
 

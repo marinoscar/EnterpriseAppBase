@@ -5,7 +5,7 @@ import TextInput from 'ink-text-input';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { ApiClient, resolveApiBaseUrl, type ApiResponse } from '../../api-client.js';
-import { API_PATH_PREFIX, CLI_NAME } from '../../branding.js';
+import { API_PATH_PREFIX, cliName } from '../../identity.js';
 import {
   ALLOWED_METHODS,
   BODYLESS_METHODS,
@@ -310,7 +310,7 @@ export function InvokeScreen({ onDone }: InvokeScreenProps): ReactNode {
         <Frame title="Call an endpoint" hints={['n new request', 'esc back']}>
           <ErrorNotice
             message={step.message}
-            hint={`Press n for another request, or esc for the menu. The same call runs as \`${CLI_NAME} api …\`.`}
+            hint={`Press n for another request, or esc for the menu. The same call runs as \`${cliName()} api …\`.`}
           />
         </Frame>
       );

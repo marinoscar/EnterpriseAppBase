@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { WORKER_ENV, type WorkerEnvKey } from './worker-env.js';
+import { workerEnv, type WorkerEnvKey } from './worker-env.js';
 
 // =============================================================================
 // The "Worker environment variables" table, generated from WORKER_ENV
@@ -98,8 +98,8 @@ export const WORKER_ENV_TABLE_END = '<!-- GENERATED:WORKER_ENV_TABLE:END -->';
 export function buildWorkerEnvTable(): string {
   const descriptions = parseWorkerEnvDescriptions();
 
-  const rows = (Object.keys(WORKER_ENV) as WorkerEnvKey[]).map((key) => {
-    const name = WORKER_ENV[key];
+  const rows = (Object.keys(workerEnv()) as WorkerEnvKey[]).map((key) => {
+    const name = workerEnv()[key];
     const description = descriptions[key] ?? '';
     return `| \`${name}\` | ${description} |`;
   });

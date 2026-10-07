@@ -1,4 +1,4 @@
-import { CLI_NAME } from './branding.js';
+import { cliName } from './identity.js';
 
 // =============================================================================
 // CLI error model and exit codes  (issue #140, epic #110)
@@ -116,7 +116,7 @@ export class UsageError extends CliError {
 export class AuthRequiredError extends CliError {
   readonly exitCode = EXIT.AUTH;
 
-  constructor(message = `Not logged in. Run \`${CLI_NAME} login\` first.`) {
+  constructor(message = `Not logged in. Run \`${cliName()} login\` first.`) {
     super(message);
   }
 }
@@ -425,9 +425,9 @@ export function exitCodeFor(error: unknown): ExitCode {
  * add a `--verbose` that opts into it.
  */
 export function formatError(error: unknown): string {
-  if (error instanceof CliError) return `${CLI_NAME}: ${error.message}`;
-  if (error instanceof Error) return `${CLI_NAME}: ${error.message}`;
-  return `${CLI_NAME}: ${String(error)}`;
+  if (error instanceof CliError) return `${cliName()}: ${error.message}`;
+  if (error instanceof Error) return `${cliName()}: ${error.message}`;
+  return `${cliName()}: ${String(error)}`;
 }
 
 // -----------------------------------------------------------------------------

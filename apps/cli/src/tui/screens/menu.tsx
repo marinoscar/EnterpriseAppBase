@@ -2,7 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import SelectInput from 'ink-select-input';
 import { useMemo, type ReactNode } from 'react';
 
-import { CLI_NAME } from '../../branding.js';
+import { cliName } from '../../identity.js';
 import { describeConfig, type ConfigSummary } from '../../config.js';
 import { Frame } from '../layout.js';
 import type { Route } from '../routes.js';
@@ -92,7 +92,7 @@ export function MenuScreen({ onSelect, onQuit }: MenuScreenProps): ReactNode {
       <Box flexDirection="column" gap={1}>
         <Text dimColor>
           {summary.serverUrl === undefined
-            ? `No server configured yet — start with Login, or run \`${CLI_NAME} --help\`.`
+            ? `No server configured yet — start with Login, or run \`${cliName()} --help\`.`
             : `Server: ${summary.serverUrl}`}
         </Text>
 

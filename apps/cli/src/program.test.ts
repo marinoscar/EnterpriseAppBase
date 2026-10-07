@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CLI_NAME } from './branding.js';
+import { cliName, cliVersion } from './identity.js';
 import { EXIT } from './errors.js';
-import { CLI_VERSION } from './package-info.js';
 import { buildProgram, run } from './program.js';
 import type { TtyContext } from './tui/tty.js';
 
@@ -36,8 +35,8 @@ function writtenText(spy: ReturnType<typeof vi.spyOn>): string {
 describe('buildProgram', () => {
   it('names the program after CLI_NAME and carries CLI_VERSION', () => {
     const program = buildProgram();
-    expect(program.name()).toBe(CLI_NAME);
-    expect(program.version()).toBe(CLI_VERSION);
+    expect(program.name()).toBe(cliName());
+    expect(program.version()).toBe(cliVersion());
   });
 });
 
@@ -55,7 +54,7 @@ describe('run', () => {
     const code = await run(['--version']);
 
     expect(code).toBe(EXIT.OK);
-    expect(writtenText(stdoutSpy)).toContain(CLI_VERSION);
+    expect(writtenText(stdoutSpy)).toContain(cliVersion());
   });
 
   it('--help returns 0', async () => {
@@ -154,7 +153,7 @@ describe('run — no-argument invocation never mounts without a TTY', () => {
 
     // program.outputHelp({ error: true }) routes through configureOutput's
     // writeErr, so the usage text lands on stderr alongside the reason.
-    expect(writtenText(stderrSpy)).toContain(CLI_NAME);
+    expect(writtenText(stderrSpy)).toContain(cliName());
   });
 });
 

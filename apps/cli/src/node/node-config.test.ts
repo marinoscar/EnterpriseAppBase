@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from '../branding.js';
+import { configDirName, configFileName } from '../identity.js';
 import { UsageError } from '../errors.js';
 import {
   DEFAULT_POLL_INTERVAL_MS,
@@ -14,7 +14,7 @@ import {
   resolveNodeConfig,
   saveNodeConfig,
 } from './node-config.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 // =============================================================================
 // Node configuration resolution  (issue #272, epic #254)
@@ -30,13 +30,13 @@ import { WORKER_ENV } from './worker-env.js';
 let home: string;
 
 function writeConfig(body: unknown): void {
-  const dir = join(home, CONFIG_DIR_NAME);
+  const dir = join(home, configDirName());
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  writeFileSync(join(dir, CONFIG_FILE_NAME), JSON.stringify(body), { mode: 0o600 });
+  writeFileSync(join(dir, configFileName()), JSON.stringify(body), { mode: 0o600 });
 }
 
 function readStored(): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(home, CONFIG_DIR_NAME, CONFIG_FILE_NAME), 'utf8')) as Record<string, unknown>;
+  return JSON.parse(readFileSync(join(home, configDirName(), configFileName()), 'utf8')) as Record<string, unknown>;
 }
 
 beforeEach(() => {
@@ -87,10 +87,10 @@ describe('resolveNodeConfig', () => {
     const resolved = resolveNodeConfig({
       home,
       env: {
-        [WORKER_ENV.serverUrl]: 'https://app.example.com',
-        [WORKER_ENV.token]: 'nod_abc123',
-        [WORKER_ENV.nodeName]: 'worker-1',
-        [WORKER_ENV.concurrency]: '4',
+        [workerEnv().serverUrl]: 'https://app.example.com',
+        [workerEnv().token]: 'nod_abc123',
+        [workerEnv().nodeName]: 'worker-1',
+        [workerEnv().concurrency]: '4',
       },
     });
 
@@ -106,8 +106,8 @@ describe('resolveNodeConfig', () => {
 
   it('names the missing variable when only one of the pair is set', () => {
     expect(() =>
-      resolveNodeConfig({ home, env: { [WORKER_ENV.token]: 'nod_abc123' } }),
-    ).toThrow(new RegExp(WORKER_ENV.serverUrl));
+      resolveNodeConfig({ home, env: { [workerEnv().token]: 'nod_abc123' } }),
+    ).toThrow(new RegExp(workerEnv().serverUrl));
   });
 
   it('overlays the environment over the file PER FIELD, not all-or-nothing', () => {
@@ -118,7 +118,7 @@ describe('resolveNodeConfig', () => {
       node: { name: 'stored-name', concurrency: 2, eligibleTypes: ['example.checksum'], pollIntervalMs: 1000 },
     });
 
-    const resolved = resolveNodeConfig({ home, env: { [WORKER_ENV.concurrency]: '8' } });
+    const resolved = resolveNodeConfig({ home, env: { [workerEnv().concurrency]: '8' } });
 
     expect(resolved.node.concurrency).toBe(8);
     expect(resolved.node.name).toBe('stored-name');
@@ -132,9 +132,9 @@ describe('resolveNodeConfig', () => {
     const resolved = resolveNodeConfig({
       home,
       env: {
-        [WORKER_ENV.serverUrl]: 'https://app.example.com',
-        [WORKER_ENV.token]: 'nod_abc123',
-        [WORKER_ENV.nodeId]: 'node-from-env',
+        [workerEnv().serverUrl]: 'https://app.example.com',
+        [workerEnv().token]: 'nod_abc123',
+        [workerEnv().nodeId]: 'node-from-env',
       },
     });
     expect(resolved.nodeId).toBe('node-from-env');
@@ -145,9 +145,9 @@ describe('resolveNodeConfig', () => {
       resolveNodeConfig({
         home,
         env: {
-          [WORKER_ENV.serverUrl]: 'https://app.example.com',
-          [WORKER_ENV.token]: 'nod_abc123',
-          [WORKER_ENV.concurrency]: String(MAX_NODE_CONCURRENCY + 1),
+          [workerEnv().serverUrl]: 'https://app.example.com',
+          [workerEnv().token]: 'nod_abc123',
+          [workerEnv().concurrency]: String(MAX_NODE_CONCURRENCY + 1),
         },
       }),
     ).toThrow(new RegExp(String(MAX_NODE_CONCURRENCY)));
@@ -158,12 +158,12 @@ describe('resolveNodeConfig', () => {
       resolveNodeConfig({
         home,
         env: {
-          [WORKER_ENV.serverUrl]: 'https://app.example.com',
-          [WORKER_ENV.token]: 'nod_abc123',
-          [WORKER_ENV.concurrency]: 'lots',
+          [workerEnv().serverUrl]: 'https://app.example.com',
+          [workerEnv().token]: 'nod_abc123',
+          [workerEnv().concurrency]: 'lots',
         },
       }),
-    ).toThrow(new RegExp(WORKER_ENV.concurrency));
+    ).toThrow(new RegExp(workerEnv().concurrency));
   });
 
   it('refuses an unknown eligible type when the caller knows the valid set', () => {
@@ -172,9 +172,9 @@ describe('resolveNodeConfig', () => {
         home,
         knownTypes: ['example.checksum'],
         env: {
-          [WORKER_ENV.serverUrl]: 'https://app.example.com',
-          [WORKER_ENV.token]: 'nod_abc123',
-          [WORKER_ENV.types]: 'example.checksum,video.transcode',
+          [workerEnv().serverUrl]: 'https://app.example.com',
+          [workerEnv().token]: 'nod_abc123',
+          [workerEnv().types]: 'example.checksum,video.transcode',
         },
       }),
     ).toThrow(/video\.transcode/);
@@ -184,10 +184,10 @@ describe('resolveNodeConfig', () => {
     const resolved = resolveNodeConfig({
       home,
       env: {
-        [WORKER_ENV.serverUrl]: 'https://app.example.com',
-        [WORKER_ENV.token]: 'nod_abc123',
-        [WORKER_ENV.headless]: 'true',
-        [WORKER_ENV.stateDir]: '/state',
+        [workerEnv().serverUrl]: 'https://app.example.com',
+        [workerEnv().token]: 'nod_abc123',
+        [workerEnv().headless]: 'true',
+        [workerEnv().stateDir]: '/state',
       },
     });
     expect(resolved.headless).toBe(true);
@@ -210,7 +210,7 @@ describe('saveNodeConfig', () => {
   it('writes 0600', () => {
     writeConfig({ serverUrl: 'https://app.example.com', token: 'nod_stored' });
     saveNodeConfig({ nodeId: 'node-9' }, { home, env: {} });
-    const mode = statSync(join(home, CONFIG_DIR_NAME, CONFIG_FILE_NAME)).mode & 0o777;
+    const mode = statSync(join(home, configDirName(), configFileName())).mode & 0o777;
     expect(mode).toBe(0o600);
   });
 
@@ -227,7 +227,7 @@ describe('saveNodeConfig', () => {
     );
 
     expect(result).toBeUndefined();
-    expect(warnings.join('\n')).toContain(WORKER_ENV.nodeId);
+    expect(warnings.join('\n')).toContain(workerEnv().nodeId);
   });
 
   it('still throws when degradation was not requested', () => {

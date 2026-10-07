@@ -10,7 +10,7 @@ import {
   pruneSnapshots,
   writeHeapSnapshot,
 } from './heap-snapshot.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 const MB = 1024 * 1024;
 
@@ -37,21 +37,21 @@ describe('the master toggle (issue #277)', () => {
     // A diagnostic somebody has to remember to enable in advance is never on
     // when it matters.
     expect(heapSnapshotsEnabled({})).toBe(true);
-    expect(heapSnapshotsEnabled({ [WORKER_ENV.heapSnapshots]: 'false' })).toBe(false);
+    expect(heapSnapshotsEnabled({ [workerEnv().heapSnapshots]: 'false' })).toBe(false);
   });
 
   it('suppresses the write path, naming the variable', () => {
     const result = writeHeapSnapshot({
       dir,
       reason: 'manual',
-      env: { [WORKER_ENV.heapSnapshots]: 'false' },
+      env: { [workerEnv().heapSnapshots]: 'false' },
       write: () => {
         throw new Error('must not be called');
       },
     });
 
     expect(result.written).toBe(false);
-    expect(result.skipped).toContain(WORKER_ENV.heapSnapshots);
+    expect(result.skipped).toContain(workerEnv().heapSnapshots);
   });
 });
 
@@ -164,7 +164,7 @@ describe('pruneSnapshots', () => {
 
 describe('the disable toggle suppresses ALL THREE paths', () => {
   it('covers the valve, the command, and a direct call', () => {
-    const env = { [WORKER_ENV.heapSnapshots]: 'false' };
+    const env = { [workerEnv().heapSnapshots]: 'false' };
     const write = vi.fn();
 
     for (const reason of ['valve', 'manual', 'signal'] as const) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { CLI_NAME } from '../branding.js';
-import { NO_TUI_ENV_VAR, evaluateTuiGate, type TtyContext } from './tty.js';
+import { cliName } from '../identity.js';
+import { noTuiEnvVar, evaluateTuiGate, type TtyContext } from './tty.js';
 
 // =============================================================================
 // The TTY gate  (issue #145, epic #110)
@@ -67,7 +67,7 @@ describe('evaluateTuiGate — stdout not a TTY (case 2)', () => {
     expect(decision.engage).toBe(false);
     if (decision.engage) return;
     expect(decision.reason).toContain('stdout is not a terminal');
-    expect(decision.reason).toContain(`${CLI_NAME} --help`);
+    expect(decision.reason).toContain(`${cliName()} --help`);
   });
 });
 
@@ -110,7 +110,7 @@ describe('evaluateTuiGate — stdin not a TTY while stdout is (case 3)', () => {
     expect(decision.engage).toBe(false);
     if (decision.engage) return;
     expect(decision.reason).toContain('stdin is not a terminal');
-    expect(decision.reason).toContain(`${CLI_NAME} --help`);
+    expect(decision.reason).toContain(`${cliName()} --help`);
   });
 });
 
@@ -171,7 +171,7 @@ describe('evaluateTuiGate — TERM reports no cursor addressing (case 4)', () =>
     expect(decision.engage).toBe(false);
     if (decision.engage) return;
     expect(decision.reason).toContain('TERM is "dumb"');
-    expect(decision.reason).toContain(`${CLI_NAME} --help`);
+    expect(decision.reason).toContain(`${cliName()} --help`);
   });
 });
 
@@ -224,11 +224,11 @@ describe('evaluateTuiGate — CI, even with a real pty on both descriptors (case
 
 describe('evaluateTuiGate — APPCTL_NO_TUI, the explicit escape hatch (case 1)', () => {
   it('exports the env var name as APPCTL_NO_TUI', () => {
-    expect(NO_TUI_ENV_VAR).toBe('APPCTL_NO_TUI');
+    expect(noTuiEnvVar()).toBe('APPCTL_NO_TUI');
   });
 
   it('refuses unconditionally, even on an otherwise perfect terminal', () => {
-    const decision = evaluateTuiGate(interactiveCtx({ env: { TERM: 'xterm', [NO_TUI_ENV_VAR]: '1' } }));
+    const decision = evaluateTuiGate(interactiveCtx({ env: { TERM: 'xterm', [noTuiEnvVar()]: '1' } }));
     expect(decision.engage).toBe(false);
     if (!decision.engage) expect(decision.refusal).toBe('disabled');
   });
@@ -237,7 +237,7 @@ describe('evaluateTuiGate — APPCTL_NO_TUI, the explicit escape hatch (case 1)'
     const decision = evaluateTuiGate({
       stdout: { isTTY: undefined },
       stdin: { isTTY: undefined },
-      env: { TERM: 'dumb', CI: 'true', [NO_TUI_ENV_VAR]: '1' },
+      env: { TERM: 'dumb', CI: 'true', [noTuiEnvVar()]: '1' },
     });
     expect(decision.engage).toBe(false);
     if (!decision.engage) expect(decision.refusal).toBe('disabled');
@@ -245,16 +245,16 @@ describe('evaluateTuiGate — APPCTL_NO_TUI, the explicit escape hatch (case 1)'
 
   it('APPCTL_NO_TUI=false does not disable it', () => {
     const decision = evaluateTuiGate(
-      interactiveCtx({ env: { TERM: 'xterm', [NO_TUI_ENV_VAR]: 'false' } }),
+      interactiveCtx({ env: { TERM: 'xterm', [noTuiEnvVar()]: 'false' } }),
     );
     expect(decision.engage).toBe(true);
   });
 
   it('names the cause and the thing to do instead', () => {
-    const decision = evaluateTuiGate(interactiveCtx({ env: { TERM: 'xterm', [NO_TUI_ENV_VAR]: '1' } }));
+    const decision = evaluateTuiGate(interactiveCtx({ env: { TERM: 'xterm', [noTuiEnvVar()]: '1' } }));
     expect(decision.engage).toBe(false);
     if (decision.engage) return;
-    expect(decision.reason).toContain(NO_TUI_ENV_VAR);
+    expect(decision.reason).toContain(noTuiEnvVar());
     expect(decision.reason).toContain('Run a subcommand');
   });
 });
@@ -267,19 +267,19 @@ describe('evaluateTuiGate — precedence, most-actionable-first', () => {
     const allBad: TtyContext = {
       stdout: { isTTY: undefined },
       stdin: { isTTY: undefined },
-      env: { TERM: 'dumb', CI: 'true', [NO_TUI_ENV_VAR]: '1' },
+      env: { TERM: 'dumb', CI: 'true', [noTuiEnvVar()]: '1' },
     };
     let decision = evaluateTuiGate(allBad);
     expect(decision.engage).toBe(false);
     if (!decision.engage) expect(decision.refusal).toBe('disabled');
 
-    decision = evaluateTuiGate({ ...allBad, env: { ...allBad.env, [NO_TUI_ENV_VAR]: undefined } });
+    decision = evaluateTuiGate({ ...allBad, env: { ...allBad.env, [noTuiEnvVar()]: undefined } });
     expect(decision.engage).toBe(false);
     if (!decision.engage) expect(decision.refusal).toBe('stdout-not-a-tty');
 
     decision = evaluateTuiGate({
       ...allBad,
-      env: { ...allBad.env, [NO_TUI_ENV_VAR]: undefined },
+      env: { ...allBad.env, [noTuiEnvVar()]: undefined },
       stdout: { isTTY: true },
     });
     expect(decision.engage).toBe(false);
@@ -287,7 +287,7 @@ describe('evaluateTuiGate — precedence, most-actionable-first', () => {
 
     decision = evaluateTuiGate({
       ...allBad,
-      env: { ...allBad.env, [NO_TUI_ENV_VAR]: undefined },
+      env: { ...allBad.env, [noTuiEnvVar()]: undefined },
       stdout: { isTTY: true },
       stdin: { isTTY: true },
     });
@@ -296,7 +296,7 @@ describe('evaluateTuiGate — precedence, most-actionable-first', () => {
 
     decision = evaluateTuiGate({
       ...allBad,
-      env: { ...allBad.env, [NO_TUI_ENV_VAR]: undefined, TERM: 'xterm' },
+      env: { ...allBad.env, [noTuiEnvVar()]: undefined, TERM: 'xterm' },
       stdout: { isTTY: true },
       stdin: { isTTY: true },
     });
@@ -308,7 +308,7 @@ describe('evaluateTuiGate — precedence, most-actionable-first', () => {
     const refusals = new Set<string>();
 
     const cases: TtyContext[] = [
-      interactiveCtx({ env: { TERM: 'xterm', [NO_TUI_ENV_VAR]: '1' } }),
+      interactiveCtx({ env: { TERM: 'xterm', [noTuiEnvVar()]: '1' } }),
       interactiveCtx({ stdout: { isTTY: undefined } }),
       interactiveCtx({ stdin: { isTTY: undefined } }),
       interactiveCtx({ env: { TERM: 'dumb' } }),

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { CommandFailedError, type CommandResult, type RunCommandOptions } from '../executor.js';
 import {
-  CLI_RENEWAL_CRON_PATH,
+  cliRenewalCronPath,
   TLS_CHECKS,
   cronCommandPaths,
   cronLines,
@@ -139,9 +139,9 @@ describe('renewsWithCertbot', () => {
   });
 });
 
-describe('CLI_RENEWAL_CRON_PATH', () => {
+describe('cliRenewalCronPath', () => {
   it('is namespaced under the CLI name', () => {
-    expect(CLI_RENEWAL_CRON_PATH).toBe('/etc/cron.d/appctl-certbot-renew');
+    expect(cliRenewalCronPath()).toBe('/etc/cron.d/appctl-certbot-renew');
   });
 });
 
@@ -210,7 +210,7 @@ describe('detectRenewalOwner', () => {
       dirs: { '/etc/cron.d': ['certbot', 'appctl-certbot-renew'] },
       files: {
         '/etc/cron.d/certbot': '0 */12 * * * root certbot renew --quiet\n',
-        [CLI_RENEWAL_CRON_PATH]: '17 3 * * * root certbot renew --quiet\n',
+        [cliRenewalCronPath()]: '17 3 * * * root certbot renew --quiet\n',
       },
     });
 
@@ -220,7 +220,7 @@ describe('detectRenewalOwner', () => {
     // once (by their dedicated branches), not a second time as a loose
     // /etc/cron.d/* entry.
     const certbotCount = result.mechanisms.filter((m) => m.path === '/etc/cron.d/certbot').length;
-    const appctlCount = result.mechanisms.filter((m) => m.path === CLI_RENEWAL_CRON_PATH).length;
+    const appctlCount = result.mechanisms.filter((m) => m.path === cliRenewalCronPath()).length;
     expect(certbotCount).toBe(1);
     expect(appctlCount).toBe(1);
   });
@@ -250,19 +250,19 @@ describe('detectRenewalOwner', () => {
   });
 
   it('finds APPCTL\'s own schedule when nothing else owns it', async () => {
-    const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
+    const fs = makeFs({ files: { [cliRenewalCronPath()]: '' } });
 
     const result = await detectRenewalOwner({ fs, runCommand: NOTHING_RUNS });
 
     expect(result.owner).toBe('appctl');
-    expect(result.path).toBe(CLI_RENEWAL_CRON_PATH);
+    expect(result.path).toBe(cliRenewalCronPath());
   });
 
   it('PRECEDENCE: a central script wins over a systemd timer, cron and appctl all present at once', async () => {
     const fs = makeFs({
       files: {
         '/opt/scripts/renew-all.sh': 'certbot renew\n',
-        [CLI_RENEWAL_CRON_PATH]: '',
+        [cliRenewalCronPath()]: '',
         '/etc/cron.d/certbot': '0 */12 * * * root certbot renew --quiet\n',
       },
       dirs: { '/etc/cron.d': ['certbot'] },
@@ -287,7 +287,7 @@ describe('detectRenewalOwner', () => {
   });
 
   it('PRECEDENCE: a systemd timer wins over cron and appctl', async () => {
-    const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
+    const fs = makeFs({ files: { [cliRenewalCronPath()]: '' } });
     const run = fakeRunCommand((argv) => {
       const line = argv.join(' ');
       if (line === 'crontab -l -u root') return { exitCode: 0, stdout: '0 4 * * * certbot renew\n' };
@@ -490,7 +490,7 @@ describe('certificate-renewal check', () => {
   });
 
   it('WARNS with a DOUBLE-SCHEDULE remedy when appctl\'s own cron coexists with another real owner', async () => {
-    const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
+    const fs = makeFs({ files: { [cliRenewalCronPath()]: '' } });
     const run = fakeRunCommand((argv) =>
       argv.join(' ') === 'crontab -l -u root' ? { exitCode: 0, stdout: '0 4 * * * certbot renew\n' } : undefined,
     );
@@ -500,11 +500,11 @@ describe('certificate-renewal check', () => {
     expect(result.status).toBe('warn');
     expect(result.detail).toContain('owned by cron');
     expect(result.remedy).toContain('scheduled twice');
-    expect(result.remedy).toContain(`rm ${CLI_RENEWAL_CRON_PATH}`);
+    expect(result.remedy).toContain(`rm ${cliRenewalCronPath()}`);
   });
 
   it('does not warn about a double schedule when appctl IS the (only) owner', async () => {
-    const fs = makeFs({ files: { [CLI_RENEWAL_CRON_PATH]: '' } });
+    const fs = makeFs({ files: { [cliRenewalCronPath()]: '' } });
 
     const result = await find('certificate-renewal').run(context({ fs }));
 

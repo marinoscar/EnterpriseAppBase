@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { CLI_NAME, CONFIG_DIR_NAME, CONFIG_FILE_NAME, envVar } from './branding.js';
+import { cliName, configDirName, configFileName, envVar } from './identity.js';
 import { AuthRequiredError, ConfigError } from './errors.js';
 
 // =============================================================================
@@ -138,10 +138,14 @@ export interface ConfigContext {
 }
 
 /** `APPCTL_SERVER_URL` — resolved once so help text and lookups cannot drift. */
-export const SERVER_URL_ENV_VAR = envVar('SERVER_URL');
+export function serverUrlEnvVar(): string {
+  return envVar('SERVER_URL');
+}
 
 /** `APPCTL_TOKEN`. */
-export const TOKEN_ENV_VAR = envVar('TOKEN');
+export function tokenEnvVar(): string {
+  return envVar('TOKEN');
+}
 
 function contextEnv(ctx: ConfigContext | undefined): NodeJS.ProcessEnv {
   return ctx?.env ?? process.env;
@@ -149,12 +153,12 @@ function contextEnv(ctx: ConfigContext | undefined): NodeJS.ProcessEnv {
 
 /** The config directory, `~/.appctl`. */
 export function configDirPath(ctx?: ConfigContext): string {
-  return join(ctx?.home ?? homedir(), CONFIG_DIR_NAME);
+  return join(ctx?.home ?? homedir(), configDirName());
 }
 
 /** The config file, `~/.appctl/config.json`. */
 export function configFilePath(ctx?: ConfigContext): string {
-  return join(configDirPath(ctx), CONFIG_FILE_NAME);
+  return join(configDirPath(ctx), configFileName());
 }
 
 /**
@@ -189,14 +193,14 @@ export function readConfigFile(ctx?: ConfigContext): StoredConfig | undefined {
     // is disposable — every field in it is re-obtainable by logging in again —
     // so "delete it and re-login" is always correct and always sufficient.
     throw new ConfigError(
-      `${path} is not valid JSON. Delete it and run \`${CLI_NAME} login\` again.`,
+      `${path} is not valid JSON. Delete it and run \`${cliName()} login\` again.`,
       { cause },
     );
   }
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new ConfigError(
-      `${path} does not contain a JSON object. Delete it and run \`${CLI_NAME} login\` again.`,
+      `${path} does not contain a JSON object. Delete it and run \`${cliName()} login\` again.`,
     );
   }
 
@@ -311,7 +315,7 @@ export function writeConfigFile(config: StoredConfig, ctx?: ConfigContext): stri
   // disposable, and the basename deliberately stays derived from
   // CONFIG_FILE_NAME rather than being something like `credentials.tmp` — see
   // the note on CONFIG_FILE_NAME in branding.ts about globally-ignored names.
-  const tmp = join(dir, `${CONFIG_FILE_NAME}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
+  const tmp = join(dir, `${configFileName()}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`);
 
   try {
     writeFileSync(tmp, payload, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
@@ -387,8 +391,8 @@ export function resolveConfig(ctx?: ConfigContext): ResolvedConfig {
   const env = contextEnv(ctx);
   const file = readConfigFile(ctx);
 
-  const envServerUrl = readString(env[SERVER_URL_ENV_VAR]);
-  const envToken = readString(env[TOKEN_ENV_VAR]);
+  const envServerUrl = readString(env[serverUrlEnvVar()]);
+  const envToken = readString(env[tokenEnvVar()]);
 
   const serverUrl = envServerUrl ?? file?.serverUrl;
   const token = envToken ?? file?.token;
@@ -440,19 +444,19 @@ export function requireCredentials(ctx?: ConfigContext): Credentials {
   // supported, not something broken.
   if (resolved.serverUrl === undefined && resolved.token !== undefined && resolved.tokenSource === 'env') {
     throw new AuthRequiredError(
-      `${TOKEN_ENV_VAR} is set but ${SERVER_URL_ENV_VAR} is not, and no server URL is stored in ${resolved.path}. Set both, or run \`${CLI_NAME} login\`.`,
+      `${tokenEnvVar()} is set but ${serverUrlEnvVar()} is not, and no server URL is stored in ${resolved.path}. Set both, or run \`${cliName()} login\`.`,
     );
   }
 
   if (resolved.token === undefined && resolved.serverUrl !== undefined && resolved.serverUrlSource === 'env') {
     throw new AuthRequiredError(
-      `${SERVER_URL_ENV_VAR} is set but ${TOKEN_ENV_VAR} is not, and no token is stored in ${resolved.path}. Set both, or run \`${CLI_NAME} login\`.`,
+      `${serverUrlEnvVar()} is set but ${tokenEnvVar()} is not, and no token is stored in ${resolved.path}. Set both, or run \`${cliName()} login\`.`,
     );
   }
 
   if (resolved.serverUrl === undefined || resolved.token === undefined) {
     throw new AuthRequiredError(
-      `Not logged in. Run \`${CLI_NAME} login\` first, or set ${SERVER_URL_ENV_VAR} and ${TOKEN_ENV_VAR}.`,
+      `Not logged in. Run \`${cliName()} login\` first, or set ${serverUrlEnvVar()} and ${tokenEnvVar()}.`,
     );
   }
 

@@ -20,7 +20,7 @@
  * has certainly deployed -- but nothing on disk says when, and a fabricated
  * instant is worse than an honest gap.
  */
-import { CLI_VERSION } from '../package-info.js';
+import { cliVersion } from '../identity.js';
 import { isDeployment, resolveEnvPath } from './deployment-evidence.js';
 import { readEnvFile } from './env-file.js';
 import { DEPLOY_STATE_VERSION, type DeployState } from './state.js';
@@ -79,7 +79,7 @@ export function adoptDeployment(options: AdoptOptions): DeployState {
     installedAt: '',
     lastDeployedAt: '',
     lastCommand: 'update',
-    appctlVersion: CLI_VERSION,
+    appctlVersion: cliVersion(),
     adoptedAt: new Date().toISOString(),
   } as DeployState;
 }

@@ -1,9 +1,9 @@
 import type { Command } from 'commander';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import {
-  SERVER_URL_ENV_VAR,
-  TOKEN_ENV_VAR,
+  serverUrlEnvVar,
+  tokenEnvVar,
   resolveConfig,
   type ConfigContext,
 } from '../config.js';
@@ -46,7 +46,7 @@ export function registerLoginCommand(program: Command, ctx?: ConfigContext): Com
   return program
     .command('login')
     .description('Authorize this machine and store a token')
-    .option('--server <url>', `Server URL (or set ${SERVER_URL_ENV_VAR})`)
+    .option('--server <url>', `Server URL (or set ${serverUrlEnvVar()})`)
     .option(
       '--token <pat>',
       'Skip the device flow and use an existing personal access token (headless)',
@@ -58,12 +58,12 @@ export function registerLoginCommand(program: Command, ctx?: ConfigContext): Com
       [
         '',
         'Examples:',
-        `  ${CLI_NAME} login                                   Device flow, prompting for the server`,
-        `  ${CLI_NAME} login --server https://app.example.com  Device flow, no prompt`,
-        `  ${CLI_NAME} login --server https://app.example.com --token pat_...`,
+        `  ${cliName()} login                                   Device flow, prompting for the server`,
+        `  ${cliName()} login --server https://app.example.com  Device flow, no prompt`,
+        `  ${cliName()} login --server https://app.example.com --token pat_...`,
         '',
         'In CI, skip this command entirely and set:',
-        `  ${SERVER_URL_ENV_VAR} and ${TOKEN_ENV_VAR}`,
+        `  ${serverUrlEnvVar()} and ${tokenEnvVar()}`,
       ].join('\n'),
     )
     .action(async (options: LoginOptions) => {
@@ -109,7 +109,7 @@ async function resolveServerUrl(flag: string | undefined, ctx?: ConfigContext): 
     // one, because the fix here is specific and worth stating: this is CI, and
     // CI should be setting both variables instead of running `login` at all.
     throw new UsageError(
-      `No server URL. Pass --server <url>, or set ${SERVER_URL_ENV_VAR} (and ${TOKEN_ENV_VAR}) for non-interactive use.`,
+      `No server URL. Pass --server <url>, or set ${serverUrlEnvVar()} (and ${tokenEnvVar()}) for non-interactive use.`,
     );
   }
 
@@ -183,7 +183,7 @@ async function headlessLogin(
   // warning before it would make a failed login look like the warning's fault.
   write(
     `\n  Note: a token passed as a command-line argument is recorded in your shell\n` +
-      `  history and is visible in \`ps\` to other users. Prefer ${TOKEN_ENV_VAR}.\n`,
+      `  history and is visible in \`ps\` to other users. Prefer ${tokenEnvVar()}.\n`,
   );
 
   return result;

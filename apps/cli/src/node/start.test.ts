@@ -4,10 +4,10 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from '../branding.js';
+import { configDirName, configFileName } from '../identity.js';
 import type { HeartbeatRequest, NodeApi } from './node-api.js';
 import { EXIT_MISSING_CAPABILITY, startNode } from './start.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 // =============================================================================
 // `node start` wiring  (issue #275, epic #254)
@@ -23,9 +23,9 @@ let home: string;
 let started: Array<{ stop: () => Promise<void> }>;
 
 function writeConfig(body: unknown): void {
-  const dir = join(home, CONFIG_DIR_NAME);
+  const dir = join(home, configDirName());
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  writeFileSync(join(dir, CONFIG_FILE_NAME), JSON.stringify(body), { mode: 0o600 });
+  writeFileSync(join(dir, configFileName()), JSON.stringify(body), { mode: 0o600 });
 }
 
 function api(record: { deregisters: number; claims: number }): NodeApi {
@@ -100,7 +100,7 @@ describe('startNode', () => {
 
     const node = await startNode({
       home,
-      env: { [WORKER_ENV.stateDir]: join(home, 'state'), [WORKER_ENV.pollMs]: '250' },
+      env: { [workerEnv().stateDir]: join(home, 'state'), [workerEnv().pollMs]: '250' },
       stderr,
       createApi: () => api(record),
       installSignalHandlers: () => {},
@@ -119,7 +119,7 @@ describe('startNode', () => {
 
     const node = await startNode({
       home,
-      env: { [WORKER_ENV.stateDir]: join(home, 'state-vitals'), [WORKER_ENV.pollMs]: '250' },
+      env: { [workerEnv().stateDir]: join(home, 'state-vitals'), [workerEnv().pollMs]: '250' },
       stderr: { write: () => true },
       createApi: () => ({
         ...base,
@@ -150,7 +150,7 @@ describe('startNode', () => {
 
     const node = await startNode({
       home,
-      env: { [WORKER_ENV.stateDir]: join(home, 'state-novitals'), [WORKER_ENV.pollMs]: '250' },
+      env: { [workerEnv().stateDir]: join(home, 'state-novitals'), [workerEnv().pollMs]: '250' },
       stderr: { write: () => true },
       vitals: false,
       createApi: () => ({
@@ -175,7 +175,7 @@ describe('startNode', () => {
 
     const node = await startNode({
       home,
-      env: { [WORKER_ENV.stateDir]: join(home, 'state'), [WORKER_ENV.pollMs]: '250' },
+      env: { [workerEnv().stateDir]: join(home, 'state'), [workerEnv().pollMs]: '250' },
       headless: true,
       createApi: () => api(record),
       installSignalHandlers: (handler) => {
@@ -199,7 +199,7 @@ describe('startNode', () => {
 
     const node = await startNode({
       home,
-      env: { [WORKER_ENV.stateDir]: join(home, 'state2'), [WORKER_ENV.pollMs]: '250' },
+      env: { [workerEnv().stateDir]: join(home, 'state2'), [workerEnv().pollMs]: '250' },
       stderr: { write: () => true },
       createApi: () => api(record),
       installSignalHandlers: (handler) => {
@@ -231,7 +231,7 @@ describe('startNode', () => {
     await expect(
       startNode({
         home,
-        env: { [WORKER_ENV.stateDir]: join(home, 'state-fail') },
+        env: { [workerEnv().stateDir]: join(home, 'state-fail') },
         headless: true,
         stderr,
         createApi: () => api({ deregisters: 0, claims: 0 }),
@@ -266,9 +266,9 @@ describe('startNode', () => {
     const node = await startNode({
       home,
       env: {
-        [WORKER_ENV.stateDir]: join(home, 'state3'),
-        [WORKER_ENV.pollMs]: '250',
-        [WORKER_ENV.headless]: 'true',
+        [workerEnv().stateDir]: join(home, 'state3'),
+        [workerEnv().pollMs]: '250',
+        [workerEnv().headless]: 'true',
       },
       createApi: () => api(record),
       installSignalHandlers: (handler) => {

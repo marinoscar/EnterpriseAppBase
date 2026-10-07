@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CLI_NAME } from './branding.js';
+import { cliName } from './identity.js';
 import {
   ApiError,
   CliError,
@@ -590,16 +590,16 @@ describe('CliError / subclass identity', () => {
 
 describe('formatError', () => {
   it('prefixes a CliError message with the CLI name', () => {
-    expect(formatError(new UsageError('bad flag'))).toBe(`${CLI_NAME}: bad flag`);
+    expect(formatError(new UsageError('bad flag'))).toBe(`${cliName()}: bad flag`);
   });
 
   it('prefixes a plain Error message with the CLI name too', () => {
-    expect(formatError(new Error('unexpected'))).toBe(`${CLI_NAME}: unexpected`);
+    expect(formatError(new Error('unexpected'))).toBe(`${cliName()}: unexpected`);
   });
 
   it('stringifies a non-Error thrown value rather than crashing', () => {
-    expect(formatError('a string failure')).toBe(`${CLI_NAME}: a string failure`);
-    expect(formatError(42)).toBe(`${CLI_NAME}: 42`);
+    expect(formatError('a string failure')).toBe(`${cliName()}: a string failure`);
+    expect(formatError(42)).toBe(`${cliName()}: 42`);
   });
 
   it('never includes a stack trace', () => {

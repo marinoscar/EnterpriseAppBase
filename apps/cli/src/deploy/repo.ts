@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { UsageError } from '../errors.js';
 import { probe } from './checks/host.js';
 import { gitCredentialStateFor, isHttpsGithubUrl, nonInteractiveGitEnv } from './checks/source.js';
@@ -140,7 +140,7 @@ export async function resolveRepoTarget(
 
   if (origin === undefined || origin === '') {
     throw new UsageError(
-      `This checkout has no \`origin\` remote, so ${CLI_NAME} cannot tell what to deploy. Pass --repo <url>.`,
+      `This checkout has no \`origin\` remote, so ${cliName()} cannot tell what to deploy. Pass --repo <url>.`,
     );
   }
 

@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { configDirPath, type ConfigContext } from '../config.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 // =============================================================================
 // Where a worker keeps its runtime state  (issue #272, epic #254)
@@ -15,7 +15,7 @@ import { WORKER_ENV } from './worker-env.js';
 // second thing to mount into a container, and a second place for a token to
 // end up.
 //
-// `WORKER_ENV.stateDir` overrides it wholesale. That is the container path:
+// `workerEnv().stateDir` overrides it wholesale. That is the container path:
 // an image mounts one volume, points the variable at it, and the pidfile, the
 // socket, the logs and the heap snapshots all land inside it together.
 //
@@ -52,7 +52,7 @@ export const TMP_DIR_NAME = 'tmp';
  * `~/.appctl/` remains the single thing a user backs up, deletes or mounts.
  */
 export function nodeStateDir(ctx?: NodePathsContext): string {
-  const override = (ctx?.env ?? process.env)[WORKER_ENV.stateDir];
+  const override = (ctx?.env ?? process.env)[workerEnv().stateDir];
   const trimmed = override?.trim();
   if (trimmed !== undefined && trimmed.length > 0) return trimmed;
   return join(configDirPath(ctx), 'node');
@@ -75,7 +75,7 @@ export function nodePidPath(ctx?: NodePathsContext): string {
 export function nodeSocketPath(ctx?: NodePathsContext): string {
   const platform = ctx?.platform ?? process.platform;
   if (platform === 'win32') {
-    return `\\\\.\\pipe\\${CLI_NAME}-node`;
+    return `\\\\.\\pipe\\${cliName()}-node`;
   }
   return join(nodeStateDir(ctx), 'node.sock');
 }

@@ -91,5 +91,5 @@ export async function startTui(options?: StartTuiOptions): Promise<number> {
   }
 }
 
-export { evaluateTuiGate, NO_TUI_ENV_VAR } from './tty.js';
+export { evaluateTuiGate, noTuiEnvVar } from './tty.js';
 export type { TtyContext, TuiGateDecision, TuiRefusal } from './tty.js';

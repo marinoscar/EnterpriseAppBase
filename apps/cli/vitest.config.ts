@@ -26,10 +26,12 @@ export default defineConfig({
     // Real tests arrive with the rest of epic #110; until then the suite must
     // not fail CI for being empty. The npm scripts pass --passWithNoTests.
     globals: false,
+    // The reference app's CLI identity, set before every test file (#715).
+    setupFiles: ['src/test-setup.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'src/test-setup.ts'],
     },
   },
 });

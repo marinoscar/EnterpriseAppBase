@@ -3,7 +3,7 @@ import SelectInput from 'ink-select-input';
 import Spinner from 'ink-spinner';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { CLI_NAME } from '../../branding.js';
+import { cliName } from '../../identity.js';
 import { formatError } from '../../errors.js';
 import { runDoctor, type DoctorReport } from '../../node/doctor.js';
 import { registerNode, enrollNode } from '../../node/enrollment.js';
@@ -138,7 +138,7 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
       }
 
       if (config === undefined) {
-        setError(`No server or credential is configured. Choose Enroll, or run \`${CLI_NAME} node enroll\`.`);
+        setError(`No server or credential is configured. Choose Enroll, or run \`${cliName()} node enroll\`.`);
         return;
       }
 

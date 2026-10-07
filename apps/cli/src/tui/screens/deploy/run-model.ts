@@ -24,7 +24,7 @@
  * =============================================================================
  */
 import { DEFAULT_BIND_PORT, DEFAULT_PROXY_ROOT } from '../../../commands/deploy.js';
-import { CLI_NAME } from '../../../branding.js';
+import { cliName } from '../../../identity.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { TOGGLES_FOR, VALUE_FLAGS, type RunnableAction } from './flags-model.js';
 import { shouldMask } from './model.js';
@@ -119,7 +119,7 @@ export interface RerunInput {
  *   re-runnable as it stands.
  */
 export function rerunCommand({ action, name, values, chosen }: RerunInput): string {
-  const parts = [CLI_NAME, 'deploy', action];
+  const parts = [cliName(), 'deploy', action];
 
   const root = values.get('__root');
   if (root === undefined || root === deployRootFor(DEFAULT_APPS_ROOT, name)) {

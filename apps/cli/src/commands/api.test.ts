@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { FetchLike } from '../api-client.js';
-import { SERVER_URL_ENV_VAR, TOKEN_ENV_VAR, type ConfigContext } from '../config.js';
+import { serverUrlEnvVar, tokenEnvVar, type ConfigContext } from '../config.js';
 import { ApiError, EXIT, NetworkError, UsageError, exitCodeFor } from '../errors.js';
 import type { BodyResolutionContext } from '../request-body.js';
 import { parseQueryPair, parseRequestPath, registerApiCommand } from './api.js';
@@ -69,8 +69,8 @@ function baseCtx(
     // real home directory or a real `~/.appctl/config.json`.
     home: '/nonexistent-appctl-test-home-144',
     env: {
-      [SERVER_URL_ENV_VAR]: 'http://test.local',
-      [TOKEN_ENV_VAR]: 'pat_test_token',
+      [serverUrlEnvVar()]: 'http://test.local',
+      [tokenEnvVar()]: 'pat_test_token',
     },
     ...overrides,
   };

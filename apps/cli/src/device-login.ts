@@ -2,7 +2,7 @@ import { hostname, userInfo } from 'node:os';
 
 import { ApiClient, resolveApiBaseUrl } from './api-client.js';
 import { openInBrowser, type BrowserOpenResult } from './browser.js';
-import { CLI_DISPLAY_NAME, CLI_NAME } from './branding.js';
+import { cliDisplayName, cliName, cliVersion } from './identity.js';
 import { saveCredentials, type ConfigContext } from './config.js';
 import {
   DeviceLoginError,
@@ -14,7 +14,6 @@ import {
   type DevicePollState,
 } from './device-auth.js';
 import { ApiError } from './errors.js';
-import { CLI_VERSION } from './package-info.js';
 
 // =============================================================================
 // The reusable device-login sequence  (issue #142, epic #110)
@@ -116,7 +115,7 @@ export async function runDeviceLogin(options: DeviceLoginOptions): Promise<Devic
 
   const grant = await requestDeviceCode(client, {
     deviceName: options.deviceName ?? defaultDeviceName(),
-    userAgent: `${CLI_NAME}/${CLI_VERSION} (node ${process.version})`,
+    userAgent: `${cliName()}/${cliVersion()} (node ${process.version})`,
     signal: options.signal,
   });
 
@@ -186,7 +185,7 @@ export async function validateToken(
       // screenshots and pasted bug reports.
       throw new ApiError({
         status: error.status,
-        serverMessage: `the server rejected this token. It may be expired, revoked, or issued by a different server. Check the Access Tokens page on ${serverUrl}, or run \`${CLI_NAME} login\` to get a new one.`,
+        serverMessage: `the server rejected this token. It may be expired, revoked, or issued by a different server. Check the Access Tokens page on ${serverUrl}, or run \`${cliName()} login\` to get a new one.`,
         code: error.code,
         details: undefined,
         method: error.method,
@@ -279,7 +278,7 @@ export function defaultDeviceName(): string {
     host = 'unknown-host';
   }
 
-  return `${CLI_DISPLAY_NAME}: ${user}@${host}`;
+  return `${cliDisplayName()}: ${user}@${host}`;
 }
 
 /** Re-exported so a consumer needs one import for the whole flow. */

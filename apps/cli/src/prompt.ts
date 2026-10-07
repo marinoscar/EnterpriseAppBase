@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline/promises';
 
-import { CLI_NAME } from './branding.js';
+import { cliName } from './identity.js';
 import { UsageError } from './errors.js';
 
 // =============================================================================
@@ -51,7 +51,7 @@ export async function prompt(question: string, ctx?: PromptContext): Promise<str
 
   if (input.isTTY !== true) {
     throw new UsageError(
-      `${CLI_NAME} needs an interactive terminal to ask "${question.trim()}". Supply the value on the command line instead.`,
+      `${cliName()} needs an interactive terminal to ask "${question.trim()}". Supply the value on the command line instead.`,
     );
   }
 
@@ -122,7 +122,7 @@ async function withInterface<T>(
 
   if (input.isTTY !== true) {
     throw new UsageError(
-      `${CLI_NAME} needs an interactive terminal to ask a question. Supply the value on the command line instead.`,
+      `${cliName()} needs an interactive terminal to ask a question. Supply the value on the command line instead.`,
     );
   }
 
@@ -201,7 +201,7 @@ export async function promptSecret(
 
   if (input.isTTY !== true) {
     throw new UsageError(
-      `${CLI_NAME} needs an interactive terminal to ask "${question.trim()}". Supply the value in the environment file instead.`,
+      `${cliName()} needs an interactive terminal to ask "${question.trim()}". Supply the value in the environment file instead.`,
     );
   }
 

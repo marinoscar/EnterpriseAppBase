@@ -3,7 +3,14 @@ import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { replaceCliIdentityForTests } from '../identity.js';
+
+import { VERSIONED_MANIFESTS } from './app-version.js';
+import { buildDeployInfo } from './deploy-info.js';
+import { openJournal, pruneOldRuns } from './journal.js';
+import { runVersionStep } from './version-step.js';
 
 // =============================================================================
 // What `deploy` writes under the binary's name comes from `CLI_NAME`
@@ -16,15 +23,13 @@ import { describe, expect, it, vi } from 'vitest';
 // here by a name the base never uses, so a literal left behind fails.
 // =============================================================================
 
-vi.mock('../branding.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../branding.js')>();
-  return { ...actual, CLI_NAME: 'forkctl' };
+// The identity is read at call time (#715), so replacing it for this file is
+// enough: no module needs re-importing.
+let restoreIdentity: () => void;
+beforeAll(() => {
+  restoreIdentity = replaceCliIdentityForTests({ name: 'forkctl', displayName: 'Fork CLI', repoSlug: 'fork/fork' });
 });
-
-const { openJournal, pruneOldRuns } = await import('./journal.js');
-const { buildDeployInfo } = await import('./deploy-info.js');
-const { runVersionStep } = await import('./version-step.js');
-const { VERSIONED_MANIFESTS } = await import('./app-version.js');
+afterAll(() => restoreIdentity());
 
 function makeRoot(): string {
   return mkdtempSync(join(tmpdir(), 'journal-cli-name-'));

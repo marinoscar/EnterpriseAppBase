@@ -1,6 +1,5 @@
-import { API_PATH_PREFIX, CLI_NAME } from './branding.js';
+import { API_PATH_PREFIX, cliName, cliVersion } from './identity.js';
 import { ApiError, NetworkError, UsageError } from './errors.js';
-import { CLI_VERSION } from './package-info.js';
 
 // =============================================================================
 // HTTP client for the API  (issue #140, epic #110)
@@ -305,7 +304,7 @@ export class ApiClient {
       // Identifies the client in the API's request logs and, later, in the
       // device-flow `clientInfo.userAgent` (#141) — so a user looking at their
       // Access Tokens page can tell which tool created a token.
-      'User-Agent': `${CLI_NAME}/${CLI_VERSION} (node ${process.version})`,
+      'User-Agent': `${cliName()}/${cliVersion()} (node ${process.version})`,
     };
 
     if (hasBody) {

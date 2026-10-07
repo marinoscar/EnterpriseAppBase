@@ -71,7 +71,7 @@ export {
 } from './database.js';
 export { DNS_CHECKS } from './dns.js';
 export {
-  CLI_RENEWAL_CRON_PATH,
+  cliRenewalCronPath,
   TLS_CHECKS,
   cronCommandPaths,
   cronLines,

@@ -8,15 +8,22 @@
 // pieces #141–#145 build on, and the pieces tests exercise directly.
 // =============================================================================
 
+export { CLI_IDENTITY, CLI_NAME } from './branding.js';
 export {
   API_PATH_PREFIX,
-  CLI_DISPLAY_NAME,
-  CLI_NAME,
-  CONFIG_DIR_NAME,
-  CONFIG_FILE_NAME,
-  ENV_PREFIX,
+  cliDisplayName,
+  cliIdentity,
+  cliName,
+  cliVersion,
+  configDirName,
+  configFileName,
+  envPrefix,
   envVar,
-} from './branding.js';
+  resolveCliIdentity,
+  setCliIdentity,
+  toEnvPrefix,
+} from './identity.js';
+export type { CliIdentity, ResolvedCliIdentity } from './identity.js';
 
 export { CLI_VERSION } from './package-info.js';
 
@@ -46,7 +53,7 @@ export type { RunOptions } from './program.js';
 // nor ink, and is the piece worth testing exhaustively — so it is the piece
 // exported. Reach the app through `await import('./tui/index.js')`, as
 // `program.ts` does.
-export { NO_TUI_ENV_VAR, evaluateTuiGate } from './tui/tty.js';
+export { noTuiEnvVar, evaluateTuiGate } from './tui/tty.js';
 export type { TtyContext, TuiGateDecision, TuiRefusal } from './tui/tty.js';
 
 // The terminal-restore safety net, for the same reason: it is plain Node stream
@@ -78,8 +85,8 @@ export { resolveRequestBody } from './request-body.js';
 export type { BodyResolutionContext, BodySourceKind, ResolvedBody } from './request-body.js';
 
 export {
-  SERVER_URL_ENV_VAR,
-  TOKEN_ENV_VAR,
+  serverUrlEnvVar,
+  tokenEnvVar,
   configDirPath,
   configFilePath,
   deleteConfigFile,

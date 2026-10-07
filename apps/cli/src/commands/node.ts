@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import { enrollNode, registerNode } from '../node/enrollment.js';
 import { HttpNodeApi } from '../node/node-api.js';
@@ -9,7 +9,7 @@ import {
   resolveNodeConfig,
   type NodeConfig,
 } from '../node/node-config.js';
-import { WORKER_ENV } from '../node/worker-env.js';
+import { workerEnv } from '../node/worker-env.js';
 import { resolveConfig } from '../config.js';
 import { formatLogRecord, readLogTail } from '../node/logger.js';
 import {
@@ -103,7 +103,7 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
 
       const lines = [
         `Server        ${resolved.serverUrl} (${resolved.serverUrlSource})`,
-        `Node          ${resolved.nodeId ?? `not registered — run \`${CLI_NAME} node register\``}`,
+        `Node          ${resolved.nodeId ?? `not registered — run \`${cliName()} node register\``}`,
         `Name          ${resolved.node.name}`,
         `Concurrency   ${resolved.node.concurrency}`,
         `Types         ${
@@ -115,7 +115,7 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
       ];
 
       if (resolved.synthesised) {
-        lines.push('', `No config file — these settings came from ${WORKER_ENV.serverUrl}/${WORKER_ENV.token}.`);
+        lines.push('', `No config file — these settings came from ${workerEnv().serverUrl}/${workerEnv().token}.`);
       }
 
       stderr.write(`${lines.join('\n')}\n`);
@@ -140,7 +140,7 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
       const serverUrl = options.server ?? resolveConfig(configContext).serverUrl;
       if (serverUrl === undefined) {
         throw new UsageError(
-          `No server URL. Pass --server, or set ${WORKER_ENV.serverUrl}.`,
+          `No server URL. Pass --server, or set ${workerEnv().serverUrl}.`,
         );
       }
 
@@ -165,7 +165,7 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
       stderr.write(
         `Enrolled. Credential "${result.credentialName}" (${result.tokenPrefix}…) stored in ${result.configPath}.\n` +
           `Expiry: ${result.expiresAt ?? 'never'}\n` +
-          `Next:   ${CLI_NAME} node register\n`,
+          `Next:   ${cliName()} node register\n`,
       );
 
       // stdout ONLY when explicitly asked for, so the secret is pipeable to a
@@ -247,7 +247,7 @@ export function registerNodeCommand(program: Command, ctx?: NodeCommandContext):
         const pid = spawnDetachedDaemon({ logPath: nodeLogPath(configContext), args });
         stderr.write(
           `Worker started in the background${pid === undefined ? '' : ` (pid ${pid})`}.\n` +
-            `  ${CLI_NAME} node status\n  ${CLI_NAME} node logs --follow\n  ${CLI_NAME} node stop\n`,
+            `  ${cliName()} node status\n  ${cliName()} node logs --follow\n  ${cliName()} node stop\n`,
         );
         return;
       }

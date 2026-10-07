@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { CliError, EXIT, type ExitCode } from '../errors.js';
 
 // =============================================================================
@@ -302,7 +302,7 @@ export function upgradeState(raw: unknown, source = 'the deployment record'): De
   }
 
   throw new DeployStateError(
-    `${source} has state version ${String(version)}, but this ${CLI_NAME} understands up to ${DEPLOY_STATE_VERSION}. Upgrade ${CLI_NAME}, or remove the file to re-install.`,
+    `${source} has state version ${String(version)}, but this ${cliName()} understands up to ${DEPLOY_STATE_VERSION}. Upgrade ${cliName()}, or remove the file to re-install.`,
   );
 }
 
@@ -326,7 +326,7 @@ export function requireState(deployRoot: string): DeployState {
   const state = readState(deployRoot);
   if (state === undefined) {
     throw new NotInstalledError(
-      `No deployment found at ${deployRoot}. Run \`${CLI_NAME} deploy install\` first, or pass --root if it is somewhere else.`,
+      `No deployment found at ${deployRoot}. Run \`${cliName()} deploy install\` first, or pass --root if it is somewhere else.`,
     );
   }
   return state;

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { PreconditionError } from '../errors.js';
 import type { runCommand } from './executor.js';
 import type { DeployHooks } from './hooks.js';
@@ -160,7 +160,7 @@ export async function inspectProxy(options: {
  */
 export function renderProxyCompose(runtime: ProxyRuntime): string {
   assertValidContainerName(runtime.container);
-  return `# Managed by ${CLI_NAME} deploy: the shared reverse proxy for every application
+  return `# Managed by ${cliName()} deploy: the shared reverse proxy for every application
 # on this host, created by the first install. Other applications add their own
 # vhosts to ./nginx/conf.d; none of them owns this file.
 #
@@ -208,7 +208,7 @@ services:
  * gives the manual steps for one.
  */
 export function renderProxyMainConfig(): string {
-  return `# Managed by ${CLI_NAME} deploy: the main config of the shared reverse proxy.
+  return `# Managed by ${cliName()} deploy: the main config of the shared reverse proxy.
 # The image's stock nginx.conf with the connection limits raised for long-lived
 # server-sent-event streams. Vhosts go in ./conf.d, never here.
 #
@@ -257,7 +257,7 @@ http {
  * exists -- and drops everything else without a response.
  */
 export function renderDefaultServer(): string {
-  return `# Managed by ${CLI_NAME} deploy. The catch-all server for plain HTTP.
+  return `# Managed by ${cliName()} deploy. The catch-all server for plain HTTP.
 server {
     listen 80 default_server;
     listen [::]:80 default_server;

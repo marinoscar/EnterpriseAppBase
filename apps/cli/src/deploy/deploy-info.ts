@@ -56,7 +56,7 @@
 import { renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 
 import type { DeploymentHistoryEntry, HostFacts } from './state.js';
 
@@ -114,7 +114,7 @@ export function buildDeployInfo(input: DeployInfoInput): Record<string, unknown>
     installedAt: orNull(input.installedAt),
     updatedAt: orNull(input.updatedAt),
     deployedBy: {
-      cli: CLI_NAME,
+      cli: cliName(),
       version: orNull(input.cliVersion),
     },
     domain: orNull(input.domain),

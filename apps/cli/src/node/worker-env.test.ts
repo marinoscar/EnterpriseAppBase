@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { ENV_PREFIX } from '../branding.js';
-import { SERVER_URL_ENV_VAR, TOKEN_ENV_VAR } from '../config.js';
-import { WORKER_ENV, workerEnvNames } from './worker-env.js';
+import { envPrefix } from '../identity.js';
+import { serverUrlEnvVar, tokenEnvVar } from '../config.js';
+import { workerEnv, workerEnvNames } from './worker-env.js';
 import { APP_NAME } from '@app/shared';
 
 // =============================================================================
@@ -23,18 +23,18 @@ describe('WORKER_ENV', () => {
   it('reuses the existing server-URL and token variables rather than minting new ones', () => {
     // If these ever drift apart, a machine gets `appctl api` working and
     // `appctl node start` not working, with no way for a user to tell why.
-    expect(WORKER_ENV.serverUrl).toBe(SERVER_URL_ENV_VAR);
-    expect(WORKER_ENV.token).toBe(TOKEN_ENV_VAR);
+    expect(workerEnv().serverUrl).toBe(serverUrlEnvVar());
+    expect(workerEnv().token).toBe(tokenEnvVar());
   });
 
   it('derives every variable from the branding prefix', () => {
-    for (const [key, value] of Object.entries(WORKER_ENV)) {
-      expect(value.startsWith(ENV_PREFIX), `${key} (${value})`).toBe(true);
+    for (const [key, value] of Object.entries(workerEnv())) {
+      expect(value.startsWith(envPrefix()), `${key} (${value})`).toBe(true);
     }
   });
 
   it('has no duplicate variable names', () => {
-    const values = Object.values(WORKER_ENV);
+    const values = Object.values(workerEnv());
     expect(new Set(values).size).toBe(values.length);
   });
 
@@ -42,7 +42,7 @@ describe('WORKER_ENV', () => {
     const names = workerEnvNames();
     expect(names).toEqual([...names].sort());
     expect(names).toHaveLength(new Set(names).size);
-    expect(names).toContain(WORKER_ENV.stateDir);
+    expect(names).toContain(workerEnv().stateDir);
   });
 });
 
@@ -118,7 +118,7 @@ describe('the worker container branding guard (issue #278)', () => {
     (path) => {
       const body = readFileSync(path, 'utf8');
       // Built from ENV_PREFIX, never written out.
-      const pattern = new RegExp(`${ENV_PREFIX}[A-Z0-9_]+`, 'g');
+      const pattern = new RegExp(`${envPrefix()}[A-Z0-9_]+`, 'g');
       const declared = new Set(workerEnvNames());
 
       const strays = [...new Set(body.match(pattern) ?? [])].filter(

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CONFIG_DIR_NAME, CONFIG_FILE_NAME } from '../branding.js';
+import { configDirName, configFileName } from '../identity.js';
 import { ApiError } from '../errors.js';
 import type { DeviceLoginResult } from '../device-login.js';
 import {
@@ -77,13 +77,13 @@ function fakeApi(overrides: Partial<NodeApi>): NodeApi {
 }
 
 function readStored(): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(home, CONFIG_DIR_NAME, CONFIG_FILE_NAME), 'utf8')) as Record<string, unknown>;
+  return JSON.parse(readFileSync(join(home, configDirName(), configFileName()), 'utf8')) as Record<string, unknown>;
 }
 
 function writeStored(body: unknown): void {
-  const dir = join(home, CONFIG_DIR_NAME);
+  const dir = join(home, configDirName());
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  writeFileSync(join(dir, CONFIG_FILE_NAME), JSON.stringify(body), { mode: 0o600 });
+  writeFileSync(join(dir, configFileName()), JSON.stringify(body), { mode: 0o600 });
 }
 
 beforeEach(() => {

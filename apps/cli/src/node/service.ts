@@ -3,8 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { APP_NAME } from '@app/shared';
-import { CLI_NAME } from '../branding.js';
+import { cliIdentity, cliName } from '../identity.js';
 
 // =============================================================================
 // `node service` — a systemd USER unit  (issue #276, epic #254)
@@ -44,7 +43,9 @@ import { CLI_NAME } from '../branding.js';
 // =============================================================================
 
 /** `appctl-node.service`. Derived from `CLI_NAME`, never written out. */
-export const SERVICE_UNIT_NAME = `${CLI_NAME}-node.service`;
+export function serviceUnitName(): string {
+  return `${cliName()}-node.service`;
+}
 
 export interface ServiceContext {
   home?: string | undefined;
@@ -62,7 +63,7 @@ export function userUnitDir(ctx?: ServiceContext): string {
 }
 
 export function userUnitPath(ctx?: ServiceContext): string {
-  return join(userUnitDir(ctx), SERVICE_UNIT_NAME);
+  return join(userUnitDir(ctx), serviceUnitName());
 }
 
 /** Render the unit file. Pure, so its derived names are directly assertable. */
@@ -72,7 +73,7 @@ export function renderUnit(ctx?: ServiceContext): string {
 
   return [
     '[Unit]',
-    `Description=${APP_NAME} worker node (${CLI_NAME})`,
+    `Description=${cliIdentity().productName} worker node (${cliName()})`,
     'After=network-online.target',
     'Wants=network-online.target',
     '',
@@ -130,7 +131,7 @@ function unsupported(ctx: ServiceContext | undefined, unitPath: string): Service
       unitPath,
       detail: 'Windows has no systemd.',
       guidance:
-        `Run the worker in the background with \`${CLI_NAME} node start --daemon\`, or wrap it in a ` +
+        `Run the worker in the background with \`${cliName()} node start --daemon\`, or wrap it in a ` +
         'Scheduled Task set to run at startup with "Run whether user is logged on or not".',
     };
   }
@@ -140,7 +141,7 @@ function unsupported(ctx: ServiceContext | undefined, unitPath: string): Service
       action: 'unsupported',
       unitPath,
       detail: 'macOS uses launchd, not systemd.',
-      guidance: `Run \`${CLI_NAME} node start --daemon\`, or write a launchd agent that execs the same command.`,
+      guidance: `Run \`${cliName()} node start --daemon\`, or write a launchd agent that execs the same command.`,
     };
   }
 
@@ -152,7 +153,7 @@ function unsupported(ctx: ServiceContext | undefined, unitPath: string): Service
       guidance:
         'This is normal inside a container and inside WSL 1. On WSL 2, enable systemd by adding ' +
         '`[boot]\\nsystemd=true` to /etc/wsl.conf and running `wsl --shutdown`. ' +
-        `Otherwise run \`${CLI_NAME} node start --daemon\`.`,
+        `Otherwise run \`${cliName()} node start --daemon\`.`,
     };
   }
 
@@ -169,12 +170,12 @@ export function installService(ctx?: ServiceContext): ServiceResult {
 
   const run = ctx?.run ?? defaultSystemctl;
   run(['--user', 'daemon-reload']);
-  run(['--user', 'enable', '--now', SERVICE_UNIT_NAME]);
+  run(['--user', 'enable', '--now', serviceUnitName()]);
 
   return {
     action: 'installed',
     unitPath,
-    detail: `Installed and started ${SERVICE_UNIT_NAME}.`,
+    detail: `Installed and started ${serviceUnitName()}.`,
     // THE STEP PEOPLE MISS. Without lingering, a user unit stops when the last
     // session for that user ends — so a worker on a box you SSH into dies when
     // you log out, which reads as a crash rather than as policy.
@@ -195,7 +196,7 @@ export function uninstallService(ctx?: ServiceContext): ServiceResult {
 
   const run = ctx?.run ?? defaultSystemctl;
   try {
-    run(['--user', 'disable', '--now', SERVICE_UNIT_NAME]);
+    run(['--user', 'disable', '--now', serviceUnitName()]);
   } catch {
     // A unit that is already stopped, or was never enabled, must not make
     // uninstall fail — the file removal below is the part that matters.
@@ -203,7 +204,7 @@ export function uninstallService(ctx?: ServiceContext): ServiceResult {
   rmSync(unitPath, { force: true });
   run(['--user', 'daemon-reload']);
 
-  return { action: 'uninstalled', unitPath, detail: `Removed ${SERVICE_UNIT_NAME}.` };
+  return { action: 'uninstalled', unitPath, detail: `Removed ${serviceUnitName()}.` };
 }
 
 export interface ServiceStatus {
@@ -235,14 +236,14 @@ export function serviceStatus(ctx?: ServiceContext): ServiceStatus {
 
   let activeState: string | undefined;
   try {
-    activeState = run(['--user', 'show', SERVICE_UNIT_NAME, '--property=ActiveState', '--value']).trim();
+    activeState = run(['--user', 'show', serviceUnitName(), '--property=ActiveState', '--value']).trim();
   } catch {
     activeState = undefined;
   }
 
   let enabled: boolean | undefined;
   try {
-    enabled = run(['--user', 'is-enabled', SERVICE_UNIT_NAME]).trim() === 'enabled';
+    enabled = run(['--user', 'is-enabled', serviceUnitName()]).trim() === 'enabled';
   } catch {
     // `is-enabled` EXITS NON-ZERO for a disabled unit, which is an answer, not
     // an error — but it also exits non-zero for a unit that does not exist, so
@@ -256,7 +257,7 @@ export function serviceStatus(ctx?: ServiceContext): ServiceStatus {
     enabled,
     unitPath,
     detail: installed
-      ? `${SERVICE_UNIT_NAME} is ${activeState ?? 'unknown'}${enabled === true ? ' and enabled' : ''}.`
+      ? `${serviceUnitName()} is ${activeState ?? 'unknown'}${enabled === true ? ' and enabled' : ''}.`
       : 'No unit is installed here.',
   };
 }

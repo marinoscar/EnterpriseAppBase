@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { runInit } from '../init/run-init.js';
 import type { PromptContext } from '../prompt.js';
 
@@ -51,10 +51,10 @@ export function registerInitCommand(program: Command, ctx?: InitContext): Comman
       [
         '',
         'Examples:',
-        `  ${CLI_NAME} init`,
-        `  ${CLI_NAME} init --admin-email you@example.com`,
-        `  ${CLI_NAME} init --non-interactive`,
-        `  ${CLI_NAME} init --force`,
+        `  ${cliName()} init`,
+        `  ${cliName()} init --admin-email you@example.com`,
+        `  ${cliName()} init --non-interactive`,
+        `  ${cliName()} init --force`,
         '',
         'What it writes:',
         '  infra/compose/.env, at mode 0600, and nothing else. The questions and',

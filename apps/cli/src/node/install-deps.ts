@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { isWritable } from './capabilities.js';
 
 // =============================================================================
@@ -134,7 +134,7 @@ export const DEFAULT_INSTALL_STEPS: InstallStep[] = [
       // process that is currently running on it is not something a subcommand
       // should do unannounced, and every platform has its own right answer.
       throw new Error(
-        `This ${CLI_NAME} needs Node.js 20 or newer; ${process.versions.node} is installed. Upgrade Node, then re-run.`,
+        `This ${cliName()} needs Node.js 20 or newer; ${process.versions.node} is installed. Upgrade Node, then re-run.`,
       );
     },
   },

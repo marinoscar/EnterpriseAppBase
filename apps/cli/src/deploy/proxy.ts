@@ -323,6 +323,16 @@ function proxyContainerOf(options: ProxyOptions): string | undefined {
 }
 
 /**
+ * The first line of every vhost this CLI writes, and the prefix it checks
+ * before it removes one. FIXED, whatever the CLI identity: it is written AND
+ * parsed on live servers, so a renamed CLI must still recognise the vhosts an
+ * `appctl` deploy wrote (#715). `identity.test.ts` pins the value.
+ *
+ * @stability stable
+ */
+export const PROXY_MANAGED_SENTINEL = '# Managed by appctl deploy';
+
+/**
  * Renders the vhost.
  *
  * Deterministic: the same input produces byte-identical output, so re-running
@@ -343,7 +353,7 @@ export function renderVhost(
   const maxBody = options?.maxBodyBytes;
   const clientMaxBody = maxBody === undefined ? '100m' : `${Math.ceil(maxBody / (1024 * 1024))}m`;
 
-  return `# Managed by appctl deploy. Edits will be overwritten.
+  return `${PROXY_MANAGED_SENTINEL}. Edits will be overwritten.
 # Application: ${target.domain}
 
 server {
@@ -750,7 +760,7 @@ export async function removeVhost(
   // Only ever a file this tool wrote: the header is the marker, and a vhost
   // without it belongs to somebody else.
   const contents = readFileSync(path, 'utf8');
-  if (!contents.startsWith('# Managed by appctl deploy')) {
+  if (!contents.startsWith(PROXY_MANAGED_SENTINEL)) {
     throw new UsageError(
       `${path} was not written by appctl, so it will not be removed. Remove it by hand if that is really what you want.`,
     );

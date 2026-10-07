@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { composeFilesForMode } from '@marinoscar/platform-infra';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { generateBase64Key } from '../deploy/env-metadata.js';
 import {
   diffEnv,
@@ -93,7 +93,7 @@ function readTemplate(root: string): { path: string; specs: EnvVarSpec[] } {
   } catch {
     throw new PreconditionError(
       `Cannot read the environment template at ${path}.\n` +
-        `${CLI_NAME} init derives its questions from that file, so it cannot run without it.`,
+        `${cliName()} init derives its questions from that file, so it cannot run without it.`,
     );
   }
 
@@ -175,7 +175,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   if (root === undefined) {
     throw new PreconditionError(
       `Could not find ${ENV_TEMPLATE_RELATIVE_PATH} in this directory or any parent.\n` +
-        `Run ${CLI_NAME} init from inside a checkout of this repository, or pass --repo-root <path>.`,
+        `Run ${cliName()} init from inside a checkout of this repository, or pass --repo-root <path>.`,
     );
   }
 
@@ -229,7 +229,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   // page of help text for a question that was never going to be asked.
   if (options.nonInteractive !== true && !canPrompt(options.promptContext)) {
     throw new UsageError(
-      `${CLI_NAME} init needs an interactive terminal to ask about the database and Google OAuth.\n` +
+      `${cliName()} init needs an interactive terminal to ask about the database and Google OAuth.\n` +
         `Re-run with --non-interactive to generate the secrets, take every default and leave OAuth blank.`,
     );
   }

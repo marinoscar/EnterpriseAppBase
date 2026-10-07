@@ -1,4 +1,4 @@
-import { CLI_NAME } from '../../branding.js';
+import { cliName } from '../../identity.js';
 import type { ProxyMode } from '../proxy.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 import { contextFs, contextServedCertificate, realFs } from './types.js';
@@ -131,7 +131,9 @@ const certificateValidity: Check = {
  * `CLI_NAME` so a renamed fork stays consistent (and so no `APPCTL_`-prefixed
  * literal trips the env-prefix guard).
  */
-export const CLI_RENEWAL_CRON_PATH = `/etc/cron.d/${CLI_NAME}-certbot-renew`;
+export function cliRenewalCronPath(): string {
+  return `/etc/cron.d/${cliName()}-certbot-renew`;
+}
 
 /** The file the certbot distribution package ships. */
 const CERTBOT_PACKAGE_CRON_PATH = '/etc/cron.d/certbot';
@@ -315,7 +317,7 @@ async function rootCrontab(run: CheckContext['runCommand']): Promise<string | un
  *   - a SYSTEMD TIMER: `systemctl is-enabled certbot.timer`;
  *   - a CRON entry: /etc/cron.d/certbot, or any cron line invoking
  *     `certbot ... renew` directly;
- *   - APPCTL's own: `CLI_RENEWAL_CRON_PATH`, the file #391 installs.
+ *   - APPCTL's own: `cliRenewalCronPath`, the file #391 installs.
  *
  * Exported for #391: its renewal step acts on exactly this answer.
  */
@@ -331,7 +333,7 @@ export async function detectRenewalOwner(probe: RenewalProbe): Promise<RenewalOw
 
   for (const name of fs.readdir('/etc/cron.d').slice().sort()) {
     const path = `/etc/cron.d/${name}`;
-    if (path === CLI_RENEWAL_CRON_PATH || path === CERTBOT_PACKAGE_CRON_PATH) continue;
+    if (path === cliRenewalCronPath() || path === CERTBOT_PACKAGE_CRON_PATH) continue;
     const contents = fs.readFile(path);
     if (contents !== undefined) mechanisms.push(...classifyCron(fs, probe, contents, path, path));
   }
@@ -367,11 +369,11 @@ export async function detectRenewalOwner(probe: RenewalProbe): Promise<RenewalOw
     });
   }
 
-  if (fs.exists(CLI_RENEWAL_CRON_PATH)) {
+  if (fs.exists(cliRenewalCronPath())) {
     mechanisms.push({
       owner: 'appctl',
-      detail: `scheduled by ${CLI_NAME} (${CLI_RENEWAL_CRON_PATH})`,
-      path: CLI_RENEWAL_CRON_PATH,
+      detail: `scheduled by ${cliName()} (${cliRenewalCronPath()})`,
+      path: cliRenewalCronPath(),
       owns: true,
     });
   }
@@ -451,7 +453,7 @@ const certificateRenewal: Check = {
       'central-script': 'central script',
       'systemd-timer': 'systemd timer',
       cron: 'cron',
-      appctl: CLI_NAME,
+      appctl: cliName(),
     };
     const detail =
       `owned by ${labels[ownership.owner as RenewalMechanism['owner']]}: ${ownership.detail}` +
@@ -464,7 +466,7 @@ const certificateRenewal: Check = {
       return {
         status: 'warn',
         detail,
-        remedy: `Renewal is scheduled twice, which races on the same certificates. Remove ${CLI_NAME}'s copy: rm ${CLI_RENEWAL_CRON_PATH}`,
+        remedy: `Renewal is scheduled twice, which races on the same certificates. Remove ${cliName()}'s copy: rm ${cliRenewalCronPath()}`,
       };
     }
 

@@ -1,9 +1,9 @@
 import type { Command } from 'commander';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import {
-  SERVER_URL_ENV_VAR,
-  TOKEN_ENV_VAR,
+  serverUrlEnvVar,
+  tokenEnvVar,
   describeConfig,
   type ConfigContext,
   type ConfigSource,
@@ -48,7 +48,7 @@ export function formatSummary(summary: ConfigSummary): string {
         '',
         `  Not logged in.`,
         '',
-        `  Run \`${CLI_NAME} login\`, or set ${SERVER_URL_ENV_VAR} and ${TOKEN_ENV_VAR}.`,
+        `  Run \`${cliName()} login\`, or set ${serverUrlEnvVar()} and ${tokenEnvVar()}.`,
         `  Config file: ${summary.path} (does not exist)`,
         '',
       ].join('\n') + '\n'

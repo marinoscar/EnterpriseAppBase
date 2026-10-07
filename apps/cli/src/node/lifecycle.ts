@@ -1,7 +1,7 @@
 import { openSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { PreconditionError } from '../errors.js';
 import { connectToDaemon, DaemonNotRunningError } from './daemon.js';
 import type { DaemonMessage } from './ipc-protocol.js';
@@ -354,5 +354,5 @@ export function spawnDetachedDaemon(options: SpawnDaemonOptions): number | undef
 
 /** The message `stop`/`status` print when there is nothing to talk to. */
 export function noDaemonHint(socketPath: string): string {
-  return `No worker is running here (nothing is listening on ${socketPath}). Start one with \`${CLI_NAME} node start\`.`;
+  return `No worker is running here (nothing is listening on ${socketPath}). Start one with \`${cliName()} node start\`.`;
 }

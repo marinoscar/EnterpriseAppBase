@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName, cliVersion } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
-import { CLI_VERSION } from '../package-info.js';
 import {
   ALL_CHECKS,
   checksPassed,
@@ -281,7 +280,7 @@ function installDeployInfo(context: InstallContext, at: string): DeployInfoInput
     // The first install is `at`; a --reinstall keeps the original.
     installedAt: existing?.installedAt ?? at,
     updatedAt: at,
-    cliVersion: CLI_VERSION,
+    cliVersion: cliVersion(),
     ...(domain === undefined ? {} : { domain }),
     // What THIS run has finished so far -- not the resume set, which is what a
     // PREVIOUS run finished.
@@ -653,7 +652,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
                   ? []
                   : [`  - database-exists: ${databaseRefusal.message.split('\n').join('\n    ')}`]),
               ].join('\n') +
-              `\nRun \`${CLI_NAME} deploy doctor\` for the full report.`,
+              `\nRun \`${cliName()} deploy doctor\` for the full report.`,
           );
         }
       },
@@ -1188,11 +1187,11 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           // them and names the exact remedy for this deployment's runtime.
           const certHint =
             report.external !== undefined && !report.external.probe.ok
-              ? ` If the domain shows a certificate/SSL error in a browser, run \`${CLI_NAME} deploy certs --domain ${context.options.domain as string}\` to check whether the proxy needs reloading.`
+              ? ` If the domain shows a certificate/SSL error in a browser, run \`${cliName()} deploy certs --domain ${context.options.domain as string}\` to check whether the proxy needs reloading.`
               : '';
           throw new Error(
             'The stack is up but not healthy. Run `' +
-              CLI_NAME +
+              cliName() +
               ' deploy status` for the detail.' +
               certHint,
           );
@@ -1341,7 +1340,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
         ? 'it has a checkout and an environment file, but no deployment record'
         : `${existingState.commitSha.slice(0, 12)}`;
     throw new UsageError(
-      `A deployment already exists at ${options.deployRoot} (${at}). Use \`${CLI_NAME} deploy update\` to bring it up to date, or --reinstall to start over.`,
+      `A deployment already exists at ${options.deployRoot} (${at}). Use \`${cliName()} deploy update\` to bring it up to date, or --reinstall to start over.`,
     );
   }
 
@@ -1420,7 +1419,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
         installedAt: existingState?.installedAt ?? '',
         lastDeployedAt: existingState?.lastDeployedAt ?? '',
         lastCommand: 'install',
-        appctlVersion: CLI_VERSION,
+        appctlVersion: cliVersion(),
         composeProject,
         ...(options.domain === undefined ? {} : { domain: options.domain }),
         ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
@@ -1464,7 +1463,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
     previousCommitSha: previousDeployedCommit(existingState),
     ref: context.target?.ref ?? null,
     durationMs: Date.now() - startedAt,
-    cliVersion: CLI_VERSION,
+    cliVersion: cliVersion(),
     outcome: 'success',
   });
   const installedAt = existingState?.installedAt ?? now;
@@ -1480,7 +1479,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
     installedAt,
     lastDeployedAt: now,
     lastCommand: 'install',
-    appctlVersion: CLI_VERSION,
+    appctlVersion: cliVersion(),
     // Recorded, never re-derived: see composeProjectFor.
     composeProject,
     // Recorded so update writes the vhost where install put it, rather than

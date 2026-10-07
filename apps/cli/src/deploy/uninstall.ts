@@ -28,9 +28,8 @@
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName, cliVersion } from '../identity.js';
 import { UsageError } from '../errors.js';
-import { CLI_VERSION } from '../package-info.js';
 import { effectiveGroups } from './compose-files.js';
 import { dropDatabase, type DatabaseDropResult } from './database-drop.js';
 import { describeEvidence, resolveEnvPath } from './deployment-evidence.js';
@@ -280,7 +279,7 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
     secrets: envPath === undefined ? [] : secretsFrom(readEnvFile(envPath)),
   });
 
-  journal.line(`${CLI_NAME} ${CLI_VERSION} uninstalling ${options.deployRoot}`);
+  journal.line(`${cliName()} ${cliVersion()} uninstalling ${options.deployRoot}`);
   for (const keep of plan.keeps) journal.line(`KEEP ${keep.what}: ${keep.because}`);
 
   if (options.dryRun === true) {

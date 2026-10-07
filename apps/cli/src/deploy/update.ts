@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName, cliVersion } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
-import { CLI_VERSION } from '../package-info.js';
 import {
   ALL_CHECKS,
   SOURCE_CHECK_IDS,
@@ -224,7 +223,7 @@ function updateDeployInfo(context: UpdateContext, at: string): DeployInfoInput {
     ...(ref === undefined ? {} : { ref }),
     installedAt: state.installedAt,
     updatedAt: at,
-    cliVersion: CLI_VERSION,
+    cliVersion: cliVersion(),
     ...(state.domain === undefined ? {} : { domain: state.domain }),
     // What THIS run has finished so far -- not the resume set, which is what
     // a PREVIOUS run finished.
@@ -1102,10 +1101,10 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           // command that actually diagnoses.
           const certHint =
             report.external !== undefined && !report.external.probe.ok
-              ? ` If the domain shows a certificate/SSL error in a browser, run \`${CLI_NAME} deploy certs --domain ${context.state.domain as string}\` to check whether the proxy needs reloading.`
+              ? ` If the domain shows a certificate/SSL error in a browser, run \`${cliName()} deploy certs --domain ${context.state.domain as string}\` to check whether the proxy needs reloading.`
               : '';
           throw new Error(
-            `The stack restarted but is not healthy. Run \`${CLI_NAME} deploy status\` for the detail.${certHint}`,
+            `The stack restarted but is not healthy. Run \`${cliName()} deploy status\` for the detail.${certHint}`,
           );
         }
 
@@ -1173,7 +1172,7 @@ async function resolveStateForUpdate(options: UpdateOptions): Promise<DeployStat
 
     throw new NotInstalledError(
       `No deployment found at ${options.deployRoot}: it is missing ${missing.join(' and ')}. ` +
-        `Run \`${CLI_NAME} deploy install\` first, or pass --root if it is somewhere else.`,
+        `Run \`${cliName()} deploy install\` first, or pass --root if it is somewhere else.`,
     );
   }
 
@@ -1244,7 +1243,7 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
         `The full log is at ${journal.path}\n` +
         // An honest manual recovery path. A partially-applied migration cannot
         // be undone by checking out the old code, so this does not pretend to.
-        `To go back to the previous revision: ${CLI_NAME} deploy update --ref ${previous} --force`,
+        `To go back to the previous revision: ${cliName()} deploy update --ref ${previous} --force`,
     );
   }
 
@@ -1278,7 +1277,7 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     previousCommitSha: (context.previousSha ?? state.commitSha) || null,
     ref: context.target?.ref ?? state.ref ?? null,
     durationMs: Date.now() - startedAt,
-    cliVersion: CLI_VERSION,
+    cliVersion: cliVersion(),
     outcome: 'success',
   });
 
@@ -1289,7 +1288,7 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     previousSha: context.previousSha,
     lastDeployedAt: now,
     lastCommand: 'update',
-    appctlVersion: CLI_VERSION,
+    appctlVersion: cliVersion(),
     // The groups this run acted under: an explicit --group set replaces the
     // recorded one, and the always-on groups are added either way (#567). The
     // stack was just brought up with THOSE compose files, so `status`, the

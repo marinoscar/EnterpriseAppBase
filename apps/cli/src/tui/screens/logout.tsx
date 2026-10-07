@@ -4,9 +4,9 @@ import Spinner from 'ink-spinner';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { ApiClient, resolveApiBaseUrl } from '../../api-client.js';
-import { CLI_NAME } from '../../branding.js';
+import { cliName } from '../../identity.js';
 import {
-  TOKEN_ENV_VAR,
+  tokenEnvVar,
   deleteConfigFile,
   describeConfig,
   resolveConfig,
@@ -164,7 +164,7 @@ export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
               // Saying so beats deleting a file that was not being used and
               // reporting success while the environment keeps the CLI logged in.
               <Text color="yellow">
-                ! {TOKEN_ENV_VAR} is set, and it takes precedence over the file. Removing the file
+                ! {tokenEnvVar()} is set, and it takes precedence over the file. Removing the file
                 will not log this shell out — unset the variable as well.
               </Text>
             ) : null}
@@ -210,7 +210,7 @@ export function LogoutScreen({ onDone }: LogoutScreenProps): ReactNode {
                   : 'There was no local configuration file to remove.'}
               </Text>
             </Box>
-            <Text dimColor>{`Run \`${CLI_NAME} login\` — or choose Login — to sign in again.`}</Text>
+            <Text dimColor>{`Run \`${cliName()} login\` — or choose Login — to sign in again.`}</Text>
           </Box>
         </Frame>
       );
@@ -275,7 +275,7 @@ async function revokeStoredToken(signal: AbortSignal): Promise<RevocationOutcome
   if (tokenSource === 'env') {
     return {
       kind: 'skipped',
-      why: `The token came from ${TOKEN_ENV_VAR}, so it was not revoked — unset the variable, or revoke it from the Access Tokens page.`,
+      why: `The token came from ${tokenEnvVar()}, so it was not revoked — unset the variable, or revoke it from the Access Tokens page.`,
     };
   }
 

@@ -1,5 +1,5 @@
 import type { ApiClient } from './api-client.js';
-import { CLI_NAME } from './branding.js';
+import { cliName } from './identity.js';
 import { ApiError, CliError, EXIT, type ExitCode } from './errors.js';
 
 // =============================================================================
@@ -379,7 +379,7 @@ export async function pollForDeviceToken(options: PollForTokenOptions): Promise<
       case 'denied':
         throw new DeviceLoginError(
           'denied',
-          `Authorization was denied in the browser. Nothing was saved. Run \`${CLI_NAME} login\` again if that was not what you intended.`,
+          `Authorization was denied in the browser. Nothing was saved. Run \`${cliName()} login\` again if that was not what you intended.`,
         );
 
       case 'expired':
@@ -388,7 +388,7 @@ export async function pollForDeviceToken(options: PollForTokenOptions): Promise<
       case 'invalid_grant':
         throw new DeviceLoginError(
           'invalid_grant',
-          `The server rejected this device code (${signal.message}). It may already have been used. Run \`${CLI_NAME} login\` to start again.`,
+          `The server rejected this device code (${signal.message}). It may already have been used. Run \`${cliName()} login\` to start again.`,
         );
 
       case 'unclassified': {
@@ -562,7 +562,7 @@ function clampInterval(seconds: number): number {
 function expiredError(): DeviceLoginError {
   return new DeviceLoginError(
     'expired',
-    `The device code expired before it was approved. Run \`${CLI_NAME} login\` to get a new code.`,
+    `The device code expired before it was approved. Run \`${cliName()} login\` to get a new code.`,
   );
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CLI_NAME } from '../../../branding.js';
+import { cliName } from '../../../identity.js';
 import { DEFAULT_BIND_PORT, DEFAULT_PROXY_ROOT } from '../../../commands/deploy.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { ENV_METADATA } from '../../../deploy/env-metadata.js';
@@ -115,7 +115,7 @@ describe('rerunCommand', () => {
     });
 
     expect(command).toBe(
-      `${CLI_NAME} deploy install --name shop --domain shop.example.com --port 3536 ` +
+      `${cliName()} deploy install --name shop --domain shop.example.com --port 3536 ` +
         '--proxy-mode host --email ops@example.com --group email --group observability ' +
         '--create-database --skip-oauth-check --no-cache --resume',
     );
@@ -128,7 +128,7 @@ describe('rerunCommand', () => {
       values: new Map([['__root', '/srv/elsewhere/shop']]),
       chosen: new Set(),
     });
-    expect(command).toBe(`${CLI_NAME} deploy install --root /srv/elsewhere/shop --resume`);
+    expect(command).toBe(`${cliName()} deploy install --root /srv/elsewhere/shop --resume`);
   });
 
   it('leaves off values the subcommand already defaults to', () => {
@@ -142,7 +142,7 @@ describe('rerunCommand', () => {
       ]),
       chosen: new Set(),
     });
-    expect(command).toBe(`${CLI_NAME} deploy doctor --name shop`);
+    expect(command).toBe(`${cliName()} deploy doctor --name shop`);
   });
 
   it('never offers --resume to a subcommand that does not declare it', () => {
@@ -153,7 +153,7 @@ describe('rerunCommand', () => {
       chosen: new Set(['--skip-renewal']),
     });
     expect(update).toBe(
-      `${CLI_NAME} deploy update --name shop --ref main --proxy-container edge --skip-renewal`,
+      `${cliName()} deploy update --name shop --ref main --proxy-container edge --skip-renewal`,
     );
     expect(update).not.toContain('--resume');
   });
@@ -185,6 +185,6 @@ describe('rerunCommand', () => {
       chosen: new Set(),
     });
     for (const key of secretKeys) expect(command).not.toContain(`value-of-${key}`);
-    expect(command).toBe(`${CLI_NAME} deploy install --name shop --resume`);
+    expect(command).toBe(`${cliName()} deploy install --name shop --resume`);
   });
 });

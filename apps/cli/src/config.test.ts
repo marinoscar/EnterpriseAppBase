@@ -5,12 +5,12 @@ import { join } from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CLI_NAME } from './branding.js';
+import { cliName } from './identity.js';
 import { registerConfigCommand } from './commands/config.js';
 import type { ApiClient } from './api-client.js';
 import {
-  SERVER_URL_ENV_VAR,
-  TOKEN_ENV_VAR,
+  serverUrlEnvVar,
+  tokenEnvVar,
   configDirPath,
   describeConfig,
   maskToken,
@@ -149,8 +149,8 @@ describe('resolveConfig — environment overrides the file', () => {
     const c: ConfigContext = {
       home: tmpDir,
       env: {
-        [SERVER_URL_ENV_VAR]: 'https://from-env.example.com',
-        [TOKEN_ENV_VAR]: 'pat_from_env',
+        [serverUrlEnvVar()]: 'https://from-env.example.com',
+        [tokenEnvVar()]: 'pat_from_env',
       },
     };
 
@@ -170,7 +170,7 @@ describe('resolveConfig — environment overrides the file', () => {
 
 describe('requireCredentials — the three "nothing usable" messages', () => {
   it('names the missing variable when only APPCTL_TOKEN is set (no file)', () => {
-    const c: ConfigContext = { home: tmpDir, env: { [TOKEN_ENV_VAR]: 'pat_only' } };
+    const c: ConfigContext = { home: tmpDir, env: { [tokenEnvVar()]: 'pat_only' } };
 
     expect(() => requireCredentials(c)).toThrow(AuthRequiredError);
     try {
@@ -178,14 +178,14 @@ describe('requireCredentials — the three "nothing usable" messages', () => {
       expect.unreachable();
     } catch (error) {
       expect(error).toBeInstanceOf(AuthRequiredError);
-      expect((error as Error).message).toContain(SERVER_URL_ENV_VAR);
+      expect((error as Error).message).toContain(serverUrlEnvVar());
     }
   });
 
   it('names the missing variable when only APPCTL_SERVER_URL is set (no file)', () => {
     const c: ConfigContext = {
       home: tmpDir,
-      env: { [SERVER_URL_ENV_VAR]: 'https://app.example.com' },
+      env: { [serverUrlEnvVar()]: 'https://app.example.com' },
     };
 
     try {
@@ -193,7 +193,7 @@ describe('requireCredentials — the three "nothing usable" messages', () => {
       expect.unreachable();
     } catch (error) {
       expect(error).toBeInstanceOf(AuthRequiredError);
-      expect((error as Error).message).toContain(TOKEN_ENV_VAR);
+      expect((error as Error).message).toContain(tokenEnvVar());
     }
   });
 
@@ -206,7 +206,7 @@ describe('requireCredentials — the three "nothing usable" messages', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AuthRequiredError);
       const message = (error as Error).message;
-      expect(message).toContain(`${CLI_NAME} login`);
+      expect(message).toContain(`${cliName()} login`);
       // Explicitly NOT the shape of a server-rejected-credential message.
       expect(message).not.toMatch(/401/);
       expect(message).not.toMatch(/unauthorized/i);

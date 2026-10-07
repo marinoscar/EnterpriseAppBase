@@ -1,4 +1,4 @@
-import { CLI_NAME, envVar } from '../branding.js';
+import { cliName, envVar } from '../identity.js';
 
 // =============================================================================
 // The TTY gate  (issue #145, epic #110 success criterion 7)
@@ -46,7 +46,9 @@ import { CLI_NAME, envVar } from '../branding.js';
 // =============================================================================
 
 /** `APPCTL_NO_TUI` — an escape hatch for a terminal we wrongly believe is one. */
-export const NO_TUI_ENV_VAR = envVar('NO_TUI');
+export function noTuiEnvVar(): string {
+  return envVar('NO_TUI');
+}
 
 /** The one property this gate needs from a stream. Structural, so a test can fake it. */
 interface TtyLike {
@@ -100,10 +102,10 @@ export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
   // 1. The user said no. Honoured unconditionally and reported plainly, so
   //    "why do I get usage instead of the menu?" has a one-line answer instead
   //    of sending somebody to check their terminal emulator.
-  if (isEnvFlagSet(env[NO_TUI_ENV_VAR])) {
+  if (isEnvFlagSet(env[noTuiEnvVar()])) {
     return refuse(
       'disabled',
-      `${NO_TUI_ENV_VAR} is set, so the interactive interface is disabled. Run a subcommand, or unset it.`,
+      `${noTuiEnvVar()} is set, so the interactive interface is disabled. Run a subcommand, or unset it.`,
     );
   }
 
@@ -114,7 +116,7 @@ export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
   if (stdout.isTTY !== true) {
     return refuse(
       'stdout-not-a-tty',
-      `stdout is not a terminal, so the interactive interface was not started (it would write escape sequences into your log). Run \`${CLI_NAME} --help\` to see the commands.`,
+      `stdout is not a terminal, so the interactive interface was not started (it would write escape sequences into your log). Run \`${cliName()} --help\` to see the commands.`,
     );
   }
 
@@ -128,7 +130,7 @@ export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
   if (stdin.isTTY !== true) {
     return refuse(
       'stdin-not-a-tty',
-      `stdin is not a terminal, so there is no way to answer the interactive interface. Run \`${CLI_NAME} --help\` to see the commands.`,
+      `stdin is not a terminal, so there is no way to answer the interactive interface. Run \`${cliName()} --help\` to see the commands.`,
     );
   }
 
@@ -156,7 +158,7 @@ export function evaluateTuiGate(ctx?: TtyContext): TuiGateDecision {
         : `TERM is ${env.TERM === undefined ? 'not set' : 'empty'}, so this terminal's capabilities are unknown`;
     return refuse(
       'dumb-terminal',
-      `${cause}. Run \`${CLI_NAME} --help\` to see the commands, or set TERM if this terminal can redraw.`,
+      `${cause}. Run \`${cliName()} --help\` to see the commands, or set TERM if this terminal can redraw.`,
     );
   }
 

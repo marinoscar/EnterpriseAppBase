@@ -4,7 +4,7 @@ import { getHeapStatistics } from 'node:v8';
 
 import { envFlagOn } from './env-flags.js';
 import { MAX_NODE_CONCURRENCY, MIN_NODE_CONCURRENCY } from './node-config.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 // =============================================================================
 // Runtime tuning  (issue #277, epic #254)
@@ -71,12 +71,12 @@ export interface HeapLimitOptions {
  */
 export function resolveHeapLimitMb(options?: HeapLimitOptions): number {
   const env = options?.env ?? process.env;
-  const raw = env[WORKER_ENV.heapLimitMb]?.trim();
+  const raw = env[workerEnv().heapLimitMb]?.trim();
 
   if (raw !== undefined && raw.length > 0) {
     const value = Number(raw);
     if (!Number.isInteger(value) || value < 0) {
-      throw new RangeError(`${WORKER_ENV.heapLimitMb} must be a whole number of megabytes, or 0 to disable.`);
+      throw new RangeError(`${workerEnv().heapLimitMb} must be a whole number of megabytes, or 0 to disable.`);
     }
     if (value === 0) return 0;
     return clamp(value, MIN_HEAP_LIMIT_MB, MAX_HEAP_LIMIT_MB);
@@ -167,7 +167,7 @@ export function maybeReexecWithHeapLimit(options?: ReexecOptions): ReexecResult 
   if (heapLimitMb === 0) return { reexeced: false, reason: 'disabled', heapLimitMb: 0 };
 
   // GUARD 1: the latch.
-  if (envFlagOn(env[WORKER_ENV.heapTuned])) {
+  if (envFlagOn(env[workerEnv().heapTuned])) {
     return { reexeced: false, reason: 'already tuned (latch)', heapLimitMb };
   }
 
@@ -184,7 +184,7 @@ export function maybeReexecWithHeapLimit(options?: ReexecOptions): ReexecResult 
     [`--max-old-space-size=${heapLimitMb}`, ...(options?.execArgv ?? []), ...(options?.argv ?? process.argv.slice(1))],
     {
       stdio: 'inherit',
-      env: { ...env, [WORKER_ENV.heapTuned]: '1' },
+      env: { ...env, [workerEnv().heapTuned]: '1' },
     },
   );
 

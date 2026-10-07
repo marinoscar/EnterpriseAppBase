@@ -1,8 +1,7 @@
 import { Box, Text, useStdout } from 'ink';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { CLI_DISPLAY_NAME } from '../branding.js';
-import { CLI_VERSION } from '../package-info.js';
+import { cliDisplayName, cliVersion } from '../identity.js';
 
 // =============================================================================
 // Layout primitives and the narrow-terminal degrade  (issue #145, epic #110)
@@ -194,9 +193,9 @@ export function Frame({ title, hints, children }: FrameProps): ReactNode {
     <Box flexDirection="column" gap={1}>
       <Box>
         <Text bold color="cyan">
-          {CLI_DISPLAY_NAME}
+          {cliDisplayName()}
         </Text>
-        <Text dimColor> v{CLI_VERSION}</Text>
+        <Text dimColor> v{cliVersion()}</Text>
         <Text dimColor> · </Text>
         <Text bold>{title}</Text>
       </Box>

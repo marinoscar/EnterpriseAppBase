@@ -8,7 +8,7 @@ import {
   resolveDefaultConcurrency,
   resolveHeapLimitMb,
 } from './runtime-tuning.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 const GB = 1024 * 1024 * 1024;
 
@@ -24,17 +24,17 @@ describe('resolveHeapLimitMb (issue #277)', () => {
   });
 
   it('honours an explicit override', () => {
-    expect(resolveHeapLimitMb({ env: { [WORKER_ENV.heapLimitMb]: '2048' }, totalMemoryBytes: 16 * GB })).toBe(2048);
+    expect(resolveHeapLimitMb({ env: { [workerEnv().heapLimitMb]: '2048' }, totalMemoryBytes: 16 * GB })).toBe(2048);
   });
 
   it('treats 0 as "do not re-tune at all"', () => {
     // The escape hatch for a platform that manages memory itself.
-    expect(resolveHeapLimitMb({ env: { [WORKER_ENV.heapLimitMb]: '0' }, totalMemoryBytes: 16 * GB })).toBe(0);
+    expect(resolveHeapLimitMb({ env: { [workerEnv().heapLimitMb]: '0' }, totalMemoryBytes: 16 * GB })).toBe(0);
   });
 
   it('refuses a non-numeric override by naming the variable', () => {
-    expect(() => resolveHeapLimitMb({ env: { [WORKER_ENV.heapLimitMb]: 'lots' } })).toThrow(
-      new RegExp(WORKER_ENV.heapLimitMb),
+    expect(() => resolveHeapLimitMb({ env: { [workerEnv().heapLimitMb]: 'lots' } })).toThrow(
+      new RegExp(workerEnv().heapLimitMb),
     );
   });
 });
@@ -60,7 +60,7 @@ describe('resolveDefaultConcurrency', () => {
 });
 
 describe('maybeReexecWithHeapLimit', () => {
-  const baseEnv = { [WORKER_ENV.heapLimitMb]: '4096' };
+  const baseEnv = { [workerEnv().heapLimitMb]: '4096' };
 
   function fakeChild() {
     const handlers = new Map<string, (code: number | null, signal: string | null) => void>();
@@ -94,7 +94,7 @@ describe('maybeReexecWithHeapLimit', () => {
   it('does nothing when re-tuning is disabled', () => {
     const spawnFn = vi.fn();
     const result = maybeReexecWithHeapLimit({
-      env: { [WORKER_ENV.heapLimitMb]: '0' },
+      env: { [workerEnv().heapLimitMb]: '0' },
       skip: false,
       spawnFn: spawnFn as never,
     });
@@ -105,7 +105,7 @@ describe('maybeReexecWithHeapLimit', () => {
   it('does not re-exec when the LATCH is set', () => {
     const spawnFn = vi.fn();
     const result = maybeReexecWithHeapLimit({
-      env: { ...baseEnv, [WORKER_ENV.heapTuned]: '1' },
+      env: { ...baseEnv, [workerEnv().heapTuned]: '1' },
       skip: false,
       currentLimitMb: 100,
       spawnFn: spawnFn as never,
@@ -148,7 +148,7 @@ describe('maybeReexecWithHeapLimit', () => {
     expect(result.reexeced).toBe(true);
     expect(seen?.args[0]).toBe('--max-old-space-size=4096');
     expect(seen?.args.slice(1)).toEqual(['/app/cli.js', 'node', 'start']);
-    expect(seen?.options.env[WORKER_ENV.heapTuned]).toBe('1');
+    expect(seen?.options.env[workerEnv().heapTuned]).toBe('1');
   });
 
   it('forwards SIGINT/SIGTERM/SIGHUP to the child', () => {

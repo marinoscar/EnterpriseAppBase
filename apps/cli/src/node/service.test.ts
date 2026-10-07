@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { APP_NAME } from '@app/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import {
-  SERVICE_UNIT_NAME,
+  serviceUnitName,
   installService,
   renderUnit,
   serviceStatus,
@@ -44,8 +44,8 @@ describe('the unit file (issue #276)', () => {
     // A rename must reach the unit file. Otherwise a fork ends up with a
     // service called `appctl-node` for a product that has not been called that
     // in a year, and nothing fails.
-    expect(SERVICE_UNIT_NAME).toBe(`${CLI_NAME}-node.service`);
-    expect(renderUnit()).toContain(`Description=${APP_NAME} worker node (${CLI_NAME})`);
+    expect(serviceUnitName()).toBe(`${cliName()}-node.service`);
+    expect(renderUnit()).toContain(`Description=${APP_NAME} worker node (${cliName()})`);
   });
 
   it('starts the worker headless so a restart re-attaches instead of leaking a node', () => {
@@ -71,7 +71,7 @@ describe('installService', () => {
     expect(result.action).toBe('installed');
     expect(readFileSync(userUnitPath({ home }), 'utf8')).toContain('[Service]');
     expect(sc.calls).toContainEqual(['--user', 'daemon-reload']);
-    expect(sc.calls).toContainEqual(['--user', 'enable', '--now', SERVICE_UNIT_NAME]);
+    expect(sc.calls).toContainEqual(['--user', 'enable', '--now', serviceUnitName()]);
     // The step people miss: without lingering the unit dies when you log out.
     expect(result.guidance).toContain('enable-linger');
   });

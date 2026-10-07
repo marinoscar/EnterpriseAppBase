@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { promisify } from 'node:util';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { ApiError, NetworkError } from '../errors.js';
 import { probeCapabilities, evaluateCapabilities, isWritable, type CapabilityProbe } from './capabilities.js';
 import { PG_DUMP_COMMAND } from './pg-dump.js';
@@ -111,7 +111,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
       : `Missing: ${selfTest.missingRequired.map((gap) => `${gap.capability} (${gap.type})`).join(', ')}`,
     action: selfTest.ok
       ? undefined
-      : `Install the missing dependencies, or drop those types with \`${CLI_NAME} node register --types ...\`.`,
+      : `Install the missing dependencies, or drop those types with \`${cliName()} node register --types ...\`.`,
   });
 
   // ---- 1b. The database backup type's two dependencies (#352) -----------------
@@ -165,7 +165,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
       : status.pid !== undefined
         ? `A process (pid ${status.pid}) holds the pidfile but is not answering on the control socket`
         : 'No worker is running here',
-    action: status.live ? undefined : `Start one with \`${CLI_NAME} node start\`.`,
+    action: status.live ? undefined : `Start one with \`${cliName()} node start\`.`,
   });
 
   return { checks, ok: checks.every((check) => check.status !== 'fail'), probe };
@@ -208,7 +208,7 @@ async function checkApi(api: NodeApi, config: ResolvedNodeConfig): Promise<Docto
             label: 'Credential accepted',
             status,
             detail: 'The server rejected this credential (401). It may be revoked, expired, or from another server.',
-            action: `Run \`${CLI_NAME} node enroll\` to mint a new node credential.`,
+            action: `Run \`${cliName()} node enroll\` to mint a new node credential.`,
           },
         ];
       }
@@ -325,7 +325,7 @@ async function checkBackupDependencies(
       label: 'Database reachable from here',
       status: 'skip',
       detail: 'No --db-host was given, and a node stores no database connection of its own',
-      action: `Run \`${CLI_NAME} node doctor --db-host db.internal:5432\` to test the route.`,
+      action: `Run \`${cliName()} node doctor --db-host db.internal:5432\` to test the route.`,
     });
 
     return checks;

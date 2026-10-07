@@ -3,7 +3,7 @@ import { getHeapStatistics } from 'node:v8';
 import { envFlagOff } from './env-flags.js';
 import { writeHeapSnapshot, type SnapshotResult } from './heap-snapshot.js';
 import { EXIT_MEMORY_VALVE } from './runtime-tuning.js';
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 
 // =============================================================================
 // The memory watchdog and its pre-OOM valve  (issue #277, epic #254)
@@ -95,12 +95,12 @@ export interface MemoryWatchdogOptions {
 
 /** Enabled by default; a leak that nobody armed a watchdog for is the usual case. */
 export function memoryWatchdogEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return !envFlagOff(env[WORKER_ENV.memoryWatchdog]);
+  return !envFlagOff(env[workerEnv().memoryWatchdog]);
 }
 
 /** Read the threshold, clamped to a sane band so a typo cannot disable it. */
 export function resolveThreshold(env: NodeJS.ProcessEnv = process.env): number {
-  const raw = env[WORKER_ENV.memoryThreshold]?.trim();
+  const raw = env[workerEnv().memoryThreshold]?.trim();
   if (raw === undefined || raw.length === 0) return DEFAULT_THRESHOLD;
   const value = Number(raw);
   if (!Number.isFinite(value)) return DEFAULT_THRESHOLD;

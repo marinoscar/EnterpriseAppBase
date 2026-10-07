@@ -1,8 +1,7 @@
 import { hostname, platform, release, userInfo } from 'node:os';
 
 import { ApiError, CliError, EXIT, type ExitCode } from '../errors.js';
-import { CLI_NAME } from '../branding.js';
-import { CLI_VERSION } from '../package-info.js';
+import { cliName, cliVersion } from '../identity.js';
 import { runDeviceLogin, type DeviceLoginOptions, type DeviceLoginResult } from '../device-login.js';
 import { HttpNodeApi, type NodeApi, type NodeCredentialApi, type RegisterNodeResult } from './node-api.js';
 import {
@@ -71,7 +70,7 @@ export class NodeCredentialsUnsupportedError extends CliError {
     super(
       `${serverUrl} does not support node credentials (POST /api/node-credentials returned 404). ` +
         `Upgrade the server, or fall back to a personal access token: create one in the web UI, ` +
-        `run \`${CLI_NAME} login --token <pat>\`, then \`${CLI_NAME} node register\`. ` +
+        `run \`${cliName()} login --token <pat>\`, then \`${cliName()} node register\`. ` +
         `A PAT works, but it carries your full account authority — a node credential does not.`,
     );
   }
@@ -95,7 +94,7 @@ export function readMachineInfo(): MachineInfo {
   return {
     hostname: host,
     platform: `${platform()} ${release()}`,
-    cliVersion: CLI_VERSION,
+    cliVersion: cliVersion(),
   };
 }
 
@@ -115,7 +114,7 @@ export function defaultCredentialName(): string {
   } catch {
     host = 'unknown-host';
   }
-  return `${CLI_NAME} node: ${user}@${host}`;
+  return `${cliName()} node: ${user}@${host}`;
 }
 
 // -----------------------------------------------------------------------------

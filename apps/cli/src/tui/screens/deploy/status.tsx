@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 
-import { CLI_NAME } from '../../../branding.js';
+import { cliName } from '../../../identity.js';
 import { DEFAULT_BIND_PORT } from '../../../commands/deploy.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import { collectHealth, isHealthy, type ContainerState, type HealthReport } from '../../../deploy/health.js';
@@ -112,7 +112,7 @@ async function performStatus(
   const state = readState(deployRoot);
   if (state === undefined) {
     throw new UsageError(
-      `No deployment found at ${deployRoot}. Run \`${CLI_NAME} deploy install\` first, or check the name.`,
+      `No deployment found at ${deployRoot}. Run \`${cliName()} deploy install\` first, or check the name.`,
     );
   }
 

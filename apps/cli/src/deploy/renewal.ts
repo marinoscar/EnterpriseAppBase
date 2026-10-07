@@ -1,10 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { CLI_NAME } from '../branding.js';
+import { cliName } from '../identity.js';
 import { UsageError } from '../errors.js';
 import {
-  CLI_RENEWAL_CRON_PATH,
+  cliRenewalCronPath,
   detectRenewalOwner,
   type CheckFs,
   type RenewalOwnership,
@@ -49,7 +49,9 @@ import {
 export const RENEWAL_SCHEDULE = '17 3,15 * * *';
 
 /** Marks a file this CLI wrote. */
-export const RENEWAL_MARKER = `# Managed by ${CLI_NAME} deploy.`;
+export function RENEWAL_MARKER(): string {
+  return `# Managed by ${cliName()} deploy.`;
+}
 
 /** A path that is safe to put in a crontab line unquoted. */
 const SAFE_PATH = /^\/[A-Za-z0-9_./-]*$/;
@@ -101,7 +103,7 @@ export function renewalCommand(proxyRoot: string, runtime: ProxyRuntime): string
  */
 export function renderRenewalCron(target: { proxyRoot: string }, runtime: ProxyRuntime): string {
   return [
-    `${RENEWAL_MARKER} Edits will be overwritten.`,
+    `${RENEWAL_MARKER()} Edits will be overwritten.`,
     `# Renews every certificate under ${target.proxyRoot.replace(/\/+$/, '')}/letsencrypt, then`,
     '# validates and reloads the shared proxy so a renewed certificate is actually',
     '# served. Remove this file if something else renews these certificates.',
@@ -142,7 +144,7 @@ export interface EnsureRenewalOptions {
   runCommand: typeof runCommand;
   /** Read-only probes for ownership detection. Defaults to the real filesystem. */
   fs?: CheckFs | undefined;
-  /** Where the file goes. Defaults to `CLI_RENEWAL_CRON_PATH`; the test seam. */
+  /** Where the file goes. Defaults to `cliRenewalCronPath`; the test seam. */
   cronPath?: string | undefined;
   /** The writer, replaceable in tests. */
   writeFile?: ((path: string, content: string) => void) | undefined;
@@ -150,12 +152,15 @@ export interface EnsureRenewalOptions {
   readFile?: ((path: string) => string | undefined) | undefined;
 }
 
-const LABELS: Record<Exclude<RenewalOwnership['owner'], 'none'>, string> = {
-  'central-script': 'a central renewal script',
-  'systemd-timer': 'the certbot systemd timer',
-  cron: 'an existing cron entry',
-  appctl: CLI_NAME,
-};
+/** Read at call time: the `appctl` label is the CLI identity's name. */
+function labels(): Record<Exclude<RenewalOwnership['owner'], 'none'>, string> {
+  return {
+    'central-script': 'a central renewal script',
+    'systemd-timer': 'the certbot systemd timer',
+    cron: 'an existing cron entry',
+    appctl: cliName(),
+  };
+}
 
 function defaultRead(path: string): string | undefined {
   try {
@@ -173,7 +178,7 @@ function defaultWrite(path: string, content: string): void {
 
 /** Acts on the renewal-ownership answer. Never throws for a write failure. */
 export async function ensureRenewal(options: EnsureRenewalOptions): Promise<RenewalResult> {
-  const path = options.cronPath ?? CLI_RENEWAL_CRON_PATH;
+  const path = options.cronPath ?? cliRenewalCronPath();
   const ownership = await detectRenewalOwner({
     ...(options.fs === undefined ? {} : { fs: options.fs }),
     runCommand: options.runCommand,
@@ -185,13 +190,13 @@ export async function ensureRenewal(options: EnsureRenewalOptions): Promise<Rene
     const ours = ownership.mechanisms.find((mechanism) => mechanism.owner === 'appctl' && mechanism.owns);
     return {
       action: 'owned-elsewhere',
-      detail: `renewal is owned by ${LABELS[ownership.owner]} (${ownership.detail}); not scheduling a second one`,
+      detail: `renewal is owned by ${labels()[ownership.owner]} (${ownership.detail}); not scheduling a second one`,
       // Never removed here: it may be what the operator is relying on while
       // they sort the other one out. Said, so the race is not invisible.
       ...(ours === undefined
         ? {}
         : {
-            warning: `${CLI_NAME}'s own renewal schedule also exists, and races ${LABELS[ownership.owner]}`,
+            warning: `${cliName()}'s own renewal schedule also exists, and races ${labels()[ownership.owner]}`,
             remedy: `Remove this CLI's copy: rm ${path}`,
           }),
       path,
@@ -203,7 +208,7 @@ export async function ensureRenewal(options: EnsureRenewalOptions): Promise<Rene
   const existing = (options.readFile ?? defaultRead)(path);
 
   if (existing === content) {
-    return { action: 'current', detail: `renewal is scheduled by ${CLI_NAME} (${path}) and current`, content, path, ownership };
+    return { action: 'current', detail: `renewal is scheduled by ${cliName()} (${path}) and current`, content, path, ownership };
   }
 
   try {

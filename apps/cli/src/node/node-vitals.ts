@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
 import { getHeapStatistics } from 'node:v8';
 
-import { CLI_VERSION } from '../package-info.js';
+import { cliVersion } from '../identity.js';
 import type { NodeVitals, NodeVitalsCounters } from './node-api.js';
 
 // =============================================================================
@@ -248,7 +248,7 @@ export class NodeVitalsProvider {
       }),
     );
 
-    set('cliVersion', sanitizeVersion(this.options.cliVersion ?? CLI_VERSION));
+    set('cliVersion', sanitizeVersion(this.options.cliVersion ?? cliVersion()));
     set('nodeVersion', sanitizeVersion(this.options.nodeVersion ?? process.versions.node));
     set('pgDumpVersion', sanitizeVersion(this.options.pgDumpVersion));
 

@@ -1,4 +1,6 @@
-import { APP_NAME } from '@app/shared';
+import { APP_NAME, REPO_SLUG } from '@app/shared';
+
+import type { CliIdentity } from './identity.js';
 
 // =============================================================================
 // CLI identity — the one constant a fork renames  (issue #140, epic #110)
@@ -56,90 +58,14 @@ import { APP_NAME } from '@app/shared';
 export const CLI_NAME = 'appctl';
 
 /**
- * Human-readable product name for banners and `--help` output.
- *
- * Separate from `CLI_NAME` because the two genuinely differ: you type `git`
- * and the docs say "Git". `CLI_NAME` is this executable's own identity and is
- * still set right here; the PRODUCT half now comes from `@app/shared`, which
- * the web app and the API render too (issue #165, epic #161).
- *
- * That split is the point rather than an inconsistency. Renaming the product
- * should rename the CLI's banner along with the browser wordmark and the email
- * templates — one edit, everything follows. Renaming the BINARY should not: a
- * product called "Acme" may perfectly well still ship a command called
- * `appctl`, and `CLI_NAME` additionally seeds a filesystem path and an
- * environment-variable prefix, which is why it keeps its own constraints and
- * its own constant.
+ * The identity this app hands the platform CLI (#715). The platform reads it
+ * through accessors (`cliName()`, `envVar()`, `configDirName()`...) and
+ * derives the config directory (`~/.appctl`) and env prefix (`APPCTL_`) from
+ * `name`; the product half comes from `@app/shared`.
  */
-export const CLI_DISPLAY_NAME = `${APP_NAME} CLI`;
-
-/**
- * The per-user config directory NAME (not the path — resolving `~` needs
- * `os.homedir()`, and that belongs to #143, which owns the file itself).
- *
- * The leading dot is applied here rather than left to the caller so that every
- * consumer cannot get it subtly wrong in its own way.
- */
-export const CONFIG_DIR_NAME = `.${CLI_NAME}`;
-
-/**
- * Basename of the config file inside that directory.
- *
- * DELIBERATELY NOT `credentials.json` OR `secrets.json`, even though it will
- * hold a token. Those two names are exactly what a machine-level git
- * excludesFile blocks (see the note at the bottom of the repo .gitignore and
- * issue #115), and a file whose name is on a global ignore list is a file that
- * vanishes from `git add` without a warning. This one is never committed, but
- * the naming habit is worth keeping consistent — and any FIXTURE of it written
- * under test would hit precisely that trap.
- */
-export const CONFIG_FILE_NAME = 'config.json';
-
-/**
- * Turn the CLI name into a legal environment-variable prefix: `APPCTL_`.
- *
- * The uppercase-and-substitute is not decoration. A fork that renames to
- * `acme-cli` would otherwise produce `ACME-CLI_TOKEN`, which no POSIX shell
- * can set (`export ACME-CLI_TOKEN=x` is a syntax error) — the CLI would read
- * an env var that is impossible to provide, and the failure would look like
- * "my token is being ignored" rather than "that name is illegal".
- *
- * A leading digit is also illegal in a shell identifier, hence the underscore
- * prefix in that case.
- */
-function toEnvPrefix(name: string): string {
-  const upper = name.toUpperCase().replace(/[^A-Z0-9]/g, '_');
-  return /^[0-9]/.test(upper) ? `_${upper}_` : `${upper}_`;
-}
-
-/** e.g. `APPCTL_`. Every env var this CLI reads starts with it. */
-export const ENV_PREFIX = toEnvPrefix(CLI_NAME);
-
-/**
- * Build the full name of one of this CLI's environment variables.
- *
- *   envVar('TOKEN')      -> 'APPCTL_TOKEN'
- *   envVar('SERVER_URL') -> 'APPCTL_SERVER_URL'
- *
- * Callers pass the SUFFIX only and never concatenate the prefix themselves, so
- * `process.env` lookups cannot drift from the names printed in help text.
- *
- * NOTE ON THE EPIC: #110 sketches these as `APP_SERVER_URL` / `APP_TOKEN`. A
- * bare `APP_` prefix is too generic to claim in a shared shell — it is a
- * plausible name for half a dozen unrelated tools, and a CI runner that
- * exports `APP_TOKEN` for something else would have this CLI silently pick it
- * up and send it to a server as a bearer credential. Prefixing with the binary
- * name is the standard defence and costs nothing.
- */
-export function envVar(suffix: string): string {
-  return `${ENV_PREFIX}${suffix}`;
-}
-
-/**
- * The API's global route prefix, set by `app.setGlobalPrefix('api')` in
- * apps/api/src/main.ts. Lives here beside the other identity constants because
- * it is the other half of "where do I send a request" and, unlike the rest of
- * this file, it is NOT something a fork should change casually — moving it
- * means moving the nginx routes too.
- */
-export const API_PATH_PREFIX = '/api';
+export const CLI_IDENTITY: CliIdentity = {
+  name: CLI_NAME,
+  displayName: `${APP_NAME} CLI`,
+  productName: APP_NAME,
+  repoSlug: REPO_SLUG,
+};

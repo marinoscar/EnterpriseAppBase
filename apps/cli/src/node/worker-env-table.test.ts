@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { WORKER_ENV } from './worker-env.js';
+import { workerEnv } from './worker-env.js';
 import {
   buildWorkerEnvTable,
   WORKER_ENV_TABLE_END,
@@ -50,7 +50,7 @@ describe('the worker environment variable table in apps/cli/README.md', () => {
 
     expect(
       committed,
-      'The committed table has drifted from WORKER_ENV. Run `npm run docs:worker-env --workspace=cli` ' +
+      'The committed table has drifted from workerEnv(). Run `npm run docs:worker-env --workspace=cli` ' +
         'to regenerate it, then commit the result.',
     ).toBe(generated);
   });
@@ -58,7 +58,7 @@ describe('the worker environment variable table in apps/cli/README.md', () => {
   it('documents every WORKER_ENV variable, including the internal ones — no hand-picked subset', () => {
     const table = buildWorkerEnvTable();
 
-    for (const name of Object.values(WORKER_ENV)) {
+    for (const name of Object.values(workerEnv())) {
       expect(table, `${name} is missing from the generated table`).toContain(`\`${name}\``);
     }
   });
@@ -68,7 +68,7 @@ describe('the worker environment variable table in apps/cli/README.md', () => {
       .split('\n')
       .slice(2); // drop the header row and the separator row
 
-    expect(rows.length).toBe(Object.keys(WORKER_ENV).length);
+    expect(rows.length).toBe(Object.keys(workerEnv()).length);
 
     for (const row of rows) {
       // `| \`APPCTL_X\` | description |` — the description cell must not be empty.

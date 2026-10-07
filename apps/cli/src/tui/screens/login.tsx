@@ -3,7 +3,7 @@ import Spinner from 'ink-spinner';
 import TextInput from 'ink-text-input';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { CLI_NAME } from '../../branding.js';
+import { cliName } from '../../identity.js';
 import { resolveConfig } from '../../config.js';
 import type { DeviceCodeGrant, DevicePollState } from '../../device-auth.js';
 import {
@@ -465,5 +465,5 @@ function hintFor(error: unknown): string {
   if (error instanceof DeviceLoginError && error.reason === 'denied') {
     return 'Press esc to return to the menu. Retry only if the denial was a mistake.';
   }
-  return `Press r to try again, or esc to return to the menu. The same flow runs as \`${CLI_NAME} login\`.`;
+  return `Press r to try again, or esc to return to the menu. The same flow runs as \`${cliName()} login\`.`;
 }

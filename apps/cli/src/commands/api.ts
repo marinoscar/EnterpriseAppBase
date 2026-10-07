@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 
 import { ApiClient, resolveApiBaseUrl } from '../api-client.js';
-import { API_PATH_PREFIX, CLI_NAME } from '../branding.js';
+import { API_PATH_PREFIX, cliName } from '../identity.js';
 import { requireCredentials, type ConfigContext } from '../config.js';
 import { UsageError } from '../errors.js';
 import { createSpinner, formatJson, formatStatusLine, shouldUseColour } from '../output.js';
@@ -136,12 +136,12 @@ export function registerApiCommand(
       [
         '',
         'Examples:',
-        `  ${CLI_NAME} api GET /api/auth/me`,
-        `  ${CLI_NAME} api GET /api/users --query page=2 --query pageSize=50`,
-        `  ${CLI_NAME} api POST /api/allowlist --data '{"email":"a@b.com"}'`,
-        `  ${CLI_NAME} api POST /api/allowlist --data @entry.json`,
-        `  cat entry.json | ${CLI_NAME} api POST /api/allowlist --data -`,
-        `  ${CLI_NAME} api GET /api/users --raw | jq '.data[].email'`,
+        `  ${cliName()} api GET /api/auth/me`,
+        `  ${cliName()} api GET /api/users --query page=2 --query pageSize=50`,
+        `  ${cliName()} api POST /api/allowlist --data '{"email":"a@b.com"}'`,
+        `  ${cliName()} api POST /api/allowlist --data @entry.json`,
+        `  cat entry.json | ${cliName()} api POST /api/allowlist --data -`,
+        `  ${cliName()} api GET /api/users --raw | jq '.data[].email'`,
         '',
         'Output:',
         '  The response body goes to stdout; everything else goes to stderr, so',
@@ -393,7 +393,7 @@ export function parseRequestPath(raw: string): { path: string; query: URLSearchP
     // host was typed. The server comes from the login that minted the token,
     // and only from there.
     throw new UsageError(
-      `Pass a path, not a full URL: ${trimmed}. The server comes from your login (\`${CLI_NAME} config\` shows it).`,
+      `Pass a path, not a full URL: ${trimmed}. The server comes from your login (\`${cliName()} config\` shows it).`,
     );
   }
 

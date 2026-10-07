@@ -2,10 +2,10 @@ import { Box, Text, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { CLI_NAME } from '../../branding.js';
+import { cliName } from '../../identity.js';
 import {
-  SERVER_URL_ENV_VAR,
-  TOKEN_ENV_VAR,
+  serverUrlEnvVar,
+  tokenEnvVar,
   describeConfig,
   resolveConfig,
   type ConfigSource,
@@ -144,7 +144,7 @@ export function StatusScreen({ onDone }: StatusScreenProps): ReactNode {
         <Box flexDirection="column" gap={1}>
           <Text bold>Not logged in.</Text>
           <Text dimColor>
-            Choose Login from the menu, or set {SERVER_URL_ENV_VAR} and {TOKEN_ENV_VAR}.
+            Choose Login from the menu, or set {serverUrlEnvVar()} and {tokenEnvVar()}.
           </Text>
           <Field label="File" value={`${summary.path} (does not exist)`} dim />
         </Box>
@@ -236,7 +236,7 @@ function LiveIdentity({ live }: { live: Live }): ReactNode {
       return (
         <ErrorNotice
           message={live.message}
-          hint={`The stored details above are still what is on disk. Choose Login to replace them, or run \`${CLI_NAME} login\`.`}
+          hint={`The stored details above are still what is on disk. Choose Login to replace them, or run \`${cliName()} login\`.`}
         />
       );
   }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  SERVER_URL_ENV_VAR,
-  TOKEN_ENV_VAR,
+  serverUrlEnvVar,
+  tokenEnvVar,
   describeConfig,
   type ConfigContext,
 } from '../../config.js';
@@ -26,8 +26,8 @@ function envCtx(overrides: Partial<Record<string, string>> = {}): ConfigContext 
   return {
     home: '/nonexistent-appctl-status-test-home',
     env: {
-      [SERVER_URL_ENV_VAR]: 'https://app.example.com',
-      [TOKEN_ENV_VAR]: SECRET,
+      [serverUrlEnvVar()]: 'https://app.example.com',
+      [tokenEnvVar()]: SECRET,
       ...overrides,
     },
   };
@@ -55,12 +55,12 @@ describe('describeConfig — the shape StatusScreen renders', () => {
   });
 
   it('holds even when the token is short (no prefix long enough to reveal)', () => {
-    const summary = describeConfig(envCtx({ [TOKEN_ENV_VAR]: 'short' }));
+    const summary = describeConfig(envCtx({ [tokenEnvVar()]: 'short' }));
     expect(JSON.stringify(summary)).not.toContain('short');
   });
 
   it('holds when there is no token at all', () => {
-    const summary = describeConfig(envCtx({ [TOKEN_ENV_VAR]: '' }));
+    const summary = describeConfig(envCtx({ [tokenEnvVar()]: '' }));
     expect(summary.tokenHint).toBe('(none)');
   });
 });

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { ENV_PREFIX } from '../branding.js';
+import { envPrefix } from '../identity.js';
 
 // =============================================================================
 // The template guard: no env-variable literals outside branding.ts  (issue #272)
@@ -44,7 +44,7 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
       continue;
     }
     if (!/\.tsx?$/.test(entry)) continue;
-    // Tests may name variables outright: asserting `NO_TUI_ENV_VAR ===
+    // Tests may name variables outright: asserting `noTuiEnvVar ===
     // 'APPCTL_NO_TUI'` is the whole point of such a test, and a rename is
     // MEANT to break it.
     if (/\.test\.tsx?$/.test(entry)) continue;
@@ -79,7 +79,7 @@ describe('the env-prefix guard (issue #272, epic #254)', () => {
 
       // Built, never written. `[A-Z0-9_]*` rather than `+` so a bare prefix on
       // its own is caught too.
-      const pattern = new RegExp(`${ENV_PREFIX}[A-Z0-9_]*`, 'g');
+      const pattern = new RegExp(`${envPrefix()}[A-Z0-9_]*`, 'g');
       const found = stripComments(readFileSync(file, 'utf8')).match(pattern);
 
       expect(
