@@ -300,7 +300,11 @@ jobs:
       # what exercises the contract the application actually has.
       POSTGRES_HOST: 127.0.0.1
       POSTGRES_PORT: '5432'
-      POSTGRES_USER: postgres
+      # The ordinary role the next step creates, NOT the service's `postgres`
+      # superuser: row-level security (issue #725) is inert for a superuser, so
+      # every step below, migrations and the db suites included, must run as a
+      # role the policies apply to.
+      POSTGRES_USER: app
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: appdb
       POSTGRES_SSL: 'false'
@@ -323,6 +327,21 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
+
+      # The service container's own user is a superuser, which row-level
+      # security ignores. Create the ordinary role the job connects as, the same
+      # shape infra/compose/postgres-init/10-application-role.sh gives the
+      # development and test databases, and hand it the database.
+      - name: Create the ordinary application role
+        run: |
+          sh infra/compose/postgres-init/10-application-role.sh
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: '5432'
+          PGPASSWORD: postgres
+          POSTGRES_DB: appdb
+          APP_DB_USER: app
+          APP_DB_PASSWORD: postgres
 
       # NODE_ENV is deliberately left unset for the install and build steps:
       # `npm ci` skips devDependencies under NODE_ENV=production, which would

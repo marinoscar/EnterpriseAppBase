@@ -80,6 +80,11 @@ async function withAdmin<T>(database: string, fn: (client: Client) => Promise<T>
     user: env.POSTGRES_USER ?? 'postgres',
     password: env.POSTGRES_PASSWORD ?? 'postgres',
     database,
+    // The administrator may itself be an ordinary role (the compose and CI
+    // databases), to which a FORCEd policy would apply when it reads a table it
+    // does not own. The bypass startup option makes its reads the ground truth
+    // ("every row") whether it is a superuser or not.
+    options: '-c app.rls_bypass=on',
   });
   await client.connect();
   try {
@@ -127,6 +132,11 @@ export async function createRlsDatabase(label: string, options: { pool?: number 
 
   await withAdmin('postgres', async (admin) => {
     await admin.query(`CREATE ROLE ${quoteIdent(role)} LOGIN PASSWORD '${password}' NOSUPERUSER NOBYPASSRLS CREATEDB`);
+    // An administrator that is itself an ordinary CREATEROLE role (the compose
+    // and CI databases) is given ADMIN but not SET on a role it creates, and
+    // `CREATE DATABASE ... OWNER` needs SET. A superuser needs nothing.
+    const { rows } = await admin.query<{ rolsuper: boolean }>('SELECT rolsuper FROM pg_roles WHERE rolname = current_user');
+    if (!rows[0]?.rolsuper) await admin.query(`GRANT ${quoteIdent(role)} TO CURRENT_USER WITH SET TRUE`);
     await admin.query(`CREATE DATABASE ${quoteIdent(database)} OWNER ${quoteIdent(role)}`);
   });
 

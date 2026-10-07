@@ -348,7 +348,7 @@ function Run-E2ETests {
         # Set individual database variables for test environment
         $env:POSTGRES_HOST = "localhost"
         $env:POSTGRES_PORT = "5433"
-        $env:POSTGRES_USER = "postgres"
+        $env:POSTGRES_USER = "app"
         $env:POSTGRES_PASSWORD = "postgres"
         $env:POSTGRES_DB = "my_app_test"
         $env:POSTGRES_SSL = "false"

@@ -59,13 +59,17 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: appuser
+          # The service's own user is a superuser, which row-level security
+          # ignores (issue #725). It stays `postgres` for administration; the
+          # `appuser` the deployment connects as is created ordinary by the
+          # first step below.
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: e2e-postgres-password-not-a-real-one
           POSTGRES_DB: appdb
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U appuser"
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -76,6 +80,16 @@ jobs:
           # ⚠ The deploy clones from a `file://` remote pointing at this
           # checkout, and the version step wants real history to commit onto.
           fetch-depth: 0
+
+      - name: Create the ordinary application role
+        run: sh infra/compose/postgres-init/10-application-role.sh
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: '5432'
+          PGPASSWORD: e2e-postgres-password-not-a-real-one
+          POSTGRES_DB: appdb
+          APP_DB_USER: appuser
+          APP_DB_PASSWORD: e2e-postgres-password-not-a-real-one
 
       - uses: actions/setup-node@v6
         with:

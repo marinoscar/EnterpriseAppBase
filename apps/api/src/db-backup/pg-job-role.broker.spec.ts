@@ -457,7 +457,8 @@ describe('issue()', () => {
   it('EXTENDS an existing grant rather than minting a sibling, keeping the same handle', async () => {
     const existing = 'appjob_1234abcd_aabbcc';
     const { broker, queries } = harness({
-      rows: (text) => (text.includes('pg_roles') ? [{ rolname: existing }] : []),
+      rows: (text) =>
+        text.includes('rolsuper') ? [{ rolsuper: true }] : text.includes('pg_roles') ? [{ rolname: existing }] : [],
     });
 
     const issued = await broker.issue(JOB, LEASE_END);
@@ -474,6 +475,34 @@ describe('issue()', () => {
     // Re-asserts the full attribute list rather than trusting whatever the role
     // currently carries.
     expect(alter?.text).toContain('NOSUPERUSER');
+    expect(alter?.text).toContain('NOBYPASSRLS');
+  });
+
+  it('a re-issue by an ordinary CREATEROLE role names only the attributes PostgreSQL 16 lets it name', async () => {
+    const existing = 'appjob_1234abcd_aabbcc';
+    const { broker, queries } = harness({
+      rows: (text) =>
+        text.includes('rolsuper') ? [{ rolsuper: false }] : text.includes('pg_roles') ? [{ rolname: existing }] : [],
+    });
+
+    await broker.issue(JOB, LEASE_END);
+
+    const alter = queries.find((query) => query.text.startsWith('ALTER ROLE'));
+    // Naming SUPERUSER, REPLICATION, CREATEDB or BYPASSRLS needs the attribute
+    // yourself, even to switch it off: the statement would be refused outright.
+    expect(alter?.text).toContain('NOCREATEROLE NOINHERIT CONNECTION LIMIT 4');
+    for (const refused of ['SUPERUSER', 'REPLICATION', 'CREATEDB', 'BYPASSRLS']) {
+      expect(alter?.text).not.toContain(refused);
+    }
+  });
+
+  it('creates the role with every attribute spelled out, NOBYPASSRLS included', async () => {
+    const { broker, queries } = harness();
+
+    await broker.issue(JOB, LEASE_END);
+
+    const create = queries.find((query) => query.text.startsWith('CREATE ROLE'));
+    expect(create?.text).toContain('NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS');
   });
 
   it('asks the CLUSTER which roles exist, not the bookkeeping', async () => {

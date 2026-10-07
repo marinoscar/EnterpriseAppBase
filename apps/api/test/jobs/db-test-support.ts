@@ -115,8 +115,18 @@ export function resolveDbSuite(suiteName: string): {
  */
 export function createDbClient(): PrismaClient {
   const { DATABASE_URL: _ignored, ...envWithoutDatabaseUrl } = process.env;
+  // The suites' fixtures and assertions read and write every organization's
+  // rows, so this raw client carries the bypass flag as a STARTUP OPTION
+  // (session-wide on its own connections): it is the system view of the
+  // database, as `PrismaSystemService` is in the application. The database
+  // role is ordinary where the compose files and CI create one, so the policies
+  // apply to `createDbServices().prisma` (the tenant client) and to nothing
+  // else here. Isolation itself is proven by `test/tenancy/*.db.spec.ts`.
   return new PrismaClient({
-    adapter: new PrismaPg(buildDatabaseUrl(envWithoutDatabaseUrl)),
+    adapter: new PrismaPg({
+      connectionString: buildDatabaseUrl(envWithoutDatabaseUrl),
+      options: '-c app.rls_bypass=on',
+    }),
   });
 }
 
