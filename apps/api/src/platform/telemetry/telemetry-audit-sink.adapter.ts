@@ -14,7 +14,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import type { TelemetryAuditEvent, TelemetryAuditSink } from '../../telemetry/ports';
+import type { TelemetryAuditEvent, TelemetryAuditSink } from '@marinoscar/platform-api/telemetry';
 
 @Injectable()
 export class TelemetryAuditSinkAdapter implements TelemetryAuditSink {

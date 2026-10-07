@@ -1192,7 +1192,7 @@ export const systemAiPatchSchema = z.object({
 // as `telemetrySettingsSchema`: the namespace is also the body of
 // `PUT /api/admin/telemetry/config`, so the web form validates with the same
 // bounds (`TELEMETRY_LIMITS`). It is re-exported here under its historic name,
-// so the namespace registration (`telemetry/telemetry.system-settings.ts`) and
+// so the namespace registration (`platform/telemetry/telemetry.system-settings.ts`) and
 // the compile-time proof below are unchanged.
 export { TELEMETRY_INSTANCE_ID_PATTERN };
 

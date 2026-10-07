@@ -23,7 +23,7 @@ import type {
   TelemetrySettingsProvenance,
   TelemetrySettingsRow,
   TelemetrySettingsStore,
-} from '../../telemetry/ports';
+} from '@marinoscar/platform-api/telemetry';
 
 /** The keyed `system_settings` rows telemetry may read and write. */
 export const TELEMETRY_OWNED_ROW_KEYS: readonly string[] = ['telemetry_connection'];

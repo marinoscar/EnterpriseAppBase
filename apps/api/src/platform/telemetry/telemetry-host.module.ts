@@ -24,7 +24,7 @@ import {
   TELEMETRY_JOBS,
   TELEMETRY_SETTINGS_STORE,
   type TelemetryCredentialStore,
-} from '../../telemetry/ports';
+} from '@marinoscar/platform-api/telemetry';
 import { TelemetryAiAdapter } from './telemetry-ai.adapter';
 import { TelemetryAppInfoAdapter } from './telemetry-app-info.adapter';
 import { TelemetryAuditSinkAdapter } from './telemetry-audit-sink.adapter';

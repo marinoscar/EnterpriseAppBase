@@ -14,7 +14,7 @@ Does:
 
 Does not:
 
-- View or query telemetry: the GreptimeDB client, the dashboard, the explorer, metric groups, retention and the telemetry settings are the telemetry product (the reference app's `apps/api/src/telemetry/`, to be packaged separately).
+- View or query telemetry: the GreptimeDB client, the dashboard, the explorer, metric groups, retention and the telemetry settings are the telemetry product (the `telemetry` slice of this package, [`../telemetry/README.md`](../telemetry/README.md)).
 - Declare any metric. The registry starts empty; the reference app registers its platform metrics (jobs, backup, auth, AI, notifications, nodes, event bus) and its own from `apps/api/src/common/otel/app-metric.manifest.ts`, and keeps the typed recorders and the database-backed gauges in `AppMetricsService` until those move with their slices.
 - Know the product identity. The package never reads `@app/shared`: the app passes its slug (`resolveServiceName(\`${APP_SLUG}-api\`)`); the reference app binds it once in [`telemetry-identity.ts`](../../../../apps/api/src/common/otel/telemetry-identity.ts).
 
@@ -65,7 +65,7 @@ export const sdk = initializeOtel({
 export class AppMetricsModule {}
 ```
 
-3. Register the request span hook right after `NestFactory.create` (the reference app's [`main.ts`](../../../../apps/api/src/main.ts)), and drive the gate from the app's setting (the reference app's [`telemetry-settings.service.ts`](../../../../apps/api/src/telemetry/telemetry-settings.service.ts)):
+3. Register the request span hook right after `NestFactory.create` (the reference app's [`main.ts`](../../../../apps/api/src/main.ts)), and drive the gate from the app's setting (the telemetry slice's [`telemetry-settings.service.ts`](../telemetry/telemetry-settings.service.ts)):
 
 ```ts
 registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), process.env.OTEL_ENABLED === 'true');
@@ -137,7 +137,7 @@ Environment variables read (all pre-existing, none runtime-configured): `OTEL_EN
 |---|---|---|---|---|---|
 | `initializeOtel` | option | `initializeOtel(options?: InitializeOtelOptions): NodeSDK \| null` | Install the SDK from the file the entry point loads first | experimental | [example](../../../../apps/api/src/instrumentation.ts) |
 | `InitializeOtelOptions` | option | `{ enabled?; endpoint?; serviceName?; serviceVersion?; instanceId?; ignoreIncomingPaths?; instrumentationOverrides?; shutdownOnSigterm? }` | Name the service, seed the instance id, change the endpoint, ignored paths or instrumentations | experimental | [example](../../../../apps/api/src/instrumentation.ts) |
-| `telemetryGate` | hook | `{ isEnabled(); setEnabled(next); instanceId(); setInstanceId(next) }` | Open or close export at runtime and relabel the instance from the app's own setting | stable | [example](../../../../apps/api/src/telemetry/telemetry-settings.service.ts) |
+| `telemetryGate` | hook | `{ isEnabled(); setEnabled(next); instanceId(); setInstanceId(next) }` | Open or close export at runtime and relabel the instance from the app's own setting | stable | [example](../../../../apps/api/src/common/otel/telemetry-identity.ts) |
 | `appMetricRegistry` | registry | `Registry<AppMetricDef>` | Read the declared metrics (`list()`, `require(key)`), for example to build a name table | stable | [example](../../../../apps/api/src/common/otel/app-metrics.service.ts) |
 | `registerAppMetrics` | registry | `registerAppMetrics(defs: readonly AppMetricDef[]): void` | Declare an app's `app.*` metrics (name, unit, buckets, attributes) at import time | stable | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |
 | `MetricsHostService.registerGaugeProvider` | registry | `registerGaugeProvider(provider: (ctx: AppGaugeContext) => void): boolean` | Add observable gauges whose callbacks read the app's own data | experimental | [example](../../../../apps/api/src/common/otel/app-metrics.service.ts) |

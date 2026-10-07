@@ -42,7 +42,10 @@
 // WHAT IT CHECKS, AND WHAT IT HONESTLY CANNOT
 // -----------------------------------------------------------------------------
 //
-// It reads the BODY of every `@Cron`-decorated method under `apps/api/src` and
+// It reads the BODY of every `@Cron`-decorated method under `apps/api/src`
+// and under every packaged slice the app runs whose source lives in this
+// repository (`CRON_SOURCE_ROOTS` in ./cron-source-roots.ts: today the
+// telemetry slice, `packages/platform-api/src/telemetry`, issue #703), and
 // requires two things of it: that it queues something, and that it contains
 // none of the markers of doing work itself. It does not follow calls into
 // helper methods — a cron calling `this.fireDueBackup(...)` is trusted, and
@@ -57,12 +60,10 @@
 // pattern, same three exemptions as before the move.
 // =============================================================================
 
-import { join } from 'node:path';
 
 import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 
-/** The API's source root, from this file. */
-const SRC = join(__dirname, '..', '..', 'src');
+import { CRON_SOURCE_ROOTS } from './cron-source-roots';
 
 /**
  * ⚠ THE EXEMPTION LIST. THREE ENTRIES, AND EACH ONE IS ARGUED.
@@ -99,6 +100,6 @@ const EXEMPT: ReadonlyArray<{ file: string; why: string }> = [
 ];
 
 runPlatformConformance({
-  sourceRoots: [SRC],
+  sourceRoots: CRON_SOURCE_ROOTS,
   suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
 });

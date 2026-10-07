@@ -119,7 +119,7 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
     '../../common/maintenance/maintenance.system-settings',
     '../../storage/config/storage.system-settings',
     '../../ai/ai.system-settings',
-    '../../telemetry/telemetry.system-settings',
+    '../../platform/telemetry/telemetry.system-settings',
     '../../common/retention/retention.system-settings',
     '../user-settings/core.user-settings',
     '../../notifications/notifications.user-settings',

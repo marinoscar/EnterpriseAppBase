@@ -26,7 +26,7 @@ import type {
   TelemetryAiTool,
   TelemetryAiToolDefinition,
   TelemetryAiToolLoopResult,
-} from '../../telemetry/ports';
+} from '@marinoscar/platform-api/telemetry';
 import type { z } from 'zod';
 
 @Injectable()

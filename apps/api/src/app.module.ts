@@ -36,7 +36,7 @@ import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { DeploymentModule } from './common/deployment/deployment.module';
 import { DocsEgressContributor } from './openapi/docs-egress.contributor';
 import { AiModule } from './ai/ai.module';
-import { TelemetryModule } from './telemetry/telemetry.module';
+import { telemetryModule } from './platform/telemetry/telemetry.config';
 import { doctorModule } from './doctor/doctor.config';
 import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
@@ -226,8 +226,11 @@ import configuration from './config/configuration';
     // Telemetry (#534, epic #528): the `telemetry` settings and the runtime
     // export gate they drive, the GreptimeDB client and store status, and the
     // server-only `telemetry.retention.apply` job. The explorer (#535) and the
-    // assistant (#536) add their services inside this module.
-    TelemetryModule,
+    // assistant (#536) add their services inside this module. Packaged as
+    // `@marinoscar/platform-api/telemetry` (#703); the app's binding is
+    // `platform/telemetry/telemetry.config.ts` (`TelemetryModule.forRoot({
+    // host, imports: [TelemetryHostModule], metricGroups })`).
+    telemetryModule,
 
     // Data retention (#681): the daily, enqueue-only cron for the `retention`
     // settings namespace and the `audit.events.purge` handler. The inbox,

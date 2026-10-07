@@ -1,0 +1,129 @@
+// `@marinoscar/platform-api/telemetry`: the telemetry slice (epic #528, packaged
+// by issue #703). Documented in ./README.md. Explicit named exports only.
+
+// ---- the module and its options (rung 1) ------------------------------------------
+export { TelemetryModule } from './telemetry.module';
+export { TELEMETRY_OPTIONS, defaultTelemetryActorId } from './telemetry.options';
+export type { ResolvedTelemetryModuleOptions, TelemetryModuleOptions } from './telemetry.options';
+
+// ---- the host ports: one token per app capability ----------------------------------
+export {
+  TELEMETRY_AI,
+  TELEMETRY_APP_INFO,
+  TELEMETRY_AUDIT_SINK,
+  TELEMETRY_CREDENTIAL_STORE,
+  TELEMETRY_JOBS,
+  TELEMETRY_SETTINGS_STORE,
+} from './ports';
+export type {
+  TelemetryAiError,
+  TelemetryAiInputMessage,
+  TelemetryAiPort,
+  TelemetryAiResponse,
+  TelemetryAiSession,
+  TelemetryAiTool,
+  TelemetryAiToolCallRecord,
+  TelemetryAiToolContext,
+  TelemetryAiToolDefinition,
+  TelemetryAiToolLoopRequest,
+  TelemetryAiToolLoopResult,
+  TelemetryAiToolStep,
+  TelemetryAppInfo,
+  TelemetryAuditEvent,
+  TelemetryAuditSink,
+  TelemetryCredentialInfo,
+  TelemetryCredentialStore,
+  TelemetryDeployInfo,
+  TelemetryFeatureFlag,
+  TelemetryJobExecutionProfile,
+  TelemetryJobHandler,
+  TelemetryJobRecord,
+  TelemetryJobsPort,
+  TelemetrySettingsProvenance,
+  TelemetrySettingsRow,
+  TelemetrySettingsStore,
+} from './ports';
+export { TelemetryAiEnabledGuard } from './assistant/telemetry-ai-enabled.guard';
+
+// ---- permissions and the settings namespace, as data for the app's registries -----
+export {
+  TELEMETRY_HOST_PERMISSIONS,
+  TELEMETRY_PERMISSIONS,
+  TELEMETRY_PERMISSION_DECLARATIONS,
+} from './telemetry.permissions';
+export type { TelemetryPermissionDeclaration } from './telemetry.permissions';
+export {
+  TELEMETRY_SETTINGS_DEFAULTS,
+  TELEMETRY_SETTINGS_DESCRIPTION,
+  TELEMETRY_SETTINGS_NAMESPACE,
+  mergeTelemetrySettings,
+} from './telemetry.settings';
+export type { TelemetrySettingsPatch } from './telemetry.settings';
+// The namespace's schema is the contract's (#702).
+export { telemetrySettingsSchema } from '@marinoscar/platform-contract/telemetry';
+export type { TelemetrySettings } from '@marinoscar/platform-contract/telemetry';
+
+// ---- the services the module exports (what the app may inject) -------------------
+// Every other provider is internal; an app's test reaches one through the
+// configured module's `providers` (the reference app: `telemetryProviders` in
+// apps/api/src/platform/telemetry/telemetry.config.ts).
+export { GreptimeClient } from './greptime/greptime.client';
+export type {
+  GreptimePool,
+  TelemetryPingResult,
+  TelemetryQueryOptions,
+  TelemetryQueryResult,
+} from './greptime/greptime.client';
+export type { HostCheckOptions } from './greptime/greptime-host';
+export { TelemetrySettingsService } from './telemetry-settings.service';
+export { TelemetryQueryService } from './query/telemetry-query.service';
+export type { TelemetryQueryRunOptions, TelemetryQuerySource } from './query/telemetry-query.service';
+export { TelemetrySchemaService } from './query/telemetry-schema.service';
+export { TELEMETRY_ASSISTANT_AUDIT_ACTION } from './assistant/telemetry-assistant.service';
+
+// ---- the job types (permanent strings; both server-only) --------------------------
+export { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler';
+export { TELEMETRY_STACK_DEPLOY_TYPE } from './stack/telemetry-stack-deploy.handler';
+
+// ---- errors and the SQL guard -------------------------------------------------------
+export { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from './query/telemetry-query.errors';
+export type { TelemetryErrorReason } from './query/telemetry-query.errors';
+export { analyzeStatement } from './query/sql-guard';
+export type { AnalyzedStatement, TelemetryStatementKind } from './query/sql-guard';
+
+// ---- the metric catalog and its group registry (rung 2) ---------------------------
+export {
+  METRIC_FILTER_COLUMNS,
+  METRIC_GROUPS,
+  METRIC_GROUP_ID_PATTERN,
+  METRIC_GROUP_LABELS,
+  isMetricGroup,
+  metricGroupIds,
+  metricGroupRegistry,
+  metricGroups,
+  registerMetricGroups,
+} from './metrics/metric-catalog';
+export type {
+  BucketAggregate,
+  CounterFamily,
+  GaugeFamily,
+  HistogramFamily,
+  MetricFamily,
+  MetricFilterKey,
+  MetricGroup,
+  MetricGroupDef,
+  MetricGroupIds,
+  MetricPredicate,
+  MetricRatio,
+  MetricRef,
+  MetricTableDerived,
+  MetricTablePart,
+  MetricTableSpec,
+  MetricUnit,
+  MetricVerdictThresholds,
+  SeriesAggregate,
+  TileAggregate,
+} from './metrics/metric-catalog';
+
+// ---- the dashboard ------------------------------------------------------------------
+export { LOGS_TABLE, REQUIRED_LOG_COLUMNS, REQUIRED_TRACE_COLUMNS, TRACES_TABLE } from './dashboard/telemetry-dashboard.sql';

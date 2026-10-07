@@ -25,15 +25,17 @@ import { DoctorService } from '@marinoscar/platform-api/doctor';
 import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
 import { doctorModule } from '../../src/doctor/doctor.config';
 import { AboutService } from '../../src/about/about.service';
-import { TelemetryDashboardService } from '../../src/telemetry/dashboard/telemetry-dashboard.service';
-import { GreptimeClient } from '../../src/telemetry/greptime/greptime.client';
-import { TelemetryStackService } from '../../src/telemetry/stack/telemetry-stack.service';
-import { TelemetrySettingsService } from '../../src/telemetry/telemetry-settings.service';
-import { TelemetryStatusService } from '../../src/telemetry/telemetry-status.service';
+import {
+  GreptimeClient,
+  TelemetrySettingsService,
+} from '@marinoscar/platform-api/telemetry';
+import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser, createMockViewerUser } from '../helpers/auth-mock.helper';
+
+const { TelemetryDashboardService, TelemetryStackService, TelemetryStatusService } = telemetryProviders;
 
 const ROUTE = '/api/admin/doctor/support-bundle';
 const SupportBundleController = doctorModule.controllers![1] as { name: string; prototype: { download: object } };

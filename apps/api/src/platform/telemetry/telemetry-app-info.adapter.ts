@@ -14,7 +14,7 @@ import { APP_SLUG } from '@app/shared';
 import { readDeployInfo, resolveDeployInfoPath } from '../../about/deploy-info';
 import { resolveServiceName } from '../../common/otel/telemetry-identity';
 import { resolveApiVersion } from '../../openapi/version';
-import type { TelemetryAppInfo, TelemetryDeployInfo } from '../../telemetry/ports';
+import type { TelemetryAppInfo, TelemetryDeployInfo } from '@marinoscar/platform-api/telemetry';
 
 @Injectable()
 export class TelemetryAppInfoAdapter implements TelemetryAppInfo {

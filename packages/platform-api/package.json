@@ -42,6 +42,14 @@
       "types": "./dist/otel-core/sdk/index.d.ts",
       "default": "./dist/otel-core/sdk/index.js"
     },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "default": "./dist/telemetry/index.js"
+    },
+    "./telemetry/testing": {
+      "types": "./dist/telemetry/testing/index.d.ts",
+      "default": "./dist/telemetry/testing/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -57,8 +65,9 @@
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc --noEmit",
     "docs": "typedoc --options typedoc.json",
-    "test": "jest --config ./test/jest.config.js",
-    "test:run": "jest --config ./test/jest.config.js --ci"
+    "test": "jest --config ./test/jest.config.js --testPathIgnorePatterns='\\.greptime\\.spec\\.ts$' --testPathIgnorePatterns='\\.db\\.spec\\.ts$'",
+    "test:run": "jest --config ./test/jest.config.js --ci --testPathIgnorePatterns='\\.greptime\\.spec\\.ts$' --testPathIgnorePatterns='\\.db\\.spec\\.ts$'",
+    "test:greptime": "jest --config ./test/jest.config.js --testRegex '\\.greptime\\.spec\\.ts$' --runInBand"
   },
   "dependencies": {
     "@marinoscar/platform-contract": "0.1.0-next.2",
@@ -72,11 +81,16 @@
     "@opentelemetry/sdk-metrics": "^2.10.0",
     "@opentelemetry/sdk-node": "^0.221.0",
     "@opentelemetry/sdk-trace-base": "^2.10.0",
-    "@opentelemetry/semantic-conventions": "^1.43.0"
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "exceljs": "^4.4.0",
+    "hyparquet-writer": "^0.16.10",
+    "pg": "^8.23.0"
   },
   "peerDependencies": {
     "@nestjs/common": "^11.1.12",
+    "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.12",
+    "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^11.2.5",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^7.8.0",
@@ -93,15 +107,19 @@
   },
   "devDependencies": {
     "@nestjs/common": "^11.1.12",
+    "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.12",
     "@nestjs/platform-fastify": "^11.1.12",
+    "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^11.2.5",
     "@nestjs/testing": "^11.1.12",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^7.8.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.15.32",
+    "@types/pg": "^8.23.1",
     "fastify": "^5",
+    "hyparquet": "^1.31.2",
     "jest": "^30.4.2",
     "nestjs-zod": "^5.4.0",
     "reflect-metadata": "^0.2.2",

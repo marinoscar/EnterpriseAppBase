@@ -22,7 +22,7 @@ import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { TelemetryJobHandler, TelemetryJobRecord, TelemetryJobsPort } from '../../telemetry/ports';
+import type { TelemetryJobHandler, TelemetryJobRecord, TelemetryJobsPort } from '@marinoscar/platform-api/telemetry';
 
 /** Compile-time proof that a telemetry handler IS an app job handler. */
 type AssertAssignable<_From extends _To, _To> = true;

@@ -44,6 +44,8 @@ describe('@marinoscar/platform-api', () => {
       './doctor': { types: './dist/doctor/index.d.ts', default: './dist/doctor/index.js' },
       './otel-core': { types: './dist/otel-core/index.d.ts', default: './dist/otel-core/index.js' },
       './otel-core/sdk': { types: './dist/otel-core/sdk/index.d.ts', default: './dist/otel-core/sdk/index.js' },
+      './telemetry': { types: './dist/telemetry/index.d.ts', default: './dist/telemetry/index.js' },
+      './telemetry/testing': { types: './dist/telemetry/testing/index.d.ts', default: './dist/telemetry/testing/index.js' },
       './package.json': './package.json',
     });
   });

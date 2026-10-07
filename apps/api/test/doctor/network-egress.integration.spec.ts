@@ -39,11 +39,13 @@ import { EmailSettingsService } from '../../src/email/email-settings.service';
 import { PushConfigService } from '../../src/notifications/push-config.service';
 import { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
 import { StorageConfigAdminService } from '../../src/storage/config/storage-config-admin.service';
-import { TelemetryConnectionService } from '../../src/telemetry/connection/telemetry-connection.service';
+import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser, createMockViewerUser } from '../helpers/auth-mock.helper';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
+
+const { TelemetryConnectionService } = telemetryProviders;
 
 const ROUTE = '/api/admin/doctor?category=network&refresh=true';
 
