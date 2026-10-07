@@ -49,7 +49,11 @@ import {
   type TelemetrySettingsStore,
 } from '../ports';
 
-/** The job type. PERMANENT once rows of it exist. */
+/**
+ * The job type. PERMANENT once rows of it exist.
+ *
+ * @stability stable
+ */
 export const TELEMETRY_RETENTION_TYPE = 'telemetry.retention.apply';
 
 /** Client-side ceiling on the ALTER. It is a metadata change; seconds, not minutes. */

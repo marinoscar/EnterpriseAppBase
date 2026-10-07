@@ -25,11 +25,13 @@
  * One permission the telemetry slice declares, in the shape an app's
  * permission registry takes.
  *
+ * @typeParam Id - the permission string.
+ *
  * @stability experimental
  */
-export interface TelemetryPermissionDeclaration {
+export interface TelemetryPermissionDeclaration<Id extends string = string> {
   /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
-  readonly id: string;
+  readonly id: Id;
   /** Seeded into `permissions.description`. */
   readonly description: string;
   /** Role ids the permission is granted to by default (seeded into `role_permissions`). */
@@ -48,7 +50,14 @@ export interface TelemetryPermissionDeclaration {
  *
  * @stability experimental
  */
-export const TELEMETRY_PERMISSION_DECLARATIONS = {
+export const TELEMETRY_PERMISSION_DECLARATIONS: {
+  /** `telemetry:read`: view telemetry settings and status. */
+  readonly TELEMETRY_READ: TelemetryPermissionDeclaration<'telemetry:read'>;
+  /** `telemetry:write`: change telemetry settings. */
+  readonly TELEMETRY_WRITE: TelemetryPermissionDeclaration<'telemetry:write'>;
+  /** `telemetry:query`: run SQL, export, the dashboard and the AI assistant. */
+  readonly TELEMETRY_QUERY: TelemetryPermissionDeclaration<'telemetry:query'>;
+} = {
   TELEMETRY_READ: {
     id: 'telemetry:read',
     description: 'View telemetry settings and status',
@@ -64,7 +73,7 @@ export const TELEMETRY_PERMISSION_DECLARATIONS = {
     description: 'Run SQL, export and use the AI assistant against telemetry',
     defaultGrants: ['admin'],
   },
-} as const satisfies Readonly<Record<string, TelemetryPermissionDeclaration>>;
+};
 
 /**
  * The permission strings the telemetry routes enforce: `READ` (settings and
@@ -73,11 +82,18 @@ export const TELEMETRY_PERMISSION_DECLARATIONS = {
  *
  * @stability stable
  */
-export const TELEMETRY_PERMISSIONS = {
+export const TELEMETRY_PERMISSIONS: {
+  /** `telemetry:read`. */
+  readonly READ: 'telemetry:read';
+  /** `telemetry:write`. */
+  readonly WRITE: 'telemetry:write';
+  /** `telemetry:query`. */
+  readonly QUERY: 'telemetry:query';
+} = {
   READ: TELEMETRY_PERMISSION_DECLARATIONS.TELEMETRY_READ.id,
   WRITE: TELEMETRY_PERMISSION_DECLARATIONS.TELEMETRY_WRITE.id,
   QUERY: TELEMETRY_PERMISSION_DECLARATIONS.TELEMETRY_QUERY.id,
-} as const;
+};
 
 /**
  * Permissions the APP owns that telemetry routes also require; the app must
@@ -88,8 +104,15 @@ export const TELEMETRY_PERMISSIONS = {
  *
  * @stability experimental
  */
-export const TELEMETRY_HOST_PERMISSIONS = {
+export const TELEMETRY_HOST_PERMISSIONS: {
+  /** `ai:use`: spend an AI key. */
+  readonly AI_USE: 'ai:use';
+  /** `system_settings:read`. */
+  readonly SYSTEM_SETTINGS_READ: 'system_settings:read';
+  /** `system_settings:write`. */
+  readonly SYSTEM_SETTINGS_WRITE: 'system_settings:write';
+} = {
   AI_USE: 'ai:use',
   SYSTEM_SETTINGS_READ: 'system_settings:read',
   SYSTEM_SETTINGS_WRITE: 'system_settings:write',
-} as const;
+};

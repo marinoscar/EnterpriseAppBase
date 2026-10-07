@@ -18,6 +18,13 @@ import type { TelemetrySchema } from '../dto/telemetry-query.dto';
 // tier (to create look-alike tables).
 // =============================================================================
 
+/**
+ * The tag columns of every metric table the platform catalog reads, as the
+ * collector and the API's OTLP exporter write them (verified against a live
+ * store).
+ *
+ * @stability experimental
+ */
 export const VERIFIED_METRIC_TAGS: Record<string, readonly string[]> = {
   app_backup_last_success_timestamp_seconds: [
     'app_instance_id',
@@ -254,8 +261,16 @@ export const VERIFIED_METRIC_TAGS: Record<string, readonly string[]> = {
   up: ['host_name', 'instance', 'job', 'service_instance_id', 'service_name', 'service_version'],
 };
 
-/** The schema entry of one verified metric table (semantic types reported, as the store does). */
-export function metricTableSchema(name: string, tags = VERIFIED_METRIC_TAGS[name]) {
+/**
+ * The schema entry of one verified metric table (semantic types reported, as the store does).
+ *
+ * @param name - the table.
+ * @param tags - its tag columns; default its verified ones.
+ * @returns the table as `TelemetrySchemaService` reports it.
+ *
+ * @stability experimental
+ */
+export function metricTableSchema(name: string, tags = VERIFIED_METRIC_TAGS[name]): TelemetrySchema['tables'][number] {
   return {
     name,
     rows: null,
@@ -267,7 +282,14 @@ export function metricTableSchema(name: string, tags = VERIFIED_METRIC_TAGS[name
   };
 }
 
-/** A schema holding every verified metric table (or only `only`). */
+/**
+ * A schema holding every verified metric table (or only `only`).
+ *
+ * @param only - the table names to include; default all of them.
+ * @returns the schema.
+ *
+ * @stability experimental
+ */
 export function metricCatalogSchema(only?: readonly string[]): TelemetrySchema {
   const names = only ?? Object.keys(VERIFIED_METRIC_TAGS);
   return { tables: names.map((name) => metricTableSchema(name)) };

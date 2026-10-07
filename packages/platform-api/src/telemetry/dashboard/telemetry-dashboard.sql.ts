@@ -116,7 +116,17 @@ export {
   timestampLiteral,
 } from './sql-literals';
 
+/**
+ * The store's span table.
+ *
+ * @stability stable
+ */
 export const TRACES_TABLE = 'opentelemetry_traces';
+/**
+ * The store's log table.
+ *
+ * @stability stable
+ */
 export const LOGS_TABLE = 'opentelemetry_logs';
 export const HEAP_USED_TABLE = 'v8js_memory_heap_used_bytes';
 export const EVENT_LOOP_P99_TABLE = 'nodejs_eventloop_delay_p99_seconds';
@@ -137,7 +147,11 @@ export const TRACE_COLUMNS = {
   bearer: 'span_attributes.app.request.bearer',
 } as const;
 
-/** The trace columns without which no API panel can be computed. */
+/**
+ * The trace columns without which no API panel can be computed.
+ *
+ * @stability stable
+ */
 export const REQUIRED_TRACE_COLUMNS: readonly string[] = [
   TRACE_COLUMNS.timestamp,
   TRACE_COLUMNS.kind,
@@ -148,6 +162,11 @@ export const REQUIRED_TRACE_COLUMNS: readonly string[] = [
   TRACE_COLUMNS.duration,
 ];
 
+/**
+ * The log columns without which no log panel can be computed.
+ *
+ * @stability stable
+ */
 export const REQUIRED_LOG_COLUMNS: readonly string[] = [
   'timestamp',
   'severity_number',

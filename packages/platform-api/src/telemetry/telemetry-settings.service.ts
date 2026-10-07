@@ -78,6 +78,12 @@ export const TELEMETRY_GATE_REFRESH_MS = 5_000;
 /** Audit `action` for a successful admin save. */
 export const TELEMETRY_CONFIG_AUDIT_ACTION = 'telemetry:config_update';
 
+/**
+ * The `telemetry` namespace (one cached read, the admin replace) and the
+ * runtime export gate it drives. Exported by `TelemetryModule`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelemetrySettingsService.name);
@@ -109,6 +115,7 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
     this.refreshTimer.unref?.();
   }
 
+  /** Stops the gate refresh. */
   onModuleDestroy(): void {
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);

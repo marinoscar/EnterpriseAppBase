@@ -88,7 +88,11 @@ export interface MetricTableOutput {
 
 // ---- windows -------------------------------------------------------------------------
 
-/** The dashboard's window for a health window (they share the ranges), with its previous window. */
+/**
+ * The dashboard's window for a health window (they share the ranges), with its previous window.
+ *
+ * @stability experimental
+ */
 export function assistantMetricWindow(window: HealthWindow, now = Date.now()): MetricGroupWindow {
   const resolved = resolveWindow({ range: window, buckets: ASSISTANT_METRIC_BUCKETS }, now);
 
@@ -336,18 +340,34 @@ const MEDIAN_COLUMNS = [
   'slotsTotal',
 ] as const;
 
-/** Flag names (constants: always shared). */
+/**
+ * The flag names `compare_nodes` reports for an outlier node (constants:
+ * always shared with the model).
+ *
+ * @stability experimental
+ */
 export const NODE_FLAGS = {
+  /** CPU over twice the fleet median. */
   cpuHigh: `cpu_over_${NODE_OUTLIER_FACTOR}x_fleet_median`,
+  /** RSS over twice the fleet median. */
   rssHigh: `rss_over_${NODE_OUTLIER_FACTOR}x_fleet_median`,
+  /** Heap over twice the fleet median. */
   heapHigh: `heap_used_over_${NODE_OUTLIER_FACTOR}x_fleet_median`,
+  /** Heap above 90 % of its limit. */
   heapNearLimit: `heap_above_${NODE_HEAP_HIGH_PCT}pct_of_limit`,
+  /** State directory under 10 % free. */
   diskLow: `state_dir_free_below_${NODE_DISK_FREE_MIN_PCT}pct`,
+  /** Every slot busy. */
   slotsFull: 'slots_full',
+  /** Lease renewals failed. */
   leaseRenewFailures: 'lease_renew_failures',
+  /** The watchdog fired. */
   watchdogTrips: 'watchdog_trips',
+  /** Heartbeats failed. */
   heartbeatFailures: 'heartbeat_failures',
+  /** Claims failed. */
   claimFailures: 'claim_failures',
+  /** No recent vitals at all. */
   noCurrentVitals: 'no_current_vitals',
 } as const;
 

@@ -38,8 +38,18 @@ import { TelemetryHttpError } from './telemetry-query.errors';
 // timeout fires the connection is destroyed.
 // =============================================================================
 
+/**
+ * Who runs a statement; chooses the audit action.
+ *
+ * @stability experimental
+ */
 export type TelemetryQuerySource = 'explorer' | 'assistant' | 'export';
 
+/**
+ * How `TelemetryQueryService.run` runs one statement.
+ *
+ * @stability experimental
+ */
 export interface TelemetryQueryRunOptions {
   /** Row cap for this call; clamped to `telemetry.query.maxRows`, which is also the default. */
   maxRows?: number;
@@ -115,6 +125,13 @@ export function toJsonSafe(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, toJsonSafe(v)]));
 }
 
+/**
+ * The one entry point for caller-supplied SQL (the explorer, the export and
+ * the assistant): the SQL guard, the row cap, the timeout and an audit row.
+ * Exported by `TelemetryModule`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class TelemetryQueryService {
   private readonly logger = new Logger(TelemetryQueryService.name);

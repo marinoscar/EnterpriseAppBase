@@ -29,7 +29,11 @@ import { METRIC_FILTER_COLUMNS, METRIC_UNITS } from './metric-catalog.helpers';
 // time (the app does not start) instead of at the first dashboard read.
 // =============================================================================
 
-/** One dashboard metric group: what `/metrics?group=<id>` serves and the dashboard renders as a section. */
+/**
+ * One dashboard metric group: what `/metrics?group=<id>` serves and the dashboard renders as a section.
+ *
+ * @stability stable
+ */
 export interface MetricGroupDef {
   /** `host`. Lower snake_case: `/^[a-z][a-z0-9_]*$/`. Permanent: it is a query value and a URL anchor. */
   id: string;
@@ -58,20 +62,36 @@ export interface MetricGroupDef {
  *   interface MetricGroupIds { coach: true }
  * }
  * ```
+  *
+  * @stability stable
  */
 export interface MetricGroupIds {
+  /** hostmetrics: CPU, memory, load, filesystems, disk and network IO. */
   host: true;
+  /** The postgresql receiver: connections, size, commits, cache hits. */
   database: true;
+  /** `app.jobs.*` and `app.backup.*`: depth, age, settle rate, duration. */
   queue: true;
+  /** `app.nodes.*`: fleet health and per-node vitals. */
   nodes: true;
+  /** httpcheck and nginx: status per URL, latency, TLS, edge traffic. */
   uptime: true;
+  /** The collector's and GreptimeDB's own counters, and `up`. */
   pipeline: true;
 }
 
-/** A registered metric group id. */
+/**
+ * A registered metric group id.
+ *
+ * @stability stable
+ */
 export type MetricGroup = keyof MetricGroupIds & string;
 
-/** The pattern every group id matches. */
+/**
+ * The pattern every group id matches.
+ *
+ * @stability stable
+ */
 export const METRIC_GROUP_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 const UNITS = new Set<string>(METRIC_UNITS);
@@ -201,6 +221,8 @@ export function assertMetricGroup(group: MetricGroupDef, known: readonly MetricG
  *
  * Read it through `metric-catalog.ts`, which imports the manifest that fills
  * it. Frozen once the Nest application has bootstrapped.
+  *
+  * @stability experimental
  */
 export const metricGroupRegistry: Registry<MetricGroupDef> = defineRegistry<MetricGroupDef>({
   name: 'telemetry-metric-groups',
@@ -224,6 +246,8 @@ export const metricGroupRegistry: Registry<MetricGroupDef> = defineRegistry<Metr
  * refused batch leaves the registry unchanged.
  *
  * @throws RegistryError `INVALID_ENTRY`, `INVALID_ID`, `DUPLICATE_ID` or `FROZEN`.
+  *
+  * @stability experimental
  */
 export function registerMetricGroups(groups: readonly MetricGroupDef[]): void {
   const known = metricGroupRegistry.list();

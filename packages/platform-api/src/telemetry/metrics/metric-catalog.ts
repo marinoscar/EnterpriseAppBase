@@ -72,38 +72,80 @@ export {
   type MetricGroupIds,
 } from './metric-group.registry';
 
+/**
+ * The unit of a family, ratio or table column (the contract's `METRIC_UNITS`).
+ *
+ * @stability stable
+ */
 export type MetricUnit = (typeof METRIC_UNITS)[number];
 
-/** The request filters a family may honour (`METRIC_FILTER_COLUMNS` maps each to its column). */
+/**
+ * The request filters a family may honour (`METRIC_FILTER_COLUMNS` maps each to its column).
+ *
+ * @stability stable
+ */
 export type MetricFilterKey = 'service' | 'instance' | 'host';
 
 export const METRIC_TIME_COLUMN = 'greptime_timestamp';
 export const METRIC_VALUE_COLUMN = 'greptime_value';
 
-/** A fixed label predicate. Values are catalog constants, never request input. */
+/**
+ * A fixed label predicate. Values are catalog constants, never request input.
+ *
+ * @stability stable
+ */
 export interface MetricPredicate {
+  /** The tag column. */
   column: string;
+  /** Equals or differs. */
   op: '=' | '<>';
+  /** The constant compared with. */
   value: string;
 }
 
+/**
+ * How a gauge's rows of one timestamp combine across series.
+ *
+ * @stability stable
+ */
 export type SeriesAggregate = 'sum' | 'max' | 'min' | 'avg';
+/**
+ * How a gauge's per-timestamp values combine within one bucket.
+ *
+ * @stability stable
+ */
 export type BucketAggregate = 'avg' | 'max' | 'min';
-/** How a family's groups combine into one tile. */
+/**
+ * How a family's groups combine into one tile.
+ *
+ * @stability stable
+ */
 export type TileAggregate = 'sum' | 'max' | 'min' | 'countPositive' | 'countZero';
 
+/**
+ * The verdict thresholds a family documents (the rule itself lives in the verdict).
+ *
+ * @stability stable
+ */
 export interface MetricVerdictThresholds {
+  /** The degraded bound. */
   degraded: number;
+  /** The critical bound. */
   critical: number;
   /** `above`: `value >= threshold` fires; `below`: `value < threshold` fires. */
   direction: 'above' | 'below';
 }
 
 interface MetricFamilyBase {
+  /** Unique across every family, ratio and table of every group: names a tile, a series and a `skipped` entry. */
   key: string;
+  /** The group that declares the family. */
   group: MetricGroup;
+  /** The tile and series label. */
   label: string;
+  /** The metric table it reads. */
   table: string;
+  /** The displayed unit. */
   unit: MetricUnit;
   /** Tag columns the family reads, beyond the time and value columns. Absent → skipped. */
   requiredColumns: readonly string[];
@@ -125,11 +167,19 @@ interface MetricFamilyBase {
   verdict?: MetricVerdictThresholds;
 }
 
+/**
+ * A level (a gauge table).
+ *
+ * @stability stable
+ */
 export interface GaugeFamily extends MetricFamilyBase {
+  /** Always `gauge`. */
   kind: 'gauge';
   /** Per-row value expression (fixed SQL over `greptime_value`); default the value itself. */
   valueSql?: string;
+  /** How the rows of one timestamp combine across series (sum for "how many", max for "the worst"). */
   seriesAggregate: SeriesAggregate;
+  /** How the per-timestamp values combine within a bucket. */
   bucketAggregate: BucketAggregate;
   /** Display multiplier (ratio → %: 100). */
   scale?: number;
@@ -137,7 +187,13 @@ export interface GaugeFamily extends MetricFamilyBase {
   transform?: 'ageHours';
 }
 
+/**
+ * A cumulative counter (`_total`): reset-aware increases per series.
+ *
+ * @stability stable
+ */
 export interface CounterFamily extends MetricFamilyBase {
+  /** Always `counter`. */
   kind: 'counter';
   /** `per_s` / `per_min`: increase over time; `count`: the increase itself. */
   rate: 'per_s' | 'per_min' | 'count';
@@ -145,7 +201,14 @@ export interface CounterFamily extends MetricFamilyBase {
   scale?: number;
 }
 
+/**
+ * Cumulative `_bucket` counters with a string `le` tag; the quantile is
+ * interpolated from the increases per `le`.
+ *
+ * @stability stable
+ */
 export interface HistogramFamily extends MetricFamilyBase {
+  /** Always `histogram`. */
   kind: 'histogram';
   /** The quantile shown, e.g. 0.95. */
   quantile: number;
@@ -153,70 +216,132 @@ export interface HistogramFamily extends MetricFamilyBase {
   scale?: number;
 }
 
+/**
+ * One metric family of a group.
+ *
+ * @stability stable
+ */
 export type MetricFamily = GaugeFamily | CounterFamily | HistogramFamily;
 
-/** A reference to (some groups of) a family, for ratios. */
+/**
+ * A reference to (some groups of) a family, for ratios.
+ *
+ * @stability stable
+ */
 export interface MetricRef {
+  /** The referenced family's key. */
   family: string;
   /** Only these group values (default: every group). */
   groups?: readonly string[];
 }
 
-/** A family derived from others: `sum(numerator) / sum(denominator) * scale`, bucket by bucket. */
+/**
+ * A family derived from others: `sum(numerator) / sum(denominator) * scale`, bucket by bucket.
+ *
+ * @stability stable
+ */
 export interface MetricRatio {
+  /** Unique across every family, ratio and table key. */
   key: string;
+  /** The group that declares it. */
   group: MetricGroup;
+  /** The tile label. */
   label: string;
+  /** The displayed unit. */
   unit: MetricUnit;
+  /** The numerator families. */
   numerator: readonly MetricRef[];
   /** The denominator; `numerator` is added to it when `addNumerator` (hit / (hit + read)). */
   denominator: readonly MetricRef[];
+  /** Add the numerator to the denominator. */
   addNumerator?: boolean;
+  /** Display multiplier (ratio → %: 100). */
   scale: number;
+  /** Documentary verdict thresholds. */
   verdict?: MetricVerdictThresholds;
 }
 
-/** One column of a per-key table, read as the latest (or max/min/increase/count) value per key. */
+/**
+ * One column of a per-key table, read as the latest (or max/min/increase/count) value per key.
+ *
+ * @stability stable
+ */
 export interface MetricTablePart {
+  /** The output column name. */
   column: string;
+  /** Its header. */
   label: string;
+  /** Its unit. */
   unit: MetricUnit;
+  /** The metric table it reads. */
   table: string;
   /** Tag columns needed beyond the key column. */
   requiredColumns?: readonly string[];
+  /** Per-row value expression (fixed SQL); default the value itself. */
   valueSql?: string;
+  /** Fixed label predicates. */
   where?: readonly MetricPredicate[];
   /** Per timestamp across series sharing the key. */
   seriesAggregate: SeriesAggregate;
   /** Over the window: the latest value, an extreme, the counter increase, or the number of timestamps. */
   over: 'last' | 'max' | 'min' | 'increase' | 'count';
+  /** Display multiplier. */
   scale?: number;
 }
 
-/** A computed column of a table: `numerator / denominator * scale` (both are part columns). */
+/**
+ * A computed column of a table: `numerator / denominator * scale` (both are part columns).
+ *
+ * @stability stable
+ */
 export interface MetricTableDerived {
+  /** The output column name. */
   column: string;
+  /** Its header. */
   label: string;
+  /** Its unit. */
   unit: MetricUnit;
+  /** The numerator part column. */
   numerator: string;
+  /** The denominator part column. */
   denominator: string;
+  /** Display multiplier. */
   scale: number;
 }
 
+/**
+ * A per-key table of a group (one row per value of `keyColumn`).
+ *
+ * @stability stable
+ */
 export interface MetricTableSpec {
+  /** Unique across every family, ratio and table key. */
   key: string;
+  /** The group that declares it. */
   group: MetricGroup;
+  /** The table's title. */
   label: string;
   /** The label column every part is keyed by (one row per value). */
   keyColumn: string;
+  /** The key column's header. */
   keyLabel: string;
+  /** Which request filters apply. */
   filters: readonly MetricFilterKey[];
+  /** The columns read per key. */
   parts: readonly MetricTablePart[];
+  /** Columns computed from the parts. */
   derived?: readonly MetricTableDerived[];
   /** Order rows by the first part's value, descending (the statement then has ONE part). */
   orderByValue?: boolean;
   /** Extra per-key columns from a histogram family (quantile per key). */
-  histogram?: { column: string; label: string; family: string };
+  histogram?: {
+    /** The output column name. */
+    column: string;
+    /** Its header. */
+    label: string;
+    /** The histogram family's key. */
+    family: string;
+  };
   /** Extra per-URL status columns from `httpcheck_status` / `httpcheck_error`. */
   httpcheck?: boolean;
   /** Rows this table returns at most; default `METRIC_TABLE_MAX_ROWS` (#632). */
@@ -241,13 +366,21 @@ function frozen<T>(items: T[]): readonly T[] {
   return Object.freeze(items);
 }
 
-/** Every registered group id, in dashboard order. Non-empty (the platform registers six). */
+/**
+ * Every registered group id, in dashboard order. Non-empty (the platform registers six).
+ *
+ * @stability experimental
+ */
 export const METRIC_GROUPS = Object.freeze(metricGroupRegistry.ids()) as unknown as readonly [
   MetricGroup,
   ...MetricGroup[],
 ];
 
-/** The API label of every group (the dashboard section title is `MetricGroupDef.title`). */
+/**
+ * The API label of every group (the dashboard section title is `MetricGroupDef.title`).
+ *
+ * @stability experimental
+ */
 export const METRIC_GROUP_LABELS: Readonly<Record<MetricGroup, string>> = Object.freeze(
   Object.fromEntries(metricGroupRegistry.list().map((g) => [g.id, g.label])) as Record<MetricGroup, string>
 );
@@ -258,17 +391,29 @@ export const METRIC_TABLES: readonly MetricTableSpec[] = frozen(metricGroupRegis
 
 // ---- lookups (live) ----------------------------------------------------------------
 
-/** Every registered group, in dashboard order, read live from the registry. */
+/**
+ * Every registered group, in dashboard order, read live from the registry.
+ *
+ * @stability experimental
+ */
 export function metricGroups(): MetricGroupDef[] {
   return metricGroupRegistry.list();
 }
 
-/** Every registered group id, in dashboard order, read live from the registry. */
+/**
+ * Every registered group id, in dashboard order, read live from the registry.
+ *
+ * @stability experimental
+ */
 export function metricGroupIds(): MetricGroup[] {
   return metricGroupRegistry.ids() as MetricGroup[];
 }
 
-/** Whether `id` names a registered group. */
+/**
+ * Whether `id` names a registered group.
+ *
+ * @stability experimental
+ */
 export function isMetricGroup(id: unknown): id is MetricGroup {
   return typeof id === 'string' && metricGroupRegistry.has(id);
 }

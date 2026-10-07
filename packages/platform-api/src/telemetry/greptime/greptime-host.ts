@@ -61,7 +61,11 @@ export function isDnsError(error: unknown): boolean {
   return typeof code === 'string' && DNS_ERROR_CODES.has(code);
 }
 
-/** Whether the host being checked is the automatic (deployment) host or one the administrator typed. */
+/**
+ * Whether the host being checked is the automatic (deployment) host or one the administrator typed.
+ *
+ * @stability experimental
+ */
 export interface HostCheckOptions {
   /**
    * `true` when the host is the deployment host an automatic (blank) host

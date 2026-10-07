@@ -26,9 +26,20 @@
 // Pure functions; no Nest, no I/O.
 // =============================================================================
 
+/**
+ * The read-only statement kinds the guard admits.
+ *
+ * @stability stable
+ */
 export type TelemetryStatementKind = 'select' | 'show' | 'describe' | 'explain';
 
+/**
+ * A statement the guard admitted.
+ *
+ * @stability stable
+ */
 export interface AnalyzedStatement {
+  /** Its kind. */
   kind: TelemetryStatementKind;
   /** The statement with comments removed and trailing `;`/whitespace trimmed. */
   normalized: string;
@@ -102,6 +113,8 @@ export function stripSqlComments(sql: string): string {
 /**
  * Classifies one read-only statement, or throws `TelemetrySqlRejectedError`
  * with a message fit to show the user.
+  *
+  * @stability stable
  */
 export function analyzeStatement(sql: string): AnalyzedStatement {
   const stripped = stripSqlComments(sql);

@@ -54,8 +54,57 @@ import { VERDICT_LEVELS, type VerdictLevel } from '@marinoscar/platform-contract
 // `verdict` fields keep the defaults: they are documentation only.
 
 /**
+ * A `degraded` and a `critical` bound of one verdict rule.
+ *
+ * @stability experimental
+ */
+export interface VerdictLevelThresholds {
+  /** The bound past which the rule reports `degraded`. */
+  readonly degraded: number;
+  /** The bound past which the rule reports `critical`. */
+  readonly critical: number;
+}
+
+/**
+ * The error-log rule: the current window against the previous one.
+ *
+ * @stability experimental
+ */
+export interface VerdictErrorLogThresholds {
+  /** Error logs needed in the current window before the ratio rule may fire. */
+  readonly minCurrent: number;
+  /** Ratio to the previous window, `>=`, for degraded. */
+  readonly degradedRatio: number;
+  /** Ratio to the previous window, `>=`, for critical. */
+  readonly criticalRatio: number;
+}
+
+/**
+ * The unknown-API-route rule (bearer requests only): any is degraded; either
+ * bound, `>=`, is critical.
+ *
+ * @stability experimental
+ */
+export interface VerdictUnknownRouteThresholds {
+  /** Bearer requests to unknown routes that make the rule critical. */
+  readonly criticalBearerRequests: number;
+  /** Distinct unknown `METHOD /path` that make the rule critical. */
+  readonly criticalDistinctRoutes: number;
+}
+
+/**
+ * The collector rule: any failed point is degraded.
+ *
+ * @stability experimental
+ */
+export interface VerdictCollectorThresholds {
+  /** The share of attempted points that failed, %, `>=`, that makes the rule critical. */
+  readonly critical: number;
+}
+
+/**
  * The thresholds of the dashboard's health verdict, as numbers. See
- * {@link DEFAULT_VERDICT_THRESHOLDS} for the shipped values and their meaning.
+ * {@link DEFAULT_VERDICT_THRESHOLDS} for the shipped values.
  *
  * @stability experimental
  */
@@ -63,38 +112,31 @@ export interface VerdictThresholds {
   /** Requests needed before the 5xx and p95 rules may fire. */
   readonly minRequests: number;
   /** 5xx rate, %, `>`. */
-  readonly errorRatePct: { readonly degraded: number; readonly critical: number };
+  readonly errorRatePct: VerdictLevelThresholds;
   /** Window p95, ms, `>`. */
-  readonly p95Ms: { readonly degraded: number; readonly critical: number };
+  readonly p95Ms: VerdictLevelThresholds;
   /** Error logs against the previous window. */
-  readonly errorLogs: {
-    /** Error logs needed in the current window before the ratio rule may fire. */
-    readonly minCurrent: number;
-    /** Ratio, `>=`, for degraded. */
-    readonly degradedRatio: number;
-    /** Ratio, `>=`, for critical. */
-    readonly criticalRatio: number;
-  };
+  readonly errorLogs: VerdictErrorLogThresholds;
   /** Minutes without any trace or log after which the verdict is `no_data`. */
   readonly noDataMinutes: number;
-  /** Unknown API routes, bearer requests only: any is degraded; either bound, `>=`, is critical. */
-  readonly unknownRoutes: { readonly criticalBearerRequests: number; readonly criticalDistinctRoutes: number };
+  /** Unknown API routes, bearer requests only. */
+  readonly unknownRoutes: VerdictUnknownRouteThresholds;
   /** Worst mountpoint, %, `>=`. */
-  readonly diskUtilizationPct: { readonly degraded: number; readonly critical: number };
+  readonly diskUtilizationPct: VerdictLevelThresholds;
   /** Worst host, %, `>=`. */
-  readonly memoryUtilizationPct: { readonly degraded: number; readonly critical: number };
+  readonly memoryUtilizationPct: VerdictLevelThresholds;
   /** Backends against `max_connections`, %, worst server, `>=`. */
-  readonly dbConnectionsPct: { readonly degraded: number; readonly critical: number };
+  readonly dbConnectionsPct: VerdictLevelThresholds;
   /** Oldest due pending job, minutes, worst job type, `>=`. */
-  readonly oldestPendingJobMinutes: { readonly degraded: number; readonly critical: number };
-  /** Certificate lifetime left, days, soonest URL, `<`. */
-  readonly tlsDaysLeft: { readonly degraded: number; readonly critical: number };
+  readonly oldestPendingJobMinutes: VerdictLevelThresholds;
+  /** Certificate lifetime left, days, soonest URL, `<` (fewer is worse). */
+  readonly tlsDaysLeft: VerdictLevelThresholds;
   /** Checks an uptime target must have in the lookback before "every check failed" may be critical. */
   readonly uptimeMinChecksForCritical: number;
   /** Share of attempted exporter points that failed, %, `>=`, for critical (any failure is degraded). */
-  readonly collectorFailedPct: { readonly critical: number };
+  readonly collectorFailedPct: VerdictCollectorThresholds;
   /** Age of the last successful backup, hours, `>`. */
-  readonly backupAgeHours: { readonly degraded: number; readonly critical: number };
+  readonly backupAgeHours: VerdictLevelThresholds;
 }
 
 /**
@@ -104,7 +146,7 @@ export interface VerdictThresholds {
  *
  * @stability stable
  */
-export const DEFAULT_VERDICT_THRESHOLDS = {
+export const DEFAULT_VERDICT_THRESHOLDS: VerdictThresholds = {
   /** Requests needed before the 5xx and p95 rules may fire. */
   minRequests: 20,
   errorRatePct: { degraded: 2, critical: 5 },
@@ -139,7 +181,7 @@ export const DEFAULT_VERDICT_THRESHOLDS = {
   collectorFailedPct: { critical: 10 },
   /** Age of the last successful backup, `>`. */
   backupAgeHours: { degraded: 26, critical: 50 },
-} as const satisfies VerdictThresholds;
+};
 
 /**
  * The shipped verdict thresholds, under their pre-#703 name.
@@ -149,26 +191,44 @@ export const DEFAULT_VERDICT_THRESHOLDS = {
  *
  * @stability experimental
  */
-export const DASHBOARD_VERDICT_THRESHOLDS = DEFAULT_VERDICT_THRESHOLDS;
+export const DASHBOARD_VERDICT_THRESHOLDS: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS;
 
 // The levels are part of the wire (the summary's `verdict.level`), so they live
 // in `@marinoscar/platform-contract/telemetry` (#702); re-exported here.
 export { VERDICT_LEVELS, type VerdictLevel };
 
+/**
+ * The summary's health verdict.
+ *
+ * @stability stable
+ */
 export interface DashboardVerdict {
+  /** The worst rule that fired (`no_data` overrides every other rule). */
   level: VerdictLevel;
+  /** One line per fired rule: its value, the threshold it crossed and the worst offender. */
   reasons: string[];
 }
 
+/**
+ * The numbers the summary computed, which a {@link VerdictPolicy} judges. An
+ * infrastructure input left `undefined` or `null` skips its rule.
+ *
+ * @stability experimental
+ */
 export interface VerdictInput {
+  /** The instant the summary was computed for. */
   now: Date;
   /** Latest trace or log timestamp seen (null when none in the lookback). */
   lastDataAt: Date | null;
+  /** Server requests in the window. */
   requests: number;
+  /** Of which answered 5xx. */
   errors5xx: number;
   /** Window p95, null without requests. */
   p95Ms: number | null;
+  /** Error logs in the window. */
   errorLogs: number;
+  /** Error logs in the previous window of equal length. */
   previousErrorLogs: number;
   /** `METHOD /path` with the most 5xx, if any. */
   topErrorRoute?: string | null;
@@ -182,26 +242,77 @@ export interface VerdictInput {
    * enough for the threshold), and the top one. Undefined/null when the store
    * cannot tell (no `app.route.matched` column yet): the rule is skipped.
    */
-  unknownRoutes?: { bearerRequests: number; bearerRoutes: number; topRoute: string | null } | null;
+  unknownRoutes?: {
+    /** Bearer requests to unknown routes. */
+    bearerRequests: number;
+    /** Distinct unknown `METHOD /path` among them. */
+    bearerRoutes: number;
+    /** The most requested one. */
+    topRoute: string | null;
+  } | null;
 
   // ---- infrastructure inputs (#601): undefined/null = the rule is skipped ----
 
   /** Highest filesystem utilization (%) and its mountpoint. */
-  disk?: { utilizationPct: number; mountpoint: string | null } | null;
+  disk?: {
+    /** Utilization, %. */
+    utilizationPct: number;
+    /** The mountpoint. */
+    mountpoint: string | null;
+  } | null;
   /** Highest memory utilization (%) and its host. */
-  memory?: { utilizationPct: number; host: string | null } | null;
+  memory?: {
+    /** Utilization, %. */
+    utilizationPct: number;
+    /** The host. */
+    host: string | null;
+  } | null;
   /** Highest backends / max_connections (%) and its server (`instance`). */
-  dbConnections?: { utilizationPct: number; instance: string | null } | null;
+  dbConnections?: {
+    /** Backends against `max_connections`, %. */
+    utilizationPct: number;
+    /** The server. */
+    instance: string | null;
+  } | null;
   /** Oldest due pending job age (seconds) and its job type. */
-  oldestPendingJob?: { ageSeconds: number; jobType: string | null } | null;
+  oldestPendingJob?: {
+    /** Its age, seconds. */
+    ageSeconds: number;
+    /** Its job type. */
+    jobType: string | null;
+  } | null;
   /** Worker nodes: how many are stale, and node-offered job types with pending work but no eligible node. */
-  nodes?: { stale: number; noEligibleNodeTypes: readonly string[] } | null;
+  nodes?: {
+    /** Nodes that missed heartbeats. */
+    stale: number;
+    /** Node-offered job types with pending work and no eligible node. */
+    noEligibleNodeTypes: readonly string[];
+  } | null;
   /** Soonest certificate expiry (days) and its URL. */
-  tls?: { daysLeft: number; url: string | null } | null;
+  tls?: {
+    /** Days until the certificate expires (negative: expired). */
+    daysLeft: number;
+    /** The URL. */
+    url: string | null;
+  } | null;
   /** Uptime targets whose latest check failed; `allFailed` when every check in the lookback failed. */
-  uptimeFailures?: ReadonlyArray<{ url: string; allFailed: boolean; checks: number }> | null;
+  uptimeFailures?: ReadonlyArray<{
+    /** The target URL. */
+    url: string;
+    /** Whether every check in the lookback failed. */
+    allFailed: boolean;
+    /** Checks in the lookback. */
+    checks: number;
+  }> | null;
   /** Collector exporter points over the window: failed and sent, and the exporter with the most failures. */
-  collector?: { failed: number; sent: number; exporter: string | null } | null;
+  collector?: {
+    /** Points that failed to export. */
+    failed: number;
+    /** Points sent. */
+    sent: number;
+    /** The exporter with the most failures. */
+    exporter: string | null;
+  } | null;
   /** Hours since the last successful backup. */
   backupAgeHours?: number | null;
 }

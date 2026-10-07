@@ -94,7 +94,12 @@ export interface TelemetrySettingsProvenance {
   /** When the row was last written. */
   updatedAt: Date;
   /** Who wrote it last, or `null` (seeded, or the user was deleted). */
-  updatedBy: { id: string; email: string } | null;
+  updatedBy: {
+    /** The user's id. */
+    id: string;
+    /** The user's email. */
+    email: string;
+  } | null;
 }
 
 /**
@@ -322,7 +327,12 @@ export interface TelemetryJobsPort {
     type: string;
     reason: 'upload' | 'rerun' | 'backfill';
     payload?: Record<string, unknown>;
-  }): Promise<{ id: string; status: string }>;
+  }): Promise<{
+    /** The job's id. */
+    id: string;
+    /** Its status (`pending`, or the active job's). */
+    status: string;
+  }>;
   /**
    * Queues one global housekeeping job of `type` unless one is pending or
    * running. Never throws: a failure is logged on `logger`.
@@ -386,7 +396,12 @@ export interface TelemetryAiInputMessage {
   /** Who said it. */
   role: 'user' | 'assistant';
   /** Its text parts. */
-  content: { type: 'text'; text: string }[];
+  content: {
+    /** Always `text`. */
+    type: 'text';
+    /** The text. */
+    text: string;
+  }[];
 }
 
 /**
@@ -588,7 +603,12 @@ export interface TelemetryDeployInfo {
   /** Present exactly when `status` is `ok`. */
   document: {
     /** The deployed version and commit. */
-    app: { version: string | null; commitSha: string | null };
+    app: {
+      /** The deployed version. */
+      version: string | null;
+      /** The deployed commit. */
+      commitSha: string | null;
+    };
     /** When the deployment was first installed. */
     installedAt: string | null;
     /** When it was last updated. */
@@ -596,7 +616,10 @@ export interface TelemetryDeployInfo {
     /** The last deploy command. */
     lastCommand: string | null;
     /** The last deploy run. */
-    run: { outcome: string | null } | null;
+    run: {
+      /** `success` or `failure`. */
+      outcome: string | null;
+    } | null;
   } | null;
 }
 

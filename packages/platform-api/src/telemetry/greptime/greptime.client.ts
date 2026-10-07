@@ -82,19 +82,35 @@ import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptio
 // error message.
 // =============================================================================
 
-/** A column of a result, as the wire protocol describes it. */
+/**
+ * A column of a result, as the wire protocol describes it.
+ *
+ * @stability experimental
+ */
 export interface TelemetryField {
+  /** The column name. */
   name: string;
   /** PostgreSQL type OID (1043 varchar, 20 int8, 1700 numeric, 1114/1184 timestamp, …). */
   dataTypeID: number;
 }
 
-/** One statement's result. `rows[i][j]` is the value of `fields[j]`. */
+/**
+ * One statement's result. `rows[i][j]` is the value of `fields[j]`.
+ *
+ * @stability experimental
+ */
 export interface TelemetryQueryResult {
+  /** The columns. */
   fields: TelemetryField[];
+  /** The rows, in column order. */
   rows: unknown[][];
 }
 
+/**
+ * How one statement runs.
+ *
+ * @stability experimental
+ */
 export interface TelemetryQueryOptions {
   /** Hard client-side ceiling on the statement's wall-clock time. */
   timeoutMs: number;
@@ -106,20 +122,39 @@ export interface TelemetryQueryOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Whether the store answered a `SELECT version()`.
+ *
+ * @stability experimental
+ */
 export interface TelemetryPingResult {
+  /** Whether it answered. */
   reachable: boolean;
   /** `SELECT version()` — e.g. `PostgreSQL 16.3 GreptimeDB 1.2.1`. */
   version?: string;
+  /** Why it did not (no secret material). */
   error?: string;
 }
 
 /** The `greptime` block of `config/configuration.ts` — the deployment default. */
 export type GreptimeConfig = GreptimeEnvironmentConfig;
 
-/** The subset of `pg.Pool` this class uses — what a test substitutes. */
+/**
+ * The subset of `pg.Pool` the client uses — what a test substitutes.
+ *
+ * @stability experimental
+ */
 export interface GreptimePool {
+  /** Checks out a connection. */
   connect(): Promise<PoolClient>;
+  /** Closes every connection. */
   end(): Promise<void>;
+  /**
+   * Listens for an idle connection's error.
+   *
+   * @param event - always `error`.
+   * @param listener - the handler.
+   */
   on(event: 'error', listener: (error: Error) => void): unknown;
 }
 
@@ -189,6 +224,13 @@ export function rowsAsObjects(result: TelemetryQueryResult): Record<string, unkn
   );
 }
 
+/**
+ * The telemetry store's client: a read-only reader pool and an admin pool,
+ * built from the runtime connection and rebuilt when it changes. Exported by
+ * `TelemetryModule`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class GreptimeClient implements OnModuleDestroy {
   private readonly logger = new Logger(GreptimeClient.name);
@@ -196,6 +238,7 @@ export class GreptimeClient implements OnModuleDestroy {
   /** A pool being built (its password is being read), so concurrent calls share it. */
   private readonly building: Partial<Record<Role, Promise<KeyedPool>>> = {};
 
+  /** @internal */
   constructor(private readonly connection: TelemetryConnectionService) {}
 
   /** Whether the reader connection is configured (admin UI or deployment default). */
@@ -254,6 +297,7 @@ export class GreptimeClient implements OnModuleDestroy {
     }
   }
 
+  /** Closes both pools. */
   async onModuleDestroy(): Promise<void> {
     const pools = Object.values(this.pools).map((entry) => entry.pool);
 

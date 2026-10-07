@@ -27,6 +27,12 @@ import { requireQueryablePolicy, toTelemetryHttpError } from './telemetry-availa
 
 export const TELEMETRY_SCHEMA_CACHE_MS = 30_000;
 
+/**
+ * The telemetry store's tables and columns, cached briefly. Exported by
+ * `TelemetryModule`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class TelemetrySchemaService {
   private cache: { value: TelemetrySchema; readAt: number } | null = null;
@@ -72,6 +78,7 @@ export class TelemetrySchemaService {
     return schema.tables.find((table) => table.name === name) ?? null;
   }
 
+  /** Drops the cached schema so the next read asks the store. */
   invalidateCache(): void {
     this.cache = null;
   }

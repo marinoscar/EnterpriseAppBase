@@ -75,14 +75,25 @@ export interface TelemetrySettingsPatch {
   /** The `app.instance.id` label; `null` follows the app's slug. */
   instanceId?: string | null;
   /** The bounds of an ad-hoc query. */
-  query?: { maxRows?: number; timeoutSeconds?: number };
+  query?: {
+    /** Rows a query returns at most. */
+    maxRows?: number;
+    /** A query's timeout, seconds. */
+    timeoutSeconds?: number;
+  };
   /** The telemetry assistant. */
   assistant?: {
+    /** Whether the assistant is on. */
     enabled?: boolean;
+    /** Its AI provider; `null` clears it. */
     provider?: string | null;
+    /** Its model; `null` clears it. */
     modelId?: string | null;
+    /** Whether row values are shown to the model. */
     shareResults?: boolean;
+    /** Rows per statement the model sees at most. */
     maxResultRowsToModel?: number;
+    /** Model round-trips per turn at most. */
     maxSteps?: number;
   };
 }

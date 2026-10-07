@@ -70,9 +70,18 @@ import {
 /** A `last` table cell older than its part's newest reading by more than this is not current. */
 export const METRIC_FRESH_MS = 150_000;
 
+/**
+ * The window one metric group is computed over, and the previous window of
+ * equal length it is compared with.
+ *
+ * @stability experimental
+ */
 export interface MetricGroupWindow {
+  /** The window's start. */
   from: Date;
+  /** Its end. */
   to: Date;
+  /** The previous window's start (it ends at `from`). */
   previousFrom: Date;
   /** The dashboard's bucket size; metric statements use at least `METRIC_MIN_BUCKET_SECONDS`. */
   bucketSeconds: number;

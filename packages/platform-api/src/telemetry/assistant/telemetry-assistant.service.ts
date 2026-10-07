@@ -129,7 +129,11 @@ import {
 // SQL guard and only ever SHOWN to the user, never run by this service.
 // =============================================================================
 
-/** The audit `action` for one conversation turn. */
+/**
+ * The audit `action` for one conversation turn.
+ *
+ * @stability stable
+ */
 export const TELEMETRY_ASSISTANT_AUDIT_ACTION = 'telemetry:assistant';
 
 /** Hard ceiling on rows handed to the model, whatever the setting says. */
@@ -191,7 +195,11 @@ const FATAL_REASONS: ReadonlySet<TelemetryErrorReason> = new Set([
   TELEMETRY_ERROR_REASONS.DISABLED,
 ]);
 
-/** The system prompt, with the turn's step budget spelled out. */
+/**
+ * The system prompt, with the turn's step budget spelled out.
+ *
+ * @stability experimental
+ */
 export function buildTelemetryAssistantInstructions(maxSteps: number): string {
   return `You are the site reliability engineer and troubleshooting agent for THIS application: a NestJS API and a React web app, instrumented with OpenTelemetry, whose traces, logs and metrics are exported to GreptimeDB. The user asks you about the application's behaviour — errors, slowness, outages, "is anything wrong?", or simply for a query. You investigate with your tools, analyse the actual data yourself, and report what you found.
 

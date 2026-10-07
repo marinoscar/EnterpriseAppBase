@@ -24,7 +24,11 @@ import type { MetricFilterKey, MetricPredicate } from './metric-catalog';
 /** Display units of tiles, series and table columns (part of the wire: `@marinoscar/platform-contract/telemetry`, #702). */
 export { METRIC_UNITS };
 
-/** The request filters a family may honour, and the column each one matches. */
+/**
+ * The request filters a family may honour, and the column each one matches.
+ *
+ * @stability experimental
+ */
 export const METRIC_FILTER_COLUMNS: Record<MetricFilterKey, string> = {
   service: 'service_name',
   instance: 'app_instance_id',

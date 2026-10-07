@@ -51,7 +51,11 @@ import { TELEMETRY_RETENTION_TYPE } from '../handlers/telemetry-retention.handle
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import { StackAgentClient } from './stack-agent.client';
 
-/** The job type. PERMANENT once rows of it exist. */
+/**
+ * The job type. PERMANENT once rows of it exist.
+ *
+ * @stability stable
+ */
 export const TELEMETRY_STACK_DEPLOY_TYPE = 'telemetry.stack.deploy';
 
 /** Cap on the stored agent output, in UTF-8 bytes. */

@@ -12,3 +12,4 @@ export {
 export { COACH_METRIC_GROUP, COACH_METRIC_GROUP_ID } from './coach-metric-group.fixture';
 export { assistantMetricWindow, NODE_FLAGS } from '../assistant/telemetry-assistant.metrics';
 export { buildTelemetryAssistantInstructions } from '../assistant/telemetry-assistant.service';
+export type { MetricGroupWindow } from '../metrics/metric-group';

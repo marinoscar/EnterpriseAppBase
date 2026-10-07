@@ -27,9 +27,13 @@ export {
 } from './dashboard/telemetry-dashboard.verdict';
 export type {
   DashboardVerdict,
+  VerdictCollectorThresholds,
+  VerdictErrorLogThresholds,
   VerdictInput,
   VerdictLevel,
+  VerdictLevelThresholds,
   VerdictThresholds,
+  VerdictUnknownRouteThresholds,
 } from './dashboard/telemetry-dashboard.verdict';
 
 // ---- the host ports: one token per app capability ----------------------------------
@@ -86,7 +90,7 @@ export {
 } from './telemetry.settings';
 export type { TelemetrySettingsPatch } from './telemetry.settings';
 // The namespace's schema is the contract's (#702).
-export { telemetrySettingsSchema } from '@marinoscar/platform-contract/telemetry';
+export { TELEMETRY_LIMITS, telemetrySettingsSchema } from '@marinoscar/platform-contract/telemetry';
 export type { TelemetrySettings } from '@marinoscar/platform-contract/telemetry';
 
 // ---- the services the module exports (what the app may inject) -------------------
@@ -96,6 +100,7 @@ export type { TelemetrySettings } from '@marinoscar/platform-contract/telemetry'
 export { GreptimeClient } from './greptime/greptime.client';
 export type {
   GreptimePool,
+  TelemetryField,
   TelemetryPingResult,
   TelemetryQueryOptions,
   TelemetryQueryResult,
