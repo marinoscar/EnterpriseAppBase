@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { AuthService } from '../auth.service';
+import { requireJwtSecret } from '../../identity.configuration';
 import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 /**
@@ -49,7 +50,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('jwt.secret') || 'fallback-secret',
+      // No fallback (#727): a missing JWT_SECRET is a boot error, never a
+      // signing key published in this package.
+      secretOrKey: requireJwtSecret(configService),
     });
   }
 

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DeviceAuthController } from './device-auth.controller';
 import { DeviceAuthService } from './device-auth.service';
+import { AuthModule } from '../auth/auth.module';
 import { DeviceCodeCleanupTask } from './tasks/device-code-cleanup.task';
 import { DeviceCodeCleanupHandler } from './handlers/device-code-cleanup.handler';
 
@@ -18,8 +19,8 @@ import { DeviceCodeCleanupHandler } from './handlers/device-code-cleanup.handler
  * @stability experimental
  */
 @Module({
-  // `IdentityModule.forRoot()` imports the very AuthModule instance it
-  // mounts (AuthService, JwtModule); the jobs port is the app's global host module.
+  // AuthService and JwtModule; the jobs port is the app's global host module.
+  imports: [AuthModule],
   controllers: [DeviceAuthController],
   providers: [DeviceAuthService, DeviceCodeCleanupTask, DeviceCodeCleanupHandler],
   exports: [DeviceAuthService],

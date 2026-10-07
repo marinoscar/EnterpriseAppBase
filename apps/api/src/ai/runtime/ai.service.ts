@@ -127,7 +127,7 @@ import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import { resolveServiceName } from '../../common/otel/telemetry-identity';
 import { userAiSettingsSchema } from '../../common/schemas/settings.schema';
 import { PrismaService } from '../../prisma/prisma.service';
-import { resolveOrgId } from '../../organizations/org-scope';
+import { resolveOrgId } from '@marinoscar/platform-api/identity';
 import { AiConfigService, providerCallSettings } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
 import type { AiCapability } from '../core/capabilities';

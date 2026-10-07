@@ -11,7 +11,7 @@ import {
   DEFAULT_USER_SETTINGS,
   UserSettingsValue,
 } from '../../common/types/settings.types';
-import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
 
 const principalCacheStub = { invalidate: jest.fn() };
 

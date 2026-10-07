@@ -19,8 +19,8 @@ import { Logger } from '@nestjs/common';
 import { Job, StorageObject } from '@prisma/client';
 
 import { createMockPrismaService, MOCK_DEFAULT_ORG_ID, MockPrismaService } from '../../../test/mocks/prisma.mock';
-import { recordTenancyMode } from '../../auth/tenancy-mode';
-import { MissingOrgScopeError } from '../../organizations/org-scope';
+import { recordTenancyMode } from '@marinoscar/platform-api/identity';
+import { MissingOrgScopeError } from '@marinoscar/platform-api/identity';
 import type { JobSettledEvent } from '../../jobs/events/job-settled.event';
 import type { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';

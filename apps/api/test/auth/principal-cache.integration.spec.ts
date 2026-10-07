@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { JwtService } from '@nestjs/jwt';
 
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 import { closeTestApp, createTestApp, TestContext } from '../helpers/test-app.helper';

@@ -33,7 +33,7 @@ import {
 } from '@marinoscar/platform-api/doctor';
 
 import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
-import { AuthService } from '../../src/auth/auth.service';
+import { AuthService } from '@marinoscar/platform-api/identity';
 import { DeploymentNetworkService } from '../../src/common/deployment/deployment-network.service';
 import { EmailSettingsService } from '../../src/email/email-settings.service';
 import { PushConfigService } from '../../src/notifications/push-config.service';

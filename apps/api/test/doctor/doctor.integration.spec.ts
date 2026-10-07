@@ -32,7 +32,7 @@ import {
 } from '@marinoscar/platform-contract/doctor';
 import { z } from 'zod';
 
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { doctorModule } from '../../src/doctor/doctor.config';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';

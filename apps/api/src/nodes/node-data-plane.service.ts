@@ -99,7 +99,7 @@ import { randomUUID } from 'node:crypto';
 
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { PrismaService } from '../prisma/prisma.service';
-import { resolveJobOrgId } from '../organizations/org-scope';
+import { resolveJobOrgId } from '@marinoscar/platform-api/identity';
 import { STORAGE_PROVIDER } from '../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import {

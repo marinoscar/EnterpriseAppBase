@@ -75,7 +75,7 @@ import {
   createMockViewerUser,
   authHeader,
 } from '../helpers/auth-mock.helper';
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { CredentialsService } from '../../src/credentials/credentials.service';
 import { StorageConfigController } from '../../src/storage/config/storage-config.controller';
 

@@ -38,7 +38,7 @@ import { Readable, Transform } from 'node:stream';
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { resolveOrgId } from '../../organizations/org-scope';
+import { resolveOrgId } from '@marinoscar/platform-api/identity';
 import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/providers/storage-provider.interface';
 import { mimeTypeMatches, normaliseMimeType } from '../../storage/mime-type-match';
 import { AiError } from '../core/ai-error';

@@ -26,15 +26,17 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { DeviceCodeStatus, type PrismaClient } from '@prisma/client';
 
-import { AuthService } from '../../src/auth/auth.service';
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
+import { AuthService } from '@marinoscar/platform-api/identity';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
-import { DeviceAuthService } from '../../src/device-auth/device-auth.service';
-import { PatService } from '../../src/pat/pat.service';
-import { OrganizationsService } from '../../src/organizations/organizations.service';
-import { TenancyService } from '../../src/organizations/tenancy.service';
+import { DeviceAuthService } from '@marinoscar/platform-api/identity';
+import { PatService } from '@marinoscar/platform-api/identity';
+import { OrganizationsService } from '@marinoscar/platform-api/identity';
+import { TenancyService } from '@marinoscar/platform-api/identity';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';
+
 
 const { describeWithDb } = resolveDbSuite('device-session-revocation.db.spec');
 
@@ -108,6 +110,9 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
       // by the sign-in rule (single mode: the default org).
       new OrganizationsService(prisma, principalCache),
       new TenancyService(config),
+      undefined,
+      new AppUserDefaults(),
+      new AppProfileImages(),
     );
     deviceAuth = new DeviceAuthService(
       prisma,

@@ -13,7 +13,7 @@ import {
   createMockPrismaService,
   MockPrismaService,
 } from '../../test/mocks/prisma.mock';
-import { UsersService } from '../users/users.service';
+import { UsersService } from '@marinoscar/platform-api/identity';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
@@ -23,7 +23,7 @@ import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
 } from './notification.types';
-import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
 
 const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 

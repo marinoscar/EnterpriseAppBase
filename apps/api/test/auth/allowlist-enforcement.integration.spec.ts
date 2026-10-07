@@ -1,19 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationsService } from '../../src/notifications/notifications.service';
-import { AuthService } from '../../src/auth/auth.service';
-import { AllowlistService } from '../../src/allowlist/allowlist.service';
+import { AuthService } from '@marinoscar/platform-api/identity';
+import { AllowlistService } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { AdminBootstrapService } from '../../src/common/services/admin-bootstrap.service';
+import { AdminBootstrapService } from '@marinoscar/platform-api/identity';
 import { ForbiddenException } from '@nestjs/common';
 import { resetPrismaMock, prismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.factory';
-import { GoogleProfile } from '../../src/auth/strategies/google.strategy';
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
-import { OrganizationsService } from '../../src/organizations/organizations.service';
-import { TenancyService } from '../../src/organizations/tenancy.service';
+import { GoogleProfile } from '@marinoscar/platform-api/identity';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
+import { OrganizationsService } from '@marinoscar/platform-api/identity';
+import { TenancyService } from '@marinoscar/platform-api/identity';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 

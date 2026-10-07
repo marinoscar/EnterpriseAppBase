@@ -28,19 +28,19 @@
 // would hit a frozen registry (packages/platform-api/src/core/registry/README.md).
 // =============================================================================
 
-import { ALLOWLIST_NOTIFICATIONS } from '../../allowlist/allowlist.notifications';
+import { ALLOWLIST_NOTIFICATIONS } from '../../identity-extensions/notifications/allowlist.notifications';
 import {
   APP_EMAIL_TEMPLATES,
   APP_NOTIFICATIONS,
   APP_NOTIFICATION_CHANNELS,
 } from '../../app-registrations/notifications';
-import { AUTH_NOTIFICATIONS } from '../../auth/auth.notifications';
+import { AUTH_NOTIFICATIONS } from '../../identity-extensions/notifications/auth.notifications';
 import { DB_BACKUP_NOTIFICATIONS } from '../../db-backup/db-backup.notifications';
 import type { EmailTemplate } from '../../email/templates/email-template.types';
 import { PLATFORM_EMAIL_TEMPLATES } from '../../email/templates/platform-email-templates';
 import { NODES_NOTIFICATIONS } from '../../nodes/nodes.notifications';
-import { USERS_NOTIFICATIONS } from '../../users/users.notifications';
-import { ORGANIZATIONS_NOTIFICATIONS } from '../../organizations/organizations.notifications';
+import { USERS_NOTIFICATIONS } from '../../identity-extensions/notifications/users.notifications';
+import { ORGANIZATIONS_NOTIFICATIONS } from '../../identity-extensions/notifications/organizations.notifications';
 import { SHARING_NOTIFICATIONS } from '../../platform/sharing/sharing.notifications';
 import { BROADCASTS_NOTIFICATIONS } from '../broadcasts/broadcasts.notifications';
 import { OPS_NOTIFICATIONS } from '../ops/ops.notifications';

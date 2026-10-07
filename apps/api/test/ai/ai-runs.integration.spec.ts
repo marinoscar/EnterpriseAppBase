@@ -15,7 +15,7 @@
 
 import request from 'supertest';
 
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';
 import { AiRunsController } from '../../src/ai/http/ai-runs.controller';
 import { AI_RESPONSE_RUN_TYPE } from '../../src/ai/runtime/ai-runs.service';
