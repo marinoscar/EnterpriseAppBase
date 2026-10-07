@@ -142,7 +142,7 @@ export function requestSpanAttributesHook(
  *
  * @example
  * ```ts
- * registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), configService.get('otel.enabled') === true);
+ * registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), process.env.OTEL_ENABLED === 'true');
  * ```
  *
  * @extensionPoint hook

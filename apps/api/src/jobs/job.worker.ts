@@ -97,7 +97,7 @@ import { Context, Span, SpanKind, SpanStatusCode, context, trace } from '@opente
 import { Job } from '@prisma/client';
 
 import { EVENT_BUS, type EventBus } from '../common/event-bus/event-bus.interface';
-import { resolveServiceName } from '../common/otel/service-name';
+import { resolveServiceName } from '../common/otel/telemetry-identity';
 
 import { JobClaimService } from './job-claim.service';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';

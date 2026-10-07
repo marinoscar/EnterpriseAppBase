@@ -1174,7 +1174,7 @@ export const systemAiPatchSchema = z.object({
 // `app.instance.id` on everything this deployment exports, so several
 // deployments can share one telemetry store and still be told apart. NULLABLE,
 // and `null` is the default: it means "follow `APP_SLUG`"
-// (`common/otel/instance-id.ts`), so a renamed fork follows its new name until
+// (`common/otel/telemetry-identity.ts`), so a renamed fork follows its new name until
 // an administrator overrides it. The pattern keeps it a lowercase, label-safe
 // token of at most 63 characters (a DNS label's bound), valid unquoted in a
 // PromQL matcher and a SQL literal alike.
