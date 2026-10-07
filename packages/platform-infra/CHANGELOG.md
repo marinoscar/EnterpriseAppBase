@@ -1,5 +1,7 @@
 # @marinoscar/platform-infra
 
+## 0.1.0-next.1
+
 ## 0.1.0-next.0
 
 ### Minor Changes

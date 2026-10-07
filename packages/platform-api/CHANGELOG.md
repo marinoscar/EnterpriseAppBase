@@ -1,5 +1,11 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.1
+
+### Minor Changes
+
+- 1ca1ff0: core: add the principal and scope types, HttpExceptionFilter with ErrorDto and its exceptions, the secret cipher with verifyEncryptionKeyAtStartup, and the openApiTags registry.
+
 ## 0.1.0-next.0
 
 ### Minor Changes
