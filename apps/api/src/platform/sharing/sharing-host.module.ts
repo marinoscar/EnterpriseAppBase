@@ -6,7 +6,7 @@
 //   SHARING_EVENT_BUS      the process's EVENT_BUS (global EventBusModule)
 //   SHARING_EVENT_EMITTER  EventEmitter2 (EventEmitterModule.forRoot in app.module.ts)
 //   SHARING_NOTIFIER       SharingNotifierAdapter (NotificationsService)
-//   SHARING_TENANCY        TenancyService (OrganizationsModule)
+//   SHARING_TENANCY        TenancyService (the identity slice's OrganizationsModule)
 // =============================================================================
 
 import { Module } from '@nestjs/common';
@@ -18,11 +18,10 @@ import {
   SHARING_NOTIFIER,
   SHARING_TENANCY,
 } from '@marinoscar/platform-api/sharing';
+import { OrganizationsModule, TenancyService } from '@marinoscar/platform-api/identity';
 
 import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
 import { NotificationsModule } from '../../notifications/notifications.module';
-import { OrganizationsModule } from '../../organizations/organizations.module';
-import { TenancyService } from '../../organizations/tenancy.service';
 import { SharingDataAdapter } from './sharing-data.adapter';
 import { SharingNotifierAdapter } from './sharing-notifier.adapter';
 
