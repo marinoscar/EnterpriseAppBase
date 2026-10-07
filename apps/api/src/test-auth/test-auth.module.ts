@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
 import { TestAuthController } from './test-auth.controller';
 import { TestAuthService } from './test-auth.service';
 
@@ -23,6 +24,8 @@ import { TestAuthService } from './test-auth.service';
     }),
     ConfigModule,
     PrismaModule,
+    // PP-6.1 (#721): a new test user joins the default org.
+    OrganizationsModule,
   ],
   controllers: [TestAuthController],
   providers: [TestAuthService],

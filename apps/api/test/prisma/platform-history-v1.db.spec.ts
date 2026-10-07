@@ -3,7 +3,9 @@
 // =============================================================================
 //
 // The 22 migrations of the base moved into `@marinoscar/platform-db` as
-// `0001_initial` .. `0022_add_retention_created_at_indexes`, and the app's own
+// `0001_initial` .. `0022_add_retention_created_at_indexes` (later platform
+// migrations, such as `0023_add_organizations`, are appended after them and
+// are counted from `platform.lock`, so this suite does not change with them), and the app's own
 // `prisma/migrations` directories kept their names. Two claims hold that
 // together, and a mocked Prisma cannot prove either:
 //
@@ -138,7 +140,7 @@ describeWithDb('platform history v1 against real Postgres', () => {
   it('prisma migrate status says up to date for a database migrated from the app directories', () => {
     const status = prismaCli('migrate', 'status');
     expect(status.status).toBe(0);
-    expect(status.stdout).toContain('22 migrations found in prisma/migrations');
+    expect(status.stdout).toContain(`${lock.migrations.length} migrations found in prisma/migrations`);
     expect(status.stdout).toContain('Database schema is up to date!');
     expect(`${status.stdout}${status.stderr}`).not.toMatch(/not yet been applied|modified|missing from/i);
   });
@@ -157,8 +159,8 @@ describeWithDb('platform history v1 against real Postgres', () => {
     });
     expect(check.stderr).toBe('');
     expect(check.status).toBe(0);
-    expect(check.stdout).toContain('22 installed platform migration(s)');
-    expect(check.stdout).toContain('22 ledger row(s) match the files');
+    expect(check.stdout).toContain(`${lock.migrations.length} installed platform migration(s)`);
+    expect(check.stdout).toContain(`${lock.migrations.length} ledger row(s) match the files`);
 
     const prisma = prismaClientFor(EXISTING);
     try {

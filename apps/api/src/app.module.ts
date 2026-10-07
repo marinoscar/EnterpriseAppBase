@@ -9,6 +9,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { EventBusModule } from './common/event-bus/event-bus.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
+import { OrganizationsModule } from './organizations/organizations.module';
 import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
 import { ProfileImageModule } from './settings/profile-image/profile-image.module';
@@ -80,6 +81,9 @@ import configuration from './config/configuration';
     // Feature modules
     CommonModule,
     AuthModule,
+    // Organizations (PP-6.1, #721): the tenancy foundation. Providers only
+    // until the admin API (PP-6.8) and switch-org (PP-6.4).
+    OrganizationsModule,
     UsersModule,
     SettingsModule,
     // Uploaded profile pictures (#367): its own module because it needs the

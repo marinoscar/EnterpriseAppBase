@@ -45,6 +45,24 @@ export interface PlatformSeedInput {
   systemSettingsDefaults: Readonly<Record<string, unknown>>;
   /** The email of the initial administrator. When set, it is added to the allowlist (lower-cased, never updated). */
   initialAdminEmail?: string;
+  /**
+   * The default organization created when the database has none (default:
+   * `Default organization`, slug `default`). Never updated afterwards: an
+   * administrator may rename it.
+   */
+  defaultOrganization?: SeedDefaultOrganization;
+}
+
+/**
+ * The default organization as the seed creates it.
+ *
+ * @stability experimental
+ */
+export interface SeedDefaultOrganization {
+  /** Display name. */
+  name: string;
+  /** Unique slug, lower-case `[a-z0-9-]`, 2 to 63 characters. */
+  slug: string;
 }
 
 /**
@@ -77,6 +95,8 @@ export interface SeedSummary {
   skippedGrants: string[];
   /** The allowlisted initial administrator (lower-cased), or `null` when none was given. */
   allowlistedEmail: string | null;
+  /** True when this run created the default organization; false when one already existed. */
+  defaultOrganizationCreated: boolean;
 }
 
 /**
@@ -180,6 +200,28 @@ export interface SeedAllowedEmailDelegate {
 }
 
 /**
+ * The delegate of `organizations`.
+ *
+ * @stability experimental
+ */
+export interface SeedOrganizationDelegate {
+  /**
+   * Find the default organization, whatever its slug has become.
+   *
+   * @param args - Filters on `isDefault`.
+   * @returns The row, or `null` when none is flagged default.
+   */
+  findFirst(args: { where: { isDefault: true } }): PromiseLike<SeedRowId | null>;
+  /**
+   * Create the default organization when its slug is free; an existing row is left as it is.
+   *
+   * @param args - Keyed on `slug`.
+   * @returns Anything awaitable.
+   */
+  upsert(args: SeedUpsertArgs<{ slug: string }, Record<string, never>, { name: string; slug: string; isDefault: true }>): PromiseLike<unknown>;
+}
+
+/**
  * The part of a generated Prisma client the seed uses, as a structural type.
  * The package compiles against these types and never imports or bundles a
  * client: pass the app's `PrismaClient` (or a fake in a test).
@@ -197,4 +239,6 @@ export interface SeedPrisma {
   systemSettings: SeedSystemSettingsDelegate;
   /** The `allowed_emails` table. */
   allowedEmail: SeedAllowedEmailDelegate;
+  /** The `organizations` table. */
+  organization: SeedOrganizationDelegate;
 }

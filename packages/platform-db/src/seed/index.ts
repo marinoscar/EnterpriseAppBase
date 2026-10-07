@@ -4,10 +4,12 @@ export { platformSeedInputFrom, readSeedSnapshot, type PermissionCatalogSnapshot
 export type {
   PlatformSeedInput,
   SeedAllowedEmailDelegate,
+  SeedDefaultOrganization,
   SeedJsonValue,
   SeedLogger,
   SeedNamedDelegate,
   SeedNamedEntry,
+  SeedOrganizationDelegate,
   SeedPrisma,
   SeedRowId,
   SeedRolePermissionDelegate,

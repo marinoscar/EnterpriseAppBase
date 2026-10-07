@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService, mockPrismaTransaction } from '../../test/mocks/prisma.mock';
 import { TestLoginDto } from './dto/test-login.dto';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import { OrganizationsService } from '../organizations/organizations.service';
 
 const principalCacheStub = { invalidate: jest.fn() };
 
@@ -56,6 +57,10 @@ describe('TestAuthService', () => {
       return arg;
     });
 
+    // PP-6.1 (#721): the default organization a new test user joins.
+    mockPrisma.organization.findFirst.mockResolvedValue({ id: 'org-default', isDefault: true } as any);
+    mockPrisma.membership.upsert.mockResolvedValue({ id: 'membership-1' } as any);
+
     mockJwtService = {
       sign: jest.fn().mockReturnValue('mock-jwt-token'),
       signAsync: jest.fn().mockResolvedValue('mock-jwt-token'),
@@ -76,6 +81,8 @@ describe('TestAuthService', () => {
         TestAuthService,
         // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
         { provide: PrincipalCache, useValue: principalCacheStub },
+        // PP-6.1 (#721): the real service over the mocked Prisma.
+        OrganizationsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
@@ -125,6 +132,72 @@ describe('TestAuthService', () => {
       expect(result.user.email).toBe(dto.email);
       expect(result.user.roles).toContain('viewer');
       expect(mockPrisma.user.create).toHaveBeenCalled();
+    });
+
+    // PP-6.1 (#721): a new test user joins the default org, atomically.
+    it('creates exactly one membership in the default org for a new user, inside the transaction', async () => {
+      const dto: TestLoginDto = { email: 'newmember@example.com', role: 'viewer' };
+      const mockUser = {
+        id: 'user-9',
+        email: dto.email,
+        displayName: 'newmember',
+        isActive: true,
+        userRoles: [{ role: mockViewerRole }],
+      };
+      const order: string[] = [];
+      (mockPrisma.$transaction as jest.Mock).mockImplementation(async (arg: any) => {
+        if (typeof arg !== 'function') return Array.isArray(arg) ? Promise.all(arg) : arg;
+        order.push('tx:begin');
+        const result = await arg(mockPrisma);
+        order.push('tx:end');
+        return result;
+      });
+      mockPrisma.membership.upsert.mockImplementation((async () => {
+        order.push('membership');
+        return { id: 'membership-1' };
+      }) as any);
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValue(mockUser as any);
+      mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.userRole.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.loginAsTestUser(dto);
+
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { orgId_userId: { orgId: 'org-default', userId: 'user-9' } },
+        }),
+      );
+      // The user is created and joined inside the first transaction.
+      expect(order.slice(0, 3)).toEqual(['tx:begin', 'membership', 'tx:end']);
+    });
+
+    it('rejects, without issuing tokens, when the membership write fails for a new user', async () => {
+      const dto: TestLoginDto = { email: 'rollback@example.com', role: 'viewer' };
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+      mockPrisma.user.create.mockResolvedValue({ id: 'user-10', email: dto.email, userRoles: [] } as any);
+      mockPrisma.membership.upsert.mockRejectedValue(new Error('membership insert failed'));
+
+      await expect(service.loginAsTestUser(dto)).rejects.toThrow('membership insert failed');
+
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('does not create a membership for an existing user', async () => {
+      const dto: TestLoginDto = { email: 'already@example.com', role: 'viewer' };
+      const mockUser = { id: 'user-11', email: dto.email, userRoles: [{ role: mockViewerRole }] };
+      mockPrisma.user.findUnique.mockResolvedValue(mockUser as any);
+      mockPrisma.role.findUnique.mockResolvedValue(mockViewerRole as any);
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.userRole.create.mockResolvedValue({} as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+
+      await service.loginAsTestUser(dto);
+
+      expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
     });
 
     it('should find existing user if email exists', async () => {
@@ -455,6 +528,8 @@ describe('TestAuthService', () => {
       };
 
       mockPrisma.user.findUnique.mockResolvedValue(null);
+      // The new user is created (and joined to the default org) before the role lookup.
+      mockPrisma.user.create.mockResolvedValue({ id: 'user-x', email: dto.email, userRoles: [] } as any);
       mockPrisma.role.findUnique.mockResolvedValue(null); // Role not found
 
       await expect(service.loginAsTestUser(dto)).rejects.toThrow('Role viewer not found');

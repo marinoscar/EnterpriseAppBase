@@ -26,6 +26,10 @@ model User {
   allowlistEntry         AllowedEmail?           @relation("AllowlistClaimedBy")
   deviceCodes            DeviceCode[]            @relation("UserDeviceCodes")
   personalAccessTokens   PersonalAccessToken[]   @relation("UserPersonalAccessTokens")
+  memberships            Membership[]
+  organizationsCreated   Organization[]          @relation("OrganizationCreatedBy")
+  invitesSent            Invite[]                @relation("InviteInvitedBy")
+  invitesAccepted        Invite[]                @relation("InviteAcceptedBy")
 
   // composed from package:ai.prisma
   // AI platform (#423, epic #419). Four relations, four different
@@ -189,14 +193,20 @@ model RefreshToken {
   // interactive login flow, not the device flow. `SetNull` because a device
   // code can be purged independently of the token lifecycle it kicked off.
   deviceCodeId String?   @map("device_code_id") @db.Uuid
+  // The organization this session is active in (PP-6.1). Nullable (expand
+  // step); backfilled to the default organization. Carried by the active-org
+  // token (PP-6.4). `Cascade`: a credential has no meaning once its org is gone.
+  orgId        String?   @map("org_id") @db.Uuid
 
   // Relations
-  user       User        @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
-  deviceCode DeviceCode? @relation(fields: [deviceCodeId], references: [id], onDelete: SetNull)
+  user       User          @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+  deviceCode DeviceCode?   @relation(fields: [deviceCodeId], references: [id], onDelete: SetNull)
+  org        Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
   @@index([deviceCodeId])
+  @@index([orgId])
   @@map("refresh_tokens")
 }
 
@@ -222,9 +232,13 @@ model PersonalAccessToken {
   lastUsedAt    DateTime?       @map("last_used_at") @db.Timestamptz
   createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz
   revokedAt     DateTime?       @map("revoked_at") @db.Timestamptz
+  // The organization the token acts in (PP-6.1). Nullable (expand step);
+  // backfilled to the default organization. `Cascade`: see `RefreshToken.orgId`.
+  orgId         String?         @map("org_id") @db.Uuid
 
   // Relations
-  user        User         @relation("UserPersonalAccessTokens", fields: [userId], references: [id], onDelete: Cascade)
+  user        User          @relation("UserPersonalAccessTokens", fields: [userId], references: [id], onDelete: Cascade)
+  org         Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   // The device-authorization sessions that issued this PAT (issue #518).
   // Almost always at most one, but not constrained `@unique` here — see
   // `DeviceCode.patId`.
@@ -232,6 +246,7 @@ model PersonalAccessToken {
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([orgId])
   @@map("personal_access_tokens")
 }
 
@@ -305,8 +320,14 @@ model DeviceCode {
   // session-revocation endpoint after. Null means still active.
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz
 
+  // The organization the approved device session acts in (PP-6.1). Nullable
+  // (expand step); backfilled to the default organization. `Cascade`: see
+  // `RefreshToken.orgId`.
+  orgId String? @map("org_id") @db.Uuid
+
   // Relations
   user User?                @relation("UserDeviceCodes", fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization?        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   pat  PersonalAccessToken? @relation(fields: [patId], references: [id], onDelete: SetNull)
 
   // Back-relation: refresh tokens minted through this device-authorization
@@ -323,5 +344,94 @@ model DeviceCode {
   // `revokedAt IS NULL`; the remaining collected/expiry filtering happens
   // in the query predicate, not a second index.
   @@index([userId, revokedAt])
+  @@index([orgId])
   @@map("device_codes")
+}
+
+// =============================================================================
+// Organizations (tenancy foundation, PP-6.1)
+// =============================================================================
+//
+// Identity tables, read across organizations at login and guarded by service
+// code: no RLS here (ADR 0002). The default organization is unique by the
+// raw-SQL partial index `organizations_default_uniq_idx` (migration SQL only;
+// Prisma cannot express it). Membership and invite roles arrive with PP-6.3.
+
+enum MembershipStatus {
+  active
+  suspended
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+model Organization {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  // Lower-case [a-z0-9-], 2..63 characters (validated by the service).
+  slug        String   @unique
+  // Exactly one row is true: organizations_default_uniq_idx.
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  createdBy            User?                 @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  memberships          Membership[]
+  invites              Invite[]
+  refreshTokens        RefreshToken[]
+  personalAccessTokens PersonalAccessToken[]
+  deviceCodes          DeviceCode[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id           String           @id @default(uuid()) @db.Uuid
+  orgId        String           @map("org_id") @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  status       MembershipStatus @default(active)
+  // Picks the default active organization at login (PP-6.4).
+  lastActiveAt DateTime?        @map("last_active_at") @db.Timestamptz
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+model Invite {
+  id           String       @id @default(uuid()) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  // Stored lower-cased.
+  email        String
+  status       InviteStatus @default(pending)
+  // sha256 of an emailed accept token, if one is used.
+  tokenHash    String?      @unique @map("token_hash")
+  expiresAt    DateTime?    @map("expires_at") @db.Timestamptz
+  invitedById  String?      @map("invited_by_id") @db.Uuid
+  acceptedById String?      @map("accepted_by_id") @db.Uuid
+  acceptedAt   DateTime?    @map("accepted_at") @db.Timestamptz
+  notes        String?
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy  User?        @relation("InviteInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedBy User?        @relation("InviteAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  // Re-inviting updates the row.
+  @@unique([orgId, email])
+  @@index([email])
+  @@map("org_invites")
 }

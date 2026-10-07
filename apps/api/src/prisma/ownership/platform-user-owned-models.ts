@@ -70,6 +70,14 @@ export const PLATFORM_USER_OWNED_MODELS = [
       'A short-lived device authorization exchange; nothing worth exporting. The owner is null until a user approves the code.',
   },
   {
+    model: 'Membership',
+    ownerField: 'userId',
+    purge: 'delete',
+    export: 'include',
+    rationale:
+      "The user's membership of an organization (PP-6.1). It means nothing without the user; the export lists which organizations the user belongs to.",
+  },
+  {
     model: 'UserCredential',
     ownerField: 'userId',
     purge: 'delete',
@@ -194,6 +202,21 @@ export const PLATFORM_USER_OWNED_MODELS = [
     purge: 'detach',
     export: 'exclude',
     rationale: 'A deployment backup; it records who started it and who restored it.',
+  },
+  {
+    model: 'Organization',
+    actorFields: ['createdById'],
+    purge: 'detach',
+    export: 'exclude',
+    rationale: 'A tenancy boundary, owned by the deployment and its members, not by the user who created it (PP-6.1); the creator is only recorded.',
+  },
+  {
+    model: 'Invite',
+    actorFields: ['invitedById', 'acceptedById'],
+    purge: 'detach',
+    export: 'exclude',
+    rationale:
+      'An organization invitation (PP-6.1). It records who invited the address and who accepted; neither owns it, and it outlives both users (SetNull).',
   },
   {
     model: 'AiModel',

@@ -7,6 +7,7 @@ import { TestLoginDto } from './dto/test-login.dto';
 import { JwtPayload } from '../auth/strategies/jwt.strategy';
 import { DEFAULT_USER_SETTINGS } from '../common/types/settings.types';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import { OrganizationsService } from '../organizations/organizations.service';
 
 export interface TestAuthTokenResponse {
   accessToken: string;
@@ -30,6 +31,8 @@ export class TestAuthService {
     private readonly configService: ConfigService,
     // PP-1.12 (#683): the role swap below must reach the next request.
     private readonly principalCache: PrincipalCache,
+    // PP-6.1 (#721): a new test user joins the default organization.
+    private readonly organizations: OrganizationsService,
   ) {}
 
   /**
@@ -56,25 +59,33 @@ export class TestAuthService {
       // Create new user
       const displayName = dto.displayName || email.split('@')[0];
 
-      user = await this.prisma.user.create({
-        data: {
-          email,
-          displayName,
-          isActive: true,
-          // Create default user settings
-          userSettings: {
-            create: {
-              value: DEFAULT_USER_SETTINGS as any,
+      // Same shape as `AuthService.createNewUser`: the user and its default
+      // org membership are created in one transaction (PP-6.1, #721).
+      const defaultOrg = await this.organizations.getDefaultOrg();
+
+      user = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+          data: {
+            email,
+            displayName,
+            isActive: true,
+            // Create default user settings
+            userSettings: {
+              create: {
+                value: DEFAULT_USER_SETTINGS as any,
+              },
             },
           },
-        },
-        include: {
-          userRoles: {
-            include: {
-              role: true,
+          include: {
+            userRoles: {
+              include: {
+                role: true,
+              },
             },
           },
-        },
+        });
+        await this.organizations.ensureMembership(tx, defaultOrg.id, created.id);
+        return created;
       });
 
       this.logger.log(`Created test user: ${email}`);

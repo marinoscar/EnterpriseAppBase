@@ -35,6 +35,15 @@
       "reason": "At most one pending or running database backup at a time: a constant-expression partial unique index Prisma cannot express.",
       "doc": "docs/specs/database-backup.md",
       "createdIn": "0010_add_database_backup_runs"
+    },
+    {
+      "name": "organizations_default_uniq_idx",
+      "table": "organizations",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX organizations_default_uniq_idx ON public.organizations USING btree ((true)) WHERE is_default",
+      "reason": "Exactly one default organization: a constant-expression partial unique index Prisma cannot express (the default org is a database fact, not a findFirst check).",
+      "doc": "docs/specs/platform-packages.md",
+      "createdIn": "0023_add_organizations"
     }
   ]
 }

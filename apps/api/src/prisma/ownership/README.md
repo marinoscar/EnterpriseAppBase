@@ -26,7 +26,7 @@ The principal and scope types: [ADR 0001](../../../../../docs/adr/0001-org-aware
 
 | File | What it holds |
 |---|---|
-| `platform-user-owned-models.ts` | The platform inventory: 23 models, 25 `User` foreign keys, typed `UserOwnedModelDef<Prisma.ModelName>`. Pure data. The entries move next to their slices when the slices become packages. |
+| `platform-user-owned-models.ts` | The platform inventory: 26 models, 29 `User` foreign keys, typed `UserOwnedModelDef<Prisma.ModelName>`. Pure data. The entries move next to their slices when the slices become packages. |
 | `user-owned-model.manifest.ts` | Registers the platform inventory, then `app-registrations/user-owned-models.ts`, into the package's `userOwnedModelRegistry`. |
 | `scoped-prisma.service.ts` | `ScopedPrismaService` (`forUser`, `forScope`, `asSystem`): a thin Nest wrapper over the package's `userScopeExtension` and `asSystem`, plus the debug log line. Provided and exported by the global `PrismaModule`. |
 | `index.ts` | The barrel (`ScopedPrismaService`, `UserScopedClient`, `PLATFORM_USER_OWNED_MODELS`). Importing it fills the registry. The registry, `ScopedAccessError`, `ownerFieldOf` and friends are imported from `@marinoscar/platform-api/core`. |
