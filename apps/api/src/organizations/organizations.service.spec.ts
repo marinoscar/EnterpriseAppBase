@@ -292,4 +292,122 @@ describe('OrganizationsService', () => {
       await expect(service.signInOrgId({ id: 'user-1', memberships: [] }, 'multi')).resolves.toBeNull();
     });
   });
+
+  // #726 (PP-6.7): invitations claimed at sign-in.
+  describe('claimPendingInvites', () => {
+    const future = new Date(Date.now() + 86_400_000);
+    const past = new Date(Date.now() - 86_400_000);
+
+    function invite(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'invite-1',
+        orgId: 'org-b',
+        email: 'new@example.com',
+        status: 'pending',
+        expiresAt: future,
+        roleId: 'role-org_admin',
+        role: { id: 'role-org_admin', name: 'org_admin' },
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      prisma.$transaction.mockImplementation((async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)) as never);
+      prisma.invite.updateMany.mockResolvedValue({ count: 1 } as any);
+    });
+
+    it('returns 0 and writes nothing when there is no pending invitation', async () => {
+      prisma.invite.findMany.mockResolvedValue([] as any);
+
+      await expect(service.claimPendingInvites('user-1', 'New@Example.com')).resolves.toBe(0);
+      expect(prisma.invite.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { email: 'new@example.com', status: 'pending' } }),
+      );
+      expect(principalCache.invalidateUser).not.toHaveBeenCalled();
+    });
+
+    it('creates the membership with the invitation role and marks the invitation accepted', async () => {
+      prisma.invite.findMany.mockResolvedValue([invite()] as any);
+      prisma.membership.findUnique.mockResolvedValue(null);
+
+      await expect(service.claimPendingInvites('user-1', 'new@example.com')).resolves.toBe(1);
+
+      expect(prisma.invite.updateMany).toHaveBeenCalledWith({
+        where: { id: 'invite-1', status: 'pending' },
+        data: { status: 'accepted', acceptedById: 'user-1', acceptedAt: expect.any(Date) },
+      });
+      expect(prisma.membership.create).toHaveBeenCalledWith({
+        data: { orgId: 'org-b', userId: 'user-1', roleId: 'role-org_admin', lastActiveAt: expect.any(Date) },
+      });
+      expect(prisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ action: 'org:invite_accepted', targetId: 'invite-1' }),
+      });
+      expect(principalCache.invalidateUser).toHaveBeenCalledWith('user-1');
+    });
+
+    it('upgrades an existing lower membership role', async () => {
+      prisma.invite.findMany.mockResolvedValue([invite()] as any);
+      prisma.membership.findUnique.mockResolvedValue({ id: 'm-1', role: { name: 'viewer' } } as any);
+
+      await service.claimPendingInvites('user-1', 'new@example.com');
+
+      expect(prisma.membership.update).toHaveBeenCalledWith({ where: { id: 'm-1' }, data: { roleId: 'role-org_admin' } });
+      expect(prisma.membership.create).not.toHaveBeenCalled();
+    });
+
+    it('never downgrades an existing higher membership role', async () => {
+      prisma.invite.findMany.mockResolvedValue([
+        invite({ roleId: 'role-viewer', role: { id: 'role-viewer', name: 'viewer' } }),
+      ] as any);
+      prisma.membership.findUnique.mockResolvedValue({ id: 'm-1', role: { name: 'contributor' } } as any);
+
+      await expect(service.claimPendingInvites('user-1', 'new@example.com')).resolves.toBe(1);
+
+      expect(prisma.membership.update).not.toHaveBeenCalled();
+      expect(prisma.membership.create).not.toHaveBeenCalled();
+    });
+
+    it('grants the default org role for an invitation without a role', async () => {
+      prisma.invite.findMany.mockResolvedValue([invite({ roleId: null, role: null })] as any);
+      prisma.role.findUnique.mockResolvedValue({ id: 'role-viewer', name: 'viewer' } as any);
+      prisma.membership.findUnique.mockResolvedValue(null);
+
+      await service.claimPendingInvites('user-1', 'new@example.com');
+
+      expect(prisma.role.findUnique).toHaveBeenCalledWith({ where: { name: 'viewer' }, select: { id: true, name: true } });
+      expect(prisma.membership.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ roleId: 'role-viewer' }),
+      });
+    });
+
+    it('marks a lapsed invitation expired, lazily, and grants nothing', async () => {
+      prisma.invite.findMany.mockResolvedValue([invite({ expiresAt: past })] as any);
+
+      await expect(service.claimPendingInvites('user-1', 'new@example.com')).resolves.toBe(0);
+
+      expect(prisma.invite.updateMany).toHaveBeenCalledWith({
+        where: { id: 'invite-1', status: 'pending' },
+        data: { status: 'expired' },
+      });
+      expect(prisma.membership.create).not.toHaveBeenCalled();
+      expect(principalCache.invalidateUser).not.toHaveBeenCalled();
+    });
+
+    it('grants nothing when a concurrent sign-in already claimed the invitation', async () => {
+      prisma.invite.findMany.mockResolvedValue([invite()] as any);
+      prisma.invite.updateMany.mockResolvedValue({ count: 0 } as any);
+
+      await expect(service.claimPendingInvites('user-1', 'new@example.com')).resolves.toBe(0);
+      expect(prisma.membership.create).not.toHaveBeenCalled();
+    });
+
+    it('claims each organization in its own transaction', async () => {
+      prisma.invite.findMany.mockResolvedValue([invite(), invite({ id: 'invite-2', orgId: 'org-c' })] as any);
+      prisma.membership.findUnique.mockResolvedValue(null);
+
+      await expect(service.claimPendingInvites('user-1', 'new@example.com')).resolves.toBe(2);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+      expect(principalCache.invalidateUser).toHaveBeenCalledTimes(1);
+    });
+  });
 });

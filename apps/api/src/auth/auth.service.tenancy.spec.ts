@@ -247,6 +247,56 @@ describe('AuthService sign-in, TENANCY_MODE=multi', () => {
     expect(refusalLog).not.toContain(profile.email);
   });
 
+  // #726 (PP-6.7): a pending invitation is claimed BEFORE the no-organization
+  // check, so an invitee's first multi-mode sign-in succeeds, in the invited org.
+  it('claims a pending invitation before the no-organization check and signs the invitee into that org', async () => {
+    asNewUser(h);
+    h.prisma.invite.findMany.mockResolvedValue([
+      {
+        id: 'invite-1',
+        orgId: 'org-b',
+        email: profile.email,
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 86_400_000),
+        roleId: 'role-org_admin',
+        role: { id: 'role-org_admin', name: 'org_admin' },
+      },
+    ] as never);
+    h.prisma.invite.updateMany.mockResolvedValue({ count: 1 } as never);
+    h.prisma.membership.findUnique.mockResolvedValue(null);
+    h.prisma.membership.count.mockResolvedValue(1);
+    // The graph reloaded after the claim carries the new membership.
+    h.prisma.user.findUnique.mockResolvedValue(
+      userRow({
+        memberships: [
+          {
+            orgId: 'org-b',
+            status: 'active',
+            lastActiveAt: new Date(),
+            org: { id: 'org-b', isDefault: false },
+            role: { name: 'org_admin', rolePermissions: [] },
+          },
+        ],
+      }) as never,
+    );
+
+    const tokens = await h.service.handleGoogleLogin(profile);
+
+    expect(tokens.accessToken).toBe('jwt');
+    expect(h.prisma.membership.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ orgId: 'org-b', userId: 'user-1', roleId: 'role-org_admin' }),
+    });
+    // The claim ran before the membership count the refusal reads.
+    expect(h.prisma.invite.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+      h.prisma.membership.count.mock.invocationCallOrder[0],
+    );
+    // Bound to the invited organization.
+    expect(h.prisma.refreshToken.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ orgId: 'org-b' }),
+    });
+    expect(h.metrics.authLogin).toHaveBeenCalledWith('success');
+  });
+
   it('joins the INITIAL_ADMIN_EMAIL user to the default org at creation and signs them in', async () => {
     asNewUser(h, userRow({ id: 'admin-1', email: ADMIN_EMAIL }));
     h.prisma.membership.count.mockResolvedValue(1);
