@@ -41,7 +41,7 @@ export const groupEmailSchema = z
   .string()
   .trim()
   .max(SHARING_LIMITS.emailMax)
-  .pipe(z.email())
+  .email('Invalid email format')
   .transform((email) => email.toLowerCase());
 
 /**
