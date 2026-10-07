@@ -71,20 +71,20 @@
   },
   "dependencies": {
     "@marinoscar/platform-contract": "0.1.0-next.3",
-    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
-    "@opentelemetry/core": "^2.10.0",
-    "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
-    "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.80.0",
+    "@opentelemetry/core": "^2.11.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.222.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.222.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
     "@opentelemetry/resources": "^2.10.0",
-    "@opentelemetry/sdk-logs": "^0.221.0",
-    "@opentelemetry/sdk-metrics": "^2.10.0",
-    "@opentelemetry/sdk-node": "^0.221.0",
-    "@opentelemetry/sdk-trace-base": "^2.10.0",
+    "@opentelemetry/sdk-logs": "^0.222.0",
+    "@opentelemetry/sdk-metrics": "^2.11.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "exceljs": "^4.4.0",
     "hyparquet-writer": "^0.16.10",
-    "pg": "^8.23.0"
+    "pg": "^8.23.1"
   },
   "peerDependencies": {
     "@nestjs/common": "^11.1.12",
@@ -93,12 +93,12 @@
     "@nestjs/schedule": "^6.1.0",
     "@nestjs/swagger": "^11.2.5",
     "@opentelemetry/api": "^1.9.1",
-    "@prisma/client": "^7.8.0",
+    "@prisma/client": "^7.10.0",
     "fastify": "^5",
     "nestjs-zod": "^5.4.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "peerDependenciesMeta": {
     "fastify": {
@@ -114,18 +114,18 @@
     "@nestjs/swagger": "^11.2.5",
     "@nestjs/testing": "^11.1.12",
     "@opentelemetry/api": "^1.9.1",
-    "@prisma/client": "^7.8.0",
+    "@prisma/client": "^7.10.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.15.32",
     "@types/pg": "^8.23.1",
-    "fastify": "^5",
+    "fastify": "^5.12.5",
     "hyparquet": "^1.31.2",
-    "jest": "^30.4.2",
+    "jest": "^30.5.2",
     "nestjs-zod": "^5.4.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "ts-jest": "^29.4.12",
+    "ts-jest": "^29.4.14",
     "typescript": "^6.0.3",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   }
 }
