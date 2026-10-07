@@ -14,7 +14,14 @@
 // `toRequestUser`), `/api/auth/me` (`AuthService.getCurrentUser`) and the users
 // list all read it, so they cannot disagree.
 //
-// "Current org", until the active org travels in the token (#724):
+// "Current org" (#724): the ACTIVE ORG the credential is bound to, when the
+// caller knows it (`PrincipalSource.activeOrgId`):
+//   - a string: that org's membership, if it is active (the access token's
+//     `org` claim, a PAT's or device session's `orgId`);
+//   - `null`: no org at all (a node credential is system-scoped).
+// When it is not known (`undefined`: a graph loaded outside a request), the
+// sign-in rule picks it, the same rule `AuthService` uses to choose the org
+// a new access token is issued for:
 //   - single mode: the default organization's membership;
 //   - multi mode: the active membership with the latest `lastActiveAt`
 //     (ties: the oldest membership).
@@ -38,6 +45,7 @@ import type {
   CredentialKind,
   NodePrincipal,
   OrgMembership,
+  Principal,
   TenancyMode,
   UserPrincipal,
 } from '@marinoscar/platform-api/core';
@@ -87,6 +95,12 @@ export interface PrincipalMembership {
 export interface PrincipalSource {
   userRoles: ReadonlyArray<{ role: PrincipalRole }>;
   memberships?: ReadonlyArray<PrincipalMembership>;
+  /**
+   * The org the credential is bound to (#724): a string for a user
+   * credential, `null` for a system-scoped node credential, absent when the
+   * graph was loaded outside a request (the sign-in rule then picks it).
+   */
+  activeOrgId?: string | null;
 }
 
 /** The effective access of one user, in one tenancy mode. */
@@ -114,13 +128,22 @@ function byRecency(a: PrincipalMembership, b: PrincipalMembership): number {
 /**
  * The membership whose role counts: see the file header for the rule.
  *
+ * @param activeOrgId - the org the credential is bound to: a string selects
+ *   that org's membership, `null` selects none (system-scoped), `undefined`
+ *   applies the sign-in rule for `mode`.
  * @returns the membership, or `null` when there is none or it is suspended.
  */
 export function selectCurrentMembership(
   memberships: ReadonlyArray<PrincipalMembership> | undefined,
   mode: TenancyMode,
+  activeOrgId?: string | null,
 ): PrincipalMembership | null {
+  if (activeOrgId === null) return null;
   if (!memberships || memberships.length === 0) return null;
+  if (activeOrgId !== undefined) {
+    const membership = memberships.find((candidate) => candidate.orgId === activeOrgId);
+    return membership && membership.status === 'active' ? membership : null;
+  }
   if (mode === 'single') {
     const membership = memberships.find((candidate) => candidate.org?.isDefault === true);
     return membership && membership.status === 'active' ? membership : null;
@@ -137,7 +160,7 @@ export function selectCurrentMembership(
  */
 export function resolveEffectiveAccess(user: PrincipalSource, mode: TenancyMode): EffectiveAccess {
   const systemRoles = user.userRoles.map((userRole) => userRole.role.name);
-  const membership = selectCurrentMembership(user.memberships, mode);
+  const membership = selectCurrentMembership(user.memberships, mode, user.activeOrgId);
   const orgRole = membership?.role.name ?? null;
 
   const permissions = new Set<string>();
@@ -170,15 +193,19 @@ export class PrincipalFactory {
   }
 
   /**
-   * A `UserPrincipal` for a human caller. `roles` carries the system role
-   * names plus the current org role name; `memberships` every active
-   * membership with its org role.
+   * A `UserPrincipal` for a human caller (#724). `activeOrgId` is the org the
+   * credential is bound to (or, for a graph without one, the sign-in rule's
+   * pick); `roles` carries the system role names plus that org's role name;
+   * `memberships` every membership, suspended ones included, with its org
+   * role and status; `groups` is empty until groups exist (PP-7).
    */
   forUser(
     user: PrincipalSource & { id: string; email: string },
     credential: Exclude<CredentialKind, 'node'>,
   ): UserPrincipal {
     const access = this.access(user);
+    const activeOrgId =
+      typeof user.activeOrgId === 'string' ? user.activeOrgId : access.membership?.orgId;
     return {
       kind: 'user',
       userId: user.id,
@@ -186,17 +213,19 @@ export class PrincipalFactory {
       credential,
       roles: access.roles,
       permissions: access.permissions,
-      ...(access.membership ? { activeOrgId: access.membership.orgId } : {}),
-      ...(user.memberships ? { memberships: activeMemberships(user.memberships) } : {}),
+      ...(activeOrgId ? { activeOrgId } : {}),
+      ...(user.memberships ? { memberships: listMemberships(user.memberships) } : {}),
+      groups: [],
     };
   }
 
   /**
-   * A `NodePrincipal`: the owning user's roles and permissions, system-scoped
-   * (no active organization, per ADR 0001).
+   * A `NodePrincipal`: system-scoped (ADR 0001, #724). No active
+   * organization, so only the owning user's SYSTEM grants count; no org role
+   * contributes, whatever `user.activeOrgId` says.
    */
   forNode(user: PrincipalSource & { id: string; email: string }, nodeId?: string): NodePrincipal {
-    const access = this.access(user);
+    const access = this.access({ ...user, activeOrgId: null });
     return {
       kind: 'node',
       userId: user.id,
@@ -209,11 +238,30 @@ export class PrincipalFactory {
   }
 }
 
-function activeMemberships(memberships: ReadonlyArray<PrincipalMembership>): OrgMembership[] {
-  return memberships
-    .filter((membership) => membership.status === 'active')
-    .map((membership) => ({ orgId: membership.orgId, role: membership.role.name }));
+function listMemberships(memberships: ReadonlyArray<PrincipalMembership>): OrgMembership[] {
+  return memberships.map((membership) => ({
+    orgId: membership.orgId,
+    role: membership.role.name,
+    status: membership.status,
+  }));
 }
 
 /** The shared, stateless instance for call sites without dependency injection. */
 export const principalFactory = new PrincipalFactory();
+
+/**
+ * The runtime mapper ADR 0001 specifies (#724): the request's `Principal`
+ * from the loaded user graph and the credential kind `JwtAuthGuard` admitted
+ * it with. A node credential yields a system-scoped `NodePrincipal` (no
+ * `activeOrgId`); every other kind a `UserPrincipal` bound to
+ * `user.activeOrgId`.
+ */
+export function toPrincipal(
+  user: PrincipalSource & { id: string; email: string },
+  credential: CredentialKind,
+  nodeId?: string,
+): Principal {
+  return credential === 'node'
+    ? principalFactory.forNode(user, nodeId)
+    : principalFactory.forUser(user, credential);
+}

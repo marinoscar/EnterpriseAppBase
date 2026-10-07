@@ -21,6 +21,17 @@ export interface JwtPayload {
    * than when the long-lived device access token expires.
    */
   did?: string;
+  /**
+   * The active organization's id (#724): the org this access token acts in.
+   * Set on EVERY token the API issues (sign-in, refresh, switch-org, device
+   * session). Trusted only after `AuthService.validateJwtPayload` re-checks
+   * it is an active membership of `sub`. Optional in the type only because a
+   * token issued before #724 has none: such a token is accepted in single
+   * mode, mapped to the default organization, for one access-token lifetime
+   * after the deploy, and refused in multi mode (a temporary compatibility
+   * path, removed in a later release).
+   */
+  org?: string;
 }
 
 /**

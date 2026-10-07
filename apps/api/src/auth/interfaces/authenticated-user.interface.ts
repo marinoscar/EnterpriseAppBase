@@ -1,4 +1,5 @@
 import { User, MembershipStatus } from '@prisma/client';
+import type { CredentialKind } from '@marinoscar/platform-api/core';
 import { principalFactory } from '../principal.factory';
 
 /** A role row with its permissions, as the principal graph loads it. */
@@ -32,6 +33,16 @@ export interface AuthenticatedUser extends User {
     org?: { id: string; isDefault: boolean } | null;
     role: AuthenticatedRole;
   }>;
+  /**
+   * The org this request's credential is bound to (#724), stamped by the
+   * credential path that admitted it: the access token's `org` claim, the
+   * PAT's `orgId`, or `null` for a system-scoped node credential. Absent on a
+   * graph loaded outside a request; `PrincipalFactory` then applies the
+   * sign-in rule. Never taken from a header, query or body.
+   */
+  activeOrgId?: string | null;
+  /** How the request authenticated (#724): `session`, `device`, `pat` or `node`. */
+  tokenKind?: CredentialKind;
 }
 
 /**
@@ -45,6 +56,8 @@ export interface RequestUser {
   /** Effective permissions: system grants ∪ current-org membership grants. */
   permissions: string[];
   isActive: boolean;
+  /** The active org (#724): present when the credential path stamped one; `null` for a node. */
+  activeOrgId?: string | null;
 }
 
 /**
@@ -60,5 +73,6 @@ export function toRequestUser(user: AuthenticatedUser): RequestUser {
     roles,
     permissions,
     isActive: user.isActive,
+    ...(user.activeOrgId !== undefined ? { activeOrgId: user.activeOrgId } : {}),
   };
 }

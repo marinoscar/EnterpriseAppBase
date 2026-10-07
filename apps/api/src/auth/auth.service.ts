@@ -1,9 +1,12 @@
 import {
+  ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import type { CredentialKind } from '@marinoscar/platform-api/core';
 import { ConfigService } from '@nestjs/config';
 import { trace } from '@opentelemetry/api';
 import { JwtService } from '@nestjs/jwt';
@@ -30,7 +33,13 @@ import { AuthLoginDeniedException } from './auth-error-codes';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
-import { PRINCIPAL_USER_INCLUDE, principalFactory } from './principal.factory';
+import {
+  PRINCIPAL_USER_INCLUDE,
+  principalFactory,
+  selectCurrentMembership,
+  type PrincipalMembership,
+} from './principal.factory';
+import { bindCredential, hasActiveMembership } from './credential-binding';
 import { TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -45,9 +54,45 @@ export interface FullTokenResponse {
   refreshToken?: string; // Only returned on initial auth, not refresh
 }
 
+/** The audit action `POST /api/auth/switch-org` writes (#724). */
+export const ORG_SWITCHED_AUDIT_ACTION = 'auth:org_switched';
+
+/** How long the default organization's id is memoised for the legacy-token path (#724). */
+const DEFAULT_ORG_MEMO_MS = 60_000;
+
+/** `/api/auth/me`'s graph: the principal graph plus each membership's org name and slug (#724). */
+const CURRENT_USER_INCLUDE = {
+  ...PRINCIPAL_USER_INCLUDE,
+  memberships: {
+    include: {
+      org: { select: { id: true, isDefault: true, name: true, slug: true } },
+      role: PRINCIPAL_USER_INCLUDE.memberships.include.role,
+    },
+  },
+  userSettings: {
+    select: { value: true },
+  },
+} as const;
+
+/** A loaded user whose memberships the active-org rules can read. */
+type MembershipGraph = {
+  id: string;
+  memberships?: ReadonlyArray<PrincipalMembership> | null;
+};
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+
+  /**
+   * When this process started. A token issued before #724 carries no `org`
+   * claim; it is honoured (single mode only) until one access-token lifetime
+   * past this instant, so in-flight tokens survive the deploy (#724).
+   */
+  private readonly startedAt = Date.now();
+
+  /** The default organization's id, memoised briefly for the legacy-token path. */
+  private defaultOrgMemo: { id: string; at: number } | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -180,8 +225,25 @@ export class AuthService {
         : DEFAULT_ORG_ROLE,
     });
 
-    // Generate JWT tokens
-    const tokens = await this.generateFullTokens(user);
+    // The active organization (#724): single mode, the default org; multi
+    // mode, the active membership used most recently. Refused when there is
+    // none (a suspended default-org member in single mode; multi mode already
+    // refused zero memberships above).
+    const orgId = await this.chooseSignInOrg(user);
+    if (!orgId) {
+      this.logger.warn(
+        `Login denied - user ${user.id} has no active organization membership to sign in to`,
+      );
+      this.metrics.authLogin('no_organization');
+      throw new AuthLoginDeniedException(
+        'no_organization',
+        'Your account is not a member of any organization. Ask an organization administrator to invite you.',
+      );
+    }
+
+    // Generate JWT tokens, bound to that organization
+    const tokens = await this.generateFullTokens(user, { orgId });
+    await this.organizations.touchMembership(orgId, user.id);
 
     this.logger.log(`Login successful for user: ${user.email}`);
     this.metrics.authLogin('success');
@@ -455,19 +517,81 @@ export class AuthService {
   }
 
   /**
-   * Generates JWT access token for authenticated user
+   * The organization a NEW sign-in (or a credential issued without an
+   * explicit org) acts in (#724):
+   *
+   * - single mode: the default organization, unless the loaded graph shows the
+   *   user's default-org membership suspended;
+   * - multi mode: the active membership with the latest `lastActiveAt` (ties:
+   *   the oldest), read from the graph or, when the graph has none, from the
+   *   database.
+   *
+   * @returns the org id, or `null` when the user has no organization to act in.
    */
-  async generateTokens(user: {
-    id: string;
-    email: string;
-    userRoles: Array<{ role: { name: string } }>;
-  }): Promise<TokenResponseDto> {
+  async chooseSignInOrg(user: MembershipGraph): Promise<string | null> {
+    if (this.tenancy.isSingle()) {
+      const orgId = await this.defaultOrgIdOrNull();
+      if (!orgId) return null;
+      const membership = user.memberships?.find((candidate) => candidate.orgId === orgId);
+      if (membership && membership.status !== 'active') return null;
+      return orgId;
+    }
+    const loaded = selectCurrentMembership(user.memberships ?? undefined, 'multi');
+    if (loaded) return loaded.orgId;
+    const [latest] = await this.organizations.listActiveMemberships(user.id);
+    return latest?.orgId ?? null;
+  }
+
+  /** {@link chooseSignInOrg}, or a 401 when there is none. */
+  private async requireSignInOrg(user: MembershipGraph): Promise<string> {
+    const orgId = await this.chooseSignInOrg(user);
+    if (!orgId) {
+      throw new UnauthorizedException('No active organization membership');
+    }
+    return orgId;
+  }
+
+  /**
+   * The default organization's id, memoised for {@link DEFAULT_ORG_MEMO_MS};
+   * `null` when it is missing (a seed problem: fail closed).
+   */
+  private async defaultOrgIdOrNull(): Promise<string | null> {
+    const now = Date.now();
+    if (this.defaultOrgMemo && now - this.defaultOrgMemo.at < DEFAULT_ORG_MEMO_MS) {
+      return this.defaultOrgMemo.id;
+    }
+    try {
+      const org = await this.organizations.getDefaultOrg();
+      this.defaultOrgMemo = { id: org.id, at: now };
+      return org.id;
+    } catch (error) {
+      this.logger.error(`Default organization lookup failed: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Generates JWT access token for authenticated user
+   *
+   * `orgId` is the organization the token acts in (#724); when omitted it is
+   * chosen by {@link chooseSignInOrg}.
+   */
+  async generateTokens(
+    user: {
+      id: string;
+      email: string;
+      userRoles: Array<{ role: { name: string } }>;
+      memberships?: ReadonlyArray<PrincipalMembership> | null;
+    },
+    orgId?: string,
+  ): Promise<TokenResponseDto> {
     const roles = user.userRoles.map((ur) => ur.role.name);
 
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       roles,
+      org: orgId ?? (await this.requireSignInOrg(user)),
     };
 
     const accessTtlMinutes = this.configService.get<number>(
@@ -493,26 +617,35 @@ export class AuthService {
    * refresh token row to the `device_codes` row, so revoking that device
    * session reaches both credentials. See `validateJwtPayload` and
    * `refreshAccessToken` for where the link is enforced.
+   *
+   * `orgId` (#724) is the organization both tokens are bound to: the access
+   * token's `org` claim and the refresh token row's `orgId`. When omitted it
+   * is chosen by {@link chooseSignInOrg}.
    */
   async generateFullTokens(
     user: {
       id: string;
       email: string;
       userRoles: Array<{ role: { name: string } }>;
+      memberships?: ReadonlyArray<PrincipalMembership> | null;
     },
     options?: {
       accessTtlMinutes?: number;
       refreshTtlDays?: number;
       deviceCodeId?: string;
+      orgId?: string;
     },
   ): Promise<FullTokenResponse> {
+    const orgId = options?.orgId ?? (await this.requireSignInOrg(user));
     const accessToken = this.generateAccessToken(user, {
       ttlMinutes: options?.accessTtlMinutes,
       deviceCodeId: options?.deviceCodeId,
+      orgId,
     });
     const refreshToken = await this.createRefreshToken(user.id, {
       ttlDays: options?.refreshTtlDays,
       deviceCodeId: options?.deviceCodeId,
+      orgId,
     });
 
     return {
@@ -536,7 +669,9 @@ export class AuthService {
       /** Exact lifetime in seconds; wins over `ttlMinutes` (used to cap a device chain). */
       ttlSeconds?: number;
       deviceCodeId?: string;
-    } = {},
+      /** The active organization (#724): the signed `org` claim. Always set. */
+      orgId: string;
+    },
   ) {
     const roles = user.userRoles.map((ur) => ur.role.name);
 
@@ -544,8 +679,9 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       roles,
+      org: options.orgId,
       // Only a device-issued token carries `did`; an interactive login's
-      // payload stays exactly `{ sub, email, roles }`.
+      // payload is `{ sub, email, roles, org }`.
       ...(options.deviceCodeId ? { did: options.deviceCodeId } : {}),
     };
 
@@ -581,7 +717,9 @@ export class AuthService {
       ttlDays?: number;
       deviceCodeId?: string;
       expiresAtCap?: Date;
-    } = {},
+      /** The organization the session is bound to (#724). Always set. */
+      orgId: string;
+    },
   ): Promise<string> {
     const refreshTtlDays =
       options.ttlDays ??
@@ -603,6 +741,7 @@ export class AuthService {
         userId,
         tokenHash,
         expiresAt,
+        orgId: options.orgId,
         ...(options.deviceCodeId ? { deviceCodeId: options.deviceCodeId } : {}),
       },
     });
@@ -621,27 +760,28 @@ export class AuthService {
    * claim, and neither may outlive the device session's `credentialExpiresAt`,
    * so rotating cannot launder a device credential into an ordinary 14-day
    * login. A chain whose device session was revoked refuses to rotate.
+   *
+   * ORG-PRESERVING (#724): the new tokens are bound to the SAME organization
+   * as the presented one (`refresh_tokens.org_id`), and rotation fails (401)
+   * once that membership is no longer active. A row written before #724 has
+   * no org; it is bound to the org {@link chooseSignInOrg} picks.
    */
   async refreshAccessToken(refreshToken: string): Promise<FullTokenResponse> {
     const tokenHash = this.hashToken(refreshToken);
 
-    // Find valid refresh token
+    // Find valid refresh token. The user is loaded with the principal graph
+    // (memberships included) so the org membership can be checked.
     const storedToken = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
       include: {
-        user: {
-          include: {
-            userRoles: {
-              include: { role: true },
-            },
-          },
-        },
+        user: { include: PRINCIPAL_USER_INCLUDE },
         deviceCode: {
           select: {
             id: true,
             userId: true,
             revokedAt: true,
             credentialExpiresAt: true,
+            orgId: true,
           },
         },
       },
@@ -709,6 +849,25 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token has been revoked');
     }
 
+    // Org binding (#724): rotate for the same organization, and only while
+    // that membership is active. A removed or suspended member's chain dies
+    // here, and the presented token with it.
+    const orgId =
+      storedToken.orgId ??
+      deviceCode?.orgId ??
+      (await this.chooseSignInOrg(storedToken.user));
+    if (!orgId || !hasActiveMembership(storedToken.user, orgId)) {
+      await this.prisma.refreshToken.update({
+        where: { id: storedToken.id },
+        data: { revokedAt: new Date() },
+      });
+      this.logger.warn(
+        `Refresh refused: user ${storedToken.userId} is no longer an active member of organization ${orgId ?? '(none)'}`,
+      );
+      this.metrics.authRefresh('no_organization');
+      throw new UnauthorizedException('Organization membership is no longer active');
+    }
+
     // Rotate token - revoke old one, create new one
     await this.prisma.refreshToken.update({
       where: { id: storedToken.id },
@@ -737,6 +896,7 @@ export class AuthService {
         {
           deviceCodeId: storedToken.deviceCodeId,
           expiresAtCap: credentialExpiresAt,
+          orgId,
         },
       );
       const accessToken = this.generateAccessToken(storedToken.user, {
@@ -745,6 +905,7 @@ export class AuthService {
           Math.min(deviceAccessTtlSeconds, remainingSeconds),
         ),
         deviceCodeId: storedToken.deviceCodeId,
+        orgId,
       });
 
       this.metrics.authRefresh('success');
@@ -756,8 +917,8 @@ export class AuthService {
       };
     }
 
-    const newRefreshToken = await this.createRefreshToken(storedToken.userId);
-    const accessToken = this.generateAccessToken(storedToken.user);
+    const newRefreshToken = await this.createRefreshToken(storedToken.userId, { orgId });
+    const accessToken = this.generateAccessToken(storedToken.user, { orgId });
     this.metrics.authRefresh('success');
 
     return {
@@ -841,8 +1002,31 @@ export class AuthService {
    * change still reaches the next request on this replica, and other replicas
    * within event-bus latency. An inactive user may be cached; the `isActive`
    * check still rejects it.
+   *
+   * ACTIVE ORG (#724). The `org` claim names the organization the token acts
+   * in; it is honoured only while it is an ACTIVE membership of `sub`, read
+   * from the same (cached) graph, so a removed or suspended member's token
+   * stops working within the cache TTL, and at once after `invalidateUser`. A
+   * `did` token must also match its device session's `orgId`. A token
+   * without `org` is the temporary compatibility path in `legacyTokenOrg`.
+   * The returned user carries the binding (`activeOrgId`, `tokenKind`) as
+   * non-enumerable properties (`credential-binding.ts`).
    */
   async validateJwtPayload(payload: JwtPayload): Promise<AuthenticatedUser | null> {
+    const tokenKind: CredentialKind = payload.did !== undefined ? 'device' : 'session';
+
+    // The active organization (#724). A signed `org` claim is the org; a
+    // token without one predates #724 (see `legacyTokenOrg`).
+    const orgId =
+      payload.org !== undefined
+        ? typeof payload.org === 'string' && payload.org.length > 0
+          ? payload.org
+          : null
+        : await this.legacyTokenOrg(tokenKind);
+    if (!orgId) {
+      return null;
+    }
+
     if (payload.did !== undefined) {
       if (typeof payload.did !== 'string' || payload.did.length === 0) {
         return null;
@@ -855,44 +1039,185 @@ export class AuthService {
           userId: true,
           revokedAt: true,
           credentialExpiresAt: true,
+          orgId: true,
         },
       });
 
       if (!this.isDeviceSessionLive(deviceCode, payload.sub)) {
         return null;
       }
+
+      // A device session is bound to the org it was approved in (#724): its
+      // token may not claim another one.
+      if (payload.org !== undefined && deviceCode?.orgId !== payload.org) {
+        return null;
+      }
     }
 
-    const cached = this.principalCache.get(payload.sub);
-    if (cached) {
-      return cached.isActive ? cached : null;
+    // Keyed by (user, org, credential kind) since #724.
+    const key = { userId: payload.sub, orgId, tokenKind };
+    let principal = this.principalCache.get(key);
+
+    if (!principal) {
+      // Captured BEFORE the read: if an invalidation lands while the query is
+      // in flight, `set` refuses to store what may be the pre-change principal.
+      const generation = this.principalCache.generation(payload.sub);
+
+      // System roles plus memberships with their org roles (PP-6.3, #723):
+      // the shared graph every credential path loads; `PrincipalFactory`
+      // derives the effective permissions from it.
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        include: PRINCIPAL_USER_INCLUDE,
+      });
+
+      if (!user) {
+        return null;
+      }
+
+      // The frozen copy when it was stored; the fresh row when the cache is
+      // disabled or the generation moved (exactly the behaviour before #683).
+      principal = this.principalCache.set(key, user, generation) ?? user;
     }
-
-    // Captured BEFORE the read: if an invalidation lands while the query is in
-    // flight, `set` refuses to store what may be the pre-change principal.
-    const generation = this.principalCache.generation(payload.sub);
-
-    // System roles plus memberships with their org roles (PP-6.3, #723): the
-    // shared graph every credential path loads; `PrincipalFactory` derives the
-    // effective permissions from it.
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      include: PRINCIPAL_USER_INCLUDE,
-    });
-
-    if (!user) {
-      return null;
-    }
-
-    // The frozen copy when it was stored; the fresh row when the cache is
-    // disabled or the generation moved (exactly the behaviour before #683).
-    const principal = this.principalCache.set(user.id, user, generation) ?? user;
 
     if (!principal.isActive) {
       return null;
     }
 
-    return principal;
+    // The claim is signed, but membership is the database's to decide: a
+    // token for an org the user is no longer an ACTIVE member of is refused
+    // (within the cache TTL; at once on this replica after an invalidation).
+    // The legacy path keeps the pre-#724 behaviour and checks nothing here.
+    if (payload.org !== undefined && !hasActiveMembership(principal, orgId)) {
+      return null;
+    }
+
+    // The org goes on the request span (ADR 0001: `org.id`), never on a
+    // metric label.
+    trace.getActiveSpan()?.setAttribute('org.id', orgId);
+
+    return bindCredential(principal, { activeOrgId: orgId, tokenKind });
+  }
+
+  /**
+   * TEMPORARY COMPATIBILITY PATH (#724), removed in a later release: the org
+   * of an access token issued before the `org` claim existed.
+   *
+   * - single mode: the default organization, for one access-token lifetime
+   *   after this process started (`jwt.accessTtlMinutes`, or the device
+   *   token lifetime for a `did` token), so tokens in flight across the
+   *   deploy keep working; such a token was always for the default org;
+   * - multi mode, or after the window: `null`, so the token is refused and
+   *   the client refreshes (the refresh issues an org-bound token).
+   */
+  private async legacyTokenOrg(tokenKind: CredentialKind): Promise<string | null> {
+    if (!this.tenancy.isSingle()) {
+      return null;
+    }
+    const lifetimeSeconds =
+      tokenKind === 'device'
+        ? Number(this.configService.get<number>('deviceAuth.tokenExpiryDays', 7)) * 24 * 60 * 60
+        : Number(this.configService.get<number>('jwt.accessTtlMinutes', 15)) * 60;
+    const windowMs = Number.isFinite(lifetimeSeconds) && lifetimeSeconds > 0 ? lifetimeSeconds * 1000 : 0;
+    if (Date.now() >= this.startedAt + windowMs) {
+      return null;
+    }
+    return this.defaultOrgIdOrNull();
+  }
+
+  /**
+   * `POST /api/auth/switch-org` (#724): re-issue the session for another
+   * organization the caller is an ACTIVE member of.
+   *
+   * - Only a browser session may switch: a PAT, a device session and a node
+   *   credential are bound to one org at issue and are refused (403).
+   * - The presented refresh token (the HttpOnly cookie) must be a live,
+   *   non-device session token of the caller (else 401). It is revoked and a
+   *   new one bound to `orgId` is issued, exactly like a rotation.
+   * - `orgId` must be an active membership of the caller (else 404, so an
+   *   org id that exists but is not the caller's is indistinguishable from
+   *   one that does not). In single mode only the default organization
+   *   qualifies, so switching to it is a no-op re-issue.
+   * - Writes the `auth:org_switched` audit event and moves the membership's
+   *   `lastActiveAt`, which picks the org of the next sign-in.
+   */
+  async switchOrg(
+    caller: { id: string; tokenKind?: CredentialKind; activeOrgId?: string | null },
+    orgId: string,
+    refreshToken: string | undefined,
+  ): Promise<FullTokenResponse> {
+    if (caller.tokenKind !== undefined && caller.tokenKind !== 'session') {
+      throw new ForbiddenException(
+        'This credential is bound to one organization and cannot switch organization',
+      );
+    }
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('No refresh token provided');
+    }
+
+    const storedToken = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: this.hashToken(refreshToken) },
+      include: { user: { include: PRINCIPAL_USER_INCLUDE } },
+    });
+
+    if (
+      !storedToken ||
+      storedToken.userId !== caller.id ||
+      storedToken.revokedAt !== null ||
+      storedToken.expiresAt < new Date() ||
+      storedToken.deviceCodeId !== null
+    ) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (!storedToken.user.isActive) {
+      throw new UnauthorizedException('User account is deactivated');
+    }
+
+    const defaultOrgId = this.tenancy.isSingle() ? await this.defaultOrgIdOrNull() : null;
+    if (
+      (this.tenancy.isSingle() && orgId !== defaultOrgId) ||
+      !hasActiveMembership(storedToken.user, orgId)
+    ) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    // Revoke the presented token conditionally, so two concurrent switches
+    // with the same cookie cannot both mint a session.
+    const revoked = await this.prisma.refreshToken.updateMany({
+      where: { id: storedToken.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (revoked.count !== 1) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const newRefreshToken = await this.createRefreshToken(caller.id, { orgId });
+    const accessToken = this.generateAccessToken(storedToken.user, { orgId });
+    await this.organizations.touchMembership(orgId, caller.id);
+
+    const fromOrgId = storedToken.orgId ?? caller.activeOrgId ?? null;
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId: caller.id,
+        action: ORG_SWITCHED_AUDIT_ACTION,
+        targetType: 'organization',
+        targetId: orgId,
+        meta: { fromOrgId },
+      },
+    });
+
+    trace.getActiveSpan()?.setAttribute('org.id', orgId);
+    this.logger.log(
+      `User ${caller.id} switched organization to ${orgId} (from ${fromOrgId ?? '(none)'})`,
+    );
+
+    return {
+      accessToken: accessToken.token,
+      expiresIn: accessToken.expiresIn,
+      refreshToken: newRefreshToken,
+    };
   }
 
   /**
@@ -943,16 +1268,15 @@ export class AuthService {
 
   /**
    * Returns current user details with computed display name and image
+   *
+   * `activeOrgId` is the org the request's credential is bound to (#724);
+   * roles, permissions and `activeOrg` are computed for it. Omitted, the
+   * sign-in rule picks the org.
    */
-  async getCurrentUser(userId: string) {
+  async getCurrentUser(userId: string, activeOrgId?: string | null) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: {
-        ...PRINCIPAL_USER_INCLUDE,
-        userSettings: {
-          select: { value: true },
-        },
-      },
+      include: CURRENT_USER_INCLUDE,
     });
 
     if (!user) {
@@ -979,9 +1303,20 @@ export class AuthService {
     // roles plus the current org's membership role. The shape is unchanged
     // (`roles: [{ name }]`); a system administrator now lists `admin` and
     // `org_admin`.
-    const access = principalFactory.access(user);
+    const access = principalFactory.access(
+      activeOrgId !== undefined ? { ...user, activeOrgId } : user,
+    );
     const roles = access.roles.map((name) => ({ name }));
     const permissions = access.permissions;
+
+    // The active organization and every organization the user can switch to
+    // (#724). `memberships` may be absent on a graph a test builds by hand.
+    const memberships = (user.memberships ?? []) as Array<
+      PrincipalMembership & { org?: { id: string; name?: string; slug?: string } | null }
+    >;
+    const activeMembership = access.membership
+      ? memberships.find((membership) => membership.orgId === access.membership!.orgId)
+      : undefined;
 
     return {
       id: user.id,
@@ -995,6 +1330,22 @@ export class AuthService {
       permissions,
       // PP-6.2 (#722): so the web can hide organization UI in single mode.
       tenancyMode: this.tenancy.mode(),
+      // PP-6.4 (#724): the org this session acts in, and the ones it can switch to.
+      activeOrg: activeMembership
+        ? {
+            id: activeMembership.orgId,
+            name: activeMembership.org?.name ?? '',
+            slug: activeMembership.org?.slug ?? '',
+          }
+        : null,
+      memberships: memberships
+        .filter((membership) => membership.status === 'active')
+        .map((membership) => ({
+          orgId: membership.orgId,
+          name: membership.org?.name ?? '',
+          slug: membership.org?.slug ?? '',
+          role: membership.role.name,
+        })),
     };
   }
 
