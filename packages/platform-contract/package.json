@@ -60,6 +60,16 @@
         "default": "./dist/cjs/sharing/index.js"
       }
     },
+    "./identity": {
+      "import": {
+        "types": "./dist/esm/identity/index.d.ts",
+        "default": "./dist/esm/identity/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/identity/index.d.ts",
+        "default": "./dist/cjs/identity/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

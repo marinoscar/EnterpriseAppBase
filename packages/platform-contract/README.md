@@ -12,6 +12,7 @@ Slices (each a subpath export with its own README):
 |---|---|---|
 | `@marinoscar/platform-contract/doctor` | The admin Doctor's report, row, status and query (#701), and the support bundle envelope (#772) | [src/doctor/README.md](src/doctor/README.md) |
 | `@marinoscar/platform-contract/telemetry` | Telemetry wire shapes, `stable`: config, status, explorer, connection, stack, dashboard, assistant and the `telemetry` settings namespace (#702) | [src/telemetry/README.md](src/telemetry/README.md) |
+| `@marinoscar/platform-contract/identity` | Identity wire shapes, `stable`: the sign-in error codes (`AUTH_ERROR_CODES`, the single source), `/api/auth/me`, token responses, personal access tokens, the device flow, organizations, members and invitations (#727) | [src/identity/README.md](src/identity/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 
@@ -128,6 +129,7 @@ What counts as breaking, for every slice: renaming or removing a field, making a
 
 - #701: first slice, `./doctor`. The Doctor's schemas moved here from `@marinoscar/platform-api/doctor` and its types from `@marinoscar/platform-web/doctor/headless`; both packages re-export the old names. No wire or OpenAPI change.
 - #702: `./telemetry`. The telemetry wire shapes moved here from the API's telemetry DTOs and the web's hand-written mirrors; both keep their old names. No wire or OpenAPI change.
+- #727: `./identity`. `AUTH_ERROR_CODES` is defined here once (the API and the web app both import it, replacing the hand-kept mirror), and the request schemas of switch-org, personal access tokens, the device flow and organization administration moved here from the API's DTO files. No wire or OpenAPI change.
 
 ## Troubleshooting
 
@@ -144,3 +146,4 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 - [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages): build, test and lint commands
 - [Doctor slice](src/doctor/README.md)
 - [Telemetry slice](src/telemetry/README.md)
+- [Identity slice](src/identity/README.md)
