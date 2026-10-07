@@ -14,6 +14,10 @@ import { AppMetricsService } from '../common/otel/app-metrics.service';
 import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
 import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from './principal-cache/principal-cache.service';
+import { OrganizationsService } from '../organizations/organizations.service';
+import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
+
+const DEFAULT_ORG = { id: 'org-default', name: 'Default organization', slug: 'default', isDefault: true };
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -64,6 +68,10 @@ describe('AuthService', () => {
       markEmailClaimed: jest.fn().mockResolvedValue(undefined),
     } as any;
 
+    // PP-6.1 (#721): the default organization every sign-up joins.
+    mockPrisma.organization.findFirst.mockResolvedValue(DEFAULT_ORG as any);
+    mockPrisma.membership.upsert.mockResolvedValue({ id: 'membership-1' } as any);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -73,6 +81,9 @@ describe('AuthService', () => {
         { provide: AdminBootstrapService, useValue: mockAdminBootstrap },
         { provide: AllowlistService, useValue: mockAllowlistService },
         PrincipalCache,
+        // PP-6.1 (#721): the real service over the mocked Prisma, so the
+        // tests below can assert the membership write itself.
+        OrganizationsService,
         { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PRINCIPAL_CACHE_CLOCK, useValue: () => clock },
         // #600: application metrics, stubbed so the outcome labels can be asserted.
@@ -104,6 +115,98 @@ describe('AuthService', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  // PP-6.1 (#721): every new user joins the default organization, atomically.
+  describe('default organization membership on sign-up', () => {
+    const mockRole = { id: 'role-1', name: 'viewer', rolePermissions: [] };
+    const mockUser = {
+      id: 'user-1',
+      email: mockGoogleProfile.email,
+      isActive: true,
+      userRoles: [{ role: mockRole }],
+    };
+
+    beforeEach(() => {
+      mockPrisma.userIdentity.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.role.findUnique.mockResolvedValue(mockRole as any);
+      mockPrisma.$transaction.mockImplementation(async (callback) => callback(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(mockUser as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+      mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+    });
+
+    it('creates exactly one membership in the default org, inside the transaction', async () => {
+      const order: string[] = [];
+      mockPrisma.$transaction.mockImplementation(async (callback) => {
+        order.push('tx:begin');
+        const result = await callback(mockPrisma);
+        order.push('tx:end');
+        return result;
+      });
+      mockPrisma.membership.upsert.mockImplementation((async () => {
+        order.push('membership');
+        return { id: 'membership-1' };
+      }) as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { orgId_userId: { orgId: DEFAULT_ORG.id, userId: 'user-1' } },
+          create: expect.objectContaining({ orgId: DEFAULT_ORG.id, userId: 'user-1' }),
+        }),
+      );
+      expect(order).toEqual(['tx:begin', 'membership', 'tx:end']);
+    });
+
+    it('joins an initial admin to the default org as well', async () => {
+      mockAdminBootstrap.shouldGrantAdminRole.mockResolvedValue(true);
+      mockPrisma.role.findUnique.mockResolvedValue({ ...mockRole, name: 'admin' } as any);
+      mockPrisma.userRole.upsert.mockResolvedValue({} as any);
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValue(mockUser as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      expect(mockPrisma.membership.upsert).toHaveBeenCalledTimes(1);
+    });
+
+    it('rolls the sign-up back and issues no tokens when the membership write fails', async () => {
+      // A real transaction rejects as a whole when its callback throws; the
+      // mock mirrors that by propagating the callback's rejection.
+      mockPrisma.membership.upsert.mockRejectedValue(new Error('membership insert failed'));
+
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toThrow('membership insert failed');
+
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+      expect(mockNotifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('fails before writing anything when the default org does not exist (seed not run)', async () => {
+      mockPrisma.organization.findFirst.mockResolvedValue(null);
+
+      await expect(service.handleGoogleLogin(mockGoogleProfile)).rejects.toBeInstanceOf(
+        DefaultOrganizationMissingException,
+      );
+
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockPrisma.user.create).not.toHaveBeenCalled();
+    });
+
+    it('does not touch memberships when an existing user logs in again', async () => {
+      mockPrisma.userIdentity.findUnique.mockResolvedValue({
+        id: 'identity-1',
+        userId: 'user-1',
+        user: { ...mockUser, userRoles: [{ role: mockRole }] },
+      } as any);
+      mockPrisma.user.update.mockResolvedValue(mockUser as any);
+
+      await service.handleGoogleLogin(mockGoogleProfile);
+
+      expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleGoogleLogin', () => {

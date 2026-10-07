@@ -22,6 +22,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { GoogleProfile } from './strategies/google.strategy';
 import { PrincipalCache } from './principal-cache/principal-cache.service';
+import { OrganizationsService } from '../organizations/organizations.service';
 import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
 
@@ -108,6 +109,8 @@ describe('user.welcome: fires after commit, and the dispatcher reads the recipie
     prisma.user.create.mockResolvedValue(createdUser as never);
     prisma.user.update.mockResolvedValue(createdUser as never);
     prisma.refreshToken.create.mockResolvedValue({} as never);
+    prisma.organization.findFirst.mockResolvedValue({ id: 'org-default', isDefault: true } as never);
+    prisma.membership.upsert.mockResolvedValue({ id: 'membership-1' } as never);
     prisma.notificationDelivery.create.mockResolvedValue({ id: 'delivery-1' } as never);
     prisma.notificationDelivery.update.mockResolvedValue({} as never);
 
@@ -118,6 +121,8 @@ describe('user.welcome: fires after commit, and the dispatcher reads the recipie
         NotificationDeliveryService,
         // PP-1.12 (#683): the JWT principal cache and the bus it invalidates on.
         PrincipalCache,
+        // PP-6.1 (#721): new users join the default org.
+        OrganizationsService,
         { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prisma },
         // #226. The dispatcher now reads the deployment-wide notification

@@ -30,6 +30,7 @@ import { AuthProviderDto } from './dto/auth-provider.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { UserWelcomeEmailData } from '../email';
 import { PrincipalCache } from './principal-cache/principal-cache.service';
+import { OrganizationsService } from '../organizations/organizations.service';
 
 export interface FullTokenResponse {
   accessToken: string;
@@ -50,6 +51,8 @@ export class AuthService {
     private readonly notifications: NotificationsService,
     // PP-1.12 (#683): JWT principals are read through this short-TTL cache.
     private readonly principalCache: PrincipalCache,
+    // PP-6.1 (#721): new users join the default organization.
+    private readonly organizations: OrganizationsService,
     // #600. Optional: see `fallbackAppMetrics`.
     @Optional()
     private readonly metrics: AppMetricsService = fallbackAppMetrics(),
@@ -272,7 +275,14 @@ export class AuthService {
       );
     }
 
-    // Create user with identity, role, and settings in transaction
+    // The default organization every new user joins (PP-6.1, #721). Resolved
+    // before the transaction like the default role: a missing row is a seed
+    // problem and must fail before anything is written.
+    // Unconditional here, which is the single-org behaviour; tenancy mode
+    // (#722) makes it mode-aware.
+    const defaultOrg = await this.organizations.getDefaultOrg();
+
+    // Create user with identity, role, settings and membership in transaction
     const user = await this.prisma.$transaction(async (tx) => {
       // Create user
       const newUser = await tx.user.create({
@@ -318,6 +328,9 @@ export class AuthService {
           },
         },
       });
+
+      // Join the default organization, in the same transaction as the user.
+      await this.organizations.ensureMembership(tx, defaultOrg.id, newUser.id);
 
       // Grant admin role if applicable
       if (shouldGrantAdmin) {
@@ -379,6 +392,9 @@ export class AuthService {
     // be cached for it — belt and braces.
     this.principalCache.invalidate({ userId: user.id });
 
+    this.logger.log(
+      `User ${user.id} joined default organization ${defaultOrg.id}`,
+    );
     this.logger.log(`User created successfully: ${user.email}`);
     return user;
   }

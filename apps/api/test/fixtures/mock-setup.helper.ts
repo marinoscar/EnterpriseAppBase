@@ -610,6 +610,27 @@ export function setupBaseMocks(): void {
     count: Array.isArray(data) ? data.length : 1,
   }));
 
+  // Organizations (PP-6.1, #721): the default organization every sign-up joins,
+  // and the membership write that joins it.
+  (prismaMock.organization.findFirst as jest.Mock).mockResolvedValue({
+    id: 'org-default',
+    name: 'Default organization',
+    slug: 'default',
+    isDefault: true,
+    createdById: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+  });
+  (prismaMock.membership.upsert as jest.Mock).mockImplementation(async ({ create }: any) => ({
+    id: 'membership-mock',
+    status: 'active',
+    lastActiveAt: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...create,
+  }));
+  (prismaMock.membership.findMany as jest.Mock).mockResolvedValue([]);
+
   // Mock $connect and $disconnect
   (prismaMock.$connect as jest.Mock).mockResolvedValue(undefined);
   (prismaMock.$disconnect as jest.Mock).mockResolvedValue(undefined);

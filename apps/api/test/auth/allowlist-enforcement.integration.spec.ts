@@ -12,6 +12,7 @@ import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.factory';
 import { GoogleProfile } from '../../src/auth/strategies/google.strategy';
 import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
+import { OrganizationsService } from '../../src/organizations/organizations.service';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 
@@ -50,6 +51,8 @@ describe('Auth Service - Allowlist Enforcement', () => {
         AdminBootstrapService,
         // PP-1.12 (#683): the JWT principal cache and the bus it invalidates on.
         PrincipalCache,
+        // PP-6.1 (#721): new users join the default org (mocked rows in setupBaseMocks).
+        OrganizationsService,
         { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: { sign: jest.fn(() => 'mock-jwt-token'), signAsync: jest.fn(() => 'mock-jwt-token') } },
