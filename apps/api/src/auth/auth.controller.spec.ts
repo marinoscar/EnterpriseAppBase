@@ -103,6 +103,25 @@ describe('AuthController', () => {
       expect(url.searchParams.has('token')).toBe(false);
     });
 
+    it('redirects a refusal with an explicit 302, and with error=no_organization (#722)', async () => {
+      mockAuthService.handleGoogleLogin.mockRejectedValue(
+        new AuthLoginDeniedException('no_organization', 'Not a member of any organization'),
+      );
+
+      await callback();
+
+      // Nest pre-sets the route default (200) and Fastify's `redirect` keeps
+      // it, so the status must be set explicitly for a browser to follow.
+      expect(reply.status).toHaveBeenCalledWith(302);
+      expect(redirectedTo().searchParams.get('error')).toBe('no_organization');
+    });
+
+    it('redirects a missing profile with an explicit 302 as well', async () => {
+      await callback(null);
+
+      expect(reply.status).toHaveBeenCalledWith(302);
+    });
+
     it('never puts the exception message in the redirect', async () => {
       mockAuthService.handleGoogleLogin.mockRejectedValue(
         new Error('Call 555-0100 to restore access'),

@@ -150,7 +150,7 @@ export class AuthController {
   @ApiResponse({
     status: 302,
     description:
-      'Redirects to frontend with the token in query params, or with error set to one of not_allowlisted, account_disabled, access_denied, authentication_failed, server_misconfigured',
+      'Redirects to frontend with the token in query params, or with error set to one of not_allowlisted, account_disabled, access_denied, authentication_failed, server_misconfigured, no_organization',
   })
   async googleAuthCallback(
     @Req() req: FastifyRequest & { user?: GoogleProfile },
@@ -162,7 +162,7 @@ export class AuthController {
 
       if (!profile) {
         this.logger.error('No profile found in Google OAuth callback');
-        return res.redirect(
+        return res.status(302).redirect(
           buildAuthErrorRedirectUrl(
             this.configService.get<string>('appUrl'),
             'authentication_failed',
@@ -202,7 +202,13 @@ export class AuthController {
       // Closed set of codes only (#652): the exception's message never
       // reaches the redirect, so the callback page cannot be made to show
       // attacker-chosen text.
-      return res.redirect(
+      //
+      // ⚠ EXPLICIT 302, like the success branch: by the time a route handler
+      // runs, Nest has already set the reply's status to the route default
+      // (200), and Fastify's `redirect(url)` keeps a status that was set, so a
+      // bare `redirect` answered 200 with a Location header that a browser
+      // does not follow (#722 found it driving a refusal end to end).
+      return res.status(302).redirect(
         buildAuthErrorRedirectUrl(
           this.configService.get<string>('appUrl'),
           resolveAuthErrorCode(error),
