@@ -1,4 +1,3 @@
-import { APP_SLUG } from '@app/shared';
 import { ExportResultCode, type ExportResult } from '@opentelemetry/core';
 import { resourceFromAttributes, type Resource } from '@opentelemetry/resources';
 import {
@@ -26,14 +25,14 @@ import {
 // here on purpose: the grouping behaviour under test lives in it.
 import { JsonLogsSerializer, JsonTraceSerializer } from '@opentelemetry/otlp-transformer';
 
-import { ATTR_APP_INSTANCE_ID } from './instance-id';
+import { ATTR_APP_INSTANCE_ID, DEFAULT_INSTANCE_ID } from '../../src/otel-core/sdk/instance-id';
 import {
   GatedLogRecordExporter,
   GatedPushMetricExporter,
   GatedSpanExporter,
   stampResource,
   telemetryGate,
-} from './telemetry-gate';
+} from '../../src/otel-core/sdk/telemetry-gate';
 
 // =============================================================================
 // Runtime telemetry gate (issue #532, epic #528)
@@ -48,12 +47,16 @@ import {
 // export is off.
 //
 // And, since #565, that everything an open gate lets through carries the
-// current `app.instance.id` on its resource — `APP_SLUG` until told otherwise
+// current `app.instance.id` on its resource — the app's slug once the app has
+// set it (`APP_SLUG` below stands for it)
 // — WITHOUT losing the resource's other attributes, without mutating the
 // record the rest of the SDK still holds, and without splitting one batch into
 // one OTLP `ResourceSpans`/`ResourceLogs` per record (the transformer groups
 // by resource identity).
 // =============================================================================
+
+/** Stands for the app's slug, which the app seeds the gate with (`telemetry-identity.ts` in the reference app). */
+const APP_SLUG = 'my-app';
 
 const RESOURCE = resourceFromAttributes({ 'service.name': 'my-app-api', 'deployment.environment': 'test' });
 
@@ -125,6 +128,8 @@ function resetGate(): void {
   telemetryGate.setInstanceId(APP_SLUG);
 }
 
+beforeAll(resetGate);
+
 describe('telemetryGate', () => {
   afterEach(resetGate);
 
@@ -133,16 +138,19 @@ describe('telemetryGate', () => {
     // cannot mask the initial state.
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fresh = require('./telemetry-gate') as typeof import('./telemetry-gate');
+      const fresh = require('../../src/otel-core/sdk/telemetry-gate') as typeof import('../../src/otel-core/sdk/telemetry-gate');
       expect(fresh.telemetryGate.isEnabled()).toBe(false);
     });
   });
 
-  it('starts with APP_SLUG as the instance id, so the first batch is never unlabelled', () => {
+  it('starts with the package placeholder as the instance id, never an empty label', () => {
+    // The app replaces it before anything is exported (initializeOtel's
+    // `instanceId`, the reference app's telemetry-identity.ts).
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fresh = require('./telemetry-gate') as typeof import('./telemetry-gate');
-      expect(fresh.telemetryGate.instanceId()).toBe(APP_SLUG);
+      const fresh = require('../../src/otel-core/sdk/telemetry-gate') as typeof import('../../src/otel-core/sdk/telemetry-gate');
+      expect(fresh.telemetryGate.instanceId()).toBe(DEFAULT_INSTANCE_ID);
+      expect(DEFAULT_INSTANCE_ID).not.toBe('');
     });
   });
 
@@ -185,7 +193,7 @@ describe.each(cases)('$name', ({ make }) => {
     expect(cb).toHaveBeenCalledWith({ code: ExportResultCode.SUCCESS });
   });
 
-  it('stamps app.instance.id = APP_SLUG by default, keeping every other resource attribute', () => {
+  it("stamps app.instance.id = the app's default (APP_SLUG), keeping every other resource attribute", () => {
     const { gated, inner, payload, exportedResources } = make();
     telemetryGate.setEnabled(true);
 

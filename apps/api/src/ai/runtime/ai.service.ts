@@ -124,7 +124,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { z } from 'zod';
 import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
-import { resolveServiceName } from '../../common/otel/service-name';
+import { resolveServiceName } from '../../common/otel/telemetry-identity';
 import { userAiSettingsSchema } from '../../common/schemas/settings.schema';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiConfigService, providerCallSettings } from '../config/ai-config.service';

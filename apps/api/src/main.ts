@@ -18,7 +18,7 @@ import { verifyDeploymentNetworkAtStartup } from './common/deployment/deployment
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
 import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
-import { registerRequestSpanAttributes } from './common/otel/request-span-attributes';
+import { registerRequestSpanAttributes } from '@marinoscar/platform-api/otel-core';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -55,7 +55,7 @@ async function bootstrap() {
   // `app.route.matched=false` for an unknown route, `app.request.bearer`.
   // FIRST, before any plugin or route, so it runs ahead of every other
   // onRequest hook (a CORS preflight reply included). Only when the SDK is
-  // installed; see src/common/otel/request-span-attributes.ts.
+  // installed; see @marinoscar/platform-api/otel-core (spans/request-span-attributes.ts).
   registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), process.env.OTEL_ENABLED === 'true');
 
   // SECRETS_ENCRYPTION_KEY validation (#116, epic #108).

@@ -1,6 +1,6 @@
 # Telemetry (GreptimeDB + Telemetry Explorer)
 
-> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/api/src/telemetry/dashboard/`, `apps/stack-agent/`, `apps/api/src/common/otel/telemetry-gate.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
+> **Status:** shipped · **Code:** `apps/api/src/telemetry/`, `apps/api/src/telemetry/connection/`, `apps/api/src/telemetry/stack/`, `apps/api/src/telemetry/dashboard/`, `apps/stack-agent/`, `packages/platform-api/src/otel-core/` (`@marinoscar/platform-api/otel-core`: the SDK bootstrap, the export gate, the metrics host), `apps/api/src/instrumentation.ts`, `apps/web/src/pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` · **API:** `/api/telemetry/config`, `/api/admin/telemetry/*`, `/api/admin/telemetry/connection*`, `/api/admin/telemetry/stack*`, `/api/admin/telemetry/dashboard/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/telemetry`, `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` · **Runbook:** [telemetry.md](../runbooks/telemetry.md)
 
 This is a two-container overlay — an OTel Collector in front of a GreptimeDB
 standalone instance — replacing the earlier Uptrace/ClickHouse/Redis stack.
@@ -337,10 +337,12 @@ rate-limited; spans for jobs the node did not hold are dropped (#608;
 ## 2. The two switches
 
 Two independent controls decide whether telemetry data ever leaves this
-process, documented in full in `apps/api/src/common/otel/telemetry-gate.ts`:
+process, documented in full in `packages/platform-api/src/otel-core/sdk/telemetry-gate.ts`
+(`telemetryGate`, `@marinoscar/platform-api/otel-core`):
 
 1. **`OTEL_ENABLED`** (environment, infra). Read once by
-   `apps/api/src/instrumentation.ts` before Nest exists: whether the
+   `initializeOtel()` (`@marinoscar/platform-api/otel-core/sdk`), which
+   `apps/api/src/instrumentation.ts` calls before Nest exists: whether the
    OpenTelemetry SDK is installed in this process at all. It cannot change
    without a restart — auto-instrumentation only patches modules required
    after `sdk.start()`. `telemetry.compose.yml` sets it to `true` on the
@@ -416,7 +418,8 @@ span, log record or metric batch — distinct from `service.name`
 fork, can point at one shared telemetry store, and without an identity of
 their own their data is indistinguishable. An administrator sets it at
 `/admin/settings/telemetry`; `instanceId: null` (the default) resolves to
-`APP_SLUG` (`apps/api/src/common/otel/instance-id.ts`), the slug of the
+`APP_SLUG` (`apps/api/src/common/otel/telemetry-identity.ts`, which binds the
+package's `resolveTelemetryInstanceId`), the slug of the
 product name in `packages/shared/identity.json` — so a renamed fork reports
 under its own name with no setting to touch, and only needs the override for
 more than one deployment of the *same* fork sharing a store.
@@ -430,12 +433,12 @@ part of the "full replace" contract (§ above), because it arrived after the
 settings form did and an older client must not reset an administrator's
 override merely by saving the page.
 
-**Why export-time stamping, not the SDK resource.** `instrumentation.ts`
+**Why export-time stamping, not the SDK resource.** `initializeOtel()`
 hands one `Resource` to `NodeSDK` before `sdk.start()`, and every span, log
 record and metric collected afterward holds a reference to that same object —
 it is immutable from then on, so a runtime-changeable identity cannot live
 there. The gated exporters (`GatedSpanExporter`, `GatedLogRecordExporter`,
-`GatedPushMetricExporter`, `apps/api/src/common/otel/telemetry-gate.ts`) are
+`GatedPushMetricExporter`, `packages/platform-api/src/otel-core/sdk/telemetry-gate.ts`) are
 already the one place every batch passes through on its way out, so they
 re-label each batch with the current `instanceId` as they export it — a
 shallow copy with a replaced `resource` for metrics, the equivalent for spans
@@ -795,7 +798,8 @@ between resolution and the adapter call, request-scoped, not a job.
   GreptimeDB, so a deleted attribute never becomes a column at all — it
   cannot be un-redacted by a later query.
 - **The bearer flag is a presence bit, never the token** (#650). The API's
-  `onRequest` hook (`apps/api/src/common/otel/request-span-attributes.ts`)
+  `onRequest` hook (`registerRequestSpanAttributes`,
+  `packages/platform-api/src/otel-core/spans/request-span-attributes.ts`)
   writes `app.request.bearer` = `true`/`false` on the server span: whether an
   `Authorization: Bearer …` header was sent. Only the scheme is read; no part
   of the token is ever put on a span (the hook's spec asserts it). The
@@ -1782,7 +1786,7 @@ controls instead, just not by selecting a span on the chart itself.
 
 - `apps/api/src/telemetry/dashboard/telemetry-dashboard.sql.spec.ts` — every
   SQL template, literal-escaping and the SSE exclusion.
-- `apps/api/src/common/otel/request-span-attributes.spec.ts` (#650) — the
+- `packages/platform-api/test/otel-core/request-span-attributes.spec.ts` (#650) — the
   `onRequest` hook over `fastify.inject` inside an active SERVER span, on
   plain Fastify and on a Nest Fastify application: `http.route` on a matched
   route, `app.route.matched=false` on an unknown one (Nest's default 404 and
@@ -1960,10 +1964,13 @@ controls instead, just not by selecting a span on the chart itself.
 ### 11.13 Application metrics
 
 > **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`,
-> `app-metric.registry.ts` (the registry), `platform-app-metrics.ts` (the platform's declarations),
-> `app-metric.manifest.ts`; an app's own in `apps/api/src/app-registrations/telemetry.ts` (`APP_METRICS`)
+> `platform-app-metrics.ts` (the platform's declarations), `app-metric.manifest.ts`; an app's own in
+> `apps/api/src/app-registrations/telemetry.ts` (`APP_METRICS`). The generic half is packaged (#700) in
+> `@marinoscar/platform-api/otel-core`: `MetricsHostService` (instruments, label bounding, the gauge-provider
+> seam), `OtelMetricsModule` and the registry (`appMetricRegistry`, `registerAppMetrics`), in
+> `packages/platform-api/src/otel-core/metrics/`
 
-`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are created: meter scope `app`, every name prefixed `app.`. Jobs, backups, auth, AI and notifications call its typed methods (`jobEnqueued`, `aiUsage`, …). The only other code that creates `app.*` instruments is the node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below). With `OTEL_ENABLED` unset the service is a no-op.
+`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are recorded: meter scope `app`, every name prefixed `app.`. Since #700 it records through the package's `MetricsHostService` (provided by `OtelMetricsModule`, which `AppMetricsModule` imports), which creates every registered counter and histogram; `AppMetricsService` keeps the typed recorders and the database-backed gauges, which it registers with `registerGaugeProvider`. Jobs, backups, auth, AI and notifications call its typed methods (`jobEnqueued`, `aiUsage`, …). The only other code that creates `app.*` instruments is the node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below). With `OTEL_ENABLED` unset the service is a no-op.
 
 #### The app-metric registry (#680)
 
@@ -2060,7 +2067,7 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 - Backup settlements made by the stale-sweep.
 - Controller-level auth cases (missing profile, missing cookie).
 
-Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` (including the pinned descriptor baseline and `add`/`record`), `app-metric.registry.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, `apps/api/src/common/event-bus/event-bus.metrics.spec.ts`, the gauge-temporality case in `apps/api/src/common/otel/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
+Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` (including the pinned descriptor baseline and a recorded export of every counter and histogram), `app-metric.registry.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, `apps/api/src/common/event-bus/event-bus.metrics.spec.ts`, `apps/api/test/platform/otel-disabled.spec.ts` (the API with `OTEL_ENABLED` unset), the package's `packages/platform-api/test/otel-core/metrics-host.spec.ts` (generic `add`/`record`, label bounding, gauge providers) and `metric-name.registry.spec.ts`, the gauge-temporality case in `packages/platform-api/test/otel-core/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
 
 - **PostgreSQL is scraped by the collector, not instrumented in the API.**
   The `postgresql` receiver reads the statistics views from outside the
@@ -2256,8 +2263,8 @@ route was indistinguishable from a legitimate 404 (`GET /api/gyms/:id` for a
 deleted gym).
 
 **The source of truth: three span attributes.** One Fastify `onRequest`
-hook, `registerRequestSpanAttributes` in
-`apps/api/src/common/otel/request-span-attributes.ts`, registered in
+hook, `registerRequestSpanAttributes` from `@marinoscar/platform-api/otel-core`
+(`packages/platform-api/src/otel-core/spans/request-span-attributes.ts`), registered in
 `main.ts` on the root instance right after `NestFactory.create` (before any
 plugin or route, so it runs ahead of every other `onRequest` hook, a CORS
 preflight reply included), writes on the **active span**:

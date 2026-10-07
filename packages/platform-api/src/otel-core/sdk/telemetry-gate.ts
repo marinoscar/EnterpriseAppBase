@@ -1,5 +1,5 @@
 // =============================================================================
-// The runtime telemetry gate (issue #532, epic #528)
+// The runtime telemetry gate (issue #532, epic #528; packaged by issue #700)
 // =============================================================================
 //
 // TWO SWITCHES, AND THEY ARE NOT THE SAME SWITCH
@@ -7,14 +7,15 @@
 //
 //   1. `OTEL_ENABLED` (environment, infra). Decides whether the OpenTelemetry
 //      SDK is installed in this process AT ALL — read once by
-//      `src/instrumentation.ts` before Nest exists. It is `true` when the
+//      `initializeOtel()` (`initialize-otel.ts`, called from the app's
+//      `instrumentation.ts`) before Nest exists. It is `true` when the
 //      deployment ships the telemetry overlay (collector + storage backend),
 //      and it cannot change without a restart, because auto-instrumentation
 //      can only patch modules required AFTER `sdk.start()`.
 //
 //   2. `telemetry.enabled` (system setting, admin UI). Decides whether what
 //      the installed SDK produces is actually EXPORTED. An administrator
-//      flips it at runtime with no restart; the telemetry module calls
+//      flips it at runtime with no restart; the app's telemetry module calls
 //      `telemetryGate.setEnabled()` on boot (once settings have loaded) and on
 //      every settings refresh.
 //
@@ -39,7 +40,7 @@
 // Every exported span, log record and metric batch carries the resource
 // attribute `app.instance.id` (`instance-id.ts`), which an administrator
 // changes at runtime (`telemetry.instanceId`). The SDK resource cannot carry
-// it: `instrumentation.ts` hands the resource to `NodeSDK` once, before
+// it: `initializeOtel()` hands the resource to `NodeSDK` once, before
 // `sdk.start()`, and it is immutable from then on — every span and record
 // holds a reference to that one object. A runtime-changeable identity must
 // therefore be applied at EXPORT time, and the gate is already the one place
@@ -48,9 +49,11 @@
 // pushes `setEnabled()`: on boot, every refresh interval, and after a save.
 //
 // The value is read per batch, like the gate itself, so a change applies to
-// the next batch exported. It starts at the `APP_SLUG` default rather than
-// empty, so the first batch after the gate opens is never unlabelled even if
-// it races the first settings read.
+// the next batch exported. It starts at the app's default rather than empty
+// (`initializeOtel({ instanceId })` seeds it with the app's slug before
+// `sdk.start()`; the package's own placeholder is `DEFAULT_INSTANCE_ID`), so
+// the first batch after the gate opens is never unlabelled even if it races
+// the first settings read.
 //
 // HOW A RECORD IS RE-LABELLED WITHOUT TOUCHING IT
 // -----------------------------------------------------------------------------
@@ -93,12 +96,17 @@
 // SAFE TO IMPORT BEFORE THE SDK STARTS
 // -----------------------------------------------------------------------------
 //
-// Like `service-name.ts`, this module is imported by `instrumentation.ts`
+// Like `service-name.ts`, this module is part of the `sdk` subpath, loaded
 // ahead of `sdk.start()`. It is kept trivial and side-effect-free on purpose:
 // module-level state, three thin wrapper classes, and imports only from the
 // OpenTelemetry SDK packages themselves and `instance-id.ts` (never `http`,
 // `pg`, `pino` or any other module the auto-instrumentation needs to patch).
 // There is no Nest DI here because Nest does not exist yet when this runs.
+//
+// ONE COPY PER PROCESS. The gate is module-level state: two copies of
+// `@marinoscar/platform-api` in one process would be two gates, and the app
+// would open one while the SDK exports through the other. The platform
+// single-instance check (issue #695) guards the package name.
 // =============================================================================
 
 import { ExportResultCode, type ExportResult } from '@opentelemetry/core';
@@ -113,16 +121,43 @@ import {
 } from '@opentelemetry/sdk-metrics';
 import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
 
-import { ATTR_APP_INSTANCE_ID, resolveTelemetryInstanceId } from './instance-id';
+import { ATTR_APP_INSTANCE_ID, DEFAULT_INSTANCE_ID } from './instance-id';
 
 let enabled = false;
-let instanceId = resolveTelemetryInstanceId(null);
+let instanceId = DEFAULT_INSTANCE_ID;
+
+/**
+ * The shape of {@link telemetryGate}.
+ *
+ * @stability stable
+ */
+export interface TelemetryGate {
+  /** Whether exporting is allowed right now. Read at export time, per batch. */
+  isEnabled(): boolean;
+  /** Opens (`true`) or closes (`false`) the gate; applies to the next batch exported. */
+  setEnabled(next: boolean): void;
+  /** The instance identifier stamped on everything the gate lets through. */
+  instanceId(): string;
+  /** Replaces the instance identifier. Callers pass an already-resolved value (`resolveTelemetryInstanceId`). */
+  setInstanceId(next: string): void;
+}
 
 /**
  * Process-wide runtime export switch (starts closed, `false`) and the instance
- * identifier stamped on everything it lets through (starts at `APP_SLUG`).
+ * identifier stamped on everything it lets through (starts at
+ * `DEFAULT_INSTANCE_ID` until `initializeOtel({ instanceId })` or the app's
+ * settings set it).
+ *
+ * @example
+ * ```ts
+ * telemetryGate.setInstanceId(resolveTelemetryInstanceId(settings.instanceId, APP_SLUG));
+ * telemetryGate.setEnabled(settings.enabled);
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability stable
  */
-export const telemetryGate = {
+export const telemetryGate: TelemetryGate = {
   isEnabled(): boolean {
     return enabled;
   },
@@ -132,7 +167,6 @@ export const telemetryGate = {
   instanceId(): string {
     return instanceId;
   },
-  /** Callers pass an already-resolved value (`resolveTelemetryInstanceId`). */
   setInstanceId(next: string): void {
     instanceId = next;
   },
@@ -142,9 +176,14 @@ export const telemetryGate = {
 const stamped = new WeakMap<Resource, { id: string; merged: Resource }>();
 
 /**
- * `resource` with `app.instance.id` set to the current instance id — the SAME
- * object for every call with the same source and id (see the header: the OTLP
- * transformer groups by resource identity).
+ * `resource` with `app.instance.id` set to the current instance id: the SAME
+ * object for every call with the same source and id (see the file header: the
+ * OTLP transformer groups by resource identity).
+ *
+ * @param resource - The SDK resource a span, log record or metric batch carries.
+ * @returns The merged resource, cached per (source, id).
+ *
+ * @stability experimental
  */
 export function stampResource(resource: Resource): Resource {
   const id = instanceId;
@@ -173,10 +212,16 @@ function withStampedResource<T extends { resource: Resource }>(record: T): T {
 
 const DROPPED: ExportResult = { code: ExportResultCode.SUCCESS };
 
-/** Forwards spans to `inner`, stamped with the instance id, only while the telemetry gate is open. */
+/**
+ * Forwards spans to `inner`, stamped with the instance id, only while the
+ * telemetry gate is open. A closed gate acknowledges each batch as SUCCESS.
+ *
+ * @stability stable
+ */
 export class GatedSpanExporter implements SpanExporter {
   constructor(private readonly inner: SpanExporter) {}
 
+  /** Drops the batch (SUCCESS) while the gate is closed; otherwise stamps and delegates. */
   export(spans: ReadableSpan[], resultCallback: (result: ExportResult) => void): void {
     if (!telemetryGate.isEnabled()) {
       resultCallback(DROPPED);
@@ -185,19 +230,27 @@ export class GatedSpanExporter implements SpanExporter {
     this.inner.export(spans.map(withStampedResource), resultCallback);
   }
 
+  /** Always delegates, whatever the gate says: a shutdown must flush even when export is off. */
   shutdown(): Promise<void> {
     return this.inner.shutdown();
   }
 
+  /** Always delegates, whatever the gate says. */
   forceFlush(): Promise<void> {
     return this.inner.forceFlush ? this.inner.forceFlush() : Promise.resolve();
   }
 }
 
-/** Forwards log records to `inner`, stamped with the instance id, only while the telemetry gate is open. */
+/**
+ * Forwards log records to `inner`, stamped with the instance id, only while
+ * the telemetry gate is open. A closed gate acknowledges each batch as SUCCESS.
+ *
+ * @stability stable
+ */
 export class GatedLogRecordExporter implements LogRecordExporter {
   constructor(private readonly inner: LogRecordExporter) {}
 
+  /** Drops the batch (SUCCESS) while the gate is closed; otherwise stamps and delegates. */
   export(logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void): void {
     if (!telemetryGate.isEnabled()) {
       resultCallback(DROPPED);
@@ -206,10 +259,12 @@ export class GatedLogRecordExporter implements LogRecordExporter {
     this.inner.export(logs.map(withStampedResource), resultCallback);
   }
 
+  /** Always delegates, whatever the gate says: a shutdown must flush even when export is off. */
   shutdown(): Promise<void> {
     return this.inner.shutdown();
   }
 
+  /** Always delegates, whatever the gate says. */
   forceFlush(): Promise<void> {
     return this.inner.forceFlush();
   }
@@ -234,9 +289,13 @@ export class GatedLogRecordExporter implements LogRecordExporter {
  * delta, a collection exports exactly what the callback observed this time.
  * The `app.nodes.*` per-node gauges (#606) depend on it: a node dropping out of
  * the exported set must disappear from the store, not freeze.
+ *
+ * @stability stable
  */
 export class GatedPushMetricExporter implements PushMetricExporter {
+  /** Delta for gauges, the inner exporter's choice (default cumulative) for everything else. */
   readonly selectAggregationTemporality: (instrumentType: InstrumentType) => AggregationTemporality;
+  /** The inner exporter's aggregation selector, when it has one. */
   readonly selectAggregation?: (instrumentType: InstrumentType) => AggregationOption;
 
   constructor(private readonly inner: PushMetricExporter) {
@@ -250,6 +309,7 @@ export class GatedPushMetricExporter implements PushMetricExporter {
     }
   }
 
+  /** Drops the batch (SUCCESS) while the gate is closed; otherwise stamps and delegates. */
   export(metrics: ResourceMetrics, resultCallback: (result: ExportResult) => void): void {
     if (!telemetryGate.isEnabled()) {
       resultCallback(DROPPED);
@@ -258,10 +318,12 @@ export class GatedPushMetricExporter implements PushMetricExporter {
     this.inner.export({ ...metrics, resource: stampResource(metrics.resource) }, resultCallback);
   }
 
+  /** Always delegates, whatever the gate says: a shutdown must flush even when export is off. */
   shutdown(): Promise<void> {
     return this.inner.shutdown();
   }
 
+  /** Always delegates, whatever the gate says. */
   forceFlush(): Promise<void> {
     return this.inner.forceFlush();
   }

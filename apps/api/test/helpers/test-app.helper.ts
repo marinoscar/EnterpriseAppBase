@@ -1,3 +1,4 @@
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   FastifyAdapter,
@@ -134,6 +135,16 @@ export async function createTestApp(
 
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
+
+  // Stop every `@Cron` timer the app registered. They tick on the wall clock
+  // (every 10 minutes, on the hour...), so a spec that happened to straddle a
+  // boundary saw a housekeeping job (fleet sweep, backup sweep, old-db drop)
+  // land in its enqueue/job.create spy and failed at random. No spec using this
+  // helper is about scheduled ticks; each task's own spec calls its handler
+  // directly, which is unaffected.
+  for (const cronJob of app.get(SchedulerRegistry).getCronJobs().values()) {
+    void cronJob.stop();
+  }
 
   const prisma = moduleFixture.get<PrismaService>(PrismaService);
 

@@ -1,4 +1,4 @@
-import type { AppMetricAttribute, AppMetricDef } from './app-metric.registry';
+import type { AppMetricAttribute, AppMetricDef } from '@marinoscar/platform-api/otel-core';
 
 // =============================================================================
 // The platform's `app.*` metrics (issue #680)

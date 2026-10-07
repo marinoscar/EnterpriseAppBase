@@ -1,39 +1,45 @@
-import { defineRegistry, RegistryError, type Registry } from '@marinoscar/platform-api/core';
+import { defineRegistry, RegistryError, type Registry } from '../../core/index';
 
 // =============================================================================
-// The app-metric registry (issue #680, epic #660)
+// The app-metric name registry (issue #680, epic #660; packaged by issue #700)
 // =============================================================================
 //
-// Every `app.*` OpenTelemetry instrument the API exports is DECLARED here: its
+// Every `app.*` OpenTelemetry instrument an app exports is DECLARED here: its
 // stable code key, its OTLP name, kind, unit, description, histogram buckets
-// and the attribute keys it may carry. `AppMetricsService` creates the
-// counters and histograms from it, and the gauge providers (its own
-// `registerGauges()`, `nodes/node-fleet-metrics.service.ts`) read their
-// names, units and descriptions from it. So the conventions in the service
-// header (names, units, low-cardinality labels) have ONE table, and an app
-// adds its own metrics without editing a platform file: it lists them in
-// `APP_METRICS` (`app-registrations/telemetry.ts`) and emits them with
-// `AppMetricsService.add(key, …)` / `.record(key, …)`.
+// and the attribute keys it may carry. `MetricsHostService` creates the
+// counters and histograms from it, and gauge providers read their names,
+// units and descriptions from it (`createRegisteredGauge`). So the
+// conventions (names, units, low-cardinality labels) have ONE table, and an
+// app adds its own metrics without editing a platform file.
 //
-// The platform's own declarations are `platform-app-metrics.ts`; the manifest
-// `app-metric.manifest.ts` registers them, then the app's. Read the registry
-// through `app-metrics.service.ts` (which imports the manifest), never through
-// this file alone.
+// The registry starts EMPTY: the package declares no metric of its own. The
+// reference app registers its platform metrics and then its own from a
+// manifest (`apps/api/src/common/otel/app-metric.manifest.ts`) that its
+// metrics service imports, so every declaration is in before the host
+// creates instruments.
 //
-// ⚠ FRAMEWORK-FREE (a static registry, packages/platform-api/src/core/registry/README.md): it imports
-// only the registry primitive.
+// FRAMEWORK-FREE (a static registry, see the core slice's registry README):
+// it imports only the registry primitive.
 //
 // Every rule runs at REGISTRATION, so a malformed metric fails at import time.
+//
+// ONE COPY PER PROCESS: the registry is module-level state (issue #695's
+// single-instance check guards the package name).
 // =============================================================================
 
-/** The OTel instrument kind. Gauges are declared for their name/unit/description; their callbacks stay code. */
+/**
+ * The OTel instrument kind. Gauges are declared for their name, unit and
+ * description; their callbacks stay code.
+ *
+ * @stability stable
+ */
 export type AppMetricKind = 'counter' | 'histogram' | 'gauge';
 
 /**
  * How one attribute is bounded before it becomes a label (a GreptimeDB column).
  *
  * - `enum`: the value must be one of `values`, else it is exported as `other`.
- * - `free`: an identifier-shaped string through `AppMetricsService.boundLabel`
+ * - `free`: an identifier-shaped string through `MetricsHostService.boundLabel`
  *   (at most 64 characters of `[A-Za-z0-9_.:/@+-]`, never address-shaped, and
  *   at most `MAX_DISTINCT_VALUES` distinct values per attribute key per
  *   process); anything else becomes `other` (or `unknown` when empty).
@@ -41,18 +47,36 @@ export type AppMetricKind = 'counter' | 'histogram' | 'gauge';
  * Neither admits a user id, an e-mail, a URL or an error message as a label:
  * declare an attribute only for a low-cardinality dimension (a type, a status,
  * an outcome, a provider).
+ *
+ * @stability stable
  */
-export type AppMetricAttribute = { kind: 'enum'; values: readonly string[] } | { kind: 'free' };
+export type AppMetricAttribute =
+  | {
+      /** One of `values`, else `other`. */
+      kind: 'enum';
+      /** The allowed values, non-empty strings. */
+      values: readonly string[];
+    }
+  | {
+      /** An identifier-shaped string, bounded per key. */
+      kind: 'free';
+    };
 
-/** One declared `app.*` metric. */
+/**
+ * One declared `app.*` metric.
+ *
+ * @stability stable
+ */
 export interface AppMetricDef {
   /** Stable code key, e.g. `jobsEnqueued`: what `add`/`record` and `APP_METRIC_NAMES` use. lowerCamelCase. */
   key: string;
   /** OTLP name, e.g. `app.jobs.enqueued`: `app.` then dot-separated snake_case segments. Permanent. */
   name: string;
+  /** The instrument kind. */
   kind: AppMetricKind;
   /** OTel unit: `s`, `By`, `{job}`, `1` … (it picks the GreptimeDB table suffix, docs §11.3). */
   unit: string;
+  /** One sentence, exported as the instrument's description. */
   description: string;
   /** Histogram bucket boundaries, ascending, in `unit`. Histograms only. */
   buckets?: readonly number[];
@@ -61,22 +85,38 @@ export interface AppMetricDef {
 }
 
 /**
- * The augmentable set of APP metric keys. The platform's keys are typed from
- * `PLATFORM_APP_METRICS`; an app adds its own in `app-registrations/telemetry.ts`:
+ * The augmentable set of app metric keys, so `add`/`record` and
+ * `createRegisteredGauge` type-check an app's own keys. An app widens it next
+ * to its declarations:
  *
  * ```ts
- * declare module '../common/otel/app-metric.registry' {
+ * declare module '@marinoscar/platform-api/otel-core' {
  *   interface AppMetricKeys { coachNudgesSent: true }
  * }
  * ```
+ *
+ * @stability experimental
  */
 export interface AppMetricKeys {}
 
-/** `app.` then one or more dot-separated snake_case segments. */
+/**
+ * `app.` then one or more dot-separated snake_case segments.
+ *
+ * @stability stable
+ */
 export const APP_METRIC_NAME_PATTERN = /^app(\.[a-z][a-z0-9_]*)+$/;
-/** Attribute keys become columns: snake_case, no dots (a dotted column needs quoting in every statement). */
+/**
+ * Attribute keys become columns: snake_case, no dots (a dotted column needs
+ * quoting in every statement).
+ *
+ * @stability stable
+ */
 export const APP_METRIC_ATTRIBUTE_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
-/** Code keys are lowerCamelCase. */
+/**
+ * Code keys are lowerCamelCase.
+ *
+ * @stability stable
+ */
 export const APP_METRIC_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
 
 const KINDS = new Set<string>(['counter', 'histogram', 'gauge']);
@@ -89,6 +129,12 @@ function assertText(value: unknown, where: string): void {
  * Every rule a declaration must satisfy, against the declarations already
  * known. Throws a plain `Error`. A known declaration with the SAME key is
  * ignored, so re-registering a key reports the registry's `DUPLICATE_ID`.
+ *
+ * @param def - The declaration to check.
+ * @param known - The declarations already registered.
+ * @throws Error naming the metric and the broken rule.
+ *
+ * @stability stable
  */
 export function assertAppMetric(def: AppMetricDef, known: readonly AppMetricDef[]): void {
   const where = `App metric "${def.key}"`;
@@ -138,9 +184,12 @@ export function assertAppMetric(def: AppMetricDef, known: readonly AppMetricDef[
 }
 
 /**
- * Every declared `app.*` metric, in registration order (platform first, then
- * the app's). Read it through `app-metrics.service.ts`, which imports the
- * manifest that fills it. Frozen once the Nest application has bootstrapped.
+ * Every declared `app.*` metric, in registration order. Frozen once the Nest
+ * application has bootstrapped (`RegistryFreezeService`). Register through
+ * {@link registerAppMetrics}; read with `list()`, `require(key)`, `has(key)`.
+ *
+ * @extensionPoint registry
+ * @stability stable
  */
 export const appMetricRegistry: Registry<AppMetricDef> = defineRegistry<AppMetricDef>({
   name: 'app-metrics',
@@ -154,9 +203,22 @@ export const appMetricRegistry: Registry<AppMetricDef> = defineRegistry<AppMetri
 /**
  * Registers `defs`, all or nothing, also refusing two declarations of one
  * batch that share a NAME (the registry's `validate` hook alone does not see a
- * batch's earlier entries).
+ * batch's earlier entries). Call it at import time, from a manifest the
+ * metrics service imports.
  *
+ * @param defs - The declarations, in order.
  * @throws RegistryError `INVALID_ENTRY`, `INVALID_ID`, `DUPLICATE_ID` or `FROZEN`.
+ *
+ * @example
+ * ```ts
+ * registerAppMetrics([
+ *   { key: 'coachNudgesSent', name: 'app.coach.nudges.sent', kind: 'counter', unit: '{nudge}',
+ *     description: 'Coach nudges sent.', attributes: { channel: { kind: 'free' } } },
+ * ]);
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability stable
  */
 export function registerAppMetrics(defs: readonly AppMetricDef[]): void {
   const names = new Map<string, string>();

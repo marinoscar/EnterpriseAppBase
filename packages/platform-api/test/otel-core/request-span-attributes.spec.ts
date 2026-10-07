@@ -21,7 +21,7 @@ import {
   hasBearer,
   registerRequestSpanAttributes,
   requestSpanAttributesHook,
-} from './request-span-attributes';
+} from '../../src/otel-core/spans/request-span-attributes';
 
 // =============================================================================
 // Route and caller attributes on the server span (issue #650)

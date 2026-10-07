@@ -246,7 +246,7 @@ export function buildPlan(old, next) {
   add('README.md', `${old.repoName}/\n`, `${next.repoName}/\n`, 1, 'the root of the directory tree');
 
   // --- The OpenTelemetry service name -----------------------------------
-  // The code fallback follows APP_SLUG (see common/otel/service-name.ts); these
+  // The code fallback follows APP_SLUG (see common/otel/telemetry-identity.ts); these
   // two are Compose defaults, which no JavaScript read can reach.
   add('infra/compose/.env.example', `OTEL_SERVICE_NAME=${old.serviceName}`, `OTEL_SERVICE_NAME=${next.serviceName}`, 1,
       'the documented default — note: a VALUE change only, never a new key, or env-spec.test.ts fails');

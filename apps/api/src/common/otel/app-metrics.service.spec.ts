@@ -607,6 +607,84 @@ describe('AppMetricsService baseline (#680)', () => {
   });
 });
 
+describe('AppMetricsService recorded export (#700: identical to before the extraction)', () => {
+  it('exports every platform counter and histogram with exactly its baseline name, description, unit and buckets', async () => {
+    const { service, reader } = setup();
+
+    service.jobEnqueued('t');
+    service.jobsClaimedBy('server', ['t']);
+    service.jobSettled('t', 'succeeded', 1000, 'server');
+    service.leaseReaped('requeued', 1);
+    service.backupSettled('completed', 1000, 1024);
+    service.authLogin('success');
+    service.authRefresh('success');
+    service.aiUsage({ provider: 'p', model: 'm', operation: 'o', status: 'succeeded', latencyMs: 10, inputTokens: 1 });
+    service.notificationDelivery('email', 'sent', 'e');
+    service.add('eventBusPublished', 1, { adapter: 'memory', channel: 'c', outcome: 'ok' });
+    service.add('eventBusDelivered', 1, { adapter: 'memory', channel: 'c', origin: 'local' });
+    service.add('eventBusReconnects', 1, { adapter: 'postgres' });
+
+    const all = await collect(reader);
+    const exported = all
+      .map((m) => ({
+        name: m.descriptor.name,
+        description: m.descriptor.description,
+        unit: m.descriptor.unit,
+        ...(m.dataPointType === DataPointType.HISTOGRAM
+          ? { buckets: (m.dataPoints[0].value as { buckets: { boundaries: number[] } }).buckets.boundaries }
+          : {}),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    expect(exported).toEqual(
+      [
+        { name: 'app.jobs.enqueued', description: 'Jobs inserted into the queue (dedup hits excluded).', unit: '{job}' },
+        { name: 'app.jobs.claimed', description: 'Jobs claimed by an executor.', unit: '{job}' },
+        { name: 'app.jobs.settled', description: 'Executor reports settled by the terminal state machine, by outcome.', unit: '{job}' },
+        {
+          name: 'app.jobs.duration',
+          description: 'Run time of one job attempt, from claim to settlement.',
+          unit: 's',
+          buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
+        },
+        { name: 'app.jobs.reaped', description: 'Abandoned running jobs recovered by the lease reaper.', unit: '{job}' },
+        { name: 'app.backup.runs', description: 'Database backup runs settled, by outcome.', unit: '{run}' },
+        {
+          name: 'app.backup.duration',
+          description: 'Wall time of a settled database backup run.',
+          unit: 's',
+          buckets: [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400],
+        },
+        {
+          name: 'app.backup.size',
+          description: 'Size of a completed, verified database backup archive.',
+          unit: 'By',
+          buckets: [1e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10, 5e10, 1e11],
+        },
+        { name: 'app.auth.logins', description: 'Interactive sign-in attempts, by provider and outcome.', unit: '{login}' },
+        { name: 'app.auth.refreshes', description: 'Refresh-token rotations, by outcome.', unit: '{refresh}' },
+        { name: 'app.ai.requests', description: 'AI provider round-trips, by provider, model, operation and status.', unit: '{request}' },
+        { name: 'app.ai.tokens', description: 'AI tokens reported by the provider, by token_type (input|output).', unit: '{token}' },
+        {
+          name: 'app.ai.request.duration',
+          description: 'Latency of one AI provider round-trip.',
+          unit: 's',
+          buckets: [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300],
+        },
+        { name: 'app.notifications.deliveries', description: 'Notification delivery attempts, by channel, event and outcome.', unit: '{delivery}' },
+        { name: 'app.event_bus.published', description: 'Messages published on the event bus, by adapter, channel and outcome.', unit: '{message}' },
+        {
+          name: 'app.event_bus.delivered',
+          description:
+            "Messages handed to this process's subscribers, by adapter, channel and origin (local: published here; remote: another replica).",
+          unit: '{message}',
+        },
+        { name: 'app.event_bus.reconnects', description: 'Listener reconnects the event bus scheduled after losing its session, by adapter.', unit: '{reconnect}' },
+      ].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  });
+});
+
 // =============================================================================
 // App metrics through the registry: generic add/record (issue #680)
 // =============================================================================
@@ -639,6 +717,13 @@ const APP_GAUGE: AppMetricDef = {
 };
 
 describe('AppMetricsService generic add/record (#680)', () => {
+  // The generic half (instrument creation, attribute bounding, unknown keys,
+  // budgets, never throwing) is MetricsHostService's since issue #700 and is
+  // pinned by packages/platform-api/test/otel-core/metrics-host.spec.ts. What
+  // stays here: AppMetricsService keeps the same public methods and delegates
+  // them to ONE host, so `add`/`record` and the typed recorders share a label
+  // budget and an exporter.
+
   /** Registers the app metrics, THEN constructs the service (it reads the registry at construction). */
   async function withAppMetrics(fn: (t: ReturnType<typeof setup>) => Promise<void>): Promise<void> {
     await withTemporaryEntries(appMetricRegistry, [APP_COUNTER, APP_HISTOGRAM, APP_GAUGE], async () => fn(setup()));
@@ -661,88 +746,38 @@ describe('AppMetricsService generic add/record (#680)', () => {
           options: { description: 'Time to make one test widget.', unit: 's', advice: { explicitBucketBoundaries: [0.1, 1, 10] } },
         },
       ]);
-      // A gauge is declared, not created: its provider creates it.
       expect(created.map((c) => c.name)).not.toContain('app.test.widgets.backlog');
     });
   });
 
-  it('exports an app counter through add() with bounded, declared attributes only', async () => {
+  it('exports an app counter through add() and a histogram through record(), bounded', async () => {
     await withAppMetrics(async ({ service, reader }) => {
       service.add('testWidgetsMade', 2, { widget_kind: 'sprocket', outcome: 'ok', user_id: 'u-123' });
-      service.add('testWidgetsMade', undefined, { widget_kind: 'sprocket', outcome: 'ok' });
       service.add('testWidgetsMade', 1, { widget_kind: 'someone@example.com', outcome: 'exploded' });
-      service.add('testWidgetsMade');
+      service.record('testWidgetLatency', 0.5, { outcome: 'ok' });
 
       const all = await collect(reader);
-      expect(metric(all, 'app.test.widgets.made').descriptor.unit).toBe('{widget}');
       expect(points(all, 'app.test.widgets.made')).toEqual(
         expect.arrayContaining([
-          // The undeclared `user_id` was dropped; value defaults to 1.
-          { attributes: { widget_kind: 'sprocket', outcome: 'ok' }, value: 3 },
-          // An address-shaped free value and an out-of-set enum value become `other`.
+          { attributes: { widget_kind: 'sprocket', outcome: 'ok' }, value: 2 },
           { attributes: { widget_kind: OTHER_LABEL, outcome: OTHER_LABEL }, value: 1 },
-          { attributes: {}, value: 1 },
         ]),
       );
-      expect(points(all, 'app.test.widgets.made')).toHaveLength(3);
+      expect(metric(all, 'app.test.widgets.latency').dataPointType).toBe(DataPointType.HISTOGRAM);
     });
   });
 
-  it('exports an app histogram through record() with its declared buckets', async () => {
-    await withAppMetrics(async ({ service, reader }) => {
-      service.record('testWidgetLatency', 0.5, { outcome: 'ok', widget_kind: 'dropped' });
-      service.record('testWidgetLatency', 20, { outcome: 'failed' });
-
-      const all = await collect(reader);
-      const data = metric(all, 'app.test.widgets.latency');
-      expect(data.dataPointType).toBe(DataPointType.HISTOGRAM);
-      const byOutcome = Object.fromEntries(
-        data.dataPoints.map((dp) => [dp.attributes.outcome, dp.value as { count: number; buckets: { boundaries: number[] } }]),
-      );
-      expect(Object.keys(byOutcome).sort()).toEqual(['failed', 'ok']);
-      expect(byOutcome.ok?.count).toBe(1);
-      expect(byOutcome.ok?.buckets.boundaries).toEqual([0.1, 1, 10]);
-      expect(data.dataPoints.every((dp) => !('widget_kind' in dp.attributes))).toBe(true);
-    });
-  });
-
-  it('a free attribute shares the per-key distinct-value budget', async () => {
-    await withAppMetrics(async ({ service, reader }) => {
-      for (let i = 0; i < MAX_DISTINCT_VALUES + 5; i += 1) {
+  it('add() and boundLabel() share one per-key distinct-value budget', async () => {
+    await withAppMetrics(async ({ service }) => {
+      for (let i = 0; i < MAX_DISTINCT_VALUES; i += 1) {
         service.add('testWidgetsMade', 1, { widget_kind: `kind-${i}`, outcome: 'ok' });
       }
-      const all = await collect(reader);
-      const kinds = new Set(points(all, 'app.test.widgets.made').map((p) => p.attributes.widget_kind));
-      expect(kinds.size).toBe(MAX_DISTINCT_VALUES + 1);
-      expect(kinds.has(OTHER_LABEL)).toBe(true);
+      expect(service.boundLabel('widget_kind', 'one-more')).toBe(OTHER_LABEL);
+      expect(service.boundLabel('widget_kind', 'kind-0')).toBe('kind-0');
     });
   });
 
-  it('ignores an unknown key, a kind mismatch and an invalid value, logging each unknown key once', async () => {
-    await withAppMetrics(async ({ service, reader }) => {
-      const debug = jest.spyOn((service as unknown as { logger: { debug: (m: string) => void } }).logger, 'debug');
-
-      expect(() => service.add('noSuchMetric')).not.toThrow();
-      expect(() => service.add('noSuchMetric', 5)).not.toThrow();
-      expect(() => service.record('testWidgetsMade', 1)).not.toThrow(); // a counter
-      expect(() => service.add('testWidgetLatency')).not.toThrow(); // a histogram
-      expect(() => service.add('testWidgetBacklog')).not.toThrow(); // a gauge
-      expect(() => service.add('testWidgetsMade', -1)).not.toThrow();
-      expect(() => service.add('testWidgetsMade', Number.NaN)).not.toThrow();
-      expect(() => service.record('testWidgetLatency', Number.POSITIVE_INFINITY)).not.toThrow();
-      expect(() => service.add('testWidgetsMade', 1, 'not-an-object' as never)).not.toThrow();
-
-      const unknown = debug.mock.calls.filter(([m]) => String(m).includes('"noSuchMetric"'));
-      expect(unknown).toHaveLength(1);
-      expect(debug.mock.calls.some(([m]) => String(m).includes('"testWidgetBacklog" is a gauge'))).toBe(true);
-
-      const all = await collect(reader);
-      expect(points(all, 'app.test.widgets.made')).toEqual([{ attributes: {}, value: 1 }]);
-      expect(all.find((m) => m.descriptor.name === 'app.test.widgets.latency')?.dataPoints ?? []).toEqual([]);
-    });
-  });
-
-  it('never throws when the instrument does', async () => {
+  it('never throws when the instrument does, or for an unknown key', async () => {
     await withAppMetrics(async () => {
       const throwing = {
         createCounter: () => ({ add: () => { throw new Error('boom'); } }),
@@ -751,6 +786,7 @@ describe('AppMetricsService generic add/record (#680)', () => {
       const service = new AppMetricsService(undefined, undefined, { meter: throwing });
       expect(() => service.add('testWidgetsMade', 1, { outcome: 'ok' })).not.toThrow();
       expect(() => service.record('testWidgetLatency', 1)).not.toThrow();
+      expect(() => service.add('noSuchMetric')).not.toThrow();
       expect(() => service.jobEnqueued('x')).not.toThrow();
     });
   });

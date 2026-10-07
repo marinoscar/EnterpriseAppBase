@@ -1,5 +1,6 @@
 // =============================================================================
-// Route and caller attributes on the HTTP server span (issue #650)
+// Route and caller attributes on the HTTP server span (issue #650; packaged by
+// issue #700)
 // =============================================================================
 //
 // WHY THIS EXISTS
@@ -50,10 +51,10 @@
 //     (Jest's module registry defeats require-in-the-middle, so it cannot be
 //     a Jest test).
 //
-// NO-OP WITHOUT OTEL. `main.ts` registers the hook only when the SDK is
-// installed (`OTEL_ENABLED=true`). Even if registered without it, the no-op
+// NO-OP WITHOUT OTEL. The app registers the hook only when the SDK is
+// installed (`OTEL_ENABLED=true`; the reference app's `main.ts`). Even if registered without it, the no-op
 // API's `getActiveSpan()` is undefined and the hook does nothing. It does not
-// consult the runtime export gate (`telemetry-gate.ts`): the SDK keeps
+// consult the runtime export gate (`sdk/telemetry-gate.ts`): the SDK keeps
 // creating spans while the gate is closed, and an attribute set is cheaper
 // than the branch would be worth.
 //
@@ -70,20 +71,48 @@
 import { trace } from '@opentelemetry/api';
 import type { FastifyInstance, FastifyReply, FastifyRequest, HookHandlerDoneFunction } from 'fastify';
 
-/** Semantic-convention route attribute (stable HTTP semconv). */
+/**
+ * Semantic-convention route attribute (stable HTTP semconv).
+ *
+ * @stability stable
+ */
 export const ATTR_HTTP_ROUTE = 'http.route';
-/** `false` when no route matched (Fastify's not-found handler answered). Absent otherwise. */
+/**
+ * `false` when no route matched (Fastify's not-found handler answered). Absent otherwise.
+ *
+ * @stability stable
+ */
 export const ATTR_APP_ROUTE_MATCHED = 'app.route.matched';
-/** Whether an `Authorization: Bearer` header was present. Never the token. */
+/**
+ * Whether an `Authorization: Bearer` header was present. Never the token.
+ *
+ * @stability stable
+ */
 export const ATTR_APP_REQUEST_BEARER = 'app.request.bearer';
 
-/** Whether the request carries an `Authorization: Bearer …` header. Reads only the scheme. */
+/**
+ * Whether the request carries an `Authorization: Bearer …` header. Reads only the scheme.
+ *
+ * @param authorization - The raw header value(s).
+ * @returns `true` when the first value starts with `bearer ` (any case) and has a token after it.
+ *
+ * @stability stable
+ */
 export function hasBearer(authorization: string | string[] | undefined): boolean {
   const value = Array.isArray(authorization) ? authorization[0] : authorization;
   return typeof value === 'string' && value.length > 7 && value.slice(0, 7).toLowerCase() === 'bearer ';
 }
 
-/** The `onRequest` hook itself; exported for the spec. */
+/**
+ * The `onRequest` hook itself; exported for the spec. Writes `http.route`,
+ * `app.route.matched` and `app.request.bearer` on the active span.
+ *
+ * @param request - The Fastify request.
+ * @param _reply - Unused.
+ * @param done - Fastify's continuation.
+ *
+ * @stability experimental
+ */
 export function requestSpanAttributesHook(
   request: FastifyRequest,
   _reply: FastifyReply,
@@ -107,7 +136,17 @@ export function requestSpanAttributesHook(
  * or route is registered (right after `NestFactory.create`), so it runs first
  * — before a CORS preflight or any other `onRequest` hook can reply.
  *
- * Returns whether the hook was registered.
+ * @param fastify - The root Fastify instance (`app.getHttpAdapter().getInstance()`).
+ * @param otelEnabled - Whether the SDK is installed; `false` registers nothing.
+ * @returns Whether the hook was registered.
+ *
+ * @example
+ * ```ts
+ * registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), process.env.OTEL_ENABLED === 'true');
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability stable
  */
 export function registerRequestSpanAttributes(
   fastify: Pick<FastifyInstance, 'addHook'>,

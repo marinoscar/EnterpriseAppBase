@@ -11,6 +11,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-api/core`: the bottom of the slice graph, code only: the typed registry primitive (`defineRegistry`, `Registry`, `RegistryError`, `RegistryFreezeService`, `withTemporaryEntries`), the principal and scope contract (`Principal`, `Scope`, `SystemActor`, ADR 0001), the exception filter and its exceptions (`HttpExceptionFilter`, `ErrorDto`, `withVerbatimErrorBody`, `DatabaseSeedException`), the secret cipher (`encryptSecret`, `decryptSecret`, `userCredentialPurpose`, `verifyEncryptionKeyAtStartup`) and the OpenAPI tag registry (`openApiTags`). [README](src/core/README.md).
 - `@marinoscar/platform-api/testing`: the conformance harness (`runPlatformConformance`, `conformanceSuites`, the `cron-enqueue-only` suite). [README](src/testing/README.md).
 - `@marinoscar/platform-api/doctor`: the admin Doctor, `GET /api/admin/doctor` (`DoctorModule.forRoot({ host })`, `DoctorCheckRegistry`, the check contract). The first packaged slice (#696). [README](src/doctor/README.md).
+- `@marinoscar/platform-api/otel-core` and `@marinoscar/platform-api/otel-core/sdk`: the emitting half of telemetry (#700): `initializeOtel` (the Nest-free SDK bootstrap, loaded first), the runtime export gate `telemetryGate`, the metrics host `MetricsHostService` with the app-metric name registry and the gauge-provider seam, `registerRequestSpanAttributes` and `@Trace()`. [README](src/otel-core/README.md).
 
 The `core` slice also holds the **host ports** (#696: `definePlatformHost`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`, `PlatformHostModule`), the one mechanism every packaged slice uses to reach app-owned capabilities, with test doubles in `testing`. [Host ports](src/core/README.md#host-ports).
 
@@ -37,6 +38,8 @@ Install these in the app; the package never bundles its own copy (a second copy 
 | `rxjs` | `^7.8.1` |
 | `zod` | `^4.4.3` |
 
+The OpenTelemetry SDK packages the `otel-core` slice installs (`@opentelemetry/sdk-node`, the auto-instrumentations, the OTLP/HTTP exporters and their SDK siblings) are regular dependencies, not peers: only `@opentelemetry/api`, which holds the process-wide providers, must be a single shared copy.
+
 ## Quick start
 
 Run the platform's conformance suites from a spec of your own (the reference app's is [`apps/api/test/jobs/cron-enqueue-only.spec.ts`](../../apps/api/test/jobs/cron-enqueue-only.spec.ts)):
@@ -55,11 +58,11 @@ Declare a registry with `defineRegistry`, register the exception filter and vali
 
 ## Configuration
 
-None at the package level. Each slice documents its own options: `DoctorModule.forRoot()` in the [doctor README](src/doctor/README.md#configuration), `PlatformHostModule.forRoot()` in the [core README](src/core/README.md#host-ports), the harness in the [testing README](src/testing/README.md#configuration).
+None at the package level. Each slice documents its own options: `DoctorModule.forRoot()` in the [doctor README](src/doctor/README.md#configuration), `initializeOtel()` and `OtelMetricsModule` in the [otel-core README](src/otel-core/README.md#configuration), `PlatformHostModule.forRoot()` in the [core README](src/core/README.md#host-ports), the harness in the [testing README](src/testing/README.md#configuration).
 
 ## Extension-point catalog
 
-None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [testing](src/testing/README.md#extension-point-catalog), [doctor](src/doctor/README.md#extension-point-catalog)).
+None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [testing](src/testing/README.md#extension-point-catalog), [doctor](src/doctor/README.md#extension-point-catalog), [otel-core](src/otel-core/README.md#extension-point-catalog)).
 
 ## Data
 
@@ -75,11 +78,11 @@ None. Pages and settings cards live in `@marinoscar/platform-web`.
 
 ## Infra
 
-Compose, nginx and collector configuration live in `@marinoscar/platform-infra`. The one environment variable the package reads is `SECRETS_ENCRYPTION_KEY`, read by the `core` slice's secret cipher (see the [core README](src/core/README.md#configuration)).
+Compose, nginx and collector configuration live in `@marinoscar/platform-infra`. The package reads `SECRETS_ENCRYPTION_KEY` (the `core` slice's secret cipher, see the [core README](src/core/README.md#configuration)) and, in the `otel-core` slice, the existing OpenTelemetry variables (`OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_DEBUG`); it exports OTLP/HTTP to the collector ([otel-core README](src/otel-core/README.md#infra)) and adds no variable.
 
 ## Observability
 
-The `doctor` slice logs one `warn` line when a check throws; `core` logs one `debug` line when it freezes the static registries, one line per handled error and the encryption-key startup check ([core README](src/core/README.md#observability)). Packaged code logs through Nest's `Logger`, which the app routes to its own logger. Other slices document theirs as they are extracted.
+The `doctor` slice logs one `warn` line when a check throws; `core` logs one `debug` line when it freezes the static registries, one line per handled error and the encryption-key startup check ([core README](src/core/README.md#observability)). Packaged code logs through Nest's `Logger`, which the app routes to its own logger. `otel-core` installs the OpenTelemetry SDK (when `OTEL_ENABLED=true`) and exports only what its runtime gate lets through ([README](src/otel-core/README.md#observability)). Other slices document theirs as they are extracted.
 
 ## Security notes
 

@@ -59,10 +59,10 @@ email layout, the CLI banner, the MUI theme, the web app manifest, and so on
 and isn't duplicated here to avoid two lists drifting apart. Two more
 surfaces that work the same way, added since that table was written:
 
-- The **OpenTelemetry service name** — `apps/api/src/common/otel/service-name.ts`
-  falls back to `${APP_SLUG}-api` whenever the `OTEL_SERVICE_NAME` environment
-  variable isn't set, so it follows a renamed product automatically in every
-  span and every log line.
+- The **OpenTelemetry service name** — `apps/api/src/common/otel/telemetry-identity.ts`
+  binds the platform resolver to `${APP_SLUG}-api` whenever the `OTEL_SERVICE_NAME`
+  environment variable isn't set (and the telemetry instance id to `APP_SLUG`),
+  so it follows a renamed product automatically in every span and every log line.
 - The **OpenAPI document's repository link** — `apps/api/src/openapi/document.ts`
   and `description.ts` both import `REPO_URL` from `@app/shared` rather than
   writing out a GitHub URL, so the published API reference always points at

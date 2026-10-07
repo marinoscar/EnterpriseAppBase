@@ -1,20 +1,22 @@
-import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
+import { RegistryError, withTemporaryEntries } from '../../src/core/index';
 import {
-  APP_METRIC_NAMES,
+  APP_METRIC_ATTRIBUTE_KEY_PATTERN,
+  APP_METRIC_KEY_PATTERN,
+  APP_METRIC_NAME_PATTERN,
   appMetricRegistry,
+  assertAppMetric,
   registerAppMetrics,
   type AppMetricDef,
-} from './app-metrics.service';
-import { EVENT_BUS_APP_METRICS } from '../event-bus/event-bus.metrics';
-import { PLATFORM_APP_METRICS } from './platform-app-metrics';
+} from '../../src/otel-core/index';
 
 // =============================================================================
-// The app-metric registry (issue #680)
+// The app-metric name registry (issue #680; packaged by issue #700)
 // =============================================================================
 //
-// Read through `app-metrics.service.ts` (which imports the manifest), as
-// production code reads it. Every rule runs at registration, so a malformed
-// declaration fails at import time.
+// The package declares no metric: the registry starts empty and an app fills
+// it from a manifest (the reference app's platform metrics and its own are
+// pinned by apps/api/src/common/otel/app-metric.registry.spec.ts). Every rule
+// runs at registration, so a malformed declaration fails at import time.
 // =============================================================================
 
 function def(overrides: Partial<AppMetricDef> = {}): AppMetricDef {
@@ -28,8 +30,10 @@ function def(overrides: Partial<AppMetricDef> = {}): AppMetricDef {
   };
 }
 
+const EXISTING = def({ key: 'jobsEnqueued', name: 'app.jobs.enqueued', unit: '{job}', description: 'Jobs.' });
+
 async function writable(fn: () => void): Promise<void> {
-  await withTemporaryEntries(appMetricRegistry, [], fn);
+  await withTemporaryEntries(appMetricRegistry, [EXISTING], fn);
 }
 
 function rejection(fn: () => void): RegistryError {
@@ -42,27 +46,13 @@ function rejection(fn: () => void): RegistryError {
   throw new Error('expected the registration to be refused');
 }
 
-describe('app-metric registry', () => {
-  it('holds the 31 platform metrics, then the three event bus metrics, in declaration order', () => {
-    expect(appMetricRegistry.ids()).toEqual([...PLATFORM_APP_METRICS, ...EVENT_BUS_APP_METRICS].map((d) => d.key));
-    expect(PLATFORM_APP_METRICS).toHaveLength(31);
-    expect(appMetricRegistry.size).toBe(34);
+describe('appMetricRegistry', () => {
+  it('starts empty: the package declares no metric of its own', () => {
+    expect(appMetricRegistry.name).toBe('app-metrics');
+    expect(appMetricRegistry.size).toBe(0);
   });
 
-  it('derives APP_METRIC_NAMES from the registry', () => {
-    expect(APP_METRIC_NAMES).toEqual(Object.fromEntries(appMetricRegistry.list().map((d) => [d.key, d.name])));
-    expect(Object.isFrozen(APP_METRIC_NAMES)).toBe(true);
-  });
-
-  it('declares every platform attribute key in snake_case and buckets only on histograms', () => {
-    for (const metric of appMetricRegistry.list()) {
-      for (const key of Object.keys(metric.attributes ?? {})) expect(key).toMatch(/^[a-z][a-z0-9_]*$/);
-      if (metric.buckets) expect(metric.kind).toBe('histogram');
-      if (metric.kind === 'histogram') expect(metric.buckets?.length).toBeGreaterThan(0);
-    }
-  });
-
-  it('accepts an app counter, histogram and gauge', async () => {
+  it('accepts a counter, a histogram and a gauge, in order', async () => {
     await withTemporaryEntries(
       appMetricRegistry,
       [
@@ -71,26 +61,37 @@ describe('app-metric registry', () => {
         def({ key: 'testBacklog', name: 'app.test.backlog', kind: 'gauge', unit: '{item}' }),
       ],
       () => {
-        expect(appMetricRegistry.ids().slice(-3)).toEqual(['testWidgets', 'testLatency', 'testBacklog']);
+        expect(appMetricRegistry.ids()).toEqual(['testWidgets', 'testLatency', 'testBacklog']);
+        expect(appMetricRegistry.require('testLatency').buckets).toEqual([0.1, 1, 10]);
       },
     );
     expect(appMetricRegistry.has('testWidgets')).toBe(false);
+  });
+
+  it('pins the naming patterns', () => {
+    expect(APP_METRIC_NAME_PATTERN.test('app.jobs.queue.depth')).toBe(true);
+    expect(APP_METRIC_NAME_PATTERN.test('jobs.enqueued')).toBe(false);
+    expect(APP_METRIC_ATTRIBUTE_KEY_PATTERN.test('job_type')).toBe(true);
+    expect(APP_METRIC_ATTRIBUTE_KEY_PATTERN.test('job.type')).toBe(false);
+    expect(APP_METRIC_KEY_PATTERN.test('jobsEnqueued')).toBe(true);
+    expect(APP_METRIC_KEY_PATTERN.test('jobs_enqueued')).toBe(false);
   });
 
   describe('refuses at registration', () => {
     const cases: Array<[string, AppMetricDef[], RegExp]> = [
       ['a name without the app. prefix', [def({ name: 'test.widgets' })], /must start with "app\."/],
       ['a dotted name with an upper-case segment', [def({ name: 'app.Test.widgets' })], /must start with "app\."/],
-      ['a name a platform metric uses', [def({ name: 'app.jobs.enqueued' })], /already declared by "jobsEnqueued"/],
+      ['a name another metric uses', [def({ name: 'app.jobs.enqueued' })], /already declared by "jobsEnqueued"/],
       ['buckets on a counter', [def({ buckets: [1, 2] })], /only a histogram takes/],
-      [
-        'buckets that do not ascend',
-        [def({ kind: 'histogram', unit: 's', buckets: [1, 5, 5] })],
-        /strictly ascending/,
-      ],
+      ['empty buckets', [def({ kind: 'histogram', unit: 's', buckets: [] })], /non-empty array/],
+      ['buckets that do not ascend', [def({ kind: 'histogram', unit: 's', buckets: [1, 5, 5] })], /strictly ascending/],
+      ['a non-finite bucket', [def({ kind: 'histogram', unit: 's', buckets: [1, Infinity] })], /not a finite number/],
       ['a dotted attribute key', [def({ attributes: { 'job.type': { kind: 'free' } } })], /snake_case without dots/],
       ['an enum without values', [def({ attributes: { outcome: { kind: 'enum', values: [] } } })], /enum without values/],
+      ['an enum with an empty value', [def({ attributes: { outcome: { kind: 'enum', values: [''] } } })], /non-empty strings/],
+      ['an unknown attribute kind', [def({ attributes: { outcome: { kind: 'set' } as never } })], /"enum" or "free"/],
       ['an unknown kind', [def({ kind: 'summary' as never })], /counter, histogram or gauge/],
+      ['an empty unit', [def({ unit: ' ' })], /unit must be a non-empty string/],
       ['an empty description', [def({ description: '' })], /description must be a non-empty string/],
       [
         'two declarations of one batch sharing a name',
@@ -125,29 +126,8 @@ describe('app-metric registry', () => {
     });
   });
 
-  it('fails at IMPORT time when the app declares a malformed metric', () => {
-    jest.isolateModules(() => {
-      jest.doMock('../../app-registrations/telemetry', () => ({
-        APP_METRIC_GROUPS: [],
-        APP_METRICS: [def({ name: 'app.jobs.enqueued' })],
-      }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      expect(() => require('./app-metric.manifest')).toThrow(/already declared by "jobsEnqueued"/);
-    });
-    jest.dontMock('../../app-registrations/telemetry');
+  it('assertAppMetric ignores a known declaration with the same key', () => {
+    expect(() => assertAppMetric(def(), [def()])).not.toThrow();
+    expect(() => assertAppMetric(def(), [def({ key: 'other' })])).toThrow(/already declared by "other"/);
   });
-
-  it.each(['./platform-app-metrics', '../../app-registrations/telemetry'])(
-    '%s loads without app-metrics.service.ts (framework-free leaf)',
-    (path) => {
-      jest.isolateModules(() => {
-        jest.doMock('./app-metrics.service', () => {
-          throw new Error(`${path} loaded app-metrics.service.ts`);
-        });
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        expect(() => require(path)).not.toThrow();
-      });
-      jest.dontMock('./app-metrics.service');
-    },
-  );
 });
