@@ -9,23 +9,31 @@
 // platform groups. Imported once by `app.module.ts`, at the position the app
 // module always held telemetry. Same shape as `doctor/doctor.config.ts`.
 //
-// The other two rungs are options here too: `dashboard.verdictThresholds`
-// (deep-merged over DEFAULT_VERDICT_THRESHOLDS) and `dashboard.verdictPolicy`
-// (`{ useClass: AppVerdictPolicy }`, an app policy that delegates to the
-// exported DefaultVerdictPolicy). Upstream uses the defaults.
+// The reference app's own extensions (PP-4.6), the worked examples of the
+// slice's README: the "App activity" metric group (`metricGroups`, rung 2,
+// `platform-extensions/telemetry/activity.metric-group.ts`) and the verdict
+// thresholds (`dashboard.verdictThresholds`, rung 1, equal to the defaults).
+// `dashboard.verdictPolicy` (rung 3, `{ useClass: AppVerdictPolicy }`) stays
+// unset: an example policy is compiled and tested, never wired, because it
+// would change every fork's health verdict
+// (`platform-extensions/telemetry/examples/activity-verdict-policy.ts`).
 // =============================================================================
 
 import type { Type } from '@nestjs/common';
 import { TelemetryModule } from '@marinoscar/platform-api/telemetry';
 
 import { APP_METRIC_GROUPS } from '../../app-registrations/telemetry';
+import { ACTIVITY_METRIC_GROUP } from '../../platform-extensions/telemetry/activity.metric-group';
+import { REFERENCE_VERDICT_THRESHOLDS } from '../../platform-extensions/telemetry/reference-verdict-thresholds';
 import { platformHost } from '../platform-host';
 import { TelemetryHostModule } from './telemetry-host.module';
 
 export const telemetryModule = TelemetryModule.forRoot({
   host: platformHost,
   imports: [TelemetryHostModule],
-  metricGroups: APP_METRIC_GROUPS,
+  // The reference app's own group first, then the fork's (`APP_METRIC_GROUPS`, empty upstream).
+  metricGroups: [ACTIVITY_METRIC_GROUP, ...APP_METRIC_GROUPS],
+  dashboard: { verdictThresholds: REFERENCE_VERDICT_THRESHOLDS },
 });
 
 /**

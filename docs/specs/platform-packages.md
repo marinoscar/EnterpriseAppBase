@@ -279,17 +279,19 @@ A full vertical slice, measured in this repository:
 |---|---|
 | Contract | `packages/platform-contract/src/telemetry/`: the wire shapes of every telemetry route and the `telemetry` settings namespace, which the API's DTOs wrap and the web client types itself with (#702) |
 | API | `packages/platform-api/src/telemetry/` (`@marinoscar/platform-api/telemetry`, #703; 92 files when it lived in `apps/api/src/telemetry/`: GreptimeDB client, metric catalog, SQL builders, verdicts, dashboard, assistant, export, doctor checks), reaching the app through six host ports bound by `apps/api/src/platform/telemetry/` |
-| Web | About 94 files (explorer, dashboard, assistant panel, connection settings) |
-| CLI | About 31 files (node span relay, deploy wizard environment) |
+| Web | `packages/platform-web/src/telemetry/` (`@marinoscar/platform-web/telemetry/headless` and `/ui`: explorer, dashboard, assistant panel, connection settings), documented in its [README](../../packages/platform-web/src/telemetry/README.md) |
+| CLI | `packages/platform-cli/src/telemetry/` (`@marinoscar/platform-cli/telemetry`: node span relay, deploy wizard environment), documented in its [README](../../packages/platform-cli/src/telemetry/README.md) |
 | Sidecar | The whole `apps/stack-agent` (4 source files plus tests; holds the Docker socket to start the telemetry stack on a VPS) |
-| Infra | `infra/compose/telemetry.compose.yml` (152 lines), `infra/compose/vps.telemetry.compose.yml` (98 lines), `infra/otel/otel-collector-config.yaml` (414 lines) |
+| Infra | `packages/platform-infra/telemetry/` (`@marinoscar/platform-infra/telemetry`): the compose files and collector configuration, materialised into `infra/compose/` and `infra/otel/` by `platform-infra sync`, with the app-owned overlay `infra/otel/app-collector.yaml`; documented in its [README](../../packages/platform-infra/src/telemetry/README.md) |
 | Docs | [telemetry spec](telemetry.md) (2,307 lines), [telemetry runbook](../runbooks/telemetry.md) (701 lines) |
 | Tests | Playwright e2e tests (for example `tests/e2e/specs/telemetry-dashboard.spec.ts`) |
 | Tables | **None.** The runtime connection lives in system settings. |
 
+**The telemetry slice is extracted.** All five layers are packages with a README that follows the documentation standard ([contract](../../packages/platform-contract/src/telemetry/README.md), [api](../../packages/platform-api/src/telemetry/README.md), [web](../../packages/platform-web/src/telemetry/README.md), [cli](../../packages/platform-cli/src/telemetry/README.md), [infra](../../packages/platform-infra/src/telemetry/README.md)); every catalog entry links a working use in the reference app, the slice's invariants run as a conformance suite through `runPlatformConformance()`, and [telemetry.md section 12](telemetry.md#12-packaging-and-extension-points) records the decisions. A coach-shaped group over EvoPath's table names passes the conformance checks and renders with no platform edit, which is the evidence for the EvoPath adoption.
+
 Having no Prisma tables makes telemetry the ideal first full-vertical slice: it exercises api, web, cli, infra and docs without touching the migration problem ([Data, migrations and seeds](#data-migrations-and-seeds)).
 
-**Infra layering already exists.** Compose is split into several `-f` files, and the OTel collector accepts several `--config` files that merge. App differences therefore become overlay files, not forks. EvoPath needs no collector overlay: its telemetry and collector configuration is functionally identical to the base (comments and the CLI name differ). Its real telemetry differences are about 25 extra `app.health.*` and `app.coach.*` metric names and three chart files with its own tokens. Its real infra differences are nginx locations and a geolocation header.
+**Infra layering already exists.** Compose is split into several `-f` files, and the OTel collector accepts several `--config` files that merge. App differences therefore become overlay files, not forks. EvoPath needs no collector overlay, and sets no verdict thresholds of its own: its telemetry and collector configuration is functionally identical to the base (comments and the CLI name differ), and its thresholds equal the defaults. Its real telemetry differences are about 25 extra `app.health.*` and `app.coach.*` metric names and three chart files with its own tokens. Its real infra differences are nginx locations and a geolocation header.
 
 ### Dependency graph
 
@@ -348,7 +350,7 @@ Prefer earlier rungs. Move down only when the earlier rung cannot express the ne
 
 | Rung | Mechanism | Example |
 |---|---|---|
-| 1 | **Options** in `forRoot()`, merged over defaults | Tune values: EvoPath's own verdict thresholds (`DASHBOARD_VERDICT_THRESHOLDS`) |
+| 1 | **Options** in `forRoot()`, merged over defaults | Tune values: any verdict threshold (`dashboard.verdictThresholds`; EvoPath's equal the defaults, so it sets none) |
 | 2 | **Registries** (`register...()`), additive and typed | `registerMetricGroup(coachGroup)`, `registerPermissions()`, `registerSettingsNamespace(zodSchema)`, `registerStorageKeyPrefixes()` (storage key prefixes), notification events, templates and channels, a user-owned-data registry, doctor checks, job handlers |
 | 3 | **Injection tokens** so an app overrides one provider | A `VerdictPolicy` token |
 | 4 | **Events and hooks**: react without replacing | A hook on user creation |
@@ -389,6 +391,8 @@ export const APP_METRIC_GROUPS: readonly MetricGroupDef[] = [
 ```
 
 The platform owns the dashboard that renders any registered group. The app owns the names and meaning of its metrics.
+
+The reference app ships exactly such a group, `activity` ("App activity", `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts`), over counters the API already emitted: one file and one `metricGroups` option, with no platform, web or collector edit. EvoPath's `coach` group is a new extension of the same shape, not a platform change; `packages/platform-api/src/telemetry/metrics/coach-readiness.spec.ts` proves it over EvoPath's table names.
 
 Since #700 the metric-name registry, the instruments and the gauge-provider seam are packaged in `@marinoscar/platform-api/otel-core` (`registerAppMetrics`, `MetricsHostService.registerGaugeProvider`); `AppMetricKeys` is augmented on that module. See the [otel-core README](../../packages/platform-api/src/otel-core/README.md#worked-example-register-an-app-metric-name-and-a-gauge-provider).
 
@@ -463,7 +467,7 @@ registerNotification({ event: coachWeeklyReview, emailTemplate: 'coach-weekly-re
 registerJobHandler(new WeeklyReviewHandler());                    // job type id is permanent
 registerDoctorCheck(new CoachProviderCheck());
 
-// Rung 1: options override defaults
+// Rung 1: options override defaults (an app that tunes a threshold; EvoPath's equal the defaults)
 TelemetryModule.forRoot({ dashboard: { verdictThresholds: coachThresholds } });
 
 // Rung 3: override one provider through its injection token
@@ -1052,7 +1056,7 @@ Principal and scope (org-aware), registries, scoped access. Code only, no tables
 
 ### Wave 3: telemetry
 
-The full vertical: contract, api, web, infra and cli. An app-specific metric group (for example EvoPath's coach metrics) is the first real extension. Overlay files are the mechanism for app infra differences; EvoPath's own collector config needs none.
+The full vertical: contract, api, web, infra and cli, all extracted and documented per the standard, with a reference-app example for every extension point and a conformance suite. An app-specific metric group (for example EvoPath's coach metrics) is the first real extension, and the reference app's `activity` group is its worked example. Overlay files are the mechanism for app infra differences; EvoPath's own collector config needs none, and its verdict thresholds equal the defaults.
 
 ### In parallel: the Prisma spike
 
@@ -1061,6 +1065,8 @@ One week. Multi-file schema, the generated back-relations on package-owned model
 ### Go/no-go gate (after wave 3)
 
 Measure what one platform change costs to roll out to all apps. If it is not clearly cheaper than copying, **stop and reassess**.
+
+**Input from wave 3.** An app adds a dashboard metric group with one file (a `MetricGroupDef`) and one `forRoot` option, `metricGroups`: the reference app's `activity` group is `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts` (about 85 lines of code, the rest comments) plus two lines in `telemetry.config.ts`, with no platform, web or collector file touched. The gate compares that with the cost of the same change in a copied slice.
 
 ### Wave 4: identity with orgs
 
@@ -1240,3 +1246,4 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 - 2026-10-04 (rev 2): extensibility and documentation standard made explicit; adoption order and first SaaS left to the owner.
 - 2026-10-04 (rev 3): adoption order decided (EnterpriseAppBase, EvoPath, kvox, MemoriaHub); the existing apps are the reference app; program tracking and rollback added; corrections to the migration, telemetry and RLS facts.
 - 2026-10-06 (rev 4): single rollback tag `MonoRepo` at e872eb6; safety copy in marinoscar/appbase.
+- 2026-10-07 (rev 5): the telemetry slice completed (wave 3): slice READMEs in all five packages, a reference-app example for every extension point (the `activity` group, an example verdict policy, an example CLI command), the telemetry conformance suite in `runPlatformConformance()` and a coach-shaped readiness test; corrected the claim that EvoPath has thresholds or collector configuration of its own.

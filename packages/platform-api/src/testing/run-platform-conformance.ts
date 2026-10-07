@@ -4,6 +4,31 @@ import type { CronEnqueueOnlyOptions } from './suites/cron-enqueue-only';
 import type { UserOwnedDataOptions } from './suites/user-owned-data';
 
 /**
+ * The suites {@link runPlatformConformance} can run, by option key: each
+ * entry is the suite's options, or `false` to opt out. An interface so a slice
+ * that ships a suite adds its key by module augmentation (the telemetry slice's
+ * `telemetry`, declared in `@marinoscar/platform-api/telemetry/testing`) and
+ * the runner is not edited.
+ *
+ * @example
+ * ```ts
+ * declare module '@marinoscar/platform-api/testing' {
+ *   interface PlatformConformanceSuiteOptions {
+ *     myFeature?: MyFeatureOptions | false;
+ *   }
+ * }
+ * ```
+ *
+ * @stability experimental
+ */
+export interface PlatformConformanceSuiteOptions {
+  /** The `cron-enqueue-only` suite: its options, or `false` to opt out. */
+  cronEnqueueOnly?: CronEnqueueOnlyOptions | false;
+  /** The `user-owned-data` suite: its options, or `false` to opt out. */
+  userOwnedData?: UserOwnedDataOptions | false;
+}
+
+/**
  * What an app passes to {@link runPlatformConformance}.
  *
  * @extensionPoint option
@@ -16,13 +41,10 @@ export interface PlatformConformanceOptions {
    * One entry per suite. Pass the suite's options to run it, or `false` to
    * opt out (the opt-out stays visible in the test output). A suite left out
    * does not run; an unknown key throws, so a typo cannot disable a check.
+   * A suite that ships with a slice is registered by importing that slice's
+   * testing entry (the telemetry suite: `@marinoscar/platform-api/telemetry/testing`).
    */
-  suites: {
-    /** The `cron-enqueue-only` suite: its options, or `false` to opt out. */
-    cronEnqueueOnly?: CronEnqueueOnlyOptions | false;
-    /** The `user-owned-data` suite: its options, or `false` to opt out. */
-    userOwnedData?: UserOwnedDataOptions | false;
-  };
+  suites: PlatformConformanceSuiteOptions;
   /** Defaults to the globals `describe`/`it`/`expect` (Jest, or Vitest with `globals: true`). */
   testApi?: ConformanceTestApi;
 }
@@ -73,7 +95,8 @@ export function runPlatformConformance(options: PlatformConformanceOptions): voi
   for (const [key] of requested) {
     if (!byOptionKey.has(key)) {
       throw new Error(
-        `runPlatformConformance: unknown conformance suite "${key}". Known suites: ${[...byOptionKey.keys()].join(', ') || '(none)'}.`,
+        `runPlatformConformance: unknown conformance suite "${key}". Known suites: ${[...byOptionKey.keys()].join(', ') || '(none)'}. ` +
+          "A suite that ships with a slice registers when the slice's testing entry is imported (telemetry: '@marinoscar/platform-api/telemetry/testing').",
       );
     }
   }

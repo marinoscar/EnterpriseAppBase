@@ -144,6 +144,12 @@ export interface VerdictThresholds {
  * header). An app overrides any of them with
  * `TelemetryModule.forRoot({ dashboard: { verdictThresholds } })`.
  *
+ * @example
+ * ```ts
+ * const resolved = resolveVerdictThresholds({ noDataMinutes: 10 }); // every other value is the default
+ * ```
+ *
+ * @extensionPoint option
  * @stability stable
  */
 export const DEFAULT_VERDICT_THRESHOLDS: VerdictThresholds = {

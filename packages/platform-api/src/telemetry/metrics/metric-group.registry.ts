@@ -32,6 +32,17 @@ import { METRIC_FILTER_COLUMNS, METRIC_UNITS } from './metric-catalog.helpers';
 /**
  * One dashboard metric group: what `/metrics?group=<id>` serves and the dashboard renders as a section.
  *
+ * @example
+ * ```ts
+ * export const ACTIVITY_METRIC_GROUP: MetricGroupDef = {
+ *   id: 'activity', label: 'App activity', title: 'App activity', order: 70,
+ *   description: 'sign-ins and token refreshes by outcome',
+ *   families: [{ key: 'authLogins', group: 'activity', label: 'Sign-ins', table: 'app_auth_logins_total',
+ *     kind: 'counter', unit: 'count', rate: 'count', groupBy: 'outcome', requiredColumns: ['outcome'], filters: ['service', 'instance'] }],
+ * };
+ * ```
+ *
+ * @extensionPoint option
  * @stability stable
  */
 export interface MetricGroupDef {

@@ -221,6 +221,15 @@ export interface NodeSpanRelayOptions {
  * The bounded, best-effort sender. One send in flight at a time; batches of at
  * most `MAX_SPANS_PER_BATCH`; the oldest spans dropped when the queue is full.
  *
+ * @example
+ * ```ts
+ * const relay = new NodeSpanRelay({ api: client, nodeId });
+ * const spans = new JobSpanRecorder(job.id);
+ * await spans.phase('job.execute', () => run(job));
+ * relay.enqueue(spans.drain()); // after the job settled; never awaited on its path
+ * ```
+ *
+ * @extensionPoint hook
  * @stability experimental
  */
 export class NodeSpanRelay {

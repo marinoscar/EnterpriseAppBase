@@ -443,6 +443,8 @@ runPlatformConformance({
 - **Needs built packages.** Jest resolves `@marinoscar/platform-api/testing` through the package `exports` to `dist/`, so run `npm run build:packages` first (every CI job already does).
 - **Package tests** live in `packages/platform-api/test/testing/` (fixtures as `.ts.txt` under `test/fixtures/cron/`) and run with `npm run test:packages`.
 
+The telemetry slice ships the `telemetry` suite: importing `@marinoscar/platform-api/telemetry/testing` registers it, `apps/api/test/telemetry/telemetry-conformance.spec.ts` runs it, and each check is proved against a deliberately broken fixture in `packages/platform-api/test/telemetry/conformance.spec.ts`. The checks and how to run them are in the [slice README](../packages/platform-api/src/telemetry/README.md#conformance-suite); its web half is `apps/web/src/__tests__/config/telemetryParity.test.ts`.
+
 Further suites (the AI invariants, the settings registry) join the same entry point as their slices are extracted.
 
 The migration guards (`db:check`, `db:check:database`, `db:drift`) are npm scripts

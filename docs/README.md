@@ -96,6 +96,11 @@ READMEs that live next to the code they describe.
 | [../packages/shared/README.md](../packages/shared/README.md) | Product identity: name and brand colours shared by every app |
 | [../packages/platform-api/src/core/registry/README.md](../packages/platform-api/src/core/registry/README.md) | Defining a registry, declaring its entries and writing its manifest; the registry behaviour apps rely on |
 | [../apps/api/src/app-registrations/README.md](../apps/api/src/app-registrations/README.md) | The app-owned seam: where a fork adds its own registry entries without editing platform files |
+| [../packages/platform-api/src/telemetry/README.md](../packages/platform-api/src/telemetry/README.md) | Telemetry, API slice: `forRoot` options, the metric-group registry, `VERDICT_POLICY`, host ports, the conformance suite; start here to add a dashboard group or tune the verdict |
+| [../packages/platform-contract/src/telemetry/README.md](../packages/platform-contract/src/telemetry/README.md) | Telemetry wire shapes: the zod schemas and constants the API and the web share |
+| [../packages/platform-web/src/telemetry/README.md](../packages/platform-web/src/telemetry/README.md) | Telemetry UI slice: `/headless`, `/ui`, `telemetryAdminCards`, the adapters and the theme tokens |
+| [../packages/platform-cli/src/telemetry/README.md](../packages/platform-cli/src/telemetry/README.md) | Telemetry CLI slice: the worker span relay and the deploy wizard's env metadata |
+| [../packages/platform-infra/src/telemetry/README.md](../packages/platform-infra/src/telemetry/README.md) | Telemetry infra slice: the compose files, the collector configuration, its app overlay and `platform-infra sync` |
 | [../packages/](../packages/) (`platform-*/README.md`) | The `@marinoscar/platform-*` packages: one README per package; layout and commands in [DEVELOPMENT.md § Platform packages](DEVELOPMENT.md#platform-packages) |
 
 ## Agent rules

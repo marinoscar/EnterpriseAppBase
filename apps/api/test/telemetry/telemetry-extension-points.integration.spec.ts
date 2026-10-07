@@ -1,22 +1,35 @@
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
 import {
+  DEFAULT_VERDICT_THRESHOLDS,
+  DefaultVerdictPolicy,
   GreptimeClient,
+  MetricGroupRegistry,
   REQUIRED_LOG_COLUMNS,
   REQUIRED_TRACE_COLUMNS,
   TELEMETRY_VERDICT_THRESHOLDS,
   TelemetrySchemaService,
   TelemetrySettingsService,
   VERDICT_POLICY,
+  metricGroupRegistry,
+  registerMetricGroup,
   resolveVerdictThresholds,
   type DashboardVerdict,
+  type MetricGroup,
+  type MetricGroupDef,
   type TelemetryAiToolDefinition,
+  type VerdictInput,
 } from '@marinoscar/platform-api/telemetry';
 import { COACH_METRIC_GROUP, COACH_METRIC_GROUP_ID } from '@marinoscar/platform-api/telemetry/testing';
 
 import type { SystemTelemetryValue } from '../../src/common/schemas/settings.schema';
 import { telemetryControllers, telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
+import { ActivityVerdictPolicy, ACTIVITY_QUIET_REASON } from '../../src/platform-extensions/telemetry/examples/activity-verdict-policy';
+import { REFERENCE_VERDICT_THRESHOLDS } from '../../src/platform-extensions/telemetry/reference-verdict-thresholds';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser } from '../helpers/auth-mock.helper';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
@@ -111,7 +124,12 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
       .set(authHeader(admin.accessToken))
       .expect(200);
 
-    expect(res.body.data).toMatchObject({ group: 'coach', available: false, skipped: ['coachNudgesSent', 'healthSummaryP95'] });
+    expect(res.body.data).toMatchObject({ group: 'coach', available: false });
+    // Every family and ratio of the coach-shaped fixture, in declaration order.
+    expect(res.body.data.skipped).toEqual([
+      ...COACH_METRIC_GROUP.families.map((family) => family.key),
+      ...(COACH_METRIC_GROUP.ratios ?? []).map((ratio) => ratio.key),
+    ]);
   });
 
   it('still refuses an unknown group with the same 400', async () => {
@@ -125,7 +143,7 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
     expect(res.body.details.issues[0].message).toContain('"coach"');
   });
 
-  it('lists the group in /metric-groups, after the six platform groups', async () => {
+  it('lists the group in /metric-groups, after the six platform groups and the reference app group `activity`', async () => {
     const admin = await createMockAdminUser(context);
     const res = await request(context.app.getHttpServer())
       .get(`${BASE}/metric-groups`)
@@ -139,6 +157,7 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
       'nodes',
       'uptime',
       'pipeline',
+      'activity',
       COACH_METRIC_GROUP_ID,
     ]);
     expect(res.body.data.at(-1)).toEqual({
@@ -198,6 +217,7 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
       'nodes',
       'uptime',
       'pipeline',
+      'activity',
       'coach',
     ]);
   });
@@ -260,6 +280,148 @@ describe('Telemetry extension points (rung 1: verdict thresholds)', () => {
       expect(verdict).toBe('healthy');
       expect(freshness).toBe('pass');
       expect(threshold).toBe(60);
+    } finally {
+      jest.restoreAllMocks();
+      await closeTestApp(context);
+    }
+  });
+});
+
+// =============================================================================
+// The examples the slice README's catalog links to (PP-4.6)
+// =============================================================================
+//
+//   MetricGroupRegistry.register / registerMetricGroup  from an app's own
+//                                   `onModuleInit` (the registry is the same
+//                                   static one `forRoot({ metricGroups })` fills)
+//   VERDICT_POLICY                  `examples/activity-verdict-policy.ts`: an app
+//                                   policy that delegates to DefaultVerdictPolicy
+//                                   and adds one rule. Compiled and tested here,
+//                                   deliberately NOT wired into telemetry.config.ts.
+//   dashboard.verdictThresholds     `reference-verdict-thresholds.ts`, wired, and
+//                                   equal to the platform defaults.
+// =============================================================================
+
+describe('Telemetry extension points: MetricGroupRegistry.register from onModuleInit', () => {
+  /** A minimal app group; `coach` is already in the registry through the mocked app registrations above. */
+  const GROUP: MetricGroupDef = {
+    id: 'registrar_demo',
+    label: 'Registrar demo',
+    title: 'Registrar demo',
+    order: 80,
+    description: 'a group registered from onModuleInit',
+    families: [
+      {
+        key: 'registrarDemoDepth',
+        group: 'registrar_demo' as MetricGroup,
+        label: 'Depth',
+        table: 'app_jobs_queue_depth',
+        kind: 'gauge',
+        unit: 'count',
+        requiredColumns: ['status'],
+        seriesAggregate: 'sum',
+        bucketAggregate: 'max',
+        filters: ['service', 'instance'],
+      },
+    ],
+  };
+
+  @Injectable()
+  class DemoGroupRegistrar implements OnModuleInit {
+    constructor(private readonly groups: MetricGroupRegistry) {}
+
+    onModuleInit(): void {
+      registerMetricGroup(this.groups, GROUP);
+    }
+  }
+
+  it('adds an app group before the registry freezes, and the registry then refuses a late one', async () => {
+    // The real AppModule above froze the process-wide registry; the helper
+    // unfreezes it for the callback and restores it afterwards.
+    await withTemporaryEntries(metricGroupRegistry, [], async () => {
+      const moduleRef = await Test.createTestingModule({ providers: [MetricGroupRegistry, DemoGroupRegistrar] }).compile();
+      await moduleRef.init();
+
+      const registry = moduleRef.get(MetricGroupRegistry);
+      expect(registry.get('registrar_demo')).toBe(GROUP);
+      expect(registry.list().at(-1)?.id).toBe('registrar_demo');
+      // onApplicationBootstrap froze it: registering now is a bug, and says so.
+      expect(() => registry.register({ ...GROUP, id: 'late', families: [{ ...GROUP.families[0], key: 'lateDepth', group: 'late' as MetricGroup }] })).toThrow(/frozen/i);
+
+      await moduleRef.close();
+    });
+  });
+});
+
+describe('Telemetry extension points: the example verdict policy (compiled and tested, not wired)', () => {
+  const INPUT: VerdictInput = {
+    now: new Date('2026-10-07T12:00:00Z'),
+    lastDataAt: new Date('2026-10-07T11:59:30Z'),
+    requests: 0,
+    errors5xx: 0,
+    p95Ms: null,
+    errorLogs: 0,
+    previousErrorLogs: 0,
+  };
+  const policy = new ActivityVerdictPolicy(new DefaultVerdictPolicy());
+
+  it('adds its rule to a healthy platform verdict: degraded, with its reason after the platform ones', () => {
+    expect(policy.compute(INPUT, DEFAULT_VERDICT_THRESHOLDS)).toEqual({ level: 'degraded', reasons: [ACTIVITY_QUIET_REASON] });
+  });
+
+  it('is the platform verdict whenever requests were served', () => {
+    const input = { ...INPUT, requests: 120 };
+    expect(policy.compute(input, DEFAULT_VERDICT_THRESHOLDS)).toEqual(new DefaultVerdictPolicy().compute(input, DEFAULT_VERDICT_THRESHOLDS));
+  });
+
+  it('never lowers the platform level, and leaves no_data alone', () => {
+    const noData = { ...INPUT, lastDataAt: null };
+    expect(policy.compute(noData, DEFAULT_VERDICT_THRESHOLDS).level).toBe('no_data');
+    expect(policy.compute(noData, DEFAULT_VERDICT_THRESHOLDS).reasons).not.toContain(ACTIVITY_QUIET_REASON);
+
+    const disk = { ...INPUT, disk: { utilizationPct: 99, mountpoint: '/' } };
+    expect(policy.compute(disk, DEFAULT_VERDICT_THRESHOLDS).level).toBe('critical');
+  });
+
+  it('is not what the reference app binds: the real summary verdict stays the platform one', async () => {
+    const context = await boot();
+    try {
+      prepare(context);
+      expect(context.module.get(VERDICT_POLICY)).toBeInstanceOf(DefaultVerdictPolicy);
+    } finally {
+      jest.restoreAllMocks();
+      await closeTestApp(context);
+    }
+  });
+
+  it('serves the example policy through the real summary route when bound with .overrideProvider', async () => {
+    const context = await boot([{ provide: VERDICT_POLICY, useValue: policy }]);
+    try {
+      prepare(context);
+      jest.spyOn(context.module.get(GreptimeClient), 'queryReader').mockResolvedValue({ fields: [], rows: [] });
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer()).get(`${BASE}/summary`).set(authHeader(admin.accessToken)).expect(200);
+
+      // No telemetry in the window is `no_data`, which the example leaves alone.
+      expect(res.body.data.verdict.level).toBe('no_data');
+      expect(res.body.data.verdict.reasons).not.toContain(ACTIVITY_QUIET_REASON);
+    } finally {
+      jest.restoreAllMocks();
+      await closeTestApp(context);
+    }
+  });
+});
+
+describe('Telemetry extension points: the reference verdict thresholds (wired, behaviour-neutral)', () => {
+  it('equals the platform defaults, so the dashboard verdict is unchanged', () => {
+    expect(resolveVerdictThresholds(REFERENCE_VERDICT_THRESHOLDS)).toEqual(DEFAULT_VERDICT_THRESHOLDS);
+    expect(REFERENCE_VERDICT_THRESHOLDS).toEqual(DEFAULT_VERDICT_THRESHOLDS);
+  });
+
+  it('is what the app boots with', async () => {
+    const context = await boot();
+    try {
+      expect(context.module.get(TELEMETRY_VERDICT_THRESHOLDS)).toEqual(DEFAULT_VERDICT_THRESHOLDS);
     } finally {
       jest.restoreAllMocks();
       await closeTestApp(context);

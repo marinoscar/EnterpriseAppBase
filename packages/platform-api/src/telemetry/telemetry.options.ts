@@ -47,6 +47,12 @@ export type VerdictThresholdsOverride = {
 /**
  * The dashboard's options.
  *
+ * @example
+ * ```ts
+ * TelemetryModule.forRoot({ host, imports, dashboard: { verdictThresholds: { noDataMinutes: 10 } } });
+ * ```
+ *
+ * @extensionPoint option
  * @stability experimental
  */
 export interface TelemetryDashboardOptions {

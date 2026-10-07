@@ -1,12 +1,12 @@
 # @marinoscar/platform-contract/telemetry
 
-The wire shapes of the telemetry surfaces: the config and status routes, the explorer (query, schema, export), the GreptimeDB connection, the telemetry services (stack), the dashboard and the AI assistant, plus the stored `telemetry` settings namespace, as zod schemas with their inferred types, and the zod-free limits and enums they are built from. The API's telemetry slice wraps the schemas as its nestjs-zod DTOs (`packages/platform-api/src/telemetry/**/dto/*.ts`, so the OpenAPI document is generated from them); the web telemetry client (`@marinoscar/platform-web/telemetry/headless` since #704: `packages/platform-web/src/telemetry/headless/services/telemetry.ts`, `telemetryDashboard.ts`) takes its types and constants from here. Added by #702; it depends on no other slice (`packages/platform-slices.json`).
+The wire shapes of the telemetry surfaces: the config and status routes, the explorer (query, schema, export), the GreptimeDB connection, the telemetry services (stack), the dashboard and the AI assistant, plus the stored `telemetry` settings namespace, as zod schemas with their inferred types, and the zod-free limits and enums they are built from. The API's telemetry slice wraps the schemas as its nestjs-zod DTOs (`packages/platform-api/src/telemetry/**/dto/*.ts`, so the OpenAPI document is generated from them); the web telemetry client (`@marinoscar/platform-web/telemetry/headless`: `packages/platform-web/src/telemetry/headless/services/telemetry.ts`, `telemetryDashboard.ts`) takes its types and constants from here. It depends on no other slice (`packages/platform-slices.json`).
 
 ## Purpose and scope
 
 One source for what every telemetry route sends and accepts, so the API and the web app can no longer drift apart. The slice follows the contract layout with the schemas split by route group: `constants.ts` (zod-free: `TELEMETRY_LIMITS`, the patterns, every enum list, the dashboard ranges, the assistant limits), `schemas.ts` (the barrel of `settings.ts`, `config.ts`, `status.ts`, `query.ts`, `connection.ts`, `stack.ts`, `dashboard.ts` and `assistant.ts`) and `index.ts`.
 
-Not here: the services, controllers, SQL guard, GreptimeDB client and metric-group registry (the API), the pages, hooks and display labels (the web app), the server-only connection constants (`TELEMETRY_CONNECTION_SETTINGS_KEY`, the credential purpose, the deployment host resolution) and the node span wire shape (the jobs and nodes slice). The full slice documentation follows with the telemetry slices of `platform-api` and `platform-web`.
+Not here: the services, controllers, SQL guard, GreptimeDB client and metric-group registry (the API), the pages, hooks and display labels (the web app), the server-only connection constants (`TELEMETRY_CONNECTION_SETTINGS_KEY`, the credential purpose, the deployment host resolution) and the node span wire shape (the jobs and nodes slice).
 
 ## Install and peer dependencies
 
@@ -155,13 +155,25 @@ No credential field is part of any response shape, nor of the two stored values,
 
 ## Conformance suite
 
-None. The slice ships no conformance suite; `test/telemetry.test.ts` and `test/dual-format.test.ts` cover the schemas and both module formats, the web app round-trips its fixtures through them, and the API's telemetry specs exercise every DTO.
+None of the telemetry conformance checks run on the contract: they concern routes, Doctor checks and the module, which live in the API. Two invariants are the contract's own and are enforced at compile time and by tests rather than by a suite an app runs:
+
+- No credential field may enter a response shape or a stored value: `TelemetrySettingsCarriesNoSecret` and `TelemetryConnectionCarriesNoSecret` stop the package compiling if one does, and conformance check 4 (`GET admin/telemetry/connection` and `/config` carry no stored password) re-proves it against a booted module ([API README](../../../platform-api/src/telemetry/README.md#conformance-suite)).
+- Every schema round-trips the fixtures the web app and the API use: `test/telemetry.test.ts` and `test/dual-format.test.ts` cover the schemas and both module formats, the web client round-trips its fixtures through them, and the API's telemetry specs exercise every DTO.
 
 ## Upgrade notes
 
-New in this release (#702). The schemas moved here from the API's telemetry DTO files, and the types from the web app's hand-written mirrors; both keep their old names (the API re-exports, the web aliases). Unchanged: every field, limit, enum order, `.describe()` text and validation rule; the generated OpenAPI document is byte-identical.
+1.0: first release; the schemas moved here from the API's telemetry DTO files and the types from the web app's hand-written mirrors, and both keep their old names (the API re-exports, the web aliases). Unchanged: every field, limit, enum order, `.describe()` text and validation rule; the generated OpenAPI document is byte-identical.
+
+| Old location | Import from `@marinoscar/platform-contract/telemetry` |
+|---|---|
+| `apps/api/src/telemetry/dto/*.ts`, `connection/dto/*.ts`, `stack/dto/*.ts` (the zod schemas) | The matching `*Schema` and its inferred type; the API's DTO is now `createZodDto(schema)` |
+| `apps/api/src/common/schemas/settings.schema.ts` (`systemTelemetrySchema`) | `telemetrySettingsSchema` (the app keeps `systemTelemetrySchema` as an alias) |
+| `apps/web/src/services/telemetry.ts`, `telemetryDashboard.ts` (hand-written wire types) | The inferred types (`TelemetryStatus`, `DashboardRange`, ...) and the zod-free constants |
+| The limits and enum lists copied into the web app | `TELEMETRY_LIMITS`, `DASHBOARD_RANGES`, `METRIC_UNITS`, `VERDICT_LEVELS`, `TELEMETRY_EXPORT_FORMATS`, ... |
 
 ## Troubleshooting
+
+Operator problems with the telemetry stack are in the [telemetry runbook](../../../../docs/runbooks/telemetry.md#12-troubleshooting); developer problems:
 
 - **A type error about a missing field after an upgrade.** A contract field was renamed or narrowed, which is a major change: read the changeset's migration note.
 - **`zod` appears in the web bundle.** Browser code imports a schema at run time; import types with `import type` and constants only.
@@ -170,5 +182,6 @@ New in this release (#702). The schemas moved here from the API's telemetry DTO 
 ## Links
 
 - [Package README](../../README.md): the contract conventions
-- [Telemetry spec](../../../../docs/specs/telemetry.md): the telemetry subsystem and its routes
+- [Telemetry spec](../../../../docs/specs/telemetry.md) and [packaging](../../../../docs/specs/telemetry.md#12-packaging-and-extension-points): the telemetry subsystem and its routes
 - [Platform packages spec](../../../../docs/specs/platform-packages.md): the slice anatomy, with telemetry as the worked example
+- The same slice in other packages: [API](../../../platform-api/src/telemetry/README.md), [web](../../../platform-web/src/telemetry/README.md), [CLI](../../../platform-cli/src/telemetry/README.md), [infra](../../../platform-infra/src/telemetry/README.md)

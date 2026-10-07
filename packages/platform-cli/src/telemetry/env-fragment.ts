@@ -49,6 +49,12 @@ export interface TelemetryEnvSpecFragment extends EnvSpecFragment {
  *
  * Register it once with `registerEnvSpecFragment(telemetryEnvSpecFragment)`.
  *
+ * @example
+ * ```ts
+ * registerEnvSpecFragment(telemetryEnvSpecFragment); // the reference CLI: platform-host/register.ts
+ * ```
+ *
+ * @extensionPoint option
  * @stability experimental
  */
 export const telemetryEnvSpecFragment: TelemetryEnvSpecFragment = {
