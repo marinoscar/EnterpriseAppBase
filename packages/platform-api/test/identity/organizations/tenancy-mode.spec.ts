@@ -5,7 +5,7 @@ import {
   parseTenancyMode,
   tenancyCapabilitiesFor,
   verifyTenancyModeAtStartup,
-} from './tenancy-mode';
+} from '../../../src/identity/organizations/tenancy-mode';
 
 describe('parseTenancyMode (PP-6.2, #722)', () => {
   it.each<[string | undefined, string]>([

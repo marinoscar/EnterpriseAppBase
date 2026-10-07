@@ -1,8 +1,8 @@
 import { ArgumentsHost, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { GoogleOAuthExceptionFilter } from './google-oauth-exception.filter';
-import { AuthLoginDeniedException } from '../auth-error-codes';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
+import { GoogleOAuthExceptionFilter } from '../../../../src/identity/auth/filters/google-oauth-exception.filter';
+import { AuthLoginDeniedException } from '../../../../src/identity/auth/auth-error-codes';
+import { DatabaseSeedException } from '../../../../src/core/index';
 
 const APP_URL = 'https://app.example.com';
 

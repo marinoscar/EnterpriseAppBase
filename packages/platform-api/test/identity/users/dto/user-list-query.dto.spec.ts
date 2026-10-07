@@ -1,4 +1,4 @@
-import { userListQuerySchema } from './user-list-query.dto';
+import { userListQuerySchema } from '../../../../src/identity/users/dto/user-list-query.dto';
 
 describe('UserListQueryDto', () => {
   describe('isActive parameter', () => {

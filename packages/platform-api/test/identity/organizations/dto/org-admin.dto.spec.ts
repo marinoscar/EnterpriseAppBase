@@ -1,6 +1,6 @@
-import { createOrganizationSchema, renameOrganizationSchema } from './organization.dto';
-import { updateOrgMemberSchema } from './org-member.dto';
-import { createOrgInviteSchema } from './org-invite.dto';
+import { createOrganizationSchema, renameOrganizationSchema } from '../../../../src/identity/organizations/dto/organization.dto';
+import { updateOrgMemberSchema } from '../../../../src/identity/organizations/dto/org-member.dto';
+import { createOrgInviteSchema } from '../../../../src/identity/organizations/dto/org-invite.dto';
 
 describe('org administration DTOs (#726)', () => {
   describe('createOrganizationSchema', () => {

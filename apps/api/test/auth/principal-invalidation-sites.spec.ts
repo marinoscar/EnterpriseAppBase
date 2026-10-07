@@ -36,6 +36,9 @@ import { join, relative } from 'node:path';
 
 const SRC = join(__dirname, '..', '..', 'src');
 
+/** The identity slice's source (#727): the user, role and membership writers moved there. */
+const IDENTITY_SRC = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'identity');
+
 /** Files under `src/` that may write without invalidating. Each entry says why. */
 // Empty since PP-6.4 (#724): `organizations/organizations.service.ts` now
 // invalidates after its own committed membership writes.
@@ -81,10 +84,17 @@ function invalidates(source: string): boolean {
   return INVALIDATION.test(stripComments(source));
 }
 
-const files = sourceFiles(SRC).map((full) => ({
-  file: relative(SRC, full).split('\\').join('/'),
-  source: readFileSync(full, 'utf8'),
-}));
+const files = [
+  ...sourceFiles(SRC).map((full) => ({
+    file: relative(SRC, full).split('\\').join('/'),
+    source: readFileSync(full, 'utf8'),
+  })),
+  // Labelled `identity/<path>` so they cannot collide with an app path.
+  ...sourceFiles(IDENTITY_SRC).map((full) => ({
+    file: `identity/${relative(IDENTITY_SRC, full).split('\\').join('/')}`,
+    source: readFileSync(full, 'utf8'),
+  })),
+];
 
 const writers = files.filter(({ source }) => writesIn(source).length > 0);
 
@@ -106,12 +116,12 @@ describe('principal cache invalidation sites (PP-1.12, #683)', () => {
   it('finds the known write sites (so the scan cannot silently rot to "nothing to check")', () => {
     const found = writers.map(({ file }) => file);
     for (const known of [
-      'users/users.service.ts',
-      'auth/auth.service.ts',
-      'common/services/admin-bootstrap.service.ts',
-      'test-auth/test-auth.service.ts',
+      'identity/users/users.service.ts',
+      'identity/auth/auth.service.ts',
+      'identity/auth/admin-bootstrap.service.ts',
+      'identity/testing/test-auth.service.ts',
       'settings/user-settings/user-settings.service.ts',
-      'organizations/organizations.service.ts',
+      'identity/organizations/organizations.service.ts',
     ]) {
       expect(found).toContain(known);
     }

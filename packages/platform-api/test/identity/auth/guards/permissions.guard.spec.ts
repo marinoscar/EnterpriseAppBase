@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PermissionsGuard } from './permissions.guard';
-import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
+import { PermissionsGuard } from '../../../../src/identity/auth/guards/permissions.guard';
+import { AuthenticatedUser } from '../../../../src/identity/auth/interfaces/authenticated-user.interface';
 
 describe('PermissionsGuard', () => {
   let guard: PermissionsGuard;

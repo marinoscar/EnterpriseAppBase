@@ -1,4 +1,4 @@
-import { principalOf } from './current-principal.decorator';
+import { principalOf } from '../../../../src/identity/auth/decorators/current-principal.decorator';
 
 // #724: `@CurrentPrincipal()` reads what `JwtAuthGuard` attached, and builds
 // the same thing from `request.user` when a test set only that.

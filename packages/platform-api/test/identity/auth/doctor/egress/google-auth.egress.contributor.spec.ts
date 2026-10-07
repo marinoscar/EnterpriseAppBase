@@ -1,7 +1,7 @@
-import { EgressRegistry } from '@marinoscar/platform-api/doctor';
+import { EgressRegistry } from '../../../../../src/doctor/index';
 
-import { AuthService } from '../../auth.service';
-import { GoogleAuthEgressContributor } from './google-auth.egress.contributor';
+import { AuthService } from '../../../../../src/identity/auth/auth.service';
+import { GoogleAuthEgressContributor } from '../../../../../src/identity/auth/doctor/egress/google-auth.egress.contributor';
 
 function contributor(providers: Array<{ name: string; enabled: boolean }>) {
   const auth = { getEnabledProviders: jest.fn().mockResolvedValue(providers) } as unknown as AuthService;

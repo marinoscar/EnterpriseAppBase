@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { TestEnvironmentGuard } from './test-environment.guard';
+import { TestEnvironmentGuard } from '../../../../src/identity/testing/guards/test-environment.guard';
 
 describe('TestEnvironmentGuard', () => {
   let guard: TestEnvironmentGuard;

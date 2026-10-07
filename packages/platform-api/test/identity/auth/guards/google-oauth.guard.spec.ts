@@ -1,6 +1,6 @@
 import { ExecutionContext } from '@nestjs/common';
-import { GoogleOAuthGuard } from './google-oauth.guard';
-import { AuthLoginDeniedException } from '../auth-error-codes';
+import { GoogleOAuthGuard } from '../../../../src/identity/auth/guards/google-oauth.guard';
+import { AuthLoginDeniedException } from '../../../../src/identity/auth/auth-error-codes';
 
 function contextWithQuery(query: unknown): ExecutionContext {
   return {

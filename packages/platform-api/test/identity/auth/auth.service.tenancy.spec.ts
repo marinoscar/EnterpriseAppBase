@@ -20,21 +20,21 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { installTestTracing, type TestTracing } from '../../test/helpers/otel-tracing.helper';
-import { AllowlistService } from '../allowlist/allowlist.service';
-import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
-import { AppMetricsService } from '../common/otel/app-metrics.service';
-import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { OrganizationsService } from '../organizations/organizations.service';
-import { TenancyService } from '../organizations/tenancy.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { AuthLoginDeniedException, buildAuthErrorRedirectUrl, resolveAuthErrorCode } from './auth-error-codes';
-import { AuthService } from './auth.service';
-import { PrincipalCache } from './principal-cache/principal-cache.service';
-import type { GoogleProfile } from './strategies/google.strategy';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { installTestTracing, type TestTracing } from '../support/otel-tracing.helper';
+import { AllowlistService } from '../../../src/identity/allowlist/allowlist.service';
+import { EVENT_BUS, identityUserPorts, notifierProvider, NOTIFY_MOCK } from '../support/app-doubles';
+import { InProcessEventBus } from '../support/app-doubles';
+import { AppMetricsService } from '../support/app-doubles';
+import { AdminBootstrapService } from '../../../src/identity/auth/admin-bootstrap.service';
+import { NotificationsService } from '../support/app-doubles';
+import { OrganizationsService } from '../../../src/identity/organizations/organizations.service';
+import { TenancyService } from '../../../src/identity/organizations/tenancy.service';
+import { PrismaService } from '../support/app-doubles';
+import { AuthLoginDeniedException, buildAuthErrorRedirectUrl, resolveAuthErrorCode } from '../../../src/identity/auth/auth-error-codes';
+import { AuthService } from '../../../src/identity/auth/auth.service';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import type { GoogleProfile } from '../../../src/identity/auth/strategies/google.strategy';
 
 const DEFAULT_ORG = { id: 'org-default', name: 'Default organization', slug: 'default', isDefault: true };
 const ADMIN_EMAIL = 'admin@example.test';
@@ -84,6 +84,7 @@ async function build(mode: 'single' | 'multi' | undefined): Promise<Harness> {
 
   const module = await Test.createTestingModule({
     providers: [
+      ...identityUserPorts, notifierProvider,
       AuthService,
       OrganizationsService,
       TenancyService,
@@ -103,7 +104,7 @@ async function build(mode: 'single' | 'multi' | undefined): Promise<Harness> {
           markEmailClaimed: jest.fn().mockResolvedValue(undefined),
         },
       },
-      { provide: NotificationsService, useValue: { notify, notifyAddress: jest.fn() } },
+      { provide: NOTIFY_MOCK, useValue: { notify, notifyAddress: jest.fn() } },
       { provide: AppMetricsService, useValue: metrics },
     ],
   }).compile();

@@ -1,4 +1,4 @@
-import { allowlistQuerySchema } from './allowlist-query.dto';
+import { allowlistQuerySchema } from '../../../../src/identity/allowlist/dto/allowlist-query.dto';
 
 describe('AllowlistQueryDto', () => {
   describe('status parameter', () => {

@@ -1,10 +1,10 @@
 import { ConfigService } from '@nestjs/config';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckRegistry } from '../../../../src/doctor/index';
 
-import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
-import { PrismaService } from '../../prisma/prisma.service';
-import { TenancyService } from '../tenancy.service';
-import { TenancyModeDoctorCheck, decideTenancyMode } from './tenancy-mode.doctor-check';
+import { createMockPrismaService, MockPrismaService } from '../../support/prisma.mock';
+import { PrismaService } from '../../support/app-doubles';
+import { TenancyService } from '../../../../src/identity/organizations/tenancy.service';
+import { TenancyModeDoctorCheck, decideTenancyMode } from '../../../../src/identity/organizations/doctor/tenancy-mode.doctor-check';
 
 describe('decideTenancyMode (PP-6.2, #722)', () => {
   const healthy = { defaultOrgExists: true, organizations: 1, usersWithoutMembership: 0 };

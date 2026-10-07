@@ -1,13 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { TestAuthService } from './test-auth.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { createMockPrismaService, MockPrismaService, mockPrismaTransaction } from '../../test/mocks/prisma.mock';
-import { TestLoginDto } from './dto/test-login.dto';
-import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
-import { OrganizationsService } from '../organizations/organizations.service';
-import { TenancyService } from '../organizations/tenancy.service';
+import { TestAuthService } from '../../../src/identity/testing/test-auth.service';
+import { identityUserPorts, PrismaService } from '../support/app-doubles';
+import { createMockPrismaService, MockPrismaService, mockPrismaTransaction } from '../support/prisma.mock';
+import { TestLoginDto } from '../../../src/identity/testing/dto/test-login.dto';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import { OrganizationsService } from '../../../src/identity/organizations/organizations.service';
+import { TenancyService } from '../../../src/identity/organizations/tenancy.service';
 
 const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
@@ -79,6 +79,7 @@ describe('TestAuthService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        ...identityUserPorts,
         TestAuthService,
         // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
         { provide: PrincipalCache, useValue: principalCacheStub },
@@ -762,6 +763,7 @@ describe('TestAuthService', () => {
       }) as any);
       const module = await Test.createTestingModule({
         providers: [
+          ...identityUserPorts,
           TestAuthService,
           { provide: PrincipalCache, useValue: principalCacheStub },
           OrganizationsService,

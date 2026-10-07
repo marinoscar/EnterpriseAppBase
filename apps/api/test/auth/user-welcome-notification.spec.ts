@@ -1,31 +1,32 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-ports.helper';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
-import { AdminBootstrapService } from '../common/services/admin-bootstrap.service';
-import { AllowlistService } from '../allowlist/allowlist.service';
+import { AdminBootstrapService } from '@marinoscar/platform-api/identity';
+import { AllowlistService } from '@marinoscar/platform-api/identity';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { NotificationDeliveryService } from '../notifications/notification-delivery.service';
-import { DEFAULT_NOTIFICATION_POLICY } from '../notifications/notification-policy';
-import { NotificationPolicyService } from '../notifications/notification-policy.service';
-import { NotificationsService } from '../notifications/notifications.service';
+} from '../mocks/prisma.mock';
+import { NotificationDeliveryService } from '../../src/notifications/notification-delivery.service';
+import { DEFAULT_NOTIFICATION_POLICY } from '../../src/notifications/notification-policy';
+import { NotificationPolicyService } from '../../src/notifications/notification-policy.service';
+import { NotificationsService } from '../../src/notifications/notifications.service';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
   type ChannelDeliveryResult,
   type NotificationChannelSender,
   type NotificationRecipient,
-} from '../notifications/notification.types';
-import { PrismaService } from '../prisma/prisma.service';
-import { AuthService } from './auth.service';
-import { GoogleProfile } from './strategies/google.strategy';
-import { PrincipalCache } from './principal-cache/principal-cache.service';
-import { OrganizationsService } from '../organizations/organizations.service';
-import { TenancyService } from '../organizations/tenancy.service';
-import { EVENT_BUS } from '../common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
+} from '../../src/notifications/notification.types';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { AuthService } from '@marinoscar/platform-api/identity';
+import { GoogleProfile } from '@marinoscar/platform-api/identity';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
+import { OrganizationsService } from '@marinoscar/platform-api/identity';
+import { TenancyService } from '@marinoscar/platform-api/identity';
+import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
+import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 
 // =============================================================================
 // `user.welcome` fires only after the creating transaction has committed
@@ -117,6 +118,8 @@ describe('user.welcome: fires after commit, and the dispatcher reads the recipie
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // The identity slice's host ports, bound to the app's adapters (#727).
+        ...IDENTITY_APP_PORTS, ...IDENTITY_BUS_PORTS,
         AuthService,
         NotificationsService,
         NotificationDeliveryService,

@@ -1,4 +1,4 @@
-import { updateUserRolesSchema } from './update-user-roles.dto';
+import { updateUserRolesSchema } from '../../../../src/identity/users/dto/update-user-roles.dto';
 
 describe('UpdateUserRolesDto', () => {
   describe('roleNames field', () => {

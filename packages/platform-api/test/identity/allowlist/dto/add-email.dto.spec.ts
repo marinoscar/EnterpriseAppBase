@@ -1,4 +1,4 @@
-import { addEmailSchema } from './add-email.dto';
+import { addEmailSchema } from '../../../../src/identity/allowlist/dto/add-email.dto';
 
 describe('AddEmailDto', () => {
   describe('email field', () => {

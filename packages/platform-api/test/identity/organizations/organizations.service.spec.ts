@@ -1,14 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
-import { PrismaService } from '../prisma/prisma.service';
+import { DatabaseSeedException } from '../../../src/core/index';
+import { PrismaService } from '../support/app-doubles';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { OrganizationsService } from './organizations.service';
-import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+} from '../support/prisma.mock';
+import { OrganizationsService } from '../../../src/identity/organizations/organizations.service';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
 import { NotFoundException } from '@nestjs/common';
-import { DefaultOrganizationMissingException } from './organizations.errors';
+import { DefaultOrganizationMissingException } from '../../../src/identity/organizations/organizations.errors';
 
 describe('OrganizationsService', () => {
   let service: OrganizationsService;

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { IDENTITY_APP_PORTS } from '../../test/helpers/identity-ports.helper';
 import { ConfigService } from '@nestjs/config';
 import { NotificationDeliveryStatus } from '@prisma/client';
 
@@ -165,6 +166,8 @@ describe('a notification send failure never fails or rolls back its trigger', ()
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // The identity slice's host ports, bound to the app's adapters (#727).
+        ...IDENTITY_APP_PORTS,
         UsersService,
         NotificationsService,
         // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.

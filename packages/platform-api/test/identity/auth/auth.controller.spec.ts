@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { PatService } from '../pat/pat.service';
-import { NodeCredentialService } from '../nodes/node-credential.service';
-import { AuthLoginDeniedException } from './auth-error-codes';
-import { DatabaseSeedException } from '@marinoscar/platform-api/core';
+import { AuthController } from '../../../src/identity/auth/auth.controller';
+import { AuthService } from '../../../src/identity/auth/auth.service';
+import { PatService } from '../../../src/identity/pat/pat.service';
+import { NodeCredentialService } from '../support/app-doubles';
+import { AuthLoginDeniedException } from '../../../src/identity/auth/auth-error-codes';
+import { DatabaseSeedException } from '../../../src/core/index';
 
 describe('AuthController', () => {
   let controller: AuthController;

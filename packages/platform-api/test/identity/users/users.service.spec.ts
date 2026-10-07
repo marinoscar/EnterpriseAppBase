@@ -1,15 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotificationsService } from '../notifications/notifications.service';
+import { identityUserPorts, NotificationsService, notifierProvider, NOTIFY_MOCK } from '../support/app-doubles';
 import { ConfigService } from '@nestjs/config';
 import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
-import { UsersService } from './users.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
-import { ROLES } from '../common/constants/roles.constants';
-import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
-import * as tenancyMode from '../auth/tenancy-mode';
+import { UsersService } from '../../../src/identity/users/users.service';
+import { PrismaService } from '../support/app-doubles';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { UpdateUserDto } from '../../../src/identity/users/dto/update-user.dto';
+import { UpdateUserRolesDto } from '../../../src/identity/users/dto/update-user-roles.dto';
+import { ROLES } from '../../../src/identity/identity.constants';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
 
 const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
@@ -97,6 +97,7 @@ describe('UsersService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        ...identityUserPorts, notifierProvider,
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
         // PP-1.12 (#683): the JWT principal cache; only `invalidateUser` (#724) is written to.
@@ -110,7 +111,7 @@ describe('UsersService', () => {
         // and a failing provider in
         // notifications/notification-failure-containment.spec.ts.
         {
-          provide: NotificationsService,
+          provide: NOTIFY_MOCK,
           useValue: (mockNotifications = {
             notify: jest.fn().mockResolvedValue(undefined),
             notifyAddress: jest.fn().mockResolvedValue(undefined),

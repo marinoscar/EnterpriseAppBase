@@ -1,15 +1,15 @@
 import { ConfigService } from '@nestjs/config';
 
-import { InProcessEventBus } from '../../common/event-bus/in-process-event-bus';
-import type { EventBus } from '../../common/event-bus/event-bus.interface';
-import { FakeEventBusNetwork } from '../../../test/helpers/fake-network-event-bus.helper';
-import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
+import { InProcessEventBus } from '../../support/app-doubles';
+import type { EventBus } from '../../support/app-doubles';
+import { FakeEventBusNetwork } from '../../support/fake-network-event-bus.helper';
+import type { AuthenticatedUser } from '../../../../src/identity/auth/interfaces/authenticated-user.interface';
 import {
   PRINCIPAL_CACHE_MAX_ENTRIES,
   PRINCIPAL_INVALIDATE_CHANNEL,
   PrincipalCache,
   type PrincipalCacheKey,
-} from './principal-cache.service';
+} from '../../../../src/identity/auth/principal-cache/principal-cache.service';
 
 /** A session entry of `userId` in the default org (the shape most tests need). */
 function k(userId: string, overrides: Partial<PrincipalCacheKey> = {}): PrincipalCacheKey {

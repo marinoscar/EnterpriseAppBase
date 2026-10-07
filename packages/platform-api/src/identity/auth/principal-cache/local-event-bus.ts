@@ -38,6 +38,11 @@ export class LocalIdentityEventBus implements IdentityEventBus {
     };
   }
 
+  /** How many handlers are subscribed to `channel` (for tests). */
+  handlerCount(channel: string): number {
+    return this.handlers.get(channel)?.size ?? 0;
+  }
+
   health(): IdentityEventBusHealth {
     return {
       adapter: this.adapter,

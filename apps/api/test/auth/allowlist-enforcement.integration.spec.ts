@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-ports.helper';
 import { NotificationsService } from '../../src/notifications/notifications.service';
 import { AuthService } from '@marinoscar/platform-api/identity';
 import { AllowlistService } from '@marinoscar/platform-api/identity';
@@ -47,6 +48,8 @@ describe('Auth Service - Allowlist Enforcement', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // The identity slice's host ports, bound to the app's adapters (#727).
+        ...IDENTITY_APP_PORTS, ...IDENTITY_BUS_PORTS,
         AuthService,
         AllowlistService,
         AdminBootstrapService,

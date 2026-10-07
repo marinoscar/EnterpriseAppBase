@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
-import { AdminBootstrapService } from './admin-bootstrap.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
-import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
+import { AdminBootstrapService } from '../../../src/identity/auth/admin-bootstrap.service';
+import { PrismaService } from '../support/app-doubles';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
 
 const principalCacheStub = { invalidate: jest.fn() };
 
