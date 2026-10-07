@@ -37,12 +37,14 @@ export { DatabaseSeedException } from './errors/database-seed.exception';
 export { ErrorDto } from './errors/error.dto';
 
 // Crypto: the AES-256-GCM secret cipher under every runtime-configured
-// credential, and its bootstrap check (issue #698). The cipher reads
+// credential, and its bootstrap check (issue #698), plus HMAC signing sub-keys
+// from the same master key (issue #822). The cipher reads
 // SECRETS_ENCRYPTION_KEY from the environment once and caches it.
 export {
   USER_CREDENTIAL_DOMAIN_PREFIX,
   assertEncryptionKeyConfigured,
   decryptSecret,
+  deriveSigningKey,
   encryptSecret,
   isCanonicalUuid,
   userCredentialPurpose,
