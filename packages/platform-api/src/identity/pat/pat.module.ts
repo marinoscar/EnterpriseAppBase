@@ -3,6 +3,11 @@ import { PrincipalCacheModule } from '../auth/principal-cache/principal-cache.mo
 import { PatController } from './pat.controller';
 import { PatService } from './pat.service';
 
+/**
+ * Personal access tokens: `PatController` (`/api/pat`) and `PatService`. GLOBAL: `JwtAuthGuard`, instantiated in every module using `@Auth()`, resolves `pat_` tokens through it. Mounted by `IdentityModule.forRoot()`.
+ *
+ * @stability experimental
+ */
 @Global()
 @Module({
   // #724: a PAT revoke invalidates the owner's cached principals.

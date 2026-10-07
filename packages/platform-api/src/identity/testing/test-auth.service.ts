@@ -21,6 +21,11 @@ import {
 } from '../identity.constants';
 import { PRINCIPAL_USER_INCLUDE, principalFactory } from '../auth/principal.factory';
 
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
 export interface TestAuthTokenResponse {
   accessToken: string;
   expiresIn: number;
@@ -33,6 +38,11 @@ export interface TestAuthTokenResponse {
   };
 }
 
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
 @Injectable()
 export class TestAuthService {
   private readonly logger = new Logger(TestAuthService.name);

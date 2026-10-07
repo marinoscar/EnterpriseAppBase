@@ -30,13 +30,39 @@ import {
 } from '../ports';
 
 /**
+ * One recorded notifier call.
+ *
+ * @stability experimental
+ */
+export interface StubIdentityNotification {
+  /** The notifier method called. */
+  method: keyof IdentityNotifier;
+  /** Its first argument: the user id or the address. */
+  to: string;
+  /** The notice. */
+  notice: unknown;
+}
+
+/**
+ * What {@link createStubIdentityHost} returns.
+ *
+ * @stability experimental
+ */
+export interface StubIdentityHost {
+  /** The global module to pass in `IdentityModule.forRoot({ imports })`. */
+  module: DynamicModule;
+  /** What the stand-ins recorded. */
+  state: StubIdentityHostState;
+}
+
+/**
  * What the stand-ins recorded.
  *
  * @stability experimental
  */
 export interface StubIdentityHostState {
   /** Every notifier call, in order: the method and its arguments. */
-  readonly notifications: Array<{ method: keyof IdentityNotifier; to: string; notice: unknown }>;
+  readonly notifications: StubIdentityNotification[];
   /** Every handler registered through `IDENTITY_JOBS`. */
   readonly handlers: IdentityJobHandler[];
   /** Every housekeeping job queued through `IDENTITY_JOBS`, by type. */
@@ -76,7 +102,7 @@ export interface StubIdentityHostOptions {
  *
  * @stability experimental
  */
-export function createStubIdentityHost(options: StubIdentityHostOptions): { module: DynamicModule; state: StubIdentityHostState } {
+export function createStubIdentityHost(options: StubIdentityHostOptions): StubIdentityHost {
   const state: StubIdentityHostState = { notifications: [], handlers: [], enqueued: [], metrics: [] };
   const record = (method: keyof IdentityNotifier) => async (to: string, notice: unknown) => {
     state.notifications.push({ method, to, notice });

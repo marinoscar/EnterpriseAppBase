@@ -23,6 +23,8 @@ let recorded: TenancyMode = 'single';
 /**
  * The deployment's tenancy mode: what `TenancyService` parsed at startup, or
  * `'single'` before it has.
+ *
+ * @stability experimental
  */
 export function currentTenancyMode(): TenancyMode {
   return recorded;
@@ -31,6 +33,8 @@ export function currentTenancyMode(): TenancyMode {
 /**
  * Called by `TenancyService`'s constructor with the parsed `TENANCY_MODE`.
  * Nothing else calls it.
+ *
+ * @stability experimental
  */
 export function recordTenancyMode(mode: TenancyMode): void {
   recorded = mode;

@@ -17,7 +17,11 @@ import { principalOf, type RequestWithPrincipal } from './current-principal.deco
 // and an unscoped client would see nothing anyway.
 // =============================================================================
 
-/** The id of the request's active organization. */
+/**
+ * The id of the request's active organization.
+ *
+ * @stability stable
+ */
 export function activeOrgIdOf(request: RequestWithPrincipal & { user?: { activeOrgId?: string | null } }): string | undefined {
   const fromPrincipal = principalOf(request)?.activeOrgId;
   if (fromPrincipal) return fromPrincipal;
@@ -38,6 +42,8 @@ export function activeOrgIdOf(request: RequestWithPrincipal & { user?: { activeO
  *   return this.objects.list(query, userId, orgId);
  * }
  * ```
+ *
+ * @stability stable
  */
 export const CurrentOrg = createParamDecorator((_data: unknown, ctx: ExecutionContext): string => {
   const orgId = activeOrgIdOf(ctx.switchToHttp().getRequest<RequestWithPrincipal>());

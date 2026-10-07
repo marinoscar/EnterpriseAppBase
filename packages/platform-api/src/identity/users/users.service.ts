@@ -62,6 +62,11 @@ const ORG_ROLES_ELSEWHERE =
   `(${ROLES.ADMIN}); manage organization roles through the organization member endpoints ` +
   '(/api/orgs/:orgId/members).';
 
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -264,7 +269,7 @@ export class UsersService {
    * - **single:** the system roles named become the user's `user_roles`
    *   (`admin` toggles the system administrator), and the default-org
    *   membership role becomes `org_admin` when `admin` is named, otherwise the
-   *   highest org role named (`contributor` > `viewer`), otherwise the default
+   *   highest org role named (`contributor` above `viewer`), otherwise the default
    *   org role. So `['admin']` is an administrator, `['contributor']` a
    *   contributor with no system role.
    * - **multi:** system roles only. An org role name is a 400 pointing to the

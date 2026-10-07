@@ -87,6 +87,8 @@ export interface PendingInvitation {
  *   invitation is claimed by signing in with the invited address
  *   (`OrganizationsService.claimPendingInvites`).
  * - Expired invitations are marked `expired` lazily, when the list is read.
+ *
+ * @internal
  */
 @Injectable()
 export class OrgInvitesService {

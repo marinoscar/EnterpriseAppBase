@@ -64,31 +64,58 @@ import { stampCredential } from '../credential-binding';
 // can never store its (stale) result after it.
 // =============================================================================
 
-/** The bus channel every replica listens on. Payload: {@link PrincipalInvalidation}. */
+/**
+ * The bus channel every replica listens on. Payload: {@link PrincipalInvalidation}.
+ *
+ * @stability stable
+ */
 export const PRINCIPAL_INVALIDATE_CHANNEL = 'auth.principal.invalidate';
 
-/** The most principals one process holds. Insertion-order eviction past it. */
+/**
+ * The most principals one process holds. Insertion-order eviction past it.
+ *
+ * @stability stable
+ */
 export const PRINCIPAL_CACHE_MAX_ENTRIES = 10_000;
 
-/** Optional DI token for the clock (ms since epoch). Tests inject one; production uses `Date.now`. */
+/**
+ * Optional DI token for the clock (ms since epoch). Tests inject one; production uses `Date.now`.
+ *
+ * @stability experimental
+ */
 export const PRINCIPAL_CACHE_CLOCK: unique symbol = Symbol.for('@marinoscar/platform/identity/PRINCIPAL_CACHE_CLOCK');
 
 /**
  * What to drop: every entry of one user (all orgs, all credential kinds), or
  * every principal (a role ↔ permission change affects everyone holding that
  * role, and there is no index from role to user in the cache).
+ *
+ * @stability stable
  */
-export type PrincipalInvalidation = { userId: string } | { all: true };
+export type PrincipalInvalidation =
+  | {
+      /** Drop every entry of this user. */
+      userId: string;
+    }
+  | {
+      /** Drop every principal. */
+      all: true;
+    };
 
 /**
  * One cache entry's identity (#724): the user, the org the credential is
  * bound to, and the credential kind. `orgId: null` is a credential bound to
  * NO org: a pre-#724 access token (the compatibility path in
  * `AuthService.validateJwtPayload`). Node credentials are never cached.
+ *
+ * @stability stable
  */
 export interface PrincipalCacheKey {
+  /** The user. */
   userId: string;
+  /** The org the credential is bound to, or `null`. */
   orgId: string | null;
+  /** The credential kind. */
   tokenKind: CredentialKind;
 }
 
@@ -97,10 +124,19 @@ function keyString(key: PrincipalCacheKey): string {
   return `${key.userId}\u0000${key.orgId ?? ''}\u0000${key.tokenKind}`;
 }
 
+/**
+ * A snapshot of the cache, for the Doctor.
+ *
+ * @stability stable
+ */
 export interface PrincipalCacheStats {
+  /** Entries held. */
   size: number;
+  /** Lookups answered from the cache. */
   hits: number;
+  /** Lookups that missed. */
   misses: number;
+  /** Invalidations applied. */
   invalidations: number;
 }
 
@@ -157,6 +193,14 @@ function isInvalidation(payload: unknown): payload is PrincipalInvalidation {
   return p.all === true || (typeof p.userId === 'string' && p.userId.length > 0);
 }
 
+/**
+ * Short-TTL cache of validated JWT principals (#683), invalidated across
+ * replicas on the event bus. Every write that changes what a user's token
+ * resolves to calls {@link PrincipalCache.invalidateUser} after it commits; an
+ * app that writes users, roles or memberships itself does the same.
+ *
+ * @stability stable
+ */
 @Injectable()
 export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrincipalCache.name);
@@ -219,6 +263,7 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
     return this.ttlMs > 0;
   }
 
+  /** Subscribes to {@link PRINCIPAL_INVALIDATE_CHANNEL}. */
   onModuleInit(): void {
     this.logger.debug(
       this.enabled
@@ -245,6 +290,7 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** Unsubscribes and drops every entry. */
   onModuleDestroy(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;

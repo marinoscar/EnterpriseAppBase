@@ -19,7 +19,10 @@ import { OrganizationsAdminController } from './organizations-admin.controller';
  *
  * Org administration (PP-6.7, #726): the active organization's members
  * (`/api/org/members`) and invitations (`/api/org/invites`), and the
- * deployment's organizations (`/api/admin/organizations`).
+ * deployment's organizations (`/api/admin/organizations`). Global; mounted by
+ * `IdentityModule.forRoot()`.
+ *
+ * @stability experimental
  */
 // GLOBAL (#727): `AuthService` and the test login use OrganizationsService and
 // TenancyService without an import edge, so `IdentityModule.forRoot()` can mount
@@ -28,7 +31,7 @@ import { OrganizationsAdminController } from './organizations-admin.controller';
 @Module({
   // PP-6.4 (#724): membership mutations invalidate the principal cache.
   // #726: invitations are emailed through the notification dispatcher.
-  // The database, the notifier and the bypass client are the app's global host ports.
+  // The database and the notifier are the app's global host ports.
   imports: [PrincipalCacheModule],
   controllers: [OrgMembersController, OrgInvitesController, OrganizationsAdminController],
   providers: [

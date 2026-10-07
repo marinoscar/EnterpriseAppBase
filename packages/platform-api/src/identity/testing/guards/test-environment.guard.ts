@@ -9,6 +9,8 @@ import { ConfigService } from '@nestjs/config';
 /**
  * Guard that only allows requests in non-production environments
  * Used to protect test/development endpoints from being accessed in production
+ *
+ * @stability experimental
  */
 @Injectable()
 export class TestEnvironmentGuard implements CanActivate {

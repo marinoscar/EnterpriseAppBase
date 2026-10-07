@@ -29,13 +29,19 @@ import type { CredentialKind } from '../../core/index';
  * What a credential path binds: the org (`null` for a system-scoped node;
  * `undefined` for a pre-#724 credential with no org, which the principal
  * factory's sign-in rule then resolves) and the credential kind.
+ *
+ * @internal
  */
 export interface CredentialBinding {
   activeOrgId: string | null | undefined;
   tokenKind: CredentialKind;
 }
 
-/** A user graph carrying its credential binding. */
+/**
+ * A user graph carrying its credential binding.
+ *
+ * @internal
+ */
 export type BoundUser<T> = T & { activeOrgId?: string | null; tokenKind: CredentialKind };
 
 /**
@@ -43,6 +49,8 @@ export type BoundUser<T> = T & { activeOrgId?: string | null; tokenKind: Credent
  * `tokenKind` properties, and returns it. For a graph fresh from the
  * database (PAT, node); a cached, frozen graph goes through
  * {@link bindCredential} instead. An `undefined` org is left unset.
+ *
+ * @internal
  */
 export function stampCredential<T extends object>(target: T, binding: CredentialBinding): BoundUser<T> {
   Object.defineProperty(target, 'tokenKind', {
@@ -65,6 +73,8 @@ export function stampCredential<T extends object>(target: T, binding: Credential
 /**
  * A shallow copy of `user` carrying `binding` (see {@link stampCredential}).
  * The input is never modified, so a frozen principal-cache entry can be bound.
+ *
+ * @internal
  */
 export function bindCredential<T extends object>(user: T, binding: CredentialBinding): BoundUser<T> {
   return stampCredential({ ...user }, binding);
@@ -79,6 +89,8 @@ interface MembershipLike {
 /**
  * Whether `orgId` is an ACTIVE membership in the loaded graph. A graph loaded
  * without memberships has none: the check fails closed.
+ *
+ * @internal
  */
 export function hasActiveMembership(
   user: { memberships?: ReadonlyArray<MembershipLike> | null },

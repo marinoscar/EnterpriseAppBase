@@ -64,6 +64,8 @@ const PRINCIPAL_ROLE_INCLUDE = {
  * `PatService.resolveToken` and `NodeCredentialService.validateToken`; one
  * extra join per authenticated request, absorbed by the principal cache on
  * the JWT path.
+ *
+ * @internal
  */
 export const PRINCIPAL_USER_INCLUDE = {
   userRoles: { include: { role: { include: PRINCIPAL_ROLE_INCLUDE } } },
@@ -75,13 +77,21 @@ export const PRINCIPAL_USER_INCLUDE = {
   },
 } satisfies Prisma.UserInclude;
 
-/** A role as the factory reads it. `rolePermissions` may be absent where only names are loaded. */
+/**
+ * A role as the factory reads it. `rolePermissions` may be absent where only names are loaded.
+ *
+ * @internal
+ */
 export interface PrincipalRole {
   name: string;
   rolePermissions?: ReadonlyArray<{ permission: { name: string } }>;
 }
 
-/** A membership as the factory reads it. */
+/**
+ * A membership as the factory reads it.
+ *
+ * @internal
+ */
 export interface PrincipalMembership {
   orgId: string;
   status: 'active' | 'suspended';
@@ -91,7 +101,11 @@ export interface PrincipalMembership {
   role: PrincipalRole;
 }
 
-/** The part of a loaded user the factory reads. `memberships` absent means none were loaded. */
+/**
+ * The part of a loaded user the factory reads. `memberships` absent means none were loaded.
+ *
+ * @internal
+ */
 export interface PrincipalSource {
   userRoles: ReadonlyArray<{ role: PrincipalRole }>;
   memberships?: ReadonlyArray<PrincipalMembership>;
@@ -103,7 +117,11 @@ export interface PrincipalSource {
   activeOrgId?: string | null;
 }
 
-/** The effective access of one user, in one tenancy mode. */
+/**
+ * The effective access of one user, in one tenancy mode.
+ *
+ * @internal
+ */
 export interface EffectiveAccess {
   /** Names of the roles held in `user_roles` (system roles). */
   systemRoles: string[];
@@ -132,6 +150,8 @@ function byRecency(a: PrincipalMembership, b: PrincipalMembership): number {
  *   that org's membership, `null` selects none (system-scoped), `undefined`
  *   applies the sign-in rule for `mode`.
  * @returns the membership, or `null` when there is none or it is suspended.
+ *
+ * @internal
  */
 export function selectCurrentMembership(
   memberships: ReadonlyArray<PrincipalMembership> | undefined,
@@ -157,6 +177,8 @@ export function selectCurrentMembership(
  *
  * @param user - loaded with {@link PRINCIPAL_USER_INCLUDE} (or a narrower graph).
  * @param mode - the deployment's tenancy mode.
+ *
+ * @internal
  */
 export function resolveEffectiveAccess(user: PrincipalSource, mode: TenancyMode): EffectiveAccess {
   const systemRoles = user.userRoles.map((userRole) => userRole.role.name);
@@ -179,6 +201,8 @@ export function resolveEffectiveAccess(user: PrincipalSource, mode: TenancyMode)
  * loaded user. Stateless; the tenancy mode is read per call. Injectable for
  * services, and available as {@link principalFactory} for the pure call sites
  * (`toRequestUser` in the guards).
+ *
+ * @internal
  */
 @Injectable()
 export class PrincipalFactory {
@@ -246,7 +270,11 @@ function listMemberships(memberships: ReadonlyArray<PrincipalMembership>): OrgMe
   }));
 }
 
-/** The shared, stateless instance for call sites without dependency injection. */
+/**
+ * The shared, stateless instance for call sites without dependency injection.
+ *
+ * @internal
+ */
 export const principalFactory = new PrincipalFactory();
 
 /**
@@ -255,6 +283,8 @@ export const principalFactory = new PrincipalFactory();
  * it with. A node credential yields a system-scoped `NodePrincipal` (no
  * `activeOrgId`); every other kind a `UserPrincipal` bound to
  * `user.activeOrgId`.
+ *
+ * @internal
  */
 export function toPrincipal(
   user: PrincipalSource & { id: string; email: string },

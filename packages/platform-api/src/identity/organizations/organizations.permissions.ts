@@ -26,9 +26,29 @@
 // system `admin` role; no org role may hold them (the registry refuses it).
 // =============================================================================
 
-import type { IdentityPermissionDeclarationMap as PermissionDeclarationMap } from '../identity.permissions';
+import type { IdentityPermissionDeclaration as PermissionDeclaration } from '../identity.permissions';
 
-export const ORGANIZATIONS_PERMISSIONS = {
+/**
+ * The permissions of organizations: the active organization's members and invitations (org) and the deployment's organizations (system), with descriptions and default grants, keyed by
+ * the `PERMISSIONS` constant name the reference app derives from them.
+ * Register them with the app's permission registry.
+ *
+ * @stability stable
+ */
+export const ORGANIZATIONS_PERMISSIONS: {
+  /** `org_members:read`: view the members of the organization and their organization roles. */
+  readonly ORG_MEMBERS_READ: PermissionDeclaration<'org_members:read'>;
+  /** `org_members:write`: change organization members: their organization role, suspend or remove them. */
+  readonly ORG_MEMBERS_WRITE: PermissionDeclaration<'org_members:write'>;
+  /** `org_invites:read`: view pending and past invitations to the organization. */
+  readonly ORG_INVITES_READ: PermissionDeclaration<'org_invites:read'>;
+  /** `org_invites:write`: invite people to the organization and revoke invitations. */
+  readonly ORG_INVITES_WRITE: PermissionDeclaration<'org_invites:write'>;
+  /** `organizations:read`: list the deployment's organizations and their member counts. */
+  readonly ORGANIZATIONS_READ: PermissionDeclaration<'organizations:read'>;
+  /** `organizations:write`: create organizations (with a first administrator invitation) and rename them. */
+  readonly ORGANIZATIONS_WRITE: PermissionDeclaration<'organizations:write'>;
+} = {
   ORG_MEMBERS_READ: {
     id: 'org_members:read',
     description: 'View the members of the organization and their organization roles',
@@ -65,4 +85,4 @@ export const ORGANIZATIONS_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies PermissionDeclarationMap;
+};

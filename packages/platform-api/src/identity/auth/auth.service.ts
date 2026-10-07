@@ -53,13 +53,22 @@ import { PrincipalCache } from './principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { TenancyService } from '../organizations/tenancy.service';
 
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
 export interface FullTokenResponse {
   accessToken: string;
   expiresIn: number;
   refreshToken?: string; // Only returned on initial auth, not refresh
 }
 
-/** The audit action `POST /api/auth/switch-org` writes (#724). */
+/**
+ * The audit action `POST /api/auth/switch-org` writes (#724).
+ *
+ * @stability stable
+ */
 export const ORG_SWITCHED_AUDIT_ACTION = 'auth:org_switched';
 
 /** How long the default organization's id is memoised for the legacy-token path (#724). */
@@ -85,6 +94,11 @@ type MembershipGraph = {
   memberships?: ReadonlyArray<PrincipalMembership> | null;
 };
 
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);

@@ -6,6 +6,11 @@ import { PrincipalCache } from './principal-cache/principal-cache.service';
 import { ORG_ADMIN_ROLE, ROLES } from '../identity.constants';
 import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
 
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
 @Injectable()
 export class AdminBootstrapService implements OnModuleInit {
   private readonly logger = new Logger(AdminBootstrapService.name);

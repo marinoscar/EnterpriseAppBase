@@ -50,6 +50,8 @@ export interface OrganizationView {
  * - Renaming changes the name only. The slug is immutable here, and which
  *   organization is the default cannot be changed.
  * - Deleting an organization is out of scope (#743).
+ *
+ * @internal
  */
 @Injectable()
 export class OrganizationsAdminService {

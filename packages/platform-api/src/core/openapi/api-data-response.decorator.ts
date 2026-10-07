@@ -8,7 +8,7 @@
 import { Type, applyDecorators } from '@nestjs/common';
 import { ApiExtraModels, ApiResponse, getSchemaPath, type ApiResponseOptions } from '@nestjs/swagger';
 
-/** The response schema type `@ApiResponse({ schema })` takes (no deep import of @nestjs/swagger). */
+// The response schema type `@ApiResponse({ schema })` takes (no deep import of the swagger package).
 type SchemaObject = Extract<ApiResponseOptions, { schema: unknown }>['schema'];
 
 /**
@@ -93,11 +93,14 @@ const NESTED_META_SCHEMA = {
  *
  * @example
  * ```ts
- * @ApiDataResponse(UserResponseDto, { pagination: 'flat', description: 'Paginated user list' })
- * ```
+ * // A flat paginated list, and a nested one.
+ * class Examples {
+ *   @ApiDataResponse(UserResponseDto, { pagination: 'flat', description: 'Paginated user list' })
+ *   users() {}
  *
- * ```ts
- * @ApiDataResponse(ObjectResponseDto, { pagination: 'nested' })
+ *   @ApiDataResponse(ObjectResponseDto, { pagination: 'nested' })
+ *   objects() {}
+ * }
  * ```
  *
  * @param model - the payload's DTO class, or several for a `oneOf` union.

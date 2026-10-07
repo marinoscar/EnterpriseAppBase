@@ -13,6 +13,11 @@ import { Permissions } from './permissions.decorator';
 import { ErrorDto } from '../../../core/index';
 import { RoleName, PermissionName } from '../../identity.constants';
 
+/**
+ * What `@Auth()` requires beyond authentication.
+ *
+ * @stability stable
+ */
 export interface AuthOptions {
   /**
    * SYSTEM roles (held in `user_roles`), any of which admits the caller. Today
@@ -28,10 +33,16 @@ export interface AuthOptions {
 /**
  * Vendor-extension key under which `@Auth()` records what it is about to
  * enforce. Read back by `src/openapi/rbac-docs.ts` and by the document builder.
+ *
+ * @stability stable
  */
 export const RBAC_EXTENSION_KEY = 'x-rbac';
 
-/** Shape stamped at {@link RBAC_EXTENSION_KEY} on every `@Auth()` operation. */
+/**
+ * Shape stamped at {@link RBAC_EXTENSION_KEY} on every `@Auth()` operation.
+ *
+ * @stability stable
+ */
 export interface RbacExtension {
   /** Always true — `@Auth()` always applies `JwtAuthGuard`. */
   authenticated: true;
@@ -62,17 +73,30 @@ const SESSION_SCHEME = 'JWT-auth';
  * rendering it there is what makes that possible.
  *
  * @example
- * // Just authentication
- * @Auth()
+ * ```ts
+ * class ExampleController {
+ *   // Just authentication
+ *   @Auth()
+ *   me() {}
  *
- * // With roles (user needs ANY of the roles)
- * @Auth({ roles: [ROLES.ADMIN] })
+ *   // With roles (the caller needs ANY of the system roles)
+ *   @Auth({ roles: ['admin'] })
+ *   operate() {}
  *
- * // With permissions (user needs ALL permissions)
- * @Auth({ permissions: [PERMISSIONS.USERS_READ] })
+ *   // With permissions (the caller needs ALL of them)
+ *   @Auth({ permissions: ['users:read'] })
+ *   list() {}
  *
- * // Combined
- * @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.SYSTEM_SETTINGS_WRITE] })
+ *   // Combined
+ *   @Auth({ roles: ['admin'], permissions: ['system_settings:write'] })
+ *   configure() {}
+ * }
+ * ```
+ *
+ * @param options - the system roles (any of) and permissions (all of) required.
+ * @returns the composed guards, metadata and OpenAPI decorators.
+ *
+ * @stability stable
  */
 export function Auth(options: AuthOptions = {}) {
   const roles = options.roles ?? [];

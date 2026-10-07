@@ -55,11 +55,10 @@ const STATUS_BY_CODE: Record<DeviceTokenErrorCode, 400 | 401> = {
  * WHY EVERY TOKEN-ENDPOINT ERROR GOES THROUGH THIS ONE FUNCTION (#153)
  * ---------------------------------------------------------------------------
  * Because the alternative is what the bug already was. The service used to
- * throw `new BadRequestException({ error: 'authorization_pending', … })`
+ * throw `new BadRequestException(\{ error: 'authorization_pending', … \})`
  * directly — a shape that looks obviously correct at the throw site and was
  * silently flattened by the global exception filter into a generic
- * `{ statusCode: 400, code: 'BAD_REQUEST', message: 'An unexpected error
- * occurred' }`. All four RFC outcomes came out byte-identical, so a client
+ * `\{ statusCode: 400, code: 'BAD_REQUEST', message: 'An unexpected error occurred' \}`. All four RFC outcomes came out byte-identical, so a client
  * could not tell "still waiting" from "the user said no", and the failure was
  * invisible to unit tests (which assert the thrown exception, before the filter
  * runs) and to integration tests (which never polled).

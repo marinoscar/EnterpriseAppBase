@@ -8,10 +8,15 @@ import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 /**
  * JWT payload structure
+ *
+ * @stability stable
  */
 export interface JwtPayload {
-  sub: string; // User ID
+  /** The user's id. */
+  sub: string;
+  /** The user's email. */
   email: string;
+  /** The role names at issue time (informational; access is recomputed per request). */
   roles: string[];
   /**
    * Device-authorization session id (`device_codes.id`), present only on an

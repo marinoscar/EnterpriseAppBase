@@ -21,11 +21,14 @@ import { recordTenancyMode } from '../auth/tenancy-mode';
  *
  * Read-only for the life of the process: the mode is a fact about the
  * deployment, changed by its operator and a restart, never at runtime.
+ *
+ * @stability stable
  */
 @Injectable()
 export class TenancyService {
   private readonly current: TenancyMode;
 
+  /** What the mode does at sign-in, as one frozen table. */
   readonly capabilities: Readonly<TenancyCapabilities>;
 
   constructor(config: ConfigService) {

@@ -3,6 +3,11 @@ import { Module } from '@nestjs/common';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 
+/**
+ * Users: `UsersController` (`/api/users`) and `UsersService`. Mounted by `IdentityModule.forRoot()`.
+ *
+ * @stability experimental
+ */
 @Module({
   // `UsersService.updateUserRoles` raises `security.role_changed` (#128).
   // Imported explicitly — NotificationsModule is not @Global — so every

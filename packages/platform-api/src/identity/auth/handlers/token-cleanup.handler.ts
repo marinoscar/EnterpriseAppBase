@@ -60,6 +60,8 @@ import { AuthService } from '../auth.service';
  * the old name. Exported because `TokenCleanupTask` needs the same string to
  * ask "is one already queued?", and two literals is one typo away from a cron
  * that enqueues a duplicate every night forever.
+ *
+ * @stability stable
  */
 export const AUTH_TOKEN_CLEANUP_TYPE = 'auth.token.cleanup';
 

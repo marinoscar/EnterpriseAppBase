@@ -31,6 +31,8 @@ import type { TenancyMode } from '../../core/index';
  * commits (never inside a caller's transaction). `ensureMembership` is the
  * exception: it runs inside the caller's transaction, and the caller
  * invalidates after it commits.
+ *
+ * @internal
  */
 @Injectable()
 export class OrganizationsService {
@@ -297,8 +299,8 @@ export class OrganizationsService {
    *   expiry);
    * - otherwise, in its own transaction: the membership is created with the
    *   invitation's org role (a NULL role means `DEFAULT_ORG_ROLE`), or an
-   *   existing one is UPGRADED to it, never downgraded (`org_admin` >
-   *   `contributor` > `viewer`); a suspended membership stays suspended
+   *   existing one is UPGRADED to it, never downgraded (`org_admin`, then
+   *   `contributor`, then `viewer`); a suspended membership stays suspended
    *   (reactivating is an administrator's decision); and the invitation is
    *   marked `accepted` (`acceptedById`, `acceptedAt`) conditionally, so two
    *   concurrent sign-ins cannot both claim it.

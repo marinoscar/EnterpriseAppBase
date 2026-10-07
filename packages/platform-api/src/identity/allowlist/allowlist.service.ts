@@ -11,6 +11,11 @@ import { AddEmailDto } from './dto/add-email.dto';
 import { AllowlistQueryDto } from './dto/allowlist-query.dto';
 import { IDENTITY_NOTIFIER, type AllowlistInvitationNotice, type IdentityNotifier } from '../ports';
 
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
 @Injectable()
 export class AllowlistService {
   private readonly logger = new Logger(AllowlistService.name);

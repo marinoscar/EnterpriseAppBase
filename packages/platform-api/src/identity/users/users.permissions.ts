@@ -10,9 +10,23 @@
 // Recipe: common/permissions/README.md.
 // =============================================================================
 
-import type { IdentityPermissionDeclarationMap as PermissionDeclarationMap } from '../identity.permissions';
+import type { IdentityPermissionDeclaration as PermissionDeclaration } from '../identity.permissions';
 
-export const USERS_PERMISSIONS = {
+/**
+ * The permissions of users and RBAC: `users:read`, `users:write`, `rbac:manage` (all system), with descriptions and default grants, keyed by
+ * the `PERMISSIONS` constant name the reference app derives from them.
+ * Register them with the app's permission registry.
+ *
+ * @stability stable
+ */
+export const USERS_PERMISSIONS: {
+  /** `users:read`: view user list and details. */
+  readonly USERS_READ: PermissionDeclaration<'users:read'>;
+  /** `users:write`: modify user accounts. */
+  readonly USERS_WRITE: PermissionDeclaration<'users:write'>;
+  /** `rbac:manage`: manage roles and permissions. */
+  readonly RBAC_MANAGE: PermissionDeclaration<'rbac:manage'>;
+} = {
   // Users
   USERS_READ: {
     id: 'users:read',
@@ -34,4 +48,4 @@ export const USERS_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies PermissionDeclarationMap;
+};

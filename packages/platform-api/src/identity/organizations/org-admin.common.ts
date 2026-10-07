@@ -28,7 +28,7 @@ export function requireActiveOrgId(principal: Principal | undefined): string {
 
 /**
  * Org role precedence, highest first: an invitation never DOWNGRADES an
- * existing membership (`org_admin` > `contributor` > `viewer`). A role this
+ * existing membership (`org_admin`, then `contributor`, then `viewer`). A role this
  * list does not know (an app's own org role) ranks lowest.
  */
 const ORG_ROLE_RANK: Readonly<Record<string, number>> = {

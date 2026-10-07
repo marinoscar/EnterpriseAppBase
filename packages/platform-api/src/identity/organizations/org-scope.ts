@@ -27,6 +27,8 @@ import type { IdentityPrisma as PrismaService } from '../ports';
  * programming or data error, never a client error: it is thrown by job
  * handlers (the job fails with this message in `lastError`) and by services
  * called without an active organization.
+ *
+ * @stability experimental
  */
 export class MissingOrgScopeError extends Error {
   constructor(context: string) {
@@ -38,7 +40,11 @@ export class MissingOrgScopeError extends Error {
   }
 }
 
-/** The `orgId` a job payload carries, or `undefined` when it has none (a pre-#725 job). */
+/**
+ * The `orgId` a job payload carries, or `undefined` when it has none (a pre-#725 job).
+ *
+ * @stability experimental
+ */
 export function orgIdFromPayload(payload: unknown): string | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;
   const value = (payload as { orgId?: unknown }).orgId;
@@ -53,6 +59,8 @@ export function orgIdFromPayload(payload: unknown): string | undefined {
  * @param orgId - the organization the caller already knows, if any.
  * @param context - names the work for the error message ("Job 123 (ai.response.run)").
  * @throws MissingOrgScopeError in multi mode, or when single mode has no default organization.
+ *
+ * @stability experimental
  */
 export async function resolveOrgId(
   prisma: Pick<PrismaService, 'organization'>,
@@ -68,7 +76,11 @@ export async function resolveOrgId(
   return org.id;
 }
 
-/** {@link resolveOrgId} for a job: the payload's `orgId`, else the single-mode default. */
+/**
+ * {@link resolveOrgId} for a job: the payload's `orgId`, else the single-mode default.
+ *
+ * @stability experimental
+ */
 export function resolveJobOrgId(
   prisma: Pick<PrismaService, 'organization'>,
   job: { id: string; type: string; payload: unknown },
