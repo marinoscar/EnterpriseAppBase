@@ -1,6 +1,12 @@
 import { definePlatformHost } from '../core/index';
 import { DEFAULT_VERDICT_THRESHOLDS } from './dashboard/telemetry-dashboard.verdict';
-import { defaultTelemetryActorId, resolveTelemetryModuleOptions, resolveVerdictThresholds } from './telemetry.options';
+import { METRIC_FRESH_MS } from './metrics/metric-group';
+import {
+  defaultTelemetryActorId,
+  resolveMetricFreshMs,
+  resolveTelemetryModuleOptions,
+  resolveVerdictThresholds,
+} from './telemetry.options';
 
 // =============================================================================
 // TelemetryModule.forRoot options (issue #703, rung 1)
@@ -71,7 +77,13 @@ describe('resolveTelemetryModuleOptions', () => {
     expect(resolved.actorId).toBe(defaultTelemetryActorId);
     expect(resolved.verdictThresholds).toEqual(DEFAULT_VERDICT_THRESHOLDS);
     expect(resolved.verdictPolicy).toBeUndefined();
+    expect(resolved.metricFreshMs).toBe(METRIC_FRESH_MS);
     expect(Object.isFrozen(resolved)).toBe(true);
+  });
+
+  it('carries the metrics freshness window', () => {
+    expect(resolveTelemetryModuleOptions({ host, imports: [], metrics: { freshMs: 300_000 } }).metricFreshMs).toBe(300_000);
+    expect(resolveTelemetryModuleOptions({ host, imports: [], metrics: {} }).metricFreshMs).toBe(METRIC_FRESH_MS);
   });
 
   it('carries the thresholds override and the policy binding', () => {
@@ -106,6 +118,27 @@ describe('resolveTelemetryModuleOptions', () => {
   it('refuses a non-function actorId and a non-array metricGroups', () => {
     expect(() => resolveTelemetryModuleOptions({ host, imports: [], actorId: 'id' as never })).toThrow(/`actorId`/);
     expect(() => resolveTelemetryModuleOptions({ host, imports: [], metricGroups: {} as never })).toThrow(/`metricGroups`/);
+  });
+});
+
+describe('resolveMetricFreshMs', () => {
+  it('defaults to METRIC_FRESH_MS (150 s)', () => {
+    expect(METRIC_FRESH_MS).toBe(150_000);
+    expect(resolveMetricFreshMs(undefined)).toBe(150_000);
+    expect(resolveMetricFreshMs({})).toBe(150_000);
+  });
+
+  it('accepts a whole number of milliseconds from 1 s to 24 h', () => {
+    expect(resolveMetricFreshMs({ freshMs: 1_000 })).toBe(1_000);
+    expect(resolveMetricFreshMs({ freshMs: 86_400_000 })).toBe(86_400_000);
+  });
+
+  it('fails boot naming the option for anything else', () => {
+    for (const freshMs of [0, 999, 86_400_001, 1.5, Number.NaN, Number.POSITIVE_INFINITY, '150000']) {
+      expect(() => resolveMetricFreshMs({ freshMs: freshMs as never })).toThrow(/TelemetryModule\.forRoot: `metrics\.freshMs` must be/);
+    }
+    expect(() => resolveMetricFreshMs(null as never)).toThrow(/`metrics` must be an object/);
+    expect(() => resolveTelemetryModuleOptions({ host, imports: [], metrics: { freshMs: -1 } })).toThrow(/`metrics\.freshMs`/);
   });
 });
 

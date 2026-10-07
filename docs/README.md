@@ -47,6 +47,7 @@ In this order:
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
 | [specs/platform-packages.md](specs/platform-packages.md) | Proposed: turning the template into published platform packages (extension contract, tenancy, migrations, scaling, adoption roadmap) | you plan to share platform code between apps or change how forks consume it |
+| [platform-adoption/go-no-go-evopath.md](platform-adoption/go-no-go-evopath.md) | The platform-packages go/no-go gate: what one platform change cost by package and by copy in EvoPath, the verdict, the friction log and what a re-run needs | you decide whether a later packaging wave may start, or re-run the gate |
 
 ## Decision records
 

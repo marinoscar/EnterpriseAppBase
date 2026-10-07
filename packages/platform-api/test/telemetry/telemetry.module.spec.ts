@@ -15,6 +15,8 @@ import {
   TELEMETRY_AUDIT_SINK,
   TELEMETRY_CREDENTIAL_STORE,
   TELEMETRY_JOBS,
+  TELEMETRY_METRIC_FRESH_MS,
+  METRIC_FRESH_MS,
   TELEMETRY_SETTINGS_DEFAULTS,
   TELEMETRY_SETTINGS_STORE,
   TELEMETRY_VERDICT_THRESHOLDS,
@@ -163,6 +165,7 @@ describe('TelemetryModule.forRoot with stub ports and no store', () => {
   it('provides the default verdict policy and thresholds, and freezes the metric-group registry', () => {
     expect(app.get(VERDICT_POLICY)).toBe(app.get(DefaultVerdictPolicy));
     expect(app.get(TELEMETRY_VERDICT_THRESHOLDS)).toEqual(DEFAULT_VERDICT_THRESHOLDS);
+    expect(app.get(TELEMETRY_METRIC_FRESH_MS)).toBe(METRIC_FRESH_MS);
     expect(app.get(MetricGroupRegistry).list()).toHaveLength(6);
     expect(metricGroupRegistry.frozen).toBe(true);
   });

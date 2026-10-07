@@ -64,10 +64,17 @@ import {
 // A group's "latest" value therefore counts only when it is within one bucket
 // of the family's latest bucket; an older one is a drained series, not the
 // current reading. A table cell read as `last` follows the same rule with
-// `METRIC_FRESH_MS`.
+// the freshness window: `METRIC_FRESH_MS` unless the app passed
+// `TelemetryModule.forRoot({ metrics: { freshMs } })`.
 // =============================================================================
 
-/** A `last` table cell older than its part's newest reading by more than this is not current. */
+/**
+ * The default freshness window: a `last` table cell older than its part's
+ * newest reading by more than this is not current. An app changes it with
+ * `TelemetryModule.forRoot({ metrics: { freshMs } })`.
+ *
+ * @stability experimental
+ */
 export const METRIC_FRESH_MS = 150_000;
 
 /**
@@ -571,6 +578,8 @@ export interface TableInputs {
   status?: TelemetryQueryResult | null;
   errors?: TelemetryQueryResult | null;
   histogram?: FamilyData | null;
+  /** The freshness window in milliseconds; default `METRIC_FRESH_MS`. */
+  freshMs?: number;
 }
 
 /** One per-key table from its statements' rows (also used by the telemetry assistant, #603). */
@@ -578,6 +587,7 @@ export function buildTable(
   spec: MetricTableSpec,
   inputs: TableInputs
 ): { table: MetricTable; truncated: boolean } {
+  const freshMs = inputs.freshMs ?? METRIC_FRESH_MS;
   const columns: MetricTableColumn[] = [{ key: 'key', label: spec.keyLabel, unit: 'text' }];
   for (const p of spec.parts) columns.push({ key: p.column, label: p.label, unit: p.unit });
   for (const d of spec.derived ?? []) columns.push({ key: d.column, label: d.label, unit: d.unit });
@@ -634,7 +644,7 @@ export function buildTable(
     const stale =
       part.over === 'last' &&
       at !== null &&
-      at < (newestByPart.get(part.column) ?? at) - METRIC_FRESH_MS;
+      at < (newestByPart.get(part.column) ?? at) - freshMs;
     const row = rowFor(k);
     touch(k, at);
     if (raw === null || stale) continue;
@@ -661,7 +671,7 @@ export function buildTable(
       // A URL whose latest check is older than the newest check of any URL
       // is no longer probed: not "up".
       row.up =
-        numOrNull(r.ok_now) === 1 && lastAt !== null && lastAt >= newestCheck - METRIC_FRESH_MS;
+        numOrNull(r.ok_now) === 1 && lastAt !== null && lastAt >= newestCheck - freshMs;
     }
     for (const r of rowObjects(inputs.errors ?? null)) {
       const k = strOrNull(r.k);
@@ -713,7 +723,8 @@ export function buildTable(
 
 /**
  * Every statement of the group, run at once through `runner`, shaped into the
- * group response (minus the envelope). `now` is the request's clock.
+ * group response (minus the envelope). `now` is the request's clock;
+ * `freshMs` the tables' freshness window (default `METRIC_FRESH_MS`).
  */
 export async function computeMetricGroup(input: {
   group: MetricGroup;
@@ -722,6 +733,7 @@ export async function computeMetricGroup(input: {
   tables: MetricTables;
   runner: MetricRunner;
   now: Date;
+  freshMs?: number;
 }): Promise<MetricGroupResult> {
   const { group, window, filters, tables, runner } = input;
   const bucketSeconds = metricBucketSeconds(window.bucketSeconds);
@@ -852,6 +864,7 @@ export async function computeMetricGroup(input: {
     const built = buildTable(spec, {
       ...tableResults[i],
       histogram: spec.histogram ? (datas.get(spec.histogram.family) ?? null) : null,
+      freshMs: input.freshMs,
     });
     truncated ||= built.truncated;
     outTables.push(built.table);

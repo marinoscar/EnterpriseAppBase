@@ -19,6 +19,9 @@
 //                 `DEFAULT_VERDICT_THRESHOLDS` (zod-validated); `verdictPolicy`:
 //                 what `VERDICT_POLICY` is bound to (rung 3; default
 //                 `DefaultVerdictPolicy`).
+//   metrics       `freshMs`: how much older than its table's newest reading a
+//                 `last` cell (and an uptime check) may be and still count as
+//                 current (default `METRIC_FRESH_MS`, 150 s).
 //
 // Validated once, in `forRoot`: a bad option fails boot with a message naming
 // it.
@@ -30,6 +33,7 @@ import { z } from 'zod';
 import { definePlatformHost, type PlatformHost, type PortBinding } from '../core/index';
 import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from './dashboard/telemetry-dashboard.verdict';
 import type { VerdictPolicy } from './dashboard/verdict-policy';
+import { METRIC_FRESH_MS } from './metrics/metric-group';
 import type { MetricGroupDef } from './metrics/metric-group.registry';
 
 /**
@@ -63,6 +67,28 @@ export interface TelemetryDashboardOptions {
 }
 
 /**
+ * The dashboard metric groups' options.
+ *
+ * @example
+ * ```ts
+ * TelemetryModule.forRoot({ host, imports, metrics: { freshMs: 300_000 } });
+ * ```
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export interface TelemetryMetricsOptions {
+  /**
+   * The freshness window, in milliseconds: a per-key table cell read as `last`
+   * (and an uptime check) older than its table's newest reading by more than
+   * this is not current. A whole number from 1 000 (1 s) to 86 400 000 (24 h);
+   * default `METRIC_FRESH_MS` (150 000, 150 s). Raise it when the app's
+   * metrics export interval is longer than the default's 60 s.
+   */
+  freshMs?: number;
+}
+
+/**
  * Options of `TelemetryModule.forRoot()`.
  *
  * @example
@@ -90,6 +116,8 @@ export interface TelemetryModuleOptions {
   actorId?: (request: unknown) => string | undefined;
   /** The dashboard's verdict thresholds and policy. */
   dashboard?: TelemetryDashboardOptions;
+  /** The dashboard metric groups' freshness window. */
+  metrics?: TelemetryMetricsOptions;
 }
 
 /**
@@ -113,6 +141,8 @@ export interface ResolvedTelemetryModuleOptions {
   readonly verdictThresholds: VerdictThresholds;
   /** The binding of `VERDICT_POLICY`, or `undefined` for the default policy. */
   readonly verdictPolicy: PortBinding<VerdictPolicy> | undefined;
+  /** The metric groups' freshness window in milliseconds (`TELEMETRY_METRIC_FRESH_MS`). */
+  readonly metricFreshMs: number;
 }
 
 /**
@@ -131,6 +161,40 @@ export const TELEMETRY_OPTIONS: unique symbol = Symbol.for('@marinoscar/platform
  * @stability experimental
  */
 export const TELEMETRY_VERDICT_THRESHOLDS: unique symbol = Symbol.for('@marinoscar/platform/telemetry/VERDICT_THRESHOLDS');
+
+/**
+ * Injection token of the metric groups' freshness window in milliseconds: the
+ * app's `metrics.freshMs`, else `METRIC_FRESH_MS`. The dashboard's `/metrics`
+ * route reads it and reports it as the response's `freshMs`.
+ *
+ * @extensionPoint token
+ * @stability experimental
+ */
+export const TELEMETRY_METRIC_FRESH_MS: unique symbol = Symbol.for('@marinoscar/platform/telemetry/METRIC_FRESH_MS');
+
+/** The bounds of `metrics.freshMs`: one second to one day. */
+const FRESH_MS_MIN = 1_000;
+const FRESH_MS_MAX = 86_400_000;
+
+/**
+ * The freshness window for an override: validated, else the default.
+ *
+ * @param metrics - the app's `metrics`, or `undefined`.
+ * @returns the window in milliseconds.
+ * @throws Error when `metrics` is not an object or `freshMs` is not a whole number from 1 000 to 86 400 000.
+ *
+ * @stability experimental
+ */
+export function resolveMetricFreshMs(metrics: TelemetryMetricsOptions | undefined): number {
+  if (metrics === undefined) return METRIC_FRESH_MS;
+  if (metrics === null || typeof metrics !== 'object') fail('`metrics` must be an object');
+  const { freshMs } = metrics;
+  if (freshMs === undefined) return METRIC_FRESH_MS;
+  if (typeof freshMs !== 'number' || !Number.isInteger(freshMs) || freshMs < FRESH_MS_MIN || freshMs > FRESH_MS_MAX) {
+    fail(`\`metrics.freshMs\` must be a whole number of milliseconds from ${FRESH_MS_MIN} to ${FRESH_MS_MAX} (got ${String(freshMs)})`);
+  }
+  return freshMs;
+}
 
 const amount = z.number().finite().nonnegative();
 const count = z.number().int().positive();
@@ -281,6 +345,7 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
     if (kinds.length !== 1) fail('`dashboard.verdictPolicy` needs exactly one of useExisting, useClass or useFactory');
   }
   const verdictThresholds = resolveVerdictThresholds(options.dashboard?.verdictThresholds);
+  const metricFreshMs = resolveMetricFreshMs(options.metrics);
 
   const actorId = options.actorId ?? defaultTelemetryActorId;
   const param = createParamDecorator((_data: unknown, ctx: ExecutionContext) => actorId(ctx.switchToHttp().getRequest()));
@@ -293,5 +358,6 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
     actorIdParam: () => param(),
     verdictThresholds,
     verdictPolicy,
+    metricFreshMs,
   });
 }

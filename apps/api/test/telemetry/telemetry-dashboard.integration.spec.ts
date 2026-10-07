@@ -283,6 +283,7 @@ describe('Telemetry dashboard integration', () => {
         series: expect.any(Array),
         tables: expect.any(Array),
         skipped: [],
+        freshMs: 150_000,
       });
       expect(res.body.data.range.bucketSeconds).toBeGreaterThanOrEqual(60);
       expect(context.prismaMock.auditEvent.create).toHaveBeenCalledWith({

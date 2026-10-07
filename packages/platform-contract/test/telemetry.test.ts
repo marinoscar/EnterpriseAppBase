@@ -303,4 +303,25 @@ describe('dashboard queries', () => {
     const response = createTelemetryDashboardMetricsSchema(z.enum(['host', 'database']));
     expect(response.shape.group.options).toEqual(['host', 'database']);
   });
+
+  it('carries the optional freshness window of a metrics response', () => {
+    const response = createTelemetryDashboardMetricsSchema(z.enum(['host']));
+    const body = {
+      range: { from: '2026-09-27T21:00:00.000Z', to: '2026-09-27T22:00:00.000Z', bucketSeconds: 60 },
+      generatedAt: '2026-09-27T22:00:00.000Z',
+      truncated: false,
+      sql: [],
+      group: 'host',
+      available: false,
+      tiles: [],
+      series: [],
+      tables: [],
+      skipped: [],
+    };
+    expect(response.safeParse(body).success).toBe(true); // a server that predates freshMs
+    expect(response.parse({ ...body, freshMs: 150_000 }).freshMs).toBe(150_000);
+    for (const freshMs of [0, -1, 1.5, '150000']) {
+      expect(response.safeParse({ ...body, freshMs }).success).toBe(false);
+    }
+  });
 });

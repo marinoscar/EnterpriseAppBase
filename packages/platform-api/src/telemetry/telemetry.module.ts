@@ -35,6 +35,7 @@ import { MetricGroupRegistry } from './metrics/metric-group-registry.service';
 import { registerMetricGroups, metricGroupRegistry } from './metrics/metric-group.registry';
 import { DefaultVerdictPolicy, VERDICT_POLICY } from './dashboard/verdict-policy';
 import {
+  TELEMETRY_METRIC_FRESH_MS,
   TELEMETRY_OPTIONS,
   TELEMETRY_VERDICT_THRESHOLDS,
   resolveTelemetryModuleOptions,
@@ -183,6 +184,8 @@ export class TelemetryModule {
         { provide: TELEMETRY_OPTIONS, useValue: resolved },
         // Rung 1: the resolved, frozen thresholds every reader injects.
         { provide: TELEMETRY_VERDICT_THRESHOLDS, useValue: resolved.verdictThresholds },
+        // Rung 1: the metric groups' freshness window (`metrics.freshMs`).
+        { provide: TELEMETRY_METRIC_FRESH_MS, useValue: resolved.metricFreshMs },
         // Rung 3: the verdict policy. The default is always provided, so an
         // app policy can inject it and delegate.
         DefaultVerdictPolicy,
@@ -198,6 +201,7 @@ export class TelemetryModule {
         DefaultVerdictPolicy,
         VERDICT_POLICY,
         TELEMETRY_VERDICT_THRESHOLDS,
+        TELEMETRY_METRIC_FRESH_MS,
       ],
     };
   }

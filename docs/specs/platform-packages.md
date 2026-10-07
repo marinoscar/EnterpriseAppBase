@@ -122,7 +122,7 @@ Method: per-file byte comparison of each app's `apps/*/src` against the base. Mo
 | API files identical to base (of 917) | 78% (721) | 29% (271) | 5% (47) |
 | Web files identical (of 508) | 69% | 32% | 11% |
 | CLI files identical (of 221) | 41% | 23% | 0% (no deploy or init commands) |
-| Migrations shared with base | 20, plus 1 same change under a different id | 14 | 2 |
+| Migrations shared with base | 20 same-id migrations (19 byte-identical, 1 differing only in a comment), plus 1 under a renamed id | 14 | 2 |
 | Base Prisma models present (of 31) | 31 | 26 | 23 |
 | Total Prisma models | 77 | 61 | 73 |
 | Base platform modules missing | none | telemetry, doctor, user-credentials, AI platform | telemetry, jobs, AI platform, credentials, user-credentials, about; most of db-backup, notifications, nodes, email |
@@ -291,7 +291,7 @@ A full vertical slice, measured in this repository:
 
 Having no Prisma tables makes telemetry the ideal first full-vertical slice: it exercises api, web, cli, infra and docs without touching the migration problem ([Data, migrations and seeds](#data-migrations-and-seeds)).
 
-**Infra layering already exists.** Compose is split into several `-f` files, and the OTel collector accepts several `--config` files that merge. App differences therefore become overlay files, not forks. EvoPath needs no collector overlay, and sets no verdict thresholds of its own: its telemetry and collector configuration is functionally identical to the base (comments and the CLI name differ), and its thresholds equal the defaults. Its real telemetry differences are about 25 extra `app.health.*` and `app.coach.*` metric names and three chart files with its own tokens. Its real infra differences are nginx locations and a geolocation header.
+**Infra layering already exists.** Compose is split into several `-f` files, and the OTel collector accepts several `--config` files that merge. App differences therefore become overlay files, not forks. EvoPath needs no collector overlay, and sets no verdict thresholds of its own: its telemetry configuration is functionally identical to the base (comments and the CLI name differ), its collector configuration differs from the base in comments only (confirmed when EvoPath adopted the slice, [issue 719](https://github.com/marinoscar/EnterpriseAppBase/issues/719)), and its thresholds equal the defaults. Its real telemetry differences are about 25 extra `app.health.*` and `app.coach.*` metric names and three chart files with its own tokens. Its real infra differences are nginx locations and a geolocation header.
 
 ### Dependency graph
 
@@ -932,7 +932,7 @@ Implemented by `.changeset/` and `.github/workflows/release.yml`; the operator p
 | Versioning | Changesets with a "fixed" group: all platform packages share one version. Strict semver. |
 | Governance | `CODEOWNERS`; `SECURITY.md` with a disclosure contact; seam requests reviewed through `CODEOWNERS`, with the decision recorded ([Seam requests as governance](#seam-requests-as-governance)) |
 | Containers | Public images on GHCR: api, web, worker, stack-agent, built by one reusable workflow (`images.yml`), tagged with the platform version and channel, signed keyless, with an SBOM and provenance ([runbook](../runbooks/container-images.md)) |
-| Consumers | Renovate in each consumer repository |
+| Consumers | Renovate in each consumer repository. Until the packages are on npm, apps pin the GitHub-release tarball URLs (the interim channel); Renovate cannot compare those, so a bump is a hand edit of every pin (4 manifests in EvoPath) |
 | Pre-release channel | A `next` channel that the reference app and the app currently adopting (EvoPath first) try before `latest` |
 | Currency policy | No app more than one minor version behind; security patches are fast-tracked |
 
@@ -1068,6 +1068,43 @@ Measure what one platform change costs to roll out to all apps. If it is not cle
 
 **Input from wave 3.** An app adds a dashboard metric group with one file (a `MetricGroupDef`) and one `forRoot` option, `metricGroups`: the reference app's `activity` group is `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts` (about 85 lines of code, the rest comments) plus two lines in `telemetry.config.ts`, with no platform, web or collector file touched. The gate compares that with the cost of the same change in a copied slice.
 
+**Method** (issue 720). One representative platform change is rolled out to EvoPath twice and measured on the EvoPath side:
+
+- **Package route:** base PR, changeset, `next` release, EvoPath bump, EvoPath `main` green.
+- **Copy route:** the same base diff, ported by hand into a throwaway branch cut from EvoPath's rollback point. The branch is never merged.
+
+The metrics are:
+
+- M1: files touched, without the lockfile.
+- M2: lines changed.
+- M3: hands-on minutes, agent and owner.
+- M4: lead time from the base merge to EvoPath `main` green.
+- M5: hunks that did not apply, plus manual fixes.
+- M6: CI runs to green.
+- M7: platform files edited in the app.
+- M8: pipeline incidents.
+
+Full method: [Appendix A](#appendix-a-measurement-method-and-caveats).
+
+**Thresholds.**
+
+| Kind | Condition |
+|---|---|
+| Hard (all must hold) | H1: M7 = 0 on the package route. H2: EvoPath CI green on `next` (the `platform-next.yml` run) and on the released version, without a workaround. H3: no production incident or data change caused by the packaged slices. |
+| Efficiency (at least two of three) | E1: M1 (package) ≤ 3 and ≤ 25% of M1 (copy). E2: M3 (package) ≤ 50% of M3 (copy). E3: M4 (package) ≤ 2 working days, including the `next` → `latest` promotion. |
+| Verdict | GO when every H holds and two of E1 to E3 hold; NO-GO otherwise. The owner may override in a comment on issue 720 that gives a reason; the report records both. |
+
+**Result, 2026-10-07: computed NO-GO; no owner override recorded.** Report: [platform-adoption/go-no-go-evopath.md](../platform-adoption/go-no-go-evopath.md).
+
+- **The representative change.** Selection rule 4 (the fallback) applied: the `metrics.freshMs` option of `TelemetryModule.forRoot`, with `freshMs` in the `/metrics` response and in the section header.
+- **What favours the package route.** EvoPath touched 6 files and 15 lines, none of them production code. The copy route touched 11 files and 150 lines, 7 of them production code, and 28 of its 40 hunks failed or had no target. kvox and MemoriaHub cannot receive this change by copy at all.
+- **H2 fails.** The packages are not on npm, so `platform-next.yml` has never run, no `latest` exists and Renovate cannot open a bump. EvoPath consumed `next.1` to `next.3` through hand-edited GitHub-release URL pins.
+- **E1 fails.** 6 files against a threshold of 3. Lockstep pins in 4 workspace manifests, plus an app test that pins the `/metrics` shape.
+- **E2 is not established.** On agent minutes alone the two routes cost about the same; the owner has not given review minutes.
+- **E3 fails** on its `latest` clause. The `next` part took 6 h 12 min.
+
+Waves 0 to 3 and the database spike stay. Issue 665 and later wait for a re-run after the npm prerequisites are done (report §10), or for an owner override.
+
 ### Wave 4: identity with orgs
 
 Auth, users, orgs, groups (later), roles, tokens, audit, tenancy mode and RLS. Database baseline in each adopting app, in adoption order: EvoPath, then kvox.
@@ -1148,7 +1185,7 @@ A slice is extracted when all of the following hold:
 | Risk | Mitigation |
 |---|---|
 | Seams are designed wrong | Adopt each slice in EvoPath immediately; harvest from all apps; add a seam only for a real consumer |
-| Version bookkeeping overhead | Six lockstep packages, automated by Changesets and Renovate |
+| Version bookkeeping overhead | Six lockstep packages, automated by Changesets and Renovate. Until npm is enabled, every bump is a hand edit of the release URL in each workspace manifest (measured at the gate: 4 files in EvoPath) |
 | Prisma composition limits | Spike before the identity wave ([Known hard problem: relations to package-owned models](#known-hard-problem-relations-to-package-owned-models)) |
 | Existing-database baselines go wrong | Lock file, schema-diff gate, rehearsal on a restored backup |
 | Invariants are lost when tests move | Conformance suites run in every app (`runPlatformConformance()`) |
@@ -1194,7 +1231,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | P8 | Scaling seams as adapters; a modular monolith |
 | P9 | Public npm with provenance; a Changesets fixed group |
 | P10 | Superseded by D12 (the adoption order is decided). The per-app strategy (retrofit, hybrid, re-platform) stays proposed and follows measured drift. |
-| P11 | Roadmap waves, with a go/no-go gate after wave 3 |
+| P11 | Roadmap waves, with a go/no-go gate after wave 3. Gate failed on 2026-10-07 (computed NO-GO: the npm-based pipeline has not run yet, and the efficiency thresholds were not met as written; [report](../platform-adoption/go-no-go-evopath.md)); re-run after the npm prerequisites |
 | P12 | Package documentation standard enforced in CI; seam requests as the route to new extension points |
 
 ## Open questions
@@ -1213,6 +1250,13 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 - **Repeatable method.** The measurement is now `scripts/platform-drift.mjs`, which ignores comments, whitespace, issue references and identity renames and also matches migrations and Prisma models; see the [platform drift report runbook](../runbooks/platform-drift-report.md).
 - **Noise.** Comment noise (issue numbers renumbered per repository) and renames (`appctl` to `evopathcli`) inflate the "modified" counts. Real EvoPath code divergence is about 4.2k changed lines, mostly additive.
 - **Correction.** An earlier directory-level diff overstated the number of identical files. The per-file figures in [Measured drift](#measured-drift) replace it.
+- **Gate measurement method (issue 720).**
+  - **Package route.** Pack the platform packages from the base branch that carries the change (`npm pack`). Re-pin the app to them, as a bump PR would: before `npm install`, delete the platform entries from the lockfile, so the packages stay hoisted. Then typecheck and test.
+  - **Copy route.** Path-translate the same base diff (`packages/platform-<layer>/src/<slice>/` → `apps/<app>/src/...`). Apply it with `git apply --reject` to a branch cut from the app's `MonoRepo` rollback point, and fix it by hand until green. `--3way` needs the base blobs, which the app repository lacks, so it applies nothing.
+  - **What is measured.** M1 and M2 are `git diff --stat -- . ':!package-lock.json'`. M3 is the first-to-last activity time of each route, plus the owner's review estimate. M4 is merge timestamps. M5 counts rejected hunks, hunks with no target file, path remaps and manual fixes. M6 counts CI runs (`gh run list`). M7 counts edited platform files. M8 comes from the friction log.
+  - **Lead time** of the package route is calibrated on a change that went end to end (seam request 822: base merge → `next` release → app `main` green).
+  - **Caveat.** A copy port done by the change's own author minutes after writing it is a lower bound on the copy route's hands-on time.
+  - No metric reads user data.
 - **Scaling numbers.** The user counts in [Scaling posture](#scaling-posture) are rules of thumb, not load tests.
 - **Facts verified in this repository** while writing: `METRIC_GROUPS` (six groups), the per-process warning in `notification-stream.service.ts`, `DEFAULT_POLL_MS` (5 s) in `job.worker.ts`, `worker_connections 1024`, the 31 base models, the 31 base permissions, the 21 migration directories, the four raw-SQL partial indexes, the 462-line `seed-data.ts`, the compose and collector line counts, and the 9-file Doctor framework.
 
@@ -1247,3 +1291,4 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 - 2026-10-04 (rev 3): adoption order decided (EnterpriseAppBase, EvoPath, kvox, MemoriaHub); the existing apps are the reference app; program tracking and rollback added; corrections to the migration, telemetry and RLS facts.
 - 2026-10-06 (rev 4): single rollback tag `MonoRepo` at e872eb6; safety copy in marinoscar/appbase.
 - 2026-10-07 (rev 5): the telemetry slice completed (wave 3): slice READMEs in all five packages, a reference-app example for every extension point (the `activity` group, an example verdict policy, an example CLI command), the telemetry conformance suite in `runPlatformConformance()` and a coach-shaped readiness test; corrected the claim that EvoPath has thresholds or collector configuration of its own.
+- 2026-10-07 (rev 6): go/no-go gate measured (issue 720): method, thresholds and the computed NO-GO recorded in [Go/no-go gate (after wave 3)](#gono-go-gate-after-wave-3), with the [report](../platform-adoption/go-no-go-evopath.md); the measurement method added to Appendix A. Corrections: the EvoPath migration count (20 same-id, of which 19 byte-identical and 1 comment-only, plus 1 renamed), EvoPath's collector configuration (comment-only drift), and the interim cost of URL pins in the release pipeline and the risks table.
