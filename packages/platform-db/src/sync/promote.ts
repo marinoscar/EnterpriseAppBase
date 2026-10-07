@@ -21,6 +21,10 @@ export interface PromoteIo {
   slice: string;
   /** Slice ids that must appear in earlier entries. */
   requires: readonly string[];
+  /** Other slices whose tables the migration also changes. */
+  touches?: readonly string[];
+  /** Whether the migration enables row-level security on a table. */
+  rls?: boolean;
 }
 
 /**
@@ -123,6 +127,8 @@ export function promote(localDir: string, id: string, io: PromoteIo): PromoteRes
     since: io.since,
     slice: io.slice,
     requires: [...io.requires],
+    ...(io.touches && io.touches.length > 0 ? { touches: [...io.touches] } : {}),
+    ...(io.rls ? { rls: true } : {}),
   };
   io.writePackageFile(newId, bytes);
   const next = [...manifest, entry];

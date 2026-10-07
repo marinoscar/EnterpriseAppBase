@@ -181,14 +181,21 @@ model AuditEvent {
   targetType  String   @map("target_type")
   targetId    String   @map("target_id")
   meta        Json?
+  // The organization the action happened in (#725). NULL for a system event
+  // (settings, backups, restores, the allowlist): see the backfill in
+  // `0025_org_scoped_rls`. `SetNull`: history outlives the organization. No
+  // row-level security on this table in this release (`org-optional`).
+  orgId       String?  @map("org_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
-  actorUser User? @relation("ActorEvents", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUser User?         @relation("ActorEvents", fields: [actorUserId], references: [id], onDelete: SetNull)
+  org       Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
   @@index([actorUserId])
   @@index([targetType, targetId])
   @@index([createdAt])
+  @@index([orgId, createdAt])
   @@map("audit_events")
 }
 
@@ -386,6 +393,7 @@ enum InviteStatus {
   expired
 }
 
+// @extensible — back-relations only, added with "extend model Organization { ... }" in a fragment
 model Organization {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
@@ -404,6 +412,18 @@ model Organization {
   refreshTokens        RefreshToken[]
   personalAccessTokens PersonalAccessToken[]
   deviceCodes          DeviceCode[]
+  // Audit history outlives the organization (`SetNull`); system events have none (#725).
+  auditEvents          AuditEvent[]
+
+  // composed from package:ai.prisma
+  // AI runs and usage events (#725): see `AiRun.orgId` and `AiUsageEvent.orgId`
+  // for why one is `Restrict` and the other `SetNull`.
+  aiRuns        AiRun[]
+  aiUsageEvents AiUsageEvent[]
+
+  // composed from package:storage.prisma
+  storageObjects      StorageObject[]
+  storageObjectChunks StorageObjectChunk[]
 
   @@map("organizations")
 }

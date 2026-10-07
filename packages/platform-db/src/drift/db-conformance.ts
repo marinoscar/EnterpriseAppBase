@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { parseLock, parseManifest } from '../lock/index.js';
 import { checkLock } from '../sync/index.js';
 import { assertRawSqlIndexes } from './raw-sql-tripwire.js';
+import { assertRlsPolicies } from './rls-policies.js';
 
 /**
  * The slice of a test runner {@link runDbConformance} needs; Jest and Vitest
@@ -44,6 +45,7 @@ function globalTestApi(): DbConformanceTestApi {
  * layer that an app proves in its own CI, offline (no database needed).
  *
  * - **raw-SQL index tripwire**: every partial or expression index the package's migrations create is listed in `RAW_SQL_INDEXES`, every listed one exists, and no schema fragment tries to "fix" one with `@@unique`/`@@index` (see {@link assertRawSqlIndexes}).
+ * - **rls-policies tripwire**: every row-level-security policy the package's migrations leave behind is listed in `RLS_POLICIES`, every listed one is created, and its table both enables and forces row-level security (see {@link assertRlsPolicies}).
  * - **platform.lock**: the app's installed migrations are byte-identical to the package's, every package migration is installed, and nothing is edited (see {@link checkLock}).
  *
  * Call it at the top level of a spec file. It is the data-layer counterpart of
@@ -75,6 +77,10 @@ export function runDbConformance(options: DbConformanceOptions): void {
   api.describe('platform-db conformance', () => {
     api.it('raw-sql-indexes: every raw-SQL index is listed, present in the migrations, and not redeclared in a fragment', () => {
       assertRawSqlIndexes({ manifest: manifest(), migrationsDir, fragmentsDir: join(packageDir, 'schema') });
+    });
+
+    api.it('rls-policies: every policy the migrations leave is listed in RLS_POLICIES, and each listed table enables and forces row-level security', () => {
+      assertRlsPolicies({ manifest: manifest(), migrationsDir });
     });
 
     api.it('platform.lock: installed migrations are byte-identical to the package, none missing or edited', () => {

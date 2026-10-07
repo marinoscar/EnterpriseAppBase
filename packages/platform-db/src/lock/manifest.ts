@@ -11,6 +11,7 @@ const manifestEntrySchema = z
     slice: z.string().min(1),
     requires: z.array(z.string().min(1)),
     touches: z.array(z.string().min(1)).optional(),
+    rls: z.boolean().optional(),
   })
   .strict();
 
@@ -37,6 +38,14 @@ export interface ManifestEntry {
   requires: string[];
   /** Other slices whose tables the migration also changes; omitted when it touches none. */
   touches?: string[];
+  /**
+   * `true` when the migration enables row-level security on a table. An app
+   * adopting the history in partial mode stops before such a migration until
+   * it opts in (`platform db baseline --allow-rls`): RLS is inert for a
+   * superuser role, and the application role must be an ordinary one first.
+   * Omitted when the migration enables none.
+   */
+  rls?: boolean;
 }
 
 /**

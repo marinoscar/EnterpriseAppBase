@@ -144,6 +144,12 @@
       "originId": "platform:0024_split_system_org_roles",
       "sha256": "11484b30fdabf64abb14ec99e4d218c1897f5692130bd5a04720d08b905e1332",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261007202337_org_scoped_rls",
+      "originId": "platform:0025_org_scoped_rls",
+      "sha256": "f6a0a61d07e5b91767b9bf18824ae1872e236f566877282c4cb2332f024dd636",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"

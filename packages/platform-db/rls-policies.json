@@ -1,0 +1,32 @@
+{
+  "policies": [
+    {
+      "name": "storage_objects_org_isolation",
+      "table": "storage_objects",
+      "reason": "Organization isolation: a row is visible only when org_id equals the transaction-local app.org_id (or the transaction carries app.rls_bypass). Prisma cannot express policies.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "storage_object_chunks_org_isolation",
+      "table": "storage_object_chunks",
+      "reason": "Organization isolation of upload parts; the chunk carries its own org_id because a policy cannot join through its parent.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "ai_runs_org_isolation",
+      "table": "ai_runs",
+      "reason": "Organization isolation of background AI runs, whose request column holds the full prompt.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "ai_usage_events_org_isolation",
+      "table": "ai_usage_events",
+      "reason": "Organization isolation of AI usage accounting; a row with a NULL org_id is visible to the bypass (system) client only.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    }
+  ]
+}

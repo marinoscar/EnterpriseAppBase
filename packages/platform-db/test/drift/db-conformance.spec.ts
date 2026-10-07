@@ -33,6 +33,7 @@ describe('runDbConformance', () => {
     const outcomes = runSuite({ appRoot: REFERENCE_APP });
     expect(outcomes.map((o) => o.name)).toEqual([
       expect.stringContaining('raw-sql-indexes'),
+      expect.stringContaining('rls-policies'),
       expect.stringContaining('platform.lock'),
     ]);
     expect(outcomes.filter((o) => o.error)).toEqual([]);
@@ -44,14 +45,14 @@ describe('runDbConformance', () => {
     cpSync(join(REFERENCE_APP, 'prisma', 'platform.lock'), join(dir, 'prisma', 'platform.lock'));
     cpSync(join(REFERENCE_APP, 'prisma', 'migrations'), join(dir, 'prisma', 'migrations'), { recursive: true });
     writeFileSync(join(dir, 'prisma', 'migrations', '20260906120000_add_jobs', 'migration.sql'), '-- edited\n');
-    const [tripwire, lock] = runSuite({ appRoot: dir });
+    const [tripwire, , lock] = runSuite({ appRoot: dir });
     expect(tripwire!.error).toBeUndefined();
     expect(lock!.error).toMatch(/LOCAL_MODIFIED.*0008_add_jobs/s);
   });
 
   it('fails the lock test when the app has no platform.lock', () => {
     dir = mkdtempSync(join(tmpdir(), 'db-conformance-'));
-    expect(runSuite({ appRoot: dir })[1]!.error).toMatch(/platform\.lock does not exist/);
+    expect(runSuite({ appRoot: dir })[2]!.error).toMatch(/platform\.lock does not exist/);
   });
 
   it('throws without a test API when there are no globals', () => {

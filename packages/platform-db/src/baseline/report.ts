@@ -1,4 +1,4 @@
-import type { RawIndexProblem } from '../drift/index.js';
+import type { RawIndexProblem, RlsProblem } from '../drift/index.js';
 import type { BaselineErrorCode } from './errors.js';
 import type { MatchedMigration } from './mapping.js';
 
@@ -98,6 +98,8 @@ export interface BaselineReport {
   diff: BaselineDiff;
   /** Raw-SQL indexes that are missing or whose definition differs (step B4). */
   indexProblems: RawIndexProblem[];
+  /** Row-level-security policies that are missing, unlisted or not forced (step B4). */
+  policyProblems: RlsProblem[];
   /** The `_prisma_migrations` ledger: whether Prisma manages the database, and the problems found. */
   ledger: BaselineLedgerState;
   /** Everything that blocks `--apply`; empty when the baseline can proceed. */
@@ -155,6 +157,9 @@ export function renderReport(report: BaselineReport): string[] {
   lines.push('');
   lines.push(`B4 raw-SQL indexes: ${report.indexProblems.length} problem(s)`);
   for (const p of report.indexProblems) lines.push(`  ${p.code}  ${p.message}`);
+  lines.push('');
+  lines.push(`B4 row-level security: ${report.policyProblems.length} problem(s)`);
+  for (const p of report.policyProblems) lines.push(`  ${p.code}  ${p.message}`);
   lines.push('');
   lines.push(`B5 act: ${report.toResolve.length} to resolve, ${report.toInstall.length} to install only`);
   for (const r of report.toResolve) lines.push(`  ${report.applied ? 'resolved' : 'would resolve'} --applied ${r.localDir}${r.install ? ' (installed first)' : ''}  <- ${r.originId}`);

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { createBaselineDeps, isBaselineClean, renderReport, runBaseline } from '../baseline/index.js';
-import { readLedgerRows, readPackageRawSqlIndexes, runDrift } from '../drift/index.js';
+import { readLedgerRows, readPackageRawSqlIndexes, readPackageRlsPolicies, runDrift } from '../drift/index.js';
 import { emptyLock, parseLock, parseManifest, serializeJson, serializeLock, type ManifestEntry, type PlatformLock } from '../lock/index.js';
 import {
   applySync,
@@ -174,12 +174,13 @@ function runSync(
 function runPromote(
   ctx: DbCommandContext,
   localDir: string,
-  options: CommonOptions & { id: string; since?: string; slice?: string; requires?: string },
+  options: CommonOptions & { id: string; since?: string; slice?: string; requires?: string; touches?: string; rls?: boolean },
 ): number {
   const l = layout(ctx, options);
   const manifest = loadManifest(l);
   const lock = loadLock(l) ?? emptyLock(packageVersionOf(l));
   const requires = options.requires ? options.requires.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  const touches = options.touches ? options.touches.split(',').map((s) => s.trim()).filter(Boolean) : [];
   const result = promote(localDir, options.id, {
     manifest,
     lock,
@@ -188,6 +189,8 @@ function runPromote(
     since: options.since ?? nextPlatformVersion(packageVersionOf(l), manifest.map((entry) => entry.since)),
     slice: options.slice ?? manifest[manifest.length - 1]?.slice ?? 'core',
     requires,
+    touches,
+    rls: options.rls === true,
   });
   if (!result.changed) {
     ctx.out(`platform db promote: ${result.entry.id} is already promoted from ${localDir}; nothing to do`);
@@ -224,6 +227,8 @@ async function runDriftCommand(
   const lock = loadLock(l);
   const packageIndexesFile = join(l.packageDir, 'raw-sql-indexes.json');
   const packageIndexes = existsSync(packageIndexesFile) ? readPackageRawSqlIndexes(packageIndexesFile) : [];
+  const packagePoliciesFile = join(l.packageDir, 'rls-policies.json');
+  const packagePolicies = existsSync(packagePoliciesFile) ? readPackageRlsPolicies(packagePoliciesFile) : [];
   const result = await runDrift({
     cwd: resolve(ctx.cwd, options.root ?? '.'),
     migrations: l.migrationsDir,
@@ -231,14 +236,18 @@ async function runDriftCommand(
     databaseUrl: url,
     shadowDatabaseUrl: options.shadowDatabaseUrl ?? ctx.env.SHADOW_DATABASE_URL,
     rawSqlIndexes: [...packageIndexes, ...(lock?.rawSqlIndexes ?? [])],
+    rlsPolicies: [...packagePolicies, ...(lock?.rlsPolicies ?? [])],
   });
   if (result.schemaDiff) {
     ctx.err('SCHEMA_DRIFT  the schema has changes no migration creates; add a migration. The missing SQL is:');
     ctx.err(result.schemaDiff);
   }
   for (const problem of result.indexProblems) ctx.err(`${problem.code}  ${problem.message}`);
+  for (const problem of result.policyProblems) ctx.err(`${problem.code}  ${problem.message}`);
   if (!result.ok) return 1;
-  ctx.out(`platform db drift: ok (the migrations equal the schema; ${packageIndexes.length + (lock?.rawSqlIndexes?.length ?? 0)} raw-SQL index(es) present)`);
+  ctx.out(
+    `platform db drift: ok (the migrations equal the schema; ${packageIndexes.length + (lock?.rawSqlIndexes?.length ?? 0)} raw-SQL index(es) and ${packagePolicies.length + (lock?.rlsPolicies?.length ?? 0)} row-level-security policy(ies) present)`,
+  );
   return 0;
 }
 
@@ -248,6 +257,7 @@ interface BaselineFlags {
   apply?: boolean;
   dryRun?: boolean;
   forceRemap?: boolean;
+  allowRls?: boolean;
   shadowDatabaseUrl?: string;
   prismaScript?: string;
 }
@@ -280,6 +290,7 @@ async function runBaselineCommand(ctx: DbCommandContext, options: CommonOptions 
       ...(options.map ? { mapFile: resolve(ctx.cwd, options.map) } : {}),
       apply: options.apply === true,
       forceRemap: options.forceRemap === true,
+      allowRls: options.allowRls === true,
       ...(options.through ? { through: options.through } : {}),
     },
     deps,
@@ -326,7 +337,9 @@ export function registerDbSyncCommands(db: Command, ctx: DbCommandContext): void
       .requiredOption('--id <slug>', 'the package migration slug, e.g. add_orgs')
       .option('--since <version>', 'the platform version that ships it (default: the next minor)')
       .option('--slice <slice>', 'the owning slice (default: the previous migration\'s)')
-      .option('--requires <slices>', 'comma-separated slice ids that must come earlier'),
+      .option('--requires <slices>', 'comma-separated slice ids that must come earlier')
+      .option('--touches <slices>', 'comma-separated slice ids whose tables the migration also changes')
+      .option('--rls', 'the migration enables row-level security on a table (a partial baseline stops before it until the app opts in)'),
   ).action((localDir: string, options) => guarded(ctx, () => runPromote(ctx, localDir, options)));
 
   common(
@@ -345,6 +358,7 @@ export function registerDbSyncCommands(db: Command, ctx: DbCommandContext): void
       .option('--map <file>', 'JSON file mapping platform:NNNN_slug to a local directory, for migrations the automatic passes cannot match')
       .option('--apply', 'write platform.lock, install missing migrations and run migrate resolve --applied (default: a dry run that changes nothing)')
       .option('--dry-run', 'explicit form of the default')
+      .option('--allow-rls', 'proceed past a migration flagged rls (row-level security); the application role must already be NOSUPERUSER NOBYPASSRLS')
       .option('--force-remap', 'allow --apply when platform.lock already has entries (they are recomputed from the files)')
       .option('--shadow-database-url <url>', 'an empty database to replay the package history into (default: a throwaway one is created and dropped)')
       .option('--prisma-script <file>', 'the script that runs Prisma with DATABASE_URL (default: <root>/scripts/prisma-env.js)'),

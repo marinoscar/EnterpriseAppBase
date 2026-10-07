@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import type { RawSqlIndex } from '../lock/index.js';
 import type { LedgerRow } from '../sync/index.js';
 import { checkRawSqlIndexes, type IndexRow, type RawIndexProblem } from './raw-sql-indexes.js';
+import { checkRlsPolicies, type PolicyRow, type RlsPolicyRef, type RlsProblem, type TableRlsRow } from './rls-policies.js';
 
 /**
  * The slice of the `pg` client the platform tools use.
@@ -36,6 +37,8 @@ export interface DriftOptions {
   shadowDatabaseUrl?: string;
   /** Every raw-SQL index to assert (package list plus the app's). */
   rawSqlIndexes: readonly RawSqlIndex[];
+  /** Every row-level-security policy to assert (package list plus the app's); omitted: policies are not checked. */
+  rlsPolicies?: readonly RlsPolicyRef[];
 }
 
 /**
@@ -50,6 +53,8 @@ export interface DriftResult {
   schemaDiff: string;
   /** Missing or changed raw-SQL indexes. */
   indexProblems: RawIndexProblem[];
+  /** Missing, extra or unforced row-level-security policies. Empty when policies are not checked. */
+  policyProblems: RlsProblem[];
 }
 
 /**
@@ -243,6 +248,57 @@ export async function runDrift(options: DriftOptions): Promise<DriftResult> {
   const diff = await schemaDiff(options);
   const live = await readIndexRows(options.databaseUrl, options.cwd);
   const indexProblems = checkRawSqlIndexes(options.rawSqlIndexes, live);
-  return { ok: diff === '' && indexProblems.length === 0, schemaDiff: diff, indexProblems };
+  let policyProblems: RlsProblem[] = [];
+  if (options.rlsPolicies) {
+    const policies = await readPolicyRows(options.databaseUrl, options.cwd);
+    const tables = await readTableRlsRows(options.databaseUrl, options.cwd);
+    policyProblems = checkRlsPolicies(options.rlsPolicies, policies, tables);
+  }
+  return { ok: diff === '' && indexProblems.length === 0 && policyProblems.length === 0, schemaDiff: diff, indexProblems, policyProblems };
+}
+
+const isTrue = (value: unknown): boolean => value === true || value === 't' || value === 'true';
+
+/**
+ * Reads every policy of the `public` schema (`pg_policies`).
+ *
+ * @param databaseUrl - Connection string.
+ * @param cwd - Where to resolve `pg` from.
+ * @returns The table and name of each policy.
+ * @stability experimental
+ */
+export async function readPolicyRows(databaseUrl: string, cwd: string): Promise<PolicyRow[]> {
+  const Client = loadPg(cwd);
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query("SELECT tablename AS tbl, policyname AS name FROM pg_policies WHERE schemaname = 'public' ORDER BY tablename, policyname");
+    return rows.map((row) => ({ table: String(row.tbl), name: String(row.name) }));
+  } finally {
+    await client.end();
+  }
+}
+
+/**
+ * Reads the row-level-security flags of every ordinary table of the `public`
+ * schema (`pg_class.relrowsecurity`, `relforcerowsecurity`).
+ *
+ * @param databaseUrl - Connection string.
+ * @param cwd - Where to resolve `pg` from.
+ * @returns One row per table.
+ * @stability experimental
+ */
+export async function readTableRlsRows(databaseUrl: string, cwd: string): Promise<TableRlsRow[]> {
+  const Client = loadPg(cwd);
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const { rows } = await client.query(
+      "SELECT c.relname AS tbl, c.relrowsecurity AS enabled, c.relforcerowsecurity AS forced FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') ORDER BY c.relname",
+    );
+    return rows.map((row) => ({ table: String(row.tbl), enabled: isTrue(row.enabled), forced: isTrue(row.forced) }));
+  } finally {
+    await client.end();
+  }
 }
 

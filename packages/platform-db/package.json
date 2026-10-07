@@ -37,6 +37,7 @@
     "schema",
     "migrations",
     "raw-sql-indexes.json",
+    "rls-policies.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
