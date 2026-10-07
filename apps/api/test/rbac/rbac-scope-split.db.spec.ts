@@ -57,6 +57,8 @@ const FRESH = `rbac_split_fresh_${process.pid}`;
 const ORG_PERMISSIONS = ['org_members:read', 'org_members:write', 'org_invites:read', 'org_invites:write'];
 /** Declared after the split (#726, PP-6.7), so absent from the pre-split catalog too. */
 const LATER_PERMISSIONS = ['organizations:read', 'organizations:write'];
+/** The sharing slice's org permissions (#728, PP-7.1): declared after the split too. */
+const SHARING_PERMISSIONS = ['groups:read', 'groups:write', 'groups:admin'];
 const SEED_INPUT = platformSeedInputFrom(SEED_SNAPSHOT, {});
 
 interface LockFile {
@@ -73,15 +75,15 @@ const splitMigrationDir = lock.migrations.find((m) => m.originId === MIGRATION_O
  */
 function preSplitCatalog() {
   const permissions = SEED_INPUT.permissions.filter(
-    (p) => !ORG_PERMISSIONS.includes(p.name) && !LATER_PERMISSIONS.includes(p.name),
+    (p) => !ORG_PERMISSIONS.includes(p.name) && !LATER_PERMISSIONS.includes(p.name) && !SHARING_PERMISSIONS.includes(p.name),
   );
   return {
     roles: SEED_INPUT.roles.filter((r) => r.name !== 'org_admin'),
     permissions,
     grants: {
       admin: permissions.map((p) => p.name),
-      contributor: [...SEED_INPUT.roleGrants.contributor],
-      viewer: [...SEED_INPUT.roleGrants.viewer],
+      contributor: SEED_INPUT.roleGrants.contributor.filter((name) => !SHARING_PERMISSIONS.includes(name)),
+      viewer: SEED_INPUT.roleGrants.viewer.filter((name) => !SHARING_PERMISSIONS.includes(name)),
     } as Record<string, string[]>,
   };
 }
@@ -241,7 +243,11 @@ describeWithDb('system/org role split against real Postgres', () => {
     it.each<UserKey>(['contributor', 'viewer', 'contributorViewer', 'noMembership'])(
       "keeps %s's effective permission set exactly",
       async (key) => {
-        expect((await effective(key)).permissions.sort()).toEqual(before.get(key));
+        // Plus the sharing grants (#728) the seed after the migration gives
+        // the membership role the split assigned (see the table above).
+        const role = ({ contributor: 'contributor', viewer: 'viewer', contributorViewer: 'contributor', noMembership: 'contributor' } as Record<string, string>)[key]!;
+        const sharing = SEED_INPUT.roleGrants[role]!.filter((name) => SHARING_PERMISSIONS.includes(name));
+        expect((await effective(key)).permissions.sort()).toEqual([...before.get(key)!, ...sharing].sort());
       },
     );
 
@@ -249,9 +255,10 @@ describeWithDb('system/org role split against real Postgres', () => {
       const access = await effective('admin');
 
       // Plus the system permissions declared after the split (#726), which the
-      // seed that follows the migration grants to admin.
+      // seed that follows the migration grants to admin, and the sharing org
+      // permissions (#728) its org_admin membership receives.
       expect(access.permissions.sort()).toEqual(
-        [...before.get('admin')!, ...ORG_PERMISSIONS, ...LATER_PERMISSIONS].sort(),
+        [...before.get('admin')!, ...ORG_PERMISSIONS, ...LATER_PERMISSIONS, ...SHARING_PERMISSIONS].sort(),
       );
       expect(access.roles).toEqual(['admin', 'org_admin']);
     });
