@@ -56,6 +56,7 @@ import type { DoctorCategoryLabel } from '../headless/index.js';
 import { formatRelativeTime as fallbackRelativeTime } from '../internal/relative-time.js';
 import { CheckRow, STATUS_LABELS, StatusIcon, statusChipSx } from './check-row.js';
 import { DOCTOR_PAGE_DESCRIPTION, DOCTOR_PAGE_TITLE } from './copy.js';
+import { SupportBundleButton } from './support-bundle-button.js';
 
 /**
  * The props of {@link DoctorPageProps.slots}'s `Header`.
@@ -240,7 +241,7 @@ export function DoctorPage(props: DoctorPageProps = {}): ReactElement {
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
           spacing={{ xs: 1, sm: 2 }}
-          sx={{ mb: 3, alignItems: { xs: 'stretch', sm: 'center' } }}
+          sx={{ mb: 3, alignItems: { xs: 'stretch', sm: 'flex-start' } }}
         >
           <Button
             variant="contained"
@@ -250,8 +251,9 @@ export function DoctorPage(props: DoctorPageProps = {}): ReactElement {
           >
             {isLoading ? 'Running checks…' : 'Run again'}
           </Button>
+          <SupportBundleButton />
           {report && (
-            <Typography variant="body2" color="text.secondary" data-testid="doctor-generated">
+            <Typography variant="body2" color="text.secondary" sx={{ pt: { sm: 1 } }} data-testid="doctor-generated">
               Generated {formatRelativeTime(report.generatedAt)} · took {formatReportDuration(report.durationMs)}
             </Typography>
           )}

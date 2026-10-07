@@ -55,7 +55,7 @@ export function AppPlatformHostProvider({ children }: { children: ReactNode }) {
 
 | Port | What it is for | How the reference app binds it |
 |---|---|---|
-| `PlatformApiClient` | Every API call of a packaged page | The app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError` |
+| `PlatformApiClient` | Every API call of a packaged page | The app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError`. The optional `getBlob(path)` (#772) returns a download's raw body and headers (`PlatformBlobResponse`); the reference app maps it onto `responseType: 'blobWithHeaders'` |
 | `PlatformViewer` | Permission and feature questions a page asks of content (never of reachability: the route gate does that) | `usePermissions().hasPermission`, the auth context's user id, the shell's AI and telemetry flags |
 | `formatRelativeTime` | Consistent dates | `utils/relativeTime` |
 
@@ -78,7 +78,7 @@ The app stays the owner of `ADMIN_SECTIONS` / `USER_SETTINGS_SECTIONS` and of it
 | `PlatformHostProvider` | option | `PlatformHostProvider(props: { host: PlatformWebHost; children: ReactNode }): ReactElement` | Mount the app's host once, inside the auth provider, around the shell | experimental | [example](../../../../apps/web/src/platform/platformHost.tsx) |
 | `PlatformSettingsPage` | component | `{ id; card: { title; description; path; permission?; feature? }; Icon; Page }` | Turn a packaged page into one registry card and one route of the app | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 
-Supporting exports, all `@stability experimental`: `PlatformWebHost`, `PlatformApiClient`, `PlatformApiError`, `isPlatformApiError`, `PlatformViewer`, `usePlatformHost` (throws outside the provider), `usePlatformApi`, `usePlatformViewer`, `useOptionalPlatformHost` (`null` outside the provider).
+Supporting exports, all `@stability experimental`: `PlatformWebHost`, `PlatformApiClient`, `PlatformApiError`, `PlatformBlobResponse`, `isPlatformApiError`, `PlatformViewer`, `usePlatformHost` (throws outside the provider), `usePlatformApi`, `usePlatformViewer`, `useOptionalPlatformHost` (`null` outside the provider).
 
 ## Data
 
@@ -110,7 +110,7 @@ None of its own. `apps/web/src/__tests__/config/platformPages.test.ts` in the re
 
 ## Upgrade notes
 
-None (first release, #696).
+#772: `PlatformApiClient.getBlob` (optional) for file downloads. An app transport without it keeps working; only the Doctor's "Download support bundle" reports that it cannot download. First release: #696.
 
 ## Troubleshooting
 

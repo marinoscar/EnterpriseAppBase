@@ -319,7 +319,7 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 
 ### 5.20 Admin Doctor
 
-`GET /api/admin/doctor` runs a set of read-only checks and answers one question: is every capability of this deployment configured, reachable and healthy? Each capability's own module contributes its checks (`<module>/doctor/`), which register themselves with `DoctorCheckRegistry`. `DoctorService` runs them in parallel, skips a check whose dependency did not pass, bounds each with a timeout, caches the report for 15 seconds and always answers `200`: a failing check is a row with a `remedy` and the settings page that fixes it. No check sends, writes, spends tokens or enqueues a job. The host-level counterpart is `appctl deploy doctor` ([§5.9](#59-appctl-cli)).
+`GET /api/admin/doctor` runs a set of read-only checks and answers one question: is every capability of this deployment configured, reachable and healthy? Each capability's own module contributes its checks (`<module>/doctor/`), which register themselves with `DoctorCheckRegistry`. `DoctorService` runs them in parallel, skips a check whose dependency did not pass, bounds each with a timeout, caches the report for 15 seconds and always answers `200`: a failing check is a row with a `remedy` and the settings page that fixes it. No check sends, writes, spends tokens or enqueues a job. The host-level counterpart is `appctl deploy doctor` ([§5.9](#59-appctl-cli)). `GET /api/admin/doctor/support-bundle` packages the report, the versions and a 24-hour telemetry summary into one redacted JSON download for support tickets: sections self-register with `SupportBundleRegistry`, pass strict schemas and a central redaction pass, and each download is audited as `support_bundle:download` ([doctor spec §2.10](specs/doctor.md#210-support-bundle)).
 
 - **Code:** `@marinoscar/platform-api/doctor` (`packages/platform-api/src/doctor/`: contract, registry, service, controller factory), the first packaged slice (#696); the app's binding is `apps/api/src/doctor/doctor.config.ts`, its checks are `apps/api/src/*/doctor/`
 - **UI:** `/admin/settings/doctor`: `@marinoscar/platform-web/doctor/ui` (`DoctorPage`, `doctorSettingsPage`), bound by `apps/web/src/pages/Admin/DoctorPage.tsx`
@@ -458,7 +458,7 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 
 | Permission | Admin | Contributor | Viewer | Gates |
 |---|:-:|:-:|:-:|---|
-| `system_settings:read` | ✓ | | | Read system settings, email, notification policy, maintenance, About; run the Doctor (`GET /api/admin/doctor`, `/admin/settings/doctor`); reach `/admin/settings`; view the telemetry services status |
+| `system_settings:read` | ✓ | | | Read system settings, email, notification policy, maintenance, About; run the Doctor (`GET /api/admin/doctor`, `/admin/settings/doctor`) and download its support bundle (`GET /api/admin/doctor/support-bundle`); reach `/admin/settings`; view the telemetry services status |
 | `system_settings:write` | ✓ | | | Change system settings, email, notification policy; open or close maintenance; (re)deploy the telemetry services |
 | `user_settings:read` | ✓ | ✓ | ✓ | Read own settings and own uploaded profile picture |
 | `user_settings:write` | ✓ | ✓ | ✓ | Change own settings; upload or remove own profile picture |

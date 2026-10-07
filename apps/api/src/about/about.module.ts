@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { HealthModule } from '../health/health.module';
+import { AboutSupportBundleSection } from './about-support-bundle.section';
 import { AboutController } from './about.controller';
 import { AboutService } from './about.service';
 
@@ -34,6 +35,8 @@ import { AboutService } from './about.service';
 @Module({
   imports: [HealthModule],
   controllers: [AboutController],
-  providers: [AboutService],
+  // The `versions` support-bundle section (#772) registers itself with the
+  // global `SupportBundleRegistry` (`@marinoscar/platform-api/doctor`).
+  providers: [AboutService, AboutSupportBundleSection],
 })
 export class AboutModule {}

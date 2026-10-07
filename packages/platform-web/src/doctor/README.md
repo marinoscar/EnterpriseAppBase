@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: render the report of `GET /api/admin/doctor` (`@marinoscar/platform-api/doctor`): the verdict, counts by status, one accordion per category (problems expanded), a "Problems only" filter, each check's detail, remedy, verbatim error and "Open settings" link, and "Run again" (`refresh=true`). A failing check is data, never a page error; the error alert is reserved for a request that failed.
+Does: render the report of `GET /api/admin/doctor` (`@marinoscar/platform-api/doctor`): the verdict, counts by status, one accordion per category (problems expanded), a "Problems only" filter, each check's detail, remedy, verbatim error and "Open settings" link, "Run again" (`refresh=true`) and "Download support bundle" (`GET /api/admin/doctor/support-bundle`, issue #772: a redacted JSON file for a support ticket, saved under the server's filename). A failing check is data, never a page error; the error alert is reserved for a request that failed.
 
 Does not: check permissions (the app's route gate does), import app context, layout or navigation, own the registry card or the route (the app appends both from the descriptor), or define the wire contract: the report types and status constants come from `@marinoscar/platform-contract/doctor` (#701), imported as types and from the zod-free constants module, so zod never reaches the browser bundle ([contract slice README](../../../platform-contract/src/doctor/README.md)).
 
@@ -69,8 +69,14 @@ Status colours come from the theme-token contract `palette.status.{ok,warn,crit,
 | `DoctorPageProps` | slot | `{ categories?; sx?; slots?: { Header? } }` | Relabel or reorder categories, restyle, or replace the header | experimental | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 | `useDoctor` | hook | `useDoctor(client?: DoctorClient): { report; isLoading; error; rerun }` | Build a different Doctor view on the same data | stable | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 | `createDoctorClient` | hook | `createDoctorClient(api: PlatformApiClient, path?: string): DoctorClient` | Call the Doctor API outside the page, or at a moved path | stable | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
+| `useSupportBundleDownload` | hook | `useSupportBundleDownload(options?: { api?; path?; save? }): { download; isDownloading; error; filename }` | Offer the support bundle download from another view, at a moved path, or saved elsewhere | experimental | [example](../../../../apps/web/src/__tests__/pages/Admin/DoctorPage.test.tsx) |
+| `SupportBundleButton` | component | `SupportBundleButton(props?: { options?; sx? }): ReactElement` | Place the "Download support bundle" button and its helper text outside the Doctor page | experimental | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 
-Supporting exports. `/doctor/headless`: `DoctorStatus`, `DoctorCheckReport`, `DoctorReport` (re-exported from the contract), `DoctorReportQuery` and `DOCTOR_STATUS_ORDER` (deprecated aliases of the contract's `DoctorReportQueryInput` and `DOCTOR_STATUSES`), `DoctorClient`, `UseDoctorReturn`, `PLATFORM_DOCTOR_CATEGORY_LABELS`, `DoctorCategoryLabel`, `categoryLabel(key, labels?)`. `/doctor/ui`: `CheckRow`, `CheckRowProps`, `StatusIcon`, `STATUS_LABELS`, `STATUS_CHIP_COLORS` (the palette role each status's token defaults to), `DoctorPageHeaderProps`.
+Supporting exports. `/doctor/headless`: `DoctorStatus`, `DoctorCheckReport`, `DoctorReport` (re-exported from the contract), `DoctorReportQuery` and `DOCTOR_STATUS_ORDER` (deprecated aliases of the contract's `DoctorReportQueryInput` and `DOCTOR_STATUSES`), `DoctorClient`, `UseDoctorReturn`, `PLATFORM_DOCTOR_CATEGORY_LABELS`, `DoctorCategoryLabel`, `categoryLabel(key, labels?)`, `SUPPORT_BUNDLE_PATH`, `filenameFromContentDisposition(header)`, `UseSupportBundleDownloadOptions`, `UseSupportBundleDownloadReturn`. `/doctor/ui`: `CheckRow`, `CheckRowProps`, `StatusIcon`, `STATUS_LABELS`, `STATUS_CHIP_COLORS` (the palette role each status's token defaults to), `DoctorPageHeaderProps`, `SupportBundleButtonProps`, `SUPPORT_BUNDLE_HELPER_TEXT`.
+
+### Support bundle download
+
+`DoctorPage` renders `SupportBundleButton` next to "Run again", with the helper text "Includes the doctor report, versions and a 24-hour telemetry summary. Secrets and personal data are removed." It is visible to anyone who can see the page; a section the viewer may not read (telemetry without `telemetry:query`) is omitted by the API, not hidden here. `useSupportBundleDownload` fetches the file with the host transport's `getBlob` (optional on `PlatformApiClient`; the hook reports "cannot download files" when the app's transport lacks it), takes the filename from `Content-Disposition` (`support-bundle-<slug>-<yyyyMMdd'T'HHmmss'Z'>.json`) and saves it through an object URL. The file is never parsed or rendered in the browser.
 
 ## Data
 
@@ -94,13 +100,15 @@ None. The page logs nothing; the API's warn log on a throwing check is the Docto
 
 ## Security notes
 
-Read-only: the page only reads the report; "Run again" sends `refresh=true` and nothing else. It renders the API's strings as text (no HTML), shows errors verbatim in a `<pre>` (the API guarantees no secret material in any field), and leaves authorization to the API and the app's route gate.
+Read-only: the page only reads the report; "Run again" sends `refresh=true` and nothing else. The support bundle is redacted by the API before it leaves the server; the browser only saves the bytes it received (a download is audited server-side as `support_bundle:download`). It renders the API's strings as text (no HTML), shows errors verbatim in a `<pre>` (the API guarantees no secret material in any field), and leaves authorization to the API and the app's route gate.
 
 ## Conformance suite
 
 None yet. The reference app's `apps/web/src/__tests__/config/platformPages.test.ts` checks the registration rules (one card, one route, permission equal to the package default); the package's `test/doctor/` covers the page with `createTestPlatformHost`.
 
 ## Upgrade notes
+
+#772 (experimental): "Download support bundle" on the page, `useSupportBundleDownload`, `SupportBundleButton`. An app whose transport is its own `PlatformApiClient` adds `getBlob(path)` (the raw body and headers) for the button to work; nothing else changes.
 
 First packaged release (#696). Moving from the app's own Doctor page: delete `components/doctor/CheckRow.tsx`, `hooks/useDoctor.ts` and `services/doctor.ts`; build the card from `doctorSettingsPage.card`; mount `PlatformHostProvider` (`/core`); render `doctorSettingsPage.Page` from the route. Behaviour, texts and test ids are unchanged.
 
@@ -113,6 +121,7 @@ Since #701 the wire types come from `@marinoscar/platform-contract/doctor`; the 
 | `useDoctor: no PlatformHostProvider above this component and no client was passed` | Mount `PlatformHostProvider` around the shell (and in the test wrapper), or pass `createDoctorClient(api)`. |
 | The page requests the report in a loop | The host's `api` changes identity on each render; make it a module-level constant. |
 | A fork's category shows as a title-cased key | Pass `categories` with its label, in the order `DoctorModule.forRoot({ categoryOrder })` uses. |
+| "This app's transport cannot download files" under the support bundle button | The app's `PlatformApiClient` has no `getBlob`. Add it (the reference app's `apps/web/src/platform/platformHost.tsx` uses its `blobWithHeaders` response type). |
 | Status colours ignore the theme | The theme sets the tokens under another key; they are `palette.status.ok`, `warn`, `crit` and `neutral`. |
 
 ## Links

@@ -2,7 +2,7 @@
 // table of canned responses and records every request, so a packaged page can
 // be tested without the app, its transport or a mock server.
 
-import type { PlatformApiClient, PlatformApiError, PlatformWebHost } from '../core/index.js';
+import type { PlatformApiClient, PlatformApiError, PlatformBlobResponse, PlatformWebHost } from '../core/index.js';
 
 /**
  * One request a test host received.
@@ -76,6 +76,23 @@ export function createTestApiError(status: number, message: string, code?: strin
 }
 
 /**
+ * A canned download for {@link PlatformApiClient.getBlob}: a body and response headers.
+ *
+ * @param body - the file's text.
+ * @param headers - response headers, e.g. `{ 'Content-Disposition': 'attachment; filename="x.json"' }`.
+ * @returns the blob response.
+ *
+ * @stability experimental
+ */
+export function createTestBlobResponse(body: string, headers: Readonly<Record<string, string>> = {}): PlatformBlobResponse {
+  const lower = new Map(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]));
+  return {
+    blob: new Blob([body], { type: lower.get('content-type') ?? 'application/octet-stream' }),
+    headers: { get: (name) => lower.get(name.toLowerCase()) ?? null },
+  };
+}
+
+/**
  * Builds a host for package tests: canned API responses, a viewer with the
  * given permissions and features, and a log of every request.
  *
@@ -118,6 +135,9 @@ export function createTestPlatformHost(options: TestPlatformHostOptions = {}): T
     patch: (path, body, patchOptions) =>
       call({ method: 'PATCH', path, body, ...(patchOptions?.ifMatch === undefined ? {} : { ifMatch: patchOptions.ifMatch }) }),
     delete: (path) => call({ method: 'DELETE', path }),
+    // Downloads answer from the same table (`'GET <path>'`); the canned value
+    // is a `PlatformBlobResponse`, e.g. from `createTestBlobResponse`.
+    getBlob: (path) => call({ method: 'GET', path }),
   };
 
   return {

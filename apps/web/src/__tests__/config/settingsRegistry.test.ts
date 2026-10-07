@@ -1284,7 +1284,8 @@ describe('the Observability group (#537)', () => {
       const binding = readFileSync(resolve(API_SRC, 'doctor/doctor.config.ts'), 'utf8');
       expect(doctor?.permission).toBe('system_settings:read');
       expect(moduleSource).toContain("export const DEFAULT_DOCTOR_PERMISSION = 'system_settings:read';");
-      expect(binding).toContain('DoctorModule.forRoot({ host: platformHost })');
+      // The binding may pass other options (`supportBundle`, #772), never a `permission`.
+      expect(binding).toContain('DoctorModule.forRoot({ host: platformHost');
       expect(binding).not.toMatch(/\bpermission\s*:/);
       expect(rolesConstants).toContain("SYSTEM_SETTINGS_READ: 'system_settings:read'");
       expect(doctor?.permission).not.toBe('doctor:read');

@@ -42,7 +42,7 @@ In this order:
 | [specs/database-backup.md](specs/database-backup.md) | Scheduled and on-demand `pg_dump` backups | you change backups or their node offload |
 | [specs/database-restore.md](specs/database-restore.md) | Restore and rollback from a backup | you change restore gates or outcomes |
 | [specs/maintenance-mode.md](specs/maintenance-mode.md) | The 503 maintenance window | you change maintenance behaviour or its layers |
-| [specs/doctor.md](specs/doctor.md) | The admin Doctor: read-only configuration and health checks | you add a check for a capability or read the Doctor's report |
+| [specs/doctor.md](specs/doctor.md) | The admin Doctor: read-only configuration and health checks, and the redacted support bundle | you add a check or a support-bundle section, or read the Doctor's report |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
@@ -70,7 +70,7 @@ In this order:
 | [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md) | Rotating or recovering from the loss of `SECRETS_ENCRYPTION_KEY` |
 | [runbooks/deployment-info.md](runbooks/deployment-info.md) | Reading the About page's deployment sections |
 | [runbooks/telemetry.md](runbooks/telemetry.md) | Enabling the GreptimeDB telemetry overlay, setting retention, configuring the AI assistant, connecting a BI tool |
-| [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor |
+| [runbooks/doctor.md](runbooks/doctor.md) | Triaging a misconfigured or unhealthy deployment with the admin Doctor, and sending a support bundle |
 | [runbooks/platform-drift-report.md](runbooks/platform-drift-report.md) | Measuring how far a fork has drifted from the base with `scripts/platform-drift.mjs` (maintainers) |
 | [runbooks/data-retention.md](runbooks/data-retention.md) | Seeing and changing how long each kind of data is kept, and turning audit-log retention on |
 | [runbooks/container-images.md](runbooks/container-images.md) | Finding, verifying (cosign, SBOM) and pinning the published api, web, worker and stack-agent images; making the GHCR packages public |

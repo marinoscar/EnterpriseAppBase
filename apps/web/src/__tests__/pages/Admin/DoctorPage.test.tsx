@@ -10,7 +10,7 @@
  * the package's tests.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { http, HttpResponse, delay } from 'msw';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -194,6 +194,49 @@ describe('DoctorPage', () => {
     expect(urls[1].searchParams.get('refresh')).toBe('true');
   });
 
+  it('downloads the support bundle through the app transport, named by Content-Disposition (#772)', async () => {
+    const filename = 'support-bundle-my-app-20261006T090807Z.json';
+    const requests: Request[] = [];
+    serveReport(MIXED);
+    server.use(
+      http.get('*/api/admin/doctor/support-bundle', ({ request }) => {
+        requests.push(request);
+        return new HttpResponse('{"bundleVersion":1}', {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+          },
+        });
+      }),
+    );
+    api.setAccessToken('test-access-token');
+    const saved: string[] = [];
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:bundle');
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      saved.push(this.download);
+    });
+    const user = userEvent.setup();
+    render(<DoctorPage />, { wrapperOptions: { user: mockAdminUser } });
+    await screen.findByTestId('doctor-verdict');
+
+    expect(
+      screen.getByText(
+        'Includes the doctor report, versions and a 24-hour telemetry summary. Secrets and personal data are removed.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Download support bundle' }));
+
+    await waitFor(() => expect(saved).toEqual([filename]));
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe('GET');
+    expect(requests[0].headers.get('Authorization')).toBe('Bearer test-access-token');
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
+  });
+
   it('renders the whole report at phone width', async () => {
     setViewportWidth(375);
     serveReport(MIXED);
@@ -201,6 +244,7 @@ describe('DoctorPage', () => {
 
     expect(await screen.findByTestId('doctor-verdict')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run again' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download support bundle' })).toBeEnabled();
     expect(screen.getByRole('switch', { name: 'Problems only' })).toBeInTheDocument();
     expect(screen.getByTestId('doctor-check-storage.bucket')).toBeInTheDocument();
   });

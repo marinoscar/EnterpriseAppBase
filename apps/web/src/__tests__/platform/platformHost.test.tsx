@@ -57,6 +57,31 @@ describe('appPlatformApi (the app transport)', () => {
   });
 });
 
+describe('appPlatformApi.getBlob (downloads, #772)', () => {
+  it('returns the raw body and the headers, not the envelope', async () => {
+    server.use(
+      http.get('*/api/platform-file', () =>
+        new HttpResponse('{"bundleVersion":1}', {
+          headers: { 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="x.json"' },
+        }),
+      ),
+    );
+
+    const { blob, headers } = await appPlatformApi.getBlob!('/platform-file');
+
+    expect(await blob.text()).toBe('{"bundleVersion":1}');
+    expect(headers.get('Content-Disposition')).toBe('attachment; filename="x.json"');
+  });
+
+  it('rejects an error status as a PlatformApiError', async () => {
+    server.use(http.get('*/api/platform-file', () => HttpResponse.json({ message: 'Nope' }, { status: 403 })));
+
+    const error = await appPlatformApi.getBlob!('/platform-file').catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ status: 403, message: 'Nope' });
+  });
+});
+
 describe('useAppPlatformHost', () => {
   function hostFor(options: Parameters<typeof render>[1]) {
     let host: ReturnType<typeof useAppPlatformHost> | undefined;

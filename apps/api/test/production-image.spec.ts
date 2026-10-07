@@ -142,9 +142,23 @@ describe('the api production image ships the platform packages it depends on', (
   const dockerfile = read('Dockerfile');
   const stage = productionStage(dockerfile);
   const depsStage = dockerfile.slice(dockerfile.indexOf('AS deps'), dockerfile.indexOf('AS development'));
-  const platformDependencies = Object.keys(
-    (JSON.parse(read('package.json')) as { dependencies?: Record<string, string> }).dependencies ?? {},
-  ).filter((name) => name.startsWith('@marinoscar/platform-'));
+  const platformDependenciesOf = (manifest: string): string[] =>
+    Object.keys((JSON.parse(manifest) as { dependencies?: Record<string, string> }).dependencies ?? {}).filter((name) =>
+      name.startsWith('@marinoscar/platform-'),
+    );
+  // Transitively: platform-api depends on platform-contract (#772), and the
+  // image needs every package in the chain built.
+  const platformDependencies: string[] = [];
+  for (const queue = platformDependenciesOf(read('package.json')); queue.length > 0; ) {
+    const name = queue.shift()!;
+    if (platformDependencies.includes(name)) continue;
+    platformDependencies.push(name);
+    queue.push(
+      ...platformDependenciesOf(
+        read(`../../packages/${name.replace('@marinoscar/', '')}/package.json`),
+      ),
+    );
+  }
 
   it('depends on at least @marinoscar/platform-api (guards a vacuous pass)', () => {
     expect(platformDependencies).toContain('@marinoscar/platform-api');

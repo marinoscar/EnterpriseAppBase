@@ -622,6 +622,25 @@ target and time. Actions are `<area>:<verb>` strings, for example
 `storage:object:delete`, `storage_config:test`, `ai_config:set_key`.
 Audit `meta` never contains key material.
 
+### Support bundle (an egress surface)
+
+`GET /api/admin/doctor/support-bundle` (`system_settings:read`) is the one
+route whose purpose is to let the deployment's state LEAVE the deployment:
+an administrator downloads a JSON file and attaches it to a support ticket.
+It is built only from read-only sections, each validated by a strict zod
+schema that drops its data on any unexpected field, and then passed through a
+central redaction pass (rules `v1`) that replaces sensitive keys (`password`,
+`secret`, `token`, `api key`, `cookie`, `credential`, `hint`, `dsn`, ...) and
+secret-looking values (PEM blocks, bearer tokens, JWTs, URL credentials and
+query strings, `pat_`/`nod_` tokens, AWS key ids, email addresses, IP
+addresses, long hex/base64 runs including UUIDs) and counts what it replaced.
+Raw telemetry (logs, spans, traces, explorer rows) is never included, the
+`telemetry` section needs `telemetry:query` as well, and the downloader's
+identity is audited (`support_bundle:download`) but never written into the
+file. `apps/api/test/doctor/support-bundle-secret-egress.integration.spec.ts`
+seeds every credential kind plus personal values and asserts none of them
+reaches the file, raw or encoded. Design: [doctor spec §2.10](specs/doctor.md#210-support-bundle).
+
 ---
 
 ## 8. File storage security

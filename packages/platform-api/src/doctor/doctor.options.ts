@@ -3,6 +3,7 @@
 // can read them without importing the module that imports them.
 
 import type { PlatformHost } from '../core/index';
+import type { ResolvedSupportBundleOptions } from './support-bundle/support-bundle.options';
 
 /**
  * Injection token of the Doctor's resolved options ({@link ResolvedDoctorModuleOptions}).
@@ -38,4 +39,6 @@ export interface ResolvedDoctorModuleOptions {
   readonly defaultTimeoutMs: number;
   /** How long a report is served from memory, in milliseconds. */
   readonly cacheTtlMs: number;
+  /** The support bundle's resolved options (`GET <path>/support-bundle`). */
+  readonly supportBundle: ResolvedSupportBundleOptions;
 }

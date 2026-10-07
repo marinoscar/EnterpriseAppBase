@@ -10,7 +10,7 @@ Slices (each a subpath export with its own README):
 
 | Subpath | What | README |
 |---|---|---|
-| `@marinoscar/platform-contract/doctor` | The admin Doctor's report, row, status and query (#701) | [src/doctor/README.md](src/doctor/README.md) |
+| `@marinoscar/platform-contract/doctor` | The admin Doctor's report, row, status and query (#701), and the support bundle envelope (#772) | [src/doctor/README.md](src/doctor/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 

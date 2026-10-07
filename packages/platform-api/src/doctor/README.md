@@ -6,6 +6,8 @@
 
 Does: the check contract (`DoctorCheck`, the five rules), the check registry, the service that runs the checks (parallel, dependency-aware, time-boxed, normalised, cached), the query and report DTOs (nestjs-zod wrappers of the schemas in `@marinoscar/platform-contract/doctor`, #701), and the controller, created per app by `DoctorModule.forRoot({ host })` with the app's own access decorators. Since #773 also the egress inventory: `EgressRegistry`, where each module describes its outbound (internet) dependencies, a pure host classifier, and `NetworkEgressDoctorCheck` (`network.egress`), which grades that inventory when the deployment declares itself air-gapped.
 
+Also the **support bundle** (issue #772): `GET <path>/support-bundle`, one redacted JSON file for a support ticket. Its section registry (`SupportBundleRegistry`, the `SupportBundleSection` contract), the service that builds it (parallel sections under timeouts, strict schemas, the central redaction pass `redact.ts`, size caps, one audit row) and its controller. Three sections are built in and registered by `forRoot`: `meta` (installed platform package versions, section ids), `doctor` (the cached report) and `egress` (the egress inventory: hosts and scopes, never URLs). The app contributes the rest (`versions`, `telemetry` in the reference app). The envelope schema is `supportBundleSchema` in `@marinoscar/platform-contract/doctor`.
+
 Does not: register any check by itself. Checks are registry entries the app contributes from its own feature modules, under `<module>/doctor/`, and they move with their slices later; the one check class this slice ships, `NetworkEgressDoctorCheck`, is generic over the app's contributors and is still the app's to provide. It does not own the permission system (the app's host does), the web page (`@marinoscar/platform-web/doctor/ui`) or a queue job (a Doctor run is a bounded request, never a job; see [docs/specs/doctor.md §2.5](../../../../docs/specs/doctor.md)).
 
 ## Install and peer dependencies
@@ -53,6 +55,30 @@ export class DbConnectionDoctorCheck implements DoctorCheck, OnModuleInit {
 
 The module is global: the feature module provides the check and imports nothing of the Doctor.
 
+Contribute a support-bundle section the same way (the reference app's [`about-support-bundle.section.ts`](../../../../apps/api/src/about/about-support-bundle.section.ts)). Copy the fields you mean to send into a new object and give the section a STRICT schema; a field outside it fails the section closed:
+
+```ts
+@Injectable()
+export class AboutSupportBundleSection implements SupportBundleSection<VersionsSectionData>, OnModuleInit {
+  readonly id = 'versions';
+  readonly label = 'Versions';
+  readonly schema = versionsSectionSchema; // z.object({ ... }).strict()
+
+  constructor(private readonly registry: SupportBundleRegistry, private readonly about: AboutService) {}
+
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
+
+  async collect(): Promise<VersionsSectionData> {
+    const report = await this.about.describe();
+    return { api: { version: report.api.version, deploymentMode: report.api.deploymentMode } /* , ... allowlisted fields */ };
+  }
+}
+```
+
+A section that needs a permission beyond the route's declares `permission` (the reference app's telemetry section declares `telemetry:query`) and is `omitted` for a caller without it; `collect()` returns `omitSupportBundleSection(reason)` when its capability is off.
+
 4. Optionally, describe outbound dependencies and contribute the `network.egress` check (the reference app's [`deployment.module.ts`](../../../../apps/api/src/common/deployment/deployment.module.ts) and [`docs-egress.contributor.ts`](../../../../apps/api/src/openapi/docs-egress.contributor.ts)):
 
 ```ts
@@ -89,6 +115,12 @@ export class DocsEgressContributor implements EgressContributor, OnModuleInit {
 | `categoryOrder` | `readonly string[]` | `PLATFORM_DOCTOR_CATEGORIES` | Category display and sort order. Unknown categories sort after, in registration order. Also listed in the OpenAPI `category` parameter. |
 | `defaultTimeoutMs` | `number` | `5_000` | Per-check ceiling when a check declares no `timeoutMs`. |
 | `cacheTtlMs` | `number` | `15_000` | How long a report is served from memory, per `category`; `refresh=true` bypasses it. |
+| `supportBundle` | `SupportBundleOptions \| false` | enabled, defaults below | The support bundle route. `false`: no route and no built-in sections (`SupportBundleRegistry` is still provided). |
+| `supportBundle.appSlug` | `string` | `'app'` | The slug in the file name `support-bundle-<appSlug>-<yyyyMMdd'T'HHmmss'Z'>.json`; lowercase letters, digits, dashes. The reference app passes `APP_SLUG`. |
+| `supportBundle.principal` | `(request) => { userId; permissions } \| null` | `request.requestUser`, then `request.user`, when either has a string `id` and a string-array `permissions` | Who is downloading (audited; section permissions are checked against it). `null` answers 403. |
+| `supportBundle.sectionTimeoutMs` | `number` | `10_000` | Per-section ceiling when a section declares no `timeoutMs`. |
+
+Support bundle bounds are fixed, not options: 512 KiB of pretty-printed JSON per section (`SUPPORT_BUNDLE_SECTION_MAX_BYTES`; a larger section becomes `{ status: 'ok', data: null, truncated: true }`) and 2 MiB per bundle (`SUPPORT_BUNDLE_MAX_BYTES`; the largest sections are truncated first). Sections run in parallel, so a build takes at most the longest section timeout. Why this is a bounded request and not a queue job: [docs/specs/doctor.md §2.10](../../../../docs/specs/doctor.md#210-support-bundle).
 
 The resolved options (defaults applied, frozen) are provided under `DOCTOR_MODULE_OPTIONS`.
 
@@ -110,9 +142,12 @@ The resolved options (defaults applied, frozen) are provided under `DOCTOR_MODUL
 | `EgressDependency` | registry | `{ id; capability; direction; enabled; hosts; scope; required; degradation; settingsPath?; count? }` | The shape of one outbound dependency a contributor returns | experimental | [example](../../../../apps/api/src/notifications/doctor/egress/web-push.egress.contributor.ts) |
 | `egressDependency` | registry | `egressDependency(input: EgressDependencyInput): EgressDependency` | Build an entry from raw URLs or `host:port`: reduces to hostnames, de-duplicates, caps at 20, computes `scope` | experimental | [example](../../../../apps/api/src/storage/config/doctor/egress/storage.egress.contributor.ts) |
 | `classifyHost` | registry | `classifyHost(host: string): 'public' \| 'private' \| 'unknown'` | Judge a host by its shape alone (no DNS), for a contributor that needs the scope itself | experimental | [example](../../../../apps/api/test/doctor/network-egress.integration.spec.ts) |
+| `SupportBundleOptions` | option | `{ appSlug?; principal?; sectionTimeoutMs? }` (or `false`) as `DoctorModuleOptions.supportBundle` | Name the bundle file after the app, resolve the caller differently, or turn the bundle off | experimental | [example](../../../../apps/api/src/doctor/doctor.config.ts) |
+| `SupportBundleSection` | registry | `{ id; label; permission?; schema; timeoutMs?; collect(ctx): Promise<T \| SupportBundleOmission> }` | Contribute a capability's facts to the support bundle | experimental | [example](../../../../apps/api/src/about/about-support-bundle.section.ts) |
+| `SupportBundleRegistry.register` | registry | `register(section: SupportBundleSection): void` | Add the section to the bundle from its own `onModuleInit` | experimental | [example](../../../../apps/api/src/telemetry/telemetry-support-bundle.section.ts) |
 | `DEPLOYMENT_NETWORK_SOURCE` | token | `unique symbol` -> `{ readonly network: 'online' \| 'air-gapped' }` | Bind the app's parsed `DEPLOYMENT_NETWORK` so `network.egress` grades the inventory | experimental | [example](../../../../apps/api/src/common/deployment/deployment.module.ts) |
 
-Supporting exports: `DoctorService` (`run({ category?, refresh? })`, `invalidate()`), `DoctorCheckRegistry.get` / `list`, `DoctorStatus`, `DOCTOR_STATUSES`, `DOCTOR_STATUS_RANK`, `worstStatus`, `DoctorCheckOutcome`, `DoctorDataValue`, `DoctorCategory`, `CoreDoctorCategory`, the defaults `DEFAULT_DOCTOR_PERMISSION`, `DEFAULT_DOCTOR_PATH`, `DOCTOR_DEFAULT_TIMEOUT_MS`, `DOCTOR_CACHE_TTL_MS`, `DOCTOR_FALLBACK_REMEDY`, the DTOs `DoctorQueryDto` and `DoctorReportDto` with their types `DoctorQuery`, `DoctorReport`, `DoctorCheckReport`, and `createDoctorController` (called by `forRoot`; an app never needs it). Egress (#773): `NetworkEgressDoctorCheck` (the `network.egress` check; the app provides it), `gradeEgress` (its pure verdict table), `describeEgress` (runs every contributor, a throw becomes one `unknown` entry; what a support bundle reads), `hostnameOf`, `scopeOfHosts`, `DEPLOYMENT_NETWORKS`, `DeploymentNetwork`, `DeploymentNetworkSource`, `EgressDependencyInput`, `EgressDirection`, `EgressScope`, `EGRESS_MAX_HOSTS`, `AIR_GAPPED_RUNBOOK`, `NETWORK_EGRESS_CHECK_ID`.
+Supporting exports: `DoctorService` (`run({ category?, refresh? })`, `invalidate()`), `DoctorCheckRegistry.get` / `list`, `DoctorStatus`, `DOCTOR_STATUSES`, `DOCTOR_STATUS_RANK`, `worstStatus`, `DoctorCheckOutcome`, `DoctorDataValue`, `DoctorCategory`, `CoreDoctorCategory`, the defaults `DEFAULT_DOCTOR_PERMISSION`, `DEFAULT_DOCTOR_PATH`, `DOCTOR_DEFAULT_TIMEOUT_MS`, `DOCTOR_CACHE_TTL_MS`, `DOCTOR_FALLBACK_REMEDY`, the DTOs `DoctorQueryDto` and `DoctorReportDto` with their types `DoctorQuery`, `DoctorReport`, `DoctorCheckReport`, and `createDoctorController` (called by `forRoot`; an app never needs it). Egress (#773): `NetworkEgressDoctorCheck` (the `network.egress` check; the app provides it), `gradeEgress` (its pure verdict table), `describeEgress` (runs every contributor, a throw becomes one `unknown` entry; what a support bundle reads), `hostnameOf`, `scopeOfHosts`, `DEPLOYMENT_NETWORKS`, `DeploymentNetwork`, `DeploymentNetworkSource`, `EgressDependencyInput`, `EgressDirection`, `EgressScope`, `EGRESS_MAX_HOSTS`, `AIR_GAPPED_RUNBOOK`, `NETWORK_EGRESS_CHECK_ID`. Support bundle (#772, experimental): `SupportBundleService` (`build(actor)`, `download(actor)`), `SupportBundleRegistry.get` / `list`, `SupportBundleSectionContext`, `SupportBundlePrincipal`, `SupportBundleOmission`, `omitSupportBundleSection`, `isSupportBundleOmission`, `SupportBundleBuild`, `ResolvedSupportBundleOptions`, `defaultSupportBundlePrincipal`, the redaction pass `redactValue` / `redactString` with `RedactValueOptions`, `RedactionResult`, `SENSITIVE_KEY_PATTERN`, `COMMIT_SHA_ALLOWED_PATHS`, `REDACTED`, `SUPPORT_BUNDLE_REDACTION_VERSION`, the constants `SUPPORT_BUNDLE_SECTION_TIMEOUT_MS`, `SUPPORT_BUNDLE_SECTION_MAX_BYTES`, `SUPPORT_BUNDLE_MAX_BYTES`, `SUPPORT_BUNDLE_SUBPATH`, `SUPPORT_BUNDLE_AUDIT_ACTION`, the DTO `SupportBundleDto` and `createSupportBundleController` (called by `forRoot`).
 
 ## Data
 
@@ -124,6 +159,8 @@ Requires `system_settings:read` by default (`DEFAULT_DOCTOR_PERMISSION`), enforc
 
 Reads no settings itself; checks read whatever their capability's settings are.
 
+`GET <path>/support-bundle` requires the same permission as the report (no new permission). A section may require one more (`SupportBundleSection.permission`); a caller without it gets that section `omitted`.
+
 ## UI
 
 None in this slice. The page, its card descriptor (`doctorSettingsPage`) and its components are in `@marinoscar/platform-web/doctor/ui`.
@@ -134,7 +171,7 @@ No compose fragment. The slice reads no environment variable itself; `network.eg
 
 ## Observability
 
-`DoctorService` logs one `warn` line when a check throws: `Doctor check "<id>" threw: <message>` (the throw itself becomes a `fail` row). `NetworkEgressDoctorCheck` logs one `warn` line per contributor that throws: `Egress contributor "<id>" threw: <message>` (it becomes one `unknown` entry). Nothing else is logged; no metric or span is emitted.
+`DoctorService` logs one `warn` line when a check throws: `Doctor check "<id>" threw: <message>` (the throw itself becomes a `fail` row). `NetworkEgressDoctorCheck` logs one `warn` line per contributor that throws: `Egress contributor "<id>" threw: <message>` (it becomes one `unknown` entry). `SupportBundleService` logs one `log` line per download (bytes, replacements, duration, `id=status` per section), a `warn` per failed, timed-out, schema-breaking or truncated section (redacted; for a schema failure the offending paths only, never values), a `warn` when the audit write fails and a boot-time `warn` when no `AUDIT_SINK` is bound. Each download is audited as `support_bundle:download` (`targetType: 'deployment'`, `targetId: 'support_bundle'`, `meta: { sections: 'id=status,...', bytes, replacements }`, never an email) through the host's `AUDIT_SINK`. Nothing else is logged; no metric or span is emitted.
 
 ## Security notes
 
@@ -148,6 +185,8 @@ The five rules every check follows (header of `doctor-check.interface.ts`):
 
 Egress contributors are held to rules 3 and 4 as well: `describe()` reads settings through masked views only, performs no network I/O (no DNS lookup, no connect: `classifyHost` judges by shape), and returns hostnames only; `egressDependency()` strips scheme, userinfo, port, path and query, so a push endpoint's capability path or a URL's embedded credential never leaves it. The check's `data` is scalars only.
 
+The support bundle is an egress surface: a file that leaves the deployment. Every section passes a strict schema (an unknown field drops its data), then the central redaction pass rules v1 replaces sensitive keys and secret-looking values (PEM blocks, bearer tokens, JWTs, URL userinfo and query strings, `pat_`/`nod_` tokens, AWS key ids, emails, IPv4/IPv6 addresses, long hex and base64 runs including UUIDs; a 40-hex commit SHA survives only at `COMMIT_SHA_ALLOWED_PATHS`), counted in `redaction.replacements`. The caller's id and email are never in the file; raw telemetry rows never are.
+
 The route always answers 200 for an authorised caller (a failing check is a row), validates its query with zod (`category` is a lowercase identifier, `refresh` is `true` or `false`), is not `@AllowDuringMaintenance()`, and `forRoot` refuses to build a controller without a host, so the route is never public.
 
 ## Conformance suite
@@ -155,6 +194,8 @@ The route always answers 200 for an authorised caller (a failing check is a row)
 None yet. A planned "doctor checks are read-only" suite (statically refusing the side-effecting test services in a check) will run through `runPlatformConformance()`. Until then the package's own tests (`test/doctor/`) and the reference app's `apps/api/test/doctor/doctor.integration.spec.ts` (RBAC, every module's checks wired, no secret on the wire) pin the behaviour.
 
 ## Upgrade notes
+
+Support bundle (#772), experimental and additive: a new route `GET <path>/support-bundle` on the same permission; `SupportBundleRegistry` and `SupportBundleService` in the module's providers and exports; built-in `meta`, `doctor` and `egress` sections. Bind `AUDIT_SINK` so downloads are audited, pass `supportBundle: { appSlug }` to name the file, or `supportBundle: false` to keep the route off.
 
 Egress inventory (#773), additive: `network` is appended to `PLATFORM_DOCTOR_CATEGORIES`; `forRoot` also provides and exports `EgressRegistry`. Nothing registers `network.egress` until the app provides `NetworkEgressDoctorCheck`.
 
@@ -178,6 +219,9 @@ Since #701 the schemas live in `@marinoscar/platform-contract/doctor`. `DoctorRe
 | No `network.egress` row | The app does not provide `NetworkEgressDoctorCheck` (the reference app does in `DeploymentModule`). |
 | `network.egress` passes although the deployment is offline | `DEPLOYMENT_NETWORK` is unset or `online`, or no `DEPLOYMENT_NETWORK_SOURCE` is bound: online it is an inventory and always passes. |
 | `Nest can't resolve dependencies of <Check> (DoctorCheckRegistry, ...)` | `DoctorModule.forRoot()` is not imported in the root module (or in the test module). |
+| A bundle section is `error`, "section output did not match its schema" | `collect()` returned a field its strict schema does not list; the API log names the path. Add it to the schema on purpose, or stop returning it. |
+| The bundle route answers 403 "The caller could not be identified" | The default `principal` found no `requestUser`/`user` with `id` and `permissions`; pass `supportBundle.principal`. |
+| `No AUDIT_SINK is bound: support-bundle downloads will not be audited` at boot | Bind the audit port with `PlatformHostModule.forRoot({ audit })`. |
 | Every row is `fail` "Timed out after 5000ms" | The probe hangs; raise the check's `timeoutMs` or `defaultTimeoutMs` only if the service is legitimately slow. |
 
 ## Links

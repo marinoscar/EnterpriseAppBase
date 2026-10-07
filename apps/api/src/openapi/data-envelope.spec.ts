@@ -43,6 +43,21 @@ describe('applyDataEnvelope', () => {
     });
   });
 
+  it('leaves an attachment alone: a response declaring Content-Disposition is a file written with @Res()', () => {
+    const doc = documentWith(
+      {
+        '200': {
+          ...jsonResponse({ $ref: '#/components/schemas/Bundle' }),
+          headers: { 'Content-Disposition': { schema: { type: 'string' } } },
+        },
+      },
+      { Bundle: { type: 'object', properties: { bundleVersion: { type: 'number' } } } },
+    );
+    applyDataEnvelope(doc);
+
+    expect(schemaOf(doc, '200')).toEqual({ $ref: '#/components/schemas/Bundle' });
+  });
+
   it('leaves error responses alone — the exception filter bypasses interceptors', () => {
     const doc = documentWith({
       '404': jsonResponse({ $ref: '#/components/schemas/ErrorDto' }),

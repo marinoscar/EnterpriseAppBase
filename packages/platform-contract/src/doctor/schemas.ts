@@ -19,6 +19,7 @@
 import { z } from 'zod';
 
 import type { DoctorStatus } from './constants.js';
+import { SUPPORT_BUNDLE_REDACTION_RULES, SUPPORT_BUNDLE_VERSION } from './constants.js';
 
 /**
  * The entries of {@link doctorStatusSchema}, as `z.enum` types them: each
@@ -180,3 +181,81 @@ const statusEnumMatchesConstants: Same<z.infer<typeof doctorStatusSchema>, Docto
 const queryInputMatchesSchema: Same<DoctorReportQueryInput, DoctorQuery> = true;
 void statusEnumMatchesConstants;
 void queryInputMatchesSchema;
+
+// -----------------------------------------------------------------------------
+// The support bundle (issue #772): the envelope `GET /api/admin/doctor/support-bundle`
+// returns. Each section's `data` is validated by that section's own strict
+// schema on the server (`@marinoscar/platform-api/doctor`), so here it stays
+// `unknown`.
+// -----------------------------------------------------------------------------
+
+/**
+ * One section of a bundle. `truncated: true` with `data: null` means the
+ * section was larger than its size cap and its data was dropped.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const supportBundleSectionResultSchema = z.discriminatedUnion('status', [
+  z.object({
+    /** Collected. */
+    status: z.literal('ok'),
+    /** The section's data, validated by its strict schema and redacted; `null` when truncated. */
+    data: z.unknown().describe("The section's data, already validated by its strict schema and redacted."),
+    /** `true` when a size cap dropped the data. */
+    truncated: z.boolean().optional().describe('`true` when a size cap dropped the data (`data` is then `null`).'),
+  }),
+  z.object({
+    /** Not collected. */
+    status: z.literal('omitted'),
+    /** Why: a missing permission, a capability switched off. */
+    reason: z.string().describe('Why the section was not collected (a missing permission, a capability switched off).'),
+  }),
+  z.object({
+    /** Collected, but dropped. */
+    status: z.literal('error'),
+    /** One redacted line saying why. */
+    error: z.string().describe('One redacted line: a throw, a timeout or a schema violation. Never the raw value.'),
+  }),
+]);
+
+/**
+ * One section of a bundle, as parsed.
+ *
+ * @stability experimental
+ */
+export type SupportBundleSectionResult = z.infer<typeof supportBundleSectionResultSchema>;
+
+/**
+ * The support bundle: what `GET /api/admin/doctor/support-bundle` returns as a
+ * JSON attachment.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const supportBundleSchema = z.object({
+  /** The bundle format version, {@link SUPPORT_BUNDLE_VERSION}. */
+  bundleVersion: z.literal(SUPPORT_BUNDLE_VERSION).describe('The bundle format version.'),
+  /** When the bundle was built (ISO 8601, UTC). */
+  generatedAt: z.string().describe('When the bundle was built (ISO 8601, UTC).'),
+  /** The central redaction pass. */
+  redaction: z
+    .object({
+      /** The rule set applied, {@link SUPPORT_BUNDLE_REDACTION_RULES}. */
+      rules: z.literal(SUPPORT_BUNDLE_REDACTION_RULES).describe('The redaction rule set applied.'),
+      /** How many values the pass replaced. */
+      replacements: z.number().int().describe('How many values the redaction pass replaced.'),
+    })
+    .describe('The central redaction pass, applied on top of every section schema.'),
+  /** One result per registered section, keyed by section id. */
+  sections: z
+    .record(z.string(), supportBundleSectionResultSchema)
+    .describe('One entry per registered section, keyed by section id.'),
+});
+
+/**
+ * The support bundle, as parsed.
+ *
+ * @stability experimental
+ */
+export type SupportBundle = z.infer<typeof supportBundleSchema>;
