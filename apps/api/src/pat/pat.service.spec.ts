@@ -474,7 +474,7 @@ describe('PatService', () => {
       expect(result).toBeNull();
     });
 
-    it('should include user relations for RBAC in the findUnique query', async () => {
+    it('should include user relations for RBAC in the findUnique query (system roles and memberships, #723)', async () => {
       const rawToken = 'pat_' + 'f'.repeat(64);
 
       mockPrisma.personalAccessToken.findUnique.mockResolvedValue(null);
@@ -488,6 +488,18 @@ describe('PatService', () => {
               include: {
                 userRoles: {
                   include: {
+                    role: {
+                      include: {
+                        rolePermissions: {
+                          include: { permission: true },
+                        },
+                      },
+                    },
+                  },
+                },
+                memberships: {
+                  include: {
+                    org: { select: { id: true, isDefault: true } },
                     role: {
                       include: {
                         rolePermissions: {

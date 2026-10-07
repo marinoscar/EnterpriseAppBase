@@ -7,6 +7,7 @@ import {
   type TenancyCapabilities,
   type TenancyMode,
 } from '../common/deployment/tenancy-mode';
+import { recordTenancyMode } from '../auth/tenancy-mode';
 
 /**
  * The deployment's tenancy mode (`TENANCY_MODE`, PP-6.2, #722) and what it does
@@ -30,6 +31,8 @@ export class TenancyService {
   constructor(config: ConfigService) {
     this.current = parseTenancyMode(config.get<string>('tenancy.mode'));
     this.capabilities = Object.freeze(tenancyCapabilitiesFor(this.current));
+    // PP-6.3 (#723): the guards' principal factory reads the mode without DI.
+    recordTenancyMode(this.current);
   }
 
   /** `'single'` or `'multi'`. */

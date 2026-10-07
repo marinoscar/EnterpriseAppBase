@@ -89,6 +89,10 @@ describe('Auth Service - Allowlist Enforcement', () => {
       if (where.name === 'admin') {
         return { ...mockRoles.admin, userRoles: [] } as any;
       }
+      // PP-6.3 (#723): the initial administrator's default-org membership role.
+      if (where.name === 'org_admin') {
+        return mockRoles.org_admin as any;
+      }
       return null;
     });
   });

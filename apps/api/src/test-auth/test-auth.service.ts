@@ -10,6 +10,12 @@ import { PrincipalCache } from '../auth/principal-cache/principal-cache.service'
 import { OrganizationsService } from '../organizations/organizations.service';
 import { TenancyService } from '../organizations/tenancy.service';
 import { AuthLoginDeniedException } from '../auth/auth-error-codes';
+import {
+  DEFAULT_ORG_ROLE,
+  ORG_ADMIN_ROLE,
+  ROLES,
+} from '../common/constants/roles.constants';
+import { PRINCIPAL_USER_INCLUDE, principalFactory } from '../auth/principal.factory';
 
 export interface TestAuthTokenResponse {
   accessToken: string;
@@ -41,6 +47,11 @@ export class TestAuthService {
 
   /**
    * Login as test user - bypass OAuth and allowlist for testing
+   *
+   * The `role` maps onto the split RBAC (PP-6.3, #723) the way
+   * `PUT /api/users/:id/roles` does in single-org mode: `admin` is the system
+   * `admin` role plus `org_admin` on the default-org membership;
+   * `contributor` and `viewer` are that membership's role with no system role.
    */
   async loginAsTestUser(dto: TestLoginDto): Promise<TestAuthTokenResponse> {
     this.logger.log(`Test login for email: ${dto.email} with role: ${dto.role}`);
@@ -49,16 +60,26 @@ export class TestAuthService {
     const isInitialAdmin = this.isInitialAdminEmail(email);
     let userWasCreated = false;
 
+    const roleName = dto.role || DEFAULT_ORG_ROLE;
+    const isAdmin = roleName === ROLES.ADMIN;
+    const membershipRoleName = isAdmin ? ORG_ADMIN_ROLE : roleName;
+
+    // Resolve the roles first: a missing row is a seed problem.
+    const membershipRole = await this.prisma.role.findUnique({
+      where: { name: membershipRoleName },
+    });
+    const adminRole = isAdmin
+      ? await this.prisma.role.findUnique({ where: { name: ROLES.ADMIN } })
+      : null;
+
+    if (!membershipRole || (isAdmin && !adminRole)) {
+      throw new Error(`Role ${dto.role} not found`);
+    }
+
     // Find or create user
     let user = await this.prisma.user.findUnique({
       where: { email },
-      include: {
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-      },
+      select: { id: true },
     });
 
     if (!user) {
@@ -86,16 +107,14 @@ export class TestAuthService {
               },
             },
           },
-          include: {
-            userRoles: {
-              include: {
-                role: true,
-              },
-            },
-          },
         });
         if (defaultOrg) {
-          await this.organizations.ensureMembership(tx, defaultOrg.id, created.id);
+          await this.organizations.ensureMembership(
+            tx,
+            defaultOrg.id,
+            created.id,
+            membershipRole.id,
+          );
         }
         return created;
       });
@@ -104,19 +123,21 @@ export class TestAuthService {
       this.logger.log(`Created test user: ${email}`);
     }
 
+    const userId = user.id;
+
     // Tenancy mode (PP-6.2, #722), exactly as `AuthService` applies it to a
     // Google sign-in: test login bypasses OAuth and the allowlist, never the
     // organization rules, so an e2e suite in multi mode sees the real refusal.
     // Before the role swap below, so a refused login changes nothing.
     if (!userWasCreated && this.tenancy.autoJoinsDefaultOrg(isInitialAdmin)) {
-      await this.organizations.ensureDefaultOrgMembership(user.id);
+      await this.organizations.ensureDefaultOrgMembership(userId, membershipRoleName);
     }
     if (
       this.tenancy.capabilities.requireActiveMembership &&
-      (await this.organizations.countActiveMemberships(user.id)) === 0
+      (await this.organizations.countActiveMemberships(userId)) === 0
     ) {
       this.logger.warn(
-        `Test login denied - user ${user.id} has no active organization membership (tenancy mode multi)`,
+        `Test login denied - user ${userId} has no active organization membership (tenancy mode multi)`,
       );
       throw new AuthLoginDeniedException(
         'no_organization',
@@ -124,54 +145,40 @@ export class TestAuthService {
       );
     }
 
-    // Assign specified role (replace existing roles)
-    const targetRole = await this.prisma.role.findUnique({
-      where: { name: dto.role || 'viewer' },
+    // Replace the system roles and set the default-org membership's role, so
+    // the same email can be logged in under a different role back to back. A
+    // user with no default-org membership (multi mode) keeps its memberships.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userRole.deleteMany({ where: { userId } });
+      if (adminRole) {
+        await tx.userRole.create({ data: { userId, roleId: adminRole.id } });
+      }
+      await tx.membership.updateMany({
+        where: { userId, org: { isDefault: true } },
+        data: { roleId: membershipRole.id },
+      });
     });
-
-    if (!targetRole) {
-      throw new Error(`Role ${dto.role} not found`);
-    }
-
-    // Remove all existing roles and assign the specified role
-    await this.prisma.$transaction([
-      this.prisma.userRole.deleteMany({
-        where: { userId: user.id },
-      }),
-      this.prisma.userRole.create({
-        data: {
-          userId: user.id,
-          roleId: targetRole.id,
-        },
-      }),
-    ]);
 
     // Principal cache (PP-1.12, #683): after the transaction committed. E2E
     // suites log the same email in under different roles back to back.
-    this.principalCache.invalidate({ userId: user.id });
+    this.principalCache.invalidate({ userId });
 
     // Reload user with updated roles
-    user = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      include: {
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
-      },
+    const reloaded = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: PRINCIPAL_USER_INCLUDE,
     });
 
-    if (!user) {
+    if (!reloaded) {
       throw new Error('Failed to reload user after role assignment');
     }
 
-    // Generate JWT tokens
-    const roles = user.userRoles.map((ur) => ur.role.name);
+    // System roles plus the current org role (`admin` + `org_admin` for an admin).
+    const roles = principalFactory.access(reloaded).roles;
 
     const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
+      sub: reloaded.id,
+      email: reloaded.email,
       roles,
     };
 
@@ -183,18 +190,18 @@ export class TestAuthService {
     const accessToken = this.jwtService.sign(payload);
 
     // Create refresh token
-    const refreshToken = await this.createRefreshToken(user.id);
+    const refreshToken = await this.createRefreshToken(reloaded.id);
 
-    this.logger.log(`Test login successful for user: ${user.email} with roles: ${roles.join(', ')}`);
+    this.logger.log(`Test login successful for user: ${reloaded.email} with roles: ${roles.join(', ')}`);
 
     return {
       accessToken,
       expiresIn: accessTtlMinutes * 60, // Convert to seconds
       refreshToken,
       user: {
-        id: user.id,
-        email: user.email,
-        displayName: user.displayName,
+        id: reloaded.id,
+        email: reloaded.email,
+        displayName: reloaded.displayName,
         roles,
       },
     };

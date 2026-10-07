@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import type { Membership, Organization, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { DefaultOrganizationMissingException } from './organizations.errors';
+import { DatabaseSeedException } from '@marinoscar/platform-api/core';
+import { DEFAULT_ORG_ROLE } from '../common/constants/roles.constants';
 
 /**
  * Organizations, the tenancy foundation (PP-6.1, ADR 0001).
@@ -50,23 +52,30 @@ export class OrganizationsService {
   }
 
   /**
-   * Make the user a member of the organization, idempotently (upsert on
-   * `orgId_userId`). An existing membership is left exactly as it is: a
-   * suspended member stays suspended.
+   * Make the user a member of the organization with the given org role,
+   * idempotently (upsert on `orgId_userId`). An existing membership is left
+   * exactly as it is, role included: a suspended member stays suspended, and
+   * a member whose role an administrator changed keeps it.
    *
    * Takes the caller's transaction client so a sign-up creates the user and the
    * membership atomically. Writes no audit event: the user-creation path does
-   * not audit, and admin-initiated membership changes (PP-6.8) will.
+   * not audit, and admin-initiated membership changes (PP-6.8) will. The
+   * caller invalidates the principal cache after its transaction commits.
+   *
+   * @param roleId - the org-scoped role of a NEW membership (PP-6.3):
+   *   `DEFAULT_ORG_ROLE` for an ordinary sign-up, `ORG_ADMIN_ROLE` for the
+   *   initial administrator.
    */
   async ensureMembership(
     tx: Prisma.TransactionClient,
     orgId: string,
     userId: string,
+    roleId: string,
   ): Promise<Membership> {
     return tx.membership.upsert({
       where: { orgId_userId: { orgId, userId } },
       update: {},
-      create: { orgId, userId, lastActiveAt: new Date() },
+      create: { orgId, userId, roleId, lastActiveAt: new Date() },
     });
   }
 
@@ -81,11 +90,16 @@ export class OrganizationsService {
    * membership is left suspended: this restores a missing row, never a
    * revoked one.
    *
+   * @param roleName - the org role a RESTORED membership gets (PP-6.3, #723):
+   *   `DEFAULT_ORG_ROLE` by default, `ORG_ADMIN_ROLE` for a system
+   *   administrator. An existing membership keeps its role.
    * @returns the default organization's id, and whether a membership was created.
    * @throws {@link DefaultOrganizationMissingException} when the default org is missing.
+   * @throws `DatabaseSeedException` when the role row is missing (seed not run).
    */
   async ensureDefaultOrgMembership(
     userId: string,
+    roleName: string = DEFAULT_ORG_ROLE,
   ): Promise<{ orgId: string; created: boolean }> {
     const org = await this.getDefaultOrg();
     const existing = await this.prisma.membership.findUnique({
@@ -95,7 +109,14 @@ export class OrganizationsService {
     if (existing) {
       return { orgId: org.id, created: false };
     }
-    await this.ensureMembership(this.prisma, org.id, userId);
+    const role = await this.prisma.role.findUnique({
+      where: { name: roleName },
+      select: { id: true },
+    });
+    if (!role) {
+      throw new DatabaseSeedException(`Role "${roleName}"`, 'npm run prisma:seed');
+    }
+    await this.ensureMembership(this.prisma, org.id, userId, role.id);
     return { orgId: org.id, created: true };
   }
 

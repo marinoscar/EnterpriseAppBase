@@ -16,7 +16,8 @@
 // WHAT IT CHECKS: every non-test `.ts` file under `apps/api/src` that WRITES a
 // principal-shaping table through Prisma — `userRole.<write>(`,
 // `user.<write>(` (update, updateMany, upsert, delete, deleteMany),
-// `rolePermission.<write>(` or `role.<write>(` — must also contain
+// `rolePermission.<write>(`, `role.<write>(` or `membership.<write>(` (the
+// org role lives on the membership since PP-6.3) — must also contain
 // `principalCache.invalidate(`. It is a tripwire on the shape of a file, not
 // a proof about the call graph: it does not check that the call is on every
 // branch, or after the commit. Each site's own spec pins that.
@@ -36,7 +37,16 @@ import { join, relative } from 'node:path';
 const SRC = join(__dirname, '..', '..', 'src');
 
 /** Files under `src/` that may write without invalidating. Each entry says why. */
-const ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [];
+const ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
+  {
+    file: 'organizations/organizations.service.ts',
+    why:
+      '`ensureMembership` and `ensureDefaultOrgMembership` only CREATE a missing membership (an existing ' +
+      'one is left untouched, role included), the former through the caller\'s transaction client; their ' +
+      'callers (AuthService sign-up and sign-in self-heal, TestAuthService) invalidate after the write ' +
+      'commits (PP-6.3, #723).',
+  },
+];
 
 const WRITE = '(?:create|createMany|createManyAndReturn|upsert|update|updateMany|updateManyAndReturn|delete|deleteMany)';
 
@@ -45,6 +55,9 @@ const WRITE_MARKERS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
   { pattern: /\buser\.(?:update|updateMany|updateManyAndReturn|upsert|delete|deleteMany)\(/, what: 'a user write' },
   { pattern: new RegExp(`\\brolePermission\\.${WRITE}\\(`), what: 'a rolePermission write' },
   { pattern: new RegExp(`\\brole\\.${WRITE}\\(`), what: 'a role write' },
+  // PP-6.3 (#723): the membership carries the org role, so a membership write
+  // changes what the user's principal resolves to.
+  { pattern: new RegExp(`\\bmembership\\.${WRITE}\\(`), what: 'a membership write' },
 ];
 
 const INVALIDATION = /\bprincipalCache\.invalidate\(/;

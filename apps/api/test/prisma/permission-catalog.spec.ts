@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { PERMISSIONS, ROLES, ROLE_PERMISSIONS } from '../../prisma/seed-data';
+import { PERMISSIONS, ROLES, ROLE_GRANTS, ROLE_PERMISSIONS } from '../../prisma/seed-data';
 import {
   PERMISSION_CATALOG_PATH,
   buildPermissionCatalog,
@@ -80,7 +80,7 @@ const BASELINE_PERMISSIONS = [
   { name: 'org_invites:write', description: 'Invite people to the organization and revoke invitations', scope: 'org' },
 ];
 
-const BASELINE_ROLE_PERMISSIONS: Record<string, string[]> = {
+const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
   admin: [
     'system_settings:read',
     'system_settings:write',
@@ -144,8 +144,22 @@ describe('seeded RBAC baseline', () => {
   });
 
   it('seeds the baseline role grants', () => {
-    expect(ROLE_PERMISSIONS).toEqual(BASELINE_ROLE_PERMISSIONS);
-    expect(Object.keys(ROLE_PERMISSIONS)).toEqual(Object.keys(BASELINE_ROLE_PERMISSIONS));
+    expect(ROLE_GRANTS).toEqual(BASELINE_ROLE_GRANTS);
+    expect(Object.keys(ROLE_GRANTS)).toEqual(Object.keys(BASELINE_ROLE_GRANTS));
+  });
+});
+
+describe('ROLE_PERMISSIONS, the effective view the RBAC matrix suites use (#723)', () => {
+  it('gives admin the system admin grants plus the org_admin grants', () => {
+    expect([...ROLE_PERMISSIONS.admin].sort()).toEqual(
+      [...BASELINE_ROLE_GRANTS.admin, ...BASELINE_ROLE_GRANTS.org_admin].sort(),
+    );
+  });
+
+  it('gives every other role exactly its own grants', () => {
+    for (const role of ['contributor', 'viewer', 'org_admin']) {
+      expect(ROLE_PERMISSIONS[role]).toEqual(BASELINE_ROLE_GRANTS[role]);
+    }
   });
 });
 
@@ -163,7 +177,7 @@ describe('prisma/catalog/permissions.json', () => {
     expect(catalog).toEqual({
       roles: BASELINE_ROLES,
       permissions: BASELINE_PERMISSIONS,
-      rolePermissions: BASELINE_ROLE_PERMISSIONS,
+      rolePermissions: BASELINE_ROLE_GRANTS,
     });
   });
 

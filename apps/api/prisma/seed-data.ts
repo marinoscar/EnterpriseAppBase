@@ -42,8 +42,21 @@ export const ROLES = SEED_INPUT.roles;
 /** Every permission, in registration order (platform permissions, then the app's). */
 export const PERMISSIONS = SEED_INPUT.permissions;
 
-/** Role to permissions mapping (the default grants). */
-export const ROLE_PERMISSIONS = SEED_INPUT.roleGrants;
+/** Role to permissions mapping: the default grants the seed writes, one role at a time. */
+export const ROLE_GRANTS = SEED_INPUT.roleGrants;
+
+/**
+ * What a user holding each role can do, by the PRE-SPLIT role names (issue
+ * #723): the view the RBAC matrix suites test routes against. RBAC is split
+ * into system and org roles, and every system administrator also holds the
+ * `org_admin` role on their membership, so `admin` here is the union of the
+ * `admin` and `org_admin` grants. Every other role is exactly its own grants
+ * ({@link ROLE_GRANTS}). Use `ROLE_GRANTS` for what the seed writes.
+ */
+export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
+  ...ROLE_GRANTS,
+  admin: [...new Set([...(ROLE_GRANTS.admin ?? []), ...(ROLE_GRANTS.org_admin ?? [])])],
+};
 
 /** The value of the `global` system settings row, every namespace's defaults in registration order. */
 export const DEFAULT_SYSTEM_SETTINGS = SEED_INPUT.systemSettingsDefaults;
