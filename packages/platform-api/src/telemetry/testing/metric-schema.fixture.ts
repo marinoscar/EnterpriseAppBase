@@ -272,3 +272,31 @@ export function metricCatalogSchema(only?: readonly string[]): TelemetrySchema {
   const names = only ?? Object.keys(VERIFIED_METRIC_TAGS);
   return { tables: names.map((name) => metricTableSchema(name)) };
 }
+
+/**
+ * Tag columns of two `app_*` metric tables an app emits with its own
+ * `AppMetricsService` (EvoPath's AI Coach, issue #703): a counter and a
+ * histogram, written by the API's OTLP exporter exactly like the platform's
+ * `app_jobs_*` tables. Not part of the platform catalog; the metric-group
+ * registry tests register an app group over them.
+ *
+ * @stability experimental
+ */
+export const APP_SAMPLE_METRIC_TAGS: Record<string, readonly string[]> = {
+  app_coach_nudge_sent_total: ['app_instance_id', 'channel', 'host_name', 'job', 'persona', 'service_name'],
+  app_health_summary_duration_seconds_bucket: ['app_instance_id', 'host_name', 'job', 'le', 'outcome', 'service_name'],
+};
+
+/**
+ * A schema holding the app sample tables of {@link APP_SAMPLE_METRIC_TAGS}
+ * (or only `only`).
+ *
+ * @param only - the table names to include; default all of them.
+ * @returns the schema.
+ *
+ * @stability experimental
+ */
+export function appSampleMetricSchema(only?: readonly string[]): TelemetrySchema {
+  const names = only ?? Object.keys(APP_SAMPLE_METRIC_TAGS);
+  return { tables: names.map((name) => metricTableSchema(name, APP_SAMPLE_METRIC_TAGS[name])) };
+}

@@ -1,9 +1,14 @@
 import { definePlatformHost, RegistryError, withTemporaryEntries } from '../../core/index';
 import { TelemetryModule } from '../telemetry.module';
+import { COACH_METRIC_GROUP, COACH_METRIC_GROUP_ID } from '../testing/coach-metric-group.fixture';
+import { appSampleMetricSchema, metricCatalogSchema } from '../testing/metric-schema.fixture';
+import { MetricGroupRegistry, registerMetricGroup } from './metric-group-registry.service';
+import { computeMetricGroup } from './metric-group';
 import {
   familiesOf,
   familyByKey,
   isMetricGroup,
+  metricTablesOf,
   METRIC_FAMILIES,
   METRIC_GROUPS,
   metricGroupIds,
@@ -57,7 +62,7 @@ function group(overrides: Partial<MetricGroupDef> = {}): MetricGroupDef {
 }
 
 /** Runs `fn` against a writable registry, restored afterwards. */
-async function writable(fn: () => void): Promise<void> {
+async function writable(fn: () => void | Promise<void>): Promise<void> {
   await withTemporaryEntries(metricGroupRegistry, [], fn);
 }
 
@@ -357,6 +362,144 @@ describe('metric-group registry', () => {
       expect(familyByKey('testWidgets')?.group).toBe(APP_GROUP);
       // A second forRoot with the very same definition is a no-op, not a duplicate.
       expect(() => TelemetryModule.forRoot({ host, imports: [], metricGroups: [metricGroupRegistry.get(APP_GROUP)!] })).not.toThrow();
+    });
+  });
+});
+
+// =============================================================================
+// MetricGroupRegistry and an app's coach-shaped group (issue #703, rung 2)
+// =============================================================================
+
+describe('MetricGroupRegistry (the injectable facade)', () => {
+  it('lists the platform groups first, in dashboard order, and reads the same registry', () => {
+    const registry = new MetricGroupRegistry();
+
+    expect(registry.list().map((g) => g.id)).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline']);
+    expect(registry.get('host')).toBe(metricGroupRegistry.get('host'));
+    expect(registry.get('nope')).toBeUndefined();
+  });
+
+  it('registers an app group after the platform groups, through registerMetricGroup too', async () => {
+    await writable(() => {
+      const registry = new MetricGroupRegistry();
+      registerMetricGroup(registry, COACH_METRIC_GROUP);
+
+      expect(registry.list().map((g) => g.id)).toEqual([
+        'host',
+        'database',
+        'queue',
+        'nodes',
+        'uptime',
+        'pipeline',
+        COACH_METRIC_GROUP_ID,
+      ]);
+      expect(familiesOf(COACH_METRIC_GROUP_ID).map((f) => f.key)).toEqual(['coachNudgesSent', 'healthSummaryP95']);
+    });
+  });
+
+  it('refuses a duplicate id and a duplicate family key', async () => {
+    await writable(() => {
+      const registry = new MetricGroupRegistry();
+
+      expect(rejection(() => registry.register({ ...metricGroupRegistry.get('host')! })).code).toBe('DUPLICATE_ID');
+      expect(
+        rejection(() =>
+          registry.register({
+            ...COACH_METRIC_GROUP,
+            families: [{ ...COACH_METRIC_GROUP.families[0], key: 'cpuUtilization' }],
+          }),
+        ).message,
+      ).toMatch(/family key "cpuUtilization" is already used by group "host"/);
+    });
+  });
+
+  it('freezes once the application has bootstrapped: a later register throws FROZEN', async () => {
+    await writable(() => {
+      const registry = new MetricGroupRegistry();
+      registry.onApplicationBootstrap();
+
+      expect(metricGroupRegistry.frozen).toBe(true);
+      expect(rejection(() => registry.register(COACH_METRIC_GROUP)).code).toBe('FROZEN');
+    });
+  });
+});
+
+describe('a coach-shaped app group (counters and histograms of app_* tables)', () => {
+  const WINDOW = {
+    from: new Date('2026-09-27T21:00:00.000Z'),
+    to: new Date('2026-09-27T22:00:00.000Z'),
+    previousFrom: new Date('2026-09-27T20:00:00.000Z'),
+    bucketSeconds: 60,
+  };
+
+  const at = (hhmm: string) => `2026-09-27 ${hhmm}:00.000000`;
+  const rows = (names: string[], data: unknown[][]) => ({ fields: names.map((name) => ({ name, dataTypeID: 25 })), rows: data });
+  /** The store: nudges per channel (a counter), the summary duration buckets (a histogram). */
+  const answer = (statement: string) => {
+    if (statement.includes('FROM "app_coach_nudge_sent_total"')) {
+      return rows(['t', 'g', 'v'], [
+        [at('21:10'), 'push', 10],
+        [at('21:20'), 'email', 4],
+      ]);
+    }
+    if (statement.includes('FROM "app_health_summary_duration_seconds_bucket"')) {
+      return rows(['period', 'g', 'le', 'v'], [
+        ['current', '', '0.5', 50],
+        ['current', '', '1', 100],
+        ['current', '', 'inf', 100],
+      ]);
+    }
+    return rows([], []);
+  };
+
+  async function compute(tables: ReturnType<typeof metricTablesOf>) {
+    const sql: string[] = [];
+    const out = await computeMetricGroup({
+      group: COACH_METRIC_GROUP_ID,
+      window: WINDOW,
+      filters: {},
+      tables,
+      now: WINDOW.to,
+      runner: {
+        maybe: async (statement: string | null) => {
+          if (!statement) return null;
+          sql.push(statement);
+          return answer(statement);
+        },
+      },
+    });
+    return { out, sql };
+  }
+
+  it('renders tiles and series from the app tables, with the platform family kinds', async () => {
+    await writable(async () => {
+      registerMetricGroup(new MetricGroupRegistry(), COACH_METRIC_GROUP);
+      const { out, sql } = await compute(metricTablesOf({ tables: [...metricCatalogSchema().tables, ...appSampleMetricSchema().tables] }));
+
+      expect(out.skipped).toEqual([]);
+      expect(out.available).toBe(true);
+      const tile = (key: string) => out.tiles.find((t) => t.key === key);
+      expect(tile('coachNudgesSent')).toMatchObject({ value: 14, unit: 'count' });
+      expect(tile('healthSummaryP95')?.unit).toBe('ms');
+      expect(tile('healthSummaryP95')?.value).toBeGreaterThan(0);
+      expect(out.series.filter((series) => series.key === 'coachNudgesSent').map((series) => series.groupBy).sort()).toEqual([
+        'email',
+        'push',
+      ]);
+      expect(sql.some((s) => s.includes('FROM "app_coach_nudge_sent_total"'))).toBe(true);
+      expect(sql.some((s) => s.includes('FROM "app_health_summary_duration_seconds_bucket"'))).toBe(true);
+    });
+  });
+
+  it('is skipped cleanly, with no statement run, while its tables do not exist', async () => {
+    await writable(async () => {
+      registerMetricGroup(new MetricGroupRegistry(), COACH_METRIC_GROUP);
+      const { out, sql } = await compute(metricTablesOf(metricCatalogSchema()));
+
+      expect(out.available).toBe(false);
+      expect(out.skipped).toEqual(['coachNudgesSent', 'healthSummaryP95']);
+      expect(out.tiles).toEqual([]);
+      expect(sql).toEqual([]);
     });
   });
 });
