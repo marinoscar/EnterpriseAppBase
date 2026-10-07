@@ -13,9 +13,10 @@ export interface PipelineContextFacts extends StepContext {
 
 /**
  * Builds the narrow context an app's deploy step sees from the pipeline's own
- * (#715). Commands run exactly as a built-in step's do: the journal's
- * redactor on every line, each line to `DeployHooks.onLog`, the result in the
- * journal. Nothing here writes to a terminal.
+ * (#715). Commands run as a built-in step's do (the journal's redactor on
+ * every message, the result in the journal), and every output line reaches
+ * `DeployHooks.onLog` REDACTED too, which an app's step cannot forget.
+ * Nothing here writes to a terminal.
  */
 export function appStepContext(pipeline: DeployPipeline, context: PipelineContextFacts): DeployStepContext {
   const { deployRoot } = context.options;
@@ -39,7 +40,9 @@ export function appStepContext(pipeline: DeployPipeline, context: PipelineContex
         ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         ...(options?.allowExitCodes === undefined ? {} : { allowExitCodes: options.allowExitCodes }),
         redact: context.journal.redact,
-        ...(context.hooks?.onLog === undefined ? {} : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
+        ...(context.hooks?.onLog === undefined
+          ? {}
+          : { onLine: (line: string) => context.hooks?.onLog?.(context.journal.redact(line)) }),
       });
       context.journal.command(result);
       return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr };
