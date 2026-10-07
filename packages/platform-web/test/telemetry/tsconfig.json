@@ -1,0 +1,14 @@
+{
+  // The telemetry slice's tests (issue #704) were moved from the reference
+  // app's suite, which compiles without `noUncheckedIndexedAccess`; they keep
+  // that one relaxation (`expect(calls[0].body)` style assertions) and every
+  // other rule of the package's tsconfig.json. `npm run typecheck` runs both.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    // `node:fs` / `node:path` for the tripwire tests that read source files.
+    "types": ["node"]
+  },
+  "include": ["./**/*", "../setup.ts", "../viewport.ts"],
+  "exclude": []
+}

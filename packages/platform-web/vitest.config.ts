@@ -12,5 +12,11 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'test/**/*.test.ts', 'test/**/*.test.tsx'],
     globals: false,
+    setupFiles: ['test/setup.ts'],
+    // The telemetry slice's page and chart suites (moved from apps/web, #704)
+    // render full MUI X charts and grids under jsdom; the app gives them the
+    // same ceiling, for a loaded CI runner.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
   },
 });
