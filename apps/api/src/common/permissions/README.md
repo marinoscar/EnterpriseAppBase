@@ -44,7 +44,7 @@ The platform declarations, one per owning module:
 | `notifications/push.permissions.ts` | `push:read`, `push:write` |
 | `storage/config/storage-config.permissions.ts` | `storage_config:read`, `storage_config:write` |
 | `ai/ai.permissions.ts` | `ai_config:read`, `ai_config:write`, `ai:use` |
-| `organizations/organizations.permissions.ts` | `org_members:read`, `org_members:write`, `org_invites:read`, `org_invites:write` |
+| `organizations/organizations.permissions.ts` | `org_members:read`, `org_members:write`, `org_invites:read`, `org_invites:write` (org); `organizations:read`, `organizations:write` (system) |
 | `@marinoscar/platform-api/telemetry` (`TELEMETRY_PERMISSION_DECLARATIONS`) | `telemetry:read`, `telemetry:write`, `telemetry:query` |
 | `app-registrations/permissions.ts` (app-owned) | `APP_ROLES`, `APP_PERMISSIONS`: empty upstream |
 

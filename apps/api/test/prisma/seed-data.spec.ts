@@ -315,6 +315,8 @@ describe('seed data', () => {
       'nodes:write', 'db_backup:read', 'db_backup:write', 'db_backup:restore', 'broadcasts:read',
       'broadcasts:write', 'push:read', 'push:write', 'storage_config:read', 'storage_config:write',
       'ai_config:read', 'ai_config:write', 'telemetry:read', 'telemetry:write', 'telemetry:query',
+      // #726 (PP-6.7): the deployment's list of organizations.
+      'organizations:read', 'organizations:write',
     ];
 
     it('scopes every operational permission to the system and grants it to the system admin role only', () => {

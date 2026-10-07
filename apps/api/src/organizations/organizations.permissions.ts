@@ -18,6 +18,12 @@
 // `org_admin` membership role without becoming a deployment operator: none of
 // them is a system permission, and the system `admin` role does not hold them
 // (an administrator's own `org_admin` membership does).
+//
+// SYSTEM SCOPE, ADMIN ONLY (#726). `organizations:read` / `organizations:write`
+// gate the deployment's LIST of organizations (`/api/admin/organizations`):
+// creating one and renaming one. That is a deployment operator's question,
+// not a customer org admin's, so they are system permissions held by the
+// system `admin` role; no org role may hold them (the registry refuses it).
 // =============================================================================
 
 import type { PermissionDeclarationMap } from '../common/permissions/permission.types';
@@ -46,5 +52,17 @@ export const ORGANIZATIONS_PERMISSIONS = {
     description: 'Invite people to the organization and revoke invitations',
     scope: 'org',
     defaultGrants: ['org_admin'],
+  },
+  ORGANIZATIONS_READ: {
+    id: 'organizations:read',
+    description: "List the deployment's organizations and their member counts",
+    scope: 'system',
+    defaultGrants: ['admin'],
+  },
+  ORGANIZATIONS_WRITE: {
+    id: 'organizations:write',
+    description: 'Create organizations (with a first administrator invitation) and rename them',
+    scope: 'system',
+    defaultGrants: ['admin'],
   },
 } as const satisfies PermissionDeclarationMap;

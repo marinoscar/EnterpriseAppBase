@@ -513,10 +513,12 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `telemetry:read` | system | ✓ | | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | system | ✓ | | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | system | ✓ | | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
-| `org_members:read` | org | | ✓ | | | View the organization's members and their org roles (enforced by the org admin endpoints, PP-6.8) |
-| `org_members:write` | org | | ✓ | | | Change a member's org role, suspend or remove members (PP-6.8) |
-| `org_invites:read` | org | | ✓ | | | View the organization's invitations (PP-6.8) |
-| `org_invites:write` | org | | ✓ | | | Invite people to the organization, revoke invitations (PP-6.8) |
+| `org_members:read` | org | | ✓ | | | `GET /api/org/members`: the active organization's members and their org roles (`org-members.controller.ts`, #726) |
+| `org_members:write` | org | | ✓ | | | `PATCH`/`DELETE /api/org/members/:userId`: change a member's org role, suspend or remove members (#726) |
+| `org_invites:read` | org | | ✓ | | | `GET /api/org/invites`: the active organization's invitations (`org-invites.controller.ts`, #726) |
+| `org_invites:write` | org | | ✓ | | | `POST /api/org/invites`, `DELETE /api/org/invites/:id`: invite people (adds an allowlist entry), revoke invitations (#726) |
+| `organizations:read` | system | ✓ | | | | `GET /api/admin/organizations`: the deployment's organizations with member counts (`organizations-admin.controller.ts`, #726) |
+| `organizations:write` | system | ✓ | | | | `POST`/`PATCH /api/admin/organizations`: create an organization with a first-admin invitation, rename one (#726) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
