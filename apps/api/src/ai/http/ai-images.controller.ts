@@ -1,9 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '@marinoscar/platform-api/identity';
-import { CurrentOrg } from '@marinoscar/platform-api/identity';
-import { CurrentUser } from '@marinoscar/platform-api/identity';
+import { Auth, CurrentOrg, CurrentUser } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { ErrorDto } from '@marinoscar/platform-api/core';

@@ -33,17 +33,19 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { PrismaClient } from '@prisma/client';
 
-import { AllowlistService } from '@marinoscar/platform-api/identity';
-import { AuthService } from '@marinoscar/platform-api/identity';
-import { PrincipalCache } from '@marinoscar/platform-api/identity';
-import { recordTenancyMode } from '@marinoscar/platform-api/identity';
+import {
+  AllowlistService,
+  AuthService,
+  PrincipalCache,
+  recordTenancyMode,
+  OrganizationsService,
+  OrganizationsAdminService,
+  OrgInvitesService,
+  OrgMembersService,
+  TenancyService,
+  PatService,
+} from '@marinoscar/platform-api/identity';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
-import { OrganizationsService } from '@marinoscar/platform-api/identity';
-import { OrganizationsAdminService } from '@marinoscar/platform-api/identity';
-import { OrgInvitesService } from '@marinoscar/platform-api/identity';
-import { OrgMembersService } from '@marinoscar/platform-api/identity';
-import { TenancyService } from '@marinoscar/platform-api/identity';
-import { PatService } from '@marinoscar/platform-api/identity';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';

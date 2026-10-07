@@ -16,7 +16,11 @@
 
 import { APP_PERMISSIONS, APP_ROLES } from '../../app-registrations/permissions';
 import { AI_PERMISSIONS } from '../../ai/ai.permissions';
-import { ALLOWLIST_PERMISSIONS } from '@marinoscar/platform-api/identity';
+import {
+  ALLOWLIST_PERMISSIONS,
+  USERS_PERMISSIONS,
+  ORGANIZATIONS_PERMISSIONS,
+} from '@marinoscar/platform-api/identity';
 import { DB_BACKUP_PERMISSIONS } from '../../db-backup/db-backup.permissions';
 import { JOBS_PERMISSIONS } from '../../jobs/jobs.permissions';
 import { NODES_PERMISSIONS } from '../../nodes/nodes.permissions';
@@ -26,8 +30,6 @@ import { SETTINGS_PERMISSIONS } from '../../settings/settings.permissions';
 import { STORAGE_CONFIG_PERMISSIONS } from '../../storage/config/storage-config.permissions';
 import { STORAGE_PERMISSIONS } from '../../storage/storage.permissions';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
-import { USERS_PERMISSIONS } from '@marinoscar/platform-api/identity';
-import { ORGANIZATIONS_PERMISSIONS } from '@marinoscar/platform-api/identity';
 import { SHARING_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/sharing';
 import { registerPermissions, registerRoles } from './permission.registry';
 import { PLATFORM_ROLES } from './platform-roles';

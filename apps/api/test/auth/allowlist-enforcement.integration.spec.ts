@@ -1,20 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-ports.helper';
 import { NotificationsService } from '../../src/notifications/notifications.service';
-import { AuthService } from '@marinoscar/platform-api/identity';
-import { AllowlistService } from '@marinoscar/platform-api/identity';
+import {
+  AuthService,
+  AllowlistService,
+  AdminBootstrapService,
+  GoogleProfile,
+  PrincipalCache,
+  OrganizationsService,
+  TenancyService,
+} from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { AdminBootstrapService } from '@marinoscar/platform-api/identity';
 import { ForbiddenException } from '@nestjs/common';
 import { resetPrismaMock, prismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.factory';
-import { GoogleProfile } from '@marinoscar/platform-api/identity';
-import { PrincipalCache } from '@marinoscar/platform-api/identity';
-import { OrganizationsService } from '@marinoscar/platform-api/identity';
-import { TenancyService } from '@marinoscar/platform-api/identity';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 

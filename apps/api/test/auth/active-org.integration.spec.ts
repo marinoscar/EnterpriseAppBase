@@ -21,8 +21,7 @@
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 
-import { OrganizationsService } from '@marinoscar/platform-api/identity';
-import { PrincipalCache } from '@marinoscar/platform-api/identity';
+import { OrganizationsService, PrincipalCache } from '@marinoscar/platform-api/identity';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { mockPermissions, mockRoles } from '../fixtures/test-data.factory';
 import { authHeader } from '../helpers/auth-mock.helper';

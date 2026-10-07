@@ -3,8 +3,15 @@ import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-port
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
-import { AdminBootstrapService } from '@marinoscar/platform-api/identity';
-import { AllowlistService } from '@marinoscar/platform-api/identity';
+import {
+  AdminBootstrapService,
+  AllowlistService,
+  AuthService,
+  GoogleProfile,
+  PrincipalCache,
+  OrganizationsService,
+  TenancyService,
+} from '@marinoscar/platform-api/identity';
 import {
   createMockPrismaService,
   MockPrismaService,
@@ -20,11 +27,6 @@ import {
   type NotificationRecipient,
 } from '../../src/notifications/notification.types';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { AuthService } from '@marinoscar/platform-api/identity';
-import { GoogleProfile } from '@marinoscar/platform-api/identity';
-import { PrincipalCache } from '@marinoscar/platform-api/identity';
-import { OrganizationsService } from '@marinoscar/platform-api/identity';
-import { TenancyService } from '@marinoscar/platform-api/identity';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 

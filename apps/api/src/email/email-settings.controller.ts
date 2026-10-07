@@ -10,9 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '@marinoscar/platform-api/identity';
-import { CurrentUser } from '@marinoscar/platform-api/identity';
-import type { RequestUser } from '@marinoscar/platform-api/identity';
+import { Auth, CurrentUser, type RequestUser } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import { EmailSettingsService } from './email-settings.service';
 import { EmailTestSendService } from './email-test-send.service';

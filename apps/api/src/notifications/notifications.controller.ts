@@ -24,8 +24,7 @@ import {
 import type { Observable } from 'rxjs';
 
 import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { Auth } from '@marinoscar/platform-api/identity';
-import { CurrentUser } from '@marinoscar/platform-api/identity';
+import { Auth, CurrentUser } from '@marinoscar/platform-api/identity';
 import { listNotificationEvents } from './notification-events';
 import { policyChannels } from './notification-policy';
 import { NotificationPolicyService } from './notification-policy.service';
