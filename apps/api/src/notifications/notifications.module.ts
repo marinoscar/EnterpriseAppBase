@@ -24,6 +24,7 @@ import {
   type NotificationChannelSender,
 } from './notification.types';
 import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
+import { WebPushEgressContributor } from './doctor/egress/web-push.egress.contributor';
 import { NotificationDeliveriesPurgeHandler } from './retention/notification-deliveries-purge.handler';
 import { NotificationInboxPurgeHandler } from './retention/notification-inbox-purge.handler';
 import { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
@@ -208,6 +209,8 @@ import { NotificationChannelSenderRegistry } from './registry/channel-sender.reg
     PushNotificationChannel,
     // Doctor check (#634): validates the active VAPID pair, never sends.
     PushVapidDoctorCheck,
+    // Egress inventory (#773): the push services subscribers registered with.
+    WebPushEgressContributor,
     // Retention (#681): server-only, batched purges of the inbox and the
     // delivery log, enqueued nightly by `RetentionPurgeTask`. Not exported.
     NotificationInboxPurgeHandler,

@@ -84,7 +84,7 @@ import {
   toOpenAiSpeechRequest,
   toOpenAiTranscriptionRequest,
 } from './openai-audio.mapper';
-import { OpenAiClientFactory } from './openai-client.factory';
+import { OpenAiClientFactory, OPENAI_DEFAULT_BASE_URL } from './openai-client.factory';
 import { fromOpenAiEmbeddingResponse, toOpenAiEmbeddingRequest } from './openai-embeddings.mapper';
 import { OpenAiCallTelemetry } from './openai-call-telemetry';
 import { mapOpenAiError, OPENAI_FAMILY, OPENAI_PROVIDER_ID } from './openai-errors';
@@ -103,6 +103,9 @@ export { AI_PROVIDER_CALL_SPAN } from './openai-call-telemetry';
 export class OpenAiProviderAdapter implements AiProviderAdapter, OnModuleInit {
   readonly id = OPENAI_PROVIDER_ID;
   readonly displayName = 'OpenAI';
+
+  /** The endpoint used when the settings slot has no `baseUrl` (#773: the egress inventory reads it). */
+  readonly defaultBaseUrl = OPENAI_DEFAULT_BASE_URL;
 
   /** Images by presigned URL, files through the Files API — see the file header. */
   readonly fileInputStrategy: AiFileInputStrategies = { image: 'presigned_url', file: 'upload' };

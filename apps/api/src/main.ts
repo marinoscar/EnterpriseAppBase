@@ -14,6 +14,7 @@ import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
 import { verifyDeploymentModeAtStartup } from './common/deployment/deployment-mode';
+import { verifyDeploymentNetworkAtStartup } from './common/deployment/deployment-network';
 import { createOpenApiDocument } from './openapi/document';
 import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
 import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
@@ -40,6 +41,10 @@ async function bootstrap() {
   // restore is available. Logs the mode once. `DeploymentModeService` parses
   // the same value again through the same function, so the two cannot differ.
   verifyDeploymentModeAtStartup(process.env, logger);
+
+  // DEPLOYMENT_NETWORK (#773). Same fail-fast rule and place as DEPLOYMENT_MODE:
+  // an invalid value stops the boot here, naming the variable and its values.
+  verifyDeploymentNetworkAtStartup(process.env, logger);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,

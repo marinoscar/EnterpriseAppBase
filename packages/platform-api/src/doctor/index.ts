@@ -34,3 +34,27 @@ export { DoctorQueryDto } from './dto/doctor-query.dto';
 export type { DoctorQuery } from './dto/doctor-query.dto';
 export { DoctorReportDto } from './dto/doctor-report.dto';
 export type { DoctorCheckReport, DoctorReport } from './dto/doctor-report.dto';
+export {
+  AIR_GAPPED_RUNBOOK,
+  DEPLOYMENT_NETWORKS,
+  DEPLOYMENT_NETWORK_SOURCE,
+  EGRESS_MAX_HOSTS,
+  EgressRegistry,
+  NETWORK_EGRESS_CHECK_ID,
+  NetworkEgressDoctorCheck,
+  classifyHost,
+  describeEgress,
+  egressDependency,
+  gradeEgress,
+  hostnameOf,
+  scopeOfHosts,
+} from './egress/index';
+export type {
+  DeploymentNetwork,
+  DeploymentNetworkSource,
+  EgressContributor,
+  EgressDependency,
+  EgressDependencyInput,
+  EgressDirection,
+  EgressScope,
+} from './egress/index';

@@ -153,7 +153,7 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-five checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Twenty-six checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
@@ -241,6 +241,12 @@ The five checks form one chain: `export`, `connection`, `reachable`, `tables`, `
 | `telemetry.freshness` | Telemetry data freshness | `telemetry.tables` | Data is actually arriving, from the dashboard's `lastDataSql` over the reader path (7-day lookback). Settings page `/admin/settings/telemetry/dashboard`. Timeout 7 s. | pass: both the newest trace and the newest log are within the threshold. warn: either side older than the threshold, or absent for 7 days. fail: neither arrived in 7 days. |
 
 **`telemetry.freshness` uses the dashboard's threshold.** Its limit is `DASHBOARD_VERDICT_THRESHOLDS.noDataMinutes` (5 minutes), the same constant behind the dashboard's "no data" banner, so the two cannot disagree. It reads through `GreptimeClient.queryReader` rather than `TelemetryDashboardService.summary` because the summary writes a `telemetry:dashboard` audit row per read, which would break [§2.2](#22-the-read-only-rule).
+
+#### network
+
+| Id | Label | `dependsOn` | What it verifies | Rules |
+|---|---|---|---|---|
+| `network.egress` | Outbound dependencies (air-gap readiness) | none | The deployment's outbound dependencies, from every `EgressContributor` registered with `EgressRegistry` (#773): Google sign-in, AI providers, the AI catalog refresh, AI realtime voice, Web Push, email, object storage, GreptimeDB and the API docs CDN. Configuration only: no DNS lookup, no connection. Each host is classified `public`, `private` or `unknown` by shape alone. `data`: `network`, `enabled`, `public`, `private`, `unknown`, `required_public`, `public_ids` (comma-joined, at most 500 characters). The check lives in the package (`NetworkEgressDoctorCheck`) and the app contributes it from `DeploymentModule`. | `DEPLOYMENT_NETWORK=online` (default): always pass, an inventory ("N outbound dependencies enabled (P public, Q private): ..."). `air-gapped`: pass when every enabled dependency is private; warn when only optional ones are public (remedy names [the air-gapped runbook](../runbooks/air-gapped.md)); fail when a required one is public, such as Google as the only sign-in provider (remedy names the runbook section). `unknown` grades as public. A contributor that throws is one `unknown` entry under its id. Never `skip`. |
 
 ### 2.8 The web page
 
@@ -363,6 +369,13 @@ export class ReportQuotaDoctorCheck implements DoctorCheck, OnModuleInit {
 - Catch your own failures and return a `fail` with a real `detail`. Declare `timeoutMs` if a probe can legitimately exceed 5 s, and give the probe its own client-side bound.
 - Never put a key, password, token or hint in `detail`, `error` or `data`.
 
+**Add an outbound dependency (`EgressRegistry`).** When a capability of yours reaches a host outside the deployment, describe it so `network.egress` (and an air-gapped install) can see it. The contributor is an `@Injectable()` in the owning module, next to its checks:
+
+1. Create `apps/api/src/<module>/doctor/egress/<thing>.egress.contributor.ts` implementing `EgressContributor` (`id`, `describe()`), injecting `EgressRegistry` and calling `register(this)` from `onModuleInit`. Ids are unique; a duplicate throws at boot.
+2. Return entries built with `egressDependency({ id, capability, direction, enabled, required, hosts, degradation, settingsPath?, count? })`. Pass the configured URL or `host:port`; the helper reduces it to a hostname (no scheme, userinfo, port, path or query), de-duplicates, caps at 20 and computes `scope`.
+3. `describe()` is held to [§2.2](#22-the-read-only-rule) and to "no secret material": settings and configuration reads only, through the masked admin views (never an accessor that decrypts a key), and no network I/O. Set `required` only when the deployment cannot do its core job without the host.
+4. Add the class to the owning module's `providers`, add its id to [the air-gapped runbook](../runbooks/air-gapped.md), and write a spec. The reference app's example is `apps/api/src/openapi/docs-egress.contributor.ts`.
+
 **Add a category.** Use a new string as `category`. It sorts after the shipped ones and the web page renders it title-cased. To give it a position, pass `categoryOrder` to `DoctorModule.forRoot()` in `apps/api/src/doctor/doctor.config.ts` (the API sort order, e.g. `[...PLATFORM_DOCTOR_CATEGORIES, 'reports']`); to give it a display name, render the packaged page with a `categories` list in `apps/web/src/pages/Admin/DoctorPage.tsx` (e.g. `[...PLATFORM_DOCTOR_CATEGORY_LABELS, { key: 'reports', label: 'Reports' }]`). No package file is edited.
 
 **Add a web surface.** None is needed: the page renders whatever the API returns.
@@ -382,6 +395,8 @@ export class ReportQuotaDoctorCheck implements DoctorCheck, OnModuleInit {
 | App wiring: title matches its card, loading skeleton, request error with retry, mixed report, all-pass, Problems only, Run again sends `refresh=true` (msw through the real transport and host adapter), phone width, redirect without `system_settings:read`, category labels | `apps/web/src/__tests__/pages/Admin/DoctorPage.test.tsx` |
 | Packaged page: loading skeleton, request error and retry, mixed report ordering, Problems only, `refresh=true`, unknown category title-cased, custom categories, `slots.Header` and `sx`, the host's time formatter, `palette.status` tokens | `packages/platform-web/test/doctor/doctor-page.test.tsx` |
 | Hook and client: loads on mount without refresh, a failing verdict is data rather than an error, `403` message, network fallback message, `rerun` sends `refresh=true` and clears a previous error, explicit client, moved path | `packages/platform-web/test/doctor/headless.test.tsx` |
+| Egress inventory: host classification table (no DNS), `egressDependency` reduces to hostnames and caps hosts, `EgressRegistry` duplicates throw and freeze, `gradeEgress` table (online inventory, air-gapped pass/warn/fail, `unknown` as public), a throwing contributor becomes one `unknown` entry, scalars only in `data`, the check is the app's to contribute | `packages/platform-api/test/doctor/egress/*.spec.ts` |
+| `network.egress` through the real app: one row for `category=network`, the three air-gapped scenarios, no seeded secret, URL path, query or userinfo on the wire or in the full inventory, no network I/O with `fetch`, `dns.lookup` and `net.connect` stubbed to throw, every module contributor registered | `apps/api/test/doctor/network-egress.integration.spec.ts`; each contributor's spec under `apps/api/src/<module>/doctor/egress/` |
 
 The read-only rule has no single tripwire suite that scans every check for calls to the test services. It is held by each check's spec (which asserts what `run()` reads) and by review; a new check's spec is where a reviewer looks for it.
 
@@ -428,3 +443,4 @@ By hand, with the app running and signed in as an Admin:
 - #685 added `core.deployment-mode` (platform-packages PP-1.14).
 - PP-1.12 (#683) added `auth.principal-cache`.
 - #696 (platform-packages PP-2.7) moved the framework into `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor/{headless,ui}`, defined the host ports every packaged slice reuses, and left the app its binding (`doctor.config.ts`, the page binding) and its checks. `DOCTOR_CATEGORIES` became `PLATFORM_DOCTOR_CATEGORIES` (alias kept); a category is added with `categoryOrder` / `categories` instead of editing a list. No behaviour, route, permission or OpenAPI change.
+- PP-13.2 (#773) added `network.egress`, the egress inventory (`EgressRegistry`, `EgressContributor`, `classifyHost`) and `DEPLOYMENT_NETWORK`; `network` joined `PLATFORM_DOCTOR_CATEGORIES`.

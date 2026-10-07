@@ -114,6 +114,7 @@ export const PLATFORM_DOCTOR_CATEGORIES = [
   'nodes',
   'backup',
   'telemetry',
+  'network',
 ] as const;
 
 /**

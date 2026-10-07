@@ -15,6 +15,7 @@ import {
   DoctorModule,
   DoctorModuleOptions,
   DoctorService,
+  EgressRegistry,
   PLATFORM_DOCTOR_CATEGORIES,
   ResolvedDoctorModuleOptions,
 } from '../../src/doctor';
@@ -78,7 +79,7 @@ describe('DoctorModule.forRoot', () => {
       const dynamic = DoctorModule.forRoot({ host });
 
       expect(dynamic.global).toBe(true);
-      expect(dynamic.exports).toEqual([DoctorCheckRegistry, DoctorService, DOCTOR_MODULE_OPTIONS]);
+      expect(dynamic.exports).toEqual([DoctorCheckRegistry, DoctorService, DOCTOR_MODULE_OPTIONS, EgressRegistry]);
     });
 
     it('creates a controller named DoctorController whose getReport requires the default permission', () => {

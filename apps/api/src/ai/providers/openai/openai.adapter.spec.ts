@@ -6,7 +6,7 @@ import { AiError } from '../../core/ai-error';
 import { AiProviderRegistry } from '../../core/provider-registry';
 import { AiCallContext, AiProviderAdapter } from '../../core/provider-adapter.interface';
 import { AiStreamEvent } from '../../core/types/responses.types';
-import { OpenAiClientFactory } from './openai-client.factory';
+import { OPENAI_DEFAULT_BASE_URL, OpenAiClientFactory } from './openai-client.factory';
 import { AI_PROVIDER_CALL_SPAN, OpenAiProviderAdapter } from './openai.adapter';
 import { OpenAiProviderModule } from './openai.module';
 import { messageItem, responseFixture } from './testing/openai-fixtures';
@@ -131,6 +131,8 @@ describe('OpenAiProviderAdapter', () => {
 
       expect(registry.ids()).toEqual(['openai']);
       expect(registry.get('openai')).toBeInstanceOf(OpenAiProviderAdapter);
+      // #773: the egress inventory reads the endpoint off the adapter.
+      expect(registry.get('openai')?.defaultBaseUrl).toBe(OPENAI_DEFAULT_BASE_URL);
 
       await moduleRef.close();
     });

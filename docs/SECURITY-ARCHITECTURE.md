@@ -945,6 +945,26 @@ VPS. The trade-off:
   reader login).
 - Mitigation for later: authentication on the OTLP receivers.
 
+### Outbound dependencies and air-gapped mode
+
+The admin Doctor's `network.egress` check (#773) lists every host the running
+deployment reaches outside itself: Google sign-in, AI providers (and their
+daily catalog refresh and browser-side realtime voice), Web Push services,
+the SMTP relay or SES, object storage (which presigned URLs make browsers
+reach too), GreptimeDB and the API docs CDN. Each owning module contributes
+an `EgressContributor` to `EgressRegistry`; a host is classified `public`,
+`private` or `unknown` by its shape alone. The inventory is held to the
+Doctor's read-only and no-secret rules: contributors read settings through
+the masked admin views (never `resolveActiveVapidConfig()`,
+`StorageConfigService.resolveActiveConfig()` or a telemetry fingerprint), do
+no DNS lookup or connection, and return hostnames only, never a URL path or
+query (a push endpoint's path is a capability URL), userinfo, port, key or
+password. `DEPLOYMENT_NETWORK=air-gapped`, a deployment-level environment
+variable, makes the check grade the inventory: a required public dependency
+fails, optional ones warn, and an unclassifiable host counts as public (fail
+closed). It changes no capability's behaviour. See
+[runbooks/air-gapped.md](runbooks/air-gapped.md).
+
 ---
 
 ## 10. Encrypted credential storage

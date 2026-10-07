@@ -60,7 +60,7 @@ import { AiProviderRegistry } from '../../core/provider-registry';
 import type { AiFileInputStrategies } from '../../core/types/file-inputs.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { resolveServiceName } from '../../../common/otel/service-name';
-import { AnthropicClientFactory } from './anthropic-client.factory';
+import { AnthropicClientFactory, ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-client.factory';
 import { ANTHROPIC_PROVIDER_ID, mapAnthropicError } from './anthropic-errors';
 import {
   type AnthropicRequestPlan,
@@ -87,6 +87,9 @@ const tracer = trace.getTracer(resolveServiceName());
 export class AnthropicProviderAdapter implements AiProviderAdapter, OnModuleInit {
   readonly id = ANTHROPIC_PROVIDER_ID;
   readonly displayName = 'Anthropic';
+
+  /** The endpoint used when the settings slot has no `baseUrl` (#773: the egress inventory reads it). */
+  readonly defaultBaseUrl = ANTHROPIC_DEFAULT_BASE_URL;
 
   /** Stateless: the runtime resends history instead of chaining (#446). */
   readonly supportsPreviousResponseId = false;

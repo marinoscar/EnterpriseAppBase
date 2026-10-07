@@ -10,7 +10,7 @@ import { AiCallContext, AiProviderAdapter } from '../../core/provider-adapter.in
 import { defineTool } from '../../core/tools';
 import type { AiResolvedStorageInput } from '../../core/types/file-inputs.types';
 import { AiInputItem, AiStreamEvent } from '../../core/types/responses.types';
-import { GeminiClientFactory } from './gemini-client.factory';
+import { GeminiClientFactory, GEMINI_DEFAULT_BASE_URL } from './gemini-client.factory';
 import { GEMINI_PROVIDER_CALL_SPAN, GeminiProviderAdapter } from './gemini.adapter';
 import { GeminiProviderModule } from './gemini.module';
 import { functionCallPart, responseFixture, streamChunksFor, textPart, thoughtPart } from './testing/gemini-fixtures';
@@ -164,6 +164,8 @@ describe('GeminiProviderAdapter', () => {
 
       expect(adapter.id).toBe('gemini');
       expect(adapter.displayName).toBe('Google Gemini');
+      // #773: the egress inventory reads the endpoint off the adapter.
+      expect(adapter.defaultBaseUrl).toBe(GEMINI_DEFAULT_BASE_URL);
       expect(adapter.responses).toBeDefined();
       expect(adapter.embeddings).toBeDefined();
       expect(adapter.images).toBeUndefined();

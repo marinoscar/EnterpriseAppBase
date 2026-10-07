@@ -28,6 +28,7 @@ import { TelemetryExplorerController } from './telemetry-explorer.controller';
 import { TelemetrySettingsService } from './telemetry-settings.service';
 import { TelemetryStatusService } from './telemetry-status.service';
 import { TelemetryConnectionDoctorCheck } from './doctor/telemetry-connection.doctor-check';
+import { GreptimeDbEgressContributor } from './doctor/egress/greptimedb.egress.contributor';
 import { TelemetryExportDoctorCheck } from './doctor/telemetry-export.doctor-check';
 import { TelemetryFreshnessDoctorCheck } from './doctor/telemetry-freshness.doctor-check';
 import { TelemetryReachableDoctorCheck } from './doctor/telemetry-reachable.doctor-check';
@@ -113,6 +114,8 @@ import { TelemetryTablesDoctorCheck } from './doctor/telemetry-tables.doctor-che
     TelemetryReachableDoctorCheck,
     TelemetryTablesDoctorCheck,
     TelemetryFreshnessDoctorCheck,
+    // Egress inventory (#773): the GreptimeDB host.
+    GreptimeDbEgressContributor,
   ],
   exports: [GreptimeClient, TelemetrySettingsService, TelemetryQueryService, TelemetrySchemaService],
 })

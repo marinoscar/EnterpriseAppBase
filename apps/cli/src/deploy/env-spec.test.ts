@@ -357,6 +357,32 @@ describe('env metadata', () => {
     }
   });
 
+  it('declares DEPLOYMENT_NETWORK as a required key defaulting to online (#773)', () => {
+    const specs = parseEnvExample(readFileSync(REAL_TEMPLATE, 'utf8'));
+    const declarations = specs.filter((spec) => spec.key === 'DEPLOYMENT_NETWORK');
+
+    // Exactly one declaration, uncommented: prose about air-gapped must not
+    // read as a second (optional) one.
+    expect(declarations).toHaveLength(1);
+    expect(declarations[0]).toMatchObject({
+      section: 'Deployment network',
+      defaultValue: 'online',
+      optional: false,
+    });
+    expect(declarations[0]?.help).toMatch(/air-gapped/);
+  });
+
+  it('validates DEPLOYMENT_NETWORK exactly as the API parses it (#773)', () => {
+    const validate = metadataFor('DEPLOYMENT_NETWORK').validate;
+
+    expect(metadataFor('DEPLOYMENT_NETWORK').essential).toBeUndefined();
+    expect(validate?.('online')).toBeUndefined();
+    expect(validate?.('air-gapped')).toBeUndefined();
+    for (const bad of ['offline', 'Air-Gapped', '', ' online', 'air_gapped']) {
+      expect(validate?.(bad)).toBe('must be one of: online, air-gapped');
+    }
+  });
+
   it('builds a oneOf validator that compares verbatim', () => {
     const validate = oneOf('a', 'b');
 

@@ -4,9 +4,9 @@
 
 ## Purpose and scope
 
-Does: the check contract (`DoctorCheck`, the five rules), the check registry, the service that runs the checks (parallel, dependency-aware, time-boxed, normalised, cached), the query and report DTOs, and the controller, created per app by `DoctorModule.forRoot({ host })` with the app's own access decorators.
+Does: the check contract (`DoctorCheck`, the five rules), the check registry, the service that runs the checks (parallel, dependency-aware, time-boxed, normalised, cached), the query and report DTOs, and the controller, created per app by `DoctorModule.forRoot({ host })` with the app's own access decorators. Since #773 also the egress inventory: `EgressRegistry`, where each module describes its outbound (internet) dependencies, a pure host classifier, and `NetworkEgressDoctorCheck` (`network.egress`), which grades that inventory when the deployment declares itself air-gapped.
 
-Does not: ship any check. Checks are registry entries the app contributes from its own feature modules, under `<module>/doctor/`, and they move with their slices later. It does not own the permission system (the app's host does), the web page (`@marinoscar/platform-web/doctor/ui`) or a queue job (a Doctor run is a bounded request, never a job; see [docs/specs/doctor.md §2.5](../../../../docs/specs/doctor.md)).
+Does not: register any check by itself. Checks are registry entries the app contributes from its own feature modules, under `<module>/doctor/`, and they move with their slices later; the one check class this slice ships, `NetworkEgressDoctorCheck`, is generic over the app's contributors and is still the app's to provide. It does not own the permission system (the app's host does), the web page (`@marinoscar/platform-web/doctor/ui`) or a queue job (a Doctor run is a bounded request, never a job; see [docs/specs/doctor.md §2.5](../../../../docs/specs/doctor.md)).
 
 ## Install and peer dependencies
 
@@ -53,6 +53,30 @@ export class DbConnectionDoctorCheck implements DoctorCheck, OnModuleInit {
 
 The module is global: the feature module provides the check and imports nothing of the Doctor.
 
+4. Optionally, describe outbound dependencies and contribute the `network.egress` check (the reference app's [`deployment.module.ts`](../../../../apps/api/src/common/deployment/deployment.module.ts) and [`docs-egress.contributor.ts`](../../../../apps/api/src/openapi/docs-egress.contributor.ts)):
+
+```ts
+// Once, globally: where `network.egress` reads DEPLOYMENT_NETWORK, and the check itself.
+providers: [
+  DeploymentNetworkService, // { readonly network: 'online' | 'air-gapped' }
+  { provide: DEPLOYMENT_NETWORK_SOURCE, useExisting: DeploymentNetworkService },
+  NetworkEgressDoctorCheck,
+],
+
+// In each feature module: a read-only contributor.
+@Injectable()
+export class DocsEgressContributor implements EgressContributor, OnModuleInit {
+  readonly id = 'docs';
+  constructor(private readonly egress: EgressRegistry) {}
+  onModuleInit(): void { this.egress.register(this); }
+  async describe(): Promise<EgressDependency[]> {
+    return [egressDependency({ id: 'docs.scalar-cdn', capability: 'API reference', direction: 'browser',
+      enabled: true, required: false, hosts: ['https://cdn.jsdelivr.net/npm/@scalar/api-reference'],
+      degradation: '/api/docs renders an empty page' })];
+  }
+}
+```
+
 ## Configuration
 
 `DoctorModule.forRoot(options: DoctorModuleOptions)`:
@@ -70,7 +94,7 @@ The resolved options (defaults applied, frozen) are provided under `DOCTOR_MODUL
 
 ### Categories
 
-`PLATFORM_DOCTOR_CATEGORIES` is `core, auth, maintenance, storage, email, push, ai, jobs, nodes, backup, telemetry` (`DOCTOR_CATEGORIES` is a deprecated alias with the same values). An app adds a category simply by using a new string in its check's `category`, and reorders or extends the list with `categoryOrder`; the web page takes its labels from `DoctorPage`'s `categories` prop. No package file is edited.
+`PLATFORM_DOCTOR_CATEGORIES` is `core, auth, maintenance, storage, email, push, ai, jobs, nodes, backup, telemetry, network` (`DOCTOR_CATEGORIES` is a deprecated alias with the same values). An app adds a category simply by using a new string in its check's `category`, and reorders or extends the list with `categoryOrder`; the web page takes its labels from `DoctorPage`'s `categories` prop. No package file is edited.
 
 ## Extension-point catalog
 
@@ -81,8 +105,14 @@ The resolved options (defaults applied, frozen) are provided under `DOCTOR_MODUL
 | `DOCTOR_MODULE_OPTIONS` | token | `unique symbol` -> `ResolvedDoctorModuleOptions` | Read the resolved options (permission, path, order, timeout, TTL) in an app provider | experimental | [example](../../../../apps/api/src/doctor/doctor.config.ts) |
 | `DoctorCheck` | registry | `{ id; category; label; settingsPath?; timeoutMs?; dependsOn?; run(): Promise<DoctorCheckOutcome> }` | Write a check for a capability the app owns | stable | [example](../../../../apps/api/src/health/doctor/db-connection.doctor-check.ts) |
 | `DoctorCheckRegistry.register` | registry | `register(check: DoctorCheck): void` | Add the check to the report from its own `onModuleInit` | stable | [example](../../../../apps/api/src/health/doctor/db-connection.doctor-check.ts) |
+| `EgressContributor` | registry | `{ id; describe(): Promise<EgressDependency[]> }` | Describe the outbound hosts a capability of the app reaches (read-only, hostnames only) | experimental | [example](../../../../apps/api/src/openapi/docs-egress.contributor.ts) |
+| `EgressRegistry.register` | registry | `register(contributor: EgressContributor): void` | Add the contributor to the inventory from its own `onModuleInit` | experimental | [example](../../../../apps/api/src/openapi/docs-egress.contributor.ts) |
+| `EgressDependency` | registry | `{ id; capability; direction; enabled; hosts; scope; required; degradation; settingsPath?; count? }` | The shape of one outbound dependency a contributor returns | experimental | [example](../../../../apps/api/src/notifications/doctor/egress/web-push.egress.contributor.ts) |
+| `egressDependency` | registry | `egressDependency(input: EgressDependencyInput): EgressDependency` | Build an entry from raw URLs or `host:port`: reduces to hostnames, de-duplicates, caps at 20, computes `scope` | experimental | [example](../../../../apps/api/src/storage/config/doctor/egress/storage.egress.contributor.ts) |
+| `classifyHost` | registry | `classifyHost(host: string): 'public' \| 'private' \| 'unknown'` | Judge a host by its shape alone (no DNS), for a contributor that needs the scope itself | experimental | [example](../../../../apps/api/test/doctor/network-egress.integration.spec.ts) |
+| `DEPLOYMENT_NETWORK_SOURCE` | token | `unique symbol` -> `{ readonly network: 'online' \| 'air-gapped' }` | Bind the app's parsed `DEPLOYMENT_NETWORK` so `network.egress` grades the inventory | experimental | [example](../../../../apps/api/src/common/deployment/deployment.module.ts) |
 
-Supporting exports: `DoctorService` (`run({ category?, refresh? })`, `invalidate()`), `DoctorCheckRegistry.get` / `list`, `DoctorStatus`, `DOCTOR_STATUSES`, `DOCTOR_STATUS_RANK`, `worstStatus`, `DoctorCheckOutcome`, `DoctorDataValue`, `DoctorCategory`, `CoreDoctorCategory`, the defaults `DEFAULT_DOCTOR_PERMISSION`, `DEFAULT_DOCTOR_PATH`, `DOCTOR_DEFAULT_TIMEOUT_MS`, `DOCTOR_CACHE_TTL_MS`, `DOCTOR_FALLBACK_REMEDY`, the DTOs `DoctorQueryDto` and `DoctorReportDto` with their types `DoctorQuery`, `DoctorReport`, `DoctorCheckReport`, and `createDoctorController` (called by `forRoot`; an app never needs it).
+Supporting exports: `DoctorService` (`run({ category?, refresh? })`, `invalidate()`), `DoctorCheckRegistry.get` / `list`, `DoctorStatus`, `DOCTOR_STATUSES`, `DOCTOR_STATUS_RANK`, `worstStatus`, `DoctorCheckOutcome`, `DoctorDataValue`, `DoctorCategory`, `CoreDoctorCategory`, the defaults `DEFAULT_DOCTOR_PERMISSION`, `DEFAULT_DOCTOR_PATH`, `DOCTOR_DEFAULT_TIMEOUT_MS`, `DOCTOR_CACHE_TTL_MS`, `DOCTOR_FALLBACK_REMEDY`, the DTOs `DoctorQueryDto` and `DoctorReportDto` with their types `DoctorQuery`, `DoctorReport`, `DoctorCheckReport`, and `createDoctorController` (called by `forRoot`; an app never needs it). Egress (#773): `NetworkEgressDoctorCheck` (the `network.egress` check; the app provides it), `gradeEgress` (its pure verdict table), `describeEgress` (runs every contributor, a throw becomes one `unknown` entry; what a support bundle reads), `hostnameOf`, `scopeOfHosts`, `DEPLOYMENT_NETWORKS`, `DeploymentNetwork`, `DeploymentNetworkSource`, `EgressDependencyInput`, `EgressDirection`, `EgressScope`, `EGRESS_MAX_HOSTS`, `AIR_GAPPED_RUNBOOK`, `NETWORK_EGRESS_CHECK_ID`.
 
 ## Data
 
@@ -100,11 +130,11 @@ None in this slice. The page, its card descriptor (`doctorSettingsPage`) and its
 
 ## Infra
 
-None. No compose fragment and no environment variable.
+No compose fragment. The slice reads no environment variable itself; `network.egress` grades by the app's `DEPLOYMENT_NETWORK` (`online` default, `air-gapped`), which the app parses at startup (an invalid value fails it) and binds under `DEPLOYMENT_NETWORK_SOURCE`. Unbound, the check assumes `online`. The reference app declares the variable in `infra/compose/.env.example`; see [docs/runbooks/air-gapped.md](../../../../docs/runbooks/air-gapped.md).
 
 ## Observability
 
-`DoctorService` logs one `warn` line when a check throws: `Doctor check "<id>" threw: <message>` (the throw itself becomes a `fail` row). Nothing else is logged; no metric or span is emitted.
+`DoctorService` logs one `warn` line when a check throws: `Doctor check "<id>" threw: <message>` (the throw itself becomes a `fail` row). `NetworkEgressDoctorCheck` logs one `warn` line per contributor that throws: `Egress contributor "<id>" threw: <message>` (it becomes one `unknown` entry). Nothing else is logged; no metric or span is emitted.
 
 ## Security notes
 
@@ -116,6 +146,8 @@ The five rules every check follows (header of `doctor-check.interface.ts`):
 4. Results never contain secret material, in `detail`, `error` or `data`.
 5. `skip` means "not evaluated": a dependency did not pass, or the capability is intentionally off.
 
+Egress contributors are held to rules 3 and 4 as well: `describe()` reads settings through masked views only, performs no network I/O (no DNS lookup, no connect: `classifyHost` judges by shape), and returns hostnames only; `egressDependency()` strips scheme, userinfo, port, path and query, so a push endpoint's capability path or a URL's embedded credential never leaves it. The check's `data` is scalars only.
+
 The route always answers 200 for an authorised caller (a failing check is a row), validates its query with zod (`category` is a lowercase identifier, `refresh` is `true` or `false`), is not `@AllowDuringMaintenance()`, and `forRoot` refuses to build a controller without a host, so the route is never public.
 
 ## Conformance suite
@@ -123,6 +155,8 @@ The route always answers 200 for an authorised caller (a failing check is a row)
 None yet. A planned "doctor checks are read-only" suite (statically refusing the side-effecting test services in a check) will run through `runPlatformConformance()`. Until then the package's own tests (`test/doctor/`) and the reference app's `apps/api/test/doctor/doctor.integration.spec.ts` (RBAC, every module's checks wired, no secret on the wire) pin the behaviour.
 
 ## Upgrade notes
+
+Egress inventory (#773), additive: `network` is appended to `PLATFORM_DOCTOR_CATEGORIES`; `forRoot` also provides and exports `EgressRegistry`. Nothing registers `network.egress` until the app provides `NetworkEgressDoctorCheck`.
 
 First packaged release (#696). Moving from the app's own `apps/api/src/doctor/`:
 
@@ -138,12 +172,15 @@ First packaged release (#696). Moving from the app's own `apps/api/src/doctor/`:
 | `Duplicate doctor check id "<id>": A and B both register it` at boot | Two checks share an id. Ids are unique across the app; rename one. |
 | `Registry "doctor-checks" is frozen` | A check registered after bootstrap. Register from `onModuleInit`, never later. |
 | A check is missing from the report | Its provider is not in any module, or its `onModuleInit` does not call `register(this)`. |
+| `Duplicate egress contributor id "<id>"` at boot | Two egress contributors share an id; rename one. |
+| No `network.egress` row | The app does not provide `NetworkEgressDoctorCheck` (the reference app does in `DeploymentModule`). |
+| `network.egress` passes although the deployment is offline | `DEPLOYMENT_NETWORK` is unset or `online`, or no `DEPLOYMENT_NETWORK_SOURCE` is bound: online it is an inventory and always passes. |
 | `Nest can't resolve dependencies of <Check> (DoctorCheckRegistry, ...)` | `DoctorModule.forRoot()` is not imported in the root module (or in the test module). |
 | Every row is `fail` "Timed out after 5000ms" | The probe hangs; raise the check's `timeoutMs` or `defaultTimeoutMs` only if the service is legitimately slow. |
 
 ## Links
 
-- Spec: [docs/specs/doctor.md](../../../../docs/specs/doctor.md); runbook: [docs/runbooks/doctor.md](../../../../docs/runbooks/doctor.md).
+- Spec: [docs/specs/doctor.md](../../../../docs/specs/doctor.md); runbooks: [docs/runbooks/doctor.md](../../../../docs/runbooks/doctor.md), [docs/runbooks/air-gapped.md](../../../../docs/runbooks/air-gapped.md) (`network.egress`).
 - Platform spec: [platform-packages.md](../../../../docs/specs/platform-packages.md), Roadmap, Wave 1.
 - The web side: `@marinoscar/platform-web/doctor` ([README](../../../platform-web/src/doctor/README.md)).
 - Host ports and the controller-factory recipe: [core README](../core/README.md#host-ports).

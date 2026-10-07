@@ -34,6 +34,7 @@ import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { DeploymentModule } from './common/deployment/deployment.module';
+import { DocsEgressContributor } from './openapi/docs-egress.contributor';
 import { AiModule } from './ai/ai.module';
 import { TelemetryModule } from './telemetry/telemetry.module';
 import { doctorModule } from './doctor/doctor.config';
@@ -293,6 +294,11 @@ import configuration from './config/configuration';
       provide: APP_INTERCEPTOR,
       useClass: TransformInterceptor,
     },
+    // Egress inventory (#773): `/api/docs`' CDN. Here because the docs routes
+    // are mounted on Fastify directly (`openapi/register-docs-routes.ts`) and
+    // have no module of their own; the catalog example of registering an
+    // outbound dependency from app code.
+    DocsEgressContributor,
   ],
 })
 export class AppModule implements NestModule {

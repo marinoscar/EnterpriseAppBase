@@ -2,7 +2,7 @@
 
 > **Audience:** operators · **Spec:** [doctor.md](../specs/doctor.md) · **Admin UI:** `/admin/settings/doctor` · **Permission:** `system_settings:read`
 
-Use this when something about a deployment is wrong or unverified (sign-in fails, uploads fail, email does not arrive, jobs do not run, telemetry is empty) and you want one list of what is misconfigured or down. The Doctor runs read-only checks across the database, authentication, maintenance, storage, email, Web Push, AI, the job queue, worker nodes, backups and telemetry, and tells you which settings page or command fixes each problem. It changes nothing. For the design, the full check list and the exact pass, warn, fail and skip rules, see the [spec](../specs/doctor.md#27-check-inventory).
+Use this when something about a deployment is wrong or unverified (sign-in fails, uploads fail, email does not arrive, jobs do not run, telemetry is empty) and you want one list of what is misconfigured or down. The Doctor runs read-only checks across the database, authentication, maintenance, storage, email, Web Push, AI, the job queue, worker nodes, backups, telemetry and the deployment's outbound (internet) dependencies, and tells you which settings page or command fixes each problem. It changes nothing. For the design, the full check list and the exact pass, warn, fail and skip rules, see the [spec](../specs/doctor.md#27-check-inventory).
 
 ## 1. Before you start
 
@@ -113,6 +113,12 @@ The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `te
 | `telemetry.reachable` | GreptimeDB did not answer as the reader. | Check the GreptimeDB container and the reader login; use **Test connection** on the settings page. |
 | `telemetry.tables` | The store is unreadable, a table is missing (nothing exported yet), or no retention is set. | Check the collector exports to this database; apply retention at `/admin/settings/telemetry` (needs the admin login). |
 | `telemetry.freshness` | No trace or log arrived within 5 minutes (warn), or none in 7 days (fail). | Check the OpenTelemetry collector container and `OTEL_EXPORTER_OTLP_ENDPOINT`; the Telemetry Dashboard shows the gap. |
+
+### Network
+
+| Check | Red or amber means | Go to |
+|---|---|---|
+| `network.egress` | Only with `DEPLOYMENT_NETWORK=air-gapped` (online it always passes, as an inventory). Fail: a required dependency points at the internet, such as Google as the only sign-in provider. Warn: optional ones do (an AI provider, Web Push, the docs CDN, ...); `data.public_ids` lists them. | [Air-gapped runbook](air-gapped.md): one section per dependency id, with what breaks offline and the internal alternative. |
 
 ## 5. Troubleshooting
 

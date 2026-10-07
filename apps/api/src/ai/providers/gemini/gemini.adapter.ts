@@ -77,7 +77,7 @@ import type { AiFileInputStrategies } from '../../core/types/file-inputs.types';
 import type { AiEmbeddingRequest, AiEmbeddingResult, AiEmbeddingsPort } from '../../core/types/media.types';
 import type { AiResponse, AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { resolveServiceName } from '../../../common/otel/service-name';
-import { GeminiClientFactory } from './gemini-client.factory';
+import { GeminiClientFactory, GEMINI_DEFAULT_BASE_URL } from './gemini-client.factory';
 import {
   type GeminiRequest,
   type GeminiStorageDeliveries,
@@ -114,6 +114,9 @@ function positiveInt(value: unknown): number | undefined {
 export class GeminiProviderAdapter implements AiProviderAdapter, OnModuleInit {
   readonly id = GEMINI_PROVIDER_ID;
   readonly displayName = 'Google Gemini';
+
+  /** The endpoint used when the settings slot has no `baseUrl` (#773: the egress inventory reads it). */
+  readonly defaultBaseUrl = GEMINI_DEFAULT_BASE_URL;
 
   /** Stateless: the runtime resends history instead of chaining (#446). */
   readonly supportsPreviousResponseId = false;

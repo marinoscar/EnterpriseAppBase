@@ -176,6 +176,16 @@ export interface AiProviderAdapter {
    */
   readonly supportsHostedTools?: boolean;
 
+  /**
+   * The endpoint this adapter calls when the provider's settings slot carries
+   * no `baseUrl` (#773): the SDK default it passes to its client factory.
+   * Absent for a provider that has no default (Azure OpenAI and
+   * OpenAI-compatible need an administrator's endpoint). Read by the egress
+   * inventory (`network.egress`) to name the host a provider reaches, without
+   * a hard-coded table outside `ai/providers/`. Never a secret.
+   */
+  readonly defaultBaseUrl?: string;
+
   // Capability ports — presence IS the declaration.
   readonly responses?: AiResponsesPort;
   readonly images?: AiImagesPort;

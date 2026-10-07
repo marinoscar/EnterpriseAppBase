@@ -7,6 +7,7 @@ import { AiCoreModule } from '../core/ai-core.module';
 import { AiCatalogRefreshHandler } from './ai-catalog-refresh.handler';
 import { AiCatalogRefreshTask } from './ai-catalog-refresh.task';
 import { AiCatalogService } from './ai-catalog.service';
+import { AiCatalogRefreshEgressContributor } from './doctor/egress/ai-catalog-refresh.egress.contributor';
 
 /**
  * The AI model catalog (issue #427, epic #419): discovery + classification
@@ -16,7 +17,13 @@ import { AiCatalogService } from './ai-catalog.service';
  */
 @Module({
   imports: [AiCoreModule, JobsModule, CredentialsModule, SettingsModule],
-  providers: [AiCatalogService, AiCatalogRefreshHandler, AiCatalogRefreshTask],
+  providers: [
+    AiCatalogService,
+    AiCatalogRefreshHandler,
+    AiCatalogRefreshTask,
+    // Egress inventory (#773): the providers the daily refresh reaches.
+    AiCatalogRefreshEgressContributor,
+  ],
   exports: [AiCatalogService],
 })
 export class AiCatalogModule {}
