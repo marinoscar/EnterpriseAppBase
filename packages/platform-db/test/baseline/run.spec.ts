@@ -67,6 +67,7 @@ describe('dry run (the default)', () => {
     await runBaseline(options(ws, { apply: true }), deps);
     const again = await runBaseline(options(ws), fakeDeps({ ledger: appLedger(ws) }));
     expect(again.lockUpToDate).toBe(true);
+    expect(again.notes.filter((n) => n.includes('force-remap'))).toEqual([]);
     expect(renderReport(again).join('\n')).toContain('nothing to do');
   });
 });

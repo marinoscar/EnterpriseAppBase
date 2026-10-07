@@ -224,8 +224,6 @@ export async function runBaseline(opts: BaselineOptions, deps: BaselineDeps): Pr
   if (lockHasEntries) {
     if (opts.apply && !opts.forceRemap) {
       refuse('LOCK_NOT_EMPTY', `platform.lock already has ${existingLock!.migrations.length} entr${existingLock!.migrations.length === 1 ? 'y' : 'ies'}; pass --force-remap to replace them (the mapping is recomputed from the files)`);
-    } else if (!opts.apply) {
-      report.notes.push(`platform.lock already has ${existingLock!.migrations.length} entries; --apply needs --force-remap to replace them`);
     }
   }
 
@@ -298,6 +296,9 @@ export async function runBaseline(opts: BaselineOptions, deps: BaselineDeps): Pr
 
   if (existingLock && plan.length > 0) {
     report.lockUpToDate = serializeLock(buildLock(plan, existingLock, existingLock.platformVersion)) === serializeLock(existingLock);
+  }
+  if (lockHasEntries && !opts.apply && !report.lockUpToDate) {
+    report.notes.push(`platform.lock already has ${existingLock!.migrations.length} entries that differ from this plan; --apply needs --force-remap to replace them`);
   }
 
   // B3 diff: the package history up to --through, replayed, against the LIVE database.
