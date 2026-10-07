@@ -146,6 +146,10 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // (this platform repository and the apps that consume it) as prose; they
   // are cross-repository references, not this fork's rebrand targets.
   'docs/specs/platform-packages.md',
+  // The program's go/no-go gate report measures one change across this
+  // platform repository and an adopting app, so it names both repositories
+  // (links, release URLs) as cross-repository evidence, not rebrand targets.
+  'docs/platform-adoption/go-no-go-evopath.md',
   // Each published platform package's `repository.url` points at the
   // platform repository it is built from (npm provenance checks it). A fork
   // consumes these packages unchanged, so the URL is not a rebrand target;
