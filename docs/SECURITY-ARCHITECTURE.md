@@ -1530,7 +1530,9 @@ second line behind `@Auth(...)` and the service's checks, never a replacement.
 **What is isolated.** The models registered `org` in the model ownership
 registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`, a
 `@marinoscar/platform-api/core` registry): `StorageObject`,
-`StorageObjectChunk`, `AiRun`, `AiUsageEvent`. Each carries `org_id`, has
+`StorageObjectChunk`, `AiRun`, `AiUsageEvent`, and the sharing slice's `Group`,
+`GroupMember` and `GroupInvite` (#728, declared by
+`@marinoscar/platform-api/sharing`). Each carries `org_id`, has
 `ENABLE` and `FORCE ROW LEVEL SECURITY`, and one policy named in
 `packages/platform-db/rls-policies.json` (`RLS_POLICIES`). `AuditEvent` has a
 nullable `org_id` and no policy yet (`org-optional`); `user` and `system`

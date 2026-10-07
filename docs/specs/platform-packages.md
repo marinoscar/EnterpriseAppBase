@@ -313,6 +313,7 @@ flowchart TD
     telem["telemetry product"]
     backup["db-backup"]
     doctor["doctor"]
+    sharing["sharing<br/>groups, ownership, grants"]
   end
   apps["Apps<br/>domain code only"]
   core --> otel --> ident --> slices --> apps
@@ -337,8 +338,9 @@ Rules:
 | db-backup | `DatabaseBackupRun` |
 | settings | `SystemSettings`, `UserSettings` |
 | credentials | `Credential`, `UserCredential` |
+| sharing | `Group`, `GroupMember`, `GroupInvite` (#728; `Grant` follows in #729) |
 
-These are the 31 base models, each assigned to exactly one slice.
+These are the 31 base models, each assigned to exactly one slice; the organization models (`Organization`, `Membership`, `Invite`, #721) went to identity and the sharing models (#728) to the new `sharing` slice. `sharing` depends on `core`, `doctor` and `otel-core` only (`packages/platform-slices.json`), never on identity internals: it reads memberships through the injected client and the principal through the core `Principal` type.
 
 ### The Extension Contract
 
