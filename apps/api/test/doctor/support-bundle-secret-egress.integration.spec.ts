@@ -38,16 +38,18 @@ import { supportBundleSchema } from '@marinoscar/platform-contract/doctor';
 import { DoctorCheckRegistry, DoctorService } from '@marinoscar/platform-api/doctor';
 
 import { CredentialsService } from '../../src/credentials/credentials.service';
-import { TelemetryDashboardService } from '../../src/telemetry/dashboard/telemetry-dashboard.service';
-import { GreptimeClient } from '../../src/telemetry/greptime/greptime.client';
-import { TelemetryStackService } from '../../src/telemetry/stack/telemetry-stack.service';
-import { TelemetrySettingsService } from '../../src/telemetry/telemetry-settings.service';
-import { TelemetryStatusService } from '../../src/telemetry/telemetry-status.service';
+import {
+  GreptimeClient,
+  TelemetrySettingsService,
+} from '@marinoscar/platform-api/telemetry';
+import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
 import { UserCredentialsService } from '../../src/user-credentials/user-credentials.service';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser } from '../helpers/auth-mock.helper';
+
+const { TelemetryDashboardService, TelemetryStackService, TelemetryStatusService } = telemetryProviders;
 
 const secret = (label: string) => `${label}-${randomBytes(18).toString('base64url')}`;
 

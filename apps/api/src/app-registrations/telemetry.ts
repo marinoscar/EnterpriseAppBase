@@ -1,5 +1,5 @@
 import type { AppMetricDef } from '@marinoscar/platform-api/otel-core';
-import type { MetricGroupDef } from '../telemetry/metrics/metric-group.registry';
+import type { MetricGroupDef } from '@marinoscar/platform-api/telemetry';
 
 // =============================================================================
 // This app's telemetry registrations (issue #680)
@@ -14,7 +14,8 @@ import type { MetricGroupDef } from '../telemetry/metrics/metric-group.registry'
 //                      listed by `/metric-groups`, rendered as a dashboard
 //                      section and offered to the assistant's
 //                      `metrics_overview` tool. Registered after the six
-//                      platform groups by `telemetry/metrics/metric-group.manifest.ts`.
+//                      platform groups by `TelemetryModule.forRoot({ metricGroups })`
+//                      (`app.module.ts`).
 //   APP_METRICS        extra `app.*` instruments: counters and histograms are
 //                      created by `AppMetricsService` and emitted with
 //                      `metrics.add(key, value, attributes)` /
@@ -26,7 +27,7 @@ import type { MetricGroupDef } from '../telemetry/metrics/metric-group.registry'
 //
 // Widen the typed group ids and metric keys by module augmentation, next to the entries:
 //
-//   declare module '../telemetry/metrics/metric-group.registry' {
+//   declare module '@marinoscar/platform-api/telemetry' {
 //     interface MetricGroupIds { coach: true }
 //   }
 //   declare module '@marinoscar/platform-api/otel-core' {

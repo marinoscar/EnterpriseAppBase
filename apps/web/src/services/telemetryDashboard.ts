@@ -2,7 +2,7 @@
  * Telemetry Dashboard API client — issue #578, epic #576.
  *
  * The wire shapes are `@marinoscar/platform-contract/telemetry` (#702), the
- * same zod schemas `apps/api/src/telemetry/dto/telemetry-dashboard.dto.ts`
+ * same zod schemas `packages/platform-api/src/telemetry/dto/telemetry-dashboard.dto.ts`
  * wraps:
  *
  *   - `GET /admin/telemetry/dashboard/summary`     (`telemetry:query`)

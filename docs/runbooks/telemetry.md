@@ -19,9 +19,9 @@ Source of truth for every claim below:
   (these three are generated from `@marinoscar/platform-infra/telemetry`, §2)
 - `infra/otel/app-collector.yaml` (the app's own collector overlay, §2.4)
 - `infra/compose/.env.example` (the `GREPTIME_*` and `STACK_AGENT_TOKEN` blocks)
-- `apps/api/src/telemetry/` (settings, status, retention, explorer, assistant)
-- `apps/api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
-- `apps/api/src/telemetry/stack/` (stack-agent client, `telemetry.stack.deploy` job, controller)
+- `packages/platform-api/src/telemetry/` (settings, status, retention, explorer, assistant)
+- `packages/platform-api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
+- `packages/platform-api/src/telemetry/stack/` (stack-agent client, `telemetry.stack.deploy` job, controller)
 - `apps/stack-agent/` (the sidecar)
 - `apps/cli/src/deploy/compose-files.ts`, `env-metadata.ts` (`effectiveGroups`, `STACK_AGENT_TOKEN`)
 - `packages/platform-cli/src/telemetry/` (`telemetryEnvSpecFragment`: the `OTEL_*`, `GREPTIME_*` and monitor-login wizard metadata; the worker's span relay)
@@ -690,7 +690,7 @@ The worked example: a `coach` group over one counter the app records.
      },
    ];
 
-   declare module '../telemetry/metrics/metric-group.registry' {
+   declare module '@marinoscar/platform-api/telemetry' {
      interface MetricGroupIds {
        coach: true;
      }

@@ -278,7 +278,7 @@ A full vertical slice, measured in this repository:
 | Layer | What telemetry contains |
 |---|---|
 | Contract | `packages/platform-contract/src/telemetry/`: the wire shapes of every telemetry route and the `telemetry` settings namespace, which the API's DTOs wrap and the web client types itself with (#702) |
-| API | `apps/api/src/telemetry/`: 92 files (GreptimeDB client, metric catalog, SQL builders, verdicts, dashboard, assistant, export, doctor checks) |
+| API | `packages/platform-api/src/telemetry/` (`@marinoscar/platform-api/telemetry`, #703; 92 files when it lived in `apps/api/src/telemetry/`: GreptimeDB client, metric catalog, SQL builders, verdicts, dashboard, assistant, export, doctor checks), reaching the app through six host ports bound by `apps/api/src/platform/telemetry/` |
 | Web | About 94 files (explorer, dashboard, assistant panel, connection settings) |
 | CLI | About 31 files (node span relay, deploy wizard environment) |
 | Sidecar | The whole `apps/stack-agent` (4 source files plus tests; holds the Docker socket to start the telemetry stack on a VPS) |
@@ -467,8 +467,11 @@ registerDoctorCheck(new CoachProviderCheck());
 TelemetryModule.forRoot({ dashboard: { verdictThresholds: coachThresholds } });
 
 // Rung 3: override one provider through its injection token
-{ provide: VERDICT_POLICY, useClass: CoachVerdictPolicy }
+TelemetryModule.forRoot({ dashboard: { verdictPolicy: { useClass: CoachVerdictPolicy } } });
+// (in a test: .overrideProvider(VERDICT_POLICY).useClass(CoachVerdictPolicy))
 ```
+
+The telemetry slice binds `VERDICT_POLICY` itself (to `DefaultVerdictPolicy`), so an app's own `{ provide: VERDICT_POLICY, ... }` in an imported module would be shadowed by the slice's provider; the slice therefore takes the binding as the `dashboard.verdictPolicy` option, in the `PortBinding` shape of the core host ports (#703).
 
 Existing precedent in the base: Doctor checks and job handlers already register themselves this way ([doctor spec](doctor.md), [job queue spec](job-queue.md)). Permissions and roles are the first static registry: an app declares them as data in `apps/api/src/app-registrations/permissions.ts`, and the permission manifest passes them to `registerPermissions()` after the platform's ([permissions README](../../apps/api/src/common/permissions/README.md)).
 

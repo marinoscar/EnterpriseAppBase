@@ -1,0 +1,268 @@
+import request from 'supertest';
+
+import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import {
+  GreptimeClient,
+  REQUIRED_LOG_COLUMNS,
+  REQUIRED_TRACE_COLUMNS,
+  TELEMETRY_VERDICT_THRESHOLDS,
+  TelemetrySchemaService,
+  TelemetrySettingsService,
+  VERDICT_POLICY,
+  resolveVerdictThresholds,
+  type DashboardVerdict,
+  type TelemetryAiToolDefinition,
+} from '@marinoscar/platform-api/telemetry';
+import { COACH_METRIC_GROUP, COACH_METRIC_GROUP_ID } from '@marinoscar/platform-api/telemetry/testing';
+
+import type { SystemTelemetryValue } from '../../src/common/schemas/settings.schema';
+import { telemetryControllers, telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
+import { setupBaseMocks } from '../fixtures/mock-setup.helper';
+import { authHeader, createMockAdminUser } from '../helpers/auth-mock.helper';
+import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
+import { resetPrismaMock } from '../mocks/prisma.mock';
+
+// =============================================================================
+// The telemetry slice's extension points, through the real HTTP stack (#703)
+// =============================================================================
+//
+// The app's binding (`platform/telemetry/telemetry.config.ts`) passes
+// `APP_METRIC_GROUPS` to `TelemetryModule.forRoot({ metricGroups })`; here it
+// holds a seventh, coach-shaped group. Through the REAL `AppModule`:
+//
+//   rung 2  the group is served by `/metrics?group=coach`, listed by
+//           `/metric-groups`, accepted by the assistant's `metrics_overview`
+//           tool, and documented in the route's `group` enum;
+//   rung 3  overriding `VERDICT_POLICY` changes `/summary`'s verdict;
+//   rung 1  overriding the resolved thresholds (`noDataMinutes`) changes both
+//           `/summary`'s verdict and `TelemetryFreshnessDoctorCheck`.
+//
+// No network: GreptimeDB, the policy and the schema are stubbed on the real
+// providers, as in telemetry-dashboard.integration.spec.ts.
+// =============================================================================
+
+jest.mock('../../src/app-registrations/telemetry', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { COACH_METRIC_GROUP: group } = require('@marinoscar/platform-api/telemetry/testing');
+  return { APP_METRIC_GROUPS: [group], APP_METRICS: [] };
+});
+
+const BASE = '/api/admin/telemetry/dashboard';
+
+const POLICY: SystemTelemetryValue = {
+  enabled: true,
+  retentionDays: 7,
+  instanceId: null,
+  query: { maxRows: 1000, timeoutSeconds: 15 },
+  assistant: {
+    enabled: true,
+    provider: 'openai',
+    modelId: 'test-model',
+    shareResults: true,
+    maxResultRowsToModel: 20,
+    maxSteps: 6,
+  },
+};
+
+/** Telemetry last arrived ten minutes ago: `no_data` under the default five-minute rule. */
+const TEN_MINUTES_AGO = () => new Date(Date.now() - 10 * 60_000).toISOString();
+
+async function boot(overrideProviders: Array<{ provide: unknown; useValue: unknown }> = []) {
+  const context = await createTestApp({ useMockDatabase: true, overrideProviders } as never);
+  const greptime = context.module.get(GreptimeClient);
+  jest.spyOn(greptime, 'isConfigured').mockReturnValue(true);
+  jest.spyOn(context.module.get(TelemetrySettingsService), 'getPolicy').mockResolvedValue(POLICY);
+  jest.spyOn(context.module.get(TelemetrySchemaService), 'getSchema').mockResolvedValue({
+    tables: [
+      { name: 'opentelemetry_traces', rows: null, columns: REQUIRED_TRACE_COLUMNS.map((name) => ({ name, type: 'string', semanticType: null })) },
+      { name: 'opentelemetry_logs', rows: null, columns: REQUIRED_LOG_COLUMNS.map((name) => ({ name, type: 'string', semanticType: null })) },
+    ],
+  });
+  jest.spyOn(greptime, 'queryReader').mockImplementation(async (sql: string) =>
+    sql.includes('AS traces_last')
+      ? { fields: [{ name: 'traces_last', dataTypeID: 25 }, { name: 'logs_last', dataTypeID: 25 }], rows: [[TEN_MINUTES_AGO(), TEN_MINUTES_AGO()]] }
+      : { fields: [], rows: [] },
+  );
+  return context;
+}
+
+function prepare(context: TestContext) {
+  resetPrismaMock();
+  setupBaseMocks();
+  context.prismaMock.auditEvent.create.mockResolvedValue({} as never);
+}
+
+describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
+  let context: TestContext;
+
+  beforeAll(async () => {
+    context = await boot();
+  });
+  afterAll(async () => {
+    jest.restoreAllMocks();
+    await closeTestApp(context);
+  });
+  beforeEach(() => prepare(context));
+
+  it('serves the group at /metrics?group=coach (skipped cleanly: its tables do not exist yet)', async () => {
+    const admin = await createMockAdminUser(context);
+    const res = await request(context.app.getHttpServer())
+      .get(`${BASE}/metrics?group=coach`)
+      .set(authHeader(admin.accessToken))
+      .expect(200);
+
+    expect(res.body.data).toMatchObject({ group: 'coach', available: false, skipped: ['coachNudgesSent', 'healthSummaryP95'] });
+  });
+
+  it('still refuses an unknown group with the same 400', async () => {
+    const admin = await createMockAdminUser(context);
+    const res = await request(context.app.getHttpServer())
+      .get(`${BASE}/metrics?group=nope`)
+      .set(authHeader(admin.accessToken))
+      .expect(400);
+
+    expect(res.body.details.issues[0]).toMatchObject({ path: 'group' });
+    expect(res.body.details.issues[0].message).toContain('"coach"');
+  });
+
+  it('lists the group in /metric-groups, after the six platform groups', async () => {
+    const admin = await createMockAdminUser(context);
+    const res = await request(context.app.getHttpServer())
+      .get(`${BASE}/metric-groups`)
+      .set(authHeader(admin.accessToken))
+      .expect(200);
+
+    expect(res.body.data.map((g: { id: string }) => g.id)).toEqual([
+      'host',
+      'database',
+      'queue',
+      'nodes',
+      'uptime',
+      'pipeline',
+      COACH_METRIC_GROUP_ID,
+    ]);
+    expect(res.body.data.at(-1)).toEqual({
+      id: 'coach',
+      label: COACH_METRIC_GROUP.label,
+      title: COACH_METRIC_GROUP.title,
+      order: COACH_METRIC_GROUP.order,
+    });
+  });
+
+  it("is accepted by the assistant's metrics_overview tool", async () => {
+    const tools: Array<TelemetryAiToolDefinition<never, unknown>> = [];
+    const ai = {
+      defineTool: (definition: TelemetryAiToolDefinition<never, unknown>) => {
+        tools.push(definition);
+        return definition;
+      },
+      forUser: () => ({
+        runTools: async () => ({ final: { outputText: '{"sql":null,"explanation":"ok"}' }, steps: [], stopReason: 'completed' }),
+      }),
+      isAiError: () => false,
+      assertEnabled: async () => undefined,
+    };
+    const { TelemetryAssistantService } = telemetryProviders;
+    const get = <T>(token: unknown) => context.module.get<T>(token as never, { strict: false });
+    const service = new TelemetryAssistantService(
+      ai,
+      get(GreptimeClient),
+      get(TelemetrySettingsService),
+      { run: jest.fn() },
+      get(TelemetrySchemaService),
+      { record: jest.fn() },
+      { readFeatureFlag: jest.fn() },
+      { slug: 'my-app', serviceName: () => 'my-app-api', apiVersion: () => '0', readDeployInfo: jest.fn() },
+    );
+
+    await service.stream('u1', { question: 'q' }, { emit: () => undefined });
+
+    const metricsOverview = tools.find((tool) => tool.name === 'metrics_overview')!;
+    const schema = metricsOverview.parameters as unknown as { safeParse(v: unknown): { success: boolean } };
+    expect(schema.safeParse({ group: 'coach', window: '1h' }).success).toBe(true);
+    expect(schema.safeParse({ group: 'nope', window: '1h' }).success).toBe(false);
+    expect(metricsOverview.description).toContain(COACH_METRIC_GROUP.description);
+  });
+
+  it("documents the group in the route's OpenAPI enum (the documentation is built when forRoot runs)", () => {
+    const { TelemetryDashboardController } = telemetryControllers as Record<string, { prototype: Record<string, object> }>;
+    const params = Reflect.getMetadata('swagger/apiParameters', TelemetryDashboardController.prototype.metrics) as Array<{
+      name: string;
+      schema?: { enum?: string[] };
+    }>;
+
+    expect(params.find((p) => p.name === 'group')?.schema?.enum).toEqual([
+      'host',
+      'database',
+      'queue',
+      'nodes',
+      'uptime',
+      'pipeline',
+      'coach',
+    ]);
+  });
+});
+
+describe('Telemetry extension points (rung 3: VERDICT_POLICY)', () => {
+  let context: TestContext;
+  const policyVerdict: DashboardVerdict = { level: 'critical', reasons: ['App policy: coach nudges stalled'] };
+
+  beforeAll(async () => {
+    context = await boot([{ provide: VERDICT_POLICY, useValue: { compute: () => policyVerdict } }]);
+  });
+  afterAll(async () => {
+    jest.restoreAllMocks();
+    await closeTestApp(context);
+  });
+  beforeEach(() => prepare(context));
+
+  it("the summary's verdict is the overriding policy's", async () => {
+    const admin = await createMockAdminUser(context);
+    const res = await request(context.app.getHttpServer()).get(`${BASE}/summary`).set(authHeader(admin.accessToken)).expect(200);
+
+    expect(res.body.data.verdict).toEqual(policyVerdict);
+  });
+});
+
+describe('Telemetry extension points (rung 1: verdict thresholds)', () => {
+  async function summaryAndFreshness(context: TestContext) {
+    const admin = await createMockAdminUser(context);
+    const res = await request(context.app.getHttpServer()).get(`${BASE}/summary`).set(authHeader(admin.accessToken)).expect(200);
+    const freshness = await context.module.get(DoctorCheckRegistry).get('telemetry.freshness')!.run();
+    return {
+      verdict: res.body.data.verdict.level as string,
+      freshness: freshness.status,
+      threshold: (freshness.data as { thresholdMinutes?: number } | undefined)?.thresholdMinutes,
+    };
+  }
+
+  it('with the defaults, ten quiet minutes are no_data and the freshness check warns', async () => {
+    const context = await boot();
+    try {
+      prepare(context);
+      const { verdict, freshness, threshold } = await summaryAndFreshness(context);
+      expect(verdict).toBe('no_data');
+      expect(freshness).toBe('warn');
+      expect(threshold).toBe(5);
+    } finally {
+      jest.restoreAllMocks();
+      await closeTestApp(context);
+    }
+  });
+
+  it('noDataMinutes: 60 changes both the summary verdict and TelemetryFreshnessDoctorCheck', async () => {
+    const context = await boot([
+      { provide: TELEMETRY_VERDICT_THRESHOLDS, useValue: resolveVerdictThresholds({ noDataMinutes: 60 }) },
+    ]);
+    try {
+      prepare(context);
+      const { verdict, freshness, threshold } = await summaryAndFreshness(context);
+      expect(verdict).toBe('healthy');
+      expect(freshness).toBe('pass');
+      expect(threshold).toBe(60);
+    } finally {
+      jest.restoreAllMocks();
+      await closeTestApp(context);
+    }
+  });
+});

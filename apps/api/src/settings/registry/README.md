@@ -35,7 +35,7 @@ The declaration files:
 | system `maintenance` | `common/maintenance/maintenance.system-settings.ts` |
 | system `storage` | `storage/config/storage.system-settings.ts` |
 | system `ai` | `ai/ai.system-settings.ts` |
-| system `telemetry` | `telemetry/telemetry.system-settings.ts` |
+| system `telemetry` | `platform/telemetry/telemetry.system-settings.ts` (data from `@marinoscar/platform-api/telemetry`) |
 | system `retention` | `common/retention/retention.system-settings.ts` |
 | user `dataTables`, `navigation` | `settings/user-settings/core.user-settings.ts` |
 | user `notifications` | `notifications/notifications.user-settings.ts` |

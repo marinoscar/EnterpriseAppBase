@@ -1,6 +1,6 @@
 /**
  * Telemetry Dashboard fixtures — issue #578, epic #576. Shapes follow
- * `apps/api/src/telemetry/dto/telemetry-dashboard.dto.ts` (#577).
+ * `packages/platform-api/src/telemetry/dto/telemetry-dashboard.dto.ts` (#577).
  *
  * `dashboardHandlers()` answers all seven endpoints (`/metrics`: #601/#602;
  * `/metric-groups`: #680); a test overrides one with `server.use(...)` after

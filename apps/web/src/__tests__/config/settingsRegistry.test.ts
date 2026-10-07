@@ -1135,6 +1135,15 @@ describe('the AI group (#425)', () => {
  * mechanical half of CLAUDE.md Settings UI Pattern rule 3.
  */
 describe('the Observability group (#537)', () => {
+  // The telemetry controllers live in the telemetry slice of the platform
+  // package since #703; each route is guarded with the app's own `@Auth()`
+  // through the host port, as `access.requirePermissions([TELEMETRY_PERMISSIONS.X])`,
+  // and the slice's permission file maps `X` to the string.
+  const TELEMETRY_SRC = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../../../packages/platform-api/src/telemetry',
+  );
+  const telemetryPermissions = readFileSync(resolve(TELEMETRY_SRC, 'telemetry.permissions.ts'), 'utf8');
   const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
   const rolesConstants = readApiPermissionConstants();
   const observability = ADMIN_SECTIONS.find((section) => section.label === 'Observability');
@@ -1170,13 +1179,11 @@ describe('the Observability group (#537)', () => {
     });
 
     it('declares the exact permission telemetry-admin.controller.ts enforces on its reads', () => {
-      const controller = readFileSync(
-        resolve(API_SRC, 'telemetry/telemetry-admin.controller.ts'),
-        'utf8',
-      );
+      const controller = readFileSync(resolve(TELEMETRY_SRC, 'telemetry-admin.controller.ts'), 'utf8');
       expect(telemetry?.permission).toBe('telemetry:read');
       expect(rolesConstants).toContain("TELEMETRY_READ: 'telemetry:read'");
-      expect(controller).toContain('@Auth({ permissions: [PERMISSIONS.TELEMETRY_READ] })');
+      expect(telemetryPermissions).toContain("readonly READ: 'telemetry:read';");
+      expect(controller).toContain('@(access.requirePermissions([TELEMETRY_PERMISSIONS.READ]))');
     });
   });
 
@@ -1195,13 +1202,10 @@ describe('the Observability group (#537)', () => {
     it('declares telemetry:query, the explorer controller permission', () => {
       expect(explorer?.permission).toBe('telemetry:query');
       expect(rolesConstants).toContain("TELEMETRY_QUERY: 'telemetry:query'");
-      // The explorer controller lands in #535, built in parallel with this
-      // page. Until it exists in the tree, the roles constant above is the
-      // anchor; once it does, it must enforce the same constant.
-      const controllerPath = resolve(API_SRC, 'telemetry/telemetry-explorer.controller.ts');
-      if (existsSync(controllerPath)) {
-        expect(readFileSync(controllerPath, 'utf8')).toContain('PERMISSIONS.TELEMETRY_QUERY');
-      }
+      expect(telemetryPermissions).toContain("readonly QUERY: 'telemetry:query';");
+      const controllerPath = resolve(TELEMETRY_SRC, 'telemetry-explorer.controller.ts');
+      expect(existsSync(controllerPath)).toBe(true);
+      expect(readFileSync(controllerPath, 'utf8')).toContain('access.requirePermissions([TELEMETRY_PERMISSIONS.QUERY])');
     });
   });
 
@@ -1224,14 +1228,11 @@ describe('the Observability group (#537)', () => {
     it("declares telemetry:query, the dashboard controller's permission, and the telemetry feature", () => {
       expect(dashboard?.permission).toBe('telemetry:query');
       expect(dashboard?.feature).toBe('telemetry');
-      const controller = readFileSync(
-        resolve(API_SRC, 'telemetry/dashboard/telemetry-dashboard.controller.ts'),
-        'utf8',
-      );
-      const guards = controller.match(/@Auth\(\{[^)]*\}\)/g) ?? [];
+      const controller = readFileSync(resolve(TELEMETRY_SRC, 'dashboard/telemetry-dashboard.controller.ts'), 'utf8');
+      const guards = controller.match(/@\(access\.require\w+\([^)]*\)\)/g) ?? [];
       // summary, timeseries, top, events, filters, metrics and metric-groups (#680).
       expect(guards).toHaveLength(7);
-      for (const guard of guards) expect(guard).toBe('@Auth({ permissions: [PERMISSIONS.TELEMETRY_QUERY] })');
+      for (const guard of guards) expect(guard).toBe('@(access.requirePermissions([TELEMETRY_PERMISSIONS.QUERY]))');
     });
 
     it('is hidden while telemetry is off and titles its route by longest prefix', () => {
