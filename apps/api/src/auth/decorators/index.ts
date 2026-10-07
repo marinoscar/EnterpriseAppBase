@@ -5,3 +5,4 @@ export * from './public.decorator';
 export * from './roles.decorator';
 export * from './auth-credential.decorator';
 export * from './current-principal.decorator';
+export * from './current-org.decorator';
