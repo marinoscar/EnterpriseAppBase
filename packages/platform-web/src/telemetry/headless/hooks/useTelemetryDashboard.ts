@@ -18,13 +18,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  getDashboardEvents,
-  getDashboardFilters,
-  getDashboardMetricGroups,
-  getDashboardMetrics,
-  getDashboardSummary,
-  getDashboardTimeseries,
-  getDashboardTop,
   type DashboardEvent,
   type DashboardEvents,
   type DashboardEventsQuery,
@@ -39,11 +32,19 @@ import {
   type DashboardTimeseriesPanel,
   type DashboardTop,
   type DashboardTopKind,
-} from '../services/telemetryDashboard';
-import { toTelemetryError, type TelemetryErrorInfo } from './useTelemetryExplorer';
+} from '../services/telemetryDashboard.js';
+import { useTelemetryClient } from '../services/client.js';
+import { toTelemetryError, type TelemetryErrorInfo } from './useTelemetryExplorer.js';
 
+/**
+ * One dashboard panel's data, as every `useDashboard*` hook returns it.
+ *
+ * @stability experimental
+ */
 export interface DashboardResource<T> {
+  /** The last result, or `null` before the first. */
   data: T | null;
+  /** The last request's error, or `null`. */
   error: TelemetryErrorInfo | null;
   /** No result yet and a request in flight. */
   isLoading: boolean;
@@ -113,35 +114,50 @@ function useDashboardResource<T>(
 
 const keyOf = (value: unknown) => JSON.stringify(value);
 
-/** `GET …/summary` — verdict, tiles and optional runtime tiles. */
+/**
+ * `GET …/summary` — verdict, tiles and optional runtime tiles.
+ *
+ * @stability experimental
+ */
 export function useDashboardSummary(query: DashboardQuery, tick: number) {
+  const client = useTelemetryClient();
   return useDashboardResource<DashboardSummary>(
     keyOf(query),
-    (signal) => getDashboardSummary(query, { signal }),
+    (signal) => client.getDashboardSummary(query, { signal }),
     tick,
     'Failed to load the summary',
   );
 }
 
-/** `GET …/timeseries?panel=api|logs`. */
+/**
+ * `GET …/timeseries?panel=api|logs`.
+ *
+ * @stability experimental
+ */
 export function useDashboardTimeseries<P extends DashboardTimeseriesPanel>(
   panel: P,
   query: DashboardQuery,
   tick: number,
 ) {
+  const client = useTelemetryClient();
   return useDashboardResource<DashboardTimeseries<P>>(
     keyOf([panel, query]),
-    (signal) => getDashboardTimeseries(panel, query, { signal }),
+    (signal) => client.getDashboardTimeseries(panel, query, { signal }),
     tick,
     'Failed to load the time series',
   );
 }
 
-/** `GET …/top?kind=routes|errors`. */
+/**
+ * `GET …/top?kind=routes|errors`.
+ *
+ * @stability experimental
+ */
 export function useDashboardTop<K extends DashboardTopKind>(kind: K, query: DashboardQuery, tick: number) {
+  const client = useTelemetryClient();
   return useDashboardResource<DashboardTop<K>>(
     keyOf([kind, query]),
-    (signal) => getDashboardTop(kind, query, { signal }),
+    (signal) => client.getDashboardTop(kind, query, { signal }),
     tick,
     'Failed to load the top list',
   );
@@ -151,11 +167,14 @@ export function useDashboardTop<K extends DashboardTopKind>(kind: K, query: Dash
  * `GET …/metrics?group=…` (#601) — one metric group per call, so each of the
  * page's infrastructure sections (one per `/metric-groups` entry, #680) loads,
  * fails and retries on its own, on the page's shared refresh tick.
+ *
+ * @stability experimental
  */
 export function useDashboardMetrics(group: DashboardMetricGroup, query: DashboardMetricsQuery, tick: number) {
+  const client = useTelemetryClient();
   return useDashboardResource<DashboardMetrics>(
     keyOf([group, query]),
-    (signal) => getDashboardMetrics(group, query, { signal }),
+    (signal) => client.getDashboardMetrics(group, query, { signal }),
     tick,
     'Failed to load the metrics',
   );
@@ -165,12 +184,15 @@ export function useDashboardMetrics(group: DashboardMetricGroup, query: Dashboar
  * `GET …/metric-groups` (#680) — the sections the page renders, sorted by
  * `order` then id. Fetched once with the page's initial requests (the list
  * only changes with a deploy), not on the refresh tick; Retry refetches it.
+ *
+ * @stability experimental
  */
 export function useDashboardMetricGroups() {
+  const client = useTelemetryClient();
   return useDashboardResource<DashboardMetricGroupMeta[]>(
     'metric-groups',
     async (signal) =>
-      [...(await getDashboardMetricGroups({ signal }))].sort(
+      [...(await client.getDashboardMetricGroups({ signal }))].sort(
         (a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       ),
     0,
@@ -178,22 +200,36 @@ export function useDashboardMetricGroups() {
   );
 }
 
-/** `GET …/filters` — the services, instances and hosts seen in the window. */
+/**
+ * `GET …/filters` — the services, instances and hosts seen in the window.
+ *
+ * @stability experimental
+ */
 export function useDashboardFilters(query: Pick<DashboardQuery, 'range' | 'from' | 'to'>, tick: number) {
+  const client = useTelemetryClient();
   return useDashboardResource<DashboardFilters>(
     keyOf(query),
-    (signal) => getDashboardFilters(query, { signal }),
+    (signal) => client.getDashboardFilters(query, { signal }),
     tick,
     'Failed to load the filter values',
   );
 }
 
+/**
+ * What {@link useDashboardEvents} returns: the panel's data plus keyset paging.
+ *
+ * @stability experimental
+ */
 export interface DashboardEventsResource extends DashboardResource<DashboardEvents> {
   /** Every page loaded so far, newest first. */
   items: DashboardEvent[];
+  /** Another page exists. */
   hasMore: boolean;
+  /** The next page is in flight. */
   isLoadingMore: boolean;
+  /** Why the next page failed, or `null`. */
   loadMoreError: TelemetryErrorInfo | null;
+  /** Load the next page. */
   loadMore: () => void;
 }
 
@@ -202,8 +238,11 @@ export interface DashboardEventsResource extends DashboardResource<DashboardEven
  * or a refresh replaces the list with its first page — EXCEPT that an
  * auto-refresh tick is skipped while the reader has paged past the first page,
  * so the rows they scrolled to do not collapse under them every 30 seconds.
+ *
+ * @stability experimental
  */
 export function useDashboardEvents(query: DashboardEventsQuery, tick: number): DashboardEventsResource {
+  const client = useTelemetryClient();
   const key = keyOf(query);
   const [pages, setPages] = useState<DashboardEvents[]>([]);
   const [error, setError] = useState<TelemetryErrorInfo | null>(null);
@@ -231,7 +270,7 @@ export function useDashboardEvents(query: DashboardEventsQuery, tick: number): D
     setIsFetching(true);
     setIsLoadingMore(false);
     setLoadMoreError(null);
-    getDashboardEvents(queryRef.current, { signal: controller.signal })
+    client.getDashboardEvents(queryRef.current, { signal: controller.signal })
       .then((page) => {
         if (controller.signal.aborted) return;
         pagedRef.current = { key, paged: false };
@@ -262,7 +301,7 @@ export function useDashboardEvents(query: DashboardEventsQuery, tick: number): D
     controllerRef.current = controller;
     setIsLoadingMore(true);
     setLoadMoreError(null);
-    getDashboardEvents({ ...queryRef.current, cursor: nextCursor }, { signal: controller.signal })
+    client.getDashboardEvents({ ...queryRef.current, cursor: nextCursor }, { signal: controller.signal })
       .then((page) => {
         if (controller.signal.aborted) return;
         pagedRef.current = { key: keyOf(queryRef.current), paged: true };

@@ -14,36 +14,104 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  streamTelemetryAssistant,
   type TelemetryAssistantAnswer,
   type TelemetryAssistantReport,
   type TelemetryAssistantStep,
   type TelemetryAssistantTurn,
-} from '../services/telemetry';
-import { toTelemetryError } from './useTelemetryExplorer';
-import { useIsMounted } from './useIsMounted';
+} from '../services/telemetry.js';
+import { toTelemetryError } from './useTelemetryExplorer.js';
+import { useTelemetryClient } from '../services/client.js';
+import { useIsMounted } from '../../internal/useIsMounted.js';
 
+/**
+ * How many earlier answered turns are replayed to the model as history.
+ *
+ * @stability experimental
+ */
 export const ASSISTANT_HISTORY_TURNS = 10;
+/**
+ * The longest question sent, in characters (the API's own limit).
+ *
+ * @stability experimental
+ */
 export const ASSISTANT_QUESTION_MAX = 4000;
 
+/**
+ * A question the viewer asked, as the assistant panel lists it.
+ *
+ * @stability experimental
+ */
 export interface AssistantUserMessage {
+  /** A stable id within the conversation. */
   id: string;
+  /** The viewer's turn. */
   role: 'user';
+  /** The question as sent. */
   text: string;
 }
 
+/**
+ * The assistant's reply to one question: its tool steps, its answer and how it ended.
+ *
+ * @stability experimental
+ */
 export interface AssistantReplyMessage {
+  /** A stable id within the conversation. */
   id: string;
+  /** The assistant's turn. */
   role: 'assistant';
+  /** How the turn stands: still streaming, answered, failed or stopped by the viewer. */
   status: 'streaming' | 'done' | 'error' | 'stopped';
+  /** The tool steps so far, in order. */
   steps: TelemetryAssistantStep[];
+  /** The final answer, or `null` until it arrives. */
   answer: TelemetryAssistantAnswer | null;
-  error: { code: string | null; message: string } | null;
+  /** Why the turn failed, or `null`. */
+  error: AssistantReplyError | null;
 }
 
+/**
+ * Why an assistant turn failed.
+ *
+ * @stability experimental
+ */
+export interface AssistantReplyError {
+  /** The reason or envelope code (`TELEMETRY_ASSISTANT_DISABLED`, `AI_DISABLED`, ...), or `null`. */
+  code: string | null;
+  /** What to show. */
+  message: string;
+}
+
+/**
+ * What {@link useTelemetryAssistant} returns.
+ *
+ * @stability experimental
+ */
+export interface UseTelemetryAssistantReturn {
+  /** The conversation, oldest first. */
+  messages: AssistantMessage[];
+  /** A turn is streaming. */
+  isStreaming: boolean;
+  /** Ask a question (ignored while a turn streams or when it is blank). */
+  ask: (question: string) => Promise<void>;
+  /** Stop the turn in flight. */
+  stop: () => void;
+  /** Stop and forget the conversation. */
+  clear: () => void;
+}
+
+/**
+ * One entry of the assistant conversation.
+ *
+ * @stability experimental
+ */
 export type AssistantMessage = AssistantUserMessage | AssistantReplyMessage;
 
-/** Upper bound on one replayed answer, so a long report cannot crowd out the question. */
+/**
+ * Upper bound on one replayed answer, so a long report cannot crowd out the question.
+ *
+ * @stability experimental
+ */
 export const ASSISTANT_HISTORY_ANSWER_MAX = 6000;
 
 function reportAsHistory(report: TelemetryAssistantReport): string {
@@ -66,6 +134,8 @@ function reportAsHistory(report: TelemetryAssistantReport): string {
  * How an answered turn is replayed to the model as history: a compact report
  * (status, summary, finding titles, root cause, recommendations, first query)
  * bounded to {@link ASSISTANT_HISTORY_ANSWER_MAX}; a legacy answer unchanged.
+ *
+ * @stability experimental
  */
 export function answerAsHistory(answer: TelemetryAssistantAnswer): string {
   if (answer.report) {
@@ -80,11 +150,13 @@ export function answerAsHistory(answer: TelemetryAssistantAnswer): string {
 /**
  * The `history` for the next question: completed turns only (a question whose
  * answer failed is dropped with it), the last {@link ASSISTANT_HISTORY_TURNS}.
+ *
+ * @stability experimental
  */
 export function buildAssistantHistory(messages: AssistantMessage[]): TelemetryAssistantTurn[] {
   const turns: TelemetryAssistantTurn[][] = [];
   for (let i = 0; i < messages.length; i += 1) {
-    const message = messages[i];
+    const message = messages[i]!;
     const next = messages[i + 1];
     if (message.role === 'user' && next?.role === 'assistant' && next.answer) {
       turns.push([
@@ -103,12 +175,27 @@ function nextId(prefix: string): string {
   return `${prefix}-${Date.now()}-${sequence}`;
 }
 
+/**
+ * What {@link useTelemetryAssistant} takes.
+ *
+ * @stability experimental
+ */
 export interface UseTelemetryAssistantOptions {
   /** Called once per turn when the final answer arrives. */
   onAnswer?: (answer: TelemetryAssistantAnswer) => void;
 }
 
-export function useTelemetryAssistant(options: UseTelemetryAssistantOptions = {}) {
+/**
+ * The troubleshooting assistant's conversation: `ask` streams one turn (`POST /admin/telemetry/assistant/stream`) with the earlier answered turns as history; `stop` aborts it; `clear` forgets the conversation. The browser never talks to a model.
+ *
+ * @param options - an optional `onAnswer` callback.
+ * @returns `messages`, `isStreaming`, `ask`, `stop` and `clear`.
+ * @throws Error outside a `PlatformHostProvider`.
+ *
+ * @stability experimental
+ */
+export function useTelemetryAssistant(options: UseTelemetryAssistantOptions = {}): UseTelemetryAssistantReturn {
+  const client = useTelemetryClient();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
@@ -150,7 +237,7 @@ export function useTelemetryAssistant(options: UseTelemetryAssistantOptions = {}
       setIsStreaming(true);
 
       try {
-        await streamTelemetryAssistant(
+        await client.streamTelemetryAssistant(
           { question: text, ...(history.length ? { history } : {}) },
           {
             signal: controller.signal,
@@ -191,7 +278,7 @@ export function useTelemetryAssistant(options: UseTelemetryAssistantOptions = {}
         if (isMounted()) setIsStreaming(false);
       }
     },
-    [isMounted, patchReply],
+    [client, isMounted, patchReply],
   );
 
   const stop = useCallback(() => {

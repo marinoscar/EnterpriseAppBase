@@ -29,9 +29,9 @@ import {
   type DashboardTopRoute,
   type DashboardUnknownRoutes,
   type DashboardVerdictLevel,
-} from '../../../services/telemetryDashboard';
-import { formatDuration, formatMetricValue, formatTileValue, toNumber } from './format';
-import { isTraceId } from './traceLink';
+} from '../../services/telemetryDashboard.js';
+import { formatDuration, formatMetricValue, formatTileValue, toNumber } from '../format.js';
+import { isTraceId } from '../traceLink.js';
 
 export const ASSISTANT_PROMPT_MAX = 2000;
 export const ASSISTANT_PROMPT_MESSAGE_MAX = 200;

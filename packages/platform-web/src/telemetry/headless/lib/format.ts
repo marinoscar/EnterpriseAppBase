@@ -3,7 +3,11 @@
  * Pure functions, so the tiles and tables stay presentation-only.
  */
 
-/** A tile value as a number, or `null` (`int8` may arrive as a string). */
+/**
+ * A tile value as a number, or `null` (`int8` may arrive as a string).
+ *
+ * @stability experimental
+ */
 export function toNumber(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = typeof value === 'number' ? value : Number(value);
@@ -13,11 +17,27 @@ export function toNumber(value: number | string | null | undefined): number | nu
 const compact = (n: number, digits = 1) =>
   n.toLocaleString(undefined, { maximumFractionDigits: digits });
 
+/**
+ * A duration in milliseconds at a readable scale: `8.5 ms`, `120 ms`, `1.25 s`.
+ *
+ * @param ms - the duration in milliseconds.
+ * @returns the value and its unit, separated by a space.
+ *
+ * @stability experimental
+ */
 export function formatDuration(ms: number): string {
   if (ms >= 1000) return `${compact(ms / 1000, 2)} s`;
   return `${compact(ms, ms < 10 ? 1 : 0)} ms`;
 }
 
+/**
+ * A byte count in binary units: `512 B`, `1.5 KB`, `3.2 GB`.
+ *
+ * @param bytes - the count.
+ * @returns the value and its unit, separated by a space.
+ *
+ * @stability experimental
+ */
 export function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let value = bytes;
@@ -32,6 +52,8 @@ export function formatBytes(bytes: number): string {
 /**
  * A duration in seconds at a readable scale: `42 s`, `12.5 min`, `3.2 h`,
  * `4.1 d` — a queue age of 5400 s reads better as 1.5 h.
+ *
+ * @stability experimental
  */
 export function formatSeconds(seconds: number): string {
   const abs = Math.abs(seconds);
@@ -53,6 +75,8 @@ function split(text: string): { value: string; unit: string } {
  * every metric unit of `/metrics` (#601): `bytes/s`, `per_s`, `per_min`,
  * `seconds`, `hours`, `days`, `cores`, `load`, `text` and `boolean`. An
  * unknown unit is shown as given.
+ *
+ * @stability experimental
  */
 export function formatTileValue(
   value: number | string | null,
@@ -73,17 +97,17 @@ export function formatTileValue(
       return { value: compact(n, 2), unit: '%' };
     case 'ms': {
       const [amount, suffix] = formatDuration(n).split(' ');
-      return { value: amount, unit: suffix };
+      return { value: amount!, unit: suffix! };
     }
     case 'bytes': {
       const [amount, suffix] = formatBytes(n).split(' ');
-      return { value: amount, unit: suffix };
+      return { value: amount!, unit: suffix! };
     }
     case 'count':
       return { value: Math.round(n).toLocaleString(), unit: '' };
     case 'bytes/s': {
       const [amount, suffix] = formatBytes(n).split(' ');
-      return { value: amount, unit: `${suffix}/s` };
+      return { value: amount!, unit: `${suffix!}/s` };
     }
     case 'per_s':
       return { value: compact(n, 2), unit: '/s' };
@@ -106,7 +130,11 @@ export function formatTileValue(
   }
 }
 
-/** A tile value or table cell as one string (`—` for nothing), e.g. `35.6%`, `1.2 GB`, `Yes`. */
+/**
+ * A tile value or table cell as one string (`—` for nothing), e.g. `35.6%`, `1.2 GB`, `Yes`.
+ *
+ * @stability experimental
+ */
 export function formatMetricValue(
   value: number | string | boolean | null | undefined,
   unit: string,
@@ -121,7 +149,11 @@ export function formatMetricValue(
     : `${formatted.value} ${formatted.unit}`;
 }
 
-/** "5s ago", "3m ago", "2h ago", "4d ago"; "just now" under a second. */
+/**
+ * "5s ago", "3m ago", "2h ago", "4d ago"; "just now" under a second.
+ *
+ * @stability experimental
+ */
 export function formatRelative(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return '—';
@@ -135,7 +167,11 @@ export function formatRelative(iso: string, now: number = Date.now()): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-/** A readable absolute timestamp (local time, to the second). */
+/**
+ * A readable absolute timestamp (local time, to the second).
+ *
+ * @stability experimental
+ */
 export function formatTimestamp(iso: string | null): string {
   if (!iso) return '—';
   const then = Date.parse(iso);
@@ -150,7 +186,11 @@ export function formatTimestamp(iso: string | null): string {
   });
 }
 
-/** A bucket's x-axis label: time of day, plus the date for multi-day spans. */
+/**
+ * A bucket's x-axis label: time of day, plus the date for multi-day spans.
+ *
+ * @stability experimental
+ */
 export function formatBucketLabel(iso: string, spanMs: number): string {
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return iso;
@@ -164,6 +204,8 @@ export function formatBucketLabel(iso: string, spanMs: number): string {
 /**
  * Which direction is bad for a tile: up for errors and latency, none for
  * traffic (more requests is neither good nor bad on its own).
+ *
+ * @stability experimental
  */
 export type ChangeDirection = 'up-is-bad' | 'down-is-bad' | 'neutral';
 
@@ -204,18 +246,42 @@ const TILE_DIRECTIONS: Record<string, ChangeDirection> = {
   scrapeTargetsDown: 'up-is-bad',
 };
 
+/**
+ * Whether a rising value is bad, good or neither for the tile `key`.
+ *
+ * @param key - the tile's key.
+ * @returns the tile's direction (`neutral` for an unknown key).
+ *
+ * @stability experimental
+ */
 export function tileDirection(key: string): ChangeDirection {
   return TILE_DIRECTIONS[key] ?? 'neutral';
 }
 
+/**
+ * A tile's change against the previous window of equal length.
+ *
+ * @stability experimental
+ */
 export interface TileChange {
   /** Percent change, rounded; `null` when there is no comparable previous value. */
   pct: number | null;
+  /** Which way the value moved. */
   trend: 'up' | 'down' | 'flat';
   /** How to colour it. */
   tone: 'good' | 'bad' | 'neutral';
 }
 
+/**
+ * A tile's change against its previous value, toned by `direction`.
+ *
+ * @param value - the current value.
+ * @param previous - the previous window's value.
+ * @param direction - from {@link tileDirection}.
+ * @returns the change, its trend and its tone.
+ *
+ * @stability experimental
+ */
 export function tileChange(
   value: number | string | null,
   previous: number | string | null,

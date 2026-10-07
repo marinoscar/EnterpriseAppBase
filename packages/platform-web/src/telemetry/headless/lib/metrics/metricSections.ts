@@ -10,17 +10,39 @@
  * docs/specs/telemetry.md §11.7); a reason no pattern matches (the traffic
  * rules, "no data", an app group) simply gets no link.
  */
-import type { DashboardMetricGroup, DashboardMetricGroupMeta } from '../../../../services/telemetryDashboard';
+import type { DashboardMetricGroup, DashboardMetricGroupMeta } from '../../services/telemetryDashboard.js';
 
 /** A section's metadata: one `/metric-groups` entry. */
 export type MetricSectionMeta = DashboardMetricGroupMeta;
 
-/** The section title the API gives `group`, or the id itself when the metadata does not list it. */
+/**
+ * Fallback titles for two platform groups whose dashboard title is not their
+ * id, used only while (or when) the API's group metadata does not list the
+ * group. The metadata always wins: an app group (EvoPath's `coach`) is titled
+ * from it with no entry here.
+ *
+ * @stability experimental
+ */
+export const METRIC_SECTION_TITLES: Readonly<Partial<Record<DashboardMetricGroup, string>>> = Object.freeze({
+  host: 'Infrastructure',
+  uptime: 'Uptime & dependencies',
+});
+
+/**
+ * The section title the API gives `group`; else {@link METRIC_SECTION_TITLES};
+ * else the id itself.
+ *
+ * @param group - the metric group id.
+ * @param groups - the API's group metadata (`GET …/metric-groups`).
+ * @returns the title to show.
+ *
+ * @stability experimental
+ */
 export function metricSectionTitle(
   group: DashboardMetricGroup,
   groups: readonly Pick<DashboardMetricGroupMeta, 'id' | 'title'>[] = [],
 ): string {
-  return groups.find((section) => section.id === group)?.title ?? group;
+  return groups.find((section) => section.id === group)?.title ?? METRIC_SECTION_TITLES[group] ?? group;
 }
 
 /** The DOM id of a section's anchor (the verdict banner scrolls to it). */

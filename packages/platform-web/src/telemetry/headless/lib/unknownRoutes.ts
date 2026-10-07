@@ -4,7 +4,7 @@
  * Pure helpers for the "Unknown API routes" panel (`UnknownRoutesPanel.tsx`),
  * kept apart from the component so the page can use them too.
  */
-import { sqlList, type DashboardUnknownRoutes } from '../../../services/telemetryDashboard';
+import { sqlList, type DashboardUnknownRoutes } from '../services/telemetryDashboard.js';
 
 /** DOM id of the panel's region: the verdict reason about unknown routes scrolls here. */
 export const UNKNOWN_ROUTES_ANCHOR = 'telemetry-unknown-routes';

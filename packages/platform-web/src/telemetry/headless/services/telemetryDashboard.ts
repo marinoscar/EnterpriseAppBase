@@ -65,16 +65,24 @@ import type {
   TelemetryDashboardUnknownRoutes,
   VerdictLevel,
 } from '@marinoscar/platform-contract/telemetry';
-import { api } from './api';
 
 // =============================================================================
 // Request
 // =============================================================================
 
 export { DASHBOARD_RANGES, DEFAULT_DASHBOARD_RANGE, DASHBOARD_RANGE_MS };
+/**
+ * A relative dashboard window: `15m`, `1h`, `6h`, `24h` or `7d`.
+ *
+ * @stability experimental
+ */
 export type DashboardRange = ContractDashboardRange;
 
-/** Display labels of the relative windows (web only). */
+/**
+ * Display labels of the relative windows (web only).
+ *
+ * @stability experimental
+ */
 export const DASHBOARD_RANGE_LABELS: Record<DashboardRange, string> = {
   '15m': 'Last 15 minutes',
   '1h': 'Last hour',
@@ -83,10 +91,23 @@ export const DASHBOARD_RANGE_LABELS: Record<DashboardRange, string> = {
   '7d': 'Last 7 days',
 };
 
-/** The severities `events` filters on (the contract's `DASHBOARD_EVENT_SEVERITIES`). */
+/**
+ * The severities `events` filters on (the contract's `DASHBOARD_EVENT_SEVERITIES`).
+ *
+ * @stability experimental
+ */
 export const DASHBOARD_SEVERITIES = DASHBOARD_EVENT_SEVERITIES;
+/**
+ * A log severity the event panels filter on (`error`, `warn`, `info`).
+ *
+ * @stability experimental
+ */
 export type DashboardSeverity = DashboardEventSeverity;
-/** What the events feed asks for until the user picks (web only; the API's own default is the same). */
+/**
+ * What the events feed asks for until the user picks (web only; the API's own default is the same).
+ *
+ * @stability experimental
+ */
 export const DEFAULT_DASHBOARD_SEVERITIES: DashboardSeverity[] = ['error', 'warn'];
 
 /** The longest `q` the events route accepts. */
@@ -95,15 +116,26 @@ export { DASHBOARD_SEARCH_MAX_LENGTH };
 /** The longest absolute window, and the longest filter value, the dashboard routes accept. */
 export { DASHBOARD_MAX_SPAN_MS, DASHBOARD_FILTER_VALUE_MAX };
 
+/**
+ * How many time buckets a timeseries asks for.
+ *
+ * @stability experimental
+ */
 export type DashboardBuckets = DashboardBucketCount;
 
-/** The query every endpoint shares. `range` XOR `from` + `to`. */
+/**
+ * The query every endpoint shares. `range` XOR `from` + `to`.
+ *
+ * @stability experimental
+ */
 export type DashboardQuery = TelemetryDashboardQuery;
 
 /**
  * `/metrics` also takes `host` (a value of `/filters` `hosts`). It applies to
  * the collector-scraped tables only, so it is sent to `/metrics` alone.
- * `group` is not part of it: {@link getDashboardMetrics} takes it separately.
+ * `group` is not part of it: {@link TelemetryClient.getDashboardMetrics} takes it separately.
+ *
+ * @stability experimental
  */
 export type DashboardMetricsQuery = Omit<TelemetryDashboardMetricsQuery, 'group'>;
 
@@ -111,27 +143,45 @@ export type DashboardMetricsQuery = Omit<TelemetryDashboardMetricsQuery, 'group'
  * The events query. INTENTIONALLY DIFFERENT from the wire: `severity` is a
  * list here, serialised to the wire's comma-separated string by
  * {@link dashboardSearchParams}.
+ *
+ * @stability experimental
  */
 export type DashboardEventsQuery = Omit<TelemetryDashboardEventsQuery, 'severity'> & {
+  /** The severities to include; serialised as a comma-separated list. */
   severity?: DashboardSeverity[];
 };
 
-interface RequestOptions {
-  signal?: AbortSignal;
-}
 
 // =============================================================================
 // Responses
 // =============================================================================
 
+/**
+ * What every dashboard response except `/metrics` starts with: the resolved window and bucket size, when the store was read, whether a row cap cut a list short, and the statements run.
+ *
+ * @stability experimental
+ */
 export type DashboardEnvelope = TelemetryDashboardEnvelope;
 
+/**
+ * The summary's verdict: `healthy`, `degraded`, `critical` or `no_data`.
+ *
+ * @stability experimental
+ */
 export type DashboardVerdictLevel = VerdictLevel;
 
-/** A tile. `value` may be a string (`int8`/`numeric`, or a timestamp's ISO text). */
+/**
+ * A tile. `value` may be a string (`int8`/`numeric`, or a timestamp's ISO text).
+ *
+ * @stability experimental
+ */
 export type DashboardTile = TelemetryDashboardTile;
 
-/** One unknown API route of the summary (#650): a method + path no route of the running API matches. */
+/**
+ * One unknown API route of the summary (#650): a method + path no route of the running API matches.
+ *
+ * @stability experimental
+ */
 export type DashboardUnknownRoute = TelemetryDashboardUnknownRoute;
 
 /**
@@ -139,38 +189,75 @@ export type DashboardUnknownRoute = TelemetryDashboardUnknownRoute;
  * the wire: `sql` is optional so a web build ahead of its API renders (the
  * "Open in Explorer" action is then disabled). The contract's type is
  * assignable to it.
+ *
+ * @stability experimental
  */
 export type DashboardUnknownRoutes = Omit<TelemetryDashboardUnknownRoutes, 'sql'> & {
+  /** The explorer statements behind the block, primary first (a list here). */
   sql?: string[];
 };
 
-/** `GET …/summary`, with the looser {@link DashboardUnknownRoutes}. */
+/**
+ * `GET …/summary`, with the looser {@link DashboardUnknownRoutes}.
+ *
+ * @stability experimental
+ */
 export type DashboardSummary = Omit<TelemetryDashboardSummary, 'unknownRoutes'> & {
   /** #650. Absent when the store cannot tell unknown routes apart yet: unknown, not zero. */
   unknownRoutes?: DashboardUnknownRoutes;
 };
 
+/**
+ * One API timeline bucket: request counts by status class and latency.
+ *
+ * @stability experimental
+ */
 export type DashboardApiBucket = TelemetryDashboardApiBucket;
 
+/**
+ * One log timeline bucket: record counts by severity.
+ *
+ * @stability experimental
+ */
 export type DashboardLogsBucket = TelemetryDashboardLogsBucket;
 
 /**
  * `GET …/timeseries?panel=api`. INTENTIONALLY NARROWER than the wire (whose
  * `buckets` is a union for either panel): the panel requested decides the
  * bucket shape. Assignable to the contract's type.
+ *
+ * @stability experimental
  */
 export type DashboardApiTimeseries = Omit<TelemetryDashboardTimeseries, 'panel' | 'buckets'> & {
+  /** The API timeline. */
   panel: 'api';
+  /** The API buckets, oldest first. */
   buckets: DashboardApiBucket[];
 };
 
-/** `GET …/timeseries?panel=logs`; narrowed like {@link DashboardApiTimeseries}. */
+/**
+ * `GET …/timeseries?panel=logs`; narrowed like {@link DashboardApiTimeseries}.
+ *
+ * @stability experimental
+ */
 export type DashboardLogsTimeseries = Omit<TelemetryDashboardTimeseries, 'panel' | 'buckets'> & {
+  /** The log timeline. */
   panel: 'logs';
+  /** The log buckets, oldest first. */
   buckets: DashboardLogsBucket[];
 };
 
+/**
+ * Which timeline `GET …/timeseries` draws: `api` or `logs`.
+ *
+ * @stability experimental
+ */
 export type DashboardTimeseriesPanel = DashboardPanel;
+/**
+ * The `GET …/timeseries` answer for `panel`: {@link DashboardApiTimeseries} or {@link DashboardLogsTimeseries}.
+ *
+ * @stability experimental
+ */
 export type DashboardTimeseries<P extends DashboardTimeseriesPanel> = P extends 'api'
   ? DashboardApiTimeseries
   : DashboardLogsTimeseries;
@@ -180,35 +267,78 @@ export type DashboardTimeseries<P extends DashboardTimeseriesPanel> = P extends 
  * `clientErrors`, `unknownRequests` and `unknown` (#650) are optional so a web
  * build ahead of its API renders; the API always sends them. The contract's
  * type is assignable to it.
+ *
+ * @stability experimental
  */
 export type DashboardTopRoute = Omit<TelemetryDashboardTopRoute, 'clientErrors' | 'unknownRequests' | 'unknown'> &
   Partial<Pick<TelemetryDashboardTopRoute, 'clientErrors' | 'unknownRequests' | 'unknown'>>;
 
+/**
+ * One row of the top failing errors.
+ *
+ * @stability experimental
+ */
 export type DashboardTopError = TelemetryDashboardTopError;
 
+/**
+ * Which list `GET …/top` returns: `routes` or `errors`.
+ *
+ * @stability experimental
+ */
 export type DashboardTopKind = ContractDashboardTopKind;
 
-/** `GET …/top?kind=routes`; narrowed like {@link DashboardApiTimeseries}. */
+/**
+ * `GET …/top?kind=routes`; narrowed like {@link DashboardApiTimeseries}.
+ *
+ * @stability experimental
+ */
 export type DashboardTopRoutes = Omit<TelemetryDashboardTop, 'kind' | 'items'> & {
+  /** The top failing routes. */
   kind: 'routes';
+  /** The routes, worst first. */
   items: DashboardTopRoute[];
 };
 
-/** `GET …/top?kind=errors`; narrowed like {@link DashboardApiTimeseries}. */
+/**
+ * `GET …/top?kind=errors`; narrowed like {@link DashboardApiTimeseries}.
+ *
+ * @stability experimental
+ */
 export type DashboardTopErrors = Omit<TelemetryDashboardTop, 'kind' | 'items'> & {
+  /** The top errors. */
   kind: 'errors';
+  /** The errors, most frequent first. */
   items: DashboardTopError[];
 };
 
+/**
+ * The `GET …/top` answer for `kind`: {@link DashboardTopRoutes} or {@link DashboardTopErrors}.
+ *
+ * @stability experimental
+ */
 export type DashboardTop<K extends DashboardTopKind> = K extends 'routes'
   ? DashboardTopRoutes
   : DashboardTopErrors;
 
-/** One log event. `severity` is lower-case text (`error`, `warn`, `info`, `debug`, …). */
+/**
+ * One log event. `severity` is lower-case text (`error`, `warn`, `info`, `debug`, …).
+ *
+ * @stability experimental
+ */
 export type DashboardEvent = TelemetryDashboardEvent;
 
+/**
+ * `GET …/events`: a page of log and span events, newest first, with the next cursor.
+ *
+ * @stability experimental
+ */
 export type DashboardEvents = TelemetryDashboardEvents;
 
+/**
+ * `GET …/filters`: the services, instances and hosts seen in the window (the filter bar's choices).
+ *
+ * @stability experimental
+ */
 export type DashboardFilters = TelemetryDashboardFilters;
 
 // ---- metrics (#601 API, #602 web) ---------------------------------------------
@@ -217,32 +347,76 @@ export type DashboardFilters = TelemetryDashboardFilters;
  * A metric group id, as `/metric-groups` lists it (#680): the platform's six
  * (`host`, `database`, `queue`, `nodes`, `uptime`, `pipeline`) and any the
  * application registers. The page renders whatever the API lists.
+ *
+ * @stability experimental
  */
 export type DashboardMetricGroup = MetricGroupId;
 
-/** One entry of `GET …/metric-groups` (#680): a dashboard section, in `order`. */
+/**
+ * One entry of `GET …/metric-groups` (#680): a dashboard section, in `order`.
+ *
+ * @stability experimental
+ */
 export type DashboardMetricGroupMeta = TelemetryDashboardMetricGroup;
 
-/** The display unit of a tile, series or table column (the contract's `METRIC_UNITS`). */
+/**
+ * The display unit of a tile, series or table column (the contract's `METRIC_UNITS`).
+ *
+ * @stability experimental
+ */
 export type DashboardMetricUnit = MetricUnit;
 
+/**
+ * One point of a metric series: a bucket start and its value.
+ *
+ * @stability experimental
+ */
 export type DashboardMetricPoint = TelemetryDashboardMetricPoint;
 
+/**
+ * One metric line: its key, label, unit and points (optionally one per `groupBy` value).
+ *
+ * @stability experimental
+ */
 export type DashboardMetricSeries = TelemetryDashboardMetricSeries;
 
+/**
+ * One column of a metric table: key, label and unit.
+ *
+ * @stability experimental
+ */
 export type DashboardMetricColumn = TelemetryDashboardMetricColumn;
 
+/**
+ * One cell of a metric table row (a number, a string, a boolean or `null`).
+ *
+ * @stability experimental
+ */
 export type DashboardMetricCell = TelemetryDashboardMetricCell;
 
+/**
+ * One metric table: columns and rows (for example disks, or databases).
+ *
+ * @stability experimental
+ */
 export type DashboardMetricTable = TelemetryDashboardMetricTable;
 
+/**
+ * `GET …/metrics?group=…`: one metric group's tiles, series and tables.
+ *
+ * @stability experimental
+ */
 export type DashboardMetrics = TelemetryDashboardMetrics;
 
 // =============================================================================
 // Calls
 // =============================================================================
 
-/** Serialise a dashboard query. Absent values are left out, never sent empty. */
+/**
+ * Serialise a dashboard query. Absent values are left out, never sent empty.
+ *
+ * @stability experimental
+ */
 export function dashboardSearchParams(
   query: DashboardQuery &
     Partial<Pick<DashboardEventsQuery, 'severity' | 'q' | 'cursor'>> &
@@ -267,76 +441,11 @@ export function dashboardSearchParams(
   return params;
 }
 
-const BASE = '/admin/telemetry/dashboard';
-
-export async function getDashboardSummary(
-  query: DashboardQuery,
-  options: RequestOptions = {},
-): Promise<DashboardSummary> {
-  return api.get<DashboardSummary>(`${BASE}/summary?${dashboardSearchParams(query)}`, {
-    signal: options.signal,
-  });
-}
-
-export async function getDashboardTimeseries<P extends DashboardTimeseriesPanel>(
-  panel: P,
-  query: DashboardQuery,
-  options: RequestOptions = {},
-): Promise<DashboardTimeseries<P>> {
-  return api.get<DashboardTimeseries<P>>(
-    `${BASE}/timeseries?${dashboardSearchParams(query, { panel })}`,
-    { signal: options.signal },
-  );
-}
-
-export async function getDashboardTop<K extends DashboardTopKind>(
-  kind: K,
-  query: DashboardQuery,
-  options: RequestOptions = {},
-): Promise<DashboardTop<K>> {
-  return api.get<DashboardTop<K>>(`${BASE}/top?${dashboardSearchParams(query, { kind })}`, {
-    signal: options.signal,
-  });
-}
-
-export async function getDashboardEvents(
-  query: DashboardEventsQuery,
-  options: RequestOptions = {},
-): Promise<DashboardEvents> {
-  return api.get<DashboardEvents>(`${BASE}/events?${dashboardSearchParams(query)}`, {
-    signal: options.signal,
-  });
-}
-
-export async function getDashboardFilters(
-  query: DashboardQuery,
-  options: RequestOptions = {},
-): Promise<DashboardFilters> {
-  return api.get<DashboardFilters>(`${BASE}/filters?${dashboardSearchParams(query)}`, {
-    signal: options.signal,
-  });
-}
-
-/** `GET …/metrics?group=…` — one metric group's tiles, series and tables (#601). */
-export async function getDashboardMetrics(
-  group: DashboardMetricGroup,
-  query: DashboardMetricsQuery,
-  options: RequestOptions = {},
-): Promise<DashboardMetrics> {
-  return api.get<DashboardMetrics>(`${BASE}/metrics?${dashboardSearchParams(query, { group })}`, {
-    signal: options.signal,
-  });
-}
-
 /**
- * `GET …/metric-groups` (#680) — every registered metric group, in dashboard
- * order. Read from the API's in-memory registry: no telemetry store query.
+ * `sql` as a list, primary first — what a panel's actions (#579) receive.
+ *
+ * @stability experimental
  */
-export async function getDashboardMetricGroups(options: RequestOptions = {}): Promise<DashboardMetricGroupMeta[]> {
-  return api.get<DashboardMetricGroupMeta[]>(`${BASE}/metric-groups`, { signal: options.signal });
-}
-
-/** `sql` as a list, primary first — what a panel's actions (#579) receive. */
 export function sqlList(sql: string | string[] | undefined | null): string[] {
   if (!sql) return [];
   return (Array.isArray(sql) ? sql : [sql]).filter((statement) => statement.trim() !== '');

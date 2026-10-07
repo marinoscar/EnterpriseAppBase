@@ -18,6 +18,8 @@
  * "Reset zoom" returns to the preset the reader zoomed from.
  */
 import {
+  DASHBOARD_FILTER_VALUE_MAX,
+  DASHBOARD_MAX_SPAN_MS,
   DASHBOARD_RANGES,
   DASHBOARD_RANGE_MS,
   DASHBOARD_SEARCH_MAX_LENGTH,
@@ -28,11 +30,7 @@ import {
   type DashboardQuery,
   type DashboardRange,
   type DashboardSeverity,
-} from '../../../services/telemetryDashboard';
-
-/** `DASHBOARD_MAX_SPAN_MS` in the API. */
-const MAX_SPAN_MS = 30 * 24 * 60 * 60_000;
-const FILTER_VALUE_MAX = 200;
+} from '../services/telemetryDashboard.js';
 
 export const DASHBOARD_REFRESH_MS = 30_000;
 
@@ -69,7 +67,7 @@ function isRange(value: string | null): value is DashboardRange {
 function filterValue(value: string | null): string | null {
   if (value === null) return null;
   const trimmed = value.trim();
-  return trimmed && trimmed.length <= FILTER_VALUE_MAX ? trimmed : null;
+  return trimmed && trimmed.length <= DASHBOARD_FILTER_VALUE_MAX ? trimmed : null;
 }
 
 /** Severities in canonical order, deduplicated; `null` when none is valid. */
@@ -85,7 +83,7 @@ function parseWindow(from: string | null, to: string | null): { from: string; to
   const start = Date.parse(from);
   const end = Date.parse(to);
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  if (!(start < end) || end - start > MAX_SPAN_MS) return null;
+  if (!(start < end) || end - start > DASHBOARD_MAX_SPAN_MS) return null;
   return { from: new Date(start).toISOString(), to: new Date(end).toISOString() };
 }
 
@@ -168,8 +166,8 @@ export function bucketWindow(
   const clamp = (index: number) => Math.min(Math.max(index, 0), starts.length - 1);
   const first = clamp(Math.min(startIndex, endIndex));
   const last = clamp(Math.max(startIndex, endIndex));
-  const from = Date.parse(starts[first]);
-  const bucketEnd = Date.parse(starts[last]) + bucketSeconds * 1000;
+  const from = Date.parse(starts[first]!);
+  const bucketEnd = Date.parse(starts[last]!) + bucketSeconds * 1000;
   if (!Number.isFinite(from) || !Number.isFinite(bucketEnd)) return null;
   const to = Math.min(bucketEnd, now);
   if (!(from < to)) return null;

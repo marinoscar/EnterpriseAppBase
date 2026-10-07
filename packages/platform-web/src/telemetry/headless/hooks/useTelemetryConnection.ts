@@ -11,42 +11,65 @@
  * Writes resolve `true`/`false` and never throw.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError } from '../services/api';
+import { isPlatformApiError } from '../../../core/index.js';
 import {
-  getTelemetryConnection,
-  resetTelemetryConnection,
-  testTelemetryConnection,
-  updateTelemetryConnection,
   type TelemetryConnection,
   type TelemetryConnectionInput,
   type TelemetryConnectionTestResult,
-} from '../services/telemetry';
-import { useIsMounted } from './useIsMounted';
+} from '../services/telemetry.js';
+import { useTelemetryClient } from '../services/client.js';
+import { useIsMounted } from '../../internal/useIsMounted.js';
 
+/**
+ * What {@link useTelemetryConnection} returns.
+ *
+ * @stability experimental
+ */
 export interface UseTelemetryConnectionReturn {
+  /** The connection in force, or `null` before the first load. */
   connection: TelemetryConnection | null;
+  /** A (re)load is in flight. */
   isLoading: boolean;
+  /** Why the connection could not be loaded, or `null`. */
   loadError: string | null;
   /** A save or revert is in flight. */
   isSaving: boolean;
+  /** Why the last save or revert failed (other than a 409), or `null`. */
   saveError: string | null;
   /** True after a write was refused with 409 — someone else changed it first. */
   conflict: boolean;
+  /** A connection test is in flight. */
   isTesting: boolean;
+  /** The last test's diagnosis, or `null`. */
   testResult: TelemetryConnectionTestResult | null;
+  /** Why the last test could not be run, or `null`. */
   testError: string | null;
+  /** Load the connection again. */
   reload: () => Promise<void>;
+  /** Store a connection; resolves `true` on success. */
   save: (input: TelemetryConnectionInput) => Promise<boolean>;
+  /** Forget the stored connection (the deployment default is in force again); resolves `true` on success. */
   revert: () => Promise<boolean>;
+  /** Test a candidate connection without storing it. */
   test: (input: TelemetryConnectionInput) => Promise<void>;
+  /** Forget the last test's result and error. */
   clearTestResult: () => void;
 }
 
 function message(err: unknown, fallback: string): string {
-  return err instanceof ApiError || err instanceof Error ? err.message : fallback;
+  return isPlatformApiError(err) || err instanceof Error ? err.message : fallback;
 }
 
+/**
+ * The GreptimeDB connection section's data: `GET`, `PUT` and `DELETE /admin/telemetry/connection` (with `If-Match`; a 409 sets `conflict`) and `POST …/connection/test`. Passwords are write-only: they are sent, never read back.
+ *
+ * @returns the connection and its actions.
+ * @throws Error outside a `PlatformHostProvider`.
+ *
+ * @stability experimental
+ */
 export function useTelemetryConnection(): UseTelemetryConnectionReturn {
+  const client = useTelemetryClient();
   const [connection, setConnection] = useState<TelemetryConnection | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,14 +87,14 @@ export function useTelemetryConnection(): UseTelemetryConnectionReturn {
     setSaveError(null);
     setConflict(false);
     try {
-      const next = await getTelemetryConnection();
+      const next = await client.getTelemetryConnection();
       if (isMounted()) setConnection(next);
     } catch (err) {
       if (isMounted()) setLoadError(message(err, 'Failed to load the telemetry connection'));
     } finally {
       if (isMounted()) setIsLoading(false);
     }
-  }, [isMounted]);
+  }, [client, isMounted]);
 
   useEffect(() => {
     void reload();
@@ -92,7 +115,7 @@ export function useTelemetryConnection(): UseTelemetryConnectionReturn {
         return true;
       } catch (err) {
         if (isMounted()) {
-          if (err instanceof ApiError && err.status === 409) {
+          if (isPlatformApiError(err) && err.status === 409) {
             setConflict(true);
           } else {
             setSaveError(message(err, fallback));
@@ -111,19 +134,19 @@ export function useTelemetryConnection(): UseTelemetryConnectionReturn {
   const save = useCallback(
     (input: TelemetryConnectionInput) =>
       write(
-        () => updateTelemetryConnection(input, version),
+        () => client.updateTelemetryConnection(input, version),
         'Failed to save the telemetry connection',
       ),
-    [write, version],
+    [client, write, version],
   );
 
   const revert = useCallback(
     () =>
       write(
-        () => resetTelemetryConnection(version),
+        () => client.resetTelemetryConnection(version),
         'Failed to revert the telemetry connection',
       ),
-    [write, version],
+    [client, write, version],
   );
 
   const test = useCallback(
@@ -132,7 +155,7 @@ export function useTelemetryConnection(): UseTelemetryConnectionReturn {
       setTestResult(null);
       setTestError(null);
       try {
-        const result = await testTelemetryConnection(input);
+        const result = await client.testTelemetryConnection(input);
         if (isMounted()) setTestResult(result);
       } catch (err) {
         if (isMounted()) setTestError(message(err, 'The connection test could not be run'));
@@ -140,7 +163,7 @@ export function useTelemetryConnection(): UseTelemetryConnectionReturn {
         if (isMounted()) setIsTesting(false);
       }
     },
-    [isMounted],
+    [client, isMounted],
   );
 
   const clearTestResult = useCallback(() => {

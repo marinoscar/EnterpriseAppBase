@@ -13,48 +13,93 @@
  * Writes resolve `true`/`false` and never throw.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError } from '../services/api';
+import { isPlatformApiError } from '../../../core/index.js';
 import {
-  deployTelemetryStack,
-  getTelemetryStack,
   type TelemetryStack,
   type TelemetryStackDeploy,
-} from '../services/telemetry';
-import { useIsMounted } from './useIsMounted';
-import { useVisiblePolling } from './useVisiblePolling';
+} from '../services/telemetry.js';
+import { useTelemetryClient } from '../services/client.js';
+import { useIsMounted } from '../../internal/useIsMounted.js';
+import { useVisiblePolling } from '../../internal/useVisiblePolling.js';
 
+/**
+ * How often {@link useTelemetryStack} polls while a deploy is pending or running.
+ *
+ * @stability experimental
+ */
 export const TELEMETRY_STACK_ACTIVE_POLL_MS = 3_000;
+/**
+ * How often {@link useTelemetryStack} polls otherwise.
+ *
+ * @stability experimental
+ */
 export const TELEMETRY_STACK_IDLE_POLL_MS = 30_000;
 
+/**
+ * What {@link useTelemetryStack} takes.
+ *
+ * @stability experimental
+ */
 export interface UseTelemetryStackOptions {
+  /** Poll interval while a deploy is active. Default {@link TELEMETRY_STACK_ACTIVE_POLL_MS}. */
   activeIntervalMs?: number;
+  /** Poll interval otherwise. Default {@link TELEMETRY_STACK_IDLE_POLL_MS}. */
   idleIntervalMs?: number;
 }
 
+/**
+ * What {@link useTelemetryStack} returns.
+ *
+ * @stability experimental
+ */
 export interface UseTelemetryStackReturn {
+  /** The services and the latest deploy, or `null` before the first load. */
   stack: TelemetryStack | null;
+  /** The first load is in flight. */
   isLoading: boolean;
+  /** Why the stack could not be loaded, or `null`. */
   loadError: string | null;
   /** The deploy POST is in flight. */
   isRequesting: boolean;
+  /** Why the last deploy request failed, or `null`. */
   deployError: string | null;
   /** A deploy is requested or its job is pending/running. */
   isDeploying: boolean;
   /** The job id the last successful POST returned, until the stack reports it settled. */
   requestedJobId: string | null;
+  /** Load the stack again. */
   reload: () => Promise<void>;
+  /** Ask the API to (re)deploy the telemetry services; resolves `true` when the job was enqueued. */
   deploy: () => Promise<boolean>;
 }
 
+/**
+ * Whether a deploy job is still pending or running.
+ *
+ * @param deploy - the latest deploy job, if any.
+ * @returns `true` while it is pending or running.
+ *
+ * @stability experimental
+ */
 export function isDeployActive(deploy: TelemetryStackDeploy | null | undefined): boolean {
   return deploy?.status === 'pending' || deploy?.status === 'running';
 }
 
 function message(err: unknown, fallback: string): string {
-  return err instanceof ApiError || err instanceof Error ? err.message : fallback;
+  return isPlatformApiError(err) || err instanceof Error ? err.message : fallback;
 }
 
+/**
+ * The Telemetry services section's data: `GET /admin/telemetry/stack`, polled only while the tab is visible (faster while a deploy runs), and `POST …/stack/deploy` (a queue job runs it server-side).
+ *
+ * @param options - poll intervals; `0` disables polling.
+ * @returns the stack and the deploy action.
+ * @throws Error outside a `PlatformHostProvider`.
+ *
+ * @stability experimental
+ */
 export function useTelemetryStack(options: UseTelemetryStackOptions = {}): UseTelemetryStackReturn {
+  const client = useTelemetryClient();
   const activeIntervalMs = options.activeIntervalMs ?? TELEMETRY_STACK_ACTIVE_POLL_MS;
   const idleIntervalMs = options.idleIntervalMs ?? TELEMETRY_STACK_IDLE_POLL_MS;
 
@@ -68,7 +113,7 @@ export function useTelemetryStack(options: UseTelemetryStackOptions = {}): UseTe
 
   const reload = useCallback(async () => {
     try {
-      const next = await getTelemetryStack();
+      const next = await client.getTelemetryStack();
       if (!isMounted()) return;
       setStack(next);
       setLoadError(null);
@@ -77,7 +122,7 @@ export function useTelemetryStack(options: UseTelemetryStackOptions = {}): UseTe
     } finally {
       if (isMounted()) setIsLoading(false);
     }
-  }, [isMounted]);
+  }, [client, isMounted]);
 
   useEffect(() => {
     void reload();
@@ -103,7 +148,7 @@ export function useTelemetryStack(options: UseTelemetryStackOptions = {}): UseTe
     setIsRequesting(true);
     setDeployError(null);
     try {
-      const { jobId } = await deployTelemetryStack();
+      const { jobId } = await client.deployTelemetryStack();
       if (isMounted()) setRequestedJobId(jobId);
       await reload();
       return true;
@@ -113,7 +158,7 @@ export function useTelemetryStack(options: UseTelemetryStackOptions = {}): UseTe
     } finally {
       if (isMounted()) setIsRequesting(false);
     }
-  }, [isMounted, reload]);
+  }, [client, isMounted, reload]);
 
   return {
     stack,

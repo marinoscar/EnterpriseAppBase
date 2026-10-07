@@ -19,8 +19,8 @@
  */
 import type * as C from '@marinoscar/platform-contract/telemetry';
 
-import type * as T from './telemetry';
-import type * as D from './telemetryDashboard';
+import type * as T from '../../src/telemetry/headless/services/telemetry.js';
+import type * as D from '../../src/telemetry/headless/services/telemetryDashboard.js';
 
 type Equal<X, Y> = (<V>() => V extends X ? 1 : 2) extends <V>() => V extends Y ? 1 : 2 ? true : false;
 type Extends<A, B> = [A] extends [B] ? true : false;

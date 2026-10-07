@@ -11,8 +11,8 @@ import type {
   TelemetryAssistantAnswer,
   TelemetryAssistantReport,
   TelemetryAssistantStep,
-} from '../../services/telemetry';
-import type { AssistantMessage, AssistantReplyMessage } from '../../hooks/useTelemetryAssistant';
+} from '../services/telemetry.js';
+import type { AssistantMessage, AssistantReplyMessage } from '../hooks/useTelemetryAssistant.js';
 
 export interface ConversationExportOptions {
   exportedAt: Date;
