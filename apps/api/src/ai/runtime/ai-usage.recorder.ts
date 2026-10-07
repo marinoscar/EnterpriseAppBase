@@ -24,7 +24,7 @@
 
 import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { resolveOrgId } from '../../organizations/org-scope';
+import { resolveOrgId } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AppMetricsService, fallbackAppMetrics } from '../../common/otel/app-metrics.service';
 import type { AiUsage } from '../core/types/responses.types';

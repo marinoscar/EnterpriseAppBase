@@ -21,7 +21,7 @@
 // =============================================================================
 
 import { AI_PERMISSIONS } from '../../ai/ai.permissions';
-import { ALLOWLIST_PERMISSIONS } from '../../allowlist/allowlist.permissions';
+import { ALLOWLIST_PERMISSIONS } from '@marinoscar/platform-api/identity';
 import { DB_BACKUP_PERMISSIONS } from '../../db-backup/db-backup.permissions';
 import { JOBS_PERMISSIONS } from '../../jobs/jobs.permissions';
 import { NODES_PERMISSIONS } from '../../nodes/nodes.permissions';
@@ -31,8 +31,8 @@ import { SETTINGS_PERMISSIONS } from '../../settings/settings.permissions';
 import { STORAGE_CONFIG_PERMISSIONS } from '../../storage/config/storage-config.permissions';
 import { STORAGE_PERMISSIONS } from '../../storage/storage.permissions';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
-import { USERS_PERMISSIONS } from '../../users/users.permissions';
-import { ORGANIZATIONS_PERMISSIONS } from '../../organizations/organizations.permissions';
+import { USERS_PERMISSIONS } from '@marinoscar/platform-api/identity';
+import { ORGANIZATIONS_PERMISSIONS } from '@marinoscar/platform-api/identity';
 import { SHARING_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/sharing';
 import { permissionIds, roleIds } from '../permissions/permission-ids';
 import type { AppPermissionIds, AppRoleIds } from '../permissions/permission.types';
@@ -102,3 +102,17 @@ export const DEFAULT_ROLE = DEFAULT_ORG_ROLE;
  * holds it on the default organization, alongside the system `admin` role.
  */
 export const ORG_ADMIN_ROLE = ROLES.ORG_ADMIN;
+
+// =============================================================================
+// Typed names in the identity slice's decorators (issue #727)
+// =============================================================================
+//
+// `@Auth({ permissions, roles })`, `@Permissions(...)` and `@Roles(...)` live
+// in `@marinoscar/platform-api/identity`, which cannot know this app's ids. This
+// augmentation widens the slice's `PermissionName` and `RoleName` to exactly
+// this app's (every slice's, plus `app-registrations/`), so a typo in a route's
+// permission stays a compile error.
+declare module '@marinoscar/platform-api/identity' {
+  interface IdentityPermissionIds extends Record<PermissionName, true> {}
+  interface IdentityRoleIds extends Record<RoleName, true> {}
+}

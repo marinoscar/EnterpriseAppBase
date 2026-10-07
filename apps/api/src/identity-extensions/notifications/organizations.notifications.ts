@@ -16,7 +16,7 @@
 // mandatory: an invitation is not a security event.
 // =============================================================================
 
-import type { NotificationRegistration } from '../notifications/registry/bindings.registry';
+import type { NotificationRegistration } from '../../notifications/registry/bindings.registry';
 
 export const ORGANIZATIONS_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {

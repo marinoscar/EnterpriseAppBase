@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { PrincipalCache } from '../../auth/principal-cache/principal-cache.service';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
 import { UpdateUserSettingsDto } from '../dto/update-user-settings.dto';
 import { PatchUserSettingsDto } from '../dto/update-user-settings.dto';
 import {

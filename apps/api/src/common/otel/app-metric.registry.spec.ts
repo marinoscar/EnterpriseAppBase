@@ -6,7 +6,7 @@ import {
   type AppMetricDef,
 } from './app-metrics.service';
 import { EVENT_BUS_APP_METRICS } from '../event-bus/event-bus.metrics';
-import { ORGANIZATIONS_APP_METRICS } from '../../organizations/organizations.metrics';
+import { ORGANIZATIONS_APP_METRICS } from '@marinoscar/platform-api/identity';
 import { SHARING_APP_METRICS } from '@marinoscar/platform-api/sharing';
 import { PLATFORM_APP_METRICS } from './platform-app-metrics';
 

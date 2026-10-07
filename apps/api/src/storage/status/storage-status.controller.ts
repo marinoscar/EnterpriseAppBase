@@ -18,7 +18,7 @@
 import { Controller, Get, Logger } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '../../auth/decorators/auth.decorator';
+import { Auth } from '@marinoscar/platform-api/identity';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { decideStorageConfig } from '../config/doctor/storage-config.doctor-check';

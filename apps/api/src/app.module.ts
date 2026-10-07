@@ -8,18 +8,12 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { PrismaModule } from './prisma/prisma.module';
 import { EventBusModule } from './common/event-bus/event-bus.module';
 import { CommonModule } from './common/common.module';
-import { AuthModule } from './auth/auth.module';
-import { OrganizationsModule } from './organizations/organizations.module';
-import { UsersModule } from './users/users.module';
 import { SettingsModule } from './settings/settings.module';
 import { ProfileImageModule } from './settings/profile-image/profile-image.module';
 import { AboutModule } from './about/about.module';
 import { HealthModule } from './health/health.module';
-import { AllowlistModule } from './allowlist/allowlist.module';
-import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { StorageModule } from './storage/storage.module';
 import { StorageConfigModule } from './storage/config/storage-config.module';
-import { PatModule } from './pat/pat.module';
 import { NodeCredentialModule } from './nodes/node-credential.module';
 import { NodesModule } from './nodes/nodes.module';
 import { CredentialsModule } from './credentials/credentials.module';
@@ -31,7 +25,6 @@ import { JobsModule } from './jobs/jobs.module';
 import { DbBackupModule } from './db-backup/db-backup.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { AppMetricsModule } from './common/otel/app-metrics.module';
-import { TestAuthModule } from './test-auth/test-auth.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { DeploymentModule } from './common/deployment/deployment.module';
@@ -41,6 +34,7 @@ import { telemetryModule } from './platform/telemetry/telemetry.config';
 import { doctorModule } from './doctor/doctor.config';
 import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
+import { identityModule } from './platform/identity/identity.config';
 import { sharingModule } from './platform/sharing/sharing.config';
 
 import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
@@ -81,18 +75,20 @@ import configuration from './config/configuration';
 
     // Feature modules
     CommonModule,
-    AuthModule,
-    // Organizations (PP-6.1, #721): the tenancy foundation. Providers only
-    // until the admin API (PP-6.8) and switch-org (PP-6.4).
-    OrganizationsModule,
-    UsersModule,
+    // Identity (#727): sign-in, sessions and tokens (JWT, personal access
+    // tokens, the device flow), the guards and decorators every route uses,
+    // users, the allowlist and organizations, from
+    // `@marinoscar/platform-api/identity`. The app's binding (the host ports and
+    // the options) is `platform/identity/identity.config.ts`. It mounts its
+    // modules in the order this list used to (auth with the allowlist, PATs and
+    // organizations, then users, then the device flow), so the generated OpenAPI
+    // document keeps its paths in place.
+    identityModule,
     SettingsModule,
     // Uploaded profile pictures (#367): its own module because it needs the
     // storage provider and SettingsModule must not (see the module).
     ProfileImageModule,
     HealthModule,
-    AllowlistModule,
-    DeviceAuthModule,
     StorageModule,
     // #375, epic #372 — the ADMIN surface for object-storage configuration
     // (`/api/admin/storage-config`), deliberately a module of its own rather
@@ -100,13 +96,12 @@ import configuration from './config/configuration';
     // access (`storage:*`), this one is the Admin-only decision about which
     // object store the deployment uses (`storage_config:*`). See the module.
     StorageConfigModule,
-    PatModule,
     // Worker node credentials (#267, epic #254): the `nod_` token family the
     // node fleet authenticates with, and its `/api/node-credentials` admin
-    // endpoints. Registered here beside `PatModule` and for the same reason —
-    // both are @Global providers of a service `JwtAuthGuard` injects, so the
-    // module that owns the application is where they belong rather than
-    // scattered through whichever feature module happened to need one.
+    // endpoints. A @Global provider of a service `JwtAuthGuard` reaches through
+    // the identity slice's `IDENTITY_NODE_CREDENTIALS` port (bound in
+    // `platform/identity/identity-host.module.ts`), so the module that owns the
+    // application is where it belongs.
     //
     // DELIBERATELY NOT the (much heavier) nodes module #268 will add; see the
     // block comment in `nodes/node-credential.module.ts` for why splitting by
@@ -260,8 +255,8 @@ import configuration from './config/configuration';
     // would move that module's routes up the generated OpenAPI document.
     platformHostModule,
 
-    // Test modules (non-production only)
-    ...(process.env.NODE_ENV !== 'production' ? [TestAuthModule] : []),
+    // The test-only login (non-production only) is mounted by `identityModule`
+    // (`enableTestAuth`).
   ],
   providers: [
     // ------------------------------------------------------------------------

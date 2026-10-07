@@ -12,7 +12,7 @@
 import type { Prisma } from '@prisma/client';
 import request from 'supertest';
 
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';
 import { HARNESS_OTHER_USER, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
 import { AiUsageAdminController } from '../../src/ai/usage/ai-usage-admin.controller';

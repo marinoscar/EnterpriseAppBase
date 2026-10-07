@@ -22,7 +22,7 @@ import request from 'supertest';
 import { supportBundleSchema } from '@marinoscar/platform-contract/doctor';
 import { DoctorService } from '@marinoscar/platform-api/doctor';
 
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { doctorModule } from '../../src/doctor/doctor.config';
 import { AboutService } from '../../src/about/about.service';
 import {

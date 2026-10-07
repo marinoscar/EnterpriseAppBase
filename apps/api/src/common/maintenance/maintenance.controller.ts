@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Put } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Auth } from '../../auth/decorators/auth.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { Auth } from '@marinoscar/platform-api/identity';
+import { CurrentUser } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../constants/roles.constants';
 import { AllowDuringMaintenance } from './allow-during-maintenance.decorator';
 import { MaintenanceModeService } from './maintenance-mode.service';

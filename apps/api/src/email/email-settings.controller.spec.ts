@@ -3,9 +3,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EmailSettingsController } from './email-settings.controller';
 import { EmailSettingsService } from './email-settings.service';
 import { EmailTestSendService } from './email-test-send.service';
-import { PatService } from '../pat/pat.service';
+import { PatService } from '@marinoscar/platform-api/identity';
 import { NodeCredentialService } from '../nodes/node-credential.service';
-import type { RequestUser } from '../auth/interfaces/authenticated-user.interface';
+import type { RequestUser } from '@marinoscar/platform-api/identity';
 
 // =============================================================================
 // EmailSettingsController — tests (issue #124, epic #109)

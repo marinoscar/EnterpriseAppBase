@@ -17,7 +17,7 @@
 // no reader. A renderer here would be dead code that reads as a live feature.
 // =============================================================================
 
-import type { NotificationRegistration } from '../notifications/registry/bindings.registry';
+import type { NotificationRegistration } from '../../notifications/registry/bindings.registry';
 
 export const AUTH_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {

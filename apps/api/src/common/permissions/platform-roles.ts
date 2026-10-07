@@ -21,27 +21,13 @@
 // position in the catalog.
 // =============================================================================
 
+import { IDENTITY_ROLES } from '@marinoscar/platform-api/identity';
+
 import type { RoleDeclarationMap } from './permission.types';
 
-export const PLATFORM_ROLES = {
-  ADMIN: {
-    id: 'admin',
-    description: 'System administrator - operate the deployment: users, roles and all system settings',
-    scope: 'system',
-  },
-  CONTRIBUTOR: {
-    id: 'contributor',
-    description: 'Organization member - manage own settings and storage objects, use AI',
-    scope: 'org',
-  },
-  VIEWER: {
-    id: 'viewer',
-    description: 'Read-only organization member - view content and manage own settings',
-    scope: 'org',
-  },
-  ORG_ADMIN: {
-    id: 'org_admin',
-    description: 'Organization administrator - everything a contributor can do, plus manage the organization members and invites',
-    scope: 'org',
-  },
-} as const satisfies RoleDeclarationMap;
+/**
+ * The platform roles, declared by the identity slice (`IDENTITY_ROLES`,
+ * `@marinoscar/platform-api/identity`, #727) and registered here like every
+ * other declaration.
+ */
+export const PLATFORM_ROLES = IDENTITY_ROLES satisfies RoleDeclarationMap;

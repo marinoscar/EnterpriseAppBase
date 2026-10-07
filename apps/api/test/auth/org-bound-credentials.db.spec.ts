@@ -28,16 +28,18 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { PrismaClient } from '@prisma/client';
 
-import { AuthService } from '../../src/auth/auth.service';
-import { PRINCIPAL_USER_INCLUDE } from '../../src/auth/principal.factory';
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
-import { recordTenancyMode } from '../../src/auth/tenancy-mode';
+import { AuthService } from '@marinoscar/platform-api/identity';
+import { PRINCIPAL_USER_INCLUDE } from '@marinoscar/platform-api/identity';
+import { PrincipalCache } from '@marinoscar/platform-api/identity';
+import { recordTenancyMode } from '@marinoscar/platform-api/identity';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
-import { OrganizationsService } from '../../src/organizations/organizations.service';
-import { TenancyService } from '../../src/organizations/tenancy.service';
-import { PatService } from '../../src/pat/pat.service';
+import { OrganizationsService } from '@marinoscar/platform-api/identity';
+import { TenancyService } from '@marinoscar/platform-api/identity';
+import { PatService } from '@marinoscar/platform-api/identity';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';
+
 
 const { describeWithDb } = resolveDbSuite('org-bound-credentials.db.spec');
 
@@ -69,6 +71,9 @@ describeWithDb('org-bound credentials (real Postgres, #724)', () => {
       cache,
       organizations,
       new TenancyService(config),
+      undefined,
+      new AppUserDefaults(),
+      new AppProfileImages(),
     );
   }
 

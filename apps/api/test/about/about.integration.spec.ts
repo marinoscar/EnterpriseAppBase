@@ -54,7 +54,7 @@ import { join } from 'path';
 import request from 'supertest';
 
 import { AboutController } from '../../src/about/about.controller';
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { DEFAULT_DEPLOY_INFO_PATH } from '../../src/about/deploy-info';
 import {
   TestContext,

@@ -1,6 +1,6 @@
 import type { CredentialKind, NodePrincipal, Scope, UserPrincipal } from '@marinoscar/platform-api/core';
 
-import type { RequestUser } from '../../src/auth/interfaces/authenticated-user.interface';
+import type { RequestUser } from '@marinoscar/platform-api/identity';
 
 // =============================================================================
 // Today's RequestUser maps onto the platform principal contract (ADR 0001)

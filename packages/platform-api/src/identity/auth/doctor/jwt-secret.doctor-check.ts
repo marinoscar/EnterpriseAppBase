@@ -4,7 +4,12 @@ import { ConfigService } from '@nestjs/config';
 import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/index';
 import { DoctorCheckRegistry } from '../../../doctor/index';
 
-/** `jwt.strategy.ts` and `maintenance.module.ts` fall back to this when JWT_SECRET is unset. */
+/**
+ * The placeholder the app's JWT strategy and maintenance module used to fall
+ * back to when JWT_SECRET was unset. Nothing falls back to it any more (a missing
+ * JWT_SECRET is a boot error, #727), but it is published, so a deployment that
+ * set it explicitly is still told to change it.
+ */
 export const JWT_FALLBACK_SECRET = 'fallback-secret';
 
 /** Shorter than this is guessable enough to be worth a warning (256 bits of HS256 key). */
@@ -16,10 +21,17 @@ const REMEDY =
 
 /** Pure: judges the configured secret. Reports its LENGTH only, never its value. */
 export function decideJwtSecret(secret: string | undefined | null): DoctorCheckOutcome {
-  if (!secret || secret === JWT_FALLBACK_SECRET) {
+  if (!secret) {
     return {
       status: 'fail',
-      detail: 'JWT_SECRET is not set; tokens are signed with a publicly known fallback key',
+      detail: 'JWT_SECRET is not set',
+      remedy: REMEDY,
+    };
+  }
+  if (secret === JWT_FALLBACK_SECRET) {
+    return {
+      status: 'fail',
+      detail: 'JWT_SECRET is the publicly known placeholder "fallback-secret"',
       remedy: REMEDY,
     };
   }

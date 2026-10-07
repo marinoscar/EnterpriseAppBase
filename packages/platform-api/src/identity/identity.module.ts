@@ -10,14 +10,15 @@
 //
 // MODULE ORDER IS THE APP'S OLD ORDER, on purpose. Nest discovers modules
 // depth-first, and the generated OpenAPI document lists paths in discovery
-// order. The host modules are imported inside `AuthModule` right after the
-// allowlist, where the app's notification graph used to be reached, so the
-// document keeps its path order.
+// order. Sign-in (with the allowlist) first, then the host modules (where the
+// app's notification graph used to be reached), personal access tokens,
+// organizations, users and the device flow, so the document keeps its paths
+// in place (the device flow's block moves up, next to the other identity routes).
 //
 // Every identity module is a singleton: `forRoot` is called once per app.
 // =============================================================================
 
-import { DynamicModule, Module } from '@nestjs/common';
+import { DynamicModule, Module, type ModuleMetadata, type Type } from '@nestjs/common';
 
 import { AuthModule } from './auth/auth.module';
 import { authProviderRegistry } from './auth/providers/auth-provider.registry';
@@ -28,6 +29,14 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { PatModule } from './pat/pat.module';
 import { TestAuthModule } from './testing/test-auth.module';
 import { UsersModule } from './users/users.module';
+
+/** A static module class created at run time: its metadata is scanned depth first. */
+function staticModule(name: string, metadata: ModuleMetadata): Type<unknown> {
+  const holder = { [name]: class {} };
+  const cls = holder[name]!;
+  Module(metadata)(cls);
+  return cls;
+}
 
 /**
  * The identity slice: authentication (JWT sessions, personal access tokens,
@@ -62,25 +71,34 @@ export class IdentityModule {
   static forRoot(options: IdentityModuleOptions = {}): DynamicModule {
     const resolved = resolveIdentityModuleOptions(options);
 
-    // Every registered sign-in provider's Passport strategy (Google first).
-    // Registered before this call; the registry freezes at bootstrap.
+    // Every registered sign-in provider's Passport strategy (Google first),
+    // registered before this call; the registry freezes at bootstrap.
     const strategies = authProviderRegistry.list().map((provider) => provider.strategy);
 
-    // The host-port modules, then the modules AuthModule's own @Module imports
-    // (passport, JWT, the principal cache, the allowlist) are followed by.
-    const auth: DynamicModule = {
-      module: AuthModule,
-      imports: [...resolved.imports, PatModule, OrganizationsModule],
-      providers: strategies,
-    };
-    // The very same dynamic module object, so the device flow shares
-    // AuthModule's single instance (one AuthService, one JwtModule).
-    const deviceAuth: DynamicModule = { module: DeviceAuthModule, imports: [auth] };
+    // Built as STATIC modules, never as a dynamic module's inline `imports`:
+    // Nest inserts a dynamic module's inline imports into the container
+    // eagerly, ahead of the depth-first scan, which would reorder every module
+    // (and the OpenAPI document) after them. Static metadata is scanned depth
+    // first, in the order written here.
+    const hostImports = staticModule('IdentityHostImportsModule', { imports: [...resolved.imports] });
+    const authProviders = staticModule('IdentityAuthProvidersModule', { imports: [AuthModule], providers: strategies });
+    const composition = staticModule('IdentityCompositionModule', {
+      imports: [
+        AuthModule,
+        authProviders,
+        hostImports,
+        PatModule,
+        OrganizationsModule,
+        UsersModule,
+        DeviceAuthModule,
+        ...(resolved.enableTestAuth ? [TestAuthModule] : []),
+      ],
+    });
 
     return {
       module: IdentityModule,
       global: true,
-      imports: [auth, OrganizationsModule, UsersModule, deviceAuth, ...(resolved.enableTestAuth ? [TestAuthModule] : [])],
+      imports: [composition],
       providers: [{ provide: IDENTITY_OPTIONS, useValue: resolved }],
       exports: [IDENTITY_OPTIONS],
     };

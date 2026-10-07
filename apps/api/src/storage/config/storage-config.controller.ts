@@ -10,8 +10,8 @@ import {
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '../../auth/decorators/auth.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { Auth } from '@marinoscar/platform-api/identity';
+import { CurrentUser } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { StorageBucketProvisionService } from './storage-bucket-provision.service';
 import { StorageConfigAdminService } from './storage-config-admin.service';

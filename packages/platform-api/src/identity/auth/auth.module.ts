@@ -21,9 +21,9 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
  * Sign-in, sessions and tokens: `AuthController` (`/api/auth/*`), `AuthService`,
  * the JWT strategy, the initial-administrator bootstrap, the nightly
  * `auth.token.cleanup` job with its enqueue-only cron, and the `auth.*` Doctor
- * checks. Mounted by `IdentityModule.forRoot()`, which adds the host-port
- * modules, `PatModule`, `OrganizationsModule` and every registered sign-in
- * provider's strategy; never import it directly.
+ * checks. Mounted by `IdentityModule.forRoot()` with the host-port modules,
+ * `PatModule`, `OrganizationsModule` and every registered sign-in provider's
+ * strategy; never import it directly.
  *
  * Exports `AuthService`, `AdminBootstrapService` and `JwtModule`.
  *
@@ -52,11 +52,11 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
     // Allowlist module for email allowlist checks
     AllowlistModule,
 
-    // `IdentityModule.forRoot()` appends, in this order: the app's host-port
-    // modules (the notifier `handleGoogleLogin` raises `user.welcome` through,
-    // and the jobs port the nightly token cleanup is queued through),
-    // `PatModule` (PAT validation in JwtAuthGuard) and `OrganizationsModule`
-    // (`createNewUser` joins a new user to the default org).
+    // The app's host ports (the notifier `handleGoogleLogin` raises
+    // `user.welcome` through, the jobs port the nightly token cleanup is
+    // queued through), `PatService` (PAT validation in JwtAuthGuard) and
+    // `OrganizationsService` (`createNewUser` joins a new user to the default
+    // org) come from global modules `IdentityModule.forRoot()` mounts.
   ],
   controllers: [AuthController],
   providers: [

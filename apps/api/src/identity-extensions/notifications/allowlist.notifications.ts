@@ -19,7 +19,7 @@
 // feature.
 // =============================================================================
 
-import type { NotificationRegistration } from '../notifications/registry/bindings.registry';
+import type { NotificationRegistration } from '../../notifications/registry/bindings.registry';
 
 export const ALLOWLIST_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {

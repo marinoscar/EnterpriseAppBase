@@ -24,9 +24,9 @@ import request from 'supertest';
 
 import { createOpenApiDocument } from '../../src/openapi/document';
 import { forEachOperation, MutableDocument } from '../../src/openapi/types';
-import { RBAC_EXTENSION_KEY, type RbacExtension } from '../../src/auth/decorators/auth.decorator';
+import { RBAC_EXTENSION_KEY, type RbacExtension } from '@marinoscar/platform-api/identity';
 import { permissionRegistry } from '../../src/common/permissions';
-import * as tenancyMode from '../../src/auth/tenancy-mode';
+import * as tenancyMode from '@marinoscar/platform-api/identity';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

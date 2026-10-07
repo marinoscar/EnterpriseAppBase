@@ -1,3 +1,4 @@
+import { requireJwtSecret } from '@marinoscar/platform-api/identity';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -43,7 +44,9 @@ import { MaintenanceModeDoctorCheck } from './doctor/maintenance-mode.doctor-che
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('jwt.secret') || 'fallback-secret',
+        // No fallback secret (#727): a missing JWT_SECRET fails the boot here
+        // exactly as it does in the identity slice's own JwtModule.
+        secret: requireJwtSecret(config),
       }),
     }),
   ],

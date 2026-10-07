@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { PrincipalCacheModule } from '../auth/principal-cache/principal-cache.module';
 import { OrganizationsService } from './organizations.service';
 import { TenancyService } from './tenancy.service';
@@ -21,6 +21,10 @@ import { OrganizationsAdminController } from './organizations-admin.controller';
  * (`/api/org/members`) and invitations (`/api/org/invites`), and the
  * deployment's organizations (`/api/admin/organizations`).
  */
+// GLOBAL (#727): `AuthService` and the test login use OrganizationsService and
+// TenancyService without an import edge, so `IdentityModule.forRoot()` can mount
+// it after the host modules (the app's old discovery order).
+@Global()
 @Module({
   // PP-6.4 (#724): membership mutations invalidate the principal cache.
   // #726: invitations are emailed through the notification dispatcher.

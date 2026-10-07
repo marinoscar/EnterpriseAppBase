@@ -4,11 +4,11 @@ import { Controller, Get } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { AUDIT_SINK, PLATFORM_PRISMA, SYSTEM_SETTINGS_STORE } from '@marinoscar/platform-api/core';
 
-import { RBAC_EXTENSION_KEY } from '../auth/decorators/auth.decorator';
-import { PERMISSIONS_KEY } from '../auth/decorators/permissions.decorator';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PermissionsGuard } from '../auth/guards/permissions.guard';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { RBAC_EXTENSION_KEY } from '@marinoscar/platform-api/identity';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
+import { JwtAuthGuard } from '@marinoscar/platform-api/identity';
+import { PermissionsGuard } from '@marinoscar/platform-api/identity';
+import { RolesGuard } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsModule } from '../settings/settings.module';
 import { PrismaAuditSink } from './audit-sink.adapter';

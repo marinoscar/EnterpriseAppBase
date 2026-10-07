@@ -25,11 +25,11 @@ import {
 import { FastifyRequest } from 'fastify';
 import { ZodValidationPipe } from 'nestjs-zod';
 
-import { Auth } from '../../auth/decorators/auth.decorator';
+import { Auth } from '@marinoscar/platform-api/identity';
 import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
-import { CurrentOrg } from '../../auth/decorators/current-org.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { RequestUser } from '../../auth/interfaces/authenticated-user.interface';
+import { CurrentOrg } from '@marinoscar/platform-api/identity';
+import { CurrentUser } from '@marinoscar/platform-api/identity';
+import type { RequestUser } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import { ObjectsService } from './objects.service';
 import {
