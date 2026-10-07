@@ -124,7 +124,12 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
       .set(authHeader(admin.accessToken))
       .expect(200);
 
-    expect(res.body.data).toMatchObject({ group: 'coach', available: false, skipped: ['coachNudgesSent', 'healthSummaryP95'] });
+    expect(res.body.data).toMatchObject({ group: 'coach', available: false });
+    // Every family and ratio of the coach-shaped fixture, in declaration order.
+    expect(res.body.data.skipped).toEqual([
+      ...COACH_METRIC_GROUP.families.map((family) => family.key),
+      ...(COACH_METRIC_GROUP.ratios ?? []).map((ratio) => ratio.key),
+    ]);
   });
 
   it('still refuses an unknown group with the same 400', async () => {
