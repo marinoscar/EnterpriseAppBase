@@ -29,11 +29,41 @@ export const TELEMETRY_INSTANCE_ID_PATTERN: RegExp = /^[a-z0-9][a-z0-9._-]{0,62}
  * @stability stable
  */
 export const TELEMETRY_LIMITS = {
-  retentionDays: { min: 1, max: 3650 },
-  maxRows: { min: 1, max: 100000 },
-  timeoutSeconds: { min: 1, max: 120 },
-  maxResultRowsToModel: { min: 1, max: 100 },
-  maxSteps: { min: 1, max: 20 },
+  /** `retentionDays`, in days. */
+  retentionDays: {
+    /** Fewest accepted. */
+    min: 1,
+    /** Most accepted. */
+    max: 3650,
+  },
+  /** `query.maxRows`, in rows. */
+  maxRows: {
+    /** Fewest accepted. */
+    min: 1,
+    /** Most accepted. */
+    max: 100000,
+  },
+  /** `query.timeoutSeconds`, in seconds. */
+  timeoutSeconds: {
+    /** Fewest accepted. */
+    min: 1,
+    /** Most accepted. */
+    max: 120,
+  },
+  /** `assistant.maxResultRowsToModel`, in rows. */
+  maxResultRowsToModel: {
+    /** Fewest accepted. */
+    min: 1,
+    /** Most accepted. */
+    max: 100,
+  },
+  /** `assistant.maxSteps`, in tool-call rounds (the AI runtime's own loop ceiling). */
+  maxSteps: {
+    /** Fewest accepted. */
+    min: 1,
+    /** Most accepted. */
+    max: 20,
+  },
 } as const;
 
 // =============================================================================
@@ -159,7 +189,12 @@ export type TelemetryConnectionHostMode = (typeof TELEMETRY_CONNECTION_HOST_MODE
  *
  * @stability stable
  */
-export const TELEMETRY_CONNECTION_DEFAULTS = { pgPort: 4003, database: 'public' } as const;
+export const TELEMETRY_CONNECTION_DEFAULTS = {
+  /** GreptimeDB's Postgres-wire default port. */
+  pgPort: 4003,
+  /** GreptimeDB's default database. */
+  database: 'public',
+} as const;
 
 /**
  * A connection's database name: a plain identifier, because retention
@@ -275,10 +310,15 @@ export type DashboardRange = (typeof DASHBOARD_RANGES)[number];
  * @stability stable
  */
 export const DASHBOARD_RANGE_MS: Record<DashboardRange, number> = {
+  /** 15 minutes. */
   '15m': 15 * 60_000,
+  /** 1 hour. */
   '1h': 60 * 60_000,
+  /** 6 hours. */
   '6h': 6 * 60 * 60_000,
+  /** 24 hours. */
   '24h': 24 * 60 * 60_000,
+  /** 7 days. */
   '7d': 7 * 24 * 60 * 60_000,
 };
 
@@ -541,3 +581,16 @@ export const TELEMETRY_ASSISTANT_CONFIDENCES = ['high', 'medium', 'low'] as cons
  * @stability stable
  */
 export type TelemetryAssistantConfidence = (typeof TELEMETRY_ASSISTANT_CONFIDENCES)[number];
+
+// =============================================================================
+// Types
+// =============================================================================
+
+/**
+ * The entries of a telemetry enum schema, as `z.enum` types them: each value
+ * keyed by itself (`TelemetryEnumEntries<DashboardRange>` is
+ * `{ '15m': '15m', … }`). Named so a schema's type reads as a reference.
+ *
+ * @stability stable
+ */
+export type TelemetryEnumEntries<T extends string> = { [K in T]: K };

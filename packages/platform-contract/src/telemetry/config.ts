@@ -30,6 +30,7 @@ import { telemetrySettingsSchema } from './settings.js';
  * @stability stable
  */
 export const updateTelemetryConfigSchema = telemetrySettingsSchema.extend({
+  /** Optional here: absent keeps the stored value, `null` returns to the default, a string overrides it. */
   instanceId: telemetrySettingsSchema.shape.instanceId.optional(),
 });
 
@@ -75,8 +76,17 @@ export const telemetryConfigResponseSchema = telemetrySettingsSchema.extend({
   instanceIdEffective: z.string(),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */
   version: z.number().int(),
+  /** When the namespace was last saved, or `null` when nothing is stored yet. */
   updatedAt: z.iso.datetime().nullable(),
-  updatedBy: z.object({ id: z.string(), email: z.string() }).nullable(),
+  /** Who saved it last, or `null`. */
+  updatedBy: z
+    .object({
+      /** The user's id. */
+      id: z.string(),
+      /** The user's email. */
+      email: z.string(),
+    })
+    .nullable(),
 });
 
 /**

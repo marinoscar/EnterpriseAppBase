@@ -16,6 +16,7 @@ import {
   TELEMETRY_QUERY_MAX_ROWS_CEILING,
   TELEMETRY_SQL_MAX_LENGTH,
 } from './constants.js';
+import { wireEnum } from './enum.js';
 
 /**
  * One read-only SQL statement, at most {@link TELEMETRY_SQL_MAX_LENGTH}
@@ -42,7 +43,9 @@ export const telemetrySqlSchema = z
  * @stability stable
  */
 export const telemetryQueryRequestSchema = z.object({
+  /** The statement to run. */
   sql: telemetrySqlSchema,
+  /** Row cap for this query, clamped to the `telemetry.query.maxRows` setting (also the default). */
   maxRows: z
     .number()
     .int()
@@ -77,7 +80,7 @@ export const telemetryColumnSchema = z.object({
    * `json` values are parsed;
    * `bytea` values are base64.
    */
-  type: z.enum(TELEMETRY_COLUMN_TYPES),
+  type: wireEnum(TELEMETRY_COLUMN_TYPES),
 });
 
 /**
@@ -95,6 +98,7 @@ export type TelemetryColumn = z.infer<typeof telemetryColumnSchema>;
  * @stability stable
  */
 export const telemetryQueryResultSchema = z.object({
+  /** The result columns, in order. */
   columns: z.array(telemetryColumnSchema),
   /** Positional: `rows[i][j]` is the value of `columns[j]`. */
   rows: z.array(z.array(z.unknown())),
@@ -121,6 +125,7 @@ export type TelemetryQueryResult = z.infer<typeof telemetryQueryResultSchema>;
  * @stability stable
  */
 export const telemetrySchemaColumnSchema = z.object({
+  /** The column name. */
   name: z.string(),
   /** GreptimeDB's SQL type, e.g. `timestamp(9)`, `string`, `double`, `json`. */
   type: z.string(),
@@ -143,9 +148,11 @@ export type TelemetrySchemaColumn = z.infer<typeof telemetrySchemaColumnSchema>;
  * @stability stable
  */
 export const telemetrySchemaTableSchema = z.object({
+  /** The table name. */
   name: z.string(),
   /** GreptimeDB's row estimate, or null when not reported. */
   rows: z.number().nullable(),
+  /** The table's columns. */
   columns: z.array(telemetrySchemaColumnSchema),
 });
 
@@ -163,6 +170,7 @@ export type TelemetrySchemaTable = z.infer<typeof telemetrySchemaTableSchema>;
  * @stability stable
  */
 export const telemetrySchemaSchema = z.object({
+  /** Every table of the telemetry database. */
   tables: z.array(telemetrySchemaTableSchema),
 });
 
@@ -181,8 +189,10 @@ export type TelemetrySchema = z.infer<typeof telemetrySchemaSchema>;
  * @stability stable
  */
 export const telemetryExportRequestSchema = z.object({
+  /** The statement whose rows are exported. */
   sql: telemetrySqlSchema,
-  format: z.enum(TELEMETRY_EXPORT_FORMATS),
+  /** The file format. */
+  format: wireEnum(TELEMETRY_EXPORT_FORMATS),
 });
 
 /**

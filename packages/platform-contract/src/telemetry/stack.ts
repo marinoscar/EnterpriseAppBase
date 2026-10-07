@@ -16,6 +16,7 @@ import {
   TELEMETRY_STACK_SERVICE_HEALTH,
   TELEMETRY_STACK_SERVICE_STATES,
 } from './constants.js';
+import { wireEnum } from './enum.js';
 
 /**
  * One telemetry service's container: `name` (`greptimedb`,
@@ -28,9 +29,9 @@ export const telemetryStackServiceSchema = z.object({
   /** The compose service, e.g. `greptimedb` or `otel-collector`. */
   name: z.string(),
   /** The container's state; `missing` when it has never been created. */
-  state: z.enum(TELEMETRY_STACK_SERVICE_STATES),
+  state: wireEnum(TELEMETRY_STACK_SERVICE_STATES),
   /** The container's health check, or null when it has none (or is not running). */
-  health: z.enum(TELEMETRY_STACK_SERVICE_HEALTH).nullable(),
+  health: wireEnum(TELEMETRY_STACK_SERVICE_HEALTH).nullable(),
 });
 
 /**
@@ -48,9 +49,13 @@ export type TelemetryStackService = z.infer<typeof telemetryStackServiceSchema>;
  * @stability stable
  */
 export const telemetryStackDeploySchema = z.object({
+  /** The job's id. */
   jobId: z.string(),
-  status: z.enum(TELEMETRY_STACK_DEPLOY_STATUSES),
+  /** The job's queue status. */
+  status: wireEnum(TELEMETRY_STACK_DEPLOY_STATUSES),
+  /** When the job was enqueued. */
   createdAt: z.iso.datetime(),
+  /** When it settled, or `null` while it runs. */
   finishedAt: z.iso.datetime().nullable(),
   /** Why the deploy failed (`Job.lastError`), or null. */
   error: z.string().nullable(),
@@ -78,7 +83,7 @@ export const telemetryStackStatusSchema = z.object({
    * could not be reached (or answered unexpectedly); `unauthorized` — it refused
    * the API's token; `not_configured` — this deployment has no stack-agent.
    */
-  agent: z.enum(TELEMETRY_STACK_AGENT_STATES),
+  agent: wireEnum(TELEMETRY_STACK_AGENT_STATES),
   /**
    * Why the stack-agent is `unavailable` or `unauthorized`: the client's
    * message (the agent's origin and the failure, never the token). Null when

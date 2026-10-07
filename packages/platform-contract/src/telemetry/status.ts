@@ -32,6 +32,7 @@ export const telemetryTtlSchema = z.object({
  * @stability stable
  */
 export const telemetryTableSchema = z.object({
+  /** The table name. */
   name: z.string(),
   /** GreptimeDB's row estimate from `information_schema.tables`, or null when not reported. */
   rows: z.number().nullable(),

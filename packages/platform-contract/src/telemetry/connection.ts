@@ -23,6 +23,7 @@ import {
   TELEMETRY_DATABASE_PATTERN,
   TELEMETRY_HOSTNAME_PATTERN,
 } from './constants.js';
+import { wireEnum } from './enum.js';
 
 // ---- IP literals -------------------------------------------------------------
 //
@@ -134,9 +135,13 @@ export const telemetryUserSchema = z.string().trim().min(1).max(128);
  * @stability stable
  */
 export const telemetryCustomConnectionValueSchema = z.object({
+  /** The custom host. */
   host: telemetryHostSchema,
+  /** GreptimeDB's Postgres-wire port. */
   pgPort: telemetryPgPortSchema,
+  /** The database telemetry is written to. */
   database: telemetryDatabaseSchema,
+  /** The read-only login. */
   readerUser: telemetryUserSchema,
   /** Null: no admin login, so retention cannot be applied (reads still work). */
   adminUser: telemetryUserSchema.nullable(),
@@ -151,6 +156,7 @@ export const telemetryCustomConnectionValueSchema = z.object({
  * @stability stable
  */
 export const telemetryAutomaticConnectionValueSchema = z.object({
+  /** Always `null`: the host is the deployment's. */
   host: z.null(),
 });
 
@@ -187,8 +193,13 @@ export type TelemetryAutomaticConnectionValue = z.infer<typeof telemetryAutomati
  */
 export type TelemetryConnectionValue = z.infer<typeof telemetryConnectionValueSchema>;
 
-// Field names that would mean a secret had been added to the stored value.
-type TelemetryConnectionSecretFieldNames =
+/**
+ * Field names that would mean a secret had been added to the stored
+ * connection; {@link TelemetryConnectionCarriesNoSecret} refuses each.
+ *
+ * @stability stable
+ */
+export type TelemetryConnectionSecretFieldNames =
   | 'password'
   | 'readerPassword'
   | 'adminPassword'
@@ -383,7 +394,9 @@ export const telemetryCredentialStatusSchema = z.object({
    * default: the environment's value is not the store's to describe.
    */
   hint: z.string().nullable(),
+  /** When the password was last stored, or `null`. */
   updatedAt: z.iso.datetime().nullable(),
+  /** Who stored it, or `null`. */
   updatedByUserId: z.string().nullable(),
 });
 
@@ -405,10 +418,13 @@ export type TelemetryCredentialStatus = z.infer<typeof telemetryCredentialStatus
 export const telemetryDeploymentConnectionSchema = z.object({
   /** The deployment host an automatic connection uses. */
   host: z.string(),
+  /** The deployment's Postgres-wire port. */
   pgPort: z.number().int(),
+  /** The deployment's database. */
   database: z.string(),
   /** Empty when the deployment provisions no reader login. */
   readerUser: z.string(),
+  /** The deployment's admin login, or `null` when it provisions none. */
   adminUser: z.string().nullable(),
   /** The deployment provides a reader user and its password. Never the password itself. */
   readerConfigured: z.boolean(),
@@ -438,7 +454,7 @@ export const telemetryConnectionResponseSchema = z.object({
    * a custom host, or the automatic marker), `environment` (nothing saved:
    * the deployment's own GreptimeDB) or `none`.
    */
-  source: z.enum(TELEMETRY_CONNECTION_SOURCES),
+  source: wireEnum(TELEMETRY_CONNECTION_SOURCES),
   /**
    * The host as CONFIGURED: null when it is automatic (a stored automatic
    * connection, `source` `environment` or `source` `none`); a literal only for
@@ -452,7 +468,7 @@ export const telemetryConnectionResponseSchema = z.object({
    */
   effectiveHost: z.string(),
   /** `auto` — `host` is null and `effectiveHost` is the deployment host; `custom` — a literal. */
-  hostMode: z.enum(TELEMETRY_CONNECTION_HOST_MODES),
+  hostMode: wireEnum(TELEMETRY_CONNECTION_HOST_MODES),
   /**
    * True when the whole connection (port, database, logins, passwords) comes
    * from the deployment and nothing but the host mode is the administrator's
@@ -473,23 +489,38 @@ export const telemetryConnectionResponseSchema = z.object({
    * null. Always null for a custom host: its problems are a test's to find.
    */
   problem: z.string().nullable(),
+  /** The Postgres-wire port in force. */
   pgPort: z.number().int(),
+  /** The database in force. */
   database: z.string(),
   /** Empty when `source` is `none`. */
   readerUser: z.string(),
+  /** The admin login in force, or `null` for none. */
   adminUser: z.string().nullable(),
   /** A host, a reader login and its password: telemetry can be read. */
   configured: z.boolean(),
   /** The admin login is usable as well, so retention can be applied. */
   adminConfigured: z.boolean(),
+  /** Masked status of the two stored passwords. Never a password. */
   credentials: z.object({
+    /** The reader login's password. */
     reader: telemetryCredentialStatusSchema,
+    /** The admin login's password. */
     admin: telemetryCredentialStatusSchema,
   }),
   /** The stored connection's version — send it back as `If-Match`. `0` when nothing is stored. */
   version: z.number().int(),
+  /** When the connection was last saved, or `null`. */
   updatedAt: z.iso.datetime().nullable(),
-  updatedBy: z.object({ id: z.string(), email: z.string() }).nullable(),
+  /** Who saved it last, or `null`. */
+  updatedBy: z
+    .object({
+      /** The user's id. */
+      id: z.string(),
+      /** The user's email. */
+      email: z.string(),
+    })
+    .nullable(),
 });
 
 /**
@@ -507,6 +538,7 @@ export type TelemetryConnectionResponse = z.infer<typeof telemetryConnectionResp
  * @stability stable
  */
 export const telemetryConnectionProbeSchema = z.object({
+  /** Whether the login connected and the statement ran. */
   success: z.boolean(),
   /** Wall-clock time of the connect + statement, in milliseconds. */
   latencyMs: z.number().int(),
@@ -558,7 +590,7 @@ export const telemetryConnectionTestResultSchema = z.object({
    * was probed with the deployment's logins (submitted credentials ignored);
    * `custom` — the submitted host and credentials.
    */
-  hostMode: z.enum(TELEMETRY_CONNECTION_HOST_MODES),
+  hostMode: wireEnum(TELEMETRY_CONNECTION_HOST_MODES),
   /** `SELECT version()` as the reader. */
   reader: telemetryConnectionProbeSchema,
   /** `SHOW CREATE DATABASE <database>` as the admin, or skipped. */

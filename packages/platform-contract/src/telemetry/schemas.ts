@@ -4,6 +4,7 @@
 
 export { TELEMETRY_SETTINGS_CARRIES_NO_SECRET, telemetryInstanceIdSchema, telemetrySettingsSchema } from './settings.js';
 export type {
+  TelemetrySecretFieldNames,
   TelemetrySettings,
   TelemetrySettingsCarriesNoSecret,
 } from './settings.js';
@@ -63,6 +64,7 @@ export type {
   TelemetryConnectionCarriesNoSecret,
   TelemetryConnectionProbe,
   TelemetryConnectionResponse,
+  TelemetryConnectionSecretFieldNames,
   TelemetryConnectionSkipped,
   TelemetryConnectionTestResult,
   TelemetryConnectionValue,

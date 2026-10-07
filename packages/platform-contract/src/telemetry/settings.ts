@@ -43,19 +43,32 @@ export const telemetryInstanceIdSchema = z
  * @stability stable
  */
 export const telemetrySettingsSchema = z.object({
+  /** Whether this deployment collects telemetry at all. Off by default. */
   enabled: z.boolean(),
+  /** How many days telemetry is kept (the database TTL). */
   retentionDays: z.number().int().min(retentionDays.min).max(retentionDays.max),
+  /** The `app.instance.id` label stamped on exported telemetry; `null` follows the application slug. */
   instanceId: telemetryInstanceIdSchema.nullable(),
+  /** Bounds of one ad-hoc explorer query. */
   query: z.object({
+    /** Most rows one query may return. */
     maxRows: z.number().int().min(maxRows.min).max(maxRows.max),
+    /** Longest one query may run, in seconds. */
     timeoutSeconds: z.number().int().min(timeoutSeconds.min).max(timeoutSeconds.max),
   }),
+  /** The telemetry AI assistant. */
   assistant: z.object({
+    /** Whether the assistant may be used (on top of telemetry and AI being on). */
     enabled: z.boolean(),
+    /** The AI provider the assistant uses, or `null` when not configured. */
     provider: z.string().nullable(),
+    /** The model the assistant uses, or `null` when not configured. */
     modelId: z.string().nullable(),
+    /** Whether the rows a query returns are sent to the model (not only the query and its metadata). */
     shareResults: z.boolean(),
+    /** Most result rows handed to the model per call. */
     maxResultRowsToModel: z.number().int().min(maxResultRowsToModel.min).max(maxResultRowsToModel.max),
+    /** Most tool-call round trips one assistant turn may take. */
     maxSteps: z.number().int().min(maxSteps.min).max(maxSteps.max),
   }),
 });
@@ -67,8 +80,13 @@ export const telemetrySettingsSchema = z.object({
  */
 export type TelemetrySettings = z.infer<typeof telemetrySettingsSchema>;
 
-// Field names that would mean a secret had been added to the namespace.
-type TelemetrySecretFieldNames =
+/**
+ * Field names that would mean a secret had been added to the `telemetry`
+ * namespace; {@link TelemetrySettingsCarriesNoSecret} refuses each.
+ *
+ * @stability stable
+ */
+export type TelemetrySecretFieldNames =
   | 'secretAccessKey'
   | 'secretKey'
   | 'sessionToken'

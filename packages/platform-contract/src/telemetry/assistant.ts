@@ -20,6 +20,7 @@ import {
   type TelemetryAssistantSeverity,
   type TelemetryAssistantToolName,
 } from './constants.js';
+import { wireEnum } from './enum.js';
 
 /**
  * One earlier turn of the conversation: `role` (`user` or `assistant`) and
@@ -29,7 +30,9 @@ import {
  * @stability stable
  */
 export const telemetryAssistantTurnSchema = z.object({
-  role: z.enum(TELEMETRY_ASSISTANT_TURN_ROLES),
+  /** Who wrote the turn. */
+  role: wireEnum(TELEMETRY_ASSISTANT_TURN_ROLES),
+  /** The turn's text. */
   content: z.string().max(TELEMETRY_ASSISTANT_HISTORY_CONTENT_MAX),
 });
 
@@ -73,7 +76,18 @@ export interface TelemetryAssistantStepEvent {
   /** The tool called. */
   tool: TelemetryAssistantToolName;
   /** `group` is `metrics_overview`'s metric group (#603). */
-  input?: { table?: string; sql?: string; window?: string; traceId?: string; group?: string };
+  input?: {
+    /** `describe_table`: the table. */
+    table?: string;
+    /** `run_query`: the statement. */
+    sql?: string;
+    /** The window an overview tool looked at. */
+    window?: string;
+    /** `get_trace`: the trace. */
+    traceId?: string;
+    /** `metrics_overview`: the metric group. */
+    group?: string;
+  };
   /** `run_query` / `get_trace` only: rows the call returned (up to the row cap). */
   rowCount?: number;
   /** `run_query` / `get_trace` only: more rows matched than the row cap allowed. */
