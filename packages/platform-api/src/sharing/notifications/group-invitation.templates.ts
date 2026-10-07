@@ -137,10 +137,7 @@ export function groupInvitationBrowserTemplate(data: GroupInvitationNotification
  *
  * @stability experimental
  */
-export interface SafeHtmlLike {
-  /** Brand; the value belongs to the app's helper. */
-  readonly __safeHtml?: never;
-}
+export type SafeHtmlLike = object;
 
 /**
  * The app's e-mail helpers the renderer composes with: the shared layout, the

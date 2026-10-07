@@ -85,8 +85,8 @@ export function isUniqueViolation(error: unknown): boolean {
 }
 
 /** `Date` to ISO string; `null` stays `null`. */
-export function iso(value: Date | null): string | null {
-  return value === null ? null : value.toISOString();
+export function iso(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
 }
 
 /** The `{ items, total, page, pageSize, totalPages }` envelope of a list. */
