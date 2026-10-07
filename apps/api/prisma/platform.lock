@@ -132,6 +132,12 @@
       "originId": "platform:0022_add_retention_created_at_indexes",
       "sha256": "f7bc4ab3ec81c55261752c61e48e750faf7affb7202635f8e051934a9410c32f",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261007141244_add_organizations",
+      "originId": "platform:0023_add_organizations",
+      "sha256": "68bed4bfebd7c94600546943bc66dd6245fd912d0cf5583f3485267c89e0faed",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"
