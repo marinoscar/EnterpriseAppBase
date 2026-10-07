@@ -177,6 +177,10 @@ Live examples:
 
 - `AuthService.handleGoogleLogin`: `user.welcome`.
 - `AllowlistService.addEmail`: `allowlist.invitation` through `notifyAddress`.
+- `OrgInvitesService.dispatchInvitation` (#726): `org.invitation` through
+  `notifyAddress`, after the invitation's transaction commits.
+- `OrgMembersService.update` (#726): `security.role_changed` when an org
+  administrator changes a member's org role.
 - `UsersService.updateUserRoles`: `security.role_changed`, mandatory.
 - Operational events raised to permission holders: `jobs.job_failed`
   (`ops/job-failure-notifier.ts`), `nodes.node_offline`,

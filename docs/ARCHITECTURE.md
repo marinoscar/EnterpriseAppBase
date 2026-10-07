@@ -603,10 +603,10 @@ Routes are declared in `apps/web/src/App.tsx`.
 |---|---|
 | Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
 | Signed in | `/` (home), `/activate` (device approval), `/settings` hub and its pages |
-| Admin | `/admin/settings` hub (`system_settings:read` or `users:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
+| Admin | `/admin/settings` hub (`system_settings:read`, `users:read` or `org_members:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
-`ProtectedRoute` establishes that someone is signed in. `RequirePermission` wraps each gated page with the same permission string its registry card declares and its API controller enforces. `RequireAiEnabled` redirects AI pages while AI is off. `MaintenanceGate` swaps the app for a maintenance screen while a window is open.
+`ProtectedRoute` establishes that someone is signed in. `RequirePermission` wraps each gated page with the same permission string its registry card declares and its API controller enforces. `RequireAiEnabled` redirects AI pages while AI is off, and `RequireMultiOrg` redirects the organization pages in a single-org deployment. `MaintenanceGate` swaps the app for a maintenance screen while a window is open.
 
 ### 9.2 Settings pages
 
@@ -633,13 +633,15 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/doctor` | Doctor | Observability | `system_settings:read` | none (reports on AI and telemetry while they are off) |
+| `/admin/settings/organization` | Organization | Organizations | `org_members:read` (org) | `orgs` (multi-org mode) |
+| `/admin/settings/organizations` | Organizations | Organizations | `organizations:read` (system) | `orgs` (multi-org mode) |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 
-Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content.
+Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content. The Organization page (#726) follows the same precedent: Members and Invites are parallel views of "who belongs to this organization", and `org_invites:read` gates the Invites tab. Both organization cards exist only when `/api/auth/me` reports `tenancyMode: 'multi'` (the `orgs` feature); an organization's own administrator, who holds no system permission, reaches the Console through `org_members:read` and sees only the Organization card. The AppBar's organization switcher (`components/navigation/OrgSwitcher.tsx`) appears in multi-org mode for a user with two or more active memberships.
 
 ### 9.3 Layout and breakpoint
 
@@ -650,7 +652,7 @@ The layout switches between a phone treatment (bottom navigation, compact AppBar
 | Context | File | Provides |
 |---|---|---|
 | `ThemeContextProvider` | `apps/web/src/contexts/ThemeContext.tsx` | Light, dark or system theme preference |
-| `AuthProvider` | `apps/web/src/contexts/AuthContext.tsx` | Current user, enabled sign-in providers, sign-in and sign-out |
+| `AuthProvider` | `apps/web/src/contexts/AuthContext.tsx` | Current user, enabled sign-in providers, sign-in and sign-out, the active organization, the user's memberships and `switchOrg` (`POST /api/auth/switch-org`) |
 | `NotificationProvider` | `apps/web/src/contexts/NotificationContext.tsx` | In-app inbox and the SSE notification stream |
 | `AiConfigProvider` | `apps/web/src/contexts/AiConfigContext.tsx` | The one `GET /api/ai/config` answer: whether AI is on, key policy, enabled providers |
 

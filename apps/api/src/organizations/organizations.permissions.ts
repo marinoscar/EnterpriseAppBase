@@ -12,8 +12,8 @@
 //
 // ORG SCOPE, ORG ADMIN ONLY. These gate one organization's own membership: who
 // is in it, with which org role, and who is invited. They are declared here and
-// seeded now; the routes that enforce them arrive with the org admin endpoints
-// (PP-6.8, issue #726), whose controller and settings card use these exact
+// seeded; `org-members.controller.ts` and `org-invites.controller.ts` (#726)
+// enforce them, and the `Organization` settings card uses these exact
 // strings. A customer's organization administrator holds them through the
 // `org_admin` membership role without becoming a deployment operator: none of
 // them is a system permission, and the system `admin` role does not hold them

@@ -79,6 +79,7 @@ In this order:
 | [runbooks/release-platform-packages.md](runbooks/release-platform-packages.md) | Releasing the `@marinoscar/platform-*` packages: owner prerequisites, changesets, the version PR, `next` vs `latest`, provenance, deprecating a bad version (maintainers) |
 | [runbooks/air-gapped.md](runbooks/air-gapped.md) | Running a deployment with no internet egress: `DEPLOYMENT_NETWORK=air-gapped`, the Doctor's `network.egress` row, and how to make each outbound dependency internal |
 | [runbooks/database-baseline.md](runbooks/database-baseline.md) | Adopting the platform migration history in an app that already has a production database: rehearse on a restored backup, `platform db baseline`, verify, roll back (operators, once per app) |
+| [runbooks/multi-org.md](runbooks/multi-org.md) | Running in multi-organization mode: setting `TENANCY_MODE=multi`, creating the first organization, inviting its administrator, managing members and invitations |
 
 ## Developer recipes in the code
 

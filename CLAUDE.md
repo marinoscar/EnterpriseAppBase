@@ -81,6 +81,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
 | Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
 | Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
+| Runbook: multi-organization mode (`TENANCY_MODE=multi`, first organization, invitations, members) | [docs/runbooks/multi-org.md](docs/runbooks/multi-org.md) |
 | Runbook: cross-repo drift report (`scripts/platform-drift.mjs`) | [docs/runbooks/platform-drift-report.md](docs/runbooks/platform-drift-report.md) |
 | Runbook: container images (GHCR names, tags, cosign verify, SBOM, pinning to the platform version) | [docs/runbooks/container-images.md](docs/runbooks/container-images.md) |
 | Runbook: release the platform packages | [docs/runbooks/release-platform-packages.md](docs/runbooks/release-platform-packages.md) |
@@ -165,7 +166,8 @@ Every settings surface, admin or per-user, is a **registry-driven hub**. Rationa
    - `system_settings:read` / `system_settings:write` → `system-settings.controller.ts`
    - `users:read` → `users.controller.ts`
    - `allowlist:read` → `allowlist.controller.ts` (gates content **inside** the Users page, not the route)
-   - `org_members:read` → the org members controller (an **org** permission, held through the `org_admin` membership role; the controller and its card land with PP-6.8, #726)
+   - `org_members:read` → `org-members.controller.ts` (an **org** permission, held through the `org_admin` membership role; the `Organization` card, `feature: 'orgs'`); `org_invites:read` → `org-invites.controller.ts` gates the Invites **tab** inside it
+   - `organizations:read` → `organizations-admin.controller.ts` (a **system** permission; the `Organizations` card, `feature: 'orgs'`)
    Writes are gated inside the page (disabled controls), not by a second card permission.
 4. **Reuse `apps/web/src/components/settings/SettingsHub.tsx`.** Do not fork or copy it. `/settings` (`apps/web/src/pages/UserSettingsHubPage.tsx`) is a binding (`sections`, `hubKey`, `title`, `subtitle`, `features`) over the same component `/admin/settings` uses, nothing more.
 5. **The five coupled breakpoint gates move together or not at all** ([breakpoint gates](docs/specs/settings-ui.md#breakpoint-gates)):
