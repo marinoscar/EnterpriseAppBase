@@ -82,6 +82,14 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'cannot complete OAuth sign-in at all. Admin only.',
       },
       {
+        name: 'Organizations',
+        description:
+          'Organizations, their members and invitations (multi-organization deployments). `/api/org/*` acts ' +
+          'on the organization the caller\'s token is bound to, never on an org id from the request, and needs ' +
+          'org permissions (`org_members:*`, `org_invites:*`, held by `org_admin`). `/api/admin/organizations` ' +
+          'is the deployment operator\'s list of organizations (`organizations:*`).',
+      },
+      {
         name: 'Test Authentication',
         description:
           'Token minting for automated tests. The module is registered only when ' +
