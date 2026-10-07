@@ -16,7 +16,7 @@ Each primitive used to live in the app (`apps/api/src/common/`) and every fork c
 | Scoped data access | `data-access/` | The user-owned data registry (every model with a foreign key to `User`, with its role, purge and export policy), the user-scoped Prisma client extension (`forUser`, `userScopeExtension`) and the explicit unscoped escape (`asSystem`). Schema-independent: model names are strings and the app passes its own client in. See [Scoped data access](#scoped-data-access). Moved from the app by #699 (origin #688). |
 | OpenAPI tags | `openapi/` | `openApiTags`: every `@ApiTags` name with its description and sidebar group, registered by the app and by slices; the app's document builder publishes `tags` and `x-tagGroups` from it. |
 
-Does: hold primitives with no domain and no tables. Does not: own tables, import a generated Prisma client or model types (scoped data access imports only the schema-independent `@prisma/client/extension` and receives the app's client at call time), read settings, or register anything with Nest by itself (there is no `CoreModule`: the app provides `RegistryFreezeService` and registers `HttpExceptionFilter` itself). Org scoping and row-level security join scoped data access later (#725); the HTTP response envelope (`TransformInterceptor`), request-id middleware and the OpenAPI document passes stay in the app until their own slice.
+Does: hold primitives with no domain and no tables. Does not: own tables, import a generated Prisma client or model types (scoped data access imports only the schema-independent `@prisma/client/extension` and receives the app's client at call time), read settings, or register anything with Nest by itself (there is no `CoreModule`: the app provides `RegistryFreezeService` and registers `HttpExceptionFilter` itself). Organisation scoping and row-level security (`forOrg`, `runInOrg`, the bypass shapes and the model ownership registry, #725) are part of scoped data access; the HTTP response envelope (`TransformInterceptor`), request-id middleware and the OpenAPI document passes stay in the app until their own slice.
 
 ## Install and peer dependencies
 
@@ -162,7 +162,7 @@ Rules: name the class as the app's controller was named and keep decorator order
 
 ### Scoped data access
 
-Three parts, all `@stability experimental` until organisations and row-level security (#725) add `orgId` scoping.
+Five parts, all `@stability experimental`: the user-owned registry, `forUser`, `asSystem`, and (since #725) organisation scoping with row-level security and the model ownership registry.
 
 **The registry.** `userOwnedModelRegistry` is a static `defineRegistry` registry (frozen on bootstrap with the others) holding one `UserOwnedModelDef` per model with a foreign key to `User`. An app registers its models once, from a manifest imported before bootstrap, with `registerUserOwnedModels(defs)`; a packaged slice registers its own models when it is extracted. The `userOwnedData` conformance suite ([testing](../testing/README.md#conformance-suite)) fails when a `User` relation has no entry or an entry contradicts the schema.
 
@@ -187,9 +187,22 @@ Purge and export are declarations today; the user-data reset and the export fram
 | `create`, `createMany(AndReturn)`, `upsert`'s `create` | `O` is set to `U` when absent; another value, or a relation connect to another user, throws `ScopedAccessError` |
 | `update`, `updateMany(AndReturn)`, `upsert`'s `update` | Moving the row to another owner throws |
 
-Everything else throws `ScopedAccessError` before reaching the database: an actor-only or unregistered model (including `User`), raw SQL (`$queryRaw`, `$executeRaw` and the `Unsafe` variants, also inside `$transaction`), and an operation it cannot scope. Interactive transactions stay scoped. Only `scope.userId` is applied; `orgId` and `groupIds` are accepted and ignored until #725 and #729. Nested writes and relation `include`/`select` are not rewritten: a nested write into another user-owned model goes through that model's own scoped call.
+Everything else throws `ScopedAccessError` before reaching the database: an actor-only or unregistered model (including `User`), raw SQL (`$queryRaw`, `$executeRaw` and the `Unsafe` variants, also inside `$transaction`), and an operation it cannot scope. Interactive transactions stay scoped. Only `scope.userId` is applied here; the organisation is applied by `forOrg` below, and `groupIds` is accepted and ignored until #729. Nested writes and relation `include`/`select` are not rewritten: a nested write into another user-owned model goes through that model's own scoped call.
 
 **`asSystem(client, actor)`.** The explicit, greppable marker for work that is not on behalf of one user: backups, purges, the Doctor, cross-user admin reads, actor-only tables, migrations. It refuses an actor without `{ kind: 'system', reason }` and a non-empty reason, sets `db.access.scope = 'system'` and `db.access.reason` on the active span, and returns the client unchanged. Never derive the reason from request input.
+
+**Organisation scope and row-level security (#725, [ADR 0002 D5](../../../../docs/adr/0002-database-packaging-and-rls.md)).** The database enforces organisation isolation: every `org` table has a policy on `org_id` keyed on three settings that exist only inside one transaction. `RLS_SETTINGS` names them (`app.org_id`, `app.user_id`, `app.rls_bypass`). Four shapes set them, none with a session-level `SET` (a session value leaks to the next request on a pooled connection, and across a transaction-mode pooler):
+
+| Shape | Use it for |
+|---|---|
+| `forOrg(client, orgId, { userId? })` / `orgScopeExtension(base, scope)` / `forScope(client, scope)` | One operation. Every operation, raw SQL included, runs as `$transaction([ set_config(…, true), operation ])` on one connection. Fails closed: another organisation's rows are invisible, an insert naming another organisation is refused by the policy's `WITH CHECK`. |
+| `runInOrg(client, { orgId, userId? }, fn, options?)` / `runInScope` | A unit of work of more than one statement: one interactive transaction, `set_config` first, `fn` receives the plain transaction client. Nested use reuses the outer transaction; nesting another organisation throws. Pass `maxWait` and `timeout` when many transactions queue behind a small pool. |
+| `forSystem(systemClient, reason)` / `systemScopeExtension` | One operation with `app.rls_bypass = 'on'`, on a **separate** `PrismaClient` with its own pool (the app's `PrismaSystemService`), so the tenant pool never carries the flag. |
+| `runAsSystem(systemClient, reason, fn, options?)` | The interactive form of the above. |
+
+`orgId` and `userId` must be UUIDs (`ScopedAccessError` otherwise). `SystemAccessReason` is a closed list (`backup`, `restore`, `purge`, `doctor`, `retention`, `admin-aggregate`, `migration-tooling`); each system acquisition sets `db.access.scope = 'system'` and `db.access.reason` on the active span and adds a `db.rls_bypass` event. An extended client used inside `$transaction(async tx => …)` would escape that transaction, so the extension refuses to run there: use `runInOrg` and the plain `tx` it hands out. The threat model is the ADR's: this defends against a missing or wrong scope in application code; it does not defend against SQL injection or arbitrary raw SQL (any statement on a connection may set any setting), so raw SQL stays behind the lint rule and review.
+
+**The model ownership registry.** `modelOwnershipRegistry` (a `defineRegistry` registry, `registerModelOwnership(defs)`) classifies every Prisma model as `org` (NOT NULL `org_id`, row-level security forced), `org-optional` (nullable `org_id`, no row-level security), `user` (personal) or `system` (deployment-wide). `modelsOfKind(kind)` and `orgFieldOf(model)` read it. The reference app's `rls-coverage` database spec checks it against the catalogue: every `org` model has `relrowsecurity`, `relforcerowsecurity` and a policy named in `RLS_POLICIES`, and no unregistered table has an `org_id` column.
 
 ### Logging, metrics and spans
 
@@ -202,7 +215,7 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 ## Extension-point catalog
 
-Ten symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
+Eleven symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
@@ -216,6 +229,7 @@ Ten symbols are extension points; the other exports are the contracts, functions
 | `SYSTEM_SETTINGS_STORE` | token | `unique symbol` -> `SystemSettingsStore` | Read or patch a settings namespace from a packaged slice | experimental | [example](../../../../apps/api/src/platform/system-settings-store.adapter.ts) |
 | `PLATFORM_PRISMA` | token | `unique symbol` -> `PrismaClientLike` | Reach the app's Prisma client from a packaged slice | experimental | [example](../../../../apps/api/src/platform/platform-host.module.ts) |
 | `userOwnedModelRegistry` | registry | `Registry<UserOwnedModelDef>` | Register every model with a foreign key to `User`, with its role, purge and export policy (`registerUserOwnedModels(defs)`) | experimental | [example](../../../../apps/api/src/prisma/ownership/user-owned-model.manifest.ts) |
+| `modelOwnershipRegistry` | registry | `Registry<ModelOwnershipDef>` | Classify every model as `org`, `org-optional`, `user` or `system` (`registerModelOwnership(defs)`); the `org` ones get `org_id` and forced row-level security | experimental | [example](../../../../apps/api/src/prisma/ownership/model-ownership.manifest.ts) |
 
 Registry, all `@stability stable`:
 
@@ -261,7 +275,7 @@ Crypto, all `@stability stable`:
 
 Host-port types, all `@stability experimental` (#696): `PlatformHost`, `PlatformAccessPort`, `AuditSink`, `AuditEventInput`, `SystemSettingsStore`, `SystemSettingsSnapshot`, `PrismaClientLike`, `PortBinding<T>`, `PlatformHostPorts`.
 
-Scoped data access, all `@stability experimental` (#699; org scope with #725):
+Scoped data access, all `@stability experimental` (#699; organisation scope and row-level security #725):
 
 | Export | Kind | Use it to |
 |---|---|---|
@@ -273,6 +287,13 @@ Scoped data access, all `@stability experimental` (#699; org scope with #725):
 | `ExtendableClient` | type | What `forUser` needs from a client: `$extends`. |
 | `asSystem(client, actor)` | function | Mark deliberately unscoped work; checks the actor and tags the active span. |
 | `ScopedAccessError` | error | Thrown when a scoped call would leave its scope; carries `model` and `operation`. A programming error (a 500), not an `HttpException`. |
+| `forOrg(client, orgId, opts?)`, `forScope(client, scope)`, `orgScopeExtension(base, scope)` | functions | An organisation-scoped client (per operation, transaction-local `set_config`). |
+| `runInOrg(client, scope, fn, options?)`, `runInScope(client, scope, fn, options?)` | functions | One interactive transaction in an organisation's scope. |
+| `forSystem(client, reason)`, `systemScopeExtension(base, reason)`, `runAsSystem(client, reason, fn, options?)` | functions | The bypass shapes, for the separate system client. |
+| `RLS_SETTINGS`, `SYSTEM_ACCESS_REASONS`, `SystemAccessReason` | constant, constant, type | The three transaction-local setting names; the closed list of bypass reasons. |
+| `OrgScope`, `OrgScopedClient<C>`, `RlsBaseClient`, `RlsRunnableClient`, `RlsTransactionClient<C>`, `RlsTransactionOptions` | types | Type scopes, scoped clients and transaction callbacks. |
+| `registerModelOwnership(defs)`, `modelsOfKind(kind)`, `orgFieldOf(model)`, `orgColumnOf(model)` | functions | Fill and read `modelOwnershipRegistry`. |
+| `ModelOwnershipDef<TModel>`, `OwnershipKind` | types | Type a classification. |
 
 OpenAPI tags, all `@stability experimental`:
 

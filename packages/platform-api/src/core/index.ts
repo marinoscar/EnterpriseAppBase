@@ -82,3 +82,35 @@ export type {
   UserOwnedModelLookup,
   UserScopeExtension,
 } from './data-access/index';
+
+// Organisation scoping and row-level security (issue #725; ADR 0002 D5): the
+// transaction-local `forOrg` / `runInOrg` shapes, the bypass shapes for the
+// separate system client, and the model ownership registry.
+export {
+  RLS_SETTINGS,
+  SYSTEM_ACCESS_REASONS,
+  forOrg,
+  forScope,
+  forSystem,
+  modelOwnershipRegistry,
+  modelsOfKind,
+  orgColumnOf,
+  orgFieldOf,
+  orgScopeExtension,
+  registerModelOwnership,
+  runAsSystem,
+  runInOrg,
+  runInScope,
+  systemScopeExtension,
+} from './data-access/index';
+export type {
+  ModelOwnershipDef,
+  OrgScope,
+  OrgScopedClient,
+  OwnershipKind,
+  RlsBaseClient,
+  RlsRunnableClient,
+  RlsTransactionClient,
+  RlsTransactionOptions,
+  SystemAccessReason,
+} from './data-access/index';

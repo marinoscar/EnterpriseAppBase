@@ -13,3 +13,32 @@ export {
 } from './user-owned-data.registry';
 export { asSystem, forUser, userScopeExtension } from './scoped-client';
 export type { ExtendableClient, UserScopeExtension } from './scoped-client';
+export {
+  RLS_SETTINGS,
+  SYSTEM_ACCESS_REASONS,
+  forOrg,
+  forScope,
+  forSystem,
+  orgScopeExtension,
+  runAsSystem,
+  runInOrg,
+  runInScope,
+  systemScopeExtension,
+} from './rls';
+export type {
+  OrgScope,
+  OrgScopedClient,
+  RlsBaseClient,
+  RlsRunnableClient,
+  RlsTransactionClient,
+  RlsTransactionOptions,
+  SystemAccessReason,
+} from './rls';
+export {
+  modelOwnershipRegistry,
+  modelsOfKind,
+  orgColumnOf,
+  orgFieldOf,
+  registerModelOwnership,
+} from './model-ownership';
+export type { ModelOwnershipDef, OwnershipKind } from './model-ownership';
