@@ -141,7 +141,9 @@ A failed sign-in redirects to `/auth/callback?error=<code>` with a code from a c
 
 Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the check, is seeded onto the allowlist and becomes Admin on first sign-in. Every other new user gets the Viewer role. An allowlist entry is `pending` until its owner signs in, then `claimed`; claimed entries cannot be removed. Revoke access by deactivating the user instead.
 
-- **Code:** `apps/api/src/auth/`, `apps/api/src/allowlist/`, `apps/api/src/users/`
+Organization membership at sign-in follows `TENANCY_MODE` ([§10.4](#104-environment-variables)). In `single` (the default) every signing-in user is ensured a membership in the default organization, at creation and, self-healing, at later sign-ins. In `multi` only the `INITIAL_ADMIN_EMAIL` account auto-joins, and a user with no active membership is refused with `no_organization`. `GET /api/auth/me` reports the mode as `tenancyMode`, and the `tenancy.mode` doctor check flags a database that contradicts it ([user provisioning](SECURITY-ARCHITECTURE.md#user-provisioning)).
+
+- **Code:** `apps/api/src/auth/`, `apps/api/src/allowlist/`, `apps/api/src/users/`, `apps/api/src/organizations/` (`TenancyService`)
 - **UI:** `/admin/settings/users` (Users and Allowlist tabs)
 - **Permissions:** `users:read`, `users:write`, `rbac:manage`, `allowlist:read`, `allowlist:write`
 - **Read more:** [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md)
@@ -704,6 +706,7 @@ The reference for every variable is [`infra/compose/.env.example`](../infra/comp
 - **`EVENT_BUS_ADAPTER`** is deployment topology: `postgres` once more than one API replica shares the database, `in-process` (or unset) for exactly one. It is the same on every replica; see [§5.21](#521-event-bus).
 - **`MAINTENANCE_MODE`** is a break-glass override; see [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md).
 - **`DEPLOYMENT_MODE`** (`self-hosted`, the default, or `saas`) is a deployment-level fact read once at startup; an invalid value stops the API. `saas` disables in-app database restore and rollback (routes `403`, queued `db.restore.run` jobs refused) in favour of the provider's point-in-time recovery; backups are unchanged. It is reported by `GET /api/admin/about` and the `core.deployment-mode` doctor check. See [specs/database-restore.md](specs/database-restore.md#deployment-mode) and, for the deployment modes themselves, [specs/platform-packages.md](specs/platform-packages.md#deployment-modes).
+- **`TENANCY_MODE`** (`single`, the default, or `multi`) is a deployment-level fact read once at startup; an invalid value stops the API. It is deliberately not a runtime setting: switching it changes who can see what. `single` auto-joins every user to the default organization; `multi` joins only the `INITIAL_ADMIN_EMAIL` account automatically and refuses a sign-in with no active membership (`no_organization`). It is reported by `GET /api/auth/me` (`tenancyMode`) and checked by the `tenancy.mode` doctor check. See [§5.1](#51-authentication-google-oauth-jwt-and-the-email-allowlist) and [specs/platform-packages.md](specs/platform-packages.md#tenancy-mode-is-a-deployment-setting).
 - **`DEPLOYMENT_NETWORK`** (`online`, the default, or `air-gapped`) is a deployment-level fact read once at startup; an invalid value stops the API. It changes no behaviour: `air-gapped` makes the `network.egress` doctor check grade the deployment's outbound dependencies (a required public one fails, optional ones warn) instead of only listing them. See [runbooks/air-gapped.md](runbooks/air-gapped.md).
 
 The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run prisma:seed` inside the `api` container after the first start and after each upgrade.

@@ -97,6 +97,7 @@ Google `error_description`, no JSON body.
 | `access_denied` | The person cancelled or denied consent at Google | Try again |
 | `authentication_failed` | Token exchange failed, code replayed or expired, no email on the profile, or anything unexpected. The default for every unrecognised failure | Try again |
 | `server_misconfigured` | Seed data is missing (`DatabaseSeedException`) | None; an administrator must fix it |
+| `no_organization` | `TENANCY_MODE=multi` and the user has no active organization membership (see [User provisioning](#user-provisioning)) | Sign in with a different account |
 
 **Why free text is excluded.** The `/auth/callback` URL is a link anyone can
 craft. If the page rendered its `error` value, an attacker could put
@@ -110,9 +111,11 @@ screen without echoing the input.
 
 - **Callback handler.** `AuthController.googleAuthCallback` catches failures
   from `handleGoogleLogin` and resolves them with `resolveAuthErrorCode`.
-  Policy refusals (allowlist, deactivated account) are
-  `AuthLoginDeniedException`, a 403 `ForbiddenException` carrying a `reason`
-  that becomes the code.
+  Policy refusals (allowlist, deactivated account, no organization in
+  multi-org mode) are `AuthLoginDeniedException`, a 403 `ForbiddenException`
+  carrying a `reason` that becomes the code. The redirect is sent with an
+  explicit `302`: Nest has already set the route default (200) on the reply,
+  and Fastify's `redirect(url)` keeps a status that was set.
 - **Guard failures.** `GoogleOAuthGuard` runs before the handler, so its errors
   (cancelled consent, replayed or expired code, profile without an email)
   never reach the handler's `try/catch`. `GoogleOAuthExceptionFilter`, applied
@@ -136,6 +139,9 @@ That navigates to `/api/auth/google?select_account=1`, and the guard forwards
 **Logging.** The filter logs the exception's name, never the request URL (it
 carries the authorization code). Expected outcomes (`access_denied`,
 `not_allowlisted`, `account_disabled`) log at `warn`; the rest at `error`.
+`AuthService` logs a `no_organization` refusal at `warn` with the user id only,
+never the email, and counts it as the `no_organization` outcome of the
+`app.auth.logins` metric.
 
 **Adding a code** touches three places:
 
@@ -165,14 +171,34 @@ redirect with a code), `apps/web/src/__tests__/pages/AuthCallbackPage.test.tsx`,
    identity, default user settings, the default role (`viewer`), an active
    membership in the default organization (`OrganizationsService.ensureMembership`)
    and, when `AdminBootstrapService.shouldGrantAdminRole` says so, the `admin`
-   role. A missing default organization (neither the migration backfill nor
-   the seed ran) fails the sign-up before anything is written, like a missing
-   default role. Joining the default organization is unconditional until
-   tenancy mode lands.
+   role. The default-organization membership is written only when the tenancy
+   mode auto-joins this user (below). A missing default organization (neither
+   the migration backfill nor the seed ran) fails the sign-up before anything
+   is written, like a missing default role.
    The allowlist entry is then marked claimed.
-4. Reject an inactive user (`isActive = false`).
-5. Refresh the provider display name and picture.
-6. Issue tokens.
+4. Refresh the provider display name and picture.
+5. Reject an inactive user (`isActive = false`).
+6. Apply the tenancy mode (below): ensure the default-organization membership,
+   or refuse with `no_organization`.
+7. Issue tokens.
+
+**Auto-join by tenancy mode.** `TENANCY_MODE` (`single`, the default, or
+`multi`) is a deployment-level environment variable, read once at startup; an
+invalid value stops the API from starting. It is deliberately not an admin
+setting: switching it at runtime would change who can see what in the middle of
+a session. `TenancyService` (`apps/api/src/organizations/tenancy.service.ts`)
+exposes it, and `GET /api/auth/me` reports it as `tenancyMode`.
+
+| Mode | New user | Returning user |
+|---|---|---|
+| `single` | Joins the default organization inside the creation transaction | Self-heal: a user without a default-organization membership gets one at sign-in (`OrganizationsService.ensureDefaultOrgMembership`, read first, idempotent upsert). A suspended membership stays suspended |
+| `multi` | Joins nothing, except the `INITIAL_ADMIN_EMAIL` account, which always joins the default organization so the deployment can be administered | Signs in only with at least one active membership; zero active memberships is refused with `no_organization` (after the inactive-user check) |
+
+`TestAuthService` (the non-production test login) applies the same rules and
+redirects a refusal to the same `/auth/callback?error=<code>`. Pending invites
+are claimed before the membership check once invite acceptance lands (#726).
+The admin Doctor's `tenancy.mode` check reports a database that contradicts the
+mode.
 
 The admin role is granted only when the email matches `INITIAL_ADMIN_EMAIL`
 and no other active admin exists. Seeding adds `INITIAL_ADMIN_EMAIL` to the
