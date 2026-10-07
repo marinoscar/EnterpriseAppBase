@@ -1,0 +1,41 @@
+# One-off, owner-requested bootstrap of the six @marinoscar/platform-* package
+# names on npm (docs/runbooks/release-platform-packages.md, prerequisite 2):
+# npm only attaches a trusted publisher to a package that already exists, so
+# each name is published once under the throwaway `bootstrap` dist-tag that
+# `latest`/`next` consumers never install. Manual only; uses the owner's
+# short-lived NPM_BOOTSTRAP_TOKEN, which is revoked afterwards, and this file
+# is removed. Real releases publish from release.yml with trusted publishing.
+name: npm bootstrap (one-off)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    name: Publish the six package names under the bootstrap tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm ci
+      - run: npm run build:packages
+      - name: Publish each name once (skips a version already on npm)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          for p in contract api web db cli infra; do
+            name="@marinoscar/platform-$p"
+            v=$(node -p "require('./packages/platform-$p/package.json').version")
+            if npm view "$name@$v" version >/dev/null 2>&1; then echo "skip $name@$v"; continue; fi
+            npm publish -w "$name" --access public --tag bootstrap
+          done
+          for p in contract api web db cli infra; do npm view "@marinoscar/platform-$p" dist-tags --json; done
