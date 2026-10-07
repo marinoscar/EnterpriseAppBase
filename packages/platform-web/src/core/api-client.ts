@@ -13,22 +13,67 @@
  */
 export interface PlatformApiClient {
   /** `GET path`. */
-  get<T>(path: string): Promise<T>;
+  get<T>(path: string, options?: PlatformRequestOptions): Promise<T>;
   /** `POST path` with an optional JSON body. */
-  post<T>(path: string, body?: unknown): Promise<T>;
-  /** `PUT path` with an optional JSON body. */
-  put<T>(path: string, body?: unknown): Promise<T>;
+  post<T>(path: string, body?: unknown, options?: PlatformRequestOptions): Promise<T>;
+  /** `PUT path` with an optional JSON body; `ifMatch` becomes the `If-Match` header. */
+  put<T>(path: string, body?: unknown, options?: PlatformRequestOptions): Promise<T>;
   /** `PATCH path` with an optional JSON body; `ifMatch` becomes the `If-Match` header. */
-  patch<T>(path: string, body?: unknown, options?: { ifMatch?: string }): Promise<T>;
-  /** `DELETE path`. */
-  delete<T>(path: string): Promise<T>;
+  patch<T>(path: string, body?: unknown, options?: PlatformRequestOptions): Promise<T>;
+  /** `DELETE path`; `ifMatch` becomes the `If-Match` header. */
+  delete<T>(path: string, options?: PlatformRequestOptions): Promise<T>;
   /**
    * `GET path` for a file download: the raw body and the response headers
    * (for `Content-Disposition`), never the `{ data }` envelope. Optional: a
    * transport without it cannot serve downloads (the support bundle's
    * `useSupportBundleDownload` reports so instead of failing silently).
    */
-  getBlob?(path: string): Promise<PlatformBlobResponse>;
+  getBlob?(path: string, options?: PlatformRequestOptions): Promise<PlatformBlobResponse>;
+  /**
+   * `POST path` with a JSON body, for a file download (the telemetry export):
+   * the raw body and the response headers, never the `{ data }` envelope.
+   * Optional, like {@link PlatformApiClient.getBlob}; a page that needs it
+   * reports its absence instead of failing silently.
+   */
+  postBlob?(path: string, body?: unknown, options?: PlatformRequestOptions): Promise<PlatformBlobResponse>;
+  /**
+   * `POST path` with a JSON body and stream the `text/event-stream` answer,
+   * frame by frame (the telemetry assistant). ONE request, never a reconnect;
+   * the same authentication as every other call (a real `Authorization`
+   * header, one refresh-and-retry on a 401). Resolves when the server ends the
+   * stream and quietly on abort; rejects with a {@link PlatformApiError} when
+   * the API refused the request before the first byte. Optional: a page that
+   * needs it reports its absence.
+   */
+  postSse?(path: string, body: unknown, options: PlatformSseOptions): Promise<void>;
+}
+
+/**
+ * Per-request options every {@link PlatformApiClient} method takes. All
+ * optional; a transport ignores what it cannot honour.
+ *
+ * @stability experimental
+ */
+export interface PlatformRequestOptions {
+  /** Aborts the request (a superseded query, an unmount). */
+  signal?: AbortSignal;
+  /** Sent as the `If-Match` header (optimistic concurrency, `docs/API.md`). */
+  ifMatch?: string;
+}
+
+/**
+ * What {@link PlatformApiClient.postSse} takes besides the path and body.
+ *
+ * @stability experimental
+ */
+export interface PlatformSseOptions {
+  /**
+   * One parsed frame: its `event:` name and its `data:` parsed as JSON (the
+   * raw string when it is not JSON). Comment lines never arrive here.
+   */
+  onFrame(event: string, data: unknown): void;
+  /** Aborting ends the stream; the promise then resolves quietly. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -59,6 +104,8 @@ export interface PlatformApiError {
   message: string;
   /** The API's machine-readable error code, when it sent one. */
   code?: string;
+  /** The error envelope's `details`, when the API sent any (e.g. `{ reason }`). */
+  details?: unknown;
 }
 
 /**

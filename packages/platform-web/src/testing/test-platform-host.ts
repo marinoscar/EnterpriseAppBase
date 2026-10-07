@@ -2,7 +2,13 @@
 // table of canned responses and records every request, so a packaged page can
 // be tested without the app, its transport or a mock server.
 
-import type { PlatformApiClient, PlatformApiError, PlatformBlobResponse, PlatformWebHost } from '../core/index.js';
+import type {
+  PlatformApiClient,
+  PlatformApiError,
+  PlatformBlobResponse,
+  PlatformRequestOptions,
+  PlatformWebHost,
+} from '../core/index.js';
 
 /**
  * One request a test host received.
@@ -16,8 +22,22 @@ export interface TestApiRequest {
   path: string;
   /** The body, for POST, PUT and PATCH. */
   body?: unknown;
-  /** The `ifMatch` option of a PATCH. */
+  /** The `ifMatch` option of a PUT, PATCH or DELETE. */
   ifMatch?: string;
+  /** How the page asked: a JSON call, a download (`getBlob`/`postBlob`) or a stream (`postSse`). */
+  kind?: 'json' | 'blob' | 'sse';
+}
+
+/**
+ * One frame a canned {@link PlatformApiClient.postSse} answer delivers, in order.
+ *
+ * @stability experimental
+ */
+export interface TestSseFrame {
+  /** The frame's `event:` name. */
+  event: string;
+  /** The frame's parsed `data:`. */
+  data: unknown;
 }
 
 /**
@@ -44,7 +64,9 @@ export interface TestPlatformHostOptions {
   /**
    * Canned responses, looked up by `"<METHOD> <path with query>"`, then
    * `"<METHOD> <path without query>"`, then `"<path without query>"`. An
-   * unmatched request rejects with a 404 {@link PlatformApiError}.
+   * unmatched request rejects with a 404 {@link PlatformApiError}. A stream
+   * (`postSse`) answers from the same table with an array of
+   * {@link TestSseFrame}s, delivered in order.
    */
   responses?: Readonly<Record<string, TestApiResponse>>;
   /** The host's relative-time formatter. Default none (the page's fallback). */
@@ -128,16 +150,28 @@ export function createTestPlatformHost(options: TestPlatformHostOptions = {}): T
     return (await (typeof response === 'function' ? (response as (r: TestApiRequest) => unknown)(request) : response)) as T;
   };
 
+  const withIfMatch = (options: PlatformRequestOptions | undefined) =>
+    options?.ifMatch === undefined ? {} : { ifMatch: options.ifMatch };
+
   const api: PlatformApiClient = {
     get: (path) => call({ method: 'GET', path }),
     post: (path, body) => call({ method: 'POST', path, body }),
-    put: (path, body) => call({ method: 'PUT', path, body }),
-    patch: (path, body, patchOptions) =>
-      call({ method: 'PATCH', path, body, ...(patchOptions?.ifMatch === undefined ? {} : { ifMatch: patchOptions.ifMatch }) }),
-    delete: (path) => call({ method: 'DELETE', path }),
-    // Downloads answer from the same table (`'GET <path>'`); the canned value
-    // is a `PlatformBlobResponse`, e.g. from `createTestBlobResponse`.
-    getBlob: (path) => call({ method: 'GET', path }),
+    put: (path, body, putOptions) => call({ method: 'PUT', path, body, ...withIfMatch(putOptions) }),
+    patch: (path, body, patchOptions) => call({ method: 'PATCH', path, body, ...withIfMatch(patchOptions) }),
+    delete: (path, deleteOptions) => call({ method: 'DELETE', path, ...withIfMatch(deleteOptions) }),
+    // Downloads answer from the same table (`'GET <path>'`, `'POST <path>'`);
+    // the canned value is a `PlatformBlobResponse`, e.g. from `createTestBlobResponse`.
+    getBlob: (path) => call({ method: 'GET', path, kind: 'blob' }),
+    postBlob: (path, body) => call({ method: 'POST', path, body, kind: 'blob' }),
+    // A stream answers with an array of frames; anything else delivers none.
+    postSse: async (path, body, sseOptions) => {
+      const frames = await call<unknown>({ method: 'POST', path, body, kind: 'sse' });
+      if (!Array.isArray(frames)) return;
+      for (const frame of frames as TestSseFrame[]) {
+        if (sseOptions.signal?.aborted) return;
+        sseOptions.onFrame(frame.event, frame.data);
+      }
+    },
   };
 
   return {

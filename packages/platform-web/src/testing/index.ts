@@ -7,4 +7,5 @@ export type {
   TestApiResponse,
   TestPlatformHost,
   TestPlatformHostOptions,
+  TestSseFrame,
 } from './test-platform-host.js';
