@@ -9,6 +9,7 @@ import multipart from '@fastify/multipart';
 import { AppModule } from '../../src/app.module';
 import { JobWorker } from '../../src/jobs/job.worker';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { PrismaSystemService } from '../../src/prisma/prisma-system.service';
 import { prismaMock } from '../mocks/prisma.mock';
 
 export interface TestContext {
@@ -84,6 +85,17 @@ export async function createTestApp(
     })
       .overrideProvider(PrismaService)
       .useValue(prismaMock)
+      // The bypass connection (issue #725) would open a second real pool at
+      // module init. Against a mocked database it is the same mock: the system
+      // client answers with the mock itself, so a spec asserts on the very
+      // `aiRun.deleteMany` it always did.
+      .overrideProvider(PrismaSystemService)
+      .useValue({
+        asSystem: () => prismaMock,
+        runAsSystem: (_reason: string, fn: (tx: unknown) => unknown) => fn(prismaMock),
+        $connect: async () => undefined,
+        $disconnect: async () => undefined,
+      })
       // The background job worker (#262) starts a polling pool from
       // `onApplicationBootstrap`, which `app.init()` below reaches. Against a
       // mocked database it would claim nothing, log a failure every poll

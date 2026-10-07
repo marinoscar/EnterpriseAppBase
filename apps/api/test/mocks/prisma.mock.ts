@@ -26,7 +26,18 @@ const _prismaMock: MockPrismaClient = mockDeep<PrismaClient>();
 export function withOrgScope<T extends object>(mock: T): T {
   const scoped: Record<string, unknown> = {
     forOrg: () => proxy,
-    runInOrg: (_orgId: string, fn: (tx: unknown) => unknown) => fn(proxy),
+    // Goes through the mock's `$transaction` when a spec implemented one (so
+    // "ran inside a transaction" assertions keep holding), and otherwise runs
+    // the unit of work directly on the mock.
+    runInOrg: (_orgId: string, fn: (tx: unknown) => unknown) => {
+      let ran = false;
+      const unit = (tx: unknown) => {
+        ran = true;
+        return fn(tx);
+      };
+      const result = (mock as { $transaction?: (u: unknown) => unknown }).$transaction?.(unit);
+      return ran ? result : fn(proxy);
+    },
   };
   const proxy: T = new Proxy(mock, {
     get(target, prop, receiver) {
@@ -37,9 +48,20 @@ export function withOrgScope<T extends object>(mock: T): T {
   return proxy;
 }
 
+/**
+ * The single-mode default organization every mocked database answers with, for
+ * work that carries no organization of its own (a job enqueued before #725).
+ */
+export const MOCK_DEFAULT_ORG_ID = '99999999-9999-4999-8999-999999999999';
+
+function withDefaultOrg<T extends { organization: { findFirst: { mockResolvedValue(v: unknown): unknown } } }>(mock: T): T {
+  mock.organization.findFirst.mockResolvedValue({ id: MOCK_DEFAULT_ORG_ID });
+  return mock;
+}
+
 // Export as `any` to allow flexible mocking without strict Prisma type checking
 // This is intentional - tests need to mock partial responses
-export const prismaMock = withOrgScope(_prismaMock) as any;
+export const prismaMock = withOrgScope(withDefaultOrg(_prismaMock)) as any;
 
 /**
  * Alias for backward compatibility
@@ -52,6 +74,7 @@ export const mockPrisma = prismaMock;
  */
 export function resetPrismaMock(): void {
   mockReset(_prismaMock);
+  withDefaultOrg(_prismaMock);
 }
 
 /**
@@ -74,5 +97,5 @@ export function mockPrismaTransaction(): void {
  * Creates a fresh mock PrismaService for unit tests
  */
 export function createMockPrismaService(): MockPrismaService {
-  return withOrgScope(mockDeep<PrismaClient>());
+  return withOrgScope(withDefaultOrg(mockDeep<PrismaClient>()));
 }
