@@ -53,7 +53,7 @@ const commonShape = {
   range: wireEnum(DASHBOARD_RANGES).optional().describe('Relative window ending now. Default `1h`. Not with `from`/`to`.'),
   /** Absolute window start (ISO 8601). Requires `to`. */
   from: z.iso.datetime({ offset: true }).optional().describe('Absolute window start (ISO 8601). Requires `to`.'),
-  /** Absolute window end (ISO 8601), at most 1 minute in the future. Requires `from`; span <= 30 days. */
+  /** Absolute window end (ISO 8601), at most 1 minute in the future. Requires `from`; span at most 30 days. */
   to: z.iso
     .datetime({ offset: true })
     .optional()

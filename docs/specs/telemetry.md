@@ -305,6 +305,19 @@ Five controllers, all tagged `Telemetry` in the OpenAPI document:
 `TelemetryAssistantController` (the SSE route) and
 `TelemetryDashboardController` (§11).
 
+The wire shapes of every telemetry route, and the stored `telemetry` settings
+namespace, live in `@marinoscar/platform-contract/telemetry` (#702): zod
+schemas with their inferred types, and the zod-free limits and enums they are
+built from ([slice README](../../packages/platform-contract/src/telemetry/README.md)).
+The API's DTO files (`apps/api/src/telemetry/**/dto/*.ts`) only wrap those
+schemas with `createZodDto`, so the OpenAPI document is generated from them; the
+web client (`apps/web/src/services/telemetry.ts`, `telemetryDashboard.ts`)
+aliases their types and imports their constants, never zod, and states each
+deliberate difference (a field it treats as optional, an open-ended name, a
+per-panel narrowing), which `apps/web/src/services/telemetryContract.typecheck.ts`
+pins at compile time. A change to a field, a limit or a rule is made once, in
+the contract.
+
 The collector also scrapes the host it runs on and the telemetry pipeline
 itself, in a separate `metrics/local` pipeline (§11.2, §11.3). Both pipelines
 run `transform/promote_labels`, which copies `app.instance.id` and `host.name`
