@@ -13,6 +13,37 @@ export class RoleDto {
 }
 
 /**
+ * The organization the session acts in (#724)
+ */
+export class ActiveOrgDto {
+  @ApiProperty({ example: '0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11', description: 'Organization ID', format: 'uuid' })
+  id!: string;
+
+  @ApiProperty({ example: 'Acme', description: 'Organization name' })
+  name!: string;
+
+  @ApiProperty({ example: 'acme', description: 'Organization slug' })
+  slug!: string;
+}
+
+/**
+ * One organization the user is an active member of (#724)
+ */
+export class OrgMembershipDto {
+  @ApiProperty({ example: '0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11', description: 'Organization ID', format: 'uuid' })
+  orgId!: string;
+
+  @ApiProperty({ example: 'Acme', description: 'Organization name' })
+  name!: string;
+
+  @ApiProperty({ example: 'acme', description: 'Organization slug' })
+  slug!: string;
+
+  @ApiProperty({ example: 'viewer', description: 'The org role on this membership (`org_admin`, `contributor` or `viewer`)' })
+  role!: string;
+}
+
+/**
  * Current authenticated user information
  */
 export class CurrentUserDto {
@@ -97,6 +128,23 @@ export class CurrentUserDto {
       'customer. A deployment-level fact, fixed until the API restarts.',
   })
   tenancyMode!: TenancyMode;
+
+  @ApiProperty({
+    type: ActiveOrgDto,
+    nullable: true,
+    description:
+      "The organization this session acts in: the access token's `org` claim (or, for a personal " +
+      'access token or device credential, the organization it is bound to). Roles and permissions ' +
+      'above are computed for it. Change it with `POST /api/auth/switch-org`. Null only when the ' +
+      'user has no active membership there.',
+  })
+  activeOrg!: ActiveOrgDto | null;
+
+  @ApiProperty({
+    type: [OrgMembershipDto],
+    description: 'Every organization the user is an active member of, with the org role on each: the organizations `POST /api/auth/switch-org` accepts.',
+  })
+  memberships!: OrgMembershipDto[];
 }
 
 /**
