@@ -1,13 +1,12 @@
 import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import { deviceTokenRequestSchema } from '@marinoscar/platform-contract/identity';
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
  * Request DTO for polling device authorization status
  */
-export const DeviceTokenRequestSchema = z.object({
-  deviceCode: z.string().min(1, 'Device code is required'),
-});
+// The schema is the contract's (#727).
+export const DeviceTokenRequestSchema = deviceTokenRequestSchema;
 
 export class DeviceTokenRequestDto extends createZodDto(DeviceTokenRequestSchema) {
   @ApiProperty({

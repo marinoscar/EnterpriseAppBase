@@ -1,43 +1,14 @@
 import { ForbiddenException } from '@nestjs/common';
 import { DatabaseSeedException } from '@marinoscar/platform-api/core';
 
-/**
- * The CLOSED set of sign-in failure codes (#652).
- *
- * A failed Google sign-in always ends as a 302 to
- * `${appUrl}/auth/callback?error=<code>`, where `<code>` is one of these and
- * nothing else: never an exception message, never raw JSON. Free text in that
- * query string let anyone craft a link that rendered attacker-chosen copy on a
- * trusted origin, and made the web page recognise cases by sniffing prose.
- *
- * Consumer: `apps/web/src/pages/AuthCallbackPage.tsx` maps each code to its own
- * copy and treats any other value as a generic failure without echoing it. The
- * two lists are kept in step by hand (the web app cannot import from the API),
- * so adding a code here means adding it there.
- *
- *   not_allowlisted         the email is not on the allowlist
- *   account_disabled        the account exists but is deactivated
- *   access_denied           the person cancelled or denied consent at Google
- *   authentication_failed   token exchange failed, code replayed or expired,
- *                           no email on the profile, or anything unexpected
- *   server_misconfigured    seed data is missing (`DatabaseSeedException`)
- *   no_organization         multi-org tenancy mode (`TENANCY_MODE=multi`) and
- *                           the user has no active organization membership
- *                           (PP-6.2, #722)
- */
-export const AUTH_ERROR_CODES = [
-  'not_allowlisted',
-  'account_disabled',
-  'access_denied',
-  'authentication_failed',
-  'server_misconfigured',
-  'no_organization',
-] as const;
+// The CLOSED set of sign-in failure codes (#652) is defined ONCE, in
+// `@marinoscar/platform-contract/identity` (#727): the web app keys its copy
+// off the same list, so the two can no longer drift. Re-exported here so the
+// API's imports are unchanged.
+import { AUTH_ERROR_CODES, DEFAULT_AUTH_ERROR_CODE, type AuthErrorCode } from '@marinoscar/platform-contract/identity';
 
-export type AuthErrorCode = (typeof AUTH_ERROR_CODES)[number];
-
-/** The code used for every failure that has no more specific one. */
-export const DEFAULT_AUTH_ERROR_CODE: AuthErrorCode = 'authentication_failed';
+export { AUTH_ERROR_CODES, DEFAULT_AUTH_ERROR_CODE };
+export type { AuthErrorCode };
 
 /** Reasons a login can be refused, a subset of `AuthErrorCode`. */
 export type AuthLoginDeniedReason = Extract<

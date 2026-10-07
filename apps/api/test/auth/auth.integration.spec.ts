@@ -4,6 +4,7 @@ import {
   createTestApp,
   closeTestApp,
 } from '../helpers/test-app.helper';
+import { currentUserSchema } from '@marinoscar/platform-contract/identity';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {
@@ -61,6 +62,19 @@ describe('Auth Controller (Integration)', () => {
         email: user.email,
         roles: expect.arrayContaining([{ name: 'viewer' }]),
       });
+    });
+
+    it('matches the contract exactly (@marinoscar/platform-contract/identity)', async () => {
+      const user = await createMockTestUser(context);
+
+      const response = await request(context.app.getHttpServer())
+        .get('/api/auth/me')
+        .set(authHeader(user.accessToken))
+        .expect(200);
+
+      // Extended in app code, never edited: refuse any field the contract
+      // does not declare, so the wire and the shared schema cannot drift.
+      expect(() => currentUserSchema.strict().parse(response.body.data)).not.toThrow();
     });
 
     it('should return 401 without token', async () => {
