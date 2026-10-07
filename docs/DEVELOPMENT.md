@@ -299,6 +299,24 @@ It creates the three roles, every permission, the role-permission grants and
 the default system settings. Run it before the first login, after resetting
 the database, and after pulling a change that adds permissions.
 
+**Where the data comes from.** The platform half is
+`seedPlatform` from `@marinoscar/platform-db/seed`
+([slice README](../packages/platform-db/src/seed/README.md)). `prisma/seed.ts`
+builds its input from the registries' committed catalogs
+(`prisma/catalog/permissions.json` and `system-settings-defaults.json`, read by
+`prisma/seed-data.ts`), so a permission or a settings key is added by registering
+it and regenerating the catalogs, never by editing a seed file. The seed only
+upserts: it never deletes (a permission removed from the registry stays as a row
+until a migration removes it) and never overwrites an admin-edited value.
+
+**Where an app adds its own seed rows.** `apps/api/prisma/seed-app.ts`
+(`seedApp(prisma)`), which `seed.ts` runs after `seedPlatform`. Keep it
+idempotent (upserts keyed on a natural unique, never a `findFirst` then a
+`create`) and Nest-free: the script runs under `ts-node --transpile-only` in an
+image without `src/`, and `test/prisma/seed-imports.spec.ts` fails when its import
+graph reaches `@nestjs/*` or `src/`. `test/prisma/seed-platform.db.spec.ts` runs
+the real seed twice against a scratch database.
+
 ---
 
 ## Common Pitfalls and Solutions
@@ -476,11 +494,14 @@ edit a file in it. It is composed from two hand-edited sources:
    npm run prisma:migrate:dev -- --name descriptive_name
    docker compose exec api npm run prisma:migrate:dev -- --name descriptive_name
    ```
-5. If the change needs seed data, edit `prisma/seed.ts` (roles and
-   permissions are declared beside their modules instead: see
+5. If the change needs seed data: roles, permissions and settings defaults are
+   not seed data you write, they come from the registries (declare them beside
+   their modules: see
    [common/permissions/README.md](../apps/api/src/common/permissions/README.md),
-   then run `npm run catalog:permissions --workspace=api`), then run
-   `npm run prisma:seed`.
+   then run `npm run catalog:permissions --workspace=api` and
+   `npm run catalog:settings --workspace=api`). Rows of your own go in
+   `prisma/seed-app.ts` (see [Seeding the Database](#seeding-the-database)).
+   Then run `npm run prisma:seed`.
 
 `npm run db:compose:check --workspace=api` (CI, in the `build` job) fails when
 `prisma/schema/` differs from a fresh compose: either a fragment changed

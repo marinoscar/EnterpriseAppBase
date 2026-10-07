@@ -6,7 +6,7 @@ The data layer of the platform: Prisma schema fragments (`schema/`), SQL migrati
 
 Schema fragments, migrations and seeds of the platform's data slices, and the **composer** that turns the fragments into the Prisma schema an app generates its client from.
 
-What ships today: the schema fragments (`schema/`, 31 models and 10 enums in eight slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The seeds arrive with a later story. The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
+What ships today: the schema fragments (`schema/`, 31 models and 10 enums in eight slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
 
 Status: pre-release (version `0.0.0`). The `extend model` seam is `experimental` until the extension contract is frozen.
 
@@ -166,6 +166,12 @@ A slice declares the back-relations that point **into** another slice as `extend
 
 **Raw-SQL indexes.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx` and the other raw-SQL indexes live only in migration SQL, because Prisma cannot express a partial unique index. Never add an `@@unique` for them in a fragment; the comments in `jobs.prisma` and `db-backup.prisma` say why. [Raw-SQL indexes](#raw-sql-indexes) lists them, and a tripwire fails the build when a fragment redeclares one.
 
+**Seeds** (`@marinoscar/platform-db/seed`, stability `experimental`; details in the [slice README](src/seed/README.md)). `seedPlatform(prisma, input, log?)` upserts the platform's roles, permissions, default role grants, the `global` `system_settings` row and the initial administrator's `allowed_emails` row, in that order, and returns a summary. Idempotent: every write is an upsert on a natural unique, so a second run changes nothing, which is what `appctl deploy update` and the CI `smoke` job rely on. **Never deletes and never overwrites an admin-edited value:** a permission removed from the registry stays as a row until a migration removes it (expand/contract), and the settings row and the allowlist row are created with `update: {}`. `prisma` is the structural type `SeedPrisma` (the delegates `role`, `permission`, `rolePermission`, `systemSettings`, `allowedEmail`), so the package never imports or bundles a generated client.
+
+**Building the input** (`experimental`). `platformSeedInputFrom(snapshot, env)` builds the `PlatformSeedInput` from the registries' plain-data snapshots, and `readSeedSnapshot(catalogDir)` loads them from the two committed catalogs of an app's `prisma/catalog/` (`permissions.json`, `system-settings-defaults.json`). Seeds read generated catalogs, never `src/`: the production image carries `prisma/` but not `src/`. An app adds a permission or a setting by registering it and regenerating the catalogs, never by editing a platform file.
+
+**The app's own seed** (the app's code, not the package's). The reference app's `prisma/seed.ts` runs `seedPlatform` and then `seedApp(prisma)` from [`prisma/seed-app.ts`](../../apps/api/prisma/seed-app.ts), the documented place for an app's own seed rows. Both are idempotent, and `seed.ts` stays Nest-free and runnable with `ts-node --transpile-only`.
+
 **Public vs private.** An app may point at any model and add back-relations to the three `@extensible` ones. It never edits a platform fragment or a column of a platform table.
 
 **Migrations.** `migrations/manifest.json` holds platform history v1 (below), and the reference app's `prisma/platform.lock` maps each entry to the directory the app already has. The install model ([ADR 0002](../../docs/adr/0002-database-packaging-and-rls.md) D3):
@@ -241,7 +247,7 @@ The exported functions (`planSync`, `applySync`, `checkLock`, `checkLedger`, `pr
 
 ## Permissions and settings
 
-None. The data layer declares no permission or setting; the API slices do.
+The data layer declares no permission or setting of its own; the API slices do. It **seeds** them: `seedPlatform` writes the roles, the permissions and the default grants an app's permission registry rendered into `prisma/catalog/permissions.json`, and the `global` system settings row from the settings namespaces' defaults in `prisma/catalog/system-settings-defaults.json` (stability `experimental`). A permission or a settings key is added in the registry plus a catalog regeneration (`npm run catalog:permissions`, `npm run catalog:settings` in the reference app), never in this package. Defaults are written once: the row is never overwritten, so a changed default reaches an existing deployment only through its own migration or the settings API.
 
 ## UI
 
@@ -249,7 +255,7 @@ None. The package renders nothing.
 
 ## Infra
 
-None. The package ships no deployment configuration. The two commands that touch a database read `DATABASE_URL` (and optionally `SHADOW_DATABASE_URL`) from the environment of the process; the app's scripts build the first from its `POSTGRES_*` variables, and the package adds no variable of its own. CI runs `db:check`, `db:check:database` and `db:drift` in the `smoke` job after `prisma:migrate`.
+None. The package ships no deployment configuration. The two commands that touch a database read `DATABASE_URL` (and optionally `SHADOW_DATABASE_URL`) from the environment of the process; the app's scripts build the first from its `POSTGRES_*` variables, and the package adds no variable of its own. The one variable the seed uses is `INITIAL_ADMIN_EMAIL` (the initial administrator), which `platformSeedInputFrom` reads only from the `env` object it is handed. CI runs `db:check`, `db:check:database` and `db:drift` in the `smoke` job after `prisma:migrate`.
 
 ## Observability
 
@@ -294,6 +300,8 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 |---|---|---|
 | `platform: @marinoscar/platform-db is not built` | The `platform` command runs `dist/` | `npm run build:packages` from the repository root |
 | `db:compose:check` fails in CI | A fragment changed without re-composing, or a generated file was edited by hand | `npm run db:compose --workspace=api` and commit the result |
+| `Seed catalog .../permissions.json cannot be read` | `readSeedSnapshot` was pointed at a folder without the committed catalogs | Run the app's catalog scripts and commit `prisma/catalog/` |
+| A new permission is not granted after `prisma:seed` | The catalog is stale, so the registry's grant never reached the seed (the log prints `⊘ Skipped grant with no matching row`) | Regenerate the catalogs and re-run the seed |
 | `NOT_EXTENSIBLE` | The model is not marked `// @extensible` by its owner | Use a side table keyed by the platform id, or file a seam request |
 | `UNKNOWN_MODEL` | No fragment declares the model | Check the spelling; the model must exist in a platform or app fragment |
 | `FIELD_COLLISION` | The field name already exists on the model or in an earlier `extend` | Rename the back-relation field |
@@ -333,6 +341,7 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 
 - [ADR 0002](../../docs/adr/0002-database-packaging-and-rls.md): why migrations are installed with app-local timestamps and a lock (D3)
 - [Authoring a platform migration](../../docs/DEVELOPMENT.md#authoring-a-platform-migration): `migrate dev --create-only`, `promote`, and the one-open-`pp:migration`-PR rule
+- [`seed` slice README](src/seed/README.md): `seedPlatform`, input building, the never-delete rule and the app seed hook
 - [Package documentation standard and checks](../../docs/PACKAGES.md): how this README, the TSDoc and the catalog are checked
 - [DEVELOPMENT.md § Making Database Changes](../../docs/DEVELOPMENT.md#making-database-changes): the schema editing workflow
 - [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages): build, test and lint commands

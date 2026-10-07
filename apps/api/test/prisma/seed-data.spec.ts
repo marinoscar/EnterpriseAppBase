@@ -1,9 +1,6 @@
-import {
-  ROLES,
-  PERMISSIONS,
-  ROLE_PERMISSIONS,
-  DEFAULT_SYSTEM_SETTINGS as SEEDED_SYSTEM_SETTINGS,
-} from '../../prisma/seed-data';
+import { platformSeedInputFrom } from '@marinoscar/platform-db/seed';
+
+import { SEED_SNAPSHOT } from '../../prisma/seed-data';
 import { PERMISSIONS as PERMISSION_CONSTANTS } from '../../src/common/constants/roles.constants';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { systemSettingsSchema } from '../../src/settings/registry/composed';
@@ -29,9 +26,38 @@ import { systemSettingsSchema } from '../../src/settings/registry/composed';
 // `PERMISSIONS` in `roles.constants.ts` (which is what `@Auth()` decorators
 // name) but not to the seed, so every route guarded by it 403s for everyone in
 // a freshly seeded deployment, with nothing in the logs to explain why.
+//
+// WHAT IS UNDER TEST (#712, PP-5.5). The seed no longer owns any data: it builds
+// a `PlatformSeedInput` from the registries' committed catalogs
+// (`prisma/catalog/`, read by `prisma/seed-data.ts`) with
+// `platformSeedInputFrom` and hands it to `seedPlatform`. So the assertions
+// below target that registry-derived input, built here exactly as `seed.ts`
+// builds it. `permission-catalog.spec.ts` pins the same data to a literal
+// baseline, `settings-catalog.spec.ts` checks the catalogs are not stale, and
+// `seed-platform.db.spec.ts` proves the rows the script writes.
 // =============================================================================
 
+const SEED_INPUT = platformSeedInputFrom(SEED_SNAPSHOT, {});
+const ROLES = SEED_INPUT.roles;
+const PERMISSIONS = SEED_INPUT.permissions;
+const ROLE_PERMISSIONS = SEED_INPUT.roleGrants;
+const SEEDED_SYSTEM_SETTINGS = SEED_INPUT.systemSettingsDefaults;
+
 describe('seed data', () => {
+  describe('seed input', () => {
+    it('is derived from the registries, snapshot for snapshot', () => {
+      expect(SEED_INPUT.roles).toBe(SEED_SNAPSHOT.permissions.roles);
+      expect(SEED_INPUT.permissions).toBe(SEED_SNAPSHOT.permissions.permissions);
+      expect(SEED_INPUT.roleGrants).toBe(SEED_SNAPSHOT.permissions.rolePermissions);
+      expect(SEED_INPUT.systemSettingsDefaults).toBe(SEED_SNAPSHOT.settings);
+    });
+
+    it('takes the initial administrator from INITIAL_ADMIN_EMAIL only', () => {
+      expect(SEED_INPUT.initialAdminEmail).toBeUndefined();
+      expect(platformSeedInputFrom(SEED_SNAPSHOT, { INITIAL_ADMIN_EMAIL: 'Root@Example.test' }).initialAdminEmail).toBe('Root@Example.test');
+    });
+  });
+
   describe('permissions', () => {
     it('declares each permission exactly once', () => {
       // Duplicates would not break the upsert — the second one would simply

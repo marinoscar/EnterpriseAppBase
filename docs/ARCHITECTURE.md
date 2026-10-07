@@ -148,9 +148,9 @@ Access is restricted to allowlisted emails. `INITIAL_ADMIN_EMAIL` bypasses the c
 
 ### 5.2 Role-based access control
 
-Three roles (Admin, Contributor, Viewer) grant 31 permissions named `resource:action`. Each role and permission is declared once, with its description and default role grants, in a file beside the module that enforces it (`<module>.permissions.ts`), and registered into the role and permission registries (`apps/api/src/common/permissions/`). `roles.constants.ts` derives `ROLES` and `PERMISSIONS` from those declarations, and `npm run catalog:permissions --workspace=api` writes them to the committed `apps/api/prisma/catalog/permissions.json`, which the seed reads (the production image has no `src/`). Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`); the seed only upserts them. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show. An app adds its own roles and permissions in `apps/api/src/app-registrations/permissions.ts`.
+Three roles (Admin, Contributor, Viewer) grant 31 permissions named `resource:action`. Each role and permission is declared once, with its description and default role grants, in a file beside the module that enforces it (`<module>.permissions.ts`), and registered into the role and permission registries (`apps/api/src/common/permissions/`). `roles.constants.ts` derives `ROLES` and `PERMISSIONS` from those declarations, and `npm run catalog:permissions --workspace=api` writes them to the committed `apps/api/prisma/catalog/permissions.json`, which the seed reads (the production image has no `src/`) and hands to `seedPlatform` (`@marinoscar/platform-db/seed`). Roles and permissions are rows (`roles`, `permissions`, `role_permissions`, `user_roles`); the seed only upserts them. A controller names the exact permission it needs in `@Auth({ permissions: [...] })`; the web app reads the same strings to decide which cards, routes and controls to show. An app adds its own roles and permissions in `apps/api/src/app-registrations/permissions.ts`.
 
-- **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/permissions/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/catalog/permissions.json`, `apps/api/prisma/seed-data.ts`
+- **Code:** `apps/api/src/auth/guards/`, `apps/api/src/common/permissions/`, `apps/api/src/common/constants/roles.constants.ts`, `apps/api/prisma/catalog/permissions.json`, `apps/api/prisma/seed-data.ts`, `apps/api/prisma/seed-app.ts`
 - **Recipe:** [common/permissions/README.md](../apps/api/src/common/permissions/README.md)
 - **Matrix:** [§7](#7-authorization)
 - **Read more:** [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md)
@@ -454,7 +454,7 @@ Every read completes missing namespaces from each namespace's declared defaults,
 
 ### 7.2 Permission matrix
 
-This is the single home for the matrix. Source: each permission's `defaultGrants` in its declaration file (`apps/api/src/<module>/<module>.permissions.ts`, registered by `apps/api/src/common/permissions/permission.manifest.ts`), generated into `rolePermissions` in `apps/api/prisma/catalog/permissions.json`, which `ROLE_PERMISSIONS` in `apps/api/prisma/seed-data.ts` reads. `apps/api/test/prisma/permission-catalog.spec.ts` fails when a row here disagrees with those grants.
+This is the single home for the matrix. Source: each permission's `defaultGrants` in its declaration file (`apps/api/src/<module>/<module>.permissions.ts`, registered by `apps/api/src/common/permissions/permission.manifest.ts`), generated into `rolePermissions` in `apps/api/prisma/catalog/permissions.json`, which the seed reads and passes to `seedPlatform` as `roleGrants`. The registry is the source of truth, not `seed-data.ts`, which only loads the catalog (`ROLE_PERMISSIONS` there is a derived view for tests). `apps/api/test/prisma/permission-catalog.spec.ts` fails when a row here disagrees with those grants.
 
 | Permission | Admin | Contributor | Viewer | Gates |
 |---|:-:|:-:|:-:|---|
