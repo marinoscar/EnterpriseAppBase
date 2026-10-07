@@ -41,6 +41,15 @@ It lives in the published `@marinoscar/platform-api` package (the `core`
 slice, issue #698), so an app that consumes the package cannot change it by
 accident; editing a vendored copy of the package source still can.
 
+The same file also holds the signing label (`deriveSigningKey`, issue #822):
+
+```
+SIGNING_SUBKEY_LABEL_PREFIX = 'enterpriseappbase:signing-key:v1:'
+```
+
+Changing it invalidates every outstanding token signed under a derived signing
+key (download links). Same rule: never part of a rebrand.
+
 ## 2. The cross-realm Symbol key
 
 **`packages/platform-api/src/core/errors/verbatim-error-body.exception.ts`** — a

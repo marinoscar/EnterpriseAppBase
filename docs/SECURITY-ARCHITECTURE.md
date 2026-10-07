@@ -1036,6 +1036,18 @@ here because the input is already 32 bytes of full entropy. The label string
 is permanent: changing it makes every stored credential undecryptable (see
 [RENAMING.md](RENAMING.md#do-not-rename)).
 
+Signing keys for short-lived server-signed tokens (a download link) come from
+the same master key under a separate, equally permanent label, via
+`deriveSigningKey(purpose)` (issue #822):
+
+```
+signingKey = HMAC-SHA256(masterKey, "enterpriseappbase:signing-key:v1:" + purpose)
+```
+
+The two labels differ at a fixed position, so no signing purpose can yield an
+encryption sub-key or the reverse. Rotating the master key invalidates every
+outstanding signed token.
+
 ### Startup validation
 
 `verifyEncryptionKeyAtStartup` (also in `@marinoscar/platform-api/core`) runs in
