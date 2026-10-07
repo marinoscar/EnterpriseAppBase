@@ -116,9 +116,21 @@ export class PatService {
     requested: string | undefined,
     activeOrgId: string | null | undefined,
   ): Promise<string> {
-    // The caller's own validated binding: no second lookup.
-    if (requested === undefined && typeof activeOrgId === 'string') {
-      return activeOrgId;
+    if (requested === undefined) {
+      // The caller's own validated binding: no second lookup.
+      if (typeof activeOrgId === 'string') {
+        return activeOrgId;
+      }
+      // A caller bound to no org: a pre-#724 credential on the temporary
+      // single-mode compatibility path, which acts in the default org exactly
+      // as every credential did before #724. The PAT is bound to it; using
+      // the PAT still requires an active membership there.
+      if (activeOrgId === undefined && currentTenancyMode() === 'single') {
+        const defaultOrgId = await this.fallbackOrgId(userId);
+        if (defaultOrgId) {
+          return defaultOrgId;
+        }
+      }
     }
 
     const orgId = requested ?? (await this.fallbackOrgId(userId));
