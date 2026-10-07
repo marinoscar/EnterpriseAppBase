@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
@@ -9,8 +9,10 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { NodeLogger, readLogTail } from '../logger.js';
 import type { JobSecret, NodeApi, UploadUrlResult } from '../node-api.js';
 import { buildPgDumpArgs, pgClientEnv, RLS_BYPASS_PGOPTIONS, spawnPgDump, type PgConnection, type PgSpawnFn } from '../pg-dump.js';
+import { workerEnv } from '../worker-env.js';
+import { checkExecutorCredentialHygiene } from './credential-hygiene.js';
 import { DatabaseBackupRunExecutor, readPgMaterial } from './db-backup-run.js';
-import type { JobExecutionContext } from './index.js';
+import type { JobExecutionContext, JobExecutor } from './index.js';
 
 // =============================================================================
 // `db.backup.run` on a node  (issue #352, epic #345)
@@ -622,5 +624,47 @@ describe('the child’s environment', () => {
     pgClientEnv(connection);
 
     expect({ ...process.env }).toEqual(before);
+  });
+});
+
+// =============================================================================
+// The same rule, through the reusable check an app runs over its own
+// executors (`checkExecutorCredentialHygiene`, `/testing`, #715)
+// =============================================================================
+
+describe('checkExecutorCredentialHygiene', () => {
+  it('passes db.backup.run: the credential is requested and left nowhere', async () => {
+    const h = makeHarness();
+    // The harness's executor, with its fake pg_dump; the check supplies the
+    // broker, the state directory, HOME and the upload.
+    const report = await checkExecutorCredentialHygiene(h.executor);
+
+    expect(report.secretRequested).toBe(true);
+    expect(report.outcome).toBe('ok');
+    expect(report.findings).toEqual([]);
+  });
+
+  it('fails an executor that writes the credential to disk, logs it or returns it', async () => {
+    const leaky: JobExecutor = {
+      type: 'app.leaky',
+      requiresInput: false,
+      async execute(context) {
+        const secret = await context.api.jobSecret(context.nodeId, context.job.id, context.claimToken);
+        const stateDir = process.env[workerEnv().stateDir] ?? '';
+        writeFileSync(join(stateDir, 'cache.json'), JSON.stringify(secret.material));
+        context.log(`connected with ${String(secret.material.password)}`);
+        return { echoed: secret.material.token };
+      },
+    };
+
+    const report = await checkExecutorCredentialHygiene(leaky);
+
+    expect(report.findings).toEqual(
+      expect.arrayContaining([
+        'the credential was written to the state directory: state/cache.json',
+        'the credential was written to the node log',
+        'the credential is in the result the node reports to the server',
+      ]),
+    );
   });
 });

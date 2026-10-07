@@ -446,3 +446,16 @@ export {
   registerNodeExecutor,
 } from './node/executors/registry.js';
 export { freezeCliRegistries, resetCliRegistriesForTests } from './registries.js';
+
+// Conformance (#715): the `cli` suite and the checks behind it.
+export { runPlatformConformance } from './conformance.js';
+export type {
+  CliConformanceOptions,
+  CliPlatformConformanceOptions,
+  CliPlatformConformanceSuites,
+  ConformanceTestApi,
+  EnvTemplateFragment,
+} from './conformance.js';
+export { checkExecutorCredentialHygiene } from './node/executors/credential-hygiene.js';
+export type { CredentialHygieneOptions, CredentialHygieneReport } from './node/executors/credential-hygiene.js';
+export { PLATFORM_DOCUMENTED_OPTIONAL_KEYS, commentedAssignments, composeEnvSpecs } from './deploy/env-fragments.js';
