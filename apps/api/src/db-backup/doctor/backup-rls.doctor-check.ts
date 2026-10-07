@@ -19,7 +19,7 @@ export type OrgTableCounts = Record<(typeof ORG_TABLES)[number], number>;
 
 /** The counts as flat doctor data: `<prefix>.<table>`. */
 function flat(prefix: string, counts: OrgTableCounts): Record<string, number> {
-  return Object.fromEntries(ORG_TABLES.map((table) => [`${prefix}.${table}`, counts[table]]));
+  return Object.fromEntries(ORG_TABLES.map((table) => [`${prefix}.${table}`, Number(counts[table] ?? 0)]));
 }
 
 /** What the check compares. */
