@@ -66,6 +66,16 @@ const KEY_ENV_VAR = 'SECRETS_ENCRYPTION_KEY';
 const SUBKEY_LABEL_PREFIX = 'enterpriseappbase:secret-cipher:v1:';
 
 /**
+ * Fixed, versioned label prefix for MAC (signing) sub-keys (issue #822).
+ * Never change it: it is part of every derived signing key, so a different
+ * label invalidates every outstanding token signed under it. It differs from
+ * {@link SUBKEY_LABEL_PREFIX} at a fixed position (`signing-key` vs
+ * `secret-cipher`), so no signing purpose can ever produce an encryption
+ * sub-key, or the reverse.
+ */
+const SIGNING_SUBKEY_LABEL_PREFIX = 'enterpriseappbase:signing-key:v1:';
+
+/**
  * First segment of every owner-bound sub-key domain (issue #387). See
  * {@link userCredentialPurpose}. System purposes may not contain `:` at all
  * (the reference app enforces it in `credentials/credential-internals.ts`),
@@ -388,6 +398,58 @@ export function decryptSecret(payload: string, purpose: string): string {
  */
 export function assertEncryptionKeyConfigured(): void {
   getMasterKey();
+}
+
+/**
+ * Signing sub-keys, cached by purpose. Same reasoning as `derivedKeyCache`:
+ * the purpose is a code constant, never user input, so the map stays small.
+ */
+const signingKeyCache = new Map<string, Buffer>();
+
+/**
+ * A 32-byte HMAC key for `purpose`, derived from `SECRETS_ENCRYPTION_KEY`
+ * (issue #822).
+ *
+ * For server-signed, short-lived tokens (a download link, a one-time URL)
+ * that need a deployment secret without a new environment variable: the
+ * master key is already mandatory and validated at startup, and the label
+ * `enterpriseappbase:signing-key:v1:` keeps every signing domain independent
+ * of every encryption domain, so a signing key can never decrypt a stored
+ * credential.
+ *
+ * Derivation: `HMAC-SHA256(masterKey, "enterpriseappbase:signing-key:v1:" + purpose)`.
+ * The label is permanent. Rotating the master key invalidates every
+ * outstanding token, which for minutes-long tokens is the desired behaviour.
+ *
+ * `purpose` is a code constant (`'android-app-download'`), never user input:
+ * derived keys are cached per purpose for the life of the process. Never log
+ * or return the key.
+ *
+ * @param purpose - The signing domain: a short fixed string per kind of token.
+ * @returns A 32-byte key for `createHmac('sha256', key)`.
+ * @throws if the key is missing/malformed (the same operator-facing error as
+ *   {@link assertEncryptionKeyConfigured}), or `purpose` is empty.
+ * @stability stable
+ * @example
+ * ```ts
+ * const mac = createHmac('sha256', deriveSigningKey('android-app-download'))
+ *   .update(payload)
+ *   .digest('base64url');
+ * ```
+ */
+export function deriveSigningKey(purpose: string): Buffer {
+  if (typeof purpose !== 'string' || purpose.length === 0) {
+    throw new Error('deriveSigningKey requires a non-empty purpose string.');
+  }
+
+  const cached = signingKeyCache.get(purpose);
+  if (cached) return cached;
+
+  const derived = createHmac('sha256', getMasterKey())
+    .update(`${SIGNING_SUBKEY_LABEL_PREFIX}${purpose}`)
+    .digest();
+  signingKeyCache.set(purpose, derived);
+  return derived;
 }
 
 /**
