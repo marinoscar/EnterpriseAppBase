@@ -650,8 +650,16 @@ The worked example: a `coach` group over one counter the app records.
 
    A histogram uses `record(key, value, attributes)` and declares its
    `buckets`. A gauge is declared the same way and created by your own
-   provider with `createRegisteredGauge(this.metrics.gaugeContext()!.meter, key)`.
+   provider: inject `MetricsHostService` from `@marinoscar/platform-api/otel-core`
+   and call `registerGaugeProvider(({ meter, gateOpen }) => …)` with
+   `createRegisteredGauge(meter, key)` inside (it runs only when
+   `OTEL_ENABLED=true`; return early from the callback while `gateOpen()` is
+   false). `apps/api/src/common/otel/app-metrics.service.ts` (`registerGauges`)
+   is the reference. To type the key, augment
+   `declare module '@marinoscar/platform-api/otel-core' { interface AppMetricKeys { coachNudgesSent: true } }`.
    Never label with a user id, an e-mail, a URL or an error message.
+   The registry, the host and label bounding are packaged in
+   `@marinoscar/platform-api/otel-core` ([README](../../packages/platform-api/src/otel-core/README.md)).
 
 3. **Declare the group** in `APP_METRIC_GROUPS`, with its families (and
    optional ratios and tables) in the catalog shapes of `metric-catalog.ts`.

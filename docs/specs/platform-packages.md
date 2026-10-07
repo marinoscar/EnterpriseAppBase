@@ -389,6 +389,8 @@ export const APP_METRIC_GROUPS: readonly MetricGroupDef[] = [
 
 The platform owns the dashboard that renders any registered group. The app owns the names and meaning of its metrics.
 
+Since #700 the metric-name registry, the instruments and the gauge-provider seam are packaged in `@marinoscar/platform-api/otel-core` (`registerAppMetrics`, `MetricsHostService.registerGaugeProvider`); `AppMetricKeys` is augmented on that module. See the [otel-core README](../../packages/platform-api/src/otel-core/README.md#worked-example-register-an-app-metric-name-and-a-gauge-provider).
+
 ### UI extensibility
 
 **PROPOSED.** Packages own structure and behaviour. Apps own appearance.
