@@ -265,6 +265,14 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // value. Same list as DEPLOYMENT_NETWORKS in
   // apps/api/src/common/deployment/deployment-network.ts.
   DEPLOYMENT_NETWORK: { validate: oneOf('online', 'air-gapped') },
+
+  // --- Tenancy mode (PP-6.2, #722) -------------------------------------------
+  // Not asked and not essential (the template's `single` is right for every
+  // current app), but validated: the API refuses to start on any other value.
+  // An `update` of a deployment that predates the key adds it with that
+  // default, without a question (it is neither essential nor secret). Same
+  // list as TENANCY_MODES in apps/api/src/common/deployment/tenancy-mode.ts.
+  TENANCY_MODE: { validate: oneOf('single', 'multi') },
 };
 
 function isEnvGroup(group: string): group is EnvGroup {

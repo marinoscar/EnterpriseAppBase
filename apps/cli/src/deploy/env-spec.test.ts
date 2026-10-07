@@ -383,6 +383,33 @@ describe('env metadata', () => {
     }
   });
 
+  it('declares TENANCY_MODE once, uncommented, defaulting to single (#722)', () => {
+    const template = readFileSync(REAL_TEMPLATE, 'utf8');
+    const declarations = parseEnvExample(template).filter((spec) => spec.key === 'TENANCY_MODE');
+
+    // Exactly one declaration, uncommented: the prose about `multi` must not
+    // read as a second (optional) one.
+    expect(declarations).toHaveLength(1);
+    expect(declarations[0]).toMatchObject({
+      section: 'Tenancy mode',
+      defaultValue: 'single',
+      optional: false,
+    });
+    expect(declarations[0]?.help).toMatch(/multi/);
+    expect(template).not.toMatch(/^#\s*TENANCY_MODE\s*=/m);
+  });
+
+  it('validates TENANCY_MODE exactly as the API parses it (#722)', () => {
+    const validate = metadataFor('TENANCY_MODE').validate;
+
+    expect(metadataFor('TENANCY_MODE').essential).toBeUndefined();
+    expect(validate?.('single')).toBeUndefined();
+    expect(validate?.('multi')).toBeUndefined();
+    for (const bad of ['Multi', 'single-org', '', ' multi', 'org']) {
+      expect(validate?.(bad)).toBe('must be one of: single, multi');
+    }
+  });
+
   it('builds a oneOf validator that compares verbatim', () => {
     const validate = oneOf('a', 'b');
 
