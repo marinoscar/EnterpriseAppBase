@@ -9,3 +9,25 @@ export { TestAuthModule } from './test-auth.module';
 export { TestAuthService } from './test-auth.service';
 export type { TestAuthTokenResponse } from './test-auth.service';
 export { TestEnvironmentGuard } from './guards/test-environment.guard';
+
+// The identity conformance suite: importing this entry registers the `identity`
+// suite with `runPlatformConformance` (@marinoscar/platform-api/testing).
+export {
+  checkPermissionsRegistered,
+  checkRls,
+  checkRouteAccess,
+  checkScopeGrants,
+  checkTokenConfinement,
+  discoverControllers,
+  discoverIdentityRoutes,
+  identityConformanceSuite,
+} from './conformance';
+export type {
+  IdentityConformanceAccessEntry,
+  IdentityConformanceOptions,
+  IdentityConformanceRlsOptions,
+  IdentityConformanceRlsTable,
+  IdentityRoute,
+} from './conformance';
+export { createStubIdentityHost } from './stub-host';
+export type { StubIdentityHostOptions, StubIdentityHostState } from './stub-host';
