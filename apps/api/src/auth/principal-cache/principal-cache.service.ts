@@ -18,6 +18,7 @@ import {
 import { InProcessEventBus } from '../../common/event-bus/in-process-event-bus';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import { DEFAULT_PRINCIPAL_CACHE_TTL_SECONDS } from './principal-cache.config';
+import { stampCredential } from '../credential-binding';
 
 // =============================================================================
 // PrincipalCache — short-TTL principals for JWT validation (PP-1.12, #683)
@@ -81,8 +82,9 @@ export type PrincipalInvalidation = { userId: string } | { all: true };
 
 /**
  * One cache entry's identity (#724): the user, the org the credential is
- * bound to (`null` for a system-scoped node credential) and the credential
- * kind.
+ * bound to, and the credential kind. `orgId: null` is a credential bound to
+ * NO org: a pre-#724 access token (the compatibility path in
+ * `AuthService.validateJwtPayload`). Node credentials are never cached.
  */
 export interface PrincipalCacheKey {
   userId: string;
@@ -304,10 +306,12 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Stores a deep-frozen copy of `value` and returns it — unless the cache is
-   * disabled, or `expectedGeneration` is no longer current (an invalidation
-   * happened while the caller was reading), in which case nothing is stored
-   * and `undefined` is returned. Never throws.
+   * Stores a deep-frozen copy of `value`, BOUND to the key (#724: its
+   * `activeOrgId` is `key.orgId` when that is set, its `tokenKind` is
+   * `key.tokenKind`; see `credential-binding.ts`), and returns it — unless
+   * the cache is disabled, or `expectedGeneration` is no longer current (an
+   * invalidation happened while the caller was reading), in which case
+   * nothing is stored and `undefined` is returned. Never throws.
    */
   set(key: PrincipalCacheKey, value: AuthenticatedUser, expectedGeneration: number): AuthenticatedUser | undefined {
     if (!this.enabled) return undefined;
@@ -316,7 +320,12 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
 
     let frozen: AuthenticatedUser;
     try {
-      frozen = deepFreeze(deepCopy(value));
+      frozen = deepFreeze(
+        stampCredential(deepCopy(value), {
+          activeOrgId: key.orgId ?? undefined,
+          tokenKind: key.tokenKind,
+        }),
+      );
     } catch {
       // Not cloneable (never true of a Prisma row graph). Do not cache it.
       return undefined;

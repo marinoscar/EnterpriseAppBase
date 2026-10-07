@@ -5,6 +5,7 @@ import { PrincipalCache } from '../auth/principal-cache/principal-cache.service'
 import { DefaultOrganizationMissingException } from './organizations.errors';
 import { DatabaseSeedException } from '@marinoscar/platform-api/core';
 import { DEFAULT_ORG_ROLE } from '../common/constants/roles.constants';
+import type { TenancyMode } from '@marinoscar/platform-api/core';
 
 /**
  * Organizations, the tenancy foundation (PP-6.1, ADR 0001).
@@ -220,6 +221,54 @@ export class OrganizationsService {
     });
     this.principalCache.invalidateUser(userId);
     return updated;
+  }
+
+  /**
+   * The organization a new sign-in acts in (#724), the one rule every token
+   * issuer applies (`AuthService`, `TestAuthService`):
+   *
+   * - single mode: the default organization, unless the loaded graph shows
+   *   the user's default-org membership suspended;
+   * - multi mode: the active membership with the latest `lastActiveAt` (ties:
+   *   the oldest), from the graph when it has one, else from the database.
+   *
+   * @param user - the user, with its memberships when they are loaded.
+   * @returns the org id, or `null` when the user has no organization to act in
+   *   (or the default organization is missing: fail closed).
+   */
+  async signInOrgId(
+    user: {
+      id: string;
+      memberships?: ReadonlyArray<{
+        orgId: string;
+        status: MembershipStatus;
+        lastActiveAt: Date | null;
+        createdAt?: Date;
+      }> | null;
+    },
+    mode: TenancyMode,
+  ): Promise<string | null> {
+    if (mode === 'single') {
+      let orgId: string;
+      try {
+        orgId = (await this.getDefaultOrg()).id;
+      } catch {
+        return null;
+      }
+      const membership = user.memberships?.find((candidate) => candidate.orgId === orgId);
+      return membership && membership.status !== 'active' ? null : orgId;
+    }
+    const loaded = (user.memberships ?? [])
+      .filter((candidate) => candidate.status === 'active')
+      .sort(
+        (a, b) =>
+          (b.lastActiveAt?.getTime() ?? Number.NEGATIVE_INFINITY) -
+            (a.lastActiveAt?.getTime() ?? Number.NEGATIVE_INFINITY) ||
+          (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0),
+      )[0];
+    if (loaded) return loaded.orgId;
+    const [latest] = await this.listActiveMemberships(user.id);
+    return latest?.orgId ?? null;
   }
 
   /** How many active (not suspended) memberships the user holds, in any org. */

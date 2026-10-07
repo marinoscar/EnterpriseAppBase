@@ -247,7 +247,10 @@ export class AuthController {
     @CurrentUser() user: RequestUser,
   ): Promise<{ data: CurrentUserDto }> {
     // #724: computed for the org the presented credential is bound to.
-    const currentUser = await this.authService.getCurrentUser(user.id, user.activeOrgId);
+    const currentUser =
+      user.activeOrgId === undefined
+        ? await this.authService.getCurrentUser(user.id)
+        : await this.authService.getCurrentUser(user.id, user.activeOrgId);
     return {
       data: currentUser,
     };

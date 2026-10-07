@@ -15,11 +15,7 @@ import {
   ORG_ADMIN_ROLE,
   ROLES,
 } from '../common/constants/roles.constants';
-import {
-  PRINCIPAL_USER_INCLUDE,
-  principalFactory,
-  selectCurrentMembership,
-} from '../auth/principal.factory';
+import { PRINCIPAL_USER_INCLUDE, principalFactory } from '../auth/principal.factory';
 
 export interface TestAuthTokenResponse {
   accessToken: string;
@@ -180,7 +176,7 @@ export class TestAuthService {
     // The active organization (#724), by the same rule as a Google sign-in:
     // single mode, the default org's membership; multi mode, the most
     // recently used active membership.
-    const orgId = selectCurrentMembership(reloaded.memberships, this.tenancy.mode())?.orgId;
+    const orgId = await this.organizations.signInOrgId(reloaded, this.tenancy.mode());
     if (!orgId) {
       throw new AuthLoginDeniedException(
         'no_organization',

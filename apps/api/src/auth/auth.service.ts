@@ -526,20 +526,13 @@ export class AuthService {
    *   the oldest), read from the graph or, when the graph has none, from the
    *   database.
    *
+   * The rule itself is `OrganizationsService.signInOrgId`, shared with the
+   * test login.
+   *
    * @returns the org id, or `null` when the user has no organization to act in.
    */
   async chooseSignInOrg(user: MembershipGraph): Promise<string | null> {
-    if (this.tenancy.isSingle()) {
-      const orgId = await this.defaultOrgIdOrNull();
-      if (!orgId) return null;
-      const membership = user.memberships?.find((candidate) => candidate.orgId === orgId);
-      if (membership && membership.status !== 'active') return null;
-      return orgId;
-    }
-    const loaded = selectCurrentMembership(user.memberships ?? undefined, 'multi');
-    if (loaded) return loaded.orgId;
-    const [latest] = await this.organizations.listActiveMemberships(user.id);
-    return latest?.orgId ?? null;
+    return this.organizations.signInOrgId(user, this.tenancy.mode());
   }
 
   /** {@link chooseSignInOrg}, or a 401 when there is none. */
@@ -1016,14 +1009,16 @@ export class AuthService {
     const tokenKind: CredentialKind = payload.did !== undefined ? 'device' : 'session';
 
     // The active organization (#724). A signed `org` claim is the org; a
-    // token without one predates #724 (see `legacyTokenOrg`).
-    const orgId =
-      payload.org !== undefined
-        ? typeof payload.org === 'string' && payload.org.length > 0
-          ? payload.org
-          : null
-        : await this.legacyTokenOrg(tokenKind);
-    if (!orgId) {
+    // token without one predates #724 (see `acceptsLegacyToken`) and is bound
+    // to no org (`null`), so the principal factory's single-mode rule maps it
+    // to the default organization, exactly as before #724.
+    let orgId: string | null = null;
+    if (payload.org !== undefined) {
+      if (typeof payload.org !== 'string' || payload.org.length === 0) {
+        return null;
+      }
+      orgId = payload.org;
+    } else if (!this.acceptsLegacyToken(tokenKind)) {
       return null;
     }
 
@@ -1039,7 +1034,8 @@ export class AuthService {
           userId: true,
           revokedAt: true,
           credentialExpiresAt: true,
-          orgId: true,
+          // Only an org-bound token is compared with its session's org.
+          ...(orgId !== null ? { orgId: true } : {}),
         },
       });
 
@@ -1049,7 +1045,7 @@ export class AuthService {
 
       // A device session is bound to the org it was approved in (#724): its
       // token may not claim another one.
-      if (payload.org !== undefined && deviceCode?.orgId !== payload.org) {
+      if (orgId !== null && (deviceCode as { orgId?: string | null } | null)?.orgId !== orgId) {
         return null;
       }
     }
@@ -1088,41 +1084,46 @@ export class AuthService {
     // token for an org the user is no longer an ACTIVE member of is refused
     // (within the cache TTL; at once on this replica after an invalidation).
     // The legacy path keeps the pre-#724 behaviour and checks nothing here.
-    if (payload.org !== undefined && !hasActiveMembership(principal, orgId)) {
+    if (orgId !== null && !hasActiveMembership(principal, orgId)) {
       return null;
     }
 
     // The org goes on the request span (ADR 0001: `org.id`), never on a
     // metric label.
-    trace.getActiveSpan()?.setAttribute('org.id', orgId);
+    if (orgId !== null) {
+      trace.getActiveSpan()?.setAttribute('org.id', orgId);
+    }
 
-    return bindCredential(principal, { activeOrgId: orgId, tokenKind });
+    // A cached entry is already bound to its key; a fresh, uncached read
+    // (cache disabled, or the generation moved) is bound here.
+    return principal.tokenKind === tokenKind
+      ? principal
+      : bindCredential(principal, { activeOrgId: orgId ?? undefined, tokenKind });
   }
 
   /**
-   * TEMPORARY COMPATIBILITY PATH (#724), removed in a later release: the org
-   * of an access token issued before the `org` claim existed.
+   * TEMPORARY COMPATIBILITY PATH (#724), removed in a later release: whether
+   * an access token issued before the `org` claim existed is still honoured.
    *
-   * - single mode: the default organization, for one access-token lifetime
-   *   after this process started (`jwt.accessTtlMinutes`, or the device
-   *   token lifetime for a `did` token), so tokens in flight across the
-   *   deploy keep working; such a token was always for the default org;
-   * - multi mode, or after the window: `null`, so the token is refused and
-   *   the client refreshes (the refresh issues an org-bound token).
+   * - single mode: yes, for one access-token lifetime after this process
+   *   started (`jwt.accessTtlMinutes`, or the device token lifetime for a
+   *   `did` token), so tokens in flight across the deploy keep working. Such a
+   *   token is bound to no org; the principal factory maps it to the default
+   *   organization's membership, as every token was before #724;
+   * - multi mode, or after the window: no, so the client refreshes (the
+   *   refresh issues an org-bound token).
+   *
+   * Synchronous and I/O-free: it decides before any database read.
    */
-  private async legacyTokenOrg(tokenKind: CredentialKind): Promise<string | null> {
+  private acceptsLegacyToken(tokenKind: CredentialKind): boolean {
     if (!this.tenancy.isSingle()) {
-      return null;
+      return false;
     }
     const lifetimeSeconds =
       tokenKind === 'device'
-        ? Number(this.configService.get<number>('deviceAuth.tokenExpiryDays', 7)) * 24 * 60 * 60
-        : Number(this.configService.get<number>('jwt.accessTtlMinutes', 15)) * 60;
-    const windowMs = Number.isFinite(lifetimeSeconds) && lifetimeSeconds > 0 ? lifetimeSeconds * 1000 : 0;
-    if (Date.now() >= this.startedAt + windowMs) {
-      return null;
-    }
-    return this.defaultOrgIdOrNull();
+        ? positiveOr(this.configService.get<number>('deviceAuth.tokenExpiryDays'), 7) * 24 * 60 * 60
+        : positiveOr(this.configService.get<number>('jwt.accessTtlMinutes'), 15) * 60;
+    return Date.now() < this.startedAt + lifetimeSeconds * 1000;
   }
 
   /**
@@ -1356,4 +1357,10 @@ export class AuthService {
     const initialAdminEmail = this.configService.get<string>('INITIAL_ADMIN_EMAIL');
     return initialAdminEmail ? email === initialAdminEmail.toLowerCase() : false;
   }
+}
+
+/** `value` as a number when it is a positive finite one, else `fallback`. */
+function positiveOr(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }

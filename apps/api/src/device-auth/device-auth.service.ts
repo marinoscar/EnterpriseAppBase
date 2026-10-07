@@ -219,6 +219,7 @@ export class DeviceAuthService {
             record.clientInfo,
             deviceCodeHash,
             orgId,
+            record.orgId === null || record.orgId === undefined,
           );
         }
 
@@ -255,9 +256,10 @@ export class DeviceAuthService {
             status: DeviceCodeStatus.expired,
             collectedAt,
             credentialExpiresAt,
-            // Recorded with the claim, so a `did` token never names an org
-            // its row does not (`validateJwtPayload` compares them).
-            orgId,
+            // A row approved without an org gets the resolved one with the
+            // claim, so a `did` token never names an org its row does not
+            // (`validateJwtPayload` compares them).
+            ...(record.orgId ? {} : { orgId }),
           },
         });
 
@@ -345,9 +347,11 @@ export class DeviceAuthService {
   /**
    * Authorize or deny a device
    *
-   * `orgId` (#724) is the approver's active org: an approved session is bound
-   * to it for life (its tokens carry it as `org`, its PAT is bound to it).
-   * Omitted, the org a sign-in would pick is used.
+   * `orgId` (#724) is the approver's active org, validated by the approver's
+   * own credential path: an approved session is bound to it for life (its
+   * tokens carry it as `org`, its PAT is bound to it). When the approver's
+   * credential carries no org (a pre-#724 credential), the row stays unbound
+   * and `pollForToken` binds it to the org a sign-in would pick.
    */
   async authorizeDevice(
     userId: string,
@@ -385,16 +389,12 @@ export class DeviceAuthService {
       ? DeviceCodeStatus.approved
       : DeviceCodeStatus.denied;
 
-    const boundOrgId = approve
-      ? (orgId ?? (await this.authService.chooseSignInOrg({ id: userId })))
-      : null;
-
     await this.prisma.deviceCode.update({
       where: { id: record.id },
       data: {
         status: newStatus,
         userId: approve ? userId : null,
-        ...(approve && boundOrgId ? { orgId: boundOrgId } : {}),
+        ...(approve && orgId ? { orgId } : {}),
       },
     });
 
@@ -647,6 +647,8 @@ export class DeviceAuthService {
     clientInfo: Prisma.JsonValue | null,
     deviceCodeHash: string,
     orgId: string,
+    /** The row has no org yet (approved before #724): record `orgId` with the claim. */
+    recordOrg = false,
   ): Promise<DeviceTokenResponseDto> {
     // Claim the device code ATOMICALLY, before minting anything.
     //
@@ -672,7 +674,11 @@ export class DeviceAuthService {
         status: DeviceCodeStatus.approved,
         revokedAt: null,
       },
-      data: { status: DeviceCodeStatus.expired, collectedAt: new Date(), orgId },
+      data: {
+        status: DeviceCodeStatus.expired,
+        collectedAt: new Date(),
+        ...(recordOrg ? { orgId } : {}),
+      },
     });
 
     if (claim.count !== 1) {
