@@ -44,6 +44,15 @@ export function withOrgScope<T extends object>(mock: T): T {
       if (typeof prop === 'string' && prop in scoped) return scoped[prop];
       return Reflect.get(target, prop, receiver);
     },
+    // A spec may replace an entry point with a spy:
+    // `prisma.forOrg = jest.fn(() => prisma)`.
+    set(target, prop, value, receiver) {
+      if (typeof prop === 'string' && prop in scoped) {
+        scoped[prop] = value;
+        return true;
+      }
+      return Reflect.set(target, prop, value, receiver);
+    },
   });
   return proxy;
 }
