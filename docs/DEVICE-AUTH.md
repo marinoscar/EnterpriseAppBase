@@ -166,6 +166,12 @@ Content-Type: application/json
 
 Approval only records the decision. No credential is created yet.
 
+Approval also **binds the session to the approver's active organization**
+(#724): the org the approving browser session acts in (its access token's
+`org` claim) is stored on the device code. Everything the session later
+issues acts in that org and only there. To approve a device for another
+organization, switch organization first (`POST /api/auth/switch-org`).
+
 #### 6. Device Polls for the Credential
 
 ```http
@@ -200,6 +206,13 @@ kind:
 `expiresIn` is in seconds; the default is `DEVICE_TOKEN_EXPIRY_DAYS` (7 days).
 For `tokenType: "pat"` the shape differs; see
 [Credential Kinds](#credential-kinds-session-vs-pat).
+
+The access token carries `org` (the approver's org, #724) next to its `did`
+claim, and the API refuses a device token whose `org` is not its session's.
+The credential is minted only while the approver is still an active member
+of that org; otherwise the poll answers `access_denied` and the device must
+be authorized again. A device credential cannot switch organization
+(`POST /api/auth/switch-org` answers 403).
 
 #### 7. Device Uses the Credential
 
@@ -536,6 +549,11 @@ Expired and revoked device codes are cleaned up by the daily
   sanitizes them before display.
 - **Allowlist.** Only a user who can sign in (an allowlisted email) can
   approve a code.
+- **Organization binding (#724).** A session is bound to the approver's
+  active org at approval; its tokens, its refresh chain and its PAT act only
+  there, and stop working when the approver's membership there is removed
+  or suspended (within the principal cache TTL, at once on the replica that
+  made the change).
 - **Validation.** `clientInfo` is validated by a Zod schema; `authorize`
   requires a `XXXX-XXXX` code. The activation lookup normalizes case and
   whitespace.

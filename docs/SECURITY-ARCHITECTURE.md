@@ -212,25 +212,50 @@ allowlist.
   "sub": "user-uuid",
   "email": "user@example.com",
   "roles": ["viewer"],
+  "org": "org-uuid",
   "iat": 1706123456,
   "exp": 1706124356
 }
 ```
 
 - Signed HS256 with `JWT_SECRET` (at least 32 characters).
+- **`org` is the active organization** (#724): the one org this token acts
+  in. Every token the API issues carries it (sign-in, refresh, switch-org,
+  the device flow's session path). At sign-in it is the default organization
+  in single mode, and in multi mode the active membership with the latest
+  `memberships.last_active_at` (sign-in and switch-org move that column). It
+  is signed, but trusted only after `validateJwtPayload` re-checks that it is
+  an **active** membership of `sub`, read from the same cached graph as the
+  roles: a removed or suspended member's token is refused (401) on the next
+  request on the replica that made the change, on other replicas within
+  event-bus latency, and within `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default
+  30 s) at worst. The org is **never** taken from a header, query or body;
+  the only request input naming an org is the body of `POST
+  /api/auth/switch-org`, which is checked against the caller's memberships
+  before anything is issued. The org id goes on the request span as
+  `org.id`, never on a metric label.
+- **Temporary compatibility path.** A token issued before #724 has no `org`.
+  In single mode it is accepted for one access-token lifetime after the API
+  process started (the device token lifetime for a `did` token), mapped to
+  the default organization exactly as before; in multi mode it is refused
+  and the client refreshes. This path will be removed in a later release.
 - Sent as `Authorization: Bearer <jwt>`. The strategy reads only the header,
   never a cookie.
 - `JwtStrategy` verifies signature and expiry, then resolves the user with
   roles and permissions (the *principal*) and rejects an inactive user. Roles
   in the token are informational; the database is authoritative.
 - The principal is read through a short-TTL, in-process cache
-  (`PrincipalCache`, `apps/api/src/auth/principal-cache/`), keyed by user id,
-  for at most `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` turns it
-  off and every request reads the database). Every write that changes what a
-  principal resolves to (`PATCH /api/users/{id}`, `PUT /api/users/{id}/roles`,
-  the first-login and bootstrap admin grants, profile and display-name
-  updates) invalidates the entry after it commits. The guarantee for a role
-  change or deactivation is therefore:
+  (`PrincipalCache`, `apps/api/src/auth/principal-cache/`), keyed by
+  `(userId, orgId, tokenKind)` (#724), for at most
+  `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` turns it off and every
+  request reads the database). Every write that changes what a principal
+  resolves to (`PATCH /api/users/{id}`, `PUT /api/users/{id}/roles`, user
+  deactivation, the first-login and bootstrap admin grants, profile and
+  display-name updates, membership create, delete, status or role change,
+  PAT revoke, device-session revoke) calls `invalidateUser(userId)` (or
+  `invalidate`) after it commits, dropping every entry of that user in every
+  org. The guarantee for a role change, a deactivation or a membership change
+  is therefore:
   - **the next request on the replica that made the change** is refused or
     re-authorised: the local entry is dropped synchronously;
   - **other replicas** drop their entry within event-bus latency, through the
@@ -259,11 +284,11 @@ Every credential the system accepts or holds, and where it is valid.
 
 | Kind | Format | Stored as | Lifetime | Accepted on | Revocation |
 |---|---|---|---|---|---|
-| Session access token | JWT (HS256) | Not stored | `JWT_ACCESS_TTL_MINUTES` (15) | Every `@Auth()` route | Expiry; deactivating the user |
-| Refresh token | 32 random bytes, hex, in `refresh_token` cookie | SHA-256 hash in `refresh_tokens` | `JWT_REFRESH_TTL_DAYS` (14) | `/api/auth/*` only (cookie path) | Logout, logout-all, rotation, reuse detection |
-| Personal access token | `pat_` + 64 hex | SHA-256 hash in `personal_access_tokens`, shown once | Chosen at creation | Every `@Auth()` route, with the owner's full authority | `DELETE /api/pat/{id}`; deactivating the user |
+| Session access token | JWT (HS256) | Not stored | `JWT_ACCESS_TTL_MINUTES` (15) | Every `@Auth()` route | Expiry; deactivating the user; removing the membership of its `org` |
+| Refresh token | 32 random bytes, hex, in `refresh_token` cookie | SHA-256 hash in `refresh_tokens` | `JWT_REFRESH_TTL_DAYS` (14) | `/api/auth/*` only (cookie path) | Logout, logout-all, rotation, reuse detection, switch-org; removing the membership of its `org_id` |
+| Personal access token | `pat_` + 64 hex | SHA-256 hash in `personal_access_tokens`, shown once | Chosen at creation | Every `@Auth()` route, with the owner's full authority **in its org** | `DELETE /api/pat/{id}`; deactivating the user; removing the membership of its `org_id` |
 | Node credential | `nod_` + 64 hex | SHA-256 hash in `node_credentials`, shown once | No mandatory expiry | `/api/nodes` and `/api/nodes/*` only | `DELETE /api/node-credentials/{id}` or the admin fleet view |
-| Device-flow token | Session JWT + refresh token, or a `pat_` | As above | `DEVICE_TOKEN_EXPIRY_DAYS` (7) or `DEVICE_PAT_EXPIRY_DAYS` (90) | As above | `DELETE /api/auth/device/sessions/{id}`, immediately, for either kind |
+| Device-flow token | Session JWT + refresh token, or a `pat_` | As above | `DEVICE_TOKEN_EXPIRY_DAYS` (7) or `DEVICE_PAT_EXPIRY_DAYS` (90) | As above, in the approver's org | `DELETE /api/auth/device/sessions/{id}`, immediately, for either kind |
 | Per-job node secret | Short-lived PostgreSQL login role | Only its handle, in `job_node_secrets` | The job's lease + 60 s | The database, from one node, for one job | Job settles, sweep cron, or `VALID UNTIL` |
 | Runtime-configured secret | Provider key, SMTP password, VAPID key, etc. | AES-256-GCM ciphertext | Until replaced | Server-side only, never returned | Replace or delete in the admin UI |
 | `STACK_AGENT_TOKEN` | 32 random hex bytes | Plaintext in `.env`, on both the `api` and `stack-agent` services | Until rotated | Bearer on `stack-agent`'s `/v1/*` routes only, reachable from `app-network` only | Edit `.env` and recreate `stack-agent`/`api` |
@@ -271,6 +296,23 @@ Every credential the system accepts or holds, and where it is valid.
 `JwtAuthGuard` recognizes the bearer families by prefix before Passport runs:
 `Bearer pat_…` goes to `PatService.validateToken`, `Bearer nod_…` to
 `NodeCredentialService.validateToken`, anything else to the JWT strategy.
+
+**Org binding per kind (#724).** Every user credential is bound to exactly
+one organization and acts only there; none can hop orgs:
+
+| Kind | Bound to | Where the binding lives | Switches? |
+|---|---|---|---|
+| Session (browser) | The org chosen at sign-in or by switch-org | The access token's `org` claim and `refresh_tokens.org_id` | Only through `POST /api/auth/switch-org`, which re-issues both |
+| Device session (`did`) | The approver's active org at approval | `device_codes.org_id`, the token's `org` (must match), `refresh_tokens.org_id` | No (403 on switch-org) |
+| PAT | The caller's active org at creation, or an explicit `orgId` the caller is an active member of | `personal_access_tokens.org_id` | No (403 on switch-org) |
+| Node (`nod_`) | **No org: system-scoped.** Only the owner's system grants count | — | Not applicable |
+
+Each path re-checks its binding on every request against the user's active
+memberships and refuses (401) a credential whose membership was removed or
+suspended. The request carries the result as `request.principal` (ADR 0001's
+`Principal`: user id, `activeOrgId` (absent for a node), every membership
+with its role and status, roles, permissions, credential kind), beside the
+legacy `request.user`.
 
 ### Session tokens
 
@@ -285,8 +327,15 @@ every authenticated route with the owner's roles and permissions.
 - 32 random bytes, prefixed `pat_`. Only the SHA-256 hash and a display
   prefix (`tokenPrefix`, e.g. `pat_1a2b`) are stored. The raw value is
   returned once, at creation.
-- Validation rejects unknown, revoked and expired tokens, and tokens whose
-  owner is inactive. `lastUsedAt` is updated on success.
+- Validation rejects unknown, revoked and expired tokens, tokens whose
+  owner is inactive, and (#724) tokens whose org (`personal_access_tokens.org_id`)
+  is no longer an active membership of the owner. A PAT created before #724
+  has no org: honoured in single mode (the default org), refused in multi
+  mode. `lastUsedAt` is updated on success.
+- Bound to one org at creation (#724): the caller's active org, or an
+  `orgId` in the body that must be an active membership of the caller (else
+  400). Creation and revocation write `pat:created` / `pat:revoked` audit
+  events whose `meta` carries the `orgId`.
 - Managed at `/settings/tokens` or `POST/GET/DELETE /api/pat`. See
   [personal-access-tokens.md](personal-access-tokens.md).
 
@@ -297,6 +346,10 @@ machine the deployment may not own. It resolves to its owning user (an
 admin, since `nodes:write` is Admin-only), so the guard confines it.
 
 - Same shape as a PAT: `nod_` + 32 random bytes, SHA-256 at rest, shown once.
+- **System-scoped** (ADR 0001, #724): a node credential acts in no
+  organization. Its principal has no `activeOrgId`, records `tokenKind:
+  'node'`, and carries only the owner's **system** grants (`nodes:*` among
+  them); no org role contributes.
 - **Route allowlist.** A `nod_` bearer is accepted only on `/api/nodes` and
   paths under `/api/nodes/`. The guard checks the raw URL *before* looking up
   the token, so a refused request costs no database round trip and does not
@@ -326,6 +379,11 @@ The credential a device session issues is linked to the `DeviceCode` row that
 minted it: a session-kind access token carries a `did` claim naming that row,
 which `AuthService.validateJwtPayload` re-checks on every request, and the
 paired refresh token carries the same link, enforced again on every rotation.
+The session is bound to the approver's active org (#724): `device_codes.org_id`
+is set at approval, the session tokens carry it as `org` (and
+`validateJwtPayload` refuses a `did` token whose `org` differs from its row),
+and a collected PAT is bound to it. The credential is minted only while that
+membership is active (`access_denied` otherwise).
 `DELETE /api/auth/device/sessions/{id}` revokes the session **and** whatever
 it issued in one step — the linked PAT (if any), every refresh token minted
 from it, and, via the `did` check, the access token itself, immediately
@@ -426,11 +484,36 @@ sequenceDiagram
     else Already revoked (reuse)
         API->>DB: Revoke ALL of the user's refresh tokens
         API->>Frontend: 401
+    else Membership of its org_id no longer active
+        API->>DB: Revoke the presented token
+        API->>Frontend: 401
     else Valid
-        API->>DB: Revoke old token, insert new hash
-        API->>Frontend: 200 { accessToken, expiresIn } + new cookie
+        API->>DB: Revoke old token, insert new hash (same org_id)
+        API->>Frontend: 200 { accessToken (org = same org), expiresIn } + new cookie
     end
 ```
+
+Rotation is **org-preserving** (#724): the new refresh row keeps the
+presented row's `org_id` and the new access token's `org` claim names the
+same org. Once the user's membership there is removed or suspended, the
+rotation fails (401, metric outcome `no_organization`) and the presented token
+is revoked. A row written before #724 has no `org_id`; it is bound to the org
+a sign-in would pick.
+
+### Switching organization
+
+`POST /api/auth/switch-org` with `{ "orgId": "<uuid>" }` (#724) is a rotation
+for another org. It requires a **session** access token (a PAT, device or node
+credential is bound to one org and gets 403) and the refresh cookie (401
+without a live, non-device refresh token of the caller). `orgId` must be an
+active membership of the caller, else 404, so an org that exists but is not
+the caller's is indistinguishable from one that does not; in single mode only
+the default org qualifies (a no-op re-issue). The presented refresh token is
+revoked conditionally (two concurrent switches with one cookie cannot both
+succeed), a new one bound to `orgId` is set with the cookie attributes below,
+and the response is `POST /api/auth/refresh`'s `{ accessToken, expiresIn }`.
+It writes the audit event `auth:org_switched` (`targetType: organization`,
+`meta.fromOrgId`) and logs the user and org ids at `info`.
 
 ### Reuse detection
 
@@ -517,12 +600,16 @@ seeded onto an org role.
 
 **Effective permissions.** A request's permissions are the union of the
 user's system roles' grants and the grants of the role on the user's
-**current-org membership**, computed in one place, `PrincipalFactory`
+**active-org membership**, computed in one place, `PrincipalFactory`
 (`apps/api/src/auth/principal.factory.ts`), for the guards, `/api/auth/me`
-and the users list. Until the active organization travels in the token
-(PP-6.4), the current organization is the default one in single-org mode and
-the active membership used most recently in multi-org mode. A suspended
-membership, or none, contributes nothing. JWT, PAT and node credentials all
+and the users list. The active organization is the one the request's
+credential is bound to (#724): the access token's `org` claim, the PAT's or
+device session's `org_id`; a node credential has none and gets its owner's
+system grants only. A graph loaded outside a request (the users list, a
+pre-#724 token) falls back to the sign-in rule: the default org in single-org
+mode, the active membership used most recently in multi-org mode. A suspended
+membership, or none, contributes nothing. `PermissionsGuard` reads
+`request.principal.permissions`. JWT, PAT and node credentials all
 load the same graph (`PRINCIPAL_USER_INCLUDE`), so the three cannot disagree.
 The system administrator holds the system `admin` role and `org_admin` on the
 default organization; `ROLES.ADMIN` in `@Auth({ roles })` means the system
@@ -576,7 +663,8 @@ flowchart TD
 - **RolesGuard**: if `roles` is set, the user needs **any** of them. Every
   role named in `@Auth({ roles })` today is the system `admin` role.
 - **PermissionsGuard**: if `permissions` is set, the user needs **all** of
-  them, out of the effective set above. The 403 names the missing ones.
+  them, out of the effective set above (`request.principal.permissions`).
+  The 403 names the missing ones.
 
 A route with neither `@Auth()` nor `@Public()` is unauthenticated. Every new
 controller therefore needs `@Auth()` at class or method level.
@@ -590,6 +678,10 @@ import { PERMISSIONS } from '../common/constants/roles.constants';
 @Auth()                                                     // any signed-in user
 @Get('profile')
 getProfile(@CurrentUser() user: RequestUser) {}
+
+@Auth()                                                     // the org-aware principal (#724)
+@Get('mine')
+listMine(@CurrentPrincipal() principal: Principal) {}       // principal.activeOrgId, .memberships, .credential
 
 @Auth({ permissions: [PERMISSIONS.SYSTEM_SETTINGS_WRITE] }) // one permission
 @Patch('system-settings')
@@ -650,7 +742,8 @@ A protected request passes these checkpoints in order:
 1. **Nginx**: same-origin routing and security headers ([§9](#9-infrastructure-security)).
 2. **MaintenanceGuard** (global): 503 while a maintenance window is open,
    except for routes marked `@AllowDuringMaintenance()`.
-3. **JwtAuthGuard**: credential family, signature, expiry, revocation, user active.
+3. **JwtAuthGuard**: credential family, signature, expiry, revocation, user
+   active, and the credential's org binding (an active membership, #724).
 4. **RolesGuard / PermissionsGuard**: RBAC.
 5. **ZodValidationPipe** (global): validates body, query and params against
    the route's Zod DTO. Unknown keys are stripped.
@@ -661,7 +754,9 @@ A protected request passes these checkpoints in order:
 After the guards, `request.user` is the full `AuthenticatedUser` (with role
 and permission relations) and `request.requestUser` is the flattened
 `{ id, email, roles[], permissions[] }` the controllers use via
-`@CurrentUser()`.
+`@CurrentUser()`. `request.principal` (#724) is ADR 0001's `Principal`, read
+with `@CurrentPrincipal()`: user id, active org (absent for a node),
+memberships with role and status, roles, permissions and credential kind.
 
 ---
 
@@ -672,9 +767,9 @@ and permission relations) and `request.requestUser` is the flattened
 | `users` | `isActive` stops every credential of that user |
 | `user_identities` | `(provider, providerSubject)` is unique |
 | `roles`, `permissions`, `role_permissions`, `user_roles` | RBAC; seeded, changed by admins |
-| `refresh_tokens` | SHA-256 hashes, `revokedAt` |
-| `personal_access_tokens`, `node_credentials` | SHA-256 hashes, display prefix, `revokedAt` |
-| `device_codes` | Device-flow codes, stored hashed |
+| `refresh_tokens` | SHA-256 hashes, `revokedAt`, the bound `org_id` |
+| `personal_access_tokens`, `node_credentials` | SHA-256 hashes, display prefix, `revokedAt`; a PAT's bound `org_id` |
+| `device_codes` | Device-flow codes, stored hashed; the approved session's `org_id` |
 | `allowed_emails` | The allowlist |
 | `credentials`, `user_credentials`, `user_ai_keys` | Encrypted secrets |
 | `job_node_secrets` | Handles of brokered per-job secrets, never material |
@@ -684,8 +779,9 @@ and permission relations) and `request.requestUser` is the flattened
 `targetType`, `targetId`, `meta` (JSON) and `createdAt`, indexed on actor,
 target and time. Actions are `<area>:<verb>` strings, for example
 `allowlist:add`, `user:roles_update`, `system_settings:patch`,
-`storage:object:delete`, `storage_config:test`, `ai_config:set_key`.
-Audit `meta` never contains key material.
+`storage:object:delete`, `storage_config:test`, `ai_config:set_key`,
+`auth:org_switched`, `pat:created`, `pat:revoked` (the last three carry the
+org id in `meta`, #724). Audit `meta` never contains key material.
 
 ### Support bundle (an egress surface)
 

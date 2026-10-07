@@ -116,8 +116,10 @@ Three shape rules:
 - **No `isActive`.** An inactive user never becomes a principal: every
   validation path already returns `null` (or throws) for an inactive user, so
   the field could only ever be `true`.
-- **No runtime mapper yet.** `toPrincipal()` arrives with #724. The mapping
-  below is the specification it implements, and the type-level spec
+- **One runtime mapper.** `toPrincipal()` (#724, beside `PrincipalFactory` in
+  `apps/api/src/auth/principal.factory.ts`) implements the mapping below;
+  `JwtAuthGuard` attaches its result as `request.principal` and
+  `@CurrentPrincipal()` reads it. The mapping below is the specification it implements, and the type-level spec
   ([`test/core/principal.spec.ts`](../../packages/platform-api/test/core/principal.spec.ts)
   in the package, and the `RequestUser` half in
   [`principal-request-user.spec.ts`](../../apps/api/test/platform/principal-request-user.spec.ts))
@@ -213,7 +215,7 @@ A `SystemActor` runs on the separate bypass connection and sets nothing.
 |---|---|
 | #688 (scoped data access) | `forScope(scope: Scope)`, `forUser(userId)` and `asSystem(actor: SystemActor)` import these types with `import type`. `orgId` and `groupIds` are accepted and ignored until #725 and #729. |
 | #698 (`platform-api/core`) | Moved `principal.types.ts`, `index.ts` and the spec into the package unchanged (done). Types only: the runtime `toPrincipal()`, a `Principal` on the request and `@CurrentPrincipal()` moved to #724, which builds the principal with its org fields. |
-| #724 (active org) | Fills `activeOrgId` and `memberships`, binds PATs and device tokens to an org, and introduces the multi-mode narrowing. |
+| #724 (active org) | Done: fills `activeOrgId` (the signed `org` claim, or the PAT's or device session's org; absent for a node) and `memberships` (with `status`), sets `groups: []`, binds PATs and device tokens to an org, and ships `toPrincipal()`, `request.principal` and `@CurrentPrincipal()`. The multi-mode type narrowing (`UserPrincipal<'multi'>`) is deferred to a follow-up. |
 | #725 (RLS) | Carries `Scope.orgId` into `set_config('app.org_id', …, true)`; gives `SystemActor` its bypass connection. |
 | #729 (grants and groups) | Fills `groups` and honours `Scope.groupIds`. |
 
