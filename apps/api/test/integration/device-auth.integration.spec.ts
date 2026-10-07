@@ -131,6 +131,13 @@ function installDeviceSessionStore(prismaMock: any) {
   return tables;
 }
 
+/**
+ * #724: a device session is bound to the approver's org, and its credential
+ * is minted only while that membership is active, so the lifecycle tests sign
+ * in as a user holding a default-org membership (the post-split shape).
+ */
+const ORG_MEMBER = { orgRoleName: 'viewer' as const };
+
 describe('Device Auth Controller (Integration)', () => {
   let context: TestContext;
 
@@ -309,7 +316,7 @@ describe('Device Auth Controller (Integration)', () => {
 
     it('PAT path: the collected PAT is listed, and revoking the session revokes the PAT', async () => {
       const tables = installDeviceSessionStore(context.prismaMock);
-      const user = await createMockTestUser(context);
+      const user = await createMockTestUser(context, ORG_MEMBER);
 
       const deviceCode = await startAndApprove(user, {
         deviceName: 'ci-laptop',
@@ -377,7 +384,7 @@ describe('Device Auth Controller (Integration)', () => {
 
     it('session path: the device access token and refresh token stop working once revoked', async () => {
       const tables = installDeviceSessionStore(context.prismaMock);
-      const user = await createMockTestUser(context);
+      const user = await createMockTestUser(context, ORG_MEMBER);
 
       const deviceCode = await startAndApprove(user, { deviceName: 'smart-tv' });
 
@@ -427,7 +434,7 @@ describe('Device Auth Controller (Integration)', () => {
 
     it('session path: a refresh keeps the device link until the session is revoked', async () => {
       const tables = installDeviceSessionStore(context.prismaMock);
-      const user = await createMockTestUser(context);
+      const user = await createMockTestUser(context, ORG_MEMBER);
 
       const deviceCode = await startAndApprove(user, { deviceName: 'kiosk' });
       const poll = await request(context.app.getHttpServer())
@@ -466,7 +473,7 @@ describe('Device Auth Controller (Integration)', () => {
 
     it("returns 404 and revokes nothing for another user's session", async () => {
       const tables = installDeviceSessionStore(context.prismaMock);
-      const owner = await createMockTestUser(context);
+      const owner = await createMockTestUser(context, ORG_MEMBER);
       const other = await createMockTestUser(context, { email: 'other@example.com' });
 
       const deviceCode = await startAndApprove(owner, { tokenType: 'pat' });

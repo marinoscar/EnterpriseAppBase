@@ -197,6 +197,8 @@ describe('Sign-in with TENANCY_MODE=multi', () => {
     MockGoogleStrategy.setMockProfile(PERSON);
     mockReturningUser(context, 'user-member', PERSON.email);
     context.prismaMock.membership.count.mockResolvedValue(1);
+    // #724: that membership is the org the session is bound to.
+    context.prismaMock.membership.findMany.mockResolvedValue([{ orgId: 'org-a' }]);
 
     const location = await callback(context);
 
@@ -229,7 +231,9 @@ describe('Sign-in with TENANCY_MODE=multi', () => {
   });
 
   it('reports tenancyMode multi on GET /api/auth/me', async () => {
-    const user = await createMockTestUser(context);
+    // #724: multi mode refuses a token without `org`, so this user holds a
+    // membership and its token names it.
+    const user = await createMockTestUser(context, { orgRoleName: 'viewer' });
 
     const response = await request(context.app.getHttpServer())
       .get('/api/auth/me')
