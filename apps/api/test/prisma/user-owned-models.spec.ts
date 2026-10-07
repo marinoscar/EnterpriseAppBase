@@ -52,12 +52,12 @@ runPlatformConformance({
 // The app's own pin, on top of the suite: the inventory's size, so a model
 // added or removed is a visible diff here as well.
 describe('user-owned model registry vs prisma/schema/', () => {
-  it('covers 23 models and 25 User foreign keys', () => {
+  it('covers 26 models and 29 User foreign keys', () => {
     const datamodel = readSchemaDatamodel(SCHEMA_PATH);
     const withUserKeys = datamodel.filter((model) =>
       model.fields.some((field) => field.type === 'User' && (field.relation?.fields.length ?? 0) > 0),
     );
-    expect(withUserKeys).toHaveLength(23);
+    expect(withUserKeys).toHaveLength(26);
     expect(new Set(userOwnedModelRegistry.list().map((def) => def.model))).toEqual(new Set(withUserKeys.map((model) => model.name)));
   });
 });

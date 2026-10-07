@@ -22,12 +22,12 @@ describe('the app fills userOwnedModelRegistry', () => {
     expect(userOwnedModelRegistry.ids()).toEqual(PLATFORM_USER_OWNED_MODELS.map((def) => def.model));
   });
 
-  it('holds 23 models and 25 User foreign keys', () => {
+  it('holds 26 models and 29 User foreign keys', () => {
     const fields = userOwnedModelRegistry
       .list()
       .flatMap((def) => [...(def.ownerField ? [def.ownerField] : []), ...(def.actorFields ?? [])]);
-    expect(userOwnedModelRegistry.size).toBe(23);
-    expect(fields).toHaveLength(25);
+    expect(userOwnedModelRegistry.size).toBe(26);
+    expect(fields).toHaveLength(29);
   });
 
   it('gives every entry a non-empty rationale', () => {
