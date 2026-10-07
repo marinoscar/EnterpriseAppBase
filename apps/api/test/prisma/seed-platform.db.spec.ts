@@ -103,6 +103,27 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     expect(afterFirst.rolePermissions).toEqual(baseline.rolePermissions);
   });
 
+  it('writes each role and permission with its scope (#723)', () => {
+    expect(Object.fromEntries(afterFirst.roles.map((r) => [r.name, r.scope]))).toEqual({
+      admin: 'system',
+      contributor: 'org',
+      org_admin: 'org',
+      viewer: 'org',
+    });
+    const orgScoped = afterFirst.permissions.filter((p) => p.scope === 'org').map((p) => p.name);
+    expect(orgScoped).toEqual([
+      'ai:use',
+      'org_invites:read',
+      'org_invites:write',
+      'org_members:read',
+      'org_members:write',
+      'storage:read',
+      'storage:write',
+      'user_settings:read',
+      'user_settings:write',
+    ]);
+  });
+
   it('has the baseline row counts, plus the allowlisted administrator', () => {
     expect({
       roles: afterFirst.roles.length,
@@ -124,7 +145,9 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
   });
 
   it('keeps the console lines operators read during a deploy', () => {
-    for (const line of ['✓ Seeded 3 roles', '✓ Seeded 31 permissions', '✓ Seeded 39 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
+    // #723 (PP-6.3): org_admin and the four org_* permissions; admin's org
+    // grants moved to org_admin, so 4 more grants in all.
+    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 35 permissions', '✓ Seeded 43 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
       expect(firstRun).toContain(line);
     }
   });

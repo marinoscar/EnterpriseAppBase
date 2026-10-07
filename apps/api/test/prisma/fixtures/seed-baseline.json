@@ -1,24 +1,28 @@
 {
-  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review.",
+  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions.",
   "counts": {
-    "roles": 3,
-    "permissions": 31,
+    "roles": 4,
+    "permissions": 35,
     "allowedEmails": 1,
     "systemSettings": 1,
-    "rolePermissions": 39
+    "rolePermissions": 43
   },
   "roles": [
     {
       "name": "admin",
-      "description": "Full system access - manage users, roles, and all settings"
+      "description": "System administrator - operate the deployment: users, roles and all system settings"
     },
     {
       "name": "contributor",
-      "description": "Standard user - can manage own settings and future features"
+      "description": "Organization member - manage own settings and storage objects, use AI"
+    },
+    {
+      "name": "org_admin",
+      "description": "Organization administrator - everything a contributor can do, plus manage the organization members and invites"
     },
     {
       "name": "viewer",
-      "description": "Read-only access - can view content and manage own settings"
+      "description": "Read-only organization member - view content and manage own settings"
     }
   ],
   "permissions": [
@@ -77,6 +81,22 @@
     {
       "name": "nodes:write",
       "description": "Register, drain and remove worker nodes"
+    },
+    {
+      "name": "org_invites:read",
+      "description": "View pending and past invitations to the organization"
+    },
+    {
+      "name": "org_invites:write",
+      "description": "Invite people to the organization and revoke invitations"
+    },
+    {
+      "name": "org_members:read",
+      "description": "View the members of the organization and their organization roles"
+    },
+    {
+      "name": "org_members:write",
+      "description": "Change organization members: their organization role, suspend or remove them"
     },
     {
       "name": "push:read",
@@ -149,7 +169,6 @@
   ],
   "rolePermissions": {
     "admin": [
-      "ai:use",
       "ai_config:read",
       "ai_config:write",
       "allowlist:read",
@@ -167,8 +186,6 @@
       "push:write",
       "rbac:manage",
       "storage:delete_any",
-      "storage:read",
-      "storage:write",
       "storage_config:read",
       "storage_config:write",
       "system_settings:read",
@@ -176,13 +193,22 @@
       "telemetry:query",
       "telemetry:read",
       "telemetry:write",
-      "user_settings:read",
-      "user_settings:write",
       "users:read",
       "users:write"
     ],
     "contributor": [
       "ai:use",
+      "storage:read",
+      "storage:write",
+      "user_settings:read",
+      "user_settings:write"
+    ],
+    "org_admin": [
+      "ai:use",
+      "org_invites:read",
+      "org_invites:write",
+      "org_members:read",
+      "org_members:write",
       "storage:read",
       "storage:write",
       "user_settings:read",
