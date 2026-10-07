@@ -28,17 +28,18 @@
 import { useMemo } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { PlatformHostProvider } from '@marinoscar/platform-web/core';
+import { useTelemetryFeatures } from '@marinoscar/platform-web/telemetry/headless';
 import type {
   PlatformApiClient,
   PlatformApiError,
   PlatformRequestOptions,
+  PlatformSseOptions,
   PlatformWebHost,
 } from '@marinoscar/platform-web/core';
 
 import { useAuth } from '../contexts/AuthContext';
 import { useAiFeatures } from '../hooks/useAiConfig';
 import { usePermissions } from '../hooks/usePermissions';
-import { useTelemetryFeatures } from '../hooks/useTelemetryConfig';
 import { API_BASE_URL, ApiError, api } from '../services/api';
 import type { BlobWithHeaders } from '../services/api';
 import { postSse } from '../services/sse';
@@ -97,7 +98,7 @@ export const appPlatformApi: PlatformApiClient = Object.freeze({
   // One POSTed request, one streamed answer (the telemetry assistant, #704):
   // `services/sse.ts`'s `postSse`, with the same bearer token and the same
   // single refresh-and-retry as every other call.
-  postSse: (path, body, options) =>
+  postSse: (path: string, body: unknown, options: PlatformSseOptions) =>
     mapped(() =>
       postSse<unknown>({
         url: `${API_BASE_URL}${path}`,
