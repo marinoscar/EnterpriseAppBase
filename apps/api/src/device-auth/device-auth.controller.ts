@@ -219,10 +219,13 @@ export class DeviceAuthController {
     @CurrentUser() user: RequestUser,
     @Body() body: DeviceAuthorizeRequestDto,
   ): Promise<{ data: DeviceAuthorizeResponseDto }> {
+    // #724: an approved device session is bound to the approver's active
+    // org (validated by the approver's own credential path).
     const result = await this.deviceAuthService.authorizeDevice(
       user.id,
       body.userCode,
       body.approve,
+      user.activeOrgId,
     );
 
     return { data: result };

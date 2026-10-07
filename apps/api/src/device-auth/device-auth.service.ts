@@ -3,12 +3,16 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { PatService } from '../pat/pat.service';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
+import { hasActiveMembership } from '../auth/credential-binding';
 import { DeviceCodeStatus, Prisma } from '@prisma/client';
 import { DeviceTokenType } from './dto/device-code-request.dto';
 import { DeviceTokenResponseDto } from './dto/device-token-response.dto';
@@ -60,6 +64,10 @@ export class DeviceAuthService {
     // depends on PatService. Importing it here as well would be harmless but
     // redundant.
     private readonly patService: PatService,
+    // #724: a device-session revoke invalidates the owner's principals. Belt
+    // and braces: the `did` check is never cached, so revocation is immediate
+    // regardless; a test graph without `PrincipalCacheModule` works without it.
+    @Optional() private readonly principalCache?: PrincipalCache,
   ) {}
 
   /**
@@ -140,18 +148,12 @@ export class DeviceAuthService {
     this.pollTimestamps.set(deviceCodeHash, now);
 
     // Find device code
+    // The user with the principal graph (#724): the org the session is bound
+    // to must still be an active membership when the credential is minted.
     const record = await this.prisma.deviceCode.findUnique({
       where: { deviceCode: deviceCodeHash },
       include: {
-        user: {
-          include: {
-            userRoles: {
-              include: {
-                role: true,
-              },
-            },
-          },
-        },
+        user: { include: PRINCIPAL_USER_INCLUDE },
       },
     });
 
@@ -194,6 +196,18 @@ export class DeviceAuthService {
           );
         }
 
+        // The org the session is bound to (#724): set when the user approved
+        // it; a row approved before #724 has none and takes the org a sign-in
+        // would pick.
+        const orgId =
+          record.orgId ?? (await this.authService.chooseSignInOrg(record.user));
+        if (!orgId || !hasActiveMembership(record.user, orgId)) {
+          throw deviceTokenError(
+            'access_denied',
+            'The approving account is no longer an active member of the organization',
+          );
+        }
+
         // A device that asked for a PAT gets one MINTED RIGHT HERE, at poll
         // time — not at approval time. See issuePatCredential() for why that
         // ordering is the security-relevant part of #141.
@@ -204,6 +218,7 @@ export class DeviceAuthService {
             record.user.email,
             record.clientInfo,
             deviceCodeHash,
+            orgId,
           );
         }
 
@@ -240,6 +255,9 @@ export class DeviceAuthService {
             status: DeviceCodeStatus.expired,
             collectedAt,
             credentialExpiresAt,
+            // Recorded with the claim, so a `did` token never names an org
+            // its row does not (`validateJwtPayload` compares them).
+            orgId,
           },
         });
 
@@ -254,6 +272,7 @@ export class DeviceAuthService {
           accessTtlMinutes: tokenExpiryDays * 24 * 60,
           refreshTtlDays: tokenExpiryDays,
           deviceCodeId: record.id,
+          orgId,
         });
 
         // Clean up poll timestamp
@@ -325,8 +344,17 @@ export class DeviceAuthService {
 
   /**
    * Authorize or deny a device
+   *
+   * `orgId` (#724) is the approver's active org: an approved session is bound
+   * to it for life (its tokens carry it as `org`, its PAT is bound to it).
+   * Omitted, the org a sign-in would pick is used.
    */
-  async authorizeDevice(userId: string, userCode: string, approve: boolean) {
+  async authorizeDevice(
+    userId: string,
+    userCode: string,
+    approve: boolean,
+    orgId?: string | null,
+  ) {
     // Normalize user code
     const normalizedCode = userCode.toUpperCase().replace(/\s/g, '');
 
@@ -357,11 +385,16 @@ export class DeviceAuthService {
       ? DeviceCodeStatus.approved
       : DeviceCodeStatus.denied;
 
+    const boundOrgId = approve
+      ? (orgId ?? (await this.authService.chooseSignInOrg({ id: userId })))
+      : null;
+
     await this.prisma.deviceCode.update({
       where: { id: record.id },
       data: {
         status: newStatus,
         userId: approve ? userId : null,
+        ...(approve && boundOrgId ? { orgId: boundOrgId } : {}),
       },
     });
 
@@ -492,6 +525,9 @@ export class DeviceAuthService {
       });
     });
 
+    // #724: after the transaction committed.
+    this.principalCache?.invalidateUser(userId);
+
     this.logger.log(`Device session revoked: ${sessionId} by user: ${userId}`);
 
     return {
@@ -610,6 +646,7 @@ export class DeviceAuthService {
     userEmail: string,
     clientInfo: Prisma.JsonValue | null,
     deviceCodeHash: string,
+    orgId: string,
   ): Promise<DeviceTokenResponseDto> {
     // Claim the device code ATOMICALLY, before minting anything.
     //
@@ -635,7 +672,7 @@ export class DeviceAuthService {
         status: DeviceCodeStatus.approved,
         revokedAt: null,
       },
-      data: { status: DeviceCodeStatus.expired, collectedAt: new Date() },
+      data: { status: DeviceCodeStatus.expired, collectedAt: new Date(), orgId },
     });
 
     if (claim.count !== 1) {
@@ -652,11 +689,26 @@ export class DeviceAuthService {
     const expiryDays = this.resolvePatExpiryDays();
     const name = this.buildPatName(clientInfo);
 
-    const pat = await this.patService.createToken(userId, {
-      name,
-      durationValue: expiryDays,
-      durationUnit: 'days',
-    });
+    // Bound to the session's org (#724). `createToken` refuses (400) an org
+    // the user is no longer an active member of; the device is told
+    // `access_denied`, and the code is already consumed (fail closed).
+    let pat: Awaited<ReturnType<PatService['createToken']>>;
+    try {
+      pat = await this.patService.createToken(userId, {
+        name,
+        durationValue: expiryDays,
+        durationUnit: 'days',
+        orgId,
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw deviceTokenError(
+          'access_denied',
+          'The approving account is no longer an active member of the organization',
+        );
+      }
+      throw error;
+    }
 
     // Link the PAT to its device session (#518) so revoking the session
     // revokes the PAT. Conditional on the session not having been revoked in
