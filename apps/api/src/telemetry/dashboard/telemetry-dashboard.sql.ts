@@ -91,6 +91,12 @@
 // =============================================================================
 
 import {
+  DASHBOARD_EVENT_SEVERITIES,
+  DASHBOARD_SEARCH_MAX_LENGTH,
+  type DashboardEventSeverity,
+} from '@marinoscar/platform-contract/telemetry';
+
+import {
   between,
   bucketInterval,
   bucketRowLimit,
@@ -165,8 +171,9 @@ export const SEVERITY_BANDS = {
   other: '(severity_number IS NULL OR severity_number < 9)',
 } as const;
 
-export const EVENT_SEVERITIES = ['error', 'warn', 'info'] as const;
-export type EventSeverity = (typeof EVENT_SEVERITIES)[number];
+/** The severities `events` filters on (`DASHBOARD_EVENT_SEVERITIES` in the contract, #702). */
+export const EVENT_SEVERITIES = DASHBOARD_EVENT_SEVERITIES;
+export type EventSeverity = DashboardEventSeverity;
 
 /** Top-N lists. */
 export const TOP_N = 10;
@@ -174,8 +181,8 @@ export const TOP_N = 10;
 export const EVENTS_PAGE_SIZE = 50;
 /** Distinct services / instances returned by `/filters`. */
 export const DISTINCT_VALUES_MAX = 200;
-/** Longest search text, after control characters are stripped. */
-export const SEARCH_MAX_LENGTH = 200;
+/** Longest search text, after control characters are stripped (`DASHBOARD_SEARCH_MAX_LENGTH` in the contract, #702). */
+export const SEARCH_MAX_LENGTH = DASHBOARD_SEARCH_MAX_LENGTH;
 /** Characters of a log body a grouped error message keeps. */
 export const ERROR_MESSAGE_CHARS = 200;
 

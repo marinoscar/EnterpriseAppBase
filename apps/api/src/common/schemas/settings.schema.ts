@@ -1,3 +1,8 @@
+import {
+  TELEMETRY_INSTANCE_ID_PATTERN,
+  telemetryInstanceIdSchema,
+  telemetrySettingsSchema,
+} from '@marinoscar/platform-contract/telemetry';
 import { z } from 'zod';
 import {
   notificationEventKeySchema,
@@ -1182,32 +1187,16 @@ export const systemAiPatchSchema = z.object({
 // NO API KEY OR CREDENTIAL IS PART OF THIS NAMESPACE, and none may be added:
 // exactly the same rule `ai`'s own block comment states, and enforced the
 // same way — see the compile-time proof below.
-export const TELEMETRY_INSTANCE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}$/;
+//
+// THE SCHEMA ITSELF LIVES IN `@marinoscar/platform-contract/telemetry` (#702)
+// as `telemetrySettingsSchema`: the namespace is also the body of
+// `PUT /api/admin/telemetry/config`, so the web form validates with the same
+// bounds (`TELEMETRY_LIMITS`). It is re-exported here under its historic name,
+// so the namespace registration (`telemetry/telemetry.system-settings.ts`) and
+// the compile-time proof below are unchanged.
+export { TELEMETRY_INSTANCE_ID_PATTERN };
 
-const telemetryInstanceIdSchema = z
-  .string()
-  .regex(
-    TELEMETRY_INSTANCE_ID_PATTERN,
-    'instanceId must be 1-63 characters: lowercase letters, digits, ".", "_" or "-", starting with a letter or digit',
-  );
-
-export const systemTelemetrySchema = z.object({
-  enabled: z.boolean(),
-  retentionDays: z.number().int().min(1).max(3650),
-  instanceId: telemetryInstanceIdSchema.nullable(),
-  query: z.object({
-    maxRows: z.number().int().min(1).max(100000),
-    timeoutSeconds: z.number().int().min(1).max(120),
-  }),
-  assistant: z.object({
-    enabled: z.boolean(),
-    provider: z.string().nullable(),
-    modelId: z.string().nullable(),
-    shareResults: z.boolean(),
-    maxResultRowsToModel: z.number().int().min(1).max(100),
-    maxSteps: z.number().int().min(1).max(20),
-  }),
-});
+export const systemTelemetrySchema = telemetrySettingsSchema;
 
 export type SystemTelemetryValue = z.infer<typeof systemTelemetrySchema>;
 

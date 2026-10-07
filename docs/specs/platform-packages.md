@@ -277,6 +277,7 @@ A full vertical slice, measured in this repository:
 
 | Layer | What telemetry contains |
 |---|---|
+| Contract | `packages/platform-contract/src/telemetry/`: the wire shapes of every telemetry route and the `telemetry` settings namespace, which the API's DTOs wrap and the web client types itself with (#702) |
 | API | `apps/api/src/telemetry/`: 92 files (GreptimeDB client, metric catalog, SQL builders, verdicts, dashboard, assistant, export, doctor checks) |
 | Web | About 94 files (explorer, dashboard, assistant panel, connection settings) |
 | CLI | About 31 files (node span relay, deploy wizard environment) |

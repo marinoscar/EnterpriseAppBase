@@ -1,6 +1,4 @@
-import { isIP } from 'node:net';
-
-import { z } from 'zod';
+import { TELEMETRY_CONNECTION_DEFAULTS } from '@marinoscar/platform-contract/telemetry';
 
 // =============================================================================
 // The stored GreptimeDB connection — `system_settings.key = 'telemetry_connection'`
@@ -55,9 +53,9 @@ export const TELEMETRY_CONNECTION_SETTINGS_KEY = 'telemetry_connection';
  */
 export const TELEMETRY_DEFAULT_HOST = 'greptimedb';
 
-/** GreptimeDB's Postgres-wire default port, and its default database. */
-export const TELEMETRY_DEFAULT_PG_PORT = 4003;
-export const TELEMETRY_DEFAULT_DATABASE = 'public';
+/** GreptimeDB's Postgres-wire default port, and its default database (`TELEMETRY_CONNECTION_DEFAULTS` in the contract). */
+export const TELEMETRY_DEFAULT_PG_PORT = TELEMETRY_CONNECTION_DEFAULTS.pgPort;
+export const TELEMETRY_DEFAULT_DATABASE = TELEMETRY_CONNECTION_DEFAULTS.database;
 
 /** The deployment host: `GREPTIME_HOST` when set and non-blank, else `TELEMETRY_DEFAULT_HOST`. */
 export function telemetryDeploymentHost(environmentHost: string | null | undefined): string {
@@ -77,121 +75,45 @@ export const TELEMETRY_GREPTIME_CREDENTIAL_LABELS: Record<TelemetryConnectionRol
   admin: 'GreptimeDB admin login (telemetry retention)',
 };
 
-/**
- * A hostname (RFC 1123 labels, plus `_`, which Docker Compose service names
- * use) or a bare IPv4/IPv6 address. No scheme, no port, no path: the port is
- * its own field and `pg` wants a bare host.
- */
-const HOSTNAME_PATTERN =
-  /^[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*$/;
-
-/**
- * The database name is held to a plain identifier because the retention job
- * interpolates it UNQUOTED into `ALTER DATABASE` (GreptimeDB resolves a quoted
- * name literally there) and refuses anything else — see `PLAIN_IDENTIFIER` in
- * `handlers/telemetry-retention.handler.ts`. Accepting more here would save a
- * connection whose retention can never be applied.
- */
-export const TELEMETRY_DATABASE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-export const telemetryHostSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(253)
-  .refine((value) => isIP(value) !== 0 || HOSTNAME_PATTERN.test(value), {
-    message: 'host must be a hostname or an IP address — no scheme, port or path',
-  });
-
-/**
- * A host as SUBMITTED on the admin form: absent, null or blank means AUTOMATIC
- * (output `null` — the deployment host, resolved at use); anything else is a
- * custom override validated by `telemetryHostSchema`.
- */
-export const telemetryOptionalHostSchema = z
-  .string()
-  .nullish()
-  .transform((value) => (value?.trim() ? value.trim() : null))
-  .pipe(telemetryHostSchema.nullable());
-
-export const telemetryPgPortSchema = z.number().int().min(1).max(65535);
-
-export const telemetryDatabaseSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(128)
-  .regex(TELEMETRY_DATABASE_PATTERN, {
-    message: 'database must be a plain identifier (letters, digits and underscores, not starting with a digit)',
-  });
-
-export const telemetryUserSchema = z.string().trim().min(1).max(128);
-
-/**
- * A stored CUSTOM connection: GreptimeDB at a host an administrator chose.
- * The row (plus the credential store's two passwords) is the connection,
- * wholly. Every row saved before #562 has this shape.
- */
-export const telemetryCustomConnectionValueSchema = z.object({
-  host: telemetryHostSchema,
-  pgPort: telemetryPgPortSchema,
-  database: telemetryDatabaseSchema,
-  readerUser: telemetryUserSchema,
-  /** Null: no admin login, so retention cannot be applied (reads still work). */
-  adminUser: telemetryUserSchema.nullable(),
-});
-
-/**
- * A stored AUTOMATIC connection: "the GreptimeDB deployed with this
- * application" (issues #562, #570). A marker only — the deployment supplies
- * the host, port, database, logins and passwords, resolved at every refresh.
- * Rows saved between #562 and #570 also carry port/database/users; those are
- * stripped on parse and never used.
- */
-export const telemetryAutomaticConnectionValueSchema = z.object({
-  host: z.null(),
-});
-
-/** The stored row's `value`. Non-secret by construction. */
-export const telemetryConnectionValueSchema = z.union([
-  telemetryCustomConnectionValueSchema,
-  telemetryAutomaticConnectionValueSchema,
-]);
-
-export type TelemetryCustomConnectionValue = z.infer<typeof telemetryCustomConnectionValueSchema>;
-export type TelemetryAutomaticConnectionValue = z.infer<typeof telemetryAutomaticConnectionValueSchema>;
-export type TelemetryConnectionValue = z.infer<typeof telemetryConnectionValueSchema>;
-
 // -----------------------------------------------------------------------------
-// Compile-time proof that the stored connection carries no secret
+// The stored value and its field validators
 // -----------------------------------------------------------------------------
 //
-// Identical technique to `TELEMETRY_SETTINGS_CARRIES_NO_SECRET` in
-// `common/schemas/settings.schema.ts`. Adding a `readerPassword` (or any name
-// below) to `telemetryConnectionValueSchema` makes this resolve to `never` and
-// the file stops compiling. The passwords belong in `CredentialsService`
-// under `TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE`, never in a row whose value
-// the audit trail copies.
+// The value schemas (`telemetryConnectionValueSchema` and its custom/automatic
+// halves), the host, port, database and user validators and the compile-time
+// proof that the stored row carries no secret
+// (`TELEMETRY_CONNECTION_CARRIES_NO_SECRET`) live in
+// `@marinoscar/platform-contract/telemetry` (#702): the admin form validates
+// with the same rules. The host rule there reproduces `net.isIP` without Node
+// (`telemetry-connection.schema.spec.ts` compares the two).
+//
+// The database name is held to a plain identifier because the retention job
+// interpolates it UNQUOTED into `ALTER DATABASE` (GreptimeDB resolves a quoted
+// name literally there) and refuses anything else — see `PLAIN_IDENTIFIER` in
+// `handlers/telemetry-retention.handler.ts`. Accepting more would save a
+// connection whose retention can never be applied.
+//
+// Adding a `readerPassword` (or any secret-like name) to the value schemas
+// makes the proof resolve to `never` and the contract stops compiling. The
+// passwords belong in `CredentialsService` under
+// `TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE`, never in a row whose value the
+// audit trail copies.
 
-type TelemetryConnectionSecretFieldNames =
-  | 'password'
-  | 'readerPassword'
-  | 'adminPassword'
-  | 'writerPassword'
-  | 'secret'
-  | 'secretKey'
-  | 'apiKey'
-  | 'key'
-  | 'token'
-  | 'connectionString'
-  | 'url';
-
-export type TelemetryConnectionCarriesNoSecret =
-  Extract<
-    keyof TelemetryCustomConnectionValue | keyof TelemetryAutomaticConnectionValue,
-    TelemetryConnectionSecretFieldNames
-  > extends never
-    ? true
-    : never;
-
-export const TELEMETRY_CONNECTION_CARRIES_NO_SECRET: TelemetryConnectionCarriesNoSecret = true;
+export {
+  TELEMETRY_CONNECTION_CARRIES_NO_SECRET,
+  TELEMETRY_DATABASE_PATTERN,
+  telemetryAutomaticConnectionValueSchema,
+  telemetryConnectionValueSchema,
+  telemetryCustomConnectionValueSchema,
+  telemetryDatabaseSchema,
+  telemetryHostSchema,
+  telemetryOptionalHostSchema,
+  telemetryPgPortSchema,
+  telemetryUserSchema,
+} from '@marinoscar/platform-contract/telemetry';
+export type {
+  TelemetryAutomaticConnectionValue,
+  TelemetryConnectionCarriesNoSecret,
+  TelemetryConnectionValue,
+  TelemetryCustomConnectionValue,
+} from '@marinoscar/platform-contract/telemetry';

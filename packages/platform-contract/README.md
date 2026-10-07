@@ -11,6 +11,7 @@ Slices (each a subpath export with its own README):
 | Subpath | What | README |
 |---|---|---|
 | `@marinoscar/platform-contract/doctor` | The admin Doctor's report, row, status and query (#701), and the support bundle envelope (#772) | [src/doctor/README.md](src/doctor/README.md) |
+| `@marinoscar/platform-contract/telemetry` | Telemetry wire shapes, `stable`: config, status, explorer, connection, stack, dashboard, assistant and the `telemetry` settings namespace (#702) | [src/telemetry/README.md](src/telemetry/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 
@@ -126,6 +127,7 @@ None yet. The package ships no conformance suite; `runPlatformConformance()` and
 What counts as breaking, for every slice: renaming or removing a field, making an optional field required, narrowing a type (a smaller enum, a stricter pattern), changing a nullable field to optional or the reverse, or changing what a transform outputs. Each is a `major` changeset with a migration note. Adding an optional request field, a new response field an app can ignore, or a new schema or slice is `minor`.
 
 - #701: first slice, `./doctor`. The Doctor's schemas moved here from `@marinoscar/platform-api/doctor` and its types from `@marinoscar/platform-web/doctor/headless`; both packages re-export the old names. No wire or OpenAPI change.
+- #702: `./telemetry`. The telemetry wire shapes moved here from the API's telemetry DTOs and the web's hand-written mirrors; both keep their old names. No wire or OpenAPI change.
 
 ## Troubleshooting
 
@@ -141,3 +143,4 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 - [Package documentation standard and checks](../../docs/PACKAGES.md): how this README, the TSDoc and the catalog are checked, and the contract conventions summary
 - [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages): build, test and lint commands
 - [Doctor slice](src/doctor/README.md)
+- [Telemetry slice](src/telemetry/README.md)

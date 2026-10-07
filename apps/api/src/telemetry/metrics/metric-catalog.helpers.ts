@@ -1,3 +1,5 @@
+import { METRIC_UNITS } from '@marinoscar/platform-contract/telemetry';
+
 import { DASHBOARD_VERDICT_THRESHOLDS } from '../dashboard/telemetry-dashboard.verdict';
 import type { MetricFilterKey, MetricPredicate } from './metric-catalog';
 
@@ -19,24 +21,8 @@ import type { MetricFilterKey, MetricPredicate } from './metric-catalog';
 // keeps its import.
 // =============================================================================
 
-/** Display units of tiles, series and table columns. */
-export const METRIC_UNITS = [
-  '%',
-  'bytes',
-  'bytes/s',
-  'count',
-  'per_s',
-  'per_min',
-  'ms',
-  'seconds',
-  'hours',
-  'days',
-  'cores',
-  'load',
-  'timestamp',
-  'text',
-  'boolean',
-] as const;
+/** Display units of tiles, series and table columns (part of the wire: `@marinoscar/platform-contract/telemetry`, #702). */
+export { METRIC_UNITS };
 
 /** The request filters a family may honour, and the column each one matches. */
 export const METRIC_FILTER_COLUMNS: Record<MetricFilterKey, string> = {
