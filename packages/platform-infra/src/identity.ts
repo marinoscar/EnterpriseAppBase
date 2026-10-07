@@ -114,6 +114,7 @@ function toEnvPrefix(cliName: string): string {
  * @throws Error when the CLI name or the env prefix has the wrong shape, or a
  *   value could break the file it is rendered into (whitespace, `$`, quotes, `@@`).
  * @stability experimental
+ * @extensionPoint option
  * @example
  * ```ts
  * deriveInfraIdentity({ cliName: 'evopathcli', productName: 'EvoPath' }).envPrefix; // 'EVOPATHCLI_'

@@ -132,6 +132,7 @@ export function appComposeOverlays(names: readonly string[], mode: ComposeMode):
  * @param options - Telemetry, the worker build file, and the names in the app's `infra/compose/`.
  * @returns File names relative to `infra/compose/`.
  * @stability experimental
+ * @extensionPoint overlay
  * @example
  * ```ts
  * composeFilesForMode('vps', { telemetry: true, overlays: readdirSync('infra/compose') });

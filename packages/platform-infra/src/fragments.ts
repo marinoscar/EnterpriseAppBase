@@ -42,6 +42,11 @@ const nginx = (name: string): InfraFile => ({ from: `nginx/${name}`, to: `infra/
  * image in `worker`, and the test database's names in `test`.
  *
  * @stability experimental
+ * @extensionPoint overlay
+ * @example
+ * ```ts
+ * composeInfraFragment.extendThrough; // 'an infra/compose/app.*.compose.yml overlay'
+ * ```
  */
 export const composeInfraFragment: PlatformInfraFragment = deepFreeze({
   id: 'compose',
@@ -67,6 +72,11 @@ export const composeInfraFragment: PlatformInfraFragment = deepFreeze({
  * `permissions-policy.conf` (created from the platform default).
  *
  * @stability experimental
+ * @extensionPoint overlay
+ * @example
+ * ```ts
+ * nginxInfraFragment.appOwnedFiles.map((file) => file.to); // infra/nginx/app.d/...
+ * ```
  */
 export const nginxInfraFragment: PlatformInfraFragment = deepFreeze({
   id: 'nginx',
@@ -94,6 +104,11 @@ export const nginxInfraFragment: PlatformInfraFragment = deepFreeze({
  * `infra/compose/.env.worker.example`, rendered with the CLI's env prefix.
  *
  * @stability experimental
+ * @extensionPoint overlay
+ * @example
+ * ```ts
+ * envInfraFragment.files[0]?.append; // 'infra/compose/app.env.example'
+ * ```
  */
 export const envInfraFragment: PlatformInfraFragment = deepFreeze({
   id: 'env',
