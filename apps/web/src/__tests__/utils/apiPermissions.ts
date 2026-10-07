@@ -33,10 +33,12 @@ const API_SRC = resolve(API_ROOT, 'src');
 const ROLES_CONSTANTS = 'common/constants/roles.constants.ts';
 const PLATFORM_API_SRC = resolve(API_ROOT, '../../packages/platform-api/src');
 
-/** The source file of a platform-api slice that declares `export const <name>`. */
+/** The source file (anywhere under the slice) of a platform-api slice that declares `export const <name>`. */
 function packageDeclarationFile(slice: string, name: string): string {
   const dir = resolve(PLATFORM_API_SRC, slice);
-  const candidates = readdirSync(dir).filter((file) => file.endsWith('.ts') && !file.endsWith('.spec.ts'));
+  const candidates = (readdirSync(dir, { recursive: true }) as string[]).filter(
+    (file) => file.endsWith('.ts') && !file.endsWith('.spec.ts'),
+  );
   for (const file of candidates) {
     const path = resolve(dir, file);
     if (new RegExp(`export const ${name}\\b`).test(readFileSync(path, 'utf8'))) return path;
@@ -59,15 +61,15 @@ export function readApiPermissionConstants(): string {
     ...[...rolesConstants.matchAll(/import \{ (\w+_PERMISSIONS) \} from '\.\.\/\.\.\/([^']+)';/g)].map(
       ([, mapName, modulePath]): [string, string, string] => [mapName, resolve(API_SRC, `${modulePath}.ts`), `${modulePath}.ts`],
     ),
-    ...[
-      ...rolesConstants.matchAll(
-        /import \{ (\w+_PERMISSION(?:S|_DECLARATIONS)) \} from '@marinoscar\/platform-api\/([\w-]+)';/g,
-      ),
-    ].map(([, mapName, slice]): [string, string, string] => [
-      mapName,
-      packageDeclarationFile(slice, mapName),
-      `@marinoscar/platform-api/${slice}`,
-    ]),
+    // One statement may import several maps from a slice (identity, #727).
+    ...[...rolesConstants.matchAll(/import \{([^}]*)\} from '@marinoscar\/platform-api\/([\w-]+)';/g)].flatMap(
+      ([, names, slice]) =>
+        [...names.matchAll(/\b(\w+_PERMISSION(?:S|_DECLARATIONS))\b/g)].map(([, mapName]): [string, string, string] => [
+          mapName,
+          packageDeclarationFile(slice, mapName),
+          `@marinoscar/platform-api/${slice}`,
+        ]),
+    ),
   ];
   if (imports.length === 0) {
     throw new Error(`${ROLES_CONSTANTS}: found no *_PERMISSIONS declaration imports`);
