@@ -204,12 +204,12 @@ Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secr
 
 Each is enforced by tests and explained in the linked doc. Read it before touching the area.
 
-- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx` and `database_backup_runs_active_uniq_idx` exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. See [job-queue.md](docs/specs/job-queue.md) and [database-backup.md](docs/specs/database-backup.md).
+- **Raw-SQL partial unique indexes are intentional schema drift.** `jobs_active_dedup_uniq_idx` and `database_backup_runs_active_uniq_idx` (plus the non-unique partial `jobs_attempts_gt1_idx` and `jobs_succeeded_duration_idx`) exist only in migration SQL because Prisma cannot express them. Never "fix" the drift with `@@unique`, and never replace them with a `findFirst` pre-check. They are listed in `RAW_SQL_INDEXES` (`packages/platform-db/raw-sql-indexes.json`); the package's tripwire (`assertRawSqlIndexes`, run by `runDbConformance()` and `packages/platform-db/test/raw-sql-indexes.spec.ts`) fails on an unlisted partial or expression index and on a fragment that redeclares one, and `platform db drift` asserts each against `pg_indexes`. See [job-queue.md](docs/specs/job-queue.md) and [database-backup.md](docs/specs/database-backup.md).
 - **`apps/api/prisma/schema/` is generated; never hand-edit it.** Edit the fragment that owns the model (`packages/platform-db/schema/<slice>.prisma` or `apps/api/prisma/fragments/`), run `npm run db:compose --workspace=api`, then `prisma:generate`; CI's `db:compose:check` fails on a stale or hand-edited file. A back-relation on a platform model is an `extend model` block, never an edit to a platform file. See [DEVELOPMENT.md](docs/DEVELOPMENT.md#making-database-changes) and the [platform packages spec](docs/specs/platform-packages.md#known-hard-problem-relations-to-package-owned-models).
 - **A backup archive is never buffered.** `pg_dump` streams straight into object storage, and both the upload and the dump's exit code are awaited. See [database-backup.md](docs/specs/database-backup.md).
 - **No restore pre-flight may create, drop or rename anything**, and the cluster admin connection lives outside the Prisma pool, on the `postgres` maintenance database. See [database-restore.md](docs/specs/database-restore.md).
 - **`notify()` runs after the triggering write commits, outside any `$transaction`.** See [the notifications README](apps/api/src/notifications/README.md).
-- **An installed migration is never edited; `platform.lock` proves it.** `prisma/platform.lock` records the sha256 of every platform migration installed by `platform db sync`, and `npm run db:check` fails on any byte change (a comment or a line ending included). Prisma does not catch an edited, already-applied migration. The `smoke` job also runs `npm run db:drift` (the history must equal the schema and the raw-SQL indexes must exist) and `db:check:database`. See [DEVELOPMENT.md](docs/DEVELOPMENT.md#authoring-a-platform-migration) and [the platform-db README](packages/platform-db/README.md).
+- **An installed migration is never edited; `platform.lock` proves it.** The platform's migrations live in `packages/platform-db/migrations`: the base's 22 are platform history v1 (`0001_initial` to `0022_add_retention_created_at_indexes`), and `apps/api/prisma/migrations/**` holds the installed copies under their original directory names (never rename one: deployed databases know them by name). `prisma/platform.lock` records the sha256 of every platform migration, and `npm run db:check` fails on any byte change in either copy (a comment or a line ending included). **Comments inside `migration.sql` are part of the checksum**, so any repository-wide comment clean-up must exclude `**/migration.sql`. Prisma does not catch an edited, already-applied migration. The `smoke` job also runs `npm run db:drift` (the history must equal the schema and the raw-SQL indexes must exist) and `db:check:database`. See [DEVELOPMENT.md](docs/DEVELOPMENT.md#authoring-a-platform-migration) and [the platform-db README](packages/platform-db/README.md).
 - **A job `type` string is permanent** once jobs of that type exist. See [the job handlers README](apps/api/src/jobs/handlers/README.md).
 
 ## Architecture principles
@@ -255,9 +255,19 @@ docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec 
 docker compose -f base.compose.yml -f dev.compose.yml -f devdb.compose.yml exec api npm run prisma:seed
 cd apps/api && npm run db:compose                                   # after editing a fragment (packages/platform-db/schema/ or apps/api/prisma/fragments/); before prisma:generate
 cd apps/api && npm run prisma:generate                              # after schema changes
-cd apps/api && npm run prisma:migrate:dev -- --name <migration_name> # new migration
+cd apps/api && npm run prisma:migrate:dev -- --name <migration_name> # new migration for the app's OWN tables
 cd apps/api && npm run db:sync                                       # install package migrations missing from prisma/platform.lock
 cd apps/api && npm run db:check                                      # platform.lock vs the migration files and the package (offline)
+cd apps/api && npm run db:check:database                             # also compare _prisma_migrations checksums (needs the database)
+cd apps/api && npm run db:drift                                      # migrations replayed in a shadow database equal the schema; raw-SQL indexes present
+# A migration for a PLATFORM table (owned by packages/platform-db): fragment -> compose -> create-only -> promote -> commit
+#   1. edit the owning fragment in packages/platform-db/schema/
+#   2. cd apps/api && npm run db:compose
+#   3. cd apps/api && npm run prisma:migrate:dev -- --create-only --name <migration_name>   # review the SQL, hand-write any partial index
+#   4. cd apps/api && npm run db:promote -- <localDir> --id <migration_name> --slice <slice>
+#   5. apply it (prisma:migrate), run db:check and db:drift, commit the package copy, the app copy, platform.lock and a .changeset file
+# A new raw-SQL index also goes in packages/platform-db/raw-sql-indexes.json. Details: docs/DEVELOPMENT.md#authoring-a-platform-migration
+# At most ONE open pull request may carry the pp:migration label; a second one waits, rebases and re-runs steps 3-4 so its directory sorts after the first.
 
 # Tests (there is no root npm test)
 npm test --workspace=api                    # unit + mocked integration

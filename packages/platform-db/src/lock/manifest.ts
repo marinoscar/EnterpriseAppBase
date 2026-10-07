@@ -9,6 +9,7 @@ const manifestEntrySchema = z
     since: z.string().regex(/^\d+\.\d+\.\d+$/, 'expected a version such as 1.2.3'),
     slice: z.string().min(1),
     requires: z.array(z.string().min(1)),
+    touches: z.array(z.string().min(1)).optional(),
   })
   .strict();
 
@@ -33,6 +34,8 @@ export interface ManifestEntry {
   slice: string;
   /** Slice ids that must appear in earlier entries. */
   requires: string[];
+  /** Other slices whose tables the migration also changes; omitted when it touches none. */
+  touches?: string[];
 }
 
 /**

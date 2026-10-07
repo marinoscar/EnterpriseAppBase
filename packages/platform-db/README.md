@@ -6,7 +6,7 @@ The data layer of the platform: Prisma schema fragments (`schema/`), SQL migrati
 
 Schema fragments, migrations and seeds of the platform's data slices, and the **composer** that turns the fragments into the Prisma schema an app generates its client from.
 
-What ships today: the schema fragments (`schema/`, 31 models and 10 enums in eight slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The platform migrations themselves arrive with a later story (the manifest is empty and the app's own `prisma/migrations` still holds the history), and so do the seeds. The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
+What ships today: the schema fragments (`schema/`, 31 models and 10 enums in eight slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The seeds arrive with a later story. The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
 
 Status: pre-release (version `0.0.0`). The `extend model` seam is `experimental` until the extension contract is frozen.
 
@@ -164,13 +164,13 @@ A slice declares the back-relations that point **into** another slice as `extend
 
 **Schema-neutral.** Composing the shipped fragments reproduces the previous single `schema.prisma` exactly in content: `prisma migrate diff` from the old file to the generated folder, and from a database migrated by the 22 existing migrations to the folder, both report no difference.
 
-**Raw-SQL indexes.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx` and the other raw-SQL indexes live only in migration SQL, because Prisma cannot express a partial unique index. Never add an `@@unique` for them in a fragment; the comments in `jobs.prisma` and `db-backup.prisma` say why.
+**Raw-SQL indexes.** `jobs_active_dedup_uniq_idx`, `database_backup_runs_active_uniq_idx` and the other raw-SQL indexes live only in migration SQL, because Prisma cannot express a partial unique index. Never add an `@@unique` for them in a fragment; the comments in `jobs.prisma` and `db-backup.prisma` say why. [Raw-SQL indexes](#raw-sql-indexes) lists them, and a tripwire fails the build when a fragment redeclares one.
 
 **Public vs private.** An app may point at any model and add back-relations to the three `@extensible` ones. It never edits a platform fragment or a column of a platform table.
 
-**Migrations.** `migrations/manifest.json` is `[]`: the base's 22 migrations move in with the migration-move story, so `db:check` passes trivially today. What exists is the install model ([ADR 0002](../../docs/adr/0002-database-packaging-and-rls.md) D3):
+**Migrations.** `migrations/manifest.json` holds platform history v1 (below), and the reference app's `prisma/platform.lock` maps each entry to the directory the app already has. The install model ([ADR 0002](../../docs/adr/0002-database-packaging-and-rls.md) D3):
 
-- **Package history.** `migrations/NNNN_slug/migration.sql`, one linear, immutable history. `migrations/manifest.json` lists it: `[{ "id": "0001_initial", "dir": "0001_initial", "sha256": "…", "since": "1.0.0", "slice": "identity", "requires": [] }]`. The origin id of an entry is `platform:` plus its `id`. The whole history is installed in order; slice opt-out is not supported in v1, and `requires` is checked as an ordering sanity check.
+- **Package history.** `migrations/NNNN_slug/migration.sql`, one linear, immutable history. `migrations/manifest.json` lists it: `[{ "id": "0001_initial", "dir": "0001_initial", "sha256": "…", "since": "1.0.0", "slice": "identity", "touches": ["settings", "storage"], "requires": [] }]`. `slice` is the first owner of the tables the migration creates or changes; `touches` (optional) lists the other slices whose tables it also changes. The origin id of an entry is `platform:` plus its `id`. The whole history is installed in order; slice opt-out is not supported in v1, and `requires` is checked as an ordering sanity check.
 - **Install.** `platform db sync` byte-copies each migration missing from the lock into `prisma/migrations/<YYYYMMDDHHMMSS>_<slug>/migration.sql` and appends a lock entry. The timestamp of the i-th migration of a run is `max(now, newest local timestamp + 1 second) + i seconds` (UTC), so it sorts after everything already there. A second run installs nothing. It never rewrites or renames an existing directory.
 - **`prisma/platform.lock`.** JSON, committed, keys sorted:
   ```json
@@ -184,10 +184,60 @@ A slice declares the back-relations that point **into** another slice as `extend
   ```
   `sha256` is the SHA-256 of the package file's raw bytes. It is also what Prisma stores in `_prisma_migrations.checksum` for a byte copy, which `apps/api/test/prisma/platform-sync.db.spec.ts` proves on a real database. Optional keys: `localSha256` and `note` (a comment-only divergence), `deviations`, `rawSqlIndexes`. A reader refuses a `lockVersion` newer than it knows. Prisma's own `migration_lock.toml` is separate and untouched.
 - **Raw bytes.** Hashes are over the bytes, never normalised: a changed comment, trailing newline or line ending is a different migration. The repository marks `**/migration.sql` as `-text` in `.gitattributes`.
-- **`raw-sql-indexes.json`.** The partial and expression indexes that exist only in migration SQL because Prisma cannot express them (`jobs_active_dedup_uniq_idx`, `jobs_attempts_gt1_idx`, `jobs_succeeded_duration_idx`, `database_backup_runs_active_uniq_idx`), each with its definition, a reason and the migration that creates it.
+- **`raw-sql-indexes.json`.** The partial and expression indexes that exist only in migration SQL, listed under [Raw-SQL indexes](#raw-sql-indexes) and exported as `RAW_SQL_INDEXES`.
 - **Concurrent index builds.** A big-table index change is `CREATE INDEX CONCURRENTLY IF NOT EXISTS` as the only statement of its own migration. Prisma runs a migration inside a transaction unless it contains only statements that cannot, and `CONCURRENTLY` cannot run in one.
 
-The exported functions (`planSync`, `applySync`, `checkLock`, `checkLedger`, `promote`, `readLock`, `readManifest`, `serializeLock`) are `experimental` and documented in the API reference (`npm run docs:packages`).
+### Platform history v1
+
+The base's migrations, relocated byte for byte. The package ids are the platform's own numbering; the reference app keeps its original directory names (a rename would make `prisma migrate deploy` report every migration unknown and missing on an existing database), and its `platform.lock` maps each id to its directory with `since` `1.0.0`. `platform db check` proves the two copies are identical.
+
+| Id | Reference app directory | Slice |
+|---|---|---|
+| `0001_initial` | `20260124223146_initial` | identity (touches settings, storage) |
+| `0002_add_personal_access_tokens` | `20260329151231_add_personal_access_tokens` | identity |
+| `0003_add_credentials` | `20260830211041_add_credentials` | credentials |
+| `0004_add_notification_deliveries` | `20260831010356_add_notification_deliveries` | notifications |
+| `0005_drop_stale_uuid_defaults` | `20260831014110_drop_stale_uuid_defaults` | identity (touches settings, storage) |
+| `0006_add_notifications` | `20260831030721_add_notifications` | notifications |
+| `0007_add_push_subscriptions` | `20260905182958_add_push_subscriptions` | notifications |
+| `0008_add_jobs` | `20260906120000_add_jobs` | jobs |
+| `0009_add_worker_nodes` | `20260906190000_add_worker_nodes` | jobs |
+| `0010_add_database_backup_runs` | `20260907120000_add_database_backup_runs` | db-backup |
+| `0011_add_notification_broadcasts` | `20260907130000_add_notification_broadcasts` | notifications |
+| `0012_add_backup_run_job_link` | `20260907140000_add_backup_run_job_link` | db-backup (touches jobs) |
+| `0013_add_job_node_secrets` | `20260907150000_add_job_node_secrets` | jobs |
+| `0014_add_backup_run_pg_dump_version` | `20260907160000_add_backup_run_pg_dump_version` | db-backup |
+| `0015_add_job_claim_token` | `20260908120000_add_job_claim_token` | jobs |
+| `0016_add_ai_platform` | `20260926034919_add_ai_platform` | ai |
+| `0017_revoke_viewer_ai_use` | `20260927000000_revoke_viewer_ai_use` | ai (touches identity) |
+| `0018_add_user_credentials` | `20260927120000_add_user_credentials` | credentials |
+| `0019_add_device_session_credential_link` | `20260927130000_add_device_session_credential_link` | identity |
+| `0020_add_worker_node_vitals` | `20260928100000_add_worker_node_vitals` | jobs |
+| `0021_add_job_trace_context` | `20260930120000_add_job_trace_context` | jobs |
+| `0022_add_retention_created_at_indexes` | `20261006120000_add_retention_created_at_indexes` | notifications (touches ai) |
+
+The history is frozen. A change to a package-owned table is a new migration appended with `platform db promote`, never an edit. Comments inside a `migration.sql` are part of its checksum, so a clean-up that strips comments must exclude `**/migration.sql`.
+
+### Raw-SQL indexes
+
+Prisma's schema language cannot express a partial index or an expression index, and `prisma migrate diff` ignores them in both directions, so they exist only in migration SQL. That is intentional schema drift: never "fix" it with `@@unique` or `@@index`, and never replace the index with a `findFirst` before the insert.
+
+| Index | Table | Unique | Created in | Why | Design |
+|---|---|---|---|---|---|
+| `jobs_active_dedup_uniq_idx` | `jobs` | yes | `0008_add_jobs` | at most one pending or running job per `dedup_key` | [job-queue](../../docs/specs/job-queue.md) |
+| `jobs_attempts_gt1_idx` | `jobs` | no | `0008_add_jobs` | retried jobs, for the queue insights report | [job-queue](../../docs/specs/job-queue.md) |
+| `jobs_succeeded_duration_idx` | `jobs` | no | `0008_add_jobs` | finished succeeded jobs, for the duration percentiles | [job-queue](../../docs/specs/job-queue.md) |
+| `database_backup_runs_active_uniq_idx` | `database_backup_runs` | yes | `0010_add_database_backup_runs`, re-created in `0012_add_backup_run_job_link` | at most one pending or running backup (a constant-expression key) | [database-backup](../../docs/specs/database-backup.md) |
+
+`raw-sql-indexes.json` is the one list (`name`, `table`, `unique`, `definition`, `reason`, `doc`, `createdIn`), exported as `RAW_SQL_INDEXES`. `platform db drift` asserts each against `pg_indexes` by name and definition, and `assertRawSqlIndexes` is the tripwire that travels with the package. It scans every manifest migration (ignoring comments, following `DROP INDEX` and `ALTER INDEX ... RENAME`) for a `CREATE [UNIQUE] INDEX` with a `WHERE` clause or an expression key, and fails when
+
+- a migration creates one that is not in `RAW_SQL_INDEXES`,
+- a listed one is not created, or its table, uniqueness or `createdIn` disagrees,
+- a schema fragment declares `@@unique`, `@@index` or `@unique` under a listed index's name or on its table and key columns.
+
+An app's own raw-SQL indexes go in its `platform.lock` under `rawSqlIndexes`; the drift test asserts them too.
+
+The exported functions (`planSync`, `applySync`, `checkLock`, `checkLedger`, `promote`, `readLock`, `readManifest`, `serializeLock`, `RAW_SQL_INDEXES`, `assertRawSqlIndexes`, `runDbConformance`) are `experimental` and documented in the API reference (`npm run docs:packages`).
 
 ## Permissions and settings
 
@@ -213,11 +263,26 @@ Raw-SQL partial unique indexes stay in migration SQL, never as `@@unique` (see t
 
 ## Conformance suite
 
-None yet. The package ships no conformance suite; `runPlatformConformance()` and the suites arrive with the platform's conformance harness.
+`runDbConformance({ appRoot })` registers the offline `db` suite in the app's own test run (Jest, or Vitest with `globals: true`; or pass `testApi`). It needs no database:
+
+| Test | Fails when |
+|---|---|
+| `raw-sql-indexes` | the raw-SQL index tripwire above is tripped |
+| `platform.lock` | an installed migration differs from the lock or the package, a package migration is not installed, or a locked directory is missing (the same check as `platform db check`) |
+
+```ts
+// apps/api/test/prisma/platform-db-conformance.spec.ts
+import { runDbConformance } from '@marinoscar/platform-db';
+runDbConformance({ appRoot: join(__dirname, '..', '..') });
+```
+
+It sits beside, not inside, `runPlatformConformance()` of `@marinoscar/platform-api/testing`: that harness scans TypeScript source roots, and this suite reads SQL and Prisma files. The real-database half (`platform db check --database` and `platform db drift`) runs in the app's `smoke` job, because it needs Postgres.
 
 ## Upgrade notes
 
 After every version bump of `@marinoscar/platform-db`, run `npm run db:sync`, review the new directories under `prisma/migrations/`, commit them with the updated `platform.lock`, then `npm run prisma:migrate`. No version has been published yet, so there is nothing older to migrate from.
+
+The first adoption of platform history v1 by an app that already has these tables is a **baseline**, not a sync: the database must not re-run the 22 migrations. The reference app is already baselined (its directories are the installed copies and `platform.lock` maps them); a fork or another app follows the baseline procedure in `docs/runbooks/database-baseline.md` (planned with `platform db baseline`, [ADR 0002](../../docs/adr/0002-database-packaging-and-rls.md) D4).
 
 A migration that changes a package-owned table is authored in the base app and promoted into the package; see [Authoring a platform migration](../../docs/DEVELOPMENT.md#authoring-a-platform-migration). Only one pull request labelled `pp:migration` may be open at a time; a second one waits, rebases, deletes its local directory and re-runs `prisma migrate dev --create-only` and `platform db promote`, so its directory gets a newer timestamp.
 
@@ -237,6 +302,9 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 | `DUPLICATE_MODEL` | A model or enum is declared in two fragments | Declare it once; add relations to a platform model with `extend model` |
 | `DUPLICATE_BASE` | A second `generator` of the same name or a second `datasource` | Provide a `base.prisma` in the app's fragments instead (it replaces the package's) |
 | `MALFORMED` | A header or footer is not `prisma format` shaped | Put `<kind> <Name> {` on one line at column 0 and end the block with `}` alone at column 0 |
+| `UNLISTED_RAW_INDEX` (tripwire) | A migration creates a partial or expression index that `raw-sql-indexes.json` does not list | Add it to `raw-sql-indexes.json` with a reason, its table and a design document |
+| `LISTED_INDEX_NOT_FOUND`, `LISTED_INDEX_MISMATCH` (tripwire) | A listed index is not left by the migrations, is no longer partial, or its table, uniqueness or `createdIn` is wrong | Restore the migration, or correct the list entry |
+| `FRAGMENT_DECLARES_RAW_INDEX` (tripwire) | A fragment has `@@unique`, `@@index` or `@unique` under a raw-SQL index's name or on its key columns | Remove it: Prisma would build a full index, and the drift is intentional |
 | `Could not find Prisma Schema` | `prisma.config.ts` has no `schema` | Set `schema: 'prisma/schema'` |
 | `No migration found in prisma/migrations` | `migrations.path` missing: with a schema folder the default becomes `<schema folder>/migrations` | Set `migrations: { path: 'prisma/migrations' }` |
 

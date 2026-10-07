@@ -1,13 +1,17 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
 import type { RawSqlIndex } from '../lock/index.js';
 
 const packageIndexSchema = z
   .object({
     name: z.string().min(1),
+    table: z.string().min(1),
+    unique: z.boolean(),
     definition: z.string().min(1),
     reason: z.string().min(1),
-    createdBy: z.string().min(1),
+    doc: z.string().min(1),
+    createdIn: z.string().regex(/^\d{4}_[a-z0-9][a-z0-9_]*$/, 'expected a platform migration id, NNNN_slug'),
   })
   .strict();
 
@@ -19,10 +23,16 @@ const packageListSchema = z.object({ indexes: z.array(packageIndexSchema) }).str
  * @stability experimental
  */
 export interface PackageRawSqlIndex extends RawSqlIndex {
+  /** The table the index is on (the database name, not the Prisma model). */
+  table: string;
+  /** Whether it is a unique index. */
+  unique: boolean;
   /** One line: why Prisma cannot express it and what it enforces. */
   reason: string;
-  /** The migration directory that creates it. */
-  createdBy: string;
+  /** The repository document that explains the invariant, relative to the repository root. */
+  doc: string;
+  /** The platform migration id (`NNNN_slug`) that first creates it. */
+  createdIn: string;
 }
 
 /**
@@ -59,6 +69,22 @@ export function readPackageRawSqlIndexes(file: string): PackageRawSqlIndex[] {
   }
   return parsed.data.indexes;
 }
+
+/**
+ * The package's raw-SQL indexes: partial and expression indexes that exist
+ * only in migration SQL because Prisma's schema language cannot express them.
+ * They are intentional schema drift: never "fixed" with `@@unique`, never
+ * replaced by a `findFirst` pre-check. The list is read from the shipped
+ * `raw-sql-indexes.json`, the single source of truth that `platform db drift`
+ * asserts against `pg_indexes` and that {@link assertRawSqlIndexes} checks
+ * against the migrations and the schema fragments.
+ *
+ * @stability experimental
+ */
+export const RAW_SQL_INDEXES: ReadonlyArray<PackageRawSqlIndex> = Object.freeze(
+  // `src/drift` and `dist/drift` are both two levels below the package root.
+  readPackageRawSqlIndexes(join(__dirname, '..', '..', 'raw-sql-indexes.json')).map((index) => Object.freeze(index)),
+);
 
 /**
  * The class of a raw-SQL index failure.

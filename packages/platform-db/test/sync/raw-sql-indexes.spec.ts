@@ -17,7 +17,7 @@ describe('raw-sql-indexes.json', () => {
     ]);
     for (const index of indexes) {
       expect(index.reason.length).toBeGreaterThan(20);
-      expect(index.createdBy).toMatch(/^\d{14}_[a-z0-9_]+$/);
+      expect(index.createdIn).toMatch(/^\d{4}_[a-z0-9_]+$/);
       expect(isRawSqlIndex(index.definition)).toBe(true);
     }
   });
