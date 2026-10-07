@@ -114,6 +114,12 @@ TelemetryWebAdaptersContext.displayName = 'TelemetryWebAdaptersContext';
  * @param props - `adapters`: the app's adapters (a module constant); `children`: the routed tree.
  * @returns the provider element.
  *
+ * @example
+ * ```tsx
+ * <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>{routes}</TelemetryWebAdaptersProvider>
+ * ```
+ *
+ * @extensionPoint component
  * @stability experimental
  */
 export function TelemetryWebAdaptersProvider(props: {

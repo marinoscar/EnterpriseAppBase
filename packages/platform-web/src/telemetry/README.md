@@ -1,10 +1,12 @@
 # @marinoscar/platform-web/telemetry
 
-`@marinoscar/platform-web/telemetry`: the telemetry UI (issue #704): the Telemetry settings page, the SQL Explorer with its AI assistant, and the Dashboard, in two entry points of one slice. `/telemetry/headless` holds the client, the hooks, the config provider and route guard, the app adapters, the theme-token contract and pure helpers, with no component; `/telemetry/ui` holds the three route components and the admin registry cards, and each page also has a subpath of its own (`/telemetry/ui/settings-page`, `/explorer-page`, `/dashboard-page`) so a lazy route keeps its own chunk. Depends on the `core` slice only (`packages/platform-slices.json`): it reads the app through `usePlatformHost()`. The full catalog of seams arrives with #707; this README documents what is exported today.
+`@marinoscar/platform-web/telemetry`: the telemetry UI: the Telemetry settings page, the SQL Explorer with its AI assistant, and the Dashboard, in two entry points of one slice. `/telemetry/headless` holds the client, the hooks, the config provider and route guard, the app adapters, the theme-token contract and pure helpers, with no component; `/telemetry/ui` holds the three route components and the admin registry cards, and each page also has a subpath of its own (`/telemetry/ui/settings-page`, `/explorer-page`, `/dashboard-page`) so a lazy route keeps its own chunk. Depends on the `core` slice only (`packages/platform-slices.json`): it reads the app through `usePlatformHost()`.
+
+An app gets its own dashboard group with no web code: the dashboard renders whatever groups the API reports, titled from the group's own metadata (the reference app's `activity` group, [`activity.metric-group.ts`](../../../../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts), adds an "App activity" section this way).
 
 ## Purpose and scope
 
-Does: render and drive the telemetry routes of `@marinoscar/platform-api/telemetry` (config and status, the GreptimeDB connection, the telemetry services stack, read-only SQL query, schema and export, the assistant stream, the dashboard's summary, timeseries, top lists, events, filters and metric groups). The wire types and limits come from `@marinoscar/platform-contract/telemetry` (#702), imported as types and from the zod-free constants module only. A metric group the API reports renders as a dashboard section titled from its metadata, so an app group (EvoPath's `coach`) needs no web code.
+Does: render and drive the telemetry routes of `@marinoscar/platform-api/telemetry` (config and status, the GreptimeDB connection, the telemetry services stack, read-only SQL query, schema and export, the assistant stream, the dashboard's summary, timeseries, top lists, events, filters and metric groups). The wire types and limits come from `@marinoscar/platform-contract/telemetry`, imported as types and from the zod-free constants module only. A metric group the API reports renders as a dashboard section titled from its metadata, so an app group (the reference app's `activity`, EvoPath's `coach`) needs no web code. A title override belongs in the group's `label` and `title`, never in the web app.
 
 Does not: decide anything (the API's SQL guard, row caps and permission checks are the gate; the browser presents and collects), own the registry or the routes (the app places the cards and routes them behind its own permission gate), create a theme (the app passes its themes through `withTelemetryTokens`), or own the AI switch and model catalogue (the app hands them in through `TelemetryWebAdapters` until the AI slice is packaged).
 
@@ -64,13 +66,13 @@ The app's transport must implement `postBlob` (the export) and `postSse` (the as
 
 ### Theme tokens
 
-Colours that carry meaning come from `palette.status.{ok,warn,crit,info,neutral}` and chart series from `palette.chart.series` (the contract of #686, now shipped here with its MUI module augmentation). `withTelemetryTokens(theme)` fills only the tokens the app has not set, from the theme's own palette, and returns a copy: `ok` = `success.main`, `warn` = `warning.main`, `crit` = `error.main`, `info` = `info.main`, `neutral` = `grey[500]`, `chart.series` = the `.main` of `primary`, `secondary`, `warning`, `success`, `error`, `info`, then `grey[500]`, `text.primary`. Series colours are never used for status, and status colours never as a series. An app value always wins:
+Colours that carry meaning come from `palette.status.{ok,warn,crit,info,neutral}` and chart series from `palette.chart.series` (the token contract, shipped here with its MUI module augmentation). `withTelemetryTokens(theme)` fills only the tokens the app has not set, from the theme's own palette, and returns a copy: `ok` = `success.main`, `warn` = `warning.main`, `crit` = `error.main`, `info` = `info.main`, `neutral` = `grey[500]`, `chart.series` = the `.main` of `primary`, `secondary`, `warning`, `success`, `error`, `info`, then `grey[500]`, `text.primary`. Series colours are never used for status, and status colours never as a series. An app value always wins:
 
 ```ts
 createTheme({ palette: { status: { crit: '#b00020' }, chart: { series: ['#0057b8', '#ffd700'] } } });
 ```
 
-EvoPath mapping (#719): set `palette.chart.series` from its `theme/chartPalette.ts` series (what its `MetricSeriesChart`, `ApiTimelineChart` and `LogSeverityChart` copies read through `useChartSeries()`) and map its `palette.outline` to `palette.status.neutral`. Its identical `PaletteChart` augmentation merges with this slice's.
+EvoPath mapping: set `palette.chart.series` from its `theme/chartPalette.ts` series (what its `MetricSeriesChart`, `ApiTimelineChart` and `LogSeverityChart` copies read through `useChartSeries()`) and map its `palette.outline` to `palette.status.neutral`. Its identical `PaletteChart` augmentation merges with this slice's.
 
 ## Extension-point catalog
 
@@ -80,6 +82,7 @@ EvoPath mapping (#719): set `palette.chart.series` from its `theme/chartPalette.
 | `TelemetryStatusTokens` | theme-token | `{ ok; warn; crit; info; neutral }` (`palette.status`) | Restyle what a value means (5xx, error logs, down) | experimental | [example](../../../../apps/web/src/__tests__/theme/telemetryTokens.test.ts) |
 | `TelemetryChartTokens` | theme-token | `{ series: string[] }` (`palette.chart`) | Restyle chart series colours | experimental | [example](../../../../apps/web/src/__tests__/theme/telemetryTokens.test.ts) |
 | `TelemetryWebAdapters` | option | `{ useAiEnabled(); useAssistantModels(); Spinner? }` | Hand the pages the app's AI switch, model catalogue and spinner | experimental | [example](../../../../apps/web/src/platform/telemetryAdapters.ts) |
+| `TelemetryWebAdaptersProvider` | component | `TelemetryWebAdaptersProvider(props: { adapters; children }): ReactElement` | Mount the app's adapters once, next to the `TelemetryConfigProvider` | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `telemetryAdminCards` | component | `readonly TelemetryAdminCard[]` | Place the three Observability cards in the app's admin registry | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 | `TelemetrySettingsPage` | component | `TelemetrySettingsPage(): ReactElement` | Route `/admin/settings/telemetry` | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `TelemetryExplorerPage` | component | `TelemetryExplorerPage(): ReactElement` | Route `/admin/settings/telemetry/explorer` | experimental | [example](../../../../apps/web/src/App.tsx) |
@@ -107,7 +110,7 @@ None. The telemetry stack's compose fragments and collector config are `@marinos
 
 ## Observability
 
-None. The pages log nothing; the API traces and logs every telemetry route.
+None. The pages log and emit nothing; the API traces, logs and audits every telemetry route (`dashboard` reads as `telemetry:dashboard`, statements as `telemetry:query`).
 
 ## Security notes
 
@@ -115,13 +118,26 @@ The browser never sees a GreptimeDB or AI key: connection passwords are write-on
 
 ## Conformance suite
 
-None yet (#707). The package's `test/telemetry/` covers the slice with `createTestPlatformHost`; the reference app's `apps/web/src/__tests__/config/platformPages.test.ts` checks the card and route registration and its page tests drive the pages through the app's transport.
+The web half of the telemetry conformance suite is **check 7, permission parity**, run in the app's web test suite ([`telemetryParity.test.ts`](../../../../apps/web/src/__tests__/config/telemetryParity.test.ts), `npm run test:run --workspace=web`): every `telemetryAdminCards[i].permission` is one of `telemetry:read`, `telemetry:write`, `telemetry:query` or `system_settings:read`; each card is registered once in the admin hub; and its path is a route of `App.tsx` gated on the same permission. The check is a pure function exercised first against broken fixtures (an invented permission, a missing or duplicated route, a route gated differently). The API half (checks 1 to 6) is `runPlatformConformance({ suites: { telemetry } })` ([API README](../../../platform-api/src/telemetry/README.md#conformance-suite)). The package's own `test/telemetry/` covers the slice with `createTestPlatformHost`, and the reference app's `apps/web/src/__tests__/config/platformPages.test.ts` checks card and route registration.
 
 ## Upgrade notes
 
-First packaged release (#704). Moving from the app's own telemetry UI: delete `components/telemetry/`, `pages/Admin/Telemetry*Page.tsx`, `hooks/useTelemetry*.ts`, `services/telemetry*.ts`, `contexts/TelemetryConfigContext.tsx`, `components/common/RequireTelemetryEnabled.tsx` and the token files; import from the two entries; pass `api` to `TelemetryConfigProvider` when it sits above the platform host; mount `TelemetryWebAdaptersProvider`; add `postBlob` and `postSse` to the app's `PlatformApiClient`. Behaviour, texts, test ids and colours are unchanged. Service functions became methods of `TelemetryClient` with the same names.
+1.0: first release; moved from the app with no change to behaviour, texts, test ids or colours. Delete the app's own copies, import from the two entries, pass `api` to `TelemetryConfigProvider` when it sits above the platform host, mount `TelemetryWebAdaptersProvider`, and add `postBlob` and `postSse` to the app's `PlatformApiClient`. Service functions became methods of `TelemetryClient` with the same names.
+
+| Old app path (`apps/web/src/`) | Import from `@marinoscar/platform-web` |
+|---|---|
+| `services/telemetry.ts`, `services/telemetryDashboard.ts` | `/telemetry/headless`: `createTelemetryClient`, `useTelemetryClient` |
+| `hooks/useTelemetry*.ts` | `/telemetry/headless`: `useTelemetryAdmin`, `useTelemetryConnection`, `useTelemetryStack`, `useTelemetryQuery`, `useDashboard*`, ... |
+| `contexts/TelemetryConfigContext.tsx`, `hooks/useTelemetryConfig.ts` | `/telemetry/headless`: `TelemetryConfigProvider`, `useTelemetryConfig` |
+| `components/common/RequireTelemetryEnabled.tsx` | `/telemetry/headless`: `RequireTelemetryEnabled` |
+| `theme/telemetryTokens.ts`, `theme/augment.ts` | `/telemetry/headless`: `withTelemetryTokens`, `TelemetryTokens` |
+| `components/telemetry/**` | `/telemetry/ui` (internal components stay internal) |
+| `pages/Admin/TelemetrySettingsPage.tsx`, `TelemetryExplorerPage.tsx`, `TelemetryDashboardPage.tsx` | `/telemetry/ui/settings-page`, `/explorer-page`, `/dashboard-page` (or `TelemetrySettingsPage` ... from `/telemetry/ui`) |
+| The three telemetry entries of `config/adminSections.tsx` | `telemetryAdminCards` from `/telemetry/ui` |
 
 ## Troubleshooting
+
+Operator problems (a dashboard with no data, a section named "not collected") are in the [telemetry runbook](../../../../docs/runbooks/telemetry.md#12-troubleshooting); developer problems:
 
 | Symptom | Cause and fix |
 |---|---|
@@ -133,7 +149,8 @@ First packaged release (#704). Moving from the app's own telemetry UI: delete `c
 
 ## Links
 
-- Spec: [docs/specs/telemetry.md](../../../../docs/specs/telemetry.md); runbook: [docs/runbooks/telemetry.md](../../../../docs/runbooks/telemetry.md).
+- Spec: [docs/specs/telemetry.md](../../../../docs/specs/telemetry.md) and [packaging](../../../../docs/specs/telemetry.md#12-packaging-and-extension-points); runbook: [docs/runbooks/telemetry.md](../../../../docs/runbooks/telemetry.md).
+- Platform packages spec: [documentation standard and extension contract](../../../../docs/specs/platform-packages.md).
 - Wire contract: [`@marinoscar/platform-contract/telemetry`](../../../platform-contract/src/telemetry/README.md).
 - Hosting and registration: [core README](../core/README.md).
 - Package README: [platform-web](../../README.md).

@@ -36,7 +36,7 @@ None. The registries take no options; behaviour is fixed and documented in the c
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `registerCliCommand` | registry | `registerCliCommand(register: (program: Command) => void): void` | Add an app command to the host CLI; listed after the built-ins, in registration order. A name or alias taken by a built-in, an earlier app command or `help` throws when applied. | experimental | [example](../../../../apps/cli/src/program-extension.test.ts) |
+| `registerCliCommand` | registry | `registerCliCommand(register: (program: Command) => void): void` | Add an app command to the host CLI; listed after the built-ins, in registration order. A name or alias taken by a built-in, an earlier app command or `help` throws when applied. | experimental | [example](../../../../apps/cli/src/platform-host/examples/hello.command.ts) |
 | `registerEnvSpecFragment` | registry | `registerEnvSpecFragment(fragment: EnvSpecFragment): void` | Annotate a set of environment keys the template declares. A duplicate fragment id, or a key another fragment owns, throws naming both owners; nothing is registered. | experimental | [example](../../../../apps/cli/src/platform-host/register.ts) |
 
 Readers and test helpers: `applyRegisteredCommands(program)`, `listRegisteredCommands()`, `resolveEnvMetadata(key)`, `listEnvSpecFragments()`; `resetCommandRegistryForTests()` and `resetEnvSpecRegistryForTests()` are for tests only.
