@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
+import { composeFilesForMode } from '@marinoscar/platform-infra';
 
 import { CLI_NAME } from '../branding.js';
 import { generateBase64Key } from '../deploy/env-metadata.js';
@@ -305,7 +307,7 @@ export async function runInit(options: InitOptions = {}): Promise<InitResult> {
   write('');
   write(`  Wrote ${envPath} (${values.size} variables, mode 0600)`);
 
-  for (const line of formatNextSteps(values, missingRequired)) write(line);
+  for (const line of formatNextSteps(values, missingRequired, join(root, 'infra', 'compose'))) write(line);
 
   return {
     envPath,
@@ -336,14 +338,18 @@ function hostOf(url: string): string {
 export function formatNextSteps(
   values: ReadonlyMap<string, string>,
   missingRequired: readonly string[],
+  composeDir?: string,
 ): string[] {
   const lines: string[] = [];
   const inCompose = isComposeInternalHost(values.get('POSTGRES_HOST'));
   const appUrl = values.get('APP_URL') ?? '';
   const adminEmail = values.get('INITIAL_ADMIN_EMAIL') ?? '';
 
-  const composeFiles = ['-f base.compose.yml', '-f dev.compose.yml'];
-  if (inCompose) composeFiles.push('-f devdb.compose.yml');
+  // The platform's dev files, then the app's dev overlays (app.<name> and
+  // app.dev.<name>), from the package's one ordering (#714).
+  const composeFiles = composeFilesForMode(inCompose ? 'devdb' : 'dev', { overlays: listComposeDir(composeDir) }).map(
+    (file) => `-f ${file}`,
+  );
   const compose = `docker compose ${composeFiles.join(' ')}`;
   const migrate = 'npm run prisma:migrate --workspace=api';
   const seed = 'npm run prisma:seed --workspace=api';
@@ -413,4 +419,14 @@ export function formatNextSteps(
   lines.push('');
 
   return lines;
+}
+
+/** The file names in the checkout's infra/compose, or none when it cannot be read. */
+function listComposeDir(composeDir: string | undefined): string[] {
+  if (composeDir === undefined) return [];
+  try {
+    return readdirSync(composeDir);
+  } catch {
+    return [];
+  }
 }

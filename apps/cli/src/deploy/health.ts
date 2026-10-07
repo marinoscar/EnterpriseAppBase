@@ -116,7 +116,7 @@ function composeArgs(
 ): string[] {
   return [
     ...(options.composeProject === undefined ? [] : ['-p', options.composeProject]),
-    ...composeFileArgs(options.groups),
+    ...composeFileArgs(options.groups, join(options.deployRoot, 'repo', 'infra', 'compose')),
     '--project-directory',
     join(options.deployRoot, 'repo', 'infra', 'compose'),
   ];

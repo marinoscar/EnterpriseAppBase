@@ -1,9 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { parseEnvExample } from './env-spec.js';
+import { composeFilesForMode } from '@marinoscar/platform-infra';
 import { telemetryInfraFragment } from '@marinoscar/platform-infra/telemetry';
 
 import {
@@ -112,6 +115,59 @@ describe('composeFilesFor reads the telemetry slots from @marinoscar/platform-in
   it('names files the sync materialised into this checkout', () => {
     for (const { file } of telemetryInfraFragment.composeFiles) {
       expect(telemetryInfraFragment.files.map((entry) => entry.to)).toContain(`infra/compose/${file}`);
+      expect(readFileSync(resolve(COMPOSE_DIR, file), 'utf8')).toMatch(/^# GENERATED from @marinoscar\/platform-infra@/);
+    }
+  });
+});
+
+describe('composeFilesFor appends the app overlays (#714)', () => {
+  const FULL = composeFilesForMode('vps', { telemetry: true });
+
+  it('is the package order for a VPS with telemetry', () => {
+    expect(composeFilesFor()).toEqual(FULL);
+  });
+
+  it('appends the overlays of a VPS deployment last, sorted by name, and skips examples and other scopes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'compose-files-'));
+    try {
+      for (const name of [
+        'base.compose.yml',
+        'app.vps.no-stack-agent.compose.yml',
+        'app.limits.compose.yml',
+        'app.prod.memory.compose.yml',
+        'app.dev.hot-reload.compose.yml',
+        'app.example.compose.yml',
+        'app.worker.gpu.compose.yml',
+      ]) {
+        writeFileSync(join(dir, name), 'services: {}\n');
+      }
+      expect(composeFilesFor(undefined, dir)).toEqual([
+        ...FULL,
+        'app.limits.compose.yml',
+        'app.prod.memory.compose.yml',
+        'app.vps.no-stack-agent.compose.yml',
+      ]);
+      expect(composeFileArgs(['email'], dir).slice(-2)).toEqual(['-f', 'app.vps.no-stack-agent.compose.yml']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('has no overlays for a directory it cannot read', () => {
+    expect(composeFilesFor(undefined, join(tmpdir(), 'no-such-compose-dir-714'))).toEqual(FULL);
+  });
+
+  it('applies no overlay in this reference checkout (its example is documentation)', () => {
+    expect(existsSync(resolve(COMPOSE_DIR, 'app.example.compose.yml'))).toBe(true);
+    expect(composeFilesFor(undefined, COMPOSE_DIR)).toEqual(FULL);
+  });
+
+  it('resolves on a fresh clone: every file of the deploy list is committed, none comes from node_modules (R1)', () => {
+    const tracked = new Set(
+      execFileSync('git', ['ls-files', '-z', '--', '.'], { cwd: COMPOSE_DIR, encoding: 'utf8' }).split('\0').filter(Boolean),
+    );
+    for (const file of composeFilesFor(undefined, COMPOSE_DIR)) {
+      expect(tracked.has(file), `${file} is not committed in infra/compose`).toBe(true);
       expect(readFileSync(resolve(COMPOSE_DIR, file), 'utf8')).toMatch(/^# GENERATED from @marinoscar\/platform-infra@/);
     }
   });

@@ -253,6 +253,7 @@ async function purgeStorage(args: {
     ],
     args.composeProject,
     args.groups,
+    composeCwd(args.deployRoot),
   );
 
   try {
@@ -326,7 +327,7 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
 
   const project = plan.composeProject;
   try {
-    await runCommand(composeArgv(['down', '-v'], project, plan.groups), {
+    await runCommand(composeArgv(['down', '-v'], project, plan.groups, composeCwd(options.deployRoot)), {
       cwd: composeCwd(options.deployRoot),
       timeoutMs: 10 * 60_000,
       redact: journal.redact,

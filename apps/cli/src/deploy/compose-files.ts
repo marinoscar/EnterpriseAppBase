@@ -34,24 +34,46 @@
 //     with no image on every deployment WITHOUT telemetry, and compose rejects
 //     the whole project for it.
 //
-// THE SLOTS COME FROM THE MANIFEST (issue #705). The telemetry file names,
-// their slot (`after-prod` / `after-vps`) and the env group that adds them
-// are read from `telemetryInfraFragment` (@marinoscar/platform-infra), which
-// also generates those files into infra/compose/ (`npm run
-// platform:infra:sync`). Only base, prod and vps stay literals here; the
-// order above is still decided in this file, by where each slot is spliced.
+// THE ORDER COMES FROM THE PACKAGE (issues #705, #714). Every file above is
+// generated into infra/compose/ by @marinoscar/platform-infra (`npm run
+// platform:infra:sync`), and the package's `composeFilesForMode('vps')` owns
+// the order, so the deploy and every other consumer apply the same list.
+//
+// APP OVERLAYS COME LAST (#714). An app changes the stack with
+// `infra/compose/app.*.compose.yml` files, never by editing a generated one.
+// Given the checkout's compose directory, the list ends with the overlays
+// that apply to a VPS deployment (`app.<name>`, `app.prod.<name>`,
+// `app.vps.<name>`), sorted by file name, so they win:
+//
+//   base, prod, [telemetry], vps, [vps.telemetry], app.*.compose.yml
+//
+// A name ending in `.example.compose.yml` is documentation and never applied.
+// Without a directory (or when it cannot be read) the list has no overlays.
 // =============================================================================
 
-import { telemetryInfraFragment, type ComposeSlot } from '@marinoscar/platform-infra/telemetry';
+import { readdirSync } from 'node:fs';
+
+import { composeFilesForMode } from '@marinoscar/platform-infra';
+import { telemetryInfraFragment } from '@marinoscar/platform-infra/telemetry';
 
 import type { EnvGroup } from './env-metadata.js';
 
 /** The group whose presence adds the telemetry stack. Always on; see above. */
 export const TELEMETRY_GROUP = telemetryInfraFragment.envGroup satisfies EnvGroup;
 
-/** The telemetry fragment's compose files that sit in one slot, in manifest order. */
-function telemetryFiles(slot: ComposeSlot): string[] {
-  return telemetryInfraFragment.composeFiles.filter((entry) => entry.slot === slot).map((entry) => entry.file);
+/**
+ * The file names in the checkout's compose directory, where the app's
+ * overlays live. Empty when no directory is given or it cannot be read: a
+ * missing checkout must not turn into a thrown error here, the compose call
+ * that follows reports it with the right context.
+ */
+function composeDirListing(composeDir: string | undefined): string[] {
+  if (composeDir === undefined) return [];
+  try {
+    return readdirSync(composeDir);
+  } catch {
+    return [];
+  }
 }
 
 /** Groups every VPS deployment has, whatever was passed or recorded. */
@@ -77,20 +99,15 @@ export function effectiveGroups(groups?: readonly string[] | undefined): EnvGrou
 /**
  * The compose files for a deployment with these groups, in the order compose
  * must apply them. File names only; callers join the directory. The telemetry
- * files are always included (`effectiveGroups`).
+ * files are always included (`effectiveGroups`). With `composeDir` (the
+ * checkout's infra/compose), the app's overlays found there come last.
  */
-export function composeFilesFor(groups?: readonly string[] | undefined): string[] {
+export function composeFilesFor(groups?: readonly string[] | undefined, composeDir?: string): string[] {
   const telemetry = effectiveGroups(groups).includes(TELEMETRY_GROUP);
-  return [
-    'base.compose.yml',
-    'prod.compose.yml',
-    ...(telemetry ? telemetryFiles('after-prod') : []),
-    'vps.compose.yml',
-    ...(telemetry ? telemetryFiles('after-vps') : []),
-  ];
+  return composeFilesForMode('vps', { telemetry, overlays: composeDirListing(composeDir) });
 }
 
 /** `-f <file>` for each file, in order. */
-export function composeFileArgs(groups?: readonly string[] | undefined): string[] {
-  return composeFilesFor(groups).flatMap((file) => ['-f', file]);
+export function composeFileArgs(groups?: readonly string[] | undefined, composeDir?: string): string[] {
+  return composeFilesFor(groups, composeDir).flatMap((file) => ['-f', file]);
 }

@@ -364,12 +364,14 @@ export function composeArgv(
   extra: readonly string[],
   project?: string,
   groups?: readonly string[] | undefined,
+  composeDir?: string,
 ): string[] {
   return [
     'docker',
     'compose',
     ...(project === undefined ? [] : ['-p', project]),
-    ...composeFileArgs(groups),
+    // With the checkout's compose dir, the app's overlays come last (#714).
+    ...composeFileArgs(groups, composeDir),
     ...extra,
   ];
 }
@@ -476,7 +478,7 @@ async function compose(
   ensureBindSources(context.options.deployRoot);
   await ensureStackNetworks(context, extra, context.options.groups);
 
-  const argv = composeArgv(extra, context.composeProject, context.options.groups);
+  const argv = composeArgv(extra, context.composeProject, context.options.groups, composeCwd(context.options.deployRoot));
   const result = await context.runCommand(argv, {
     cwd: composeCwd(context.options.deployRoot),
     timeoutMs: options?.timeoutMs ?? 30 * 60_000,
@@ -511,7 +513,7 @@ export async function ensureStackNetworks(
   const composeDir = composeCwd(context.options.deployRoot);
   await ensureExternalNetworks({
     // The same files the compose call itself will use; see compose-files.ts.
-    composeFiles: composeFilesFor(groups).map((file) => join(composeDir, file)),
+    composeFiles: composeFilesFor(groups, composeDir).map((file) => join(composeDir, file)),
     runCommand: context.runCommand,
     onLine: (line) => context.journal.line(line),
   });
@@ -1071,7 +1073,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           // The networks the APPLICATION's compose files declare external,
           // read from the checkout -- never a name this CLI makes up.
           networks: externalNetworksIn(
-            composeFilesFor(context.options.groups).map((file) => join(composeDir, file)),
+            composeFilesFor(context.options.groups, composeDir).map((file) => join(composeDir, file)),
           ),
           onLine: (line) => context.journal.line(line),
         });
