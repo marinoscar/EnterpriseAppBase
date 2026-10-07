@@ -1,11 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { SEMVER_PATTERN } from './semver.js';
 
 /** The lock file format version this release reads and writes. */
 const LOCK_VERSION = 1 as const;
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/, 'expected 64 lower-case hex characters');
-const versionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'expected a version such as 1.2.3');
+// Semver, prerelease allowed: a prerelease package (0.1.0-next.1) writes its own version into the lock.
+const versionSchema = z.string().regex(SEMVER_PATTERN, 'expected a version such as 1.2.3 or 1.2.3-next.1');
 
 const lockEntrySchema = z
   .object({

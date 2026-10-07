@@ -211,7 +211,7 @@ describe('--apply', () => {
     ]);
     expect(readFileSync(join(ws.migrationsDir, '20260101000001_add_orgs', 'migration.sql'), 'utf8')).toBe(PACKAGE_SQL['0002_add_orgs']);
     const lock = parseLock(readFileSync(ws.lockFile, 'utf8'));
-    expect(lock.platformVersion).toBe('0.1.0'); // a prerelease package version is not written as such
+    expect(lock.platformVersion).toBe('0.1.0'); // never less than the newest `since` (0.1.0 outranks the 0.1.0-next.3 package)
     expect(lock.migrations.map((m) => [m.originId, m.localDir])).toEqual([
       ['platform:0001_initial', '20260101000000_initial'],
       ['platform:0002_add_orgs', '20260101000001_add_orgs'],
@@ -312,6 +312,15 @@ describe('--apply', () => {
     expect(lock.migrations[1]).toMatchObject({ localSha256: sha256Hex(rewritten) });
     writeFileSync(mapFile, '[1,2]');
     await expect(runBaseline(options(ws, { mapFile }), fakeDeps({ ledger: appLedger(ws) }))).rejects.toThrow(/MAP_INVALID/);
+  });
+});
+
+describe('the lock version of a prerelease package', () => {
+  it('records the prerelease package version when it outranks every since, and the lock parses', async () => {
+    const ws = makeBaselineWorkspace();
+    writeFileSync(join(ws.packageDir, 'package.json'), '{ "name": "@marinoscar/platform-db", "version": "1.0.0-next.2" }\n');
+    await runBaseline(options(ws, { apply: true }), fakeDeps({ ledger: appLedger(ws) }));
+    expect(parseLock(readFileSync(ws.lockFile, 'utf8')).platformVersion).toBe('1.0.0-next.2');
   });
 });
 

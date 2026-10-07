@@ -1,12 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { SEMVER_PATTERN } from './semver.js';
 
 const manifestEntrySchema = z
   .object({
     id: z.string().regex(/^\d{4}_[a-z0-9][a-z0-9_]*$/, 'expected NNNN_slug'),
     dir: z.string().regex(/^\d{4}_[a-z0-9][a-z0-9_]*$/, 'expected NNNN_slug'),
     sha256: z.string().regex(/^[0-9a-f]{64}$/, 'expected 64 lower-case hex characters'),
-    since: z.string().regex(/^\d+\.\d+\.\d+$/, 'expected a version such as 1.2.3'),
+    since: z.string().regex(SEMVER_PATTERN, 'expected a version such as 1.2.3 or 1.2.3-next.1'),
     slice: z.string().min(1),
     requires: z.array(z.string().min(1)),
     touches: z.array(z.string().min(1)).optional(),

@@ -200,9 +200,8 @@ export async function runBaseline(opts: BaselineOptions, deps: BaselineDeps): Pr
   if (!existsSync(manifestFile)) throw new BaselineError('THROUGH_UNKNOWN', `${manifestFile} does not exist; is --package-dir the @marinoscar/platform-db package?`);
   const manifest = parseManifest(readFileSync(manifestFile, 'utf8'), manifestFile);
   const packageVersion = (JSON.parse(readFileSync(join(opts.packageDir, 'package.json'), 'utf8')) as { version: string }).version;
-  // The lock reads x.y.z only, so a prerelease tag is dropped; it never records less than the newest `since` it holds.
-  const core = /^\d+\.\d+\.\d+/.exec(packageVersion)?.[0] ?? '0.0.0';
-  const version = manifest.reduce((best, e) => (compareVersions(e.since, best) > 0 ? e.since : best), core);
+  // The lock records the package version (a prerelease is fine) but never less than the newest `since` it holds.
+  const version = manifest.reduce((best, e) => (compareVersions(e.since, best) > 0 ? e.since : best), packageVersion);
   const throughEntry = resolveThrough(manifest, opts.through);
   const through = sequenceOf(throughEntry.id);
   const report = emptyReport(originIdOf(throughEntry));
