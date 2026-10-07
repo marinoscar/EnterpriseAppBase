@@ -3,8 +3,10 @@
 // production code. Documented in ../README.md.
 
 export {
+  APP_ACTIVITY_METRIC_TAGS,
   APP_SAMPLE_METRIC_TAGS,
   VERIFIED_METRIC_TAGS,
+  appActivityMetricSchema,
   appSampleMetricSchema,
   metricCatalogSchema,
   metricTableSchema,

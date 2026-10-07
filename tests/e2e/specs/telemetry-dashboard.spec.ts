@@ -172,7 +172,18 @@ test.describe('Telemetry Dashboard on a desktop', () => {
     });
     const notCollected = page.getByTestId('metrics-not-collected');
     const hidden = (await notCollected.count()) > 0 ? ((await notCollected.textContent()) ?? '') : '';
-    for (const title of ['Infrastructure', 'Database', 'Job queue', 'Worker nodes', 'Uptime & dependencies', 'Telemetry pipeline']) {
+    // 'App activity' is the reference app's own group (PP-4.6): on a fresh stack it
+    // is named as not collected, with sign-ins it is a section.
+    const titles = [
+      'Infrastructure',
+      'Database',
+      'Job queue',
+      'Worker nodes',
+      'Uptime & dependencies',
+      'Telemetry pipeline',
+      'App activity',
+    ];
+    for (const title of titles) {
       const region = page.getByRole('region', { name: title, exact: true });
       if (hidden.includes(title)) await expect(region).toHaveCount(0);
       else await expect(region).toBeVisible();

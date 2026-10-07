@@ -345,6 +345,7 @@ describe('Telemetry dashboard integration', () => {
       ],
     };
 
+    // The six platform groups, then the reference app's own `activity` group (PP-4.6).
     const PLATFORM = [
       { id: 'host', label: 'Host', title: 'Infrastructure', order: 10 },
       { id: 'database', label: 'Database', title: 'Database', order: 20 },
@@ -352,6 +353,7 @@ describe('Telemetry dashboard integration', () => {
       { id: 'nodes', label: 'Worker nodes', title: 'Worker nodes', order: 40 },
       { id: 'uptime', label: 'Uptime and edge', title: 'Uptime & dependencies', order: 50 },
       { id: 'pipeline', label: 'Telemetry pipeline', title: 'Telemetry pipeline', order: 60 },
+      { id: 'activity', label: 'App activity', title: 'App activity', order: 70 },
     ];
 
     it('is 401 without a token', async () => {
@@ -368,7 +370,7 @@ describe('Telemetry dashboard integration', () => {
       await request(context.app.getHttpServer()).get(GROUPS_ROUTE).set(authHeader(viewer.accessToken)).expect(403);
     });
 
-    it('lists the six platform groups with their API labels and dashboard titles, in order', async () => {
+    it('lists the platform groups and the reference app group with their API labels and dashboard titles, in order', async () => {
       const admin = await createMockAdminUser(context);
       const res = await request(context.app.getHttpServer())
         .get(GROUPS_ROUTE)

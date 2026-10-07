@@ -762,11 +762,15 @@ describe('TelemetryAssistantService', () => {
       await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
 
       const output = JSON.parse(outputsOf(t.requests()[1])[0].output);
-      expect(Object.keys(output.metricFamilies)).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline']);
-      for (const group of Object.values(output.metricFamilies) as Array<Record<string, unknown>>) {
+      // The six platform groups, then the reference app's own (`activity`, PP-4.6).
+      expect(Object.keys(output.metricFamilies)).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline', 'activity']);
+      const { activity, ...platform } = output.metricFamilies as Record<string, Record<string, unknown>>;
+      for (const group of Object.values(platform)) {
         expect(group.available).toBe(true);
         expect(group.familiesPresent).toBe(group.familiesTotal);
       }
+      // `metricSchema()` holds no app_auth_* / app_ai_* / app_notifications_* table.
+      expect(activity).toEqual(expect.objectContaining({ available: false, familiesPresent: 0 }));
       expect(output.metricFamilies.queue.present).toContain('oldestPendingAge');
     });
 
@@ -1074,7 +1078,7 @@ describe('TelemetryAssistantService', () => {
       expect(t.of('error')).toEqual([{ code: 'TELEMETRY_UNREACHABLE', message: 'store is down' }]);
     });
 
-    it('describes the six platform groups from the registry, in the historic wording (#680)', async () => {
+    it('describes the six platform groups from the registry, in the historic wording, then the reference app group (#680)', async () => {
       const t = setup({ run: metricRun(() => undefined), script: [answer(null, 'ok')] });
 
       await t.service.stream(HARNESS_USER, { question: 'q' }, { emit: t.emit });
@@ -1088,17 +1092,19 @@ describe('TelemetryAssistantService', () => {
         'filesystems, disk/network IO), database (connections, size, commits, rollbacks, deadlocks, cache hit ' +
         'ratio, largest tables), queue (depth, oldest pending job, settle rate, failure ratio, duration p95, last ' +
         'backup, per job type), nodes (fleet health, per-node vitals, job types without an eligible node), uptime ' +
-        '(checks per URL, TLS days left, nginx) or pipeline (collector export and queues, GreptimeDB write stalls, ' +
-        'scrape targets). Tiles give the current and previous window value';
+        '(checks per URL, TLS days left, nginx), pipeline (collector export and queues, GreptimeDB write stalls, ' +
+        'scrape targets) or activity (sign-ins and token refreshes by outcome, AI requests and tokens, ' +
+        'notification deliveries by outcome). Tiles give the current and previous window value';
       expect(tool.description.startsWith(historic)).toBe(true);
-      expect(tool.parameters.shape.group.options).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline']);
+      expect(tool.parameters.shape.group.options).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline', 'activity']);
       expect(tool.parameters.shape.group.description).toBe(
         'host: CPU, memory, load, filesystems, disk/network IO; ' +
           'database: connections, size, commits, rollbacks, deadlocks, cache hit ratio, largest tables; ' +
           'queue: depth, oldest pending job, settle rate, failure ratio, duration p95, last backup, per job type; ' +
           'nodes: fleet health, per-node vitals, job types without an eligible node; ' +
           'uptime: checks per URL, TLS days left, nginx; ' +
-          'pipeline: collector export and queues, GreptimeDB write stalls, scrape targets.',
+          'pipeline: collector export and queues, GreptimeDB write stalls, scrape targets; ' +
+          'activity: sign-ins and token refreshes by outcome, AI requests and tokens, notification deliveries by outcome.',
       );
     });
 
@@ -1135,7 +1141,7 @@ describe('TelemetryAssistantService', () => {
           description: string;
           parameters: { shape: { group: { options: string[]; description: string } } };
         };
-        expect(tool.description).toContain('pipeline (collector export and queues, GreptimeDB write stalls, scrape targets) or test_app (test widgets per job type).');
+        expect(tool.description).toContain('activity (sign-ins and token refreshes by outcome, AI requests and tokens, notification deliveries by outcome) or test_app (test widgets per job type).');
         expect(tool.parameters.shape.group.options).toContain('test_app');
         expect(tool.parameters.shape.group.description).toContain('test_app: test widgets per job type.');
 

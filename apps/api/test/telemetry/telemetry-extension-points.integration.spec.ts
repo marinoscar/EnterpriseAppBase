@@ -125,7 +125,7 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
     expect(res.body.details.issues[0].message).toContain('"coach"');
   });
 
-  it('lists the group in /metric-groups, after the six platform groups', async () => {
+  it('lists the group in /metric-groups, after the six platform groups and the reference app group `activity`', async () => {
     const admin = await createMockAdminUser(context);
     const res = await request(context.app.getHttpServer())
       .get(`${BASE}/metric-groups`)
@@ -139,6 +139,7 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
       'nodes',
       'uptime',
       'pipeline',
+      'activity',
       COACH_METRIC_GROUP_ID,
     ]);
     expect(res.body.data.at(-1)).toEqual({
@@ -198,6 +199,7 @@ describe('Telemetry extension points (rung 2: a seventh metric group)', () => {
       'nodes',
       'uptime',
       'pipeline',
+      'activity',
       'coach',
     ]);
   });

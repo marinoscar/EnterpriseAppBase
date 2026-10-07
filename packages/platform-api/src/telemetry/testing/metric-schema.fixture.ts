@@ -296,16 +296,23 @@ export function metricCatalogSchema(only?: readonly string[]): TelemetrySchema {
 }
 
 /**
- * Tag columns of two `app_*` metric tables an app emits with its own
- * `AppMetricsService` (EvoPath's AI Coach, issue #703): a counter and a
- * histogram, written by the API's OTLP exporter exactly like the platform's
- * `app_jobs_*` tables. Not part of the platform catalog; the metric-group
- * registry tests register an app group over them.
+ * Tag columns of the `app_*` metric tables an app emits with its own
+ * `AppMetricsService`, shaped like EvoPath's AI Coach (issue #703, PP-4.6): the
+ * counters and the histogram its `coach` group reads. They are written by the
+ * API's OTLP exporter exactly like the platform's `app_jobs_*` tables
+ * (`app_instance_id`, `host_name`, `job` and `service_name` come with every
+ * table, then one tag per declared attribute) and are named by the table rule of
+ * the telemetry spec. Not part of the platform catalog; the readiness test and
+ * the registry tests register an app group over them.
  *
  * @stability experimental
  */
 export const APP_SAMPLE_METRIC_TAGS: Record<string, readonly string[]> = {
+  app_coach_audio_failed_total: ['app_instance_id', 'host_name', 'job', 'provider', 'reason', 'service_name'],
+  app_coach_audio_generated_total: ['app_instance_id', 'host_name', 'job', 'provider', 'service_name'],
+  app_coach_nudge_opened_total: ['app_instance_id', 'channel', 'host_name', 'job', 'persona', 'service_name'],
   app_coach_nudge_sent_total: ['app_instance_id', 'channel', 'host_name', 'job', 'persona', 'service_name'],
+  app_coach_nudge_suppressed_total: ['app_instance_id', 'host_name', 'job', 'persona', 'reason', 'service_name'],
   app_health_summary_duration_seconds_bucket: ['app_instance_id', 'host_name', 'job', 'le', 'outcome', 'service_name'],
 };
 
@@ -321,4 +328,36 @@ export const APP_SAMPLE_METRIC_TAGS: Record<string, readonly string[]> = {
 export function appSampleMetricSchema(only?: readonly string[]): TelemetrySchema {
   const names = only ?? Object.keys(APP_SAMPLE_METRIC_TAGS);
   return { tables: names.map((name) => metricTableSchema(name, APP_SAMPLE_METRIC_TAGS[name])) };
+}
+
+/**
+ * Tag columns of the five `app_*` counter tables the reference app's `activity`
+ * group reads (`app.auth.logins`, `app.auth.refreshes`, `app.ai.requests`,
+ * `app.ai.tokens`, `app.notifications.deliveries`). The tag set is the metric's
+ * declared attributes (`apps/api/src/common/otel/platform-app-metrics.ts`) plus
+ * the four every `app_*` table carries; the names follow the spec's table
+ * naming rule (dots become `_`, `_total` appended).
+ *
+ * @stability experimental
+ */
+export const APP_ACTIVITY_METRIC_TAGS: Record<string, readonly string[]> = {
+  app_ai_requests_total: ['app_instance_id', 'host_name', 'job', 'key_source', 'model', 'operation', 'provider', 'service_name', 'status'],
+  app_ai_tokens_total: ['app_instance_id', 'host_name', 'job', 'model', 'operation', 'provider', 'service_name', 'token_type'],
+  app_auth_logins_total: ['app_instance_id', 'host_name', 'job', 'outcome', 'provider', 'service_name'],
+  app_auth_refreshes_total: ['app_instance_id', 'host_name', 'job', 'outcome', 'service_name'],
+  app_notifications_deliveries_total: ['app_instance_id', 'channel', 'event', 'host_name', 'job', 'outcome', 'service_name'],
+};
+
+/**
+ * A schema holding the activity tables of {@link APP_ACTIVITY_METRIC_TAGS}
+ * (or only `only`).
+ *
+ * @param only - the table names to include; default all of them.
+ * @returns the schema.
+ *
+ * @stability experimental
+ */
+export function appActivityMetricSchema(only?: readonly string[]): TelemetrySchema {
+  const names = only ?? Object.keys(APP_ACTIVITY_METRIC_TAGS);
+  return { tables: names.map((name) => metricTableSchema(name, APP_ACTIVITY_METRIC_TAGS[name])) };
 }
