@@ -8,7 +8,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { NodeLogger, readLogTail } from '../logger.js';
 import type { JobSecret, NodeApi, UploadUrlResult } from '../node-api.js';
-import { buildPgDumpArgs, pgClientEnv, type PgConnection } from '../pg-dump.js';
+import { buildPgDumpArgs, pgClientEnv, RLS_BYPASS_PGOPTIONS, spawnPgDump, type PgConnection, type PgSpawnFn } from '../pg-dump.js';
 import { DatabaseBackupRunExecutor, readPgMaterial } from './db-backup-run.js';
 import type { JobExecutionContext } from './index.js';
 
@@ -506,6 +506,43 @@ describe('the argv the node builds', () => {
     // No `-f`: the archive goes to stdout, which is what makes it pipeable.
     expect(args).not.toContain('-f');
     expect(args.join(' ')).not.toContain(PASSWORD);
+  });
+
+  it('asks for row-level security to be enabled, and the child gets the bypass option that makes it complete (issue #725)', () => {
+    // Both halves or neither: the flag alone writes a valid archive with no rows
+    // in the organization-owned tables, and exits 0. See the server's
+    // pg-dump.util.ts and the backup RLS db spec.
+    expect(buildPgDumpArgs(connection)).toContain('--enable-row-security');
+    expect(RLS_BYPASS_PGOPTIONS).toBe('-c app.rls_bypass=on');
+
+    const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
+    const spawnFn = vi.fn(() => child) as unknown as PgSpawnFn;
+    spawnPgDump({ connection, spawnFn });
+
+    const [command, args, options] = (spawnFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string[], { env: NodeJS.ProcessEnv }];
+    expect(command).toBe('pg_dump');
+    expect(args).toContain('--enable-row-security');
+    expect(options.env.PGOPTIONS).toBe(RLS_BYPASS_PGOPTIONS);
+    // The option rides in the environment, never in argv (and the password never in either place's text).
+    expect(args.join(' ')).not.toContain('rls_bypass');
+    child.emit('close', 0, null);
+  });
+
+  it('replaces a PGOPTIONS the worker already carries instead of widening it', () => {
+    const previous = process.env.PGOPTIONS;
+    process.env.PGOPTIONS = '-c statement_timeout=1';
+    try {
+      const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn() });
+      const spawnFn = vi.fn(() => child) as unknown as PgSpawnFn;
+      spawnPgDump({ connection, spawnFn });
+
+      const [, , options] = (spawnFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, string[], { env: NodeJS.ProcessEnv }];
+      expect(options.env.PGOPTIONS).toBe(RLS_BYPASS_PGOPTIONS);
+      child.emit('close', 0, null);
+    } finally {
+      if (previous === undefined) delete process.env.PGOPTIONS;
+      else process.env.PGOPTIONS = previous;
+    }
   });
 
   it('clamps a nonsense compression level instead of refusing to run', () => {
