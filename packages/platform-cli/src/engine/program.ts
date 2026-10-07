@@ -41,6 +41,14 @@ import { evaluateTuiGate, type TtyContext } from './tui/tty.js';
 // =============================================================================
 
 /**
+ * The built-in commands, in the order `--help` lists them. An app command
+ * may not take one of these names.
+ *
+ * @stability stable
+ */
+export const BUILTIN_COMMAND_NAMES = Object.freeze(['init', 'login', 'api', 'config', 'node', 'deploy'] as const);
+
+/**
  * What `--version` prints: the app's version, then the platform CLI's.
  *
  * @returns e.g. `1.4.0 (platform 0.3.1)`.
@@ -122,6 +130,8 @@ export function buildProgram(): Command {
  * TUI does not mount — without ink ever being loaded, let alone rendered into
  * the test runner's own stdout. Asserting "it did not mount" by mounting it is
  * not an option.
+ *
+ * @stability experimental
  */
 export interface RunOptions {
   /** Streams and environment the TTY gate reads. */
@@ -133,6 +143,8 @@ export interface RunOptions {
 /**
  * Parse `argv` (arguments only — no node binary, no script path) and return
  * the exit code the process should use.
+ *
+ * @stability experimental
  */
 export async function run(argv: string[], options?: RunOptions): Promise<number> {
   // Building can fail now that apps register into it (a command name or an

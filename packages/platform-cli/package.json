@@ -35,6 +35,26 @@
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     },
+    "./commands": {
+      "types": "./dist/commands/index.d.ts",
+      "default": "./dist/commands/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui/index.d.ts",
+      "default": "./dist/tui/index.js"
+    },
+    "./deploy": {
+      "types": "./dist/deploy/index.d.ts",
+      "default": "./dist/deploy/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    },
+    "./api-client": {
+      "types": "./dist/api-client/index.d.ts",
+      "default": "./dist/api-client/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

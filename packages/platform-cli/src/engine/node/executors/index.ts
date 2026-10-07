@@ -1,4 +1,12 @@
-import type { ClaimToken, NodeApi, NodeJobAssignment, NodeSpanAttributes, NodeSpanName } from '../node-api.js';
+import type {
+  ClaimToken,
+  DownloadUrlResult,
+  JobSecret,
+  NodeJob,
+  NodeSpanAttributes,
+  NodeSpanName,
+  UploadUrlResult,
+} from '../node-api.js';
 import { UnknownJobTypeError } from '../node-errors.js';
 
 // =============================================================================
@@ -20,10 +28,51 @@ import { UnknownJobTypeError } from '../node-errors.js';
 //     the claim; #273's `--types` validation catches the typo before that.
 // =============================================================================
 
-/** Everything an executor is given. Nothing is reachable except through this. */
+/**
+ * The part of the node API an executor may call, all of it for the job it
+ * holds. The engine passes its whole `NodeApi`; an executor is typed against
+ * this so it cannot settle, renew or claim behind the engine's back.
+ *
+ * @stability experimental
+ */
+export interface ExecutorNodeApi {
+  /**
+   * Mints this job's credential: job-scoped, bounded by the lease, held in
+   * memory for the job and never written or logged (CLAUDE.md queue rule 3).
+   *
+   * @param nodeId - `context.nodeId`.
+   * @param jobId - `context.job.id`.
+   * @param claimToken - `context.claimToken`, passed through unchanged.
+   */
+  jobSecret(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<JobSecret>;
+  /**
+   * A presigned PUT for the job's output; the SERVER chooses the key.
+   *
+   * @param nodeId - `context.nodeId`.
+   * @param jobId - `context.job.id`.
+   * @param contentType - The upload's MIME type.
+   * @param claimToken - `context.claimToken`, passed through unchanged.
+   */
+  uploadUrl(nodeId: string, jobId: string, contentType?: string, claimToken?: ClaimToken): Promise<UploadUrlResult>;
+  /**
+   * A presigned GET for the job's input object (the engine already streams it
+   * to `inputPath` when `requiresInput` is true).
+   *
+   * @param nodeId - `context.nodeId`.
+   * @param jobId - `context.job.id`.
+   * @param claimToken - `context.claimToken`, passed through unchanged.
+   */
+  downloadUrl(nodeId: string, jobId: string, claimToken?: ClaimToken): Promise<DownloadUrlResult>;
+}
+
+/**
+ * Everything an executor is given. Nothing is reachable except through this.
+ *
+ * @stability experimental
+ */
 export interface JobExecutionContext {
   /** The job row as the server leased it. */
-  job: NodeJobAssignment['job'];
+  job: NodeJob;
   /** The handler's own parameters, straight from `Job.payload`. */
   params: Record<string, unknown>;
   /**
@@ -33,9 +82,19 @@ export interface JobExecutionContext {
    */
   inputPath: string | undefined;
   /** The input object's metadata, when there was one. */
-  input: { objectId: string; size: string; mimeType: string } | undefined;
-  /** For a type that must upload its output; the SERVER chooses the key. */
-  api: NodeApi;
+  input:
+    | {
+        /** The input object's id. */
+        objectId: string;
+        /** Its size in bytes, as a decimal string. */
+        size: string;
+        /** Its MIME type. */
+        mimeType: string;
+      }
+    | undefined;
+  /** For a type that needs its credential or must upload its output. */
+  api: ExecutorNodeApi;
+  /** This node's id, for every `api` call. */
   nodeId: string;
   /**
    * Which claim of this job the engine is executing (#364).
@@ -74,6 +133,8 @@ export interface JobExecutionContext {
 /**
  * One job type this machine can run.
  *
+ * @stability experimental
+ *
  * `execute` RETURNS the result and THROWS to fail — the same contract the
  * server's handlers use, for the same reason: every provider error, missing
  * file and truncated stream becomes a reported failure with the real message,
@@ -83,6 +144,7 @@ export interface JobExecutionContext {
  * deferral path instead of burning an attempt.
  */
 export interface JobExecutor {
+  /** The job type, as the server's handler declares it (permanent once jobs exist). */
   readonly type: string;
   /**
    * Whether the engine should fetch a download URL and stream the input to a
@@ -93,13 +155,29 @@ export interface JobExecutor {
    * opaque filesystem error somewhere inside it.
    */
   readonly requiresInput: boolean;
+  /**
+   * Runs the job: returns the result the server's `nodeResultSchema` expects,
+   * throws to fail it.
+   *
+   * @param context - The job, its params and the node API.
+   */
   execute(context: JobExecutionContext): Promise<unknown>;
 }
 
-/** A mutable registry. One instance per engine, so tests never share state. */
+/**
+ * A mutable registry. One instance per engine, so tests never share state.
+ *
+ * @stability experimental
+ */
 export class ExecutorRegistry {
   private readonly executors = new Map<string, JobExecutor>();
 
+  /**
+   * Adds (or replaces) the executor for its type.
+   *
+   * @param executor - The executor.
+   * @returns This registry, for chaining.
+   */
   register(executor: JobExecutor): this {
     this.executors.set(executor.type, executor);
     return this;
@@ -110,6 +188,12 @@ export class ExecutorRegistry {
     return [...this.executors.keys()].sort();
   }
 
+  /**
+   * Whether this node can run `type`.
+   *
+   * @param type - A job type.
+   * @returns `true` when an executor is registered for it.
+   */
   has(type: string): boolean {
     return this.executors.has(type);
   }

@@ -38,6 +38,13 @@ export const DEPLOY_STATE_VERSION = 2;
 /** How many successful runs `history` keeps, newest first. */
 export const DEPLOY_HISTORY_LIMIT = 20;
 
+/**
+ * The deploy state file's name under the deployment root. FIXED, whatever the
+ * CLI identity: it is read from live servers, so a renamed CLI must still find
+ * the file an `appctl` deploy wrote (#715). `identity.test.ts` pins it.
+ *
+ * @stability stable
+ */
 export const DEPLOY_STATE_FILENAME = '.appctl-deploy.json';
 
 /**

@@ -16,17 +16,38 @@
 // programmatic use - passes nothing and the pipeline is silent.
 // =============================================================================
 
+/**
+ * How a step finished.
+ *
+ * @stability stable
+ */
 export type StepOutcome = 'ok' | 'skipped' | 'failed';
 
+/**
+ * One finished step.
+ *
+ * @stability stable
+ */
 export interface StepResult {
+  /** The step id. */
   id: string;
+  /** The step title. */
   title: string;
+  /** How it finished. */
   outcome: StepOutcome;
+  /** How long it ran; 0 when skipped. */
   durationMs: number;
   /** Why it was skipped, or what failed. */
   detail?: string | undefined;
 }
 
+/**
+ * The ONLY I/O seam of a deploy: every step, built-in or an app's, reports
+ * through these and none writes to a terminal, so the CLI and the TUI are
+ * two renderers of one run.
+ *
+ * @stability stable
+ */
 export interface DeployHooks {
   /** A step is starting. Fires once per step, in pipeline order. */
   onStepStart?: ((step: { id: string; title: string; index: number; total: number }) => void) | undefined;

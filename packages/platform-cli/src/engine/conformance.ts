@@ -34,7 +34,21 @@ export interface ConformanceTestApi {
   /** One case. */
   it(name: string, body: () => unknown): void;
   /** An assertion, as Vitest and Jest spell it. */
-  expect(actual: unknown): { toEqual(expected: unknown): void };
+  expect(actual: unknown): ConformanceMatchers;
+}
+
+/**
+ * The one matcher the suites use.
+ *
+ * @stability experimental
+ */
+export interface ConformanceMatchers {
+  /**
+   * Deep equality.
+   *
+   * @param expected - The expected value.
+   */
+  toEqual(expected: unknown): void;
 }
 
 /**

@@ -16,7 +16,13 @@
 // Everything here is pure. No filesystem, no prompting, no process.env.
 // =============================================================================
 
+/**
+ * One variable `.env.example` declares.
+ *
+ * @stability stable
+ */
 export interface EnvVarSpec {
+  /** The variable name. */
   key: string;
   /** The section banner this key appeared under. '' before the first one. */
   section: string;
@@ -113,6 +119,8 @@ export function unquote(value: string): string {
  * File order is preserved, because the order the template presents its
  * variables in was chosen by whoever wrote it and is a better question order
  * than anything this code could invent.
+ *
+ * @stability experimental
  */
 export function parseEnvExample(contents: string): EnvVarSpec[] {
   const lines = splitLines(contents);

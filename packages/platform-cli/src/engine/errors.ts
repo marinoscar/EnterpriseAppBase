@@ -36,6 +36,8 @@ import { cliName } from './identity.js';
  *
  * These are a PUBLIC CONTRACT the moment someone writes `if [ $? -eq 4 ]`.
  * Add new codes; do not renumber existing ones.
+ *
+ * @stability stable
  */
 export const EXIT = {
   /** Success. */
@@ -69,6 +71,11 @@ export const EXIT = {
   PRECONDITION: 6,
 } as const;
 
+/**
+ * One of the documented exit codes in {@link EXIT}.
+ *
+ * @stability stable
+ */
 export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
 
 /**
@@ -77,8 +84,11 @@ export type ExitCode = (typeof EXIT)[keyof typeof EXIT];
  * The `exitCode` lives on the error rather than in a switch at the top level
  * so that a new error type cannot be added without deciding what it does to
  * the process — the compiler asks the question.
+ *
+ * @stability stable
  */
 export abstract class CliError extends Error {
+  /** The process exit code this error maps to. */
   abstract readonly exitCode: ExitCode;
 
   constructor(message: string, options?: ErrorOptions) {
@@ -95,8 +105,13 @@ export abstract class CliError extends Error {
   }
 }
 
-/** The invocation was malformed. Exists so #144 can reject a bad method/path. */
+/**
+ * The invocation was malformed. Exists so #144 can reject a bad method/path.
+ *
+ * @stability stable
+ */
 export class UsageError extends CliError {
+  /** `EXIT.USAGE`. */
   readonly exitCode = EXIT.USAGE;
 }
 
@@ -112,8 +127,11 @@ export class UsageError extends CliError {
  * and tells the user their credentials were rejected. They were not; there
  * were none. That misdirection sends people to revoke and re-issue tokens
  * that were never the problem.
+ *
+ * @stability experimental
  */
 export class AuthRequiredError extends CliError {
+  /** `EXIT.AUTH`. */
   readonly exitCode = EXIT.AUTH;
 
   constructor(message = `Not logged in. Run \`${cliName()} login\` first.`) {
@@ -126,8 +144,11 @@ export class AuthRequiredError extends CliError {
  *
  * The message names what failed; the remedy belongs to the check that
  * produced it and is rendered beside it, not folded in here.
+ *
+ * @stability experimental
  */
 export class PreconditionError extends CliError {
+  /** `EXIT.PRECONDITION`. */
   readonly exitCode = EXIT.PRECONDITION;
 }
 
@@ -139,12 +160,19 @@ export class PreconditionError extends CliError {
  * an AUTH code would loop. FAILURE is honest — something is wrong that the
  * CLI cannot resolve on its own — and the message always names the path so
  * the fix (delete it, or fix the JSON) needs no further investigation.
+ *
+ * @stability experimental
  */
 export class ConfigError extends CliError {
+  /** `EXIT.FAILURE`. */
   readonly exitCode = EXIT.FAILURE;
 }
 
-/** Everything the server may have told us about a failed request. */
+/**
+ * Everything the server may have told us about a failed request.
+ *
+ * @stability experimental
+ */
 export interface ApiErrorFields {
   /** HTTP status. 0 is never used here — that is NetworkError's territory. */
   readonly status: number;
@@ -199,6 +227,8 @@ export interface ApiErrorFields {
  *
  * `message` is built as `<status>: <server message>` so that the default
  * `console.error(err.message)` at the top level is already the useful line.
+ *
+ * @stability experimental
  */
 export class ApiError extends CliError implements ApiErrorFields {
   readonly status: number;
@@ -222,6 +252,7 @@ export class ApiError extends CliError implements ApiErrorFields {
     this.rawBody = fields.rawBody;
   }
 
+  /** `EXIT.AUTH` for a 401, `EXIT.API` otherwise. */
   get exitCode(): ExitCode {
     return this.status === 401 ? EXIT.AUTH : EXIT.API;
   }
@@ -258,7 +289,11 @@ export class ApiError extends CliError implements ApiErrorFields {
   }
 }
 
-/** How the connection failed, in the terms a user can act on. */
+/**
+ * How the connection failed, in the terms a user can act on.
+ *
+ * @stability experimental
+ */
 export type NetworkFailureKind =
   | 'dns'
   | 'refused'
@@ -275,11 +310,17 @@ export type NetworkFailureKind =
  * is why this is a separate class rather than an ApiError with `status: 0`. A
  * `status: 0` sentinel invites `if (err.status >= 500)` to quietly do the
  * wrong thing.
+ *
+ * @stability experimental
  */
 export class NetworkError extends CliError {
+  /** `EXIT.NETWORK`. */
   readonly exitCode = EXIT.NETWORK;
+  /** How the connection failed. */
   readonly kind: NetworkFailureKind;
+  /** The request method. */
   readonly method: string;
+  /** The request URL. Never contains the token. */
   readonly url: string;
 
   constructor(fields: {
@@ -407,6 +448,8 @@ export class NetworkError extends CliError {
  * The `unknown` parameter is honest rather than defensive: JavaScript lets any
  * value be thrown, and the top-level handler runs after user-supplied config,
  * JSON parsing and third-party code have all had a turn.
+ *
+ * @stability stable
  */
 export function exitCodeFor(error: unknown): ExitCode {
   if (error instanceof CliError) return error.exitCode;
@@ -423,6 +466,8 @@ export function exitCodeFor(error: unknown): ExitCode {
  * NO STACK TRACE. A stack is noise for the person who mistyped a URL, and the
  * `cause` chain behind a fetch failure can contain request details. #144 can
  * add a `--verbose` that opts into it.
+ *
+ * @stability stable
  */
 export function formatError(error: unknown): string {
   if (error instanceof CliError) return `${cliName()}: ${error.message}`;

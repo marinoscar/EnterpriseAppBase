@@ -14,6 +14,7 @@ export type {
   CliConformanceOptions,
   CliPlatformConformanceOptions,
   CliPlatformConformanceSuites,
+  ConformanceMatchers,
   ConformanceTestApi,
   CredentialHygieneOptions,
   CredentialHygieneReport,

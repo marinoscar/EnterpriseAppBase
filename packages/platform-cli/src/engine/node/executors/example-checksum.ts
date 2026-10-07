@@ -81,6 +81,8 @@ export class ExampleChecksumExecutor implements JobExecutor {
  * usable. A node also declares the type only if `evaluateCapabilities` finds
  * `pg_dump` on this machine. Listing the executor unconditionally is what lets
  * all three of those decisions live where they belong.
+ *
+ * @stability experimental
  */
 export function defaultExecutors(): JobExecutor[] {
   return [new ExampleChecksumExecutor(), new DatabaseBackupRunExecutor()];

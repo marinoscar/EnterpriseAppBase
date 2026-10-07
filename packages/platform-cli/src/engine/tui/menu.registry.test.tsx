@@ -68,6 +68,17 @@ describe('a registered screen', () => {
     expect(buildMenuItems(allTuiScreens(), { loggedIn: false }).at(-2)?.label).toBe('Sync  (not logged in)');
   });
 
+  it('may be loaded lazily, so ink stays out of every non-TUI run, but not both ways at once', async () => {
+    registerTuiScreen({ route: 'lazy', label: 'Lazy', order: 80, load: async () => AboutScreen });
+    const lazy = allTuiScreens().find((screen) => screen.route === 'lazy');
+    expect(lazy?.component).toBeUndefined();
+    expect(await lazy?.load?.()).toBe(AboutScreen);
+    expect(() => registerTuiScreen({ route: 'both', label: 'x', order: 1, component: AboutScreen, load: async () => AboutScreen })).toThrow(
+      /exactly one of component or load/,
+    );
+    expect(() => registerTuiScreen({ route: 'none', label: 'x', order: 1 })).toThrow(/exactly one of component or load/);
+  });
+
   it('ties on order sort by route id, deterministically', () => {
     const sorted = sortTuiScreens([
       { route: 'b', order: 70 },

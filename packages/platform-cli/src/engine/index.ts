@@ -53,7 +53,7 @@ export type {
   RequestOptions,
 } from './api-client.js';
 
-export { buildProgram, run, versionText } from './program.js';
+export { BUILTIN_COMMAND_NAMES, buildProgram, run, versionText } from './program.js';
 export type { RunOptions } from './program.js';
 
 // The TTY GATE ONLY — never `startTui`, and never anything else from
@@ -65,7 +65,7 @@ export type { RunOptions } from './program.js';
 // exported. Reach the app through `await import('./tui/index.js')`, as
 // `program.ts` does.
 export { noTuiEnvVar, evaluateTuiGate } from './tui/tty.js';
-export type { TtyContext, TuiGateDecision, TuiRefusal } from './tui/tty.js';
+export type { TtyContext, TtyLike, TuiGateDecision, TuiRefusal } from './tui/tty.js';
 
 // The terminal-restore safety net, for the same reason: it is plain Node stream
 // handling with no ink import, and "Ctrl-C leaves the terminal usable" is one
@@ -170,6 +170,7 @@ export {
   ConfigError,
   EXIT,
   NetworkError,
+  PreconditionError,
   UsageError,
   exitCodeFor,
   extractServerMessage,
@@ -420,7 +421,7 @@ export {
   registerTuiScreen,
   sortTuiScreens,
 } from './tui/screen-registry.js';
-export type { TuiMenuContext, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
+export type { TuiMenuContext, TuiScreenOrder, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
 export {
   INSTALL_STEP_IDS,
   UPDATE_STEP_IDS,
@@ -438,7 +439,8 @@ export type {
 export { planDeploySteps } from './deploy/steps/plan.js';
 export type { DeployPlanStep } from './deploy/steps/plan.js';
 export { ExecutorRegistry } from './node/executors/index.js';
-export type { JobExecutionContext, JobExecutor } from './node/executors/index.js';
+export type { ExecutorNodeApi, JobExecutionContext, JobExecutor } from './node/executors/index.js';
+export type { ClaimToken, DownloadUrlResult, JobSecret, NodeJob, UploadUrlResult } from './node/node-api.js';
 export { defaultExecutors } from './node/executors/example-checksum.js';
 export {
   defaultExecutorRegistry,
@@ -453,9 +455,16 @@ export type {
   CliConformanceOptions,
   CliPlatformConformanceOptions,
   CliPlatformConformanceSuites,
+  ConformanceMatchers,
   ConformanceTestApi,
   EnvTemplateFragment,
 } from './conformance.js';
 export { checkExecutorCredentialHygiene } from './node/executors/credential-hygiene.js';
 export type { CredentialHygieneOptions, CredentialHygieneReport } from './node/executors/credential-hygiene.js';
 export { PLATFORM_DOCUMENTED_OPTIONAL_KEYS, commentedAssignments, composeEnvSpecs } from './deploy/env-fragments.js';
+
+// The built-in command registrars, published through `/commands`.
+export { registerConfigCommand } from './commands/config.js';
+export { registerInitCommand } from './commands/init.js';
+export { registerLoginCommand } from './commands/login.js';
+export { registerNodeCommand } from './commands/node.js';

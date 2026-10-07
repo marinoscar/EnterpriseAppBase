@@ -37,4 +37,6 @@ export type {
   ExitCode,
   ResolvedCliIdentity,
   RunOptions,
+  TtyContext,
+  TtyLike,
 } from './engine/index.js';

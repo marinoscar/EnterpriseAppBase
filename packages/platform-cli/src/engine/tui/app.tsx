@@ -1,9 +1,10 @@
 import { Box, Text, useApp, useInput } from 'ink';
-import { useCallback, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useState, type ComponentType, type ReactNode } from 'react';
 
 import { allTuiScreens } from './builtin-screens.js';
 import { useTerminalSize } from './layout.js';
 import { MENU_ROUTE, type Route } from './routes.js';
+import type { TuiScreenProps, TuiScreenRegistration } from './screen-registry.js';
 import { MenuScreen } from './screens/menu.js';
 
 // =============================================================================
@@ -80,8 +81,15 @@ export function App(): ReactNode {
   if (route === MENU_ROUTE) return <MenuScreen onSelect={setRoute} onQuit={quit} />;
 
   // The built-in screens and every app screen (`registerTuiScreen`, #715).
-  const Screen = allTuiScreens().find((screen) => screen.route === route)?.component;
-  if (Screen !== undefined) return <Screen onDone={toMenu} />;
+  const registration = allTuiScreens().find((screen) => screen.route === route);
+  const Screen = registration === undefined ? undefined : screenComponent(registration);
+  if (Screen !== undefined) {
+    return (
+      <Suspense fallback={<Text dimColor>Loading…</Text>}>
+        <Screen onDone={toMenu} />
+      </Suspense>
+    );
+  }
 
   // Unreachable while the menu lists only registered routes, and present so
   // that a route without a screen is a blank frame with an explanation rather
@@ -91,4 +99,19 @@ export function App(): ReactNode {
       <Text color="red">Unknown screen. Press ctrl-c to exit.</Text>
     </Box>
   );
+}
+
+/** One lazy component per `load` screen, so reopening it does not reload it. */
+const lazyScreens = new Map<string, ComponentType<TuiScreenProps>>();
+
+function screenComponent(screen: TuiScreenRegistration): ComponentType<TuiScreenProps> | undefined {
+  if (screen.component !== undefined) return screen.component;
+  const load = screen.load;
+  if (load === undefined) return undefined;
+  let component = lazyScreens.get(screen.route);
+  if (component === undefined) {
+    component = lazy(async () => ({ default: await load() }));
+    lazyScreens.set(screen.route, component);
+  }
+  return component;
 }

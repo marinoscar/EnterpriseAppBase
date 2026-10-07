@@ -50,8 +50,13 @@ export function noTuiEnvVar(): string {
   return envVar('NO_TUI');
 }
 
-/** The one property this gate needs from a stream. Structural, so a test can fake it. */
-interface TtyLike {
+/**
+ * The one property this gate needs from a stream. Structural, so a test can fake it.
+ *
+ * @stability experimental
+ */
+export interface TtyLike {
+  /** Whether the stream is a terminal. */
   isTTY?: boolean | undefined;
 }
 
@@ -62,10 +67,15 @@ interface TtyLike {
  * `process.stdout.isTTY` to exercise this would be mutating a global that the
  * test runner itself reads, and the failure would depend on file execution
  * order.
+ *
+ * @stability experimental
  */
 export interface TtyContext {
+  /** Defaults to `process.stdout`. */
   stdout?: TtyLike | undefined;
+  /** Defaults to `process.stdin`. */
   stdin?: TtyLike | undefined;
+  /** Defaults to `process.env` (`CI`, `TERM`, the no-TUI variable). */
   env?: NodeJS.ProcessEnv | undefined;
 }
 

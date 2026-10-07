@@ -69,17 +69,32 @@ export interface NodeJobType {
 }
 
 /** A job the server has leased to this node. Mirrors `NodeJobAssignmentDto`. */
+/**
+ * The job row as the server leased it to this node.
+ *
+ * @stability experimental
+ */
+export interface NodeJob {
+  /** The job's id. */
+  id: string;
+  /** The job type, e.g. `db.backup.run`. */
+  type: string;
+  /** What the job is about (a model name), when it is about something. */
+  subjectType: string | null;
+  /** The id of what the job is about. */
+  subjectId: string | null;
+  /** Higher runs first. */
+  priority: number;
+  /** Attempts so far, this one included. */
+  attempts: number;
+  /** ISO 8601, when this attempt started. */
+  startedAt: string | null;
+  /** ISO 8601, when the lease this node holds runs out unless renewed. */
+  leaseExpiresAt: string | null;
+}
+
 export interface NodeJobAssignment {
-  job: {
-    id: string;
-    type: string;
-    subjectType: string | null;
-    subjectId: string | null;
-    priority: number;
-    attempts: number;
-    startedAt: string | null;
-    leaseExpiresAt: string | null;
-  };
+  job: NodeJob;
   params: Record<string, unknown>;
   /**
    * How often the server wants this job's lease renewed, in milliseconds.
@@ -125,6 +140,8 @@ export interface NodeJobAssignment {
  * an assignment can be passed straight through without a call site ever having
  * to normalise it (and getting that normalisation wrong). `claimTokenBody` is
  * where the three states are resolved, once.
+ *
+ * @stability experimental
  */
 export type ClaimToken = string | null | undefined;
 
@@ -215,21 +232,39 @@ export interface ClaimRequest {
   limit?: number | undefined;
 }
 
+/**
+ * A presigned GET for a job's input object.
+ *
+ * @stability experimental
+ */
 export interface DownloadUrlResult {
+  /** The presigned URL. A bearer capability: never log it. */
   url: string;
+  /** Seconds the URL is valid for. */
   expiresIn: number;
+  /** ISO 8601, when the URL stops working. */
   expiresAt: string;
+  /** The input object's id. */
   objectId: string;
   /** A decimal STRING: the column is 64-bit and JSON has no such number. */
   size: string;
+  /** The object's MIME type. */
   mimeType: string;
 }
 
+/**
+ * A presigned PUT for a job's output.
+ *
+ * @stability experimental
+ */
 export interface UploadUrlResult {
+  /** The presigned URL. A bearer capability: never log it. */
   url: string;
   /** The storage key the SERVER chose. A node cannot pick this. */
   key: string;
+  /** Seconds the URL is valid for. */
   expiresIn: number;
+  /** ISO 8601, when the URL stops working. */
   expiresAt: string;
 }
 
@@ -245,6 +280,8 @@ export interface UploadUrlResult {
  * on this one: hold it in a local for the life of the job, never write it to
  * the config file or the state directory, never log it, and never hand it to
  * a child process that outlives the job.
+ *
+ * @stability experimental
  */
 export interface JobSecret {
   /** e.g. `postgres.readonly` — which broker minted this, so a client knows how to read `material`. */

@@ -99,6 +99,11 @@ async function drainingFetch(_url: string | URL | Request, init?: RequestInit): 
  * and reports every place the credential ended up that it must never reach:
  * the node log, the state directory, HOME, the result or the error.
  *
+ * Needs the CLI identity (the state directory's variable is prefixed with
+ * it), so build the CLI with `createCli` first. Not safe to run concurrently
+ * with other tests in the same process: it swaps `process.env.HOME`, the
+ * state-directory variable and `globalThis.fetch` while the executor runs.
+ *
  * @param executor - The executor under test.
  * @param options - The job's params, the credential's shape, the fetch answer.
  * @returns The report; `findings` is empty when the executor is clean.

@@ -40,30 +40,51 @@ export interface TuiMenuContext {
 }
 
 /**
+ * Where a screen sits in the menu.
+ *
+ * @stability experimental
+ */
+export interface TuiScreenOrder {
+  /** Unique route id, lowercase `[a-z0-9-]`, e.g. `android`. `menu` and `quit` are reserved. */
+  route: string;
+  /** Position in the menu: lower first; ties sort by route id. The built-ins use 10 to 60. */
+  order: number;
+}
+
+/**
  * A screen in the TUI menu.
  *
  * @stability experimental
  */
-export interface TuiScreenRegistration {
-  /** Unique route id, lowercase `[a-z0-9-]`, e.g. `android`. `menu` and `quit` are reserved. */
-  route: string;
+export interface TuiScreenRegistration extends TuiScreenOrder {
   /** The menu entry, or a function of the login state. */
   label: string | ((context: TuiMenuContext) => string);
-  /** Position in the menu: lower first; ties sort by route id. The built-ins use 10 to 60. */
-  order: number;
-  /** The screen. It calls `onDone` to return to the menu. */
-  component: ComponentType<TuiScreenProps>;
+  /**
+   * The screen. It calls `onDone` to return to the menu. Give this OR `load`.
+   * A component imported at startup loads ink with it on every invocation,
+   * `api` and `--help` included; prefer `load` for an app screen.
+   */
+  component?: ComponentType<TuiScreenProps> | undefined;
+  /**
+   * Loads the screen only when it is opened (`() => import('./about.screen.js')`
+   * resolving to the component), so ink stays out of every non-TUI run.
+   */
+  load?: (() => Promise<ComponentType<TuiScreenProps>>) | undefined;
 }
 
 /** The route ids the router itself owns. */
 const RESERVED_ROUTES: readonly string[] = ['menu', 'quit'];
 
 /**
- * The platform's own screens, in menu order. Their components are attached by
- * `builtin-screens.tsx`; the ids and orders are here so a duplicate is caught
- * without loading the UI.
+ * The platform's own screens, in menu order: `login` 10, `invoke` 20,
+ * `status` 30, `node` 40, `deploy` 50, `logout` 60. An app screen picks an
+ * `order` relative to these. Their components are attached when the TUI
+ * starts; the ids and orders are here so a duplicate is caught without
+ * loading the UI.
+ *
+ * @stability stable
  */
-export const BUILTIN_TUI_SCREENS: readonly { route: string; order: number }[] = Object.freeze([
+export const BUILTIN_TUI_SCREENS: readonly TuiScreenOrder[] = Object.freeze([
   { route: 'login', order: 10 },
   { route: 'invoke', order: 20 },
   { route: 'status', order: 30 },
@@ -87,7 +108,12 @@ let frozenBy: string | undefined;
  * @extensionPoint registry
  * @example
  * ```ts
- * registerTuiScreen({ route: 'about', label: 'About this app', order: 70, component: AboutScreen });
+ * registerTuiScreen({
+ *   route: 'about',
+ *   label: 'About this app',
+ *   order: 70,
+ *   load: async () => (await import('./about.screen.js')).AboutScreen,
+ * });
  * ```
  */
 export function registerTuiScreen(screen: TuiScreenRegistration): void {
@@ -109,8 +135,10 @@ export function registerTuiScreen(screen: TuiScreenRegistration): void {
   if (typeof screen.order !== 'number' || !Number.isFinite(screen.order)) {
     throw new Error(`TUI screen "${screen.route}" needs a finite numeric order.`);
   }
-  if (typeof screen.component !== 'function' && (typeof screen.component !== 'object' || screen.component === null)) {
-    throw new Error(`TUI screen "${screen.route}" needs a component.`);
+  const hasComponent = typeof screen.component === 'function' || (typeof screen.component === 'object' && screen.component !== null);
+  const hasLoad = typeof screen.load === 'function';
+  if (hasComponent === hasLoad) {
+    throw new Error(`TUI screen "${screen.route}" needs exactly one of component or load.`);
   }
   registered.push(Object.freeze({ ...screen }));
 }
@@ -128,11 +156,12 @@ export function listRegisteredTuiScreens(): readonly TuiScreenRegistration[] {
 /**
  * Sorts screens the way the menu lists them: by `order`, then route id.
  *
+ * @typeParam T - A screen registration, or anything with a route and an order.
  * @param screens - Built-in and app screens.
  * @returns A new, sorted array.
  * @stability experimental
  */
-export function sortTuiScreens<T extends { route: string; order: number }>(screens: readonly T[]): T[] {
+export function sortTuiScreens<T extends TuiScreenOrder>(screens: readonly T[]): T[] {
   return [...screens].sort((a, b) => a.order - b.order || (a.route < b.route ? -1 : a.route > b.route ? 1 : 0));
 }
 

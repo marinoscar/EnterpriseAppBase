@@ -31,12 +31,23 @@ import { ApiError, NetworkError, UsageError } from './errors.js';
  * device-flow polling can be tested without sleeping through real intervals.
  * Typed as `typeof fetch` rather than a hand-rolled signature so a stub that
  * would not satisfy the real thing fails at compile time.
+ *
+ * @stability experimental
  */
 export type FetchLike = typeof globalThis.fetch;
 
-/** Query values a caller may pass; `undefined`/`null` entries are dropped. */
+/**
+ * Query values a caller may pass; `undefined`/`null` entries are dropped.
+ *
+ * @stability experimental
+ */
 export type QueryValue = string | number | boolean | null | undefined;
 
+/**
+ * Options of {@link ApiClient}.
+ *
+ * @stability experimental
+ */
 export interface ApiClientOptions {
   /**
    * Root URL for API requests, INCLUDING the `/api` prefix — e.g.
@@ -52,6 +63,11 @@ export interface ApiClientOptions {
   fetch?: FetchLike | undefined;
 }
 
+/**
+ * Per-request options of {@link ApiClient}.
+ *
+ * @stability experimental
+ */
 export interface RequestOptions {
   /** Appended as a query string; `undefined`/`null` values are omitted. */
   query?: Record<string, QueryValue> | undefined;
@@ -65,9 +81,16 @@ export interface RequestOptions {
   timeoutMs?: number | undefined;
 }
 
-/** A completed request, before the envelope is discarded. */
+/**
+ * A completed request, before the envelope is discarded.
+ *
+ * @typeParam T - The payload type.
+ * @stability experimental
+ */
 export interface ApiResponse<T> {
+  /** HTTP status (2xx; anything else throws `ApiError`). */
   status: number;
+  /** The response headers. */
   headers: Headers;
   /**
    * The payload with the response envelope removed — what callers almost
@@ -98,9 +121,18 @@ export interface ApiResponse<T> {
  *
  * Generous enough for a cold-started server behind a proxy, short enough to
  * fail inside anybody's CI step limit. #142's polling passes its own value.
+ *
+ * @stability experimental
  */
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * The CLI's HTTP client for the platform API: bearer auth, the response
+ * envelope, a timeout on every call, and `ApiError` / `NetworkError` on
+ * failure, never a raw `fetch` exception.
+ *
+ * @stability experimental
+ */
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly token: string | undefined;
@@ -334,6 +366,8 @@ export class ApiClient {
  *
  * Arrays and primitives are returned untouched: only an object with a `data`
  * key can be an envelope.
+ *
+ * @stability experimental
  */
 export function unwrapEnvelope<T>(body: unknown): T {
   if (body !== null && typeof body === 'object' && !Array.isArray(body) && 'data' in body) {
@@ -361,6 +395,8 @@ function extractMeta(body: unknown): Record<string, unknown> | undefined {
  *
  * Exported for tests: the slash handling above is exactly the sort of thing
  * that regresses.
+ *
+ * @stability experimental
  */
 export function buildUrl(
   baseUrl: string,
@@ -405,6 +441,8 @@ export function buildUrl(
  * address gets `http`, everything else gets `https`. Defaulting a public
  * hostname to http would send a bearer token over the wire in plaintext, and
  * silently downgrading a credential is not an acceptable convenience.
+ *
+ * @stability experimental
  */
 export function resolveApiBaseUrl(serverUrl: string): string {
   const trimmed = serverUrl.trim();
