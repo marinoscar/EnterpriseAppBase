@@ -23,13 +23,14 @@
 // on the decorator metadata of a class declared in a closure.
 // =============================================================================
 
+import type { DoctorReport } from '@marinoscar/platform-contract/doctor';
 import { Controller, Get, Inject, Query, Type } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { DoctorService } from './doctor.service';
 import type { ResolvedDoctorModuleOptions } from './doctor.options';
 import { DoctorQueryDto } from './dto/doctor-query.dto';
-import { DoctorReport, DoctorReportDto } from './dto/doctor-report.dto';
+import { DoctorReportDto } from './dto/doctor-report.dto';
 
 /**
  * The shape of the controller class {@link createDoctorController} returns.

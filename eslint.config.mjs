@@ -27,6 +27,7 @@
 // =============================================================================
 
 import { readFileSync } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import boundaries from 'eslint-plugin-boundaries';
@@ -211,6 +212,39 @@ const tsdocAtRepoRoot = {
   },
 };
 
+/**
+ * The contract package's own import rules (issue #701; the conventions table of
+ * packages/platform-contract/README.md). `@marinoscar/platform-contract` is
+ * loaded by the API (CommonJS, Nest), the web app (ESM, browser) and the CLI,
+ * so it may import zod and its own files and nothing else: no framework, no
+ * Node built-in, no other platform package (every other package depends on
+ * it; the reverse would be a cycle).
+ */
+export const CONTRACT_SOURCE_FILES = ['packages/platform-contract/src/**/*.{ts,tsx}'];
+
+export const CONTRACT_RESTRICTED_IMPORT_PATTERNS = [
+  {
+    group: ['@nestjs/*', '@nestjs/*/**', 'nestjs-zod', 'nestjs-zod/**'],
+    message: 'The contract is framework-free: Nest and nestjs-zod belong to @marinoscar/platform-api (it wraps contract schemas with createZodDto).',
+  },
+  {
+    group: ['react', 'react/**', 'react-dom', 'react-dom/**', '@mui/*', '@mui/*/**', '@emotion/*'],
+    message: 'The contract is framework-free: React and MUI belong to @marinoscar/platform-web.',
+  },
+  {
+    group: ['node:*'],
+    message: 'The contract runs in the browser too: no Node built-in.',
+  },
+  {
+    group: ['@marinoscar/platform-*', '@marinoscar/platform-*/**'],
+    message: 'The contract imports no other platform package; they all depend on it.',
+  },
+];
+
+export const CONTRACT_RESTRICTED_IMPORT_PATHS = builtinModules
+  .filter((name) => !name.startsWith('_'))
+  .map((name) => ({ name, message: 'The contract runs in the browser too: no Node built-in.' }));
+
 /** The whole flat config for a given slice graph. */
 export function createPlatformLintConfig({ graph = readSliceGraph(), rootPath = ROOT } = {}) {
   return [
@@ -266,6 +300,21 @@ export function createPlatformLintConfig({ graph = readSliceGraph(), rootPath = 
       files: PLATFORM_SOURCE_FILES,
       plugins: { tsdoc: tsdocAtRepoRoot },
       rules: { 'tsdoc/syntax': 'error' },
+    },
+    // The contract's import rules (issue #701). A later block replaces the
+    // options of `no-restricted-imports` for these files, so it repeats the
+    // deep-import patterns of rule A before adding its own.
+    {
+      files: CONTRACT_SOURCE_FILES,
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            paths: CONTRACT_RESTRICTED_IMPORT_PATHS,
+            patterns: [...DEEP_IMPORT_PATTERNS, ...CONTRACT_RESTRICTED_IMPORT_PATTERNS],
+          },
+        ],
+      },
     },
   ];
 }

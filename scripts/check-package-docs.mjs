@@ -52,7 +52,7 @@ export const HEADINGS = [
 
 export const CATALOG_HEADING = 'Extension-point catalog';
 export const CATALOG_COLUMNS = ['Name', 'Kind', 'Signature', 'When to use', 'Stability', 'Example'];
-export const KINDS = ['option', 'registry', 'token', 'event', 'slot', 'theme-token', 'overlay', 'hook', 'component'];
+export const KINDS = ['option', 'registry', 'token', 'event', 'slot', 'theme-token', 'overlay', 'hook', 'component', 'schema'];
 export const STABILITIES = ['stable', 'experimental'];
 /** Where an Example link may point: the reference app, never a package. */
 export const EXAMPLE_ROOTS = ['apps/', 'infra/', 'tests/'];

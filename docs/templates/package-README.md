@@ -60,7 +60,7 @@ The `forRoot()` (or provider/props) options, one row each:
 
 ## Extension-point catalog
 
-Every registry, injection token, event, slot, theme token, overlay point, hook and component an app may extend. One row per exported symbol tagged `@extensionPoint`; `Name` is the exported name (`Class.member` for a member), `Kind` and `Stability` equal its `@extensionPoint` and `@stability` tags.
+Every registry, injection token, event, slot, theme token, overlay point, hook, component and schema an app may extend. One row per exported symbol tagged `@extensionPoint`; `Name` is the exported name (`Class.member` for a member), `Kind` and `Stability` equal its `@extensionPoint` and `@stability` tags.
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
@@ -72,7 +72,7 @@ Sample rows (the Example link is relative to the README, so from `packages/platf
 | `DOCTOR_OPTIONS` | token | `InjectionToken<DoctorOptions>` | Read the resolved options in a custom check | experimental | [example](../../apps/api/src/doctor/doctor.config.ts) |
 ```
 
-`Kind` is one of `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook`, `component`. `Stability` is `stable` or `experimental` (`internal` symbols are never exported, so never listed). A package with no extension point yet writes `None.` and one sentence why instead of the table.
+`Kind` is one of `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook`, `component`, `schema`. `Stability` is `stable` or `experimental` (`internal` symbols are never exported, so never listed). A package with no extension point yet writes `None.` and one sentence why instead of the table.
 
 ## Data
 

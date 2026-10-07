@@ -1,36 +1,97 @@
 # @marinoscar/platform-contract
 
-Zod schemas, DTOs and TypeScript types shared by `@marinoscar/platform-api` and `@marinoscar/platform-web`, so the server and the browser validate the same shapes. It is the only dual-format package: it ships CommonJS (for the API) and ESM (for the web app and the CLI) from one source, selected by the `exports` map.
+Zod schemas, DTOs and TypeScript types shared by `@marinoscar/platform-api` and `@marinoscar/platform-web`, so the server and the browser validate and type the same shapes. It is the only dual-format package: it ships CommonJS (for the API, which is CommonJS) and ESM (for the web app and the CLI) from one source, selected by the `exports` map.
 
 ## Purpose and scope
 
-The request and response shapes of every platform slice, as Zod schemas plus the inferred types. It holds no runtime behaviour beyond validation: no NestJS, no React, no I/O.
+The request and response shapes of every platform slice, as zod schemas plus the inferred types and plain constants. It holds no runtime behaviour beyond validation: no NestJS, no React, no I/O. The API wraps the schemas as its nestjs-zod DTOs (so the OpenAPI document is generated from them); the web app imports their types and constants. Nothing is described twice by hand.
 
-Status: scaffold only (version `0.0.0`). The package builds, packs and loads, and exports its own name (`PLATFORM_PACKAGE`). Slices arrive as subpath exports (`@marinoscar/platform-contract/<slice>`) in later releases of the platform program, each with its own README.
+Slices (each a subpath export with its own README):
+
+| Subpath | What | README |
+|---|---|---|
+| `@marinoscar/platform-contract/doctor` | The admin Doctor's report, row, status and query (#701) | [src/doctor/README.md](src/doctor/README.md) |
+
+The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
+
+### Conventions
+
+Every slice follows these rules. The mechanical ones are enforced.
+
+| Rule | Enforced by |
+|---|---|
+| One directory per slice, `src/<slice>/{schemas.ts,constants.ts,index.ts}` plus its `README.md`; subpath export `./<slice>` with an `import` and a `require` condition, each with its own `types` | `test/no-zod-in-constants.test.ts` (layout), `test/dual-format.test.ts` (exports map, both halves load with the same keys), `packages/platform-api/test/slice-graph.spec.ts` (the slice is in `packages/platform-slices.json`), the pack check |
+| `schemas.ts` holds zod schemas named `<thing>Schema` (camelCase) and the inferred types `export type <Thing> = z.infer<typeof <thing>Schema>` (`z.output` where a transform applies) | review, TSDoc catalog |
+| `constants.ts` holds plain readonly values and string-literal unions and never imports zod (nor `schemas.ts`), so a browser that needs only a constant or a type never bundles zod | `test/no-zod-in-constants.test.ts` |
+| `src/` imports zod and its own files only: no `@nestjs/*`, `nestjs-zod`, `react`, `@mui/*`, Node built-in, or other platform package | `no-restricted-imports` block for `packages/platform-contract/src/**` in [`eslint.config.mjs`](../../eslint.config.mjs) (`npm run lint:packages`) |
+| Wire shapes are explicit: a response field that is always present is `.nullable()`, never `.optional()`; dates are ISO strings (`z.iso.datetime()`) | review |
+| Every schema an app may extend is tagged `@extensionPoint schema` and listed in its slice README's catalog | `npm run check:package-docs` |
+| Schemas are extension surface: renaming or removing a field, or narrowing a type, is a breaking change (`major` changeset with a migration note); adding an optional field or a new schema is `minor` | [docs/PACKAGES.md](../../docs/PACKAGES.md#contract-conventions), changeset review |
+| Apps extend in app code with `.extend()` / `.merge()` / `.strict()`; never edit a contract file to add an app field | this README, "Extending a contract in an app" below |
+| A schema moved here from a package keeps its field order, `.describe()` texts and enum order, so the generated OpenAPI document does not change | the OpenAPI diff in the slice's pull request |
+
+### Who depends on it
+
+`@marinoscar/platform-api` and `@marinoscar/platform-web` depend on this package at the lockstep version (a dependency, not a peer: it is part of the platform). `packages/platform-slices.json` records slice edges inside one package only; the package edges are these two, and the contract depends on no platform package.
+
+### Dual format
+
+`npm run build` runs `tsc` twice (`tsconfig.cjs.json` into `dist/cjs`, `tsconfig.esm.json` into `dist/esm`) and writes a `package.json` stub into each half that sets its module format. Each half carries its own `.d.ts` files, so a CommonJS consumer on `moduleResolution: node16` never sees ESM-format declarations. `"sideEffects": false` lets a bundler drop a slice's `schemas.ts` (and zod) when only its constants and types are used.
 
 ## Install and peer dependencies
 
 ```bash
-npm install @marinoscar/platform-contract
+npm install @marinoscar/platform-contract zod
 ```
 
-Install these in the app; the package never bundles its own copy (a second copy breaks dependency injection, hooks or theme context).
+Install these in the app; the package never bundles its own copy (a second copy of zod breaks `instanceof ZodError` across the boundary).
 
 | Package | Range |
 |---|---|
 | `zod` | `^4.4.3` |
 
+An app that uses `@marinoscar/platform-api` or `@marinoscar/platform-web` gets this package with them, but still installs `zod` itself.
+
 ## Quick start
 
-None. Scaffold only (version `0.0.0`): the package exports nothing but its own name, `PLATFORM_PACKAGE`, so there is nothing to set up yet.
+Validate with a slice's schema, or use its types:
+
+```ts
+import { doctorReportSchema } from '@marinoscar/platform-contract/doctor';
+import type { DoctorReport } from '@marinoscar/platform-contract/doctor';
+
+const report: DoctorReport = doctorReportSchema.parse(body.data);
+```
+
+In browser code, import types with `import type` and constants only, so zod stays out of the bundle.
+
+### Extending a contract in an app
+
+An app that needs more than the contract says extends the schema in its own code; it never edits a contract file:
+
+```ts
+import { doctorCheckReportSchema, doctorReportSchema } from '@marinoscar/platform-contract/doctor';
+import { z } from 'zod';
+
+// Stricter: refuse any field the contract does not declare.
+const exactReportSchema = doctorReportSchema
+  .extend({ checks: z.array(doctorCheckReportSchema.strict()) })
+  .strict();
+
+// Wider: an app-only field on its own rows.
+const ownedRowSchema = doctorCheckReportSchema.extend({ owner: z.string() });
+type OwnedRow = z.infer<typeof ownedRowSchema>;
+```
+
+The reference app's Doctor integration test uses the first form ([`doctor.integration.spec.ts`](../../apps/api/test/doctor/doctor.integration.spec.ts)). A field every app needs belongs in the contract: file a seam request.
 
 ## Configuration
 
-None. No slice is exported yet, so there is no `forRoot()` or other option to set.
+None. Schemas take no options; the routes that use them are configured in `@marinoscar/platform-api`.
 
 ## Extension-point catalog
 
-None. Nothing the package exports is an extension point yet; each slice adds its rows (`Name`, `Kind`, `Signature`, `When to use`, `Stability`, `Example`) when it is extracted.
+None. The root entry exports only `PLATFORM_PACKAGE`; every schema is an extension point of its slice and is catalogued in that slice's README (`schema` kind), for example [the Doctor's](src/doctor/README.md#extension-point-catalog).
 
 ## Data
 
@@ -42,11 +103,11 @@ None. Schemas declare no permission or setting; the API slices that use them do.
 
 ## UI
 
-None. The package renders nothing; `@marinoscar/platform-web` imports its schemas to validate forms and responses.
+None. The package renders nothing; `@marinoscar/platform-web` imports its types and constants.
 
 ## Infra
 
-None. The package ships no deployment configuration and reads no environment variable.
+None. The package ships no deployment configuration and reads no environment variable. The API and web images copy and build it before the package that depends on it.
 
 ## Observability
 
@@ -54,22 +115,29 @@ None. Validation is pure; the API and web packages log and trace around it.
 
 ## Security notes
 
-Schemas are the single source of input validation for both sides. Never loosen a schema in an app to accept a payload the API rejects; file a seam request instead.
+Schemas are the single source of input validation for both sides. Never loosen a schema in an app to accept a payload the API rejects; file a seam request instead. A schema documents which fields never carry secret material, but cannot enforce it; the slice that fills the payload does.
 
 ## Conformance suite
 
-None yet. The package ships no conformance suite; `runPlatformConformance()` and the suites arrive with the platform's conformance harness.
+None yet. The package ships no conformance suite; `runPlatformConformance()` and the suites arrive with the platform's conformance harness. Its own tests (`test/`) cover every slice's schemas and both module formats.
 
 ## Upgrade notes
 
-None. No version has been published yet, so there is nothing to migrate from.
+What counts as breaking, for every slice: renaming or removing a field, making an optional field required, narrowing a type (a smaller enum, a stricter pattern), changing a nullable field to optional or the reverse, or changing what a transform outputs. Each is a `major` changeset with a migration note. Adding an optional request field, a new response field an app can ignore, or a new schema or slice is `minor`.
+
+- #701: first slice, `./doctor`. The Doctor's schemas moved here from `@marinoscar/platform-api/doctor` and its types from `@marinoscar/platform-web/doctor/headless`; both packages re-export the old names. No wire or OpenAPI change.
 
 ## Troubleshooting
 
-None yet. Build and import problems common to every platform package are in [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages).
+- **`Cannot find module '@marinoscar/platform-contract/<slice>'`.** The package is not built (`npm run build:packages` builds it first), or the slice is missing from the `exports` map.
+- **`ERR_REQUIRE_ESM` or `exports is not defined` at load.** A `dist/<cjs|esm>/package.json` stub is missing; rebuild (`scripts/write-dist-stubs.mjs` writes them).
+- **zod appears in the web bundle.** Browser code imports a schema at run time; switch to `import type` and the slice's constants.
+
+Build and import problems common to every platform package are in [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages).
 
 ## Links
 
 - [Platform packages spec](../../docs/specs/platform-packages.md): the extension contract and the package documentation standard
-- [Package documentation standard and checks](../../docs/PACKAGES.md): how this README, the TSDoc and the catalog are checked
+- [Package documentation standard and checks](../../docs/PACKAGES.md): how this README, the TSDoc and the catalog are checked, and the contract conventions summary
 - [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages): build, test and lint commands
+- [Doctor slice](src/doctor/README.md)

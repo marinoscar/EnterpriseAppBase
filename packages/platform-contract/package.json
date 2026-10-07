@@ -30,6 +30,16 @@
         "default": "./dist/cjs/index.js"
       }
     },
+    "./doctor": {
+      "import": {
+        "types": "./dist/esm/doctor/index.d.ts",
+        "default": "./dist/esm/doctor/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/doctor/index.d.ts",
+        "default": "./dist/cjs/doctor/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

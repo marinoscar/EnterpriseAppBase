@@ -9,13 +9,13 @@
 // ⚠ `error` MEANS THE REQUEST FAILED. A report whose verdict is `fail` is a
 // successful read and lands in `report`.
 
+import type { DoctorReport } from '@marinoscar/platform-contract/doctor';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { isPlatformApiError, useOptionalPlatformHost } from '../../core/index.js';
 import { useIsMounted } from '../internal/use-is-mounted.js';
 import { createDoctorClient } from './client.js';
 import type { DoctorClient } from './client.js';
-import type { DoctorReport } from './types.js';
 
 function messageFor(err: unknown): string {
   if (isPlatformApiError(err)) {

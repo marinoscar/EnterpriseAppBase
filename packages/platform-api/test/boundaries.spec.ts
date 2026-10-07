@@ -32,6 +32,8 @@ const FIXTURE_FILES: Record<string, string> = {
   'packages/platform-api/src/jobs/index.ts': 'export const jobs = 1;\n',
   'packages/platform-web/tsconfig.json': '{ "compilerOptions": { "module": "NodeNext", "moduleResolution": "NodeNext" } }',
   'packages/platform-web/src/ui/index.ts': 'export const ui = 1;\n',
+  'packages/platform-contract/tsconfig.json': '{ "compilerOptions": { "module": "NodeNext", "moduleResolution": "NodeNext" } }',
+  'packages/platform-contract/src/doctor/constants.ts': "export const STATUSES = ['pass'] as const;\n",
 };
 
 type LintCase = { name: string; filePath: string; code: string };
@@ -57,6 +59,16 @@ const CASES: LintCase[] = [
   { name: "another slice's internal/", filePath: 'packages/platform-api/src/testing/a.ts', code: "import { helper } from '../core/internal/helper.js';\nexport const a = helper;\n" },
   { name: 'barrel reaching into a slice', filePath: 'packages/platform-api/src/index.ts', code: "export * from './core/internal/helper.js';\n" },
   { name: 'slice importing the package barrel', filePath: 'packages/platform-api/src/core/a.ts', code: "import { helper } from '../index.js';\nexport const a = helper;\n" },
+  // Contract import rules (#701)
+  { name: 'contract: zod and its own slice', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { z } from 'zod';\nimport { STATUSES } from './constants.js';\nexport const s = z.enum(STATUSES);\n" },
+  { name: 'contract: @nestjs/common', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { Injectable } from '@nestjs/common';\nexport const a = Injectable;\n" },
+  { name: 'contract: nestjs-zod', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { createZodDto } from 'nestjs-zod';\nexport const a = createZodDto;\n" },
+  { name: 'contract: react', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { useState } from 'react';\nexport const a = useState;\n" },
+  { name: 'contract: @mui/material', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { Box } from '@mui/material';\nexport const a = Box;\n" },
+  { name: 'contract: node: built-in', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { readFileSync } from 'node:fs';\nexport const a = readFileSync;\n" },
+  { name: 'contract: bare built-in', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { join } from 'path';\nexport const a = join;\n" },
+  { name: 'contract: another platform package', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { DoctorModule } from '@marinoscar/platform-api/doctor';\nexport const a = DoctorModule;\n" },
+  { name: 'contract: still no deep import', filePath: 'packages/platform-contract/src/doctor/schemas.ts', code: "import { x } from '@app/shared';\nexport const a = x;\n" },
 ];
 
 describe('platform boundary lint (eslint.config.mjs)', () => {
@@ -133,6 +145,27 @@ describe('platform boundary lint (eslint.config.mjs)', () => {
       const [message] = results.get('undeclared cross-slice import')!.messages;
       expect(message!.message).toMatch(/Slice 'core' of platform-api may not import 'testing'/);
       expect(message!.message).toMatch(/packages\/platform-slices\.json/);
+    });
+  });
+
+  describe('contract import rules (#701)', () => {
+    it('accepts zod and an import inside its own slice', () => {
+      expect(results.get('contract: zod and its own slice')!.messages).toEqual([]);
+    });
+
+    it.each([
+      ['contract: @nestjs/common', /framework-free: Nest/],
+      ['contract: nestjs-zod', /framework-free: Nest/],
+      ['contract: react', /framework-free: React/],
+      ['contract: @mui/material', /framework-free: React/],
+      ['contract: node: built-in', /no Node built-in/],
+      ['contract: bare built-in', /no Node built-in/],
+      ['contract: another platform package', /no other platform package/],
+      ['contract: still no deep import', /app identity package/],
+    ])('rejects %s', (name, message) => {
+      const messages = results.get(name)!.messages;
+      expect(messages.map((m) => m.ruleId)).toContain('no-restricted-imports');
+      expect(messages.map((m) => m.message).join('\n')).toMatch(message);
     });
   });
 });

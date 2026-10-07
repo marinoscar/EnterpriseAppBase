@@ -43,14 +43,16 @@ import type { AlertColor, SxProps, Theme } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
+import { DOCTOR_STATUS_RANK } from '@marinoscar/platform-contract/doctor';
+import type { DoctorCheckReport, DoctorReport, DoctorStatus } from '@marinoscar/platform-contract/doctor';
+
 import { useOptionalPlatformHost } from '../../core/index.js';
 import {
-  DOCTOR_STATUS_ORDER,
   PLATFORM_DOCTOR_CATEGORY_LABELS,
   categoryLabel,
   useDoctor,
 } from '../headless/index.js';
-import type { DoctorCategoryLabel, DoctorCheckReport, DoctorReport, DoctorStatus } from '../headless/index.js';
+import type { DoctorCategoryLabel } from '../headless/index.js';
 import { formatRelativeTime as fallbackRelativeTime } from '../internal/relative-time.js';
 import { CheckRow, STATUS_LABELS, StatusIcon, statusChipSx } from './check-row.js';
 import { DOCTOR_PAGE_DESCRIPTION, DOCTOR_PAGE_TITLE } from './copy.js';
@@ -93,7 +95,7 @@ function isProblem(status: DoctorStatus): boolean {
 function worstStatus(checks: DoctorCheckReport[]): DoctorStatus {
   let worst: DoctorStatus = 'pass';
   for (const check of checks) {
-    if (DOCTOR_STATUS_ORDER.indexOf(check.status) > DOCTOR_STATUS_ORDER.indexOf(worst)) {
+    if (DOCTOR_STATUS_RANK[check.status] > DOCTOR_STATUS_RANK[worst]) {
       worst = check.status;
     }
   }

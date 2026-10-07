@@ -24,6 +24,7 @@
 // are bound by the same rule (see `doctor-check.interface.ts`).
 // =============================================================================
 
+import type { DoctorCheckReport, DoctorReport } from '@marinoscar/platform-contract/doctor';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import {
@@ -36,7 +37,6 @@ import {
 } from './doctor-check.interface';
 import { DoctorCheckRegistry } from './doctor-check.registry';
 import { DOCTOR_MODULE_OPTIONS, ResolvedDoctorModuleOptions } from './doctor.options';
-import { DoctorCheckReport, DoctorReport } from './dto/doctor-report.dto';
 
 /**
  * Per-check ceiling when a check declares none: the default of `defaultTimeoutMs`.

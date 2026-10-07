@@ -1,5 +1,6 @@
+import type { DoctorReport, DoctorReportQueryInput } from '@marinoscar/platform-contract/doctor';
+
 import type { PlatformApiClient } from '../../core/index.js';
-import type { DoctorReport, DoctorReportQuery } from './types.js';
 
 /**
  * The Doctor's API calls.
@@ -11,7 +12,7 @@ export interface DoctorClient {
    * `GET /admin/doctor`. Rejects only when the CALL fails (403, 500, the
    * connection dropped); a failing check is a resolved report.
    */
-  getReport(query?: DoctorReportQuery): Promise<DoctorReport>;
+  getReport(query?: DoctorReportQueryInput): Promise<DoctorReport>;
 }
 
 /**
@@ -33,7 +34,7 @@ export interface DoctorClient {
  */
 export function createDoctorClient(api: PlatformApiClient, path = '/admin/doctor'): DoctorClient {
   return {
-    getReport(query: DoctorReportQuery = {}) {
+    getReport(query: DoctorReportQueryInput = {}) {
       const params = new URLSearchParams();
       if (query.category) params.set('category', query.category);
       if (query.refresh) params.set('refresh', 'true');

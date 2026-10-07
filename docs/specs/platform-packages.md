@@ -559,7 +559,7 @@ Each package, and each slice README under it, uses the same headings in the same
 2. **Install and peer dependencies**.
 3. **Quick start**: the smallest working setup.
 4. **Configuration**: a `forRoot()` options table with type, default and meaning.
-5. **Extension-point catalog**: every registry, injection token, event, slot, theme token and overlay point. Each entry has its signature, when to use it, a minimal example and its stability level, and links to a working example in the reference app.
+5. **Extension-point catalog**: every registry, injection token, event, slot, theme token and overlay point (and, in `@marinoscar/platform-contract`, every schema an app extends with `.extend()`, kind `schema`; conventions in its [README](../../packages/platform-contract/README.md#conventions), #701). Each entry has its signature, when to use it, a minimal example and its stability level, and links to a working example in the reference app.
 6. **Data**: models owned, migrations, seeds, and what apps may reference.
 7. **Permissions and settings** it declares.
 8. **UI**: pages, registry entries, slots and theme tokens.

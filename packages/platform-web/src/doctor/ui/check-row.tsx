@@ -16,8 +16,8 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutlined';
 import type { ReactElement } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
+import type { DoctorCheckReport, DoctorStatus } from '@marinoscar/platform-contract/doctor';
 
-import type { DoctorCheckReport, DoctorStatus } from '../headless/index.js';
 import { statusColor } from '../internal/status-colors.js';
 
 /**

@@ -18,7 +18,7 @@ import { server } from '../../mocks/server';
 import { render, mockAdminUser, mockUser } from '../../utils/test-utils';
 import DoctorPage, { categoryLabel } from '../../../pages/Admin/DoctorPage';
 import { api } from '../../../services/api';
-import type { DoctorCheckReport, DoctorReport } from '@marinoscar/platform-web/doctor/headless';
+import type { DoctorCheckReport, DoctorReport } from '@marinoscar/platform-contract/doctor';
 import { setViewportWidth } from '../../setup';
 
 function check(overrides: Partial<DoctorCheckReport> & Pick<DoctorCheckReport, 'id' | 'category'>): DoctorCheckReport {

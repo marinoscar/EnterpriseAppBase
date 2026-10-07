@@ -14,6 +14,7 @@ Build, test and lint commands for the packages themselves are in [DEVELOPMENT.md
 6. [Adding a slice](#adding-a-slice)
 7. [Running the checks locally](#running-the-checks-locally)
 8. [What a failure means](#what-a-failure-means)
+9. [Contract conventions](#contract-conventions)
 
 ## What is checked, and by what
 
@@ -57,7 +58,7 @@ One table, these columns in this order:
 | Column | Content |
 |---|---|
 | Name | The exported name, in backticks; `Class.member` for a member (`DoctorRegistry.register`). A trailing `()` is ignored. |
-| Kind | The symbol's `@extensionPoint` value: `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook` or `component`. |
+| Kind | The symbol's `@extensionPoint` value: `option`, `registry`, `token`, `event`, `slot`, `theme-token`, `overlay`, `hook`, `component` or `schema` (a contract schema an app extends with `.extend()`). |
 | Signature | The shape an app codes against. Escape a pipe in a union type as `\|`. |
 | When to use | One sentence: the situation that calls for this seam rather than another rung of the extension ladder. |
 | Stability | The symbol's `@stability` value: `stable` or `experimental`. `internal` symbols are never exported, so never listed. |
@@ -157,3 +158,15 @@ Each checker line is `file:line problem`, and the fix is in the file named:
 | `docs-api/api.json ... missing` | Run `npm run docs:packages` first (`npm run check:package-docs` does) |
 
 A TypeDoc failure (`does not have any documentation`, `is referenced by ... but not included in the documentation`) names the symbol: document it, or export the type it refers to. A `tsdoc/syntax` error names the line of the malformed comment.
+
+## Contract conventions
+
+`@marinoscar/platform-contract` holds the zod schemas the API and the web app share (#701). Its [README](../packages/platform-contract/README.md#conventions) owns the full rules; in short:
+
+- One directory per slice, `src/<slice>/{schemas.ts,constants.ts,index.ts}` and a README, exported as `./<slice>` in both CommonJS and ESM.
+- `schemas.ts`: `<thing>Schema` plus `export type <Thing> = z.infer<typeof <thing>Schema>`. `constants.ts`: plain values, never zod, so the browser bundle stays zod-free (tested).
+- `src/` imports zod and its own files only (lint).
+- Response fields that are always present are `.nullable()`, never `.optional()`; dates are ISO strings.
+- Each schema is tagged `@extensionPoint schema` and catalogued in its slice README.
+- **Schemas are extension surface.** Renaming or removing a field, or narrowing a type, is a `major` changeset with a migration note; adding an optional field or a new schema is `minor`.
+- Apps extend with `.extend()` / `.merge()` in app code and never edit a contract file; `platform-api` wraps the schemas with `createZodDto()`, `platform-web` imports their types.
