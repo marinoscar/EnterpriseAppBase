@@ -103,7 +103,12 @@ export interface PlatformLock {
   /** The app's own raw-SQL indexes. */
   rawSqlIndexes?: RawSqlIndex[];
   /** The app's own row-level-security policies (name and table), asserted against `pg_policies` like the package's. */
-  rlsPolicies?: Array<{ name: string; table: string }>;
+  rlsPolicies?: Array<{
+    /** The policy name, as `pg_policies.policyname` reports it. */
+    name: string;
+    /** The table the policy is defined on, as `pg_policies.tablename` reports it. */
+    table: string;
+  }>;
 }
 
 /**
