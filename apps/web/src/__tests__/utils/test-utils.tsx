@@ -186,7 +186,7 @@ function MockAuthProvider({
   );
 }
 
-function createWrapper(options: WrapperOptions = {}) {
+export function createWrapper(options: WrapperOptions = {}) {
   const {
     route = '/',
     routeState,
