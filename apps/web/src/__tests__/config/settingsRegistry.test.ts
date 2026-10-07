@@ -1364,3 +1364,81 @@ describe('the Observability group (#537)', () => {
     ).toBe('Telemetry');
   });
 });
+
+/**
+ * Issue #726 (PP-6.7) — the Organizations group: two cards, APPENDED after
+ * every existing one, both `feature: 'orgs'` (multi-org deployments only),
+ * each declaring the exact permission its controller enforces.
+ */
+describe('the Organizations group (#726)', () => {
+  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  const rolesConstants = readApiPermissionConstants();
+  const group = ADMIN_SECTIONS.find((section) => section.label === 'Organizations');
+  const cards = new Map((group?.cards ?? []).map((card) => [card.title, card]));
+  const organization = cards.get('Organization');
+  const organizations = cards.get('Organizations');
+  const allPermissions = new Set([
+    'system_settings:read',
+    'users:read',
+    'allowlist:read',
+    'org_members:read',
+    'org_invites:read',
+    'organizations:read',
+  ]);
+  const ORGS_ON = { orgs: true };
+  const titles = (held: string[], features = {}) =>
+    titlesOf(visibleSettingsSections(ADMIN_SECTIONS, (p) => held.includes(p), '', features));
+
+  it('is APPENDED as the last group, its two cards in declaration order', () => {
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(group);
+    expect(group?.cards.map((card) => card.title)).toEqual(['Organization', 'Organizations']);
+  });
+
+  it('declares Organization on org_members:read, the org members controller string, feature orgs', () => {
+    expect(organization).toMatchObject({
+      path: '/admin/settings/organization',
+      permission: 'org_members:read',
+      feature: 'orgs',
+    });
+    expect(organization?.alwaysShow).toBeUndefined();
+    const controller = readFileSync(resolve(API_SRC, 'organizations/org-members.controller.ts'), 'utf8');
+    expect(rolesConstants).toContain("ORG_MEMBERS_READ: 'org_members:read'");
+    expect(controller).toContain('PERMISSIONS.ORG_MEMBERS_READ');
+  });
+
+  it('declares Organizations on organizations:read, the organizations admin controller string, feature orgs', () => {
+    expect(organizations).toMatchObject({
+      path: '/admin/settings/organizations',
+      permission: 'organizations:read',
+      feature: 'orgs',
+    });
+    const controller = readFileSync(resolve(API_SRC, 'organizations/organizations-admin.controller.ts'), 'utf8');
+    expect(rolesConstants).toContain("ORGANIZATIONS_READ: 'organizations:read'");
+    expect(controller).toContain('PERMISSIONS.ORGANIZATIONS_READ');
+  });
+
+  it('is absent in a single-org deployment, even for a holder of every permission', () => {
+    const held = [...allPermissions];
+    expect(titles(held)).not.toContain('Organization');
+    expect(titles(held)).not.toContain('Organizations');
+    expect(titles(held, { orgs: false })).not.toContain('Organization');
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/organizations'),
+    ).toBe(ADMIN_HUB_TITLE);
+  });
+
+  it('shows both cards to a system admin who is also an org admin, in multi-org mode', () => {
+    expect(titles([...allPermissions], ORGS_ON)).toEqual(expect.arrayContaining(['Organization', 'Organizations']));
+  });
+
+  it('shows an org admin without system permissions ONLY the Organization card', () => {
+    const orgAdmin = ['org_members:read', 'org_members:write', 'org_invites:read', 'org_invites:write'];
+    expect(titles(orgAdmin, ORGS_ON)).toEqual(['Organization']);
+  });
+
+  it('titles each route after its own card, the plural not swallowing the singular', () => {
+    const title = (path: string) => settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, ORGS_ON);
+    expect(title('/admin/settings/organization')).toBe('Organization');
+    expect(title('/admin/settings/organizations')).toBe('Organizations');
+  });
+});

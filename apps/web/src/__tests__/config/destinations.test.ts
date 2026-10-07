@@ -219,6 +219,15 @@ describe('destinations — the table itself', () => {
     ]);
   });
 
+  it('lets an org admin with no system permission reach Console (#726)', () => {
+    const [consoleDestination] = DESTINATIONS.filter((d) => d.key === 'console');
+    const orgAdmin = (permission: string) =>
+      ['org_members:read', 'org_members:write', 'org_invites:read', 'org_invites:write'].includes(permission);
+    expect(isDestinationVisible(consoleDestination, orgAdmin)).toBe(true);
+    // A plain member holds none of the three and still does not.
+    expect(isDestinationVisible(consoleDestination, (p) => p === 'user_settings:read')).toBe(false);
+  });
+
   it('reads anyPermission as OR, and permission as a hard requirement', () => {
     const [consoleDestination] = DESTINATIONS.filter((d) => d.key === 'console');
     const holding = (granted: string[]) => (permission: string) =>
