@@ -228,5 +228,13 @@
     "sha256": "68bed4bfebd7c94600546943bc66dd6245fd912d0cf5583f3485267c89e0faed",
     "since": "1.0.0",
     "slice": "identity"
+  },
+  {
+    "dir": "0024_split_system_org_roles",
+    "id": "0024_split_system_org_roles",
+    "requires": [],
+    "sha256": "11484b30fdabf64abb14ec99e4d218c1897f5692130bd5a04720d08b905e1332",
+    "since": "1.0.0",
+    "slice": "identity"
   }
 ]

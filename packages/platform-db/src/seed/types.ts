@@ -9,6 +9,14 @@
 export type SeedJsonValue = string | number | boolean | null | SeedJsonValue[] | { [key: string]: SeedJsonValue };
 
 /**
+ * What a role or a permission operates: the deployment (`'system'`) or one
+ * organization (`'org'`). The values of the `RoleScope` database enum.
+ *
+ * @stability experimental
+ */
+export type SeedScope = 'system' | 'org';
+
+/**
  * A role or a permission as the seed writes it.
  *
  * @stability experimental
@@ -18,6 +26,13 @@ export interface SeedNamedEntry {
   name: string;
   /** What it is for; refreshed on every run. */
   description: string;
+  /**
+   * The scope, refreshed on every run like the description. Optional so a
+   * catalog written before scopes existed keeps working: an entry without one
+   * is written without one (the column default, `'system'`, applies on create
+   * and an existing row keeps its scope).
+   */
+  scope?: SeedScope;
 }
 
 /**
@@ -126,7 +141,7 @@ export interface SeedNamedDelegate {
    * @param args - Keyed on `name`.
    * @returns Anything awaitable.
    */
-  upsert(args: SeedUpsertArgs<{ name: string }, { description: string }, SeedNamedEntry>): PromiseLike<unknown>;
+  upsert(args: SeedUpsertArgs<{ name: string }, { description: string; scope?: SeedScope }, SeedNamedEntry>): PromiseLike<unknown>;
   /**
    * Find the row id by name.
    *

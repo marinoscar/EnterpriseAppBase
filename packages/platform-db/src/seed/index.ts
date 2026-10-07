@@ -13,6 +13,7 @@ export type {
   SeedPrisma,
   SeedRowId,
   SeedRolePermissionDelegate,
+  SeedScope,
   SeedSummary,
   SeedSystemSettingsDelegate,
   SeedUpsertArgs,

@@ -82,6 +82,10 @@ const MIGRATIONS_AT_288 = [
   // `org_id` on the credential tables and the default-org backfill. About
   // tenancy, not the operational notification events.
   '20261007141244_add_organizations',
+  // #723 (PP-6.3): role and permission scopes, the membership and invite org
+  // role, and the move of org-role assignments onto memberships. About RBAC,
+  // not the operational notification events.
+  '20261007161956_split_system_org_roles',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

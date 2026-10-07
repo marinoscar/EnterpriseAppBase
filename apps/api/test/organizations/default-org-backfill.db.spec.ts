@@ -83,12 +83,13 @@ describeWithDb('organizations migration against real Postgres', () => {
       created.push(name);
     }
 
-    // The state of main before this change: every app migration but the new one.
+    // The state of main before this change: every app migration that sorts
+    // before it (later ones, such as PP-6.3's role split, build on its tables).
     scratchRoot = mkdtempSync(join(tmpdir(), 'org-backfill-'));
     const migrations = join(scratchRoot, 'prisma', 'migrations');
     mkdirSync(migrations, { recursive: true });
     for (const dir of readdirSync(MIGRATIONS, { withFileTypes: true })) {
-      if (dir.isDirectory() && dir.name !== orgMigrationDir) cpSync(join(MIGRATIONS, dir.name), join(migrations, dir.name), { recursive: true });
+      if (dir.isDirectory() && dir.name < orgMigrationDir) cpSync(join(MIGRATIONS, dir.name), join(migrations, dir.name), { recursive: true });
     }
     writeFileSync(join(migrations, 'migration_lock.toml'), 'provider = "postgresql"\n');
     writeFileSync(
@@ -226,9 +227,11 @@ describeWithDb('organizations migration against real Postgres', () => {
     it('keeps one membership per user and organization, and removes memberships with the user', async () => {
       const org = await emptyPrisma.organization.findFirstOrThrow({ where: { isDefault: true } });
       const user = await emptyPrisma.user.create({ data: { email: 'member@example.test' } });
-      await emptyPrisma.membership.create({ data: { orgId: org.id, userId: user.id } });
+      // PP-6.3 (#723): a membership carries its org role.
+      const viewer = await emptyPrisma.role.findUniqueOrThrow({ where: { name: 'viewer' } });
+      await emptyPrisma.membership.create({ data: { orgId: org.id, userId: user.id, roleId: viewer.id } });
 
-      await expect(emptyPrisma.membership.create({ data: { orgId: org.id, userId: user.id } })).rejects.toMatchObject({ code: 'P2002' });
+      await expect(emptyPrisma.membership.create({ data: { orgId: org.id, userId: user.id, roleId: viewer.id } })).rejects.toMatchObject({ code: 'P2002' });
 
       await emptyPrisma.user.delete({ where: { id: user.id } });
       expect(await emptyPrisma.membership.count({ where: { userId: user.id } })).toBe(0);

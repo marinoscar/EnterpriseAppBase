@@ -6,7 +6,7 @@
 
 Does: the platform half of an app's `prisma/seed.ts`, with semantics identical to the script it replaced (issue #712): upserts only, sequential, in a fixed order, under the console lines operators read during `appctl deploy`. It also reads the two committed catalogs an app renders from its registries (`readSeedSnapshot`).
 
-Does not: seed an app's own data (the app's `seed-app.ts` does, after this runs), run migrations, create the Prisma client, or delete anything. Org-scoped roles extend `PlatformSeedInput` in a later story.
+Does not: seed an app's own data (the app's `seed-app.ts` does, after this runs), run migrations, create the Prisma client, or delete anything. Role scopes (`system` or `org`, issue #723) ride on the role and permission entries; moving an existing deployment's grants between scopes is the job of the `0024_split_system_org_roles` migration, not of the seed.
 
 ## Install and peer dependencies
 
@@ -45,8 +45,8 @@ The app's permissions and settings reach the seed through its registries, never 
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
-| `roles` | `{ name, description }[]` | required | Roles, upserted by `name`; the description is refreshed on every run |
-| `permissions` | `{ name, description }[]` | required | Permissions, upserted by `name`; the description is refreshed on every run |
+| `roles` | `{ name, description, scope? }[]` | required | Roles, upserted by `name`; the description and the scope (`'system'` or `'org'`) are refreshed on every run. An entry without `scope` leaves the column alone (create: the default `'system'`) |
+| `permissions` | `{ name, description, scope? }[]` | required | Permissions, upserted by `name`; the description and the scope are refreshed on every run, as for roles |
 | `roleGrants` | `Record<role, permission[]>` | required | Default grants, upserted by `roleId_permissionId`; a name with no row is skipped and reported, never created |
 | `systemSettingsDefaults` | `Record<string, unknown>` | required | The `global` row's value, composed from the settings namespaces; written only when the row is absent |
 | `initialAdminEmail` | `string` | none | Added to the allowlist lower-cased, with `update: {}`; absent means no allowlist write |

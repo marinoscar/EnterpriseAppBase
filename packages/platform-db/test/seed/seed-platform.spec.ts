@@ -36,6 +36,34 @@ describe('seedPlatform', () => {
     expect(permissions.map((c) => (c.args as { where: unknown }).where)).toEqual([{ name: 'a:read' }, { name: 'a:write' }]);
   });
 
+  it('writes and refreshes the scope of a role or permission that declares one (issue #723)', async () => {
+    const { prisma, calls } = createFakePrisma();
+    await seedPlatform(prisma, {
+      ...INPUT,
+      roles: [
+        { name: 'admin', description: 'Admin role', scope: 'system' },
+        { name: 'viewer', description: 'Viewer role', scope: 'org' },
+      ],
+      permissions: [
+        { name: 'a:read', description: 'Read a', scope: 'org' },
+        { name: 'a:write', description: 'Write a' },
+      ],
+      roleGrants: {},
+    });
+
+    const roles = calls.filter((c) => c.delegate === 'role' && c.method === 'upsert');
+    expect(roles.map((c) => c.args)).toEqual([
+      { where: { name: 'admin' }, update: { description: 'Admin role', scope: 'system' }, create: { name: 'admin', description: 'Admin role', scope: 'system' } },
+      { where: { name: 'viewer' }, update: { description: 'Viewer role', scope: 'org' }, create: { name: 'viewer', description: 'Viewer role', scope: 'org' } },
+    ]);
+    const permissions = calls.filter((c) => c.delegate === 'permission' && c.method === 'upsert');
+    expect(permissions.map((c) => c.args)).toEqual([
+      { where: { name: 'a:read' }, update: { description: 'Read a', scope: 'org' }, create: { name: 'a:read', description: 'Read a', scope: 'org' } },
+      // No scope declared: the column is left alone (the default applies on create).
+      { where: { name: 'a:write' }, update: { description: 'Write a' }, create: { name: 'a:write', description: 'Write a' } },
+    ]);
+  });
+
   it('upserts each grant by roleId_permissionId with an empty update', async () => {
     const { prisma, calls, tables } = createFakePrisma();
     const summary = await seedPlatform(prisma, INPUT);

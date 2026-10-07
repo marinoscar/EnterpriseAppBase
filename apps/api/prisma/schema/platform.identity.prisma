@@ -106,23 +106,39 @@ model UserIdentity {
 // =============================================================================
 // RBAC - Roles & Permissions
 // =============================================================================
+//
+// Two kinds of role (PP-6.3): SYSTEM roles operate the deployment and are held
+// in `user_roles`; ORG roles operate one organization and are held on a
+// membership (`memberships.role_id`). A role is granted only permissions of its
+// own scope (enforced by the app's permission registry, seeded by
+// `seedPlatform`). Roles stay global rows; per-organization custom roles are a
+// later seam.
+
+enum RoleScope {
+  system
+  org
+}
 
 model Role {
-  id          String  @id @default(uuid()) @db.Uuid
-  name        String  @unique
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique
   description String?
+  scope       RoleScope @default(system)
 
   // Relations
   rolePermissions RolePermission[]
   userRoles       UserRole[]
+  memberships     Membership[]
+  invites         Invite[]
 
   @@map("roles")
 }
 
 model Permission {
-  id          String  @id @default(uuid()) @db.Uuid
-  name        String  @unique
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique
   description String?
+  scope       RoleScope @default(system)
 
   // Relations
   rolePermissions RolePermission[]
@@ -355,7 +371,8 @@ model DeviceCode {
 // Identity tables, read across organizations at login and guarded by service
 // code: no RLS here (ADR 0002). The default organization is unique by the
 // raw-SQL partial index `organizations_default_uniq_idx` (migration SQL only;
-// Prisma cannot express it). Membership and invite roles arrive with PP-6.3.
+// Prisma cannot express it). A membership carries its org role (PP-6.3); an
+// invite may name the org role the invitee will get.
 
 enum MembershipStatus {
   active
@@ -398,15 +415,20 @@ model Membership {
   status       MembershipStatus @default(active)
   // Picks the default active organization at login (PP-6.4).
   lastActiveAt DateTime?        @map("last_active_at") @db.Timestamptz
+  // The member's org-scoped role (PP-6.3). `Restrict`: a role in use cannot be
+  // deleted out from under its members.
+  roleId       String           @map("role_id") @db.Uuid
   createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   @@unique([orgId, userId])
   @@index([userId])
+  @@index([roleId])
   @@map("memberships")
 }
 
@@ -423,15 +445,20 @@ model Invite {
   acceptedById String?      @map("accepted_by_id") @db.Uuid
   acceptedAt   DateTime?    @map("accepted_at") @db.Timestamptz
   notes        String?
+  // The org role the invitee gets on acceptance (PP-6.3). NULL means the
+  // default org role (`viewer`). `Restrict`, as on `Membership.roleId`.
+  roleId       String?      @map("role_id") @db.Uuid
   createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
 
   // Relations
   org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role       Role?        @relation(fields: [roleId], references: [id], onDelete: Restrict)
   invitedBy  User?        @relation("InviteInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
   acceptedBy User?        @relation("InviteAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
 
   // Re-inviting updates the row.
   @@unique([orgId, email])
   @@index([email])
+  @@index([roleId])
   @@map("org_invites")
 }
