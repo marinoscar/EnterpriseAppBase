@@ -1234,6 +1234,15 @@ Until #688, keeping each query on that user's rows was a convention: a
 are defence in depth, not a replacement for `@Auth(...)` and the service's
 own ownership checks.
 
+The mechanism (the registry, the scoped client extension, `asSystem` and
+`ScopedAccessError`) lives in `@marinoscar/platform-api/core`
+([`packages/platform-api/src/core/data-access/`](../packages/platform-api/src/core/data-access/index.ts),
+documented in the [core README](../packages/platform-api/src/core/README.md#scoped-data-access))
+since #699, so packaged slices scope their queries the same way; it is
+schema-independent and receives the app's client at call time. The app keeps
+its registrations and a thin `ScopedPrismaService` in
+`apps/api/src/prisma/ownership/`.
+
 **The user-owned data registry.** Every model with a foreign key to `User`
 is registered (`apps/api/src/prisma/ownership/platform-user-owned-models.ts`,
 and `apps/api/src/app-registrations/user-owned-models.ts` for a fork), with
@@ -1250,11 +1259,13 @@ says whether a user's data export includes the row, and `exportOmit` names
 columns that never leave the server (`PersonalAccessToken.tokenHash`,
 `UserCredential.secret`, `UserAiKey.secret`). Tokens, push subscriptions and
 node credentials are excluded from export outright.
-`apps/api/test/prisma/user-owned-models.spec.ts` fails when a `User`
+`apps/api/test/prisma/user-owned-models.spec.ts` (the `userOwnedData`
+conformance suite of `@marinoscar/platform-api/testing`) fails when a `User`
 relation is unregistered or a policy contradicts the schema.
 
 **The user-scoped client.** `ScopedPrismaService.forUser(userId)` (or
-`forScope(scope)`, with the `Scope` from
+`forScope(scope)`, or the typed `PrismaService.forUser(scope)`; in a packaged
+slice, `forUser(client, scope)` from the package; with the `Scope` from
 [ADR 0001](adr/0001-org-aware-principal-and-scope.md)) returns a Prisma
 client extension that:
 
@@ -1277,8 +1288,9 @@ and set on the active span (`db.access.scope = 'system'`,
 `db.access.reason`), never as a metric label.
 
 **Raw SQL** bypasses all of the above, so the files allowed to issue it are
-listed with a reason in `apps/api/test/prisma/raw-sql-allowlist.ts`;
-`raw-sql-allowlist.spec.ts` fails for a new file and for a stale entry. A raw
+listed with a reason in `apps/api/test/prisma/raw-sql-allowlist.ts`; the
+same `userOwnedData` conformance suite fails for a new file and for a stale
+entry. A raw
 statement must never take a request-derived id without scoping it to the
 caller.
 
