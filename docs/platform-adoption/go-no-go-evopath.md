@@ -66,8 +66,8 @@ EvoPath side only, unless stated.
 | M1 | Files touched, excluding `package-lock.json` | **6**: 4 `package.json` (root, api, web, cli), 1 app test, the ledger | **11**: 7 production files (api 4, web 2, docs 1) and 4 test files |
 | M2 | Lines changed, excluding the lockfile | **15** (+9 / −6). The lockfile adds +15 / −15. | **150** (+141 / −9) |
 | M3 | Hands-on time | Agent: 8.9 min measured, of which about 4.4 min went on a rehearsal-only install artefact and an accidental full web run; **about 4.5 min** on a clean path. Owner: no estimate given; reviewer estimate **about 5 min** for a pin bump. | Agent: **5.4 min**, done by the change's author minutes after writing it, with a scripted path map (a lower bound). Owner: no estimate given; reviewer estimate **about 20 min** for 150 lines in 11 files. |
-| M4 | Lead time, base PR merged → EvoPath `main` green | Not measurable yet: the change is not merged. Real calibration, seam 822: **6 h 12 min** to `next`. The `latest` promotion is impossible today. | **5.4 min** to green on the telemetry subset. The full suites are in the Appendix. |
-| M5 | Hunks that did not apply, plus manual fixes | **0** conflicts; **1** manual fix (the app's shape test). The rehearsal also showed one install trap ([section 9](#9-learnings)). | 40 hunks in 12 translated files: 12 applied, **15 rejected**, **13 with no target file** (`telemetry.options.ts`, its spec, `index.ts`). `--3way` applied nothing (the base blobs are absent). Plus **11 path remaps**, and **4 manual fixes**: the web response type (hand-written in the copy, inferred from the contract in the package), the shape test, the doc wording (no `forRoot` in the copy), and a test constructor. |
+| M4 | Lead time, base PR merged → EvoPath `main` green | Not measurable yet: the change is not merged. Real calibration, seam 822: **6 h 12 min** to `next`. The `latest` promotion is impossible today. | **5.4 min** to green on the telemetry subset; about 36 min including the full api and web suites ([Appendix A.6](#a6-full-suites)). |
+| M5 | Hunks that did not apply, plus manual fixes | **0** conflicts; **1** manual fix (the app's shape test). The rehearsal also showed one install trap ([section 8](#8-friction-log), item 8). | 40 hunks in 12 translated files: 12 applied, **15 rejected**, **13 with no target file** (`telemetry.options.ts`, its spec, `index.ts`). `--3way` applied nothing (the base blobs are absent). Plus **11 path remaps**, and **4 manual fixes**: the web response type (hand-written in the copy, inferred from the contract in the package), the shape test, the doc wording (no `forRoot` in the copy), and a test constructor. |
 | M6 | CI runs to green | Local only: 2 test runs (the first failed only on the shape test). Real calibration, PR 353: 3 PR runs (one red visual job, then two runs that never started a job), then green on `main`. | Local only: 2 test runs (the first failed only on the shape test). Never pushed, by design. |
 | M7 | Platform files edited in EvoPath | **0** | **11** (= M1) |
 | M8 | Pipeline incidents needing a manual workaround | 7 across issues 717 to 720 ([section 8](#8-friction-log)); 1 more in this rehearsal | n/a (no pipeline) |
@@ -221,7 +221,8 @@ If the owner accepts the code-level evidence instead, an override comment on iss
 - **Do not start issue 665 or later** on this result. Keep everything merged (waves 0 to 3, the Prisma spike): it is worth having either way.
 - **Fix the pipeline before the next slice**, not after. Steps 1 to 3 above are owner clicks, and they remove 5 of the 8 pipeline incidents.
 - **Re-run the gate on the representative change** as soon as steps 1 to 7 are done. Expected result on the package route: 5 to 6 files (code 0), lead time under a day, and H2 met.
-- **Issue 747 (database baseline)** is not a packaging step that depends on the gate's premise, and it rehearses on a restored backup. It may proceed if the owner agrees; the gate rule names only issue 665 and later as blocked.
+- **Hold issue 747 and the rest of the EvoPath track** with issue 665 and later: they all sit behind the gate. Once a re-run records GO, or the owner overrides, start with issue 747 (the database baseline). It needs no new package, rehearses on a restored backup first, and is the riskiest step left, so it deserves the most lead time.
+- **On the re-run, measure the bump through Renovate** (not by hand), and give the owner's own review minutes, so E2 and E3 are measured rather than estimated.
 
 ## Appendix A: raw commands and outputs
 
@@ -363,7 +364,14 @@ package route    start 10:14:40Z   green (telemetry subset) 10:23:34Z   (10:17-1
 
 ### A.6 Full suites
 
-PENDING_FULL_SUITES
+Run after the routes were green on the telemetry subset, with `--maxWorkers=2`, unit and mocked-integration tiers (`.db.spec` and `.greptime.spec` excluded, as in the api `test` script). Wall time is machine time on a shared 4-CPU host.
+
+| Route | API (`jest`) | Web (`vitest run`) | Wall time |
+|---|---|---|---|
+| Package (rehearsal) | 670 suites passed (4 skipped), **15 723 tests passed**, 0 failed | 400 files, **6 176 tests passed** (3 skipped), 0 failed | api 7.8 min, web 24.4 min |
+| Copy (throwaway) | 699 suites passed (4 skipped), **16 977 tests passed**, 0 failed | 420 files, **6 418 tests passed** (3 skipped), 0 failed | api 7.6 min, web 22.7 min |
+
+The copy route runs more tests because its local telemetry copy still carries the slice's own unit tests. On the package route those tests run in the platform repository instead.
 
 ### A.7 CI and pipeline evidence
 
