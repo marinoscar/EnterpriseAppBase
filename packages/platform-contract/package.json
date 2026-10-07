@@ -50,6 +50,16 @@
         "default": "./dist/cjs/telemetry/index.js"
       }
     },
+    "./sharing": {
+      "import": {
+        "types": "./dist/esm/sharing/index.d.ts",
+        "default": "./dist/esm/sharing/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/sharing/index.d.ts",
+        "default": "./dist/cjs/sharing/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
