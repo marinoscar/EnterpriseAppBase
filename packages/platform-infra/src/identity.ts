@@ -45,7 +45,7 @@ export interface InfraIdentity {
 export interface InfraIdentityInput {
   /** The CLI executable. Required: it seeds the env prefix. */
   readonly cliName: string;
-  /** The product's display name, slugified the way `@app/shared` does (`My App` to `my-app`). Defaults to a neutral `app`. */
+  /** The product's display name, slugified the way `@app/shared` does (`Acme Hub` to `acme-hub`). Defaults to a neutral `app`. */
   readonly productName?: string;
   /** Overrides the prefix derived from `cliName`. */
   readonly envPrefix?: string;
