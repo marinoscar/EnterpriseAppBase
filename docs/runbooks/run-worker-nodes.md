@@ -148,6 +148,17 @@ To build the image from a checkout instead of pulling it:
 docker compose -f worker.compose.yml -f worker.build.compose.yml up --build
 ```
 
+### 4.0 The worker variables follow your CLI name
+
+`infra/compose/worker.compose.yml` and `.env.worker.example` are generated
+from `@marinoscar/platform-infra` by `npm run platform:infra:sync`, with every
+variable rendered from the app's CLI name: `appctl` gives the `APPCTL_*` names
+used in this runbook, a fork whose CLI is `evopathcli` gets `EVOPATHCLI_*`.
+The names always match what the worker reads (`ENV_PREFIX` in
+`apps/cli/src/branding.ts`; `apps/cli/src/node/worker-env.test.ts` checks
+both files). After renaming the CLI, run the sync and commit the result; never
+edit either file by hand (CI's `platform:infra:sync -- --check` fails).
+
 ### 4.1 The published worker image
 
 CI publishes `ghcr.io/<owner>/<repo>-worker` (owner and repository name
@@ -157,6 +168,9 @@ conventions as the api and web images) and on every platform release
 (`<version>`, `next`, `sha-<short sha>`). `worker.compose.yml` defaults to the
 placeholder `ghcr.io/OWNER/REPO-worker:latest` on purpose, so a fork never
 silently runs another repository's image: set `WORKER_IMAGE` in `.env.worker`.
+(An app can render its own default into both files instead, with `workerImage`
+in the identity file the sync reads; see the
+[platform-infra README](../../packages/platform-infra/README.md#identity-placeholders).)
 
 ```bash
 # .env.worker: a release, or for production the digest you verified

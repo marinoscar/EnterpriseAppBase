@@ -666,7 +666,7 @@ All HTTP calls go through `ApiService` in `apps/web/src/services/api.ts`. It res
 
 ### 10.1 Compose files
 
-All files live in `infra/compose/` and are layered with repeated `-f` flags from that folder. The two telemetry files are the committed output of `platform-infra sync` (versions and checksums in `infra/platform-infra.lock.json`); CI's `npm run platform:infra:sync -- --check` fails on a hand edit. See [runbooks/telemetry.md §2](runbooks/telemetry.md#2-enable-the-overlay).
+All files live in `infra/compose/` and are layered with repeated `-f` flags from that folder. Every platform file below, the nginx configuration and the env templates are the committed output of `platform-infra sync` from [`@marinoscar/platform-infra`](../packages/platform-infra/README.md), rendered with the app identity (CLI name, env prefix, service name); the version, the identity and a checksum per file are in `infra/platform-infra.lock.json`, and CI's `npm run platform:infra:sync -- --check` fails on a hand edit. The app changes the stack with **overlays**, never by editing a generated file: `infra/compose/app.*.compose.yml` files, which the deploy appends after the platform files sorted by name ([package README § Infra](../packages/platform-infra/README.md#infra)); `infra/compose/app.example.compose.yml` is the documented, never-applied example. See also [runbooks/telemetry.md §2](runbooks/telemetry.md#2-enable-the-overlay).
 
 | File | Purpose | When used |
 |---|---|---|
@@ -680,6 +680,7 @@ All files live in `infra/compose/` and are layered with repeated `-f` flags from
 | `test.compose.yml` | Disposable PostgreSQL (`db-test`, host port 5433); the suites connect as the ordinary `app` role created by the same init script | Real-database test runs |
 | `worker.compose.yml` | Worker node containers from the published image; scale with `--scale worker=N` | Running a worker fleet |
 | `worker.build.compose.yml` | Builds the worker image from source | Developing the worker itself |
+| `app.*.compose.yml` | The app's own overlays (app-owned; `app.<name>` for every base mode, `app.<scope>.<name>` for one scope: `dev`, `devdb`, `prod`, `vps`, `worker`) | Appended last by the deploy and `init`'s start command; none in the reference app |
 
 Typical commands:
 
@@ -697,7 +698,7 @@ docker compose -f base.compose.yml -f prod.compose.yml up
 
 ### 10.3 nginx routing
 
-`infra/nginx/nginx.conf` is the single origin:
+`infra/nginx/nginx.conf` is the single origin. It is generated from `@marinoscar/platform-infra`; the app adds to it through include points in `infra/nginx/app.d/` (`http/`, `server/`, `locations/`, and `permissions-policy.conf`), mounted with `platform/` (`security-headers.conf`, `sse-proxy.conf`) by `base.compose.yml`:
 
 | Location | Upstream | Notes |
 |---|---|---|
@@ -707,10 +708,11 @@ docker compose -f base.compose.yml -f prod.compose.yml up
 | `/api` | api | Includes `/api/docs` and `/api/openapi.json` |
 | `/` | web | The React app |
 | `/nginx-health` | nginx | Proxy health probe |
+| `app.d/locations/*.conf` | api (usually) | The app's own routes, included before `/api`; an SSE route's body is `include /etc/nginx/platform/sse-proxy.conf;` |
 
 Connection limits are sized for long-lived SSE, where each stream holds two nginx connections (client and upstream): `worker_connections 16384` and `worker_rlimit_nofile 65536`, with a matching `nofile` ulimit on the `nginx` and `api` services in `base.compose.yml` (pinned by `apps/api/test/nginx-connection-limits.spec.ts`; a CLI-bootstrapped shared proxy gets the same, see [specs/vps-deploy.md](specs/vps-deploy.md#shared-proxy-and-tls)).
 
-Security headers are set at server level: `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security` and a Content-Security-Policy. nginx's `add_header` replaces rather than merges, so a location that adds its own header must repeat the security headers.
+Security headers are set at server level from `platform/security-headers.conf`: `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, the app's `Permissions-Policy` (`app.d/permissions-policy.conf`), `Strict-Transport-Security` and a Content-Security-Policy. nginx's `add_header` replaces rather than merges, so a location that adds its own header must repeat the security headers: it includes the same file, as `platform/sse-proxy.conf` does (`apps/api/test/nginx-app-locations.spec.ts`).
 
 ### 10.4 Environment variables
 
