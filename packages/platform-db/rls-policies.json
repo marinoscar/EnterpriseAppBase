@@ -27,6 +27,27 @@
       "reason": "Organization isolation of AI usage accounting; a row with a NULL org_id is visible to the bypass (system) client only.",
       "doc": "docs/SECURITY-ARCHITECTURE.md",
       "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "groups_org_isolation",
+      "table": "groups",
+      "reason": "Organization isolation of sharing groups (PP-7.1): a group lives inside one organization and is never a tenant.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0026_add_groups"
+    },
+    {
+      "name": "group_members_org_isolation",
+      "table": "group_members",
+      "reason": "Organization isolation of group memberships; the row carries the group's org_id (composite key to groups) because a policy cannot join through its parent.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0026_add_groups"
+    },
+    {
+      "name": "group_invites_org_isolation",
+      "table": "group_invites",
+      "reason": "Organization isolation of group invitations, which hold invitee e-mail addresses.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0026_add_groups"
     }
   ]
 }

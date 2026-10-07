@@ -44,6 +44,15 @@
       "reason": "Exactly one default organization: a constant-expression partial unique index Prisma cannot express (the default org is a database fact, not a findFirst check).",
       "doc": "docs/specs/platform-packages.md",
       "createdIn": "0023_add_organizations"
+    },
+    {
+      "name": "group_invites_pending_uniq_idx",
+      "table": "group_invites",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX group_invites_pending_uniq_idx ON public.group_invites USING btree (group_id, email) WHERE ((accepted_at IS NULL) AND (declined_at IS NULL) AND (revoked_at IS NULL))",
+      "reason": "At most one PENDING invite per group and address; a declined, revoked or accepted invite does not block re-inviting the address, which a plain @@unique([groupId, email]) would. Prisma cannot express a partial unique index.",
+      "doc": "docs/specs/platform-packages.md",
+      "createdIn": "0026_add_groups"
     }
   ]
 }

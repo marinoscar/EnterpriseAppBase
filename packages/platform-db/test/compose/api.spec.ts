@@ -76,7 +76,7 @@ describe('the default platform schema folder', () => {
     expect(files.map((f) => f.path.split('/').pop())).toEqual([
       'platform.ai.prisma', 'platform.base.prisma', 'platform.credentials.prisma', 'platform.db-backup.prisma',
       'platform.identity.prisma', 'platform.jobs.prisma', 'platform.notifications.prisma', 'platform.settings.prisma',
-      'platform.storage.prisma', 'app.workouts.prisma',
+      'platform.sharing.prisma', 'platform.storage.prisma', 'app.workouts.prisma',
     ]);
   });
 });
