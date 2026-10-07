@@ -1,6 +1,6 @@
 import { metrics, trace } from '@opentelemetry/api';
 import { APP_SLUG } from '@app/shared';
-import { MetricsHostService, telemetryGate } from '@marinoscar/platform-api/otel-core';
+import { MetricsHostService, telemetryGate, Trace } from '@marinoscar/platform-api/otel-core';
 
 import { AppMetricsService } from '../../src/common/otel/app-metrics.service';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
@@ -86,5 +86,16 @@ describe('API with OTEL_ENABLED unset', () => {
     }).not.toThrow();
 
     await expect(m.gaugeSnapshot()).resolves.toBeNull();
+  });
+
+  it('runs a @Trace() method unchanged (a no-op span)', async () => {
+    class Report {
+      @Trace('report.build')
+      async build(id: string): Promise<string> {
+        return `report-${id}`;
+      }
+    }
+
+    await expect(new Report().build('7')).resolves.toBe('report-7');
   });
 });
