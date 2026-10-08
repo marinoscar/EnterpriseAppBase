@@ -1,7 +1,7 @@
 import { Box, Container, Typography, Grid } from '@mui/material';
 import { UserProfileCard } from '../components/user/UserProfileCard';
 import { QuickActions } from '../components/home/QuickActions';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '@marinoscar/platform-web/identity/headless';
 
 export default function HomePage() {
   const { user } = useAuth();

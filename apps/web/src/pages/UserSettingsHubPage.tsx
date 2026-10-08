@@ -30,11 +30,10 @@
  */
 
 import { SettingsHub } from '@marinoscar/platform-web/settings/ui';
-import { usePermissions } from '../hooks/usePermissions';
+import { usePermissions, useOrgsFeature } from '@marinoscar/platform-web/identity/headless';
 import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { USER_SETTINGS_SECTIONS, USER_HUB_TITLE } from '../config/userSettingsSections';
 import { useAiConfig } from '../hooks/useAiConfig';
-import { useOrgsFeature } from '../hooks/useOrgsFeature';
 import { isTelemetryOn, useTelemetryConfig } from '@marinoscar/platform-web/telemetry/headless';
 
 export default function UserSettingsHubPage() {

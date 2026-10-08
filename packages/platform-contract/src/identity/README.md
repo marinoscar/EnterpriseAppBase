@@ -28,7 +28,7 @@ None beyond the package's own peer, `zod` (`^4.4.3`). A browser that imports onl
 
 ## Quick start
 
-The web app keys its sign-in error copy off the contract's list ([`signInErrorContent.ts`](../../../../apps/web/src/components/auth/signInErrorContent.ts)), so a new code is a type error there until it has copy:
+The web slice keys its sign-in error copy off the contract's list ([`sign-in-error-content.ts`](../../../platform-web/src/identity/ui/sign-in-error-content.ts) of `@marinoscar/platform-web/identity/ui`), so a new code is a type error there until it has copy:
 
 ```ts
 import { AUTH_ERROR_CODES, DEFAULT_AUTH_ERROR_CODE, isAuthErrorCode } from '@marinoscar/platform-contract/identity';

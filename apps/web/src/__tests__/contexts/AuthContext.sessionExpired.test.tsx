@@ -5,9 +5,9 @@
  * server's reuse detection revoked the user's refresh tokens) kept its expired
  * access token, and every widget rendered its own "Unauthorized". Now the API
  * client emits a session-expired event, `AuthProvider` clears the session, and
- * `ProtectedRoute` redirects to `/login`, where the notice explains why.
+ * `RequireAuth` redirects to `/login`, where the notice explains why.
  *
- * These tests mount the REAL `AuthProvider`, `ProtectedRoute` and `LoginPage`
+ * These tests mount the REAL `AuthProvider`, `RequireAuth` and `LoginPage`
  * against MSW, because the redirect is the product of all three.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -16,11 +16,11 @@ import { http, HttpResponse } from 'msw';
 import { useEffect, useState } from 'react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { server } from '../mocks/server';
-import { AuthProvider } from '../../contexts/AuthContext';
+import { AuthProvider, RequireAuth } from '@marinoscar/platform-web/identity/headless';
 import { ThemeContextProvider } from '../../contexts/ThemeContext';
-import { ProtectedRoute } from '../../components/common/ProtectedRoute';
-import LoginPage from '../../pages/LoginPage';
+import LoginPage from '../../identity/LoginPage';
 import { api, ApiError, ApiService } from '../../services/api';
+import { removePushSubscription } from '../../services/pushSubscription';
 
 vi.mock('../../services/pushSubscription', () => ({
   removePushSubscription: vi.fn().mockResolvedValue(undefined),
@@ -49,11 +49,11 @@ function renderApp(initialPath: string) {
   return render(
     <MemoryRouter initialEntries={[initialPath]}>
       <ThemeContextProvider>
-        <AuthProvider>
+        <AuthProvider client={api} onBeforeLogout={removePushSubscription}>
           <LocationProbe />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
-            <Route element={<ProtectedRoute />}>
+            <Route element={<RequireAuth />}>
               <Route path="/" element={<Widget />} />
             </Route>
           </Routes>

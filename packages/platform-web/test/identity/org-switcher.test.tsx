@@ -1,17 +1,18 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 /**
  * `OrgSwitcher` (#726): shown only in multi-org mode to a user with two or
  * more active memberships; choosing an organization calls
  * `AuthContext.switchOrg` (which posts switch-org and refreshes the user —
- * see `contexts/AuthContext.switchOrg.test.tsx`).
+ * see `auth-context.test.tsx` and the app's `AuthContext.switchOrg.test.tsx`).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { userEvent } from '@testing-library/user-event';
 import { render as rtlRender } from '@testing-library/react';
 import type { ContextType } from 'react';
-import { AuthContext } from '../../../contexts/AuthContext';
-import { OrgSwitcher } from '../../../components/navigation/OrgSwitcher';
-import { render, mockUser } from '../../utils/test-utils';
+import { AuthContext } from '../../src/identity/headless/index.js';
+import { OrgSwitcher } from '../../src/identity/ui/index.js';
+import { render, mockUser } from './render.js';
 
 const ALPHA = { orgId: 'org-a', name: 'Alpha', slug: 'alpha', role: 'org_admin' };
 const BETA = { orgId: 'org-b', name: 'Beta', slug: 'beta', role: 'viewer' };

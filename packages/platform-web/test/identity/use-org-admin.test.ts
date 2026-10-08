@@ -1,30 +1,22 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727): the
+// app's mocked service module is now a fake identity client handed to the hook.
 /**
  * `useOrgMembers`, `useOrgInvites` and `useOrganizations` (#726): each lists,
- * writes through `services/organizations`, re-reads with the last query
+ * writes through the identity client, re-reads with the last query
  * after a write, and surfaces (and rethrows) the API's refusal.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useOrgMembers } from '../../hooks/useOrgMembers';
-import { useOrgInvites } from '../../hooks/useOrgInvites';
-import { useOrganizations } from '../../hooks/useOrganizations';
-import * as service from '../../services/organizations';
+import { useOrgInvites, useOrgMembers, useOrganizations } from '../../src/identity/headless/index.js';
+import type { OrgInvite, OrgMember, Organization } from '../../src/identity/headless/index.js';
+import { fakeIdentityApi } from './harness.js';
 
-vi.mock('../../services/organizations', () => ({
-  getOrgMembers: vi.fn(),
-  updateOrgMember: vi.fn(),
-  removeOrgMember: vi.fn(),
-  getOrgInvites: vi.fn(),
-  createOrgInvite: vi.fn(),
-  revokeOrgInvite: vi.fn(),
-  getOrganizations: vi.fn(),
-  createOrganization: vi.fn(),
-  renameOrganization: vi.fn(),
-}));
+
+const service = fakeIdentityApi();
 
 const page = <T,>(items: T[]) => ({ items, total: items.length, page: 1, pageSize: 20, totalPages: 1 });
 
-const member: service.OrgMember = {
+const member: OrgMember = {
   userId: 'u-1',
   email: 'one@example.com',
   displayName: 'One',
@@ -41,7 +33,7 @@ describe('useOrgMembers', () => {
   });
 
   it('lists the members', async () => {
-    const { result } = renderHook(() => useOrgMembers());
+    const { result } = renderHook(() => useOrgMembers(service));
     await act(() => result.current.fetchMembers({ search: 'one' }));
 
     expect(service.getOrgMembers).toHaveBeenCalledWith({ search: 'one' });
@@ -52,7 +44,7 @@ describe('useOrgMembers', () => {
 
   it('updates a member, then re-reads with the last query', async () => {
     vi.mocked(service.updateOrgMember).mockResolvedValue({ ...member, role: 'contributor' });
-    const { result } = renderHook(() => useOrgMembers());
+    const { result } = renderHook(() => useOrgMembers(service));
     await act(() => result.current.fetchMembers({ search: 'one' }));
 
     await act(() => result.current.updateMember('u-1', { roleName: 'contributor' }));
@@ -63,7 +55,7 @@ describe('useOrgMembers', () => {
 
   it("surfaces and rethrows the API's refusal (the last-admin rule)", async () => {
     vi.mocked(service.removeOrgMember).mockRejectedValue(new Error('This would leave the organization without an active administrator.'));
-    const { result } = renderHook(() => useOrgMembers());
+    const { result } = renderHook(() => useOrgMembers(service));
 
     await act(async () => {
       await expect(result.current.removeMember('u-1')).rejects.toThrow('without an active administrator');
@@ -73,7 +65,7 @@ describe('useOrgMembers', () => {
   });
 
   it('keeps fetchMembers stable across renders', async () => {
-    const { result, rerender } = renderHook(() => useOrgMembers());
+    const { result, rerender } = renderHook(() => useOrgMembers(service));
     const first = result.current.fetchMembers;
     await act(() => result.current.fetchMembers({ status: 'suspended' }));
     rerender();
@@ -88,9 +80,9 @@ describe('useOrgInvites', () => {
   });
 
   it('invites, then re-reads; revokes, then re-reads', async () => {
-    vi.mocked(service.createOrgInvite).mockResolvedValue({} as service.OrgInvite);
+    vi.mocked(service.createOrgInvite).mockResolvedValue({} as OrgInvite);
     vi.mocked(service.revokeOrgInvite).mockResolvedValue(undefined);
-    const { result } = renderHook(() => useOrgInvites());
+    const { result } = renderHook(() => useOrgInvites(service));
     await act(() => result.current.fetchInvites({ status: 'pending' }));
 
     await act(() => result.current.inviteMember({ email: 'new@example.com', roleName: 'viewer' }));
@@ -104,7 +96,7 @@ describe('useOrgInvites', () => {
 
   it('reports a failed load and empties the list', async () => {
     vi.mocked(service.getOrgInvites).mockRejectedValue(new Error('Forbidden'));
-    const { result } = renderHook(() => useOrgInvites());
+    const { result } = renderHook(() => useOrgInvites(service));
     await act(() => result.current.fetchInvites());
 
     expect(result.current.error).toBe('Forbidden');
@@ -119,9 +111,9 @@ describe('useOrganizations', () => {
   });
 
   it('creates and renames, re-reading after each', async () => {
-    vi.mocked(service.createOrganization).mockResolvedValue({} as service.Organization);
-    vi.mocked(service.renameOrganization).mockResolvedValue({} as service.Organization);
-    const { result } = renderHook(() => useOrganizations());
+    vi.mocked(service.createOrganization).mockResolvedValue({} as Organization);
+    vi.mocked(service.renameOrganization).mockResolvedValue({} as Organization);
+    const { result } = renderHook(() => useOrganizations(service));
 
     await act(() => result.current.createOrg({ name: 'Beta', slug: 'beta', firstAdminEmail: 'first@example.com' }));
     await act(() => result.current.renameOrg('org-b', 'Beta Inc'));
@@ -133,7 +125,7 @@ describe('useOrganizations', () => {
 
   it('surfaces the single-org refusal', async () => {
     vi.mocked(service.createOrganization).mockRejectedValue(new Error('This deployment runs in single-organization mode'));
-    const { result } = renderHook(() => useOrganizations());
+    const { result } = renderHook(() => useOrganizations(service));
 
     await act(async () => {
       await expect(

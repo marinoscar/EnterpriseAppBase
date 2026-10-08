@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import { OAuthButton } from '../../../components/auth/OAuthButton';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './render.js';
+import { OAuthButton } from '../../src/identity/ui/index.js';
 
 describe('OAuthButton', () => {
   const mockOnClick = vi.fn();
@@ -375,17 +376,17 @@ describe('OAuthButton', () => {
       const buttons = container.querySelectorAll('button');
       expect(buttons).toHaveLength(3);
 
-      await user.click(buttons[0]);
+      await user.click(buttons.item(0));
       expect(mockOnClickGoogle).toHaveBeenCalledTimes(1);
       expect(mockOnClickMicrosoft).not.toHaveBeenCalled();
       expect(mockOnClickGitHub).not.toHaveBeenCalled();
 
-      await user.click(buttons[1]);
+      await user.click(buttons.item(1));
       expect(mockOnClickGoogle).toHaveBeenCalledTimes(1);
       expect(mockOnClickMicrosoft).toHaveBeenCalledTimes(1);
       expect(mockOnClickGitHub).not.toHaveBeenCalled();
 
-      await user.click(buttons[2]);
+      await user.click(buttons.item(2));
       expect(mockOnClickGoogle).toHaveBeenCalledTimes(1);
       expect(mockOnClickMicrosoft).toHaveBeenCalledTimes(1);
       expect(mockOnClickGitHub).toHaveBeenCalledTimes(1);

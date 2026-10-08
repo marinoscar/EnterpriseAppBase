@@ -72,7 +72,7 @@ import {
   Typography,
 } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useAiAdminConfig } from '../../hooks/useAiAdminConfig';
 import { AiConfigContext } from '../../hooks/useAiConfig';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';

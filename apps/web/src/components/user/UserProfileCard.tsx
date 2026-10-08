@@ -11,7 +11,7 @@ import {
 } from '@mui/material';
 import { Settings as SettingsIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '@marinoscar/platform-web/identity/headless';
 
 export function UserProfileCard() {
   const { user } = useAuth();

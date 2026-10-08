@@ -38,7 +38,7 @@ test.describe('Test Authentication', () => {
     // Navigate to admin page
     await page.goto('/admin/users');
 
-    // Should be able to access admin page
-    await expect(page).toHaveURL('/admin/users');
+    // Should be able to access admin page (the legacy path redirects, #92)
+    await expect(page).toHaveURL('/admin/settings/users');
   });
 });

@@ -64,7 +64,7 @@ export const api = new ApiService(); // baseUrl, refreshLockName, maintenance ho
 | `appName` | `string` | `'this app'` | The product name the sign-in error copy names. |
 | `Spinner` | `ComponentType<{ fullScreen? }>` | an MUI `CircularProgress` | Loading states. |
 | `DataTable` | `IdentityDataTableComponent` | a plain MUI table | The table the users, allowlist and token lists render through. The props are a subset of the reference app's `DataTable`, which is assignable without a cast. |
-| `api` | `IdentityApi` | `createIdentityApi(usePlatformApi())` | The identity calls; the reference app binds its existing service functions. |
+| `api` | `IdentityApi` | `createIdentityApi(usePlatformApi())` | The identity calls. The reference app binds `createIdentityApi(appPlatformApi)` here, because the login and `/activate` pages render outside the platform host. |
 
 `RequireAuth`: `loading` (shown during the probe), `loginPath` (default `'/login'`), `children` (default `<Outlet />`). `RequirePermission`: `permission`, `permissions` + `requireAll`, `role`, `roles`, `fallback`. `RequireMultiOrg`: `fallback` (default a replace-redirect to `/`). `LoginPage`: `slots` (see the catalog). `AuthCallbackPage`: `provider` (default `'google'`, restarted by the error screen's buttons).
 
@@ -75,7 +75,7 @@ export const api = new ApiService(); // baseUrl, refreshLockName, maintenance ho
 | `AuthProvider` | component | `AuthProvider(props: { client; onBeforeLogout?; loginPath?; callbackPath?; children }): ReactElement` | Hold the session for the routed tree | stable | [example](../../../../apps/web/src/App.tsx) |
 | `useAuth` | hook | `useAuth(): AuthContextValue` | Read the user, the providers and the session actions | stable | [example](../../../../apps/web/src/platform/platformHost.tsx) |
 | `usePermissions` | hook | `usePermissions(): UsePermissionsReturn` | Hide or disable controls the viewer cannot use | stable | [example](../../../../apps/web/src/platform/platformHost.tsx) |
-| `RequireAuth` | component | `RequireAuth(props: { loading?; loginPath?; children? }): ReactElement` | Gate routes on a signed-in user | stable | [example](../../../../apps/web/src/components/common/ProtectedRoute.tsx) |
+| `RequireAuth` | component | `RequireAuth(props: { loading?; loginPath?; children? }): ReactElement` | Gate routes on a signed-in user | stable | [example](../../../../apps/web/src/App.tsx) |
 | `RequirePermission` | component | `RequirePermission(props: { permission?; permissions?; requireAll?; role?; roles?; children; fallback? }): ReactElement` | Gate a route or content on the exact permission the API enforces | stable | [example](../../../../apps/web/src/App.tsx) |
 | `RequireMultiOrg` | component | `RequireMultiOrg(props: { children; fallback? }): ReactElement` | Gate an org-administration route on multi-org mode | stable | [example](../../../../apps/web/src/App.tsx) |
 | `useOrgsFeature` | hook | `useOrgsFeature(): boolean` | Feed the `orgs` feature flag to settings hubs and chrome | stable | [example](../../../../apps/web/src/hooks/useSettingsFeatures.ts) |
@@ -83,20 +83,20 @@ export const api = new ApiService(); // baseUrl, refreshLockName, maintenance ho
 | `IdentityWebAdapters` | option | `{ appName?; Spinner?; DataTable?; api? }` | Hand the identity pages the app's name, spinner, table and client | experimental | [example](../../../../apps/web/src/platform/identityAdapters.ts) |
 | `IdentityWebAdaptersProvider` | component | `IdentityWebAdaptersProvider(props: { adapters; children }): ReactElement` | Mount the adapters once, around the routes | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `IdentityApi` | option | `{ getUsers; updateUser; ...; renameOrganization }` | Route the identity calls through the app's own client | experimental | [example](../../../../apps/web/src/platform/identityAdapters.ts) |
-| `useUsers` | hook | `useUsers(api?: IdentityApi): UseUsersReturn` | Build another view of the user list | stable | [example](../../../../apps/web/src/hooks/useUsers.ts) |
-| `useAllowlist` | hook | `useAllowlist(api?: IdentityApi): UseAllowlistReturn` | Build another view of the allowlist | stable | [example](../../../../apps/web/src/hooks/useAllowlist.ts) |
-| `usePersonalAccessTokens` | hook | `usePersonalAccessTokens(api?: IdentityApi): UsePersonalAccessTokensReturn` | Build another view of the caller's tokens | stable | [example](../../../../apps/web/src/hooks/usePersonalAccessTokens.ts) |
-| `useOrgMembers` | hook | `useOrgMembers(api?: IdentityApi): UseOrgMembersReturn` | Build another view of the current organization's members | stable | [example](../../../../apps/web/src/hooks/useOrgMembers.ts) |
-| `useOrgInvites` | hook | `useOrgInvites(api?: IdentityApi): UseOrgInvitesReturn` | Build another view of the current organization's invitations | stable | [example](../../../../apps/web/src/hooks/useOrgInvites.ts) |
-| `useOrganizations` | hook | `useOrganizations(api?: IdentityApi): UseOrganizationsReturn` | Build another view of the deployment's organizations | stable | [example](../../../../apps/web/src/hooks/useOrganizations.ts) |
+| `useUsers` | hook | `useUsers(api?: IdentityApi): UseUsersReturn` | Build another view of the user list | stable | [example](../../../../apps/web/src/identity/dataHookExamples.tsx) |
+| `useAllowlist` | hook | `useAllowlist(api?: IdentityApi): UseAllowlistReturn` | Build another view of the allowlist | stable | [example](../../../../apps/web/src/identity/dataHookExamples.tsx) |
+| `usePersonalAccessTokens` | hook | `usePersonalAccessTokens(api?: IdentityApi): UsePersonalAccessTokensReturn` | Build another view of the caller's tokens | stable | [example](../../../../apps/web/src/identity/dataHookExamples.tsx) |
+| `useOrgMembers` | hook | `useOrgMembers(api?: IdentityApi): UseOrgMembersReturn` | Build another view of the current organization's members | stable | [example](../../../../apps/web/src/identity/dataHookExamples.tsx) |
+| `useOrgInvites` | hook | `useOrgInvites(api?: IdentityApi): UseOrgInvitesReturn` | Build another view of the current organization's invitations | stable | [example](../../../../apps/web/src/identity/dataHookExamples.tsx) |
+| `useOrganizations` | hook | `useOrganizations(api?: IdentityApi): UseOrganizationsReturn` | Build another view of the deployment's organizations | stable | [example](../../../../apps/web/src/identity/dataHookExamples.tsx) |
 | `LoginPage` | slot | `LoginPage(props?: { slots?: { Logo?; Title?; Footer?; ProviderButton? } }): ReactElement` | Keep the sign-in flow and replace its logo, heading, footer or buttons | experimental | [example](../../../../apps/web/src/identity/LoginPage.tsx) |
-| `AuthCallbackPage` | component | `AuthCallbackPage(props?: { provider? }): ReactElement` | Render the `/auth/callback` route | stable | [example](../../../../apps/web/src/pages/AuthCallbackPage.tsx) |
-| `ActivateDevicePage` | component | `ActivateDevicePage(): ReactElement` | Render the `/activate` device-flow route | stable | [example](../../../../apps/web/src/pages/ActivateDevicePage.tsx) |
+| `AuthCallbackPage` | component | `AuthCallbackPage(props?: { provider? }): ReactElement` | Render the `/auth/callback` route | stable | [example](../../../../apps/web/src/App.tsx) |
+| `ActivateDevicePage` | component | `ActivateDevicePage(): ReactElement` | Render the `/activate` device-flow route | stable | [example](../../../../apps/web/src/App.tsx) |
 | `OrgSwitcher` | component | `OrgSwitcher(): ReactElement \| null` | Place the organization switcher in the app bar | stable | [example](../../../../apps/web/src/components/navigation/AppBar.tsx) |
-| `UserTokensPage` | component | `UserTokensPage(): ReactElement` | Render the `/settings/tokens` route | stable | [example](../../../../apps/web/src/pages/UserTokensPage.tsx) |
-| `UsersPage` | component | `UsersPage(): ReactElement` | Render the `/admin/settings/users` route (Users and Allowlist tabs) | stable | [example](../../../../apps/web/src/pages/Admin/UsersPage.tsx) |
-| `OrganizationPage` | component | `OrganizationPage(): ReactElement` | Render the `/admin/settings/organization` route (Members and Invites tabs) | stable | [example](../../../../apps/web/src/pages/Admin/OrganizationPage.tsx) |
-| `OrganizationsPage` | component | `OrganizationsPage(): ReactElement` | Render the `/admin/settings/organizations` route | stable | [example](../../../../apps/web/src/pages/Admin/OrganizationsPage.tsx) |
+| `UserTokensPage` | component | `UserTokensPage(): ReactElement` | Render the `/settings/tokens` route | stable | [example](../../../../apps/web/src/App.tsx) |
+| `UsersPage` | component | `UsersPage(): ReactElement` | Render the `/admin/settings/users` route (Users and Allowlist tabs) | stable | [example](../../../../apps/web/src/App.tsx) |
+| `OrganizationPage` | component | `OrganizationPage(): ReactElement` | Render the `/admin/settings/organization` route (Members and Invites tabs) | stable | [example](../../../../apps/web/src/App.tsx) |
+| `OrganizationsPage` | component | `OrganizationsPage(): ReactElement` | Render the `/admin/settings/organizations` route | stable | [example](../../../../apps/web/src/App.tsx) |
 | `identityAdminSections` | component | `{ access: IdentitySettingsCard[]; organizations: IdentitySettingsCard[] }` | Spread the identity admin cards into the app's `ADMIN_SECTIONS` | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 | `identityUserSettingsSections` | component | `{ security: IdentitySettingsCard[] }` | Spread the Access Tokens card into the app's `USER_SETTINGS_SECTIONS` | experimental | [example](../../../../apps/web/src/config/userSettingsSections.tsx) |
 
@@ -136,7 +136,7 @@ None in the web package. The API side runs the identity conformance suite (`@mar
 
 ## Upgrade notes
 
-First packaged release (#727, PP-6.6 parts 3 and 4). Moving from the app's own copies: mount `AuthProvider` from `/identity/headless` with your transport as `client` and your logout clean-up as `onBeforeLogout`; mount `IdentityWebAdaptersProvider` with your product name, spinner and table; spread `identityAdminSections` / `identityUserSettingsSections` where your literal cards were; route to the packaged pages. Behaviour, texts and test ids are unchanged. `ProtectedRoute` is `RequireAuth` with the spinner passed as `loading`. The sign-in copy is `createSignInErrorContent(appName)`, no longer a constant naming the app.
+First packaged release (#727, PP-6.6 parts 3 to 5; part 5 deleted the reference app's compatibility re-exports, so the app imports the slice only from these entry points). Moving from the app's own copies: mount `AuthProvider` from `/identity/headless` with your transport as `client` and your logout clean-up as `onBeforeLogout`; mount `IdentityWebAdaptersProvider` with your product name, spinner and table; spread `identityAdminSections` / `identityUserSettingsSections` where your literal cards were; route to the packaged pages. Behaviour, texts and test ids are unchanged. `ProtectedRoute` is `RequireAuth` with the spinner passed as `loading`. The sign-in copy is `createSignInErrorContent(appName)`, no longer a constant naming the app.
 
 ## Troubleshooting
 

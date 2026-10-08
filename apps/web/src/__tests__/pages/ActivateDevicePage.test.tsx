@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { render } from '../utils/test-utils';
-import ActivateDevicePage from '../../pages/ActivateDevicePage';
-import type { DeviceActivationInfo, DeviceAuthorizationResponse } from '../../types';
+import { ActivateDevicePage } from '@marinoscar/platform-web/identity/ui';
+import type { DeviceActivationInfo, DeviceAuthorizationResponse } from '@marinoscar/platform-web/identity/headless';
 
 // Use wildcard pattern to match API requests
 const API_BASE = '*/api';

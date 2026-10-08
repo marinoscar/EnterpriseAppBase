@@ -10,10 +10,10 @@ for the routes.
 
 Source of truth for every claim below:
 
-- `apps/api/src/common/deployment/tenancy-mode.ts`: how `TENANCY_MODE` is parsed.
-- `apps/api/src/auth/auth.service.ts` (`handleGoogleLogin`): what a sign-in
+- `packages/platform-api/src/identity/organizations/tenancy-mode.ts`: how `TENANCY_MODE` is parsed.
+- `packages/platform-api/src/identity/auth/auth.service.ts` (`handleGoogleLogin`): what a sign-in
   does in each mode, including the invitation claim.
-- `apps/api/src/organizations/`: the organization, member and invitation
+- `packages/platform-api/src/identity/organizations/`: the organization, member and invitation
   services and controllers.
 - `apps/web/src/config/adminSections.tsx`: the `Organization` and
   `Organizations` cards (`feature: 'orgs'`).

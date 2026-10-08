@@ -23,7 +23,7 @@ import {
 } from '@mui/icons-material';
 import type { SvgIconComponent } from '@mui/icons-material';
 import { EmptyState } from './EmptyState';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 
 export type UnavailableFeature = 'ai' | 'storage' | 'push';
 

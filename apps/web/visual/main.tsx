@@ -67,25 +67,38 @@ import { MemoryRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
-import { AuthContext } from '../src/contexts/AuthContext';
+import {
+  AuthContext,
+  IdentityWebAdaptersProvider,
+  RequireAuth,
+  RequirePermission,
+} from '@marinoscar/platform-web/identity/headless';
+import type {
+  AuthContextValue,
+  AuthRole as Role,
+  AuthUser as User,
+} from '@marinoscar/platform-web/identity/headless';
 import { ThemeContextProvider, useThemeContext } from '../src/contexts/ThemeContext';
-import { ProtectedRoute } from '../src/components/common/ProtectedRoute';
-import { RequirePermission } from '../src/components/common/RequirePermission';
 import { RequireTelemetryEnabled, TelemetryWebAdaptersProvider } from '@marinoscar/platform-web/telemetry/headless';
 import { AppPlatformHostProvider } from '../src/platform/platformHost';
+import { appIdentityAdapters } from '../src/platform/identityAdapters';
 import { appTelemetryAdapters } from '../src/platform/telemetryAdapters';
 import { Layout } from '../src/components/common/Layout';
 import { ErrorBoundary } from '../src/components/common/ErrorBoundary';
 import { LoadingSpinner } from '../src/components/common/LoadingSpinner';
-import type { Role, User } from '../src/types';
 
 const HomePage = lazy(() => import('../src/pages/HomePage'));
 const UserSettingsHubPage = lazy(() => import('../src/pages/UserSettingsHubPage'));
 const UserProfilePage = lazy(() => import('../src/pages/UserProfilePage'));
 const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'));
-const UserTokensPage = lazy(() => import('../src/pages/UserTokensPage'));
+// The identity pages are packaged (#727): lazy from the package, as in `App.tsx`.
+const UserTokensPage = lazy(() =>
+  import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.UserTokensPage })),
+);
 const SettingsHubPage = lazy(() => import('../src/pages/Admin/SettingsHubPage'));
-const AdminUsersPage = lazy(() => import('../src/pages/Admin/UsersPage'));
+const AdminUsersPage = lazy(() =>
+  import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.UsersPage })),
+);
 // Issue #579, epic #576. The one harness page whose DATA is screenshotted:
 // its spec (`tests/visual/specs/telemetry-dashboard.spec.ts`) answers every
 // `/api` call this page makes with fixtures through Playwright's
@@ -201,14 +214,19 @@ const harnessUser: User = {
   createdAt: new Date('2024-01-01T00:00:00.000Z').toISOString(),
 };
 
-const fakeAuth = {
+const fakeAuth: AuthContextValue = {
   user: harnessUser,
   isLoading: false,
   isAuthenticated: true,
   providers: [],
+  sessionExpired: false,
   login: () => {},
   logout: async () => {},
   refreshUser: async () => {},
+  setAccessToken: () => {},
+  activeOrg: null,
+  memberships: [],
+  switchOrg: async () => {},
 };
 
 /**
@@ -222,7 +240,7 @@ const fakeAuth = {
 function HarnessRoutes() {
   return (
     <Routes>
-      <Route element={<ProtectedRoute />}>
+      <Route element={<RequireAuth loading={<LoadingSpinner fullScreen />} />}>
         <Route element={<Layout />}>
           <Route path="/" element={<HomePage />} />
 
@@ -280,15 +298,18 @@ function Inner() {
       <CssBaseline />
       <ErrorBoundary>
         {/* The packaged telemetry dashboard (#704) reads the app through the
-            platform host and the telemetry adapters, exactly as `App.tsx`
-            mounts them; neither fetches anything on its own. */}
-        <AppPlatformHostProvider>
-          <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
-            <Suspense fallback={<LoadingSpinner fullScreen />}>
-              <HarnessRoutes />
-            </Suspense>
-          </TelemetryWebAdaptersProvider>
-        </AppPlatformHostProvider>
+            platform host and the telemetry adapters, and the packaged
+            identity pages (#727) through the identity adapters, exactly as
+            `App.tsx` mounts them; none fetches anything on its own. */}
+        <IdentityWebAdaptersProvider adapters={appIdentityAdapters}>
+          <AppPlatformHostProvider>
+            <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
+              <Suspense fallback={<LoadingSpinner fullScreen />}>
+                <HarnessRoutes />
+              </Suspense>
+            </TelemetryWebAdaptersProvider>
+          </AppPlatformHostProvider>
+        </IdentityWebAdaptersProvider>
       </ErrorBoundary>
     </ThemeProvider>
   );

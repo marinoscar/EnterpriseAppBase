@@ -18,14 +18,14 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
-import { AllowlistTable } from '../../../components/admin/AllowlistTable';
+import { AllowlistTable } from '@marinoscar/platform-web/identity/ui';
 import {
   installLayoutStubs,
   resetContainerWidth,
   setInitialContainerWidth,
 } from '../../../components/datatable/__tests__/testUtils/layoutStubs';
 import { api } from '../../../services/api';
-import type { AllowedEmailEntry } from '../../../types';
+import type { AllowedEmailEntry } from '@marinoscar/platform-web/identity/headless';
 
 // The list is packaged (#727): it reads its hook from the identity slice's
 // headless entry, so that entry is what this suite stubs.

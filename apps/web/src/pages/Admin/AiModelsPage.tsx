@@ -61,7 +61,7 @@ import TuneIcon from '@mui/icons-material/Tune';
 import { Navigate, Link as RouterLink } from 'react-router-dom';
 import { DataTable } from '../../components/datatable';
 import type { DataTableRowAction } from '../../components/datatable';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useAiAdminConfig } from '../../hooks/useAiAdminConfig';
 import { useAiModels } from '../../hooks/useAiModels';
 import {

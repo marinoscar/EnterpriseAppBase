@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { createElement, type ContextType, type ReactNode } from 'react';
-import { AuthContext } from '../../contexts/AuthContext';
+import { AuthContext } from '@marinoscar/platform-web/identity/headless';
 import { TelemetryConfigContext, type UseTelemetryConfigReturn } from '@marinoscar/platform-web/telemetry/headless';
 
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';

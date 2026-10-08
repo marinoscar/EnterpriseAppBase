@@ -1,37 +1,7 @@
 // The identity shapes (the signed-in user, the admin lists, device
-// activation, personal access tokens) are defined ONCE, in
-// `@marinoscar/platform-web/identity/headless` (#727, PP-6.6); these aliases
-// keep the app's existing names.
-import type {
-  AllowedEmailEntry as PlatformAllowedEmailEntry,
-  AllowlistResponse as PlatformAllowlistResponse,
-  AuthProviderInfo,
-  AuthRole,
-  AuthUser,
-  DeviceActivationInfo as PlatformDeviceActivationInfo,
-  DeviceAuthorizationResponse as PlatformDeviceAuthorizationResponse,
-  OrgMembershipSummary as PlatformOrgMembershipSummary,
-  OrgSummary as PlatformOrgSummary,
-  PatCreatedResponse as PlatformPatCreatedResponse,
-  PatDurationUnit as PlatformPatDurationUnit,
-  PersonalAccessToken as PlatformPersonalAccessToken,
-  UserListItem as PlatformUserListItem,
-  UsersResponse as PlatformUsersResponse,
-} from '@marinoscar/platform-web/identity/headless';
-
-export type Role = AuthRole;
-
-/** The signed-in user, as `GET /api/auth/me` reports it. */
-export type User = AuthUser;
-
-/** How the deployment isolates its users (PP-6.2). */
-export type TenancyMode = 'single' | 'multi';
-
-/** An organization as `/api/auth/me` names it. */
-export type OrgSummary = PlatformOrgSummary;
-
-/** One of the user's active memberships, as `/api/auth/me` lists them. */
-export type OrgMembershipSummary = PlatformOrgMembershipSummary;
+// activation, personal access tokens, organizations) are defined once, in
+// `@marinoscar/platform-web/identity/headless` (#727, PP-6.6); import them
+// from there.
 
 export type ProfileImageSource = 'none' | 'provider' | 'upload';
 
@@ -533,32 +503,6 @@ export interface SystemSettings {
   updatedBy: { id: string; email: string } | null;
   version: number;
 }
-
-export type AuthProvider = AuthProviderInfo;
-
-export type AllowedEmailEntry = PlatformAllowedEmailEntry;
-
-export type AllowlistResponse = PlatformAllowlistResponse;
-
-export type UserListItem = PlatformUserListItem;
-
-export type UsersResponse = PlatformUsersResponse;
-
-/**
- * What `GET /api/auth/device/activate?code=…` returns for a pending code.
- * EVERY FIELD UNDER `clientInfo` IS ATTACKER-CHOSEN; see `readCredentialKind`
- * (`@marinoscar/platform-web/identity/headless`), the only place it is read.
- */
-export type DeviceActivationInfo = PlatformDeviceActivationInfo;
-
-export type DeviceAuthorizationResponse = PlatformDeviceAuthorizationResponse;
-
-// Personal Access Tokens
-export type PatDurationUnit = PlatformPatDurationUnit;
-
-export type PersonalAccessToken = PlatformPersonalAccessToken;
-
-export type PatCreatedResponse = PlatformPatCreatedResponse;
 
 // ---------------------------------------------------------------------------
 // Email settings — issue #124, epic #109.

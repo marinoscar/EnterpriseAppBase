@@ -1,15 +1,13 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727): the
+// app's mocked service module is now a fake identity client handed to the hook.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useAllowlist } from '../../hooks/useAllowlist';
-import * as api from '../../services/api';
-import type { AllowlistResponse, AllowedEmailEntry } from '../../types';
+import { useAllowlist } from '../../src/identity/headless/index.js';
+import type { AllowlistResponse, AllowedEmailEntry } from '../../src/identity/headless/index.js';
+import { fakeIdentityApi } from './harness.js';
 
-// Mock the API module
-vi.mock('../../services/api', () => ({
-  getAllowlist: vi.fn(),
-  addToAllowlist: vi.fn(),
-  removeFromAllowlist: vi.fn(),
-}));
+
+const api = fakeIdentityApi();
 
 // Mock data
 const mockAllowedEmail1: AllowedEmailEntry = {
@@ -57,7 +55,7 @@ describe('useAllowlist', () => {
 
   describe('Initial Loading State', () => {
     it('should start with empty entries and not loading', () => {
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       expect(result.current.entries).toEqual([]);
       expect(result.current.total).toBe(0);
@@ -69,7 +67,7 @@ describe('useAllowlist', () => {
     });
 
     it('should provide all expected functions', () => {
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       expect(typeof result.current.fetchAllowlist).toBe('function');
       expect(typeof result.current.addEmail).toBe('function');
@@ -81,7 +79,7 @@ describe('useAllowlist', () => {
     it('should fetch allowlist data successfully', async () => {
       vi.mocked(api.getAllowlist).mockResolvedValue(mockAllowlistResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -107,7 +105,7 @@ describe('useAllowlist', () => {
       });
       vi.mocked(api.getAllowlist).mockReturnValue(allowlistPromise);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       expect(result.current.isLoading).toBe(false);
 
@@ -137,7 +135,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(pageResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist({ page: 2, pageSize: 1 });
@@ -158,7 +156,7 @@ describe('useAllowlist', () => {
     it('should fetch with search parameter', async () => {
       vi.mocked(api.getAllowlist).mockResolvedValue(mockAllowlistResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist({ search: 'user1@example.com' });
@@ -179,7 +177,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(multiPageResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist({ page: 3, pageSize: 10 });
@@ -199,7 +197,7 @@ describe('useAllowlist', () => {
       const error = new Error('Failed to fetch allowlist');
       vi.mocked(api.getAllowlist).mockRejectedValue(error);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -216,7 +214,7 @@ describe('useAllowlist', () => {
     it('should handle generic errors during fetch', async () => {
       vi.mocked(api.getAllowlist).mockRejectedValue(new Error('Network error'));
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -233,7 +231,7 @@ describe('useAllowlist', () => {
     it('should handle non-Error objects during fetch', async () => {
       vi.mocked(api.getAllowlist).mockRejectedValue('String error');
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -251,7 +249,7 @@ describe('useAllowlist', () => {
       // First successful fetch
       vi.mocked(api.getAllowlist).mockResolvedValueOnce(mockAllowlistResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -280,7 +278,7 @@ describe('useAllowlist', () => {
         new Error('Failed to fetch'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -315,7 +313,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(pendingResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist({ status: 'pending' });
@@ -339,7 +337,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(claimedResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist({ status: 'claimed' });
@@ -353,7 +351,7 @@ describe('useAllowlist', () => {
     it('should fetch with all status filter', async () => {
       vi.mocked(api.getAllowlist).mockResolvedValue(mockAllowlistResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist({ status: 'all' });
@@ -373,7 +371,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(filteredResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist({
@@ -412,7 +410,7 @@ describe('useAllowlist', () => {
         total: 4,
       });
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.addEmail('newuser@example.com', 'New user');
@@ -440,7 +438,7 @@ describe('useAllowlist', () => {
       vi.mocked(api.addToAllowlist).mockResolvedValue(newEmail);
       vi.mocked(api.getAllowlist).mockResolvedValue(mockAllowlistResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.addEmail('another@example.com');
@@ -453,9 +451,9 @@ describe('useAllowlist', () => {
       const error = new Error('Failed to add email');
       vi.mocked(api.addToAllowlist).mockRejectedValue(error);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.addEmail('test@example.com');
@@ -475,9 +473,9 @@ describe('useAllowlist', () => {
       const duplicateError = new Error('Email already exists in allowlist');
       vi.mocked(api.addToAllowlist).mockRejectedValue(duplicateError);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.addEmail('user1@example.com');
@@ -497,7 +495,7 @@ describe('useAllowlist', () => {
         new Error('Previous error'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -534,7 +532,7 @@ describe('useAllowlist', () => {
     it('should handle generic errors during email addition', async () => {
       vi.mocked(api.addToAllowlist).mockRejectedValue('String error');
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       let thrownError: unknown = null;
       await act(async () => {
@@ -559,7 +557,7 @@ describe('useAllowlist', () => {
         total: 2,
       });
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.removeEmail('entry-1');
@@ -574,9 +572,9 @@ describe('useAllowlist', () => {
       const error = new Error('Failed to remove email');
       vi.mocked(api.removeFromAllowlist).mockRejectedValue(error);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.removeEmail('entry-1');
@@ -596,9 +594,9 @@ describe('useAllowlist', () => {
       const notFoundError = new Error('Email not found');
       vi.mocked(api.removeFromAllowlist).mockRejectedValue(notFoundError);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.removeEmail('nonexistent-id');
@@ -618,7 +616,7 @@ describe('useAllowlist', () => {
         new Error('Previous error'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -645,7 +643,7 @@ describe('useAllowlist', () => {
     it('should handle generic errors during email removal', async () => {
       vi.mocked(api.removeFromAllowlist).mockRejectedValue('String error');
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       let thrownError: unknown = null;
       await act(async () => {
@@ -685,7 +683,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(updatedResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.addEmail('newuser@example.com');
@@ -709,7 +707,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(updatedResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.removeEmail('entry-1');
@@ -732,7 +730,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(page2Response);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       // Fetch page 2
       await act(async () => {
@@ -773,7 +771,7 @@ describe('useAllowlist', () => {
         new Error('Failed to add'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       vi.clearAllMocks(); // Clear any initial calls
 
@@ -796,7 +794,7 @@ describe('useAllowlist', () => {
       });
       vi.mocked(api.getAllowlist).mockReturnValue(allowlistPromise);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       expect(result.current.isLoading).toBe(false);
 
@@ -821,7 +819,7 @@ describe('useAllowlist', () => {
         new Error('Failed to fetch'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -851,7 +849,7 @@ describe('useAllowlist', () => {
       vi.mocked(api.addToAllowlist).mockResolvedValue(newEmail);
       vi.mocked(api.getAllowlist).mockReturnValue(allowlistPromise);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       act(() => {
         result.current.addEmail('newuser@example.com');
@@ -881,7 +879,7 @@ describe('useAllowlist', () => {
       vi.mocked(api.removeFromAllowlist).mockResolvedValue(undefined);
       vi.mocked(api.getAllowlist).mockReturnValue(allowlistPromise);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       act(() => {
         result.current.removeEmail('entry-1');
@@ -909,7 +907,7 @@ describe('useAllowlist', () => {
         new Error('Server unavailable'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -925,7 +923,7 @@ describe('useAllowlist', () => {
         new Error('Validation error'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         try {
@@ -943,7 +941,7 @@ describe('useAllowlist', () => {
         new Error('Unauthorized'),
       );
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         try {
@@ -959,7 +957,7 @@ describe('useAllowlist', () => {
     it('should use default error message for non-Error objects', async () => {
       vi.mocked(api.getAllowlist).mockRejectedValue({ code: 'ERR_UNKNOWN' });
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -973,7 +971,7 @@ describe('useAllowlist', () => {
 
   describe('Callback Stability', () => {
     it('should maintain stable callback references', () => {
-      const { result, rerender } = renderHook(() => useAllowlist());
+      const { result, rerender } = renderHook(() => useAllowlist(api));
 
       const firstFetchAllowlist = result.current.fetchAllowlist;
       const firstAddEmail = result.current.addEmail;
@@ -998,7 +996,7 @@ describe('useAllowlist', () => {
       };
       vi.mocked(api.getAllowlist).mockResolvedValue(emptyResponse);
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -1022,7 +1020,7 @@ describe('useAllowlist', () => {
           totalPages: 1,
         });
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.fetchAllowlist();
@@ -1076,7 +1074,7 @@ describe('useAllowlist', () => {
           total: 5,
         });
 
-      const { result } = renderHook(() => useAllowlist());
+      const { result } = renderHook(() => useAllowlist(api));
 
       await act(async () => {
         await result.current.addEmail('user4@example.com');

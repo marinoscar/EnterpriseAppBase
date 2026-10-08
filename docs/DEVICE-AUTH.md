@@ -8,7 +8,7 @@ server, a TV app) in to this application with the Device Authorization Grant.
 > are in the generated API reference at `/api/docs` (tag **Device
 > Authorization**). The implementation notes and the security rationale live
 > next to the code in
-> [`apps/api/src/device-auth/README.md`](../packages/platform-api/src/identity/device-auth/README.md).
+> [`packages/platform-api/src/identity/device-auth/README.md`](../packages/platform-api/src/identity/device-auth/README.md).
 
 ## Table of Contents
 
@@ -23,6 +23,7 @@ server, a TV app) in to this application with the Device Authorization Grant.
 - [Security Considerations](#security-considerations)
 - [Error Handling](#error-handling)
 - [Troubleshooting](#troubleshooting)
+- [Code locations](#code-locations)
 
 ---
 
@@ -296,7 +297,7 @@ code, `400` for an expired code or one that was already approved or denied.
 `activate` and `authorize` stay reachable during a maintenance window.
 
 For the implementation (module layout, `device_codes` table, services, tests),
-read [`apps/api/src/device-auth/README.md`](../packages/platform-api/src/identity/device-auth/README.md).
+read [`packages/platform-api/src/identity/device-auth/README.md`](../packages/platform-api/src/identity/device-auth/README.md).
 
 ---
 
@@ -468,7 +469,7 @@ Set these in `infra/compose/.env`:
 | `DEVICE_TOKEN_EXPIRY_DAYS` | 7 | Lifetime of the `session` credential (access and refresh token) |
 | `DEVICE_PAT_EXPIRY_DAYS` | 90 | Lifetime of the `pat` credential; 1–999, otherwise falls back to 90 |
 
-They are loaded in `apps/api/src/config/configuration.ts` under `deviceAuth`.
+They are read by `identityConfiguration()` (`packages/platform-api/src/identity/identity.configuration.ts`), which `apps/api/src/config/configuration.ts` publishes under `deviceAuth`.
 A device session's lifetime replaces `JWT_ACCESS_TTL_MINUTES` and
 `JWT_REFRESH_TTL_DAYS` for credentials issued through this flow.
 
@@ -621,6 +622,19 @@ the requests, each keeps its own last-poll time.
 Check the API logs; each approval and each issued credential is logged.
 
 ---
+
+## Code locations
+
+The device flow is part of the identity slice (#727), shipped in the platform
+packages; the reference app composes it and adds nothing of its own.
+
+| Part | Where |
+|---|---|
+| Endpoints, service, cleanup job and task | `packages/platform-api/src/identity/device-auth/` (`@marinoscar/platform-api/identity`), composed by `IdentityModule.forRoot` in `apps/api/src/platform/identity/identity.config.ts` |
+| Wire shapes (`DEVICE_TOKEN_TYPES`, the request, response and error schemas) | `packages/platform-contract/src/identity/` (`@marinoscar/platform-contract/identity`) |
+| The `/activate` page and its parts | `packages/platform-web/src/identity/ui/ActivateDevicePage.tsx`, `ui/device/` (`@marinoscar/platform-web/identity/ui`) |
+| `clientInfo` interpretation (`readCredentialKind`, `sanitizeDeviceText`) | `packages/platform-web/src/identity/headless/device-credential.ts` |
+| Tests | `packages/platform-api/test/identity/device-auth/`, `packages/platform-web/test/identity/` (device and credential suites), `apps/api/test/device-auth/`, `apps/web/src/__tests__/pages/ActivateDevicePage.test.tsx` |
 
 ## Additional Resources
 

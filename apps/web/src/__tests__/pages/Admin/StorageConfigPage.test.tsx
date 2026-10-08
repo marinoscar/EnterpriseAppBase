@@ -32,12 +32,13 @@ vi.mock('../../../hooks/useStorageConfig', () => ({
   useStorageConfig: vi.fn(),
 }));
 
-vi.mock('../../../hooks/usePermissions', () => ({
+vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
   usePermissions: vi.fn(),
 }));
 
 import { useStorageConfig } from '../../../hooks/useStorageConfig';
-import { usePermissions } from '../../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import StorageConfigPage from '../../../pages/Admin/StorageConfigPage';
 
 const mockUseStorageConfig = vi.mocked(useStorageConfig);

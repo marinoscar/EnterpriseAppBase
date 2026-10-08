@@ -4,8 +4,8 @@ test.describe('Admin functionality', () => {
   test('admin can access user management', async ({ adminPage }) => {
     await adminPage.goto('/admin/users');
 
-    // Verify we're on the admin page
-    await expect(adminPage).toHaveURL('/admin/users');
+    // The legacy path redirects to the Console's Users & Allowlist page (#92).
+    await expect(adminPage).toHaveURL('/admin/settings/users');
     await expect(adminPage.locator('h1, h2, h3, h4, h5, h6').first()).toBeVisible();
   });
 

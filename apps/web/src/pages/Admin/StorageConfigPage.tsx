@@ -92,7 +92,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutlined';
 import NetworkCheckIcon from '@mui/icons-material/NetworkCheck';
 import { Navigate } from 'react-router-dom';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useStorageConfig } from '../../hooks/useStorageConfig';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { StorageSwitchConfirmDialog } from '../../components/admin/StorageSwitchConfirmDialog';

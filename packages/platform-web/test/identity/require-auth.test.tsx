@@ -1,16 +1,18 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727), where it
+// covered `ProtectedRoute`, the app's binding of `RequireAuth` to its spinner.
 import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { ProtectedRoute } from '../../../components/common/ProtectedRoute';
+import { render } from './render.js';
+import { RequireAuth } from '../../src/identity/headless/index.js';
 import { Route, Routes } from 'react-router-dom';
 
-describe('ProtectedRoute', () => {
+describe('RequireAuth', () => {
   describe('Loading State', () => {
     it('should show loading while checking auth', () => {
       // Mock loading state
       const { container } = render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Protected Content</div>} />
           </Route>
         </Routes>
@@ -26,7 +28,7 @@ describe('ProtectedRoute', () => {
     it('should render children when authenticated', async () => {
       render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Protected Content</div>} />
           </Route>
         </Routes>,
@@ -43,7 +45,7 @@ describe('ProtectedRoute', () => {
     it('should render nested routes when authenticated', async () => {
       render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Home</div>} />
             <Route path="settings" element={<div>Settings</div>} />
           </Route>
@@ -61,7 +63,7 @@ describe('ProtectedRoute', () => {
     it('should render Outlet for child routes', async () => {
       render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Child Route Content</div>} />
           </Route>
         </Routes>,
@@ -80,7 +82,7 @@ describe('ProtectedRoute', () => {
     it('should redirect to login when not authenticated', async () => {
       render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Protected Content</div>} />
           </Route>
           <Route path="/login" element={<div>Login Page</div>} />
@@ -98,7 +100,7 @@ describe('ProtectedRoute', () => {
     it('should not render protected content when unauthenticated', async () => {
       render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Secret Data</div>} />
           </Route>
         </Routes>,
@@ -117,7 +119,7 @@ describe('ProtectedRoute', () => {
     it('should show full screen loading spinner during auth check', () => {
       const { container } = render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Protected Content</div>} />
           </Route>
         </Routes>
@@ -132,7 +134,7 @@ describe('ProtectedRoute', () => {
     it('should preserve location for redirect after login', async () => {
       render(
         <Routes>
-          <Route path="/protected" element={<ProtectedRoute />}>
+          <Route path="/protected" element={<RequireAuth />}>
             <Route index element={<div>Protected Page</div>} />
           </Route>
           <Route path="/login" element={<div>Login Page</div>} />
@@ -157,7 +159,7 @@ describe('ProtectedRoute', () => {
     it('should protect multiple routes', async () => {
       render(
         <Routes>
-          <Route element={<ProtectedRoute />}>
+          <Route element={<RequireAuth />}>
             <Route path="/" element={<div>Home</div>} />
             <Route path="/dashboard" element={<div>Dashboard</div>} />
             <Route path="/profile" element={<div>Profile</div>} />
@@ -178,7 +180,7 @@ describe('ProtectedRoute', () => {
     it('should handle rapid auth state changes', async () => {
       const { rerender } = render(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Protected Content</div>} />
           </Route>
         </Routes>,
@@ -194,7 +196,7 @@ describe('ProtectedRoute', () => {
       // Rerender with authenticated state
       rerender(
         <Routes>
-          <Route path="/" element={<ProtectedRoute />}>
+          <Route path="/" element={<RequireAuth />}>
             <Route index element={<div>Protected Content</div>} />
           </Route>
         </Routes>

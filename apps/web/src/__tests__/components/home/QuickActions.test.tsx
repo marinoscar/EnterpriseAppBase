@@ -16,11 +16,12 @@ vi.mock('react-router-dom', async () => {
 });
 
 // Mock usePermissions hook
-vi.mock('../../../hooks/usePermissions', () => ({
+vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
   usePermissions: vi.fn(),
 }));
 
-import { usePermissions } from '../../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 
 const mockUsePermissions = vi.mocked(usePermissions);
 

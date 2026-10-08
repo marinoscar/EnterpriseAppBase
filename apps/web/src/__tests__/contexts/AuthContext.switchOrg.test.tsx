@@ -9,8 +9,9 @@ import { http, HttpResponse } from 'msw';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { server } from '../mocks/server';
-import { AuthProvider, useAuth } from '../../contexts/AuthContext';
+import { AuthProvider, useAuth } from '@marinoscar/platform-web/identity/headless';
 import { api } from '../../services/api';
+import { removePushSubscription } from '../../services/pushSubscription';
 
 vi.mock('../../services/pushSubscription', () => ({
   removePushSubscription: vi.fn().mockResolvedValue(undefined),
@@ -42,7 +43,7 @@ function me(activeOrg: typeof ORG_A, permissions: string[]) {
 function wrapper({ children }: { children: ReactNode }) {
   return (
     <MemoryRouter>
-      <AuthProvider>{children}</AuthProvider>
+      <AuthProvider client={api} onBeforeLogout={removePushSubscription}>{children}</AuthProvider>
     </MemoryRouter>
   );
 }

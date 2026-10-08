@@ -126,7 +126,7 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Navigate } from 'react-router-dom';
 import { useAbout } from '../../hooks/useAbout';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { formatRelativeTime } from '../../utils/relativeTime';
 import { formatDuration } from './jobsTable';
 import type { AboutHistoryEntry, AboutHost, AboutResponse, DeployCommand } from '../../types';

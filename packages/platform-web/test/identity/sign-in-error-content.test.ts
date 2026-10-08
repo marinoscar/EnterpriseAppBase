@@ -1,11 +1,15 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 import { describe, it, expect } from 'vitest';
 import { AUTH_ERROR_CODES, DEFAULT_AUTH_ERROR_CODE } from '@marinoscar/platform-contract/identity';
 import {
   SIGN_IN_ERROR_CODES,
-  SIGN_IN_ERROR_CONTENT,
   DEFAULT_SIGN_IN_ERROR_CODE,
+  createSignInErrorContent,
   resolveSignInErrorCode,
-} from '../../../components/auth/signInErrorContent';
+} from '../../src/identity/ui/index.js';
+
+// The app built its copy with its product name; any name will do here.
+const SIGN_IN_ERROR_CONTENT = createSignInErrorContent('Example App');
 
 describe('signInErrorContent (#652)', () => {
   it('has copy for every code', () => {

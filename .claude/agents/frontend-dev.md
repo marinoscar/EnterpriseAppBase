@@ -18,7 +18,7 @@ The UI presents and collects; the API decides. Never put business logic or an au
 ## Rules that apply to this domain
 
 - **Every settings page is a registry entry.** Admin cards go in `apps/web/src/config/adminSections.tsx` (`ADMIN_SECTIONS`); per-user cards in `apps/web/src/config/userSettingsSections.tsx` (`USER_SETTINGS_SECTIONS`). A route without an entry is not acceptable. Append new cards; do not insert. See [settings-ui](../../docs/specs/settings-ui.md).
-- **A new page is a card, not a tab.** Tabs are only for parallel content inside one destination (`pages/Admin/UsersPage.tsx`: Users, Allowlist).
+- **A new page is a card, not a tab.** Tabs are only for parallel content inside one destination (the packaged `UsersPage`, `packages/platform-web/src/identity/ui/users/UsersPage.tsx`: Users, Allowlist).
 - **The card `permission` is the exact string the controller enforces.** Read it off the controller's `@Auth(...)`; never invent or approximate it.
 - **Reuse `apps/web/src/components/settings/SettingsHub.tsx`.** A new hub is a binding over it (`sections`, `hubKey`, `title`, `subtitle`, `features`); do not fork or copy it.
 - **The five breakpoint gates move together, at `sm` (600px).** `Layout.tsx`'s `showRail` and `<main>` bottom padding (`components/common/`), `BottomNav.tsx`, `AppBar.tsx` (`components/navigation/`), and `SettingsHub.tsx`'s `isCompactWindow`. Change one, check all five.

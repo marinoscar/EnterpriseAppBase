@@ -15,10 +15,13 @@ import { mockAiUsageEmpty, mockAiUsageReport } from '../../mocks/fixtures/ai';
 import type { AiUsageQuery, AiUsageReport } from '../../../services/ai';
 
 vi.mock('../../../hooks/useAiUsage', () => ({ useAiUsage: vi.fn(), useMyAiUsage: vi.fn() }));
-vi.mock('../../../hooks/usePermissions', () => ({ usePermissions: vi.fn() }));
+vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
+  usePermissions: vi.fn(),
+}));
 
 import { useAiUsage, type UseAiUsageReturn } from '../../../hooks/useAiUsage';
-import { usePermissions } from '../../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import AiUsagePage from '../../../pages/Admin/AiUsagePage';
 
 const mockUseAiUsage = vi.mocked(useAiUsage);

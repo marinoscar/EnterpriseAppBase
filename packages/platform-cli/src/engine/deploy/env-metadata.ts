@@ -271,7 +271,7 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   // current app), but validated: the API refuses to start on any other value.
   // An `update` of a deployment that predates the key adds it with that
   // default, without a question (it is neither essential nor secret). Same
-  // list as TENANCY_MODES in apps/api/src/common/deployment/tenancy-mode.ts.
+  // list as TENANCY_MODES in packages/platform-api/src/identity/organizations/tenancy-mode.ts.
   TENANCY_MODE: { validate: oneOf('single', 'multi') },
 };
 

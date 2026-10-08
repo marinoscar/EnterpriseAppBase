@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 export interface TestUserOptions {
   email: string;
@@ -68,11 +68,19 @@ export async function loginAsViewer(
 }
 
 /**
- * Check if the user is logged in by checking for the user menu.
+ * The app bar's account button: the avatar that opens the user menu
+ * (`components/navigation/UserMenu.tsx`). It renders only for a signed-in user.
+ */
+export function accountButton(page: Page): Locator {
+  return page.locator('button[aria-haspopup="true"]').filter({ has: page.locator('.MuiAvatar-root') });
+}
+
+/**
+ * Check if the user is logged in by checking for the account button.
  */
 export async function isLoggedIn(page: Page): Promise<boolean> {
   try {
-    await page.waitForSelector('[data-testid="user-menu"]', { timeout: 2000 });
+    await accountButton(page).waitFor({ state: 'visible', timeout: 5000 });
     return true;
   } catch {
     return false;

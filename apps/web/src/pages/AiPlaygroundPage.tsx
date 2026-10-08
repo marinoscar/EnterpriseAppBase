@@ -67,7 +67,7 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Send as SendIcon, Stop as StopIcon } from '@mui/icons-material';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
-import { usePermissions } from '../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useUserSettings } from '../hooks/useUserSettings';
 import type { UserSettings } from '../types';
 import { useAiChat, type AiChatRequestOptions } from '../hooks/useAiChat';

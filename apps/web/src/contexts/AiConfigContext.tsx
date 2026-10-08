@@ -2,7 +2,7 @@
  * The one `GET /api/ai/config` fetch for the authenticated shell — issue #425,
  * epic #419. See `hooks/useAiConfig.ts` for why there is exactly one.
  *
- * Mounted inside `ProtectedRoute` (the endpoint is `@Auth()`, so mounting it on
+ * Mounted inside `RequireAuth` (the endpoint is `@Auth()`, so mounting it on
  * `/login` would buy a 401) and around `Layout`, so the navigation chrome and
  * every routed page read the same answer.
  */

@@ -19,7 +19,7 @@
  */
 import { Alert, Box, CircularProgress, Container, Stack, Typography } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { usePermissions } from '../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useAiConfig } from '../hooks/useAiConfig';
 import { useUserAiKeys } from '../hooks/useUserAiKeys';
 import { useUsableAiModels } from '../hooks/useUsableAiModels';

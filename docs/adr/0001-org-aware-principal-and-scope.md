@@ -117,7 +117,7 @@ Three shape rules:
   validation path already returns `null` (or throws) for an inactive user, so
   the field could only ever be `true`.
 - **One runtime mapper.** `toPrincipal()` (#724, beside `PrincipalFactory` in
-  `apps/api/src/auth/principal.factory.ts`) implements the mapping below;
+  `packages/platform-api/src/identity/auth/principal.factory.ts`) implements the mapping below;
   `JwtAuthGuard` attaches its result as `request.principal` and
   `@CurrentPrincipal()` reads it. The mapping below is the specification it implements, and the type-level spec
   ([`test/core/principal.spec.ts`](../../packages/platform-api/test/core/principal.spec.ts)
@@ -254,9 +254,9 @@ access needs a written reason. Both are the point.
   Per-slice impact, Phasing) and [Wave 0](../specs/platform-packages.md#wave-0-no-regret-moves).
 - Security: [SECURITY-ARCHITECTURE §1 and §2](../SECURITY-ARCHITECTURE.md#2-credential-kinds).
 - Contract: [`@marinoscar/platform-api/core`](../../packages/platform-api/src/core/principal/index.ts) (`packages/platform-api/src/core/principal/`).
-- Code: `apps/api/src/auth/interfaces/authenticated-user.interface.ts`,
-  `apps/api/src/auth/decorators/current-user.decorator.ts`,
-  `apps/api/src/auth/guards/jwt-auth.guard.ts`,
-  `apps/api/src/auth/strategies/jwt.strategy.ts`,
+- Code: `packages/platform-api/src/identity/auth/interfaces/authenticated-user.interface.ts`,
+  `packages/platform-api/src/identity/auth/decorators/current-user.decorator.ts`,
+  `packages/platform-api/src/identity/auth/guards/jwt-auth.guard.ts`,
+  `packages/platform-api/src/identity/auth/strategies/jwt.strategy.ts`,
   `apps/api/src/notifications/notification-stream.service.ts`.
 - Issues: #687 (this ADR), #688, #689, #698, #722, #723, #724, #725, #729, #683.
