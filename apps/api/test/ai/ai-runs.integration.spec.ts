@@ -16,10 +16,10 @@
 import request from 'supertest';
 
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
-import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';
-import { AiRunsController } from '../../src/ai/http/ai-runs.controller';
-import { AI_RESPONSE_RUN_TYPE } from '../../src/ai/runtime/ai-runs.service';
-import { HARNESS_MODEL, HARNESS_OTHER_USER, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
+import { AiEnabledGuard } from '@marinoscar/platform-api/ai';
+import { AiRunsController } from '@marinoscar/platform-api/ai';
+import { AI_RESPONSE_RUN_TYPE } from '@marinoscar/platform-api/ai';
+import { HARNESS_MODEL, HARNESS_OTHER_USER, HARNESS_USER } from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser, TestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, OTHER_USER_KEY, createAiHttpTestApp } from './ai-http.helper';
 

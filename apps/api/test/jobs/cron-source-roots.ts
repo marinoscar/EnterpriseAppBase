@@ -41,6 +41,9 @@ export const NOTIFICATIONS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-
 /** The packaged exports slice's source root (#744: the export expiry cron). */
 export const EXPORTS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'exports');
 
+/** The packaged AI slice's source root (#739: the catalogue refresh, key recheck and usage purge crons). */
+export const AI_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'ai');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -51,4 +54,5 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   STORAGE_SLICE_SOURCE_ROOT,
   NOTIFICATIONS_SLICE_SOURCE_ROOT,
   EXPORTS_SLICE_SOURCE_ROOT,
+  AI_SLICE_SOURCE_ROOT,
 ];

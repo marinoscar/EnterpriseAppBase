@@ -17,7 +17,7 @@ import {
   APP_SYSTEM_SETTINGS_EXTENSIONS,
   APP_SYSTEM_SETTINGS_NAMESPACES,
 } from '../../app-registrations/settings';
-import { AI_SYSTEM_SETTINGS } from '../../ai/ai.system-settings';
+import { AI_SYSTEM_SETTINGS } from '@marinoscar/platform-api/ai';
 import { MAINTENANCE_SYSTEM_SETTINGS } from '../../common/maintenance/maintenance.system-settings';
 import { RETENTION_SYSTEM_SETTINGS } from '../../common/retention/retention.system-settings';
 import { DATABASE_BACKUP_SYSTEM_SETTINGS } from '../../db-backup/db-backup.system-settings';

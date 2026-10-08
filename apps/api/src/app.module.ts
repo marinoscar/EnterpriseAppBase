@@ -29,7 +29,7 @@ import { MaintenanceModule } from './common/maintenance/maintenance.module';
 import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
 import { DeploymentModule } from './common/deployment/deployment.module';
 import { DocsEgressContributor } from './openapi/docs-egress.contributor';
-import { AiModule } from './ai/ai.module';
+import { AiModule } from './platform/ai/ai.config';
 import { telemetryModule } from './platform/telemetry/telemetry.config';
 import { doctorModule } from './doctor/doctor.config';
 import { RetentionModule } from './common/retention/retention.module';
@@ -227,10 +227,10 @@ import configuration from './config/configuration';
     // `doctor/doctor.config.ts`.
     doctorModule,
 
-    // The AI platform (epic #419). Since #424 this is only the
-    // provider-agnostic core: contracts and an in-memory provider registry,
-    // no database access and no provider registered. Later stories add their
-    // modules as import lines inside `AiModule`, not here.
+    // The AI platform (epic #419): core, the five providers, catalogue,
+    // policy, keys, runtime, the /api/ai and /api/admin/ai routes and usage.
+    // Packaged as `@marinoscar/platform-api/ai` (#739); the app's binding is
+    // `platform/ai/ai.config.ts` (`AiModule.forRoot({ imports: [AiHostModule] })`).
     AiModule,
 
     // Telemetry (#534, epic #528): the `telemetry` settings and the runtime

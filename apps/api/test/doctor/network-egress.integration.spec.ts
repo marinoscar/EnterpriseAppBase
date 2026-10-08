@@ -32,7 +32,7 @@ import {
   describeEgress,
 } from '@marinoscar/platform-api/doctor';
 
-import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
+import { AiConfigService, type AiPolicy } from '@marinoscar/platform-api/ai';
 import { AuthService } from '@marinoscar/platform-api/identity';
 import { DeploymentNetworkService } from '../../src/common/deployment/deployment-network.service';
 import { EmailSettingsService } from '@marinoscar/platform-api/email';

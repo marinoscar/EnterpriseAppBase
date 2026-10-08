@@ -23,10 +23,11 @@ import { readApiPermissionConstants } from '../utils/apiPermissions';
  * covered with no edit to this file.
  */
 
-const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+// The AI slice's controllers live in `@marinoscar/platform-api/ai` since #739.
+const PLATFORM_API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/platform-api/src');
 
 function readApiSource(relPath: string): string {
-  return readFileSync(resolve(API_SRC, relPath), 'utf8');
+  return readFileSync(resolve(PLATFORM_API_SRC, relPath), 'utf8');
 }
 
 // The API's `PERMISSIONS` constants as `KEY: 'id'` lines, followed through

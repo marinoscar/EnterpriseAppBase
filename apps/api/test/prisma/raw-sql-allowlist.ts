@@ -22,10 +22,6 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: 'cleanDatabase(): lists and truncates every table; test environment only (it throws otherwise).',
   },
   {
-    file: 'ai/usage/ai-usage.service.ts',
-    why: 'Usage report: GROUPING SETS totals Prisma cannot express; filters are bound parameters from a validated query. The admin report reads through the system client; the per-user view through an organization-scoped one (#725).',
-  },
-  {
     file: 'common/event-bus/postgres-event-bus.ts',
     why: 'Event bus publish: SELECT pg_notify(...). No table access.',
   },

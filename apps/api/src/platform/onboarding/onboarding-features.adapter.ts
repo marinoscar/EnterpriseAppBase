@@ -13,7 +13,7 @@ import { currentTenancyMode } from '@marinoscar/platform-api/identity';
 import type { OnboardingFeatureGate } from '@marinoscar/platform-api/onboarding';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
-import { AiConfigService } from '../../ai/config/ai-config.service';
+import { AiConfigService } from '@marinoscar/platform-api/ai';
 
 @Injectable()
 export class OnboardingFeaturesAdapter implements OnboardingFeatureGate {

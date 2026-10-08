@@ -15,14 +15,14 @@
 import request from 'supertest';
 
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { aiRunSchema, aiRunStartedSchema } from '../../src/ai/http/dto/ai-response.dto';
-import { aiOutputKeyPrefix } from '../../src/ai/storage/ai-output-writer';
+import { aiRunSchema, aiRunStartedSchema } from '@marinoscar/platform-api/ai';
+import { aiOutputKeyPrefix } from '@marinoscar/platform-api/ai';
 import {
   HARNESS_IMAGE_MODEL,
   HARNESS_MODEL,
   HARNESS_OTHER_USER,
   HARNESS_USER,
-} from '../../src/ai/testing/ai-runtime-harness';
+} from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, createAiHttpTestApp } from './ai-http.helper';
 

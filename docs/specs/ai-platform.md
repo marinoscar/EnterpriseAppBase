@@ -1,6 +1,6 @@
 # AI Platform
 
-> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [apps/api/src/ai/README.md](../../apps/api/src/ai/README.md)
+> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md)
 
 The AI platform gives an app built from this template one admin-governed,
 bring-your-own-key (BYOK), multi-provider AI capability. Feature code injects
@@ -833,7 +833,7 @@ noted):
 ## 4. Extending it in a fork
 
 To **use** AI in a feature, follow the recipe in
-[apps/api/src/ai/README.md](../../apps/api/src/ai/README.md): import
+[packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md): import
 `AiModule`, inject `AiService`, call `forUser(userId)`.
 
 To **add a provider**, implement an adapter against the existing contract.

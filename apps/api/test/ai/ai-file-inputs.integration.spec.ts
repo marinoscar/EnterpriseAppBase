@@ -16,11 +16,11 @@
 
 import request from 'supertest';
 
-import type { AiModelCapabilities } from '../../src/ai/core/capabilities';
-import { AI_STORAGE_INPUT_FILE_MAX_BYTES } from '../../src/ai/core/types/file-inputs.types';
-import { aiRunStartedSchema } from '../../src/ai/http/dto/ai-response.dto';
-import { HARNESS_MODEL, HARNESS_OTHER_USER, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
-import { IN_MEMORY_PRESIGNED_SIGNATURE } from '../../src/ai/testing/in-memory-ai-storage';
+import type { AiModelCapabilities } from '@marinoscar/platform-api/ai';
+import { AI_STORAGE_INPUT_FILE_MAX_BYTES } from '@marinoscar/platform-api/ai';
+import { aiRunStartedSchema } from '@marinoscar/platform-api/ai';
+import { HARNESS_MODEL, HARNESS_OTHER_USER, HARNESS_USER } from '@marinoscar/platform-api/ai/testing';
+import { IN_MEMORY_PRESIGNED_SIGNATURE } from '@marinoscar/platform-api/ai/testing';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, createAiHttpTestApp, parseSse } from './ai-http.helper';

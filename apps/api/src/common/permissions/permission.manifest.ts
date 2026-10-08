@@ -15,7 +15,7 @@
 // =============================================================================
 
 import { APP_PERMISSIONS, APP_ROLES } from '../../app-registrations/permissions';
-import { AI_PERMISSIONS } from '../../ai/ai.permissions';
+import { AI_PERMISSIONS } from '@marinoscar/platform-api/ai';
 import {
   ALLOWLIST_PERMISSIONS,
   USERS_PERMISSIONS,

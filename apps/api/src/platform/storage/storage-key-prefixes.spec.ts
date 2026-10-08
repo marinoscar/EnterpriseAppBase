@@ -20,7 +20,7 @@ import {
 } from '@marinoscar/platform-api/storage';
 
 import { BACKUP_KEY_PREFIX } from '../../db-backup/db-backup-storage';
-import { aiOutputKeyPrefix } from '../../ai/storage/ai-output-writer';
+import { aiOutputKeyPrefix } from '@marinoscar/platform-api/ai';
 import { STORAGE_KEY_PREFIXES } from './storage-key-prefix.view';
 import { AI_OUTPUTS_KEY_PREFIX, DATABASE_BACKUPS_KEY_PREFIX } from './storage-key-prefixes';
 

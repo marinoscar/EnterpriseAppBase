@@ -44,15 +44,15 @@ import {
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { decryptSecret } from '@marinoscar/platform-api/core';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { AiProviderRegistry } from '../../src/ai/core';
-import { AiConfigService } from '../../src/ai/config/ai-config.service';
-import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';
-import { UserAiKeysController } from '../../src/ai/keys/user-ai-keys.controller';
-import { FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';
+import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
+import { AiConfigService } from '@marinoscar/platform-api/ai';
+import { AiEnabledGuard } from '@marinoscar/platform-api/ai';
+import { UserAiKeysController } from '@marinoscar/platform-api/ai';
+import { FakeAiProvider } from '@marinoscar/platform-api/ai/testing';
 import {
   createInMemoryAiKeysPrisma,
   type InMemoryAiKeysPrisma,
-} from '../../src/ai/testing/in-memory-ai-keys-prisma';
+} from '@marinoscar/platform-api/ai/testing';
 
 const USER_KEY_A = 'sk-user-a-never-leak-Qa12';
 const USER_KEY_B = 'sk-user-b-never-leak-Qb34';

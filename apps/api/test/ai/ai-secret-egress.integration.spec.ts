@@ -59,10 +59,10 @@ import { Logger } from '@nestjs/common';
 import { createTestApp, closeTestApp, type TestContext } from '../helpers/test-app.helper';
 import { createMockAdminUser, createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { AiProviderRegistry } from '../../src/ai/core';
-import { AiConfigService } from '../../src/ai/config/ai-config.service';
-import { FAKE_REALTIME_SECRET_PREFIX, FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';
-import { AI_KEYLESS_API_KEY } from '../../src/ai/core/provider-adapter.interface';
+import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
+import { AiConfigService } from '@marinoscar/platform-api/ai';
+import { FAKE_REALTIME_SECRET_PREFIX, FakeAiProvider } from '@marinoscar/platform-api/ai/testing';
+import { AI_KEYLESS_API_KEY } from '@marinoscar/platform-api/ai';
 import {
   AI_SETTINGS_CARRIES_NO_SECRET,
   systemAiSchema,
@@ -75,7 +75,7 @@ import {
   FAKE_SPEECH_MODEL_CAPABILITIES,
   FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
-} from '../../src/ai/testing/fake-ai-provider';
+} from '@marinoscar/platform-api/ai/testing';
 import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
@@ -86,15 +86,15 @@ import {
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
-} from '../../src/ai/testing/ai-runtime-harness';
-import { IN_MEMORY_PRESIGNED_SIGNATURE } from '../../src/ai/testing/in-memory-ai-storage';
+} from '@marinoscar/platform-api/ai/testing';
+import { IN_MEMORY_PRESIGNED_SIGNATURE } from '@marinoscar/platform-api/ai/testing';
 import { createAiHttpTestApp, type AiHttpTestApp, ALL_KEYS, OTHER_USER_KEY, parseSse } from './ai-http.helper';
-import { aiConfigResponseSchema, aiKeyRemovalResponseSchema } from '../../src/ai/config/dto/ai-config-response.dto';
-import { aiModelSchema, refreshAiCatalogResultSchema } from '../../src/ai/config/dto/ai-model.dto';
-import { aiProviderTestResultSchema } from '../../src/ai/config/dto/ai-provider-test.dto';
-import { aiPublicConfigSchema } from '../../src/ai/config/dto/ai-public-config.dto';
-import { usableAiModelSchema } from '../../src/ai/keys/dto/usable-ai-model.dto';
-import { userAiKeyViewSchema, userAiKeyTestResultSchema } from '../../src/ai/keys/dto/user-ai-key.dto';
+import { aiConfigResponseSchema, aiKeyRemovalResponseSchema } from '@marinoscar/platform-api/ai';
+import { aiModelSchema, refreshAiCatalogResultSchema } from '@marinoscar/platform-api/ai';
+import { aiProviderTestResultSchema } from '@marinoscar/platform-api/ai';
+import { aiPublicConfigSchema } from '@marinoscar/platform-api/ai';
+import { usableAiModelSchema } from '@marinoscar/platform-api/ai';
+import { userAiKeyViewSchema, userAiKeyTestResultSchema } from '@marinoscar/platform-api/ai';
 import {
   aiImageRunOutputSchema,
   aiResponseSchema,
@@ -102,9 +102,9 @@ import {
   aiRunSchema,
   aiSpeechRunOutputSchema,
   aiTranscriptionRunOutputSchema,
-} from '../../src/ai/http/dto/ai-response.dto';
-import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.dto';
-import { aiRealtimeSessionResponseSchema } from '../../src/ai/http/dto/ai-realtime.dto';
+} from '@marinoscar/platform-api/ai';
+import { aiEmbeddingsResponseSchema } from '@marinoscar/platform-api/ai';
+import { aiRealtimeSessionResponseSchema } from '@marinoscar/platform-api/ai';
 
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
 /** An MCP server credential, sent as a hosted `mcp` tool's `Authorization` header (#442). */

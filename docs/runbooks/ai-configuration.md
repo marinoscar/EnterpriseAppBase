@@ -7,7 +7,7 @@ emergency. Audience: administrators holding `ai_config:read`/`ai_config:write`.
 Why the platform is shaped this way is
 [`docs/specs/ai-platform.md`](../specs/ai-platform.md). Adding AI to a feature,
 or a new provider adapter, is
-[`apps/api/src/ai/README.md`](../../apps/api/src/ai/README.md).
+[`packages/platform-api/src/ai/README.md`](../../packages/platform-api/src/ai/README.md).
 
 Everything here happens in the admin UI at `/admin/settings/ai` (and
 `/admin/settings/ai/models`, `/admin/settings/ai/usage`) or through

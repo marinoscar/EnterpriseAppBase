@@ -125,8 +125,12 @@ describe('no local copy of the credentials slice', () => {
   });
 
   it('the BYOK AI key store takes deriveHint from the package, not from a copy', () => {
-    const source = readFileSync(join(API_ROOT, 'src', 'ai', 'keys', 'user-ai-keys.service.ts'), 'utf8');
-    expect(source).toContain("from '@marinoscar/platform-api/credentials'");
+    // The AI slice is packaged (#739): it imports the credentials slice by its index.
+    const source = readFileSync(
+      join(API_ROOT, '..', '..', 'packages', 'platform-api', 'src', 'ai', 'keys', 'user-ai-keys.service.ts'),
+      'utf8',
+    );
+    expect(source).toContain("from '../../credentials/index'");
     expect(source).not.toMatch(/function deriveHint\b/);
   });
 });

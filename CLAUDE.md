@@ -96,7 +96,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbook: database baseline (adopt the platform migration history in an existing database: rehearse on a restored backup, `platform db baseline`, rollback) | [docs/runbooks/database-baseline.md](docs/runbooks/database-baseline.md) |
 | `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [packages/platform-api/src/jobs/handlers/README.md](packages/platform-api/src/jobs/handlers/README.md) |
-| Recipe: use AI in a feature | [apps/api/src/ai/README.md](apps/api/src/ai/README.md) |
+| Recipe: use AI in a feature | [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md) |
 | Recipe: add a notification | [packages/platform-api/src/notifications/README.md](packages/platform-api/src/notifications/README.md) |
 | Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
@@ -213,7 +213,7 @@ Full design: [docs/specs/job-queue.md](docs/specs/job-queue.md#all-long-running-
 
 ## MANDATORY: AI Platform Rules
 
-Design: [docs/specs/ai-platform.md](docs/specs/ai-platform.md). Recipe: [apps/api/src/ai/README.md](apps/api/src/ai/README.md). Operators: [docs/runbooks/ai-configuration.md](docs/runbooks/ai-configuration.md).
+Design: [docs/specs/ai-platform.md](docs/specs/ai-platform.md). Recipe: [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md). Operators: [docs/runbooks/ai-configuration.md](docs/runbooks/ai-configuration.md).
 
 1. **Never import a provider SDK outside `apps/api/src/ai/providers/<provider>/`.** A feature injects `AiService` (exported by `AiModule`) and calls `AiService.forUser(userId)`, never an SDK client of its own. A new provider's SDK gets its own boundary spec.
 2. **Never call AI from the browser; keys never leave the server.** Every provider call is server-side, under a key `AiKeyResolver` resolved for that call (admin/org key or the user's BYOK key), held only between resolution and the adapter call. No route, log line, span, `AiError`, `ai_usage_events` row or `ai_runs.request` row carries key material. The single exception is a realtime session's **ephemeral** provider secret, minted server-side and returned only by `POST /api/ai/realtime/sessions`, never the key itself.

@@ -40,9 +40,9 @@ import { forEachOperation, MutableDocument } from '../../src/openapi/types';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import { AiProviderRegistry } from '../../src/ai/core';
+import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
 import { createMockTestUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
-import { HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
+import { HARNESS_USER } from '@marinoscar/platform-api/ai/testing';
 import { createAiHttpTestApp, type AiHttpTestApp } from './ai-http.helper';
 
 interface AiRoute {

@@ -250,7 +250,7 @@ A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That c
 - **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
 - **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; admin-only Playground `/ai`
 - **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)
-- **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../apps/api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
+- **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../packages/platform-api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
 
 ### 5.11 Notifications, email and Web Push
 
@@ -860,7 +860,7 @@ Health endpoints (public, reachable during maintenance):
 | A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) (UI), [settings/registry/README.md](../apps/api/src/settings/registry/README.md) (API namespace) |
 | A background job type | [jobs/handlers/README.md](../packages/platform-api/src/jobs/handlers/README.md) |
 | A notification event, email template or channel | [notifications/README.md](../packages/platform-api/src/notifications/README.md) (app entries in `app-registrations/notifications.ts`) |
-| AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
+| AI in a feature | [ai/README.md](../packages/platform-api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |

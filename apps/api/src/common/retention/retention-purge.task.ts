@@ -23,7 +23,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { AI_RUNS_PURGE_TYPE } from '../../ai/runtime/ai-runs-purge.handler';
+import { AI_RUNS_PURGE_TYPE } from '@marinoscar/platform-api/ai';
 import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
 import { JobsService } from '@marinoscar/platform-api/jobs';
 import { NOTIFICATION_DELIVERIES_PURGE_TYPE } from './notification-deliveries-purge.handler';

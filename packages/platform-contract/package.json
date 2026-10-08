@@ -160,6 +160,16 @@
         "default": "./dist/cjs/exports/index.js"
       }
     },
+    "./ai": {
+      "import": {
+        "types": "./dist/esm/ai/index.d.ts",
+        "default": "./dist/esm/ai/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/ai/index.d.ts",
+        "default": "./dist/cjs/ai/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

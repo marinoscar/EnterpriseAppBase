@@ -16,11 +16,11 @@
 
 import type { AddressInfo } from 'node:net';
 
-import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
-import { AiService } from '../../src/ai/runtime/ai.service';
-import { AiRunsService } from '../../src/ai/runtime/ai-runs.service';
-import { AiOutputWriter } from '../../src/ai/storage/ai-output-writer';
-import { AiStorageInputResolver } from '../../src/ai/storage/ai-storage-input.resolver';
+import { AiConfigService, type AiPolicy } from '@marinoscar/platform-api/ai';
+import { AiService } from '@marinoscar/platform-api/ai';
+import { AiRunsService } from '@marinoscar/platform-api/ai';
+import { AiOutputWriter } from '@marinoscar/platform-api/ai';
+import { AiStorageInputResolver } from '@marinoscar/platform-api/ai';
 import {
   createAiRuntimeHarness,
   HARNESS_OTHER_USER,
@@ -28,8 +28,8 @@ import {
   HARNESS_USER_KEY,
   type AiRuntimeHarness,
   type AiRuntimeHarnessOptions,
-} from '../../src/ai/testing/ai-runtime-harness';
-import type { FakeAiScript } from '../../src/ai/testing/fake-ai-provider';
+} from '@marinoscar/platform-api/ai/testing';
+import type { FakeAiScript } from '@marinoscar/platform-api/ai/testing';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';

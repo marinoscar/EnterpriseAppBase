@@ -54,7 +54,7 @@ import request from 'supertest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { AI_KEYLESS_API_KEY } from '../../src/ai/core/provider-adapter.interface';
+import { AI_KEYLESS_API_KEY } from '@marinoscar/platform-api/ai';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
 import {
@@ -65,7 +65,7 @@ import {
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
-} from '../../src/ai/testing/ai-runtime-harness';
+} from '@marinoscar/platform-api/ai/testing';
 import { createAiHttpTestApp, type AiHttpTestApp, parseSse } from './ai-http.helper';
 
 const BODY = { model: 'fake-model', input: 'hello' };

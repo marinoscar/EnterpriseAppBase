@@ -21,10 +21,10 @@
 
 import request from 'supertest';
 
-import type { AiModelCapabilities } from '../../src/ai/core/capabilities';
-import type { AiOutputItem } from '../../src/ai/core/types/responses.types';
-import { HARNESS_EMBEDDING_MODEL, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
-import { FAKE_EMBEDDING_MODEL_CAPABILITIES, FAKE_TEXT_MODEL_CAPABILITIES } from '../../src/ai/testing/fake-ai-provider';
+import type { AiModelCapabilities } from '@marinoscar/platform-api/ai';
+import type { AiOutputItem } from '@marinoscar/platform-api/ai';
+import { HARNESS_EMBEDDING_MODEL, HARNESS_USER } from '@marinoscar/platform-api/ai/testing';
+import { FAKE_EMBEDDING_MODEL_CAPABILITIES, FAKE_TEXT_MODEL_CAPABILITIES } from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser, TestUser } from '../helpers/auth-mock.helper';
 import { AiHttpTestApp, createAiHttpTestApp, parseSse } from './ai-http.helper';
 
