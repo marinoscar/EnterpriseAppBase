@@ -71,6 +71,15 @@
       "reason": "At most one ACTIVE grant per resource and group; a revoked grant does not block a new one. The grants API upserts on it. Prisma cannot express a partial unique index.",
       "doc": "docs/specs/platform-packages.md",
       "createdIn": "0027_add_grants"
+    },
+    {
+      "name": "android_app_releases_one_current_uniq_idx",
+      "table": "android_app_releases",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX android_app_releases_one_current_uniq_idx ON public.android_app_releases USING btree ((true)) WHERE is_current",
+      "reason": "At most one current Android APK release deployment-wide: a constant-expression partial unique index Prisma cannot express. Make-current clears the old flag and sets the new one in one transaction; the index arbitrates concurrent calls (the loser gets 409), never a findFirst pre-check.",
+      "doc": "docs/specs/native-companion-architecture.md",
+      "createdIn": "0033_add_android_app"
     }
   ]
 }
