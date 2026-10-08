@@ -37,6 +37,7 @@ import { AppPlatformHostProvider, appPlatformApi } from './platform/platformHost
 // Onboarding (#745): one GET /api/onboarding for the shell; the welcome
 // dialog (mounted in Layout), the user menu and both onboarding pages read it.
 import { OnboardingProvider } from '@marinoscar/platform-web/onboarding/headless';
+import './platform/onboarding';
 import { APP_NAME } from '@app/shared';
 // The telemetry slice (#704): its config provider, route guard and the app's
 // adapters (AI on/off, the model catalogue, the spinner).
