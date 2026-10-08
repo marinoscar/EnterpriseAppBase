@@ -34,6 +34,19 @@ describe('definePlatformHost', () => {
     expect(typeof host.access.requireAuthenticated()).toBe('function');
   });
 
+  it('keeps an optional allowPublic marker, validated like the others, and omits it when absent (#730)', () => {
+    const withPublic = definePlatformHost({ access: { requirePermissions: decorator, requireAuthenticated: decorator, allowPublic: decorator } });
+    expect(typeof withPublic.access.allowPublic?.()).toBe('function');
+    const without = definePlatformHost({ access: { requirePermissions: decorator, requireAuthenticated: decorator } });
+    expect(without.access.allowPublic).toBeUndefined();
+    expect(() =>
+      definePlatformHost({ access: { requirePermissions: decorator, requireAuthenticated: decorator, allowPublic: () => 1 as never } }),
+    ).toThrow(/allowPublic\(\) returned number, not a decorator/);
+    expect(() =>
+      definePlatformHost({ access: { requirePermissions: decorator, requireAuthenticated: decorator, allowPublic: 'yes' as never } }),
+    ).toThrow(/allowPublic` is not a function/);
+  });
+
   it('returns an already-defined host unchanged', () => {
     const host = definePlatformHost({ access: { requirePermissions: decorator, requireAuthenticated: decorator } });
 

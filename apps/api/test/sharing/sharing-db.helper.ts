@@ -13,7 +13,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { Module } from '@nestjs/common';
+import { Module, type INestApplication, type Type } from '@nestjs/common';
+import { FastifyAdapter } from '@nestjs/platform-fastify';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { definePlatformHost, type Principal } from '@marinoscar/platform-api/core';
 import {
@@ -23,6 +24,7 @@ import {
   GroupInvitesService,
   GroupMembershipService,
   GroupsService,
+  LinkGrantsService,
   PrincipalGroupsProvider,
   SHARING_DATA,
   SHARING_EVENT_EMITTER,
@@ -45,6 +47,10 @@ export interface SharingDb {
   access: AccessPolicy;
   grants: GrantsService;
   prune: GrantsPruneHandler;
+  /** Link grants (#730). */
+  links: LinkGrantsService;
+  /** The Fastify app, when `options.controllers` asked for HTTP (#730). */
+  app?: INestApplication;
   notifications: Array<{ kind: 'user' | 'address'; to: string; data: unknown; key?: string }>;
   events: Array<{ name: string; payload: unknown }>;
   close(): Promise<void>;
@@ -60,7 +66,12 @@ const noop = (() => () => undefined) as unknown as () => MethodDecorator & Class
 export async function sharingServices(
   db: RlsDatabase,
   mode: 'single' | 'multi' = 'single',
-  options: { wrapData?: (data: SharingDataPort) => SharingDataPort; grants?: { retentionDays?: number } } = {},
+  options: {
+    wrapData?: (data: SharingDataPort) => SharingDataPort;
+    grants?: { retentionDays?: number };
+    /** App controllers to serve over HTTP next to the slice's (#730: a guarded public route). */
+    controllers?: Array<Type<unknown>>;
+  } = {},
 ): Promise<SharingDb> {
   const { prisma, system, close } = rlsServices(db);
   const adapter = new SharingDataAdapter(prisma, system);
@@ -91,10 +102,19 @@ export async function sharingServices(
         host: definePlatformHost({ access: { requirePermissions: noop, requireAuthenticated: noop } }),
         imports: [TestSharingHostModule],
         ...(options.grants ? { grants: options.grants } : {}),
+        links: { appUrl: () => 'https://links.example.test' },
       }),
     ],
+    controllers: options.controllers ?? [],
   }).compile();
-  await moduleRef.init();
+  let app: INestApplication | undefined;
+  if (options.controllers) {
+    app = moduleRef.createNestApplication(new FastifyAdapter());
+    await app.init();
+    await (app.getHttpAdapter().getInstance() as { ready(): Promise<unknown> }).ready();
+  } else {
+    await moduleRef.init();
+  }
 
   return {
     data,
@@ -105,10 +125,13 @@ export async function sharingServices(
     access: moduleRef.get(AccessPolicy),
     grants: moduleRef.get(GrantsService),
     prune: moduleRef.get(GrantsPruneHandler),
+    links: moduleRef.get(LinkGrantsService),
+    ...(app ? { app } : {}),
     notifications,
     events,
     close: async () => {
-      await moduleRef.close();
+      if (app) await app.close();
+      else await moduleRef.close();
       await close();
     },
   };

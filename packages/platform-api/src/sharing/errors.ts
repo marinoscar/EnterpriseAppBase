@@ -1,6 +1,6 @@
 // =============================================================================
-// The refusals of the group and grant routes, as `details.reason` values
-// (issues #728, #729)
+// The refusals of the group, grant and link routes, as `details.reason`
+// values (issues #728, #729, #730)
 // =============================================================================
 //
 // Clients branch on `details.reason`, never on `message` (docs/API.md). The
@@ -9,6 +9,7 @@
 
 import {
   BadRequestException,
+  ServiceUnavailableException,
   ConflictException,
   ForbiddenException,
   GoneException,
@@ -58,6 +59,14 @@ export const SHARING_ERROR_REASONS: {
   readonly GRANT_LIMIT_REACHED: 'GRANT_LIMIT_REACHED';
   /** 400: `expiresAt` is not in the future (#729). */
   readonly EXPIRY_IN_PAST: 'EXPIRY_IN_PAST';
+  /** 409: the record has `links.maxActivePerResource` active links (#730). */
+  readonly LINK_LIMIT_REACHED: 'LINK_LIMIT_REACHED';
+  /** 422: a link-only field (`label`) sent for a user or group grant (#730). */
+  readonly NOT_A_LINK_GRANT: 'NOT_A_LINK_GRANT';
+  /** 429: too many failed link resolutions from this address; `details.retryAfterMs` (#730). */
+  readonly LINK_RESOLUTION_THROTTLED: 'LINK_RESOLUTION_THROTTLED';
+  /** 503: `SECRETS_ENCRYPTION_KEY` is not configured, so no link can be created (#730). */
+  readonly LINKS_UNAVAILABLE: 'LINKS_UNAVAILABLE';
 } = {
   GROUP_OWNS_RESOURCES: 'GROUP_OWNS_RESOURCES',
   LAST_GROUP_ADMIN: 'LAST_GROUP_ADMIN',
@@ -76,6 +85,10 @@ export const SHARING_ERROR_REASONS: {
   GROUP_NOT_IN_ORG: 'GROUP_NOT_IN_ORG',
   GRANT_LIMIT_REACHED: 'GRANT_LIMIT_REACHED',
   EXPIRY_IN_PAST: 'EXPIRY_IN_PAST',
+  LINK_LIMIT_REACHED: 'LINK_LIMIT_REACHED',
+  NOT_A_LINK_GRANT: 'NOT_A_LINK_GRANT',
+  LINK_RESOLUTION_THROTTLED: 'LINK_RESOLUTION_THROTTLED',
+  LINKS_UNAVAILABLE: 'LINKS_UNAVAILABLE',
 };
 
 /** The 404 for a group the caller may not see: the same body whether it exists or not. */
@@ -207,4 +220,44 @@ export function groupNotInOrg(): UnprocessableEntityException {
 /** The 400 of an expiry that is not in the future. */
 export function expiryInPast(): BadRequestException {
   return new BadRequestException({ message: 'expiresAt must be in the future', details: { reason: SHARING_ERROR_REASONS.EXPIRY_IN_PAST } });
+}
+
+// ---- link shares (#730) ---------------------------------------------------------------
+
+/**
+ * THE answer of every failed public link resolution: unknown, malformed,
+ * revoked, expired, wrong type, insufficient role, record gone. One body, so
+ * a caller learns nothing about why (MemoriaHub's generic 404).
+ */
+export function linkNotFound(): NotFoundException {
+  return new NotFoundException('Link not found');
+}
+
+/** The 429 of too many failed resolutions from one address; the error filter adds `Retry-After`. */
+export function linkResolutionThrottled(retryAfterMs: number): HttpException {
+  return new HttpException(
+    {
+      message: 'Too many invalid links from this address. Try again later.',
+      details: { reason: SHARING_ERROR_REASONS.LINK_RESOLUTION_THROTTLED, retryAfterMs },
+    },
+    HttpStatus.TOO_MANY_REQUESTS,
+  );
+}
+
+/** The 503 when no link can be minted: the token would have to be stored in clear. */
+export function linksUnavailable(): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    message:
+      'Link sharing is unavailable: SECRETS_ENCRYPTION_KEY is not configured, and a link token is never stored in clear. ' +
+      'An operator sets SECRETS_ENCRYPTION_KEY (generate one with: openssl rand -base64 32) and restarts the API.',
+    details: { reason: SHARING_ERROR_REASONS.LINKS_UNAVAILABLE },
+  });
+}
+
+/** The 422 of a link-only field on a user or group grant. */
+export function notALinkGrant(): UnprocessableEntityException {
+  return new UnprocessableEntityException({
+    message: 'Only a link grant has a label',
+    details: { reason: SHARING_ERROR_REASONS.NOT_A_LINK_GRANT },
+  });
 }

@@ -53,12 +53,17 @@ health, the device-code and device-token polls, avatar images).
 | Refresh token (opaque, 14 days default) | `refresh_token` cookie, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth` | `POST /api/auth/refresh`, `POST /api/auth/switch-org`, `POST /api/auth/logout` | OAuth callback, rotated on every refresh and switch-org |
 | Personal access token (`pat_…`) | `Authorization: Bearer pat_…` | Every authenticated route | `POST /api/pat`, or the device flow |
 | Node credential (`nod_…`) | `Authorization: Bearer nod_…` | Only `/api/nodes` and `/api/nodes/*`; `403` elsewhere | `POST /api/node-credentials` |
+| Link-share token (`lnk_…`) | `X-Link-Token: lnk_…` (the SPA reads it from the share URL's fragment, `/s#lnk_…`); never a path segment or a query parameter | `GET /api/public/links/current` and app routes behind `LinkGrantGuard`, for one record | `POST /api/grants/links` |
 
 - The access token is read from the `Authorization` header only, never from a
   cookie. `POST /api/auth/refresh` returns a new one and rotates the cookie.
 - A `pat_` token carries its owner's full permission set
   ([Personal Access Tokens](personal-access-tokens.md)). A `nod_` credential
   cannot reach `/api/node-credentials`, so a leaked one cannot mint another.
+- A link-share token authenticates a deliberately public route for ONE
+  record, with no principal: it is not a bearer token and is refused
+  everywhere else. Every invalid link is the same `404`; see Rate Limiting for
+  the per-address miss limit.
 - Browserless clients such as `appctl` use the
   [device authorization grant](DEVICE-AUTH.md). Every sign-in path is gated by
   the email allowlist.
@@ -284,6 +289,14 @@ targeted limits exist:
   `Retry-After` header. It blunts probing which addresses have accounts. The
   counts live in each API process, so with several replicas the limit is
   approximate (up to the limit per replica), as it is for the AI limits.
+- **Public link resolution** (`GET /api/public/links/current` and every app
+  route behind `LinkGrantGuard`, one shared budget): 30 failed resolutions
+  (unknown, malformed, revoked, expired or otherwise invalid link tokens) per
+  client address in ten minutes, then `429` with
+  `details.reason: "LINK_RESOLUTION_THROTTLED"`, `details.retryAfterMs` and a
+  `Retry-After` header, even for a valid token. The address is `request.ip`,
+  which honours the proxy settings. Approximate across replicas, like the
+  limits above. `SharingModule.forRoot({ links: { maxMissesPerIp } })` sets it.
 
 ## Maintenance Mode
 
@@ -341,6 +354,8 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `admin/organizations` | The deployment's organizations: list, create with a first-admin invitation, rename | `organizations:*` (system) | [platform-packages](specs/platform-packages.md#tenancy-and-access-model) |
 | `groups` | Groups of the active organization, their members and invitations; `groups/invites/mine` and its accept and decline for the invitee. A group the caller may not see is `404`, never `403` | `groups:read`, `groups:write`, `groups:admin` (org) | [sharing README](../packages/platform-api/src/sharing/README.md) |
 | `grants` | Share one record of a registered resource type with a user or a group of the active organization (one role per grantee, optional expiry, soft revoke); `grants/shared-with-me`. A record the caller may not share is `404` (for a type that hides existence) | `sharing:read`, `sharing:write`, `sharing:admin` (org) | [sharing README](../packages/platform-api/src/sharing/README.md) |
+| `grants/links` | Share one record by link: mint a link (`<APP_URL>/s#lnk_…`, the token returned once), list a record's links with their URLs; changed and revoked through `grants/:id` | `sharing:read`, `sharing:write` (org) | [sharing README](../packages/platform-api/src/sharing/README.md) |
+| `public/links` | **Deliberately public.** `current` resolves the link token in the `X-Link-Token` header (never a path or query parameter); every invalid link is the same `404`; per-address miss limit (see Rate Limiting); `Cache-Control: no-store`, `Referrer-Policy: no-referrer` | public (link token) | [sharing README](../packages/platform-api/src/sharing/README.md) |
 | `user-settings` | Current user's settings | `user_settings:*` | [settings-ui](specs/settings-ui.md) |
 | `user-settings/profile-image` | Upload, preview, remove profile picture | `user_settings:*` | [storage-providers](specs/storage-providers.md) |
 | `system-settings` | Global settings (JSONB namespaces) | `system_settings:*` | [settings-ui](specs/settings-ui.md) |

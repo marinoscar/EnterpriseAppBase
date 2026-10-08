@@ -403,6 +403,15 @@ describe('secret-cipher', () => {
       }
     });
 
+    it('binds a row-bound domain to its row and keeps decrypting it uncached (#730)', () => {
+      const rowA = 'sharing.link:00000000-0000-4000-8000-00000000000a';
+      const rowB = 'sharing.link:00000000-0000-4000-8000-00000000000b';
+      const payload = cipher.encryptSecret('lnk_token', rowA);
+      for (let i = 0; i < 3; i++) expect(cipher.decryptSecret(payload, rowA)).toBe('lnk_token');
+      // A ciphertext copied onto another row fails authentication.
+      expect(() => cipher.decryptSecret(payload, rowB)).toThrow(/Failed to decrypt secret/);
+    });
+
     it.each([
       ['an uppercase UUID', ALICE.toUpperCase()],
       ['a brace-wrapped UUID', `{${ALICE}}`],

@@ -7,12 +7,16 @@ import {
   ACCESS_SCOPES,
   GRANT_GRANTEE_KINDS,
   LINK_TOKEN_HEADER,
+  LINK_TOKEN_PATTERN,
+  LINK_TOKEN_PREFIX,
   SHARING_LIMITS,
   buildLinkUrl,
   createGrantSchema,
   grantListQuerySchema,
   grantSchema,
+  issuedLinkGrantSchema,
   linkGrantCreateSchema,
+  linkGrantListSchema,
   linkGrantViewSchema,
   publicLinkResolutionSchema,
   sharedWithMeQuerySchema,
@@ -119,6 +123,38 @@ describe('@marinoscar/platform-contract/sharing grants', () => {
     };
     expect(linkGrantViewSchema.parse(view)).toEqual(view);
     expect(publicLinkResolutionSchema.parse({ resourceType: 'album', resourceId: RESOURCE, role: 'viewer', expiresAt: null, title: null })).toBeTruthy();
+  });
+
+  it('takes an optional role and reuseActive on link creation, and a label on update (#730)', () => {
+    expect(linkGrantCreateSchema.parse({ resourceType: 'album', resourceId: RESOURCE })).toEqual({ resourceType: 'album', resourceId: RESOURCE });
+    expect(linkGrantCreateSchema.parse({ resourceType: 'album', resourceId: RESOURCE, reuseActive: true, expiresAt: null })).toMatchObject({
+      reuseActive: true,
+      expiresAt: null,
+    });
+    expect(linkGrantCreateSchema.safeParse({ resourceType: 'album', resourceId: RESOURCE, reuseActive: 'yes' }).success).toBe(false);
+    expect(updateGrantSchema.parse({ label: '  Kitchen  ' })).toEqual({ label: 'Kitchen' });
+    expect(updateGrantSchema.parse({ label: null })).toEqual({ label: null });
+    expect(updateGrantSchema.safeParse({ label: 'x'.repeat(SHARING_LIMITS.linkLabelMax + 1) }).success).toBe(false);
+  });
+
+  it('shapes the issued link (its token once) and the link list (#730)', () => {
+    const token = `lnk_${'A'.repeat(43)}`;
+    const now = new Date().toISOString();
+    const grant = {
+      id: RESOURCE, orgId: USER, resourceType: 'album', resourceId: RESOURCE, role: 'viewer', label: null,
+      url: `https://app.example.com/s#${token}`, expiresAt: null, revokedAt: null, grantedById: USER, createdAt: now,
+    };
+    expect(issuedLinkGrantSchema.parse({ grant, url: grant.url, token })).toEqual({ grant, url: grant.url, token });
+    expect(issuedLinkGrantSchema.safeParse({ grant, url: grant.url, token: 'pat_x' }).success).toBe(false);
+    expect(linkGrantListSchema.parse({ items: [grant], total: 1, page: 1, pageSize: 20, totalPages: 1 }).items).toHaveLength(1);
+  });
+
+  it('recognises a link token by its prefix and length only', () => {
+    expect(LINK_TOKEN_PREFIX).toBe('lnk_');
+    expect(LINK_TOKEN_PATTERN.test(`lnk_${'a-_9'.repeat(10)}abc`)).toBe(true);
+    expect(LINK_TOKEN_PATTERN.test(`lnk_${'a'.repeat(42)}`)).toBe(false);
+    expect(LINK_TOKEN_PATTERN.test(`lnk_${'a'.repeat(42)}=`)).toBe(false);
+    expect(LINK_TOKEN_PATTERN.test(`pat_${'a'.repeat(43)}`)).toBe(false);
   });
 
   it('puts the link token in the URL fragment, never in a path or a query', () => {

@@ -6,7 +6,8 @@
 // by the app's own `@Auth()` (`platformHost`), every app capability through the
 // host ports `SharingHostModule` binds, the slice's defaults for the group
 // limits, and the membership cache on the same TTL as the JWT principal cache
-// (`AUTH_PRINCIPAL_CACHE_TTL_SECONDS`, so the two caches expire together).
+// (`AUTH_PRINCIPAL_CACHE_TTL_SECONDS`, so the two caches expire together),
+// and link URLs on the deployment's `APP_URL` (#730).
 // Imported once by `app.module.ts`. Same shape as `telemetry/telemetry.config.ts`.
 // =============================================================================
 
@@ -22,6 +23,12 @@ export const sharingModule = SharingModule.forRoot({
   imports: [SharingHostModule],
   groups: {
     membershipCacheTtlSeconds: parsePrincipalCacheTtlSeconds(process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS),
+  },
+  // Link shares (#730): the share URL is `${APP_URL}/s#lnk_...`, read when a
+  // link is built (the same default as `config/configuration.ts`). No new
+  // variable; the lifetimes, caps and the miss throttle keep their defaults.
+  links: {
+    appUrl: () => process.env.APP_URL || 'http://localhost:3535',
   },
 });
 

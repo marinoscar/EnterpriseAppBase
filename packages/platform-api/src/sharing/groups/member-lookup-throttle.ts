@@ -94,4 +94,9 @@ export class MemberLookupThrottle {
   size(): number {
     return this.misses.size;
   }
+
+  /** Forgets every recorded miss (for tests). */
+  clear(): void {
+    this.misses.clear();
+  }
 }

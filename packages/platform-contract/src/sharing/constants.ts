@@ -149,6 +149,22 @@ export const SHARING_IDENTIFIER_PATTERN: RegExp = /^[a-z][a-z0-9_]*$/;
 export const LINK_TOKEN_HEADER = 'x-link-token';
 
 /**
+ * The prefix of every link-share token (#730), like the `nod_` and `pat_`
+ * credentials: it makes a leaked token recognisable to secret scanning.
+ *
+ * @stability experimental
+ */
+export const LINK_TOKEN_PREFIX = 'lnk_';
+
+/**
+ * A well-formed link-share token: `lnk_` and 43 base64url characters (32
+ * random bytes). The API refuses anything else before any lookup.
+ *
+ * @stability experimental
+ */
+export const LINK_TOKEN_PATTERN: RegExp = /^lnk_[A-Za-z0-9_-]{43}$/;
+
+/**
  * The share URL of a link grant: `${appUrl}/s#${token}`. The token is in the
  * fragment, which a browser never sends to a server.
  *

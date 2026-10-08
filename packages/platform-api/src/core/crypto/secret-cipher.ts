@@ -199,6 +199,12 @@ function getMasterKey(): Buffer {
  * exactly the open-ended vocabulary this cache must not hold: it would grow
  * with the user base for the life of the process and keep one derived key per
  * user resident in the heap. One HMAC-SHA256 per decrypt costs microseconds.
+ *
+ * NOR IS ANY OTHER ROW-BOUND DOMAIN (issue #730). A purpose that binds a row
+ * (`sharing.link:<grantId>`, one per link share) is just as open-ended. System
+ * purposes contain no `:` (the reference app enforces it), so a purpose WITH
+ * one is never cached: `user:` domains and row-bound domains alike. The
+ * derivation itself is unchanged, so every existing ciphertext still decrypts.
  */
 const derivedKeyCache = new Map<string, Buffer>();
 
@@ -240,7 +246,9 @@ function deriveKey(purpose: string): Buffer {
     );
   }
 
-  const cacheable = !purpose.startsWith(USER_CREDENTIAL_DOMAIN_PREFIX);
+  // Only the closed vocabulary of system purposes ('smtp', 'oauth', ...) is
+  // cached; owner- and row-bound domains carry a `:` (see the cache's comment).
+  const cacheable = !purpose.startsWith(USER_CREDENTIAL_DOMAIN_PREFIX) && !purpose.includes(':');
 
   if (cacheable) {
     const cached = derivedKeyCache.get(purpose);

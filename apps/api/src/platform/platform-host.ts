@@ -17,12 +17,16 @@
 
 import { definePlatformHost } from '@marinoscar/platform-api/core';
 
-import { Auth } from '@marinoscar/platform-api/identity';
+import { Auth, Public } from '@marinoscar/platform-api/identity';
 import type { PermissionName } from '../common/constants/roles.constants';
 
 export const platformHost = definePlatformHost({
   access: {
     requirePermissions: (permissions) => Auth({ permissions: [...permissions] as PermissionName[] }),
     requireAuthenticated: () => Auth(),
+    // A packaged route that is public BY DESIGN (the sharing slice's link
+    // resolution, #730) carries the app's own @Public(), so the route
+    // inventory and the identity conformance suite see it as deliberate.
+    allowPublic: () => Public(),
   },
 });

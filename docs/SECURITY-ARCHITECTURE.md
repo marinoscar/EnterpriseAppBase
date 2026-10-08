@@ -292,6 +292,7 @@ Every credential the system accepts or holds, and where it is valid.
 | Device-flow token | Session JWT + refresh token, or a `pat_` | As above | `DEVICE_TOKEN_EXPIRY_DAYS` (7) or `DEVICE_PAT_EXPIRY_DAYS` (90) | As above, in the approver's org | `DELETE /api/auth/device/sessions/{id}`, immediately, for either kind |
 | Per-job node secret | Short-lived PostgreSQL login role | Only its handle, in `job_node_secrets` | The job's lease + 60 s | The database, from one node, for one job | Job settles, sweep cron, or `VALID UNTIL` |
 | Runtime-configured secret | Provider key, SMTP password, VAPID key, etc. | AES-256-GCM ciphertext | Until replaced | Server-side only, never returned | Replace or delete in the admin UI |
+| Link-share token | `lnk_` + 43 base64url (32 random bytes) | SHA-256 hash (`grants.link_token_hash`, unique) plus AES-256-GCM ciphertext bound to the grant id; returned once | `links.defaultTtlDays` (30), capped at `links.maxTtlDays` (365) | The `X-Link-Token` header on `GET /api/public/links/current` and app routes behind `LinkGrantGuard`, for ONE record and role | `DELETE /api/grants/{id}`, immediately; expiry |
 | `STACK_AGENT_TOKEN` | 32 random hex bytes | Plaintext in `.env`, on both the `api` and `stack-agent` services | Until rotated | Bearer on `stack-agent`'s `/v1/*` routes only, reachable from `app-network` only | Edit `.env` and recreate `stack-agent`/`api` |
 
 `JwtAuthGuard` recognizes the bearer families by prefix before Passport runs:
@@ -441,6 +442,49 @@ relay treats its spans as untrusted input:
   after the job settles, off the job's path, dropping on any error.
 
 Design: [specs/worker-nodes.md, Span relay](specs/worker-nodes.md#span-relay).
+
+### Link-share tokens (`lnk_`)
+
+A link share (#730) grants one record, with one role, to anyone holding its
+token: the only credential that authenticates a request with no principal.
+
+- **Format.** `lnk_` + 32 random bytes in base64url (47 characters). The
+  prefix makes a leaked token recognisable to secret scanning, like `pat_`
+  and `nod_`; anything else is refused before any lookup.
+- **Storage.** `grants.link_token_hash` (SHA-256 hex, unique) is the lookup
+  key. `grants.link_token_ciphertext` is `encryptSecret(token,
+  'sharing.link:' + grantId)`, the grant id chosen before the insert so the
+  cipher domain binds the row: the sharer can copy the link again, and a dump
+  without `SECRETS_ENCRYPTION_KEY` is useless. Without the key, creation
+  fails closed (`503 LINKS_UNAVAILABLE`); a token is never stored in clear.
+  The create response is the only place it is returned in clear; the list
+  re-derives the URL.
+- **Transport: the URL fragment, then a header.** The share URL is
+  `<APP_URL>/s#lnk_…`. A browser never sends a fragment, so the token reaches
+  neither nginx's access log (`$request`), nor the API's request log, nor the
+  server span's `url.path`, nor a `Referer`. The SPA sends it in
+  `X-Link-Token`; a token in a path or a query string is never read.
+- **Resolution.** The one cross-organization read of the sharing slice: ONE
+  `grants` row by its hash on the bypass client (reason `link-resolution`).
+  The record check and every app read (`withLinkScope`) then run in the
+  grant's organization with no user id, under row-level security. Unknown,
+  malformed, revoked, expired, wrong-type and otherwise invalid tokens all get
+  the same `404 Link not found`.
+- **Throttle.** Failed resolutions count per client address (`request.ip`,
+  honouring the proxy settings): 30 in 10 minutes, then `429
+  LINK_RESOLUTION_THROTTLED` with `Retry-After`, even for a valid token.
+  In-process, so approximate across replicas.
+- **Revocation.** `DELETE /api/grants/{id}` (soft); nothing caches a
+  resolution, so the next request is a 404. Creating, changing and revoking a
+  link are audited (`grant:link:*`); resolutions are counted
+  (`app.sharing.link_resolutions`), not audited.
+- **Egress.** Never in a log line (a failure logs the reason enum and a keyed
+  address tag), a span (only `sharing.link.grant_id`, on success), an audit
+  row, an event or an error body (`apps/api/test/sharing/link-grants.integration.spec.ts`).
+  Public responses carry `Cache-Control: no-store` and `Referrer-Policy:
+  no-referrer`; file bytes are served by presigned URL, never with the token.
+
+Design: [the sharing README](../packages/platform-api/src/sharing/README.md#security-notes).
 
 ### Encrypted runtime secrets
 
@@ -1599,7 +1643,8 @@ operations open their own transaction and escape the outer one. Use
 the tenant pool, no new variable). Because the two pools share no backend, the
 bypass flag cannot reach a tenant request's connection whatever a bug does. Each
 acquisition names a **closed reason** (`SystemAccessReason`: `backup`, `restore`,
-`purge`, `doctor`, `retention`, `admin-aggregate`, `migration-tooling`), which is
+`purge`, `doctor`, `retention`, `admin-aggregate`, `migration-tooling`,
+`link-resolution`), which is
 put on the active span (`db.access.reason`, plus a `db.rls_bypass` event) and
 logged at debug, never used as a metric label. **Only an allowlist of modules
 may inject it**: `apps/api/test/tenancy/system-injection-boundary.spec.ts`
