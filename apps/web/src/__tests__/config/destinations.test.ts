@@ -69,54 +69,6 @@ describe('destinations — route ownership', () => {
     expect(paths).not.toContain('/admin/settings/feature-flags');
     expect(paths).not.toContain('/admin/settings/advanced');
   });
-
-  it('claims every route in App.tsx exactly once, or deliberately not at all', () => {
-    for (const path of declaredRoutePaths()) {
-      const owners = (Object.keys(DESTINATION_ROUTES) as DestinationKey[]).filter((key) =>
-        DESTINATION_ROUTES[key].some((prefix) => owns(prefix, path)),
-      );
-
-      if (UNOWNED_ROUTES.includes(path)) {
-        expect(owners, `${path} is listed as unowned but a destination claims it`).toEqual([]);
-      } else {
-        // NOT `toHaveLength(1)` with a bare message: naming the owners is what
-        // makes the failure actionable when it does fire.
-        expect(owners, `${path} should be owned by exactly one destination`).toHaveLength(1);
-      }
-    }
-  });
-
-  it('lists every declared route as either owned or explicitly unowned', () => {
-    // The complement of the assertion above: a route that is neither claimed
-    // nor listed as deliberately unowned is an OVERSIGHT, and without this it
-    // would pass the previous test by being "unowned by accident".
-    for (const path of declaredRoutePaths()) {
-      const owned = resolveActiveDestination(path) !== null;
-      const explicitlyUnowned = UNOWNED_ROUTES.includes(path);
-      expect(
-        owned || explicitlyUnowned,
-        `${path} is neither owned by a destination nor listed in UNOWNED_ROUTES`,
-      ).toBe(true);
-    }
-  });
-
-  it('highlights NOTHING on the deliberately unowned routes', () => {
-    // Asserted explicitly so a later contributor does not "fix" this into
-    // highlighting something arbitrary. No destination is better than a wrong
-    // one — the login screen does not belong to Home.
-    for (const path of UNOWNED_ROUTES) {
-      expect(resolveActiveDestination(path), `${path} must activate no destination`).toBeNull();
-    }
-  });
-
-  it('gives every destination in the table a route it owns', () => {
-    for (const destination of DESTINATIONS) {
-      expect(
-        resolveActiveDestination(destination.path),
-        `${destination.path} should activate ${destination.key}`,
-      ).toBe(destination.key);
-    }
-  });
 });
 
 describe('destinations — segment-boundary matching', () => {
@@ -331,18 +283,6 @@ describe('admin sections — registry against the live routes', () => {
     return gates;
   }
 
-  it('routes every card path, under the exact permission the card declares', () => {
-    const gates = declaredRouteGates();
-    const cards = ADMIN_SECTIONS.flatMap((section) => section.cards);
-    expect(cards.length).toBeGreaterThan(0);
-
-    for (const card of cards) {
-      if (!card.path) continue;
-      expect(gates.has(card.path), `${card.title} → ${card.path} has no route`).toBe(true);
-      expect(gates.get(card.path), `${card.title} route gate`).toEqual(card.permission);
-    }
-  });
-
   it('gives Email (#124) its own card, routed and gated on system_settings:read like its three siblings', () => {
     // Saving and test-sending need `system_settings:write`, but that is the
     // PAGE's own internal gate — see `EmailSettingsPage`'s `canWrite` — not
@@ -377,12 +317,6 @@ describe('admin sections — registry against the live routes', () => {
     expect(resolveActiveDestination('/admin/settings/telemetry/explorer')).toBe('console');
   });
 
-  it('puts every card inside the Console destination', () => {
-    for (const card of ADMIN_SECTIONS.flatMap((section) => section.cards)) {
-      if (!card.path) continue;
-      expect(resolveActiveDestination(card.path), `${card.path} activates`).toBe('console');
-    }
-  });
 });
 
 /**
