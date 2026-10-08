@@ -26,6 +26,8 @@ import {
 import { AppPlatformHostProvider } from '../../platform/platformHost';
 import { appIdentityAdapters } from '../../platform/identityAdapters';
 import { appTelemetryAdapters } from '../../platform/telemetryAdapters';
+import { JobsWebAdaptersProvider } from '@marinoscar/platform-web/jobs/headless';
+import { appJobsAdapters } from '../../platform/jobsAdapters';
 
 interface WrapperOptions {
   route?: string;
@@ -245,10 +247,13 @@ export function createWrapper(options: WrapperOptions = {}) {
     // The real platform host adapter (#696), innermost like the shell mounts
     // it, so a packaged page (the Doctor) runs through the app's transport and
     // the fixture user's permissions.
-    // The telemetry adapters (#704) beside it, as `App.tsx` mounts them.
+    // The telemetry adapters (#704) and the jobs adapters (#854) beside it,
+    // as `App.tsx` mounts them.
     const withHost = (
       <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
-        <AppPlatformHostProvider>{children}</AppPlatformHostProvider>
+        <JobsWebAdaptersProvider adapters={appJobsAdapters}>
+          <AppPlatformHostProvider>{children}</AppPlatformHostProvider>
+        </JobsWebAdaptersProvider>
       </TelemetryWebAdaptersProvider>
     );
     const withTelemetry = telemetryValue ? (

@@ -9,11 +9,9 @@
  * one would be discovered the way the first would have been — by a dashboard
  * left open overnight, months later, in somebody's database load graph.
  *
- * `hooks/useJobs.ts` and `hooks/useWorkerNodes.ts` both RE-EXPORT this so each
- * page keeps importing its polling from the hook module it already depends on
- * (and so a page test that mocks that module still intercepts the poll). The
- * re-exports are aliases of this one function; there is exactly one
- * implementation, and this is it.
+ * The Jobs and Worker Nodes pages moved into `@marinoscar/platform-web/jobs`
+ * (#854) with their own copy of this hook (a package cannot import the app);
+ * this one serves the app's own polling pages (backup, broadcasts, About).
  *
  * =============================================================================
  * WHY THE INTERVAL STOPS WITH THE TAB

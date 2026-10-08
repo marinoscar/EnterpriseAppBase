@@ -128,7 +128,7 @@ import { Navigate } from 'react-router-dom';
 import { useAbout } from '../../hooks/useAbout';
 import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { formatRelativeTime } from '../../utils/relativeTime';
-import { formatDuration } from './jobsTable';
+import { formatDuration } from '@marinoscar/platform-web/jobs/headless';
 import type { AboutHistoryEntry, AboutHost, AboutResponse, DeployCommand } from '../../types';
 
 /** Mirrors the `About` card in `config/adminSections.tsx`, word for word. */
