@@ -59,7 +59,6 @@ import { useEffect, useRef } from 'react';
  * @param callback - what each tick runs (the latest closure is always used).
  * @param intervalMs - the period; `0` or less disables polling.
  *
- * @extensionPoint hook
  * @stability experimental
  */
 export function useVisiblePolling(callback: () => void, intervalMs: number): void {

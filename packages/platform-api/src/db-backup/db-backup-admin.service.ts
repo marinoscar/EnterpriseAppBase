@@ -762,8 +762,8 @@ export class DatabaseBackupAdminService {
    * pre-flight itself, deliberately, so that no caller can reach a restore with
    * no gates by forgetting to.
    *
-   * @throws {@link DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
-   * @throws {@link DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
+   * @throws `DatabaseRestoreRunNotFoundError` (exported by the slice's root entry), mapped to 404 by the controller.
+   * @throws `DatabaseRestoreNotAllowedError` (exported by the slice's root entry), mapped to 400 by the controller.
    */
   async startRestore(
     id: string,
@@ -806,8 +806,8 @@ export class DatabaseBackupAdminService {
    * backup nobody ever restored would be a different sentence wearing the same
    * word.
    *
-   * @throws {@link DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
-   * @throws {@link DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
+   * @throws `DatabaseRestoreRunNotFoundError` (exported by the slice's root entry), mapped to 404 by the controller.
+   * @throws `DatabaseRestoreNotAllowedError` (exported by the slice's root entry), mapped to 400 by the controller.
    */
   async rollbackRestore(id: string, actorUserId: string): Promise<RestoreRollbackResult> {
     // #685. See `startRestore`.
