@@ -24,9 +24,6 @@ import { AiStorageInputResolver } from '@marinoscar/platform-api/ai';
 import {
   createAiRuntimeHarness,
   HARNESS_OTHER_USER,
-  HARNESS_ORG_KEY,
-  HARNESS_TENANT_KEY,
-  HARNESS_USER_KEY,
   type AiRuntimeHarness,
   type AiRuntimeHarnessOptions,
 } from '@marinoscar/platform-api/ai/testing';
@@ -35,9 +32,11 @@ import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 
-export const OTHER_USER_KEY = 'sk-other-user-key-never-leak-4242';
-/** Every key a response or frame must never contain. */
-export const ALL_KEYS = [HARNESS_USER_KEY, HARNESS_ORG_KEY, HARNESS_TENANT_KEY, OTHER_USER_KEY];
+// The key sentinels and the SSE parser are the conformance suites' own
+// (`@marinoscar/platform-api/ai/testing`); this file re-exports them so the
+// other AI integration specs keep one import.
+export { ALL_KEYS, OTHER_USER_KEY, parseSse } from '@marinoscar/platform-api/ai/testing';
+export type { ParsedFrame } from '@marinoscar/platform-api/ai/testing';
 
 export interface AiHttpTestApp {
   context: TestContext;
@@ -130,34 +129,4 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
     },
     close: () => closeTestApp(context),
   };
-}
-
-/** One parsed SSE frame. Comment lines (`: ping`) are kept as `{ comment }`. */
-export interface ParsedFrame {
-  event?: string;
-  data?: any;
-  comment?: string;
-}
-
-/** Parses a complete `text/event-stream` body. */
-export function parseSse(body: string): ParsedFrame[] {
-  const frames: ParsedFrame[] = [];
-
-  for (const block of body.split('\n\n')) {
-    if (!block.trim()) continue;
-
-    const frame: ParsedFrame = {};
-    const data: string[] = [];
-
-    for (const line of block.split('\n')) {
-      if (line.startsWith(':')) frame.comment = line.slice(1).trim();
-      else if (line.startsWith('event:')) frame.event = line.slice(6).trim();
-      else if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
-    }
-
-    if (data.length > 0) frame.data = JSON.parse(data.join('\n'));
-    frames.push(frame);
-  }
-
-  return frames;
 }

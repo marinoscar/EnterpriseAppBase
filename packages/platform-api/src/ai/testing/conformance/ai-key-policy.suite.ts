@@ -1,12 +1,12 @@
 // =============================================================================
-// AI key policy invariant — cross-cutting conformance (issue #435, epic #419)
+// Suite: AI key policy invariant (issues #435, #742)
 // =============================================================================
 //
 // The invariant this suite exists to prove, over every synchronous inference
 // ROUTE the HTTP surface offers (`POST /api/ai/responses`,
 // `POST /api/ai/responses/stream`, `POST /api/ai/embeddings`) plus the queued
 // paths (`POST /api/ai/runs`, executed via its `ai.response.run` handler
-// exactly as `ai-kill-switch.integration.spec.ts` drives it,
+// exactly as the `ai-kill-switch` suite drives it,
 // `POST /api/ai/images`, executed via `ai.image.generate` — #437, and
 // `POST /api/ai/audio/transcriptions`, executed via `ai.audio.transcribe` — #438,
 // and `POST /api/ai/audio/speech`, executed via `ai.audio.speech` — #439):
@@ -38,8 +38,8 @@
 //                                        usage row says `keySource: 'none'`.
 //
 // `FakeAiProvider.calls` records the literal `apiKey` each provider call
-// carried (`ai/testing/fake-ai-provider.ts`'s own header explains why that is
-// safe test-only surface), so "never used" is a fact about what the fake
+// carried (`fake-ai-provider.ts`'s own header explains why that is safe
+// test-only surface), so "never used" is a fact about what the fake
 // actually saw, not about what a mock was told to expect.
 //
 // CATALOG DISCOVERY'S `keySource: 'admin_discovery'` is deliberately NOT
@@ -49,14 +49,18 @@
 // this cross-cutting suite is not supposed to be. What IS cross-cutting and
 // worth a structural check is that the literal string has not drifted.
 // =============================================================================
+//
+// Moved from the reference app's `apps/api/test/ai/ai-key-policy.integration.spec.ts`
+// with the same case list. The app supplies how it boots (`AiConformanceFixture`).
+// =============================================================================
 
 import request from 'supertest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { AI_KEYLESS_API_KEY } from '@marinoscar/platform-api/ai';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
+import { AI_KEYLESS_API_KEY } from '../../core/provider-adapter.interface';
+import { JobHandlerRegistry } from '../../../jobs/index';
+import type { ConformanceAppSuite } from '../../../testing/index';
 import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
@@ -66,24 +70,67 @@ import {
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
   HARNESS_TENANT_KEY,
-} from '@marinoscar/platform-api/ai/testing';
-import { MOCK_DEFAULT_ORG_ID } from '../fixtures/test-data.factory';
-import { createAiHttpTestApp, type AiHttpTestApp, parseSse } from './ai-http.helper';
+} from '../ai-runtime-harness';
+import { authHeader, parseSse, type AiConformanceApp, type AiConformanceFixture } from './ai-conformance-fixture';
+
+/**
+ * How an app configures the `ai-key-policy` suite.
+ *
+ * @example
+ * ```ts
+ * suites: { aiKeyPolicy: { fixture: aiConformanceFixture } }
+ * ```
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export interface AiKeyPolicyOptions {
+  /** How the app boots; see {@link AiConformanceFixture}. */
+  fixture: AiConformanceFixture;
+}
+
+/**
+ * Which of `keys` the fake provider received on any call. `FakeAiProvider.calls`
+ * records the literal key each provider call carried, so "never used" is a fact
+ * about what the provider saw, not about what a mock was told to expect.
+ *
+ * @param fake - the fake provider (any object with the keys it saw).
+ * @param keys - the keys that must not have been spent.
+ * @returns the keys that were spent; empty when none was.
+ *
+ * @stability experimental
+ */
+export function keysSeenBy(fake: { apiKeys: readonly string[] }, keys: readonly string[]): string[] {
+  return keys.filter((key) => fake.apiKeys.includes(key));
+}
+
+/** The catalog service's source (`.ts` beside this file in the package source, `.js` in a built package). */
+function readCatalogServiceSource(): string {
+  const dir = join(__dirname, '..', '..', 'catalog');
+  const file = ['ai-catalog.service.ts', 'ai-catalog.service.js'].map((name) => join(dir, name)).find((path) => existsSync(path));
+
+  if (!file) throw new Error(`ai-key-policy: cannot find the AI catalog service next to the suite (looked in ${dir})`);
+
+  return readFileSync(file, 'utf8');
+}
 
 const BODY = { model: 'fake-model', input: 'hello' };
 const EMBED_BODY = { model: HARNESS_EMBEDDING_MODEL, input: ['hello', 'world'] };
 const IMAGE_BODY = { model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
-const recordingFor = (app: AiHttpTestApp) =>
+const recordingFor = (app: AiConformanceApp) =>
   app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'audio/mpeg', bytes: Buffer.alloc(1200, 1) });
 const SPEECH_BODY = { input: 'hello there', model: HARNESS_SPEECH_MODEL };
 const IMAGE_REQUEST = { operation: 'images.generate', provider: 'openai', model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse' };
 
+function register(options: AiKeyPolicyOptions): void {
+  const { fixture } = options;
+
 describe('AI key policy invariant — admin key never spent on a user’s own inference (#435)', () => {
-  let app: AiHttpTestApp;
+  let app: AiConformanceApp;
   let holderToken: string;
 
   beforeAll(async () => {
-    app = await createAiHttpTestApp();
+    app = await fixture.createAiApp();
   }, 60_000);
 
   afterAll(async () => {
@@ -95,7 +142,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     // so the auth token has to be minted fresh every test — one created in
     // `beforeAll` would 401 from the second test onward.
     app.reset();
-    const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
+    const holder = await fixture.createUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
     holderToken = holder.accessToken;
   });
 
@@ -115,7 +162,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
 
       expect(res.body.details.reason).toBe('AI_KEY_REQUIRED');
       expect(app.harness.fake.calls).toEqual([]);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_ORG_KEY])).toEqual([]);
     });
 
     it('POST /api/ai/responses/stream: the same JSON refusal before any frame is sent, org key untouched', async () => {
@@ -154,7 +201,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     });
 
     it('ai.image.generate: a queued image run also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.image.generate');
       const created = await app.harness.prisma.aiRun.create({
         data: { userId: HARNESS_USER, provider: 'openai', modelId: HARNESS_IMAGE_MODEL, status: 'pending', request: IMAGE_REQUEST },
       });
@@ -180,7 +227,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     });
 
     it('ai.audio.transcribe: a queued transcription also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.transcribe');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.transcribe');
       const recording = recordingFor(app);
       const created = await app.harness.prisma.aiRun.create({
         data: {
@@ -213,7 +260,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     });
 
     it('ai.audio.speech: a queued speech run also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.speech');
       const created = await app.harness.prisma.aiRun.create({
         data: {
           userId: HARNESS_USER,
@@ -233,7 +280,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     });
 
     it('POST /api/ai/runs -> the queued run also fails AI_KEY_REQUIRED when executed, org key untouched', async () => {
-      const registry = app.context.app.get(JobHandlerRegistry);
+      const registry = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry);
       const handler = registry.get('ai.response.run');
 
       const created = await app.harness.prisma.aiRun.create({
@@ -296,7 +343,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         .send(IMAGE_BODY)
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.image.generate');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       expect(app.harness.fake.callsTo('images.generate').map((c) => c.apiKey)).toEqual([HARNESS_ORG_KEY]);
@@ -312,7 +359,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         .send({ storageObjectId: recordingFor(app).id, model: HARNESS_TRANSCRIPTION_MODEL })
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.transcribe');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.transcribe');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       expect(app.harness.fake.callsTo('audio.transcribe').map((c) => c.apiKey)).toEqual([HARNESS_ORG_KEY]);
@@ -328,7 +375,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         .send(SPEECH_BODY)
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.speech');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       expect(app.harness.fake.callsTo('audio.speech').map((c) => c.apiKey)).toEqual([HARNESS_ORG_KEY]);
@@ -342,7 +389,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     let adminToken: string;
 
     beforeEach(async () => {
-      const admin = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'admin' });
+      const admin = await fixture.createUser(app.context, { id: HARNESS_USER, roleName: 'admin' });
       adminToken = admin.accessToken;
       app.harness.setAiConfigWriter(HARNESS_USER, true);
       app.harness.removeUserKeys(HARNESS_USER);
@@ -430,7 +477,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
 
       expect(res.body.data.outputText).toBeDefined();
       expect(app.harness.fake.apiKeys).toEqual([HARNESS_USER_KEY]);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_ORG_KEY])).toEqual([]);
       expect(app.harness.usageEvents).toEqual(
         expect.arrayContaining([expect.objectContaining({ userId: HARNESS_USER, keySource: 'user' })]),
       );
@@ -457,14 +504,14 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         .expect(200);
 
       expect(app.harness.fake.callsTo('embeddings.embed').map((c) => c.apiKey)).toEqual([HARNESS_USER_KEY]);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_ORG_KEY])).toEqual([]);
       expect(app.harness.usageEvents).toEqual([
         expect.objectContaining({ userId: HARNESS_USER, operation: 'embeddings', keySource: 'user' }),
       ]);
     });
 
     it('the queued run path also spends the user key, never the org key', async () => {
-      const registry = app.context.app.get(JobHandlerRegistry);
+      const registry = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry);
       const handler = registry.get('ai.response.run');
 
       const created = await app.harness.prisma.aiRun.create({
@@ -491,12 +538,12 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         .send(IMAGE_BODY)
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.image.generate');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       expect(app.harness.runRows.find((r) => r.id === started.body.data.runId)?.status).toBe('succeeded');
       expect(app.harness.fake.callsTo('images.generate').map((c) => c.apiKey)).toEqual([HARNESS_USER_KEY]);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_ORG_KEY])).toEqual([]);
       expect(app.harness.usageEvents).toEqual([
         expect.objectContaining({ userId: HARNESS_USER, operation: 'images', keySource: 'user' }),
       ]);
@@ -509,12 +556,12 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         .send({ storageObjectId: recordingFor(app).id, model: HARNESS_TRANSCRIPTION_MODEL })
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.transcribe');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.transcribe');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       expect(app.harness.runRows.find((r) => r.id === started.body.data.runId)?.status).toBe('succeeded');
       expect(app.harness.fake.callsTo('audio.transcribe').map((c) => c.apiKey)).toEqual([HARNESS_USER_KEY]);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_ORG_KEY])).toEqual([]);
       expect(app.harness.usageEvents).toEqual([
         expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.transcribe', keySource: 'user' }),
       ]);
@@ -527,12 +574,12 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
         .send(SPEECH_BODY)
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.speech');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       expect(app.harness.runRows.find((r) => r.id === started.body.data.runId)?.status).toBe('succeeded');
       expect(app.harness.fake.callsTo('audio.speech').map((c) => c.apiKey)).toEqual([HARNESS_USER_KEY]);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_ORG_KEY])).toEqual([]);
       expect(app.harness.usageEvents).toEqual([
         expect.objectContaining({ userId: HARNESS_USER, operation: 'audio.speech', keySource: 'user' }),
       ]);
@@ -565,8 +612,8 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     const expectKeylessOnly = () => {
       expect(app.harness.fake.calls.length).toBeGreaterThan(0);
       expect(app.harness.fake.calls.every((call) => call.apiKey === AI_KEYLESS_API_KEY)).toBe(true);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_ORG_KEY);
-      expect(app.harness.fake.apiKeys).not.toContain(HARNESS_USER_KEY);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_ORG_KEY])).toEqual([]);
+      expect(keysSeenBy(app.harness.fake, [HARNESS_USER_KEY])).toEqual([]);
     };
 
     it('POST /api/ai/responses: works without a user key, usage row keySource none', async () => {
@@ -609,7 +656,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
     });
 
     it('the queued run path (ai.response.run) executes without a key, keySource none', async () => {
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.response.run');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.response.run');
       const created = await app.harness.prisma.aiRun.create({
         data: {
           userId: HARNESS_USER,
@@ -649,10 +696,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       // admin_discovery" test already drives the real behavior; this only
       // guards the literal string this cross-cutting suite's own header
       // promises against a silent rename on one side only.
-      const source = readFileSync(
-        join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'ai', 'catalog', 'ai-catalog.service.ts'),
-        'utf8',
-      );
+      const source = readCatalogServiceSource();
 
       expect(source).toContain("keySource: 'admin_discovery'");
     });
@@ -669,7 +713,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
 
     beforeEach(() => {
       app.harness.removeUserKeys(HARNESS_USER);
-      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, HARNESS_TENANT_KEY);
+      app.harness.setTenantKey(fixture.defaultOrgId, HARNESS_TENANT_KEY);
       app.harness.setOrgKey(HARNESS_ORG_KEY);
       app.harness.orgKeys.getKey.mockClear();
     });
@@ -698,13 +742,13 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
 
     it('under byok an org admin (org_ai_config:write in that org) is served by the org key', async () => {
       app.harness.setPolicy({ keyPolicy: 'byok' });
-      app.harness.setOrgAiConfigWriter(HARNESS_USER, MOCK_DEFAULT_ORG_ID, true);
+      app.harness.setOrgAiConfigWriter(HARNESS_USER, fixture.defaultOrgId, true);
       expect((await respond()).status).toBe(200);
       expect(app.harness.fake.apiKeys).toEqual([HARNESS_TENANT_KEY]);
     });
 
     it('deployment fallback on and off: with no org key, deploymentKeyServesOrgs decides', async () => {
-      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, null);
+      app.harness.setTenantKey(fixture.defaultOrgId, null);
       app.harness.setPolicy({ keyPolicy: 'byok_with_org_fallback', deploymentKeyServesOrgs: true });
       expect((await respond()).status).toBe(200);
       expect(app.harness.fake.apiKeys).toEqual([HARNESS_ORG_KEY]);
@@ -717,10 +761,27 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
 
     it('an organization that narrowed its keyPolicy to byok is served by neither administrator key', async () => {
       app.harness.setPolicy({ keyPolicy: 'byok_with_org_fallback' });
-      app.harness.setOrgPolicy(MOCK_DEFAULT_ORG_ID, { keyPolicy: 'byok' });
+      app.harness.setOrgPolicy(fixture.defaultOrgId, { keyPolicy: 'byok' });
       const res = await respond();
       expect(res.status).toBe(403);
       expect(app.harness.fake.apiKeys).toEqual([]);
     });
   });
 });
+}
+
+/**
+ * The suite behind `runPlatformConformance({ suites: { aiKeyPolicy } })`.
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export const aiKeyPolicySuite: ConformanceAppSuite<AiKeyPolicyOptions> = {
+  id: 'ai-key-policy',
+  title: 'AI key policy invariant — admin key never spent on a user’s own inference (#435)',
+  description:
+    'The administrator’s key is never spent on a user’s own inference and the user’s key always wins, over every synchronous and queued route (AI rule 2).',
+  register(_api, _context, options) {
+    register(options);
+  },
+};
