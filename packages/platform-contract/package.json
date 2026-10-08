@@ -190,6 +190,16 @@
         "default": "./dist/cjs/android-app/index.js"
       }
     },
+    "./user-data": {
+      "import": {
+        "types": "./dist/esm/user-data/index.d.ts",
+        "default": "./dist/esm/user-data/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/user-data/index.d.ts",
+        "default": "./dist/cjs/user-data/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
