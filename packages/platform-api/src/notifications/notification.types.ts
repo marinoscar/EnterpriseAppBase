@@ -184,6 +184,7 @@ export interface NotificationDispatchContext {
   /** The resolved registry entry. Never a bare string — the lookup already happened. */
   event: NotificationEventDef;
 
+  /** Who it goes to: the account (when there is one) and its address. */
   recipient: NotificationRecipient;
 
   /**
@@ -246,6 +247,7 @@ export interface NotificationDispatchContext {
   * @stability stable
  */
 export interface ChannelDeliveryResult {
+  /** Whether the transport accepted the message. */
   success: boolean;
 
   /** Transport-assigned id, on success. Recorded on the delivery row. */
@@ -395,5 +397,7 @@ export interface NotificationChannelSender {
  * exist" is a legitimate question.
   *
   * @stability stable
+ *
+ * @internal
  */
 export const NOTIFICATION_CHANNEL_SENDERS = 'NOTIFICATION_CHANNEL_SENDERS';

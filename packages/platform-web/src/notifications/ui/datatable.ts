@@ -5,9 +5,9 @@
 // one. The column, filter and row-action shapes are the same contract.
 // Slice-internal.
 
-export { IdentityTable as DataTable } from '../../identity/ui/table.js';
-export type { IdentityTableRowAction as DataTableRowAction } from '../../identity/headless/index.js';
-import type { IdentityTableColumn, IdentityTableFilter } from '../../identity/headless/index.js';
+export { IdentityTable as DataTable } from '../../identity/index.js';
+export type { IdentityTableRowAction as DataTableRowAction } from '../../identity/index.js';
+import type { IdentityTableColumn, IdentityTableFilter } from '../../identity/index.js';
 
 /**
  * One column. The identity column contract plus `align`, which the reference

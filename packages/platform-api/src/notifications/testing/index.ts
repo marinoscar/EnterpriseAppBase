@@ -14,7 +14,7 @@ export {
   checkPushSchemas,
   notificationsConformanceSuite,
 } from './conformance';
-export type { NotificationsConformanceOptions } from './conformance';
+export type { NotificationsConformanceOptions, NotifyAfterCommitScan } from './conformance';
 
 // ---- internals, for an app's own unit tests ------------------------------------------------
 export { NOTIFICATION_CHANNEL_SENDERS } from '../notification.types';

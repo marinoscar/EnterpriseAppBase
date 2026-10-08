@@ -13,12 +13,18 @@ import type { NotificationsPrisma } from '../../data/notifications-db';
 import { PushConfigService } from '../../push-config.service';
 import { PUSH_SETTINGS_PATH } from '../push-vapid.doctor-check';
 
-/** The most subscription rows one inventory reads. Hosts repeat; a bounded scan finds them all in practice. */
+/**
+ * The most subscription rows one inventory reads. Hosts repeat; a bounded scan finds them all in practice.
+ *
+ * @internal
+ */
 export const PUSH_ENDPOINT_SCAN_LIMIT = 10_000;
 
 /**
  * The push services browsers register with, for a deployment that has push on
  * but no subscriber yet: the next one will use one of these. All public.
+ *
+ * @internal
  */
 export const KNOWN_PUSH_SERVICE_HOSTS = [
   'fcm.googleapis.com',
@@ -39,6 +45,8 @@ export const KNOWN_PUSH_SERVICE_HOSTS = [
  * HOSTNAMES ordered by subscriber count: an endpoint's path is a capability
  * URL, so nothing past the host ever leaves this method. `count` is the number
  * of subscriptions read.
+ *
+ * @internal
  */
 @Injectable()
 export class WebPushEgressContributor implements EgressContributor, OnModuleInit {

@@ -132,6 +132,8 @@ const WRITE = [PERMISSIONS.BROADCASTS_WRITE, PERMISSIONS.ORG_BROADCASTS_WRITE];
  * active organization (`org_broadcasts:*`).
  *
  * @stability experimental
+ *
+ * @internal
  */
 @ApiTags('Notification Broadcasts')
 @Controller('admin/broadcasts')

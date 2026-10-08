@@ -62,6 +62,11 @@ const NOTIFICATION_FIELDS = {
   createdAt: true,
 } as const;
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class NotificationStoreService {
   constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma) {}

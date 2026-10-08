@@ -46,6 +46,14 @@ import type { NotificationRegistration } from '../registry/bindings.registry';
 // The ONLY difference between them is who is in charge of muting them.
 // ===========================================================================
 
+/**
+ * The two broadcast events (`admin.broadcast`, mutable, and
+ * `admin.broadcast_critical`, mandatory) with their email and browser
+ * bindings. Registered by `registerPlatformNotificationChannels`' companion,
+ * the app's notification manifest.
+ *
+ * @stability stable
+ */
 export const BROADCASTS_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {
     event: {

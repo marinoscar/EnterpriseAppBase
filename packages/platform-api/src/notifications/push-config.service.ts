@@ -115,7 +115,7 @@ export interface PrivateKeyStatus {
 
 /**
  * What `GET /api/admin/push-config` (and every write) renders. Extends
- * {@link PushConfig} rather than nesting it, matching
+ * `PushConfig` rather than nesting it, matching
  * `EmailSettingsAdminView`, so a field added to the schema appears here with
  * no edit.
  */
@@ -127,6 +127,7 @@ export interface PushConfigAdminView extends PushConfig {
    */
   configured: boolean;
 
+  /** The private key's status (never its value). */
   privateKeyStatus: PrivateKeyStatus;
 
   /**
@@ -138,15 +139,25 @@ export interface PushConfigAdminView extends PushConfig {
   /** Bumped on every write. The optimistic-concurrency token for `If-Match`. */
   version: number;
 
+  /** Last update, or null before the first save. */
   updatedAt: Date | null;
 
-  updatedBy: { id: string; email: string } | null;
+  /** Who saved last, or null. */
+  updatedBy: {
+    /** Their user id. */
+    id: string;
+    /** Their address. */
+    email: string;
+  } | null;
 }
 
 /** What a channel needs to actually sign and send a push. Never rendered to a client. */
 export interface ActiveVapidConfig {
+  /** The VAPID public key. */
   publicKey: string;
+  /** The VAPID private key, from the credential store; held only for the send. */
   privateKey: string;
+  /** The VAPID subject in force. */
   subject: string;
 }
 
@@ -163,6 +174,14 @@ function describeInvalidPaths(error: z.ZodError): string {
     .join(', ');
 }
 
+/**
+ * The runtime Web Push (VAPID) configuration: the `webPush` row of
+ * `system_settings` (enabled, public key, subject) through the settings
+ * slice's row store, and the private key in the credential store. No
+ * environment variable configures it.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class PushConfigService {
   private readonly logger = new Logger(PushConfigService.name);

@@ -9,12 +9,19 @@ import {
   privateKeyDerivesPublicKey,
 } from '../push-test.service';
 
+/**
+ * The admin page the push doctor check links to.
+ *
+ * @stability stable
+ */
 export const PUSH_SETTINGS_PATH = '/admin/settings/push';
 
 /**
  * Pure: judges the ACTIVE VAPID key pair with the same helpers the push test
  * uses — minus the send. The private key is only ever passed to
  * `privateKeyDerivesPublicKey`; the outcome carries verdicts, never keys.
+ *
+ * @internal
  */
 export function decidePushVapid(config: ActiveVapidConfig | null): DoctorCheckOutcome {
   if (!config) {
@@ -48,7 +55,11 @@ export function decidePushVapid(config: ActiveVapidConfig | null): DoctorCheckOu
   return { status: 'pass', detail: 'A valid VAPID key pair and subject are active' };
 }
 
-/** `push` / `push.vapid` — Web Push can sign a send. Never sends. */
+/**
+ * `push` / `push.vapid` — Web Push can sign a send. Never sends.
+ *
+ * @internal
+ */
 @Injectable()
 export class PushVapidDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'push.vapid';

@@ -61,12 +61,17 @@ import type { UserSettingsNamespace } from '../settings/index';
  * @stability stable
  */
 export const NOTIFICATIONS_USER_SETTINGS = {
+  /** The namespace key; permanent. */
   key: 'notifications',
+  /** What it holds. */
   description: 'Per-channel, per-event notification preferences, channel-outer; sparse at every level.',
+  /** The stored shape. */
   schema: notificationsSchema,
-  // Three nullable levels, three different deletes: the namespace (the outer
-  // `.nullable()` the composition adds), one channel, one event key. See
-  // notificationsPatchSchema.
+  /**
+   * The PATCH shape. Three nullable levels, three different deletes: the
+   * namespace (the outer `.nullable()` the composition adds), one channel,
+   * one event key.
+   */
   patchSchema: notificationsPatchSchema,
   /**
    * Merge the `notifications` namespace (#126, epic #109) using JSON Merge
@@ -226,6 +231,7 @@ declare module '../settings/registry/user-settings-namespace' {
     notifications: NotificationsValue;
   }
   interface UserSettingsNamespaceDeclarations {
+    /** The `notifications` declaration. */
     notifications: typeof NOTIFICATIONS_USER_SETTINGS;
   }
 }

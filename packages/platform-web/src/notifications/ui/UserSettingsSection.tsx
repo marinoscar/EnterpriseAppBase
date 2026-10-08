@@ -46,9 +46,9 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Container, Snackbar, Typography } from '@mui/material';
-import { useUserSettings } from '../../settings/headless/index.js';
+import { useUserSettings } from '../../settings/index.js';
 import { LoadingSpinner } from './LoadingSpinner.js';
-import type { UserSettingsUpdateBase } from '../../settings/headless/index.js';
+import type { UserSettingsUpdateBase } from '../../settings/index.js';
 import type {
   NotificationsUserSettingsDocument as UserSettings,
   NotificationsUserSettingsUpdate,

@@ -177,6 +177,25 @@ function mergeThrottle(
   return { rateLimited: true, retryAfterMs };
 }
 
+/**
+ * The dispatcher: raise a registered event to a user, an address or the
+ * holders of a permission. Every entry point converges on one dispatch that
+ * applies the policy in force for the recipient's organization (system, then
+ * org layer), then the recipient's preferences (a `mandatory` event ignores
+ * them), then hands each surviving channel to its sender, writing one
+ * `notification_deliveries` row per attempt. It never throws to its caller.
+ *
+ * ⚠ Call it AFTER the triggering write has committed and OUTSIDE any
+ * `$transaction` (the conformance suite's `notify-after-commit` case).
+ *
+ * @example
+ * ```ts
+ * await this.notifications.notify('billing.invoice_ready', userId, { invoiceId });
+ * ```
+ *
+ * @extensionPoint token
+ * @stability stable
+ */
 @Injectable()
 export class NotificationsService implements OnModuleDestroy {
   private readonly logger = new Logger(NotificationsService.name);
@@ -329,7 +348,7 @@ export class NotificationsService implements OnModuleDestroy {
    *   2. The worker would then mark the job row `succeeded` for work that had
    *      not happened — the queue's record would assert a lie, which is worse
    *      than a failure, because a failure retries and a lie does not.
-   *   3. A SIGTERM would drop everything past the {@link SHUTDOWN_DRAIN_MS}
+   *   3. A SIGTERM would drop everything past the `SHUTDOWN_DRAIN_MS`
    *      5 s drain, with no job row left claiming responsibility for it.
    *
    * AND `flush()` IS NOT A SUBSTITUTE, which is the other reflex worth heading
@@ -352,12 +371,12 @@ export class NotificationsService implements OnModuleDestroy {
    * {@link notify}.
    *
    * NEVER REJECTS, by the same mechanism as `notify`: both route their work
-   * through {@link runContained}. A dispatch failure is a log line and, where
+   * through `runContained`. A dispatch failure is a log line and, where
    * one could be written, a `notification_deliveries` row — never an exception
    * reaching the job handler, which would fail and retry the whole job over one
    * recipient's bad mailbox.
    *
-   * It is deliberately NOT tracked in {@link inFlight}: that set exists so an
+   * It is deliberately NOT tracked in `inFlight`: that set exists so an
    * orderly shutdown can drain work NOBODY IS AWAITING. This work has an
    * awaiting owner by definition, and that owner — not this service — decides
    * what to do about it on shutdown.
@@ -550,7 +569,7 @@ export class NotificationsService implements OnModuleDestroy {
    * ---------------------------------------------------------------------------
    *
    * This resolves a SET OF USER IDS and then fans out through
-   * {@link dispatchToUser} — the identical method `notify` uses. The preference
+   * `dispatchToUser` — the identical method `notify` uses. The preference
    * gate, the `mandatory` override, the admin policy, the delivery rows and the
    * per-channel containment are therefore the SAME CODE, not a parallel
    * implementation of it. That is the same argument `notifyAddress` makes: a
@@ -559,7 +578,7 @@ export class NotificationsService implements OnModuleDestroy {
    *
    * ONLY ACTIVE USERS. `isActive: false` is a deactivated account — somebody
    * who cannot sign in and therefore cannot act on any of this. Note this is a
-   * DIFFERENT question from the one {@link loadRecipient} deliberately refuses
+   * DIFFERENT question from the one `loadRecipient` deliberately refuses
    * to answer: there, dropping an inactive recipient would silently defeat a
    * `mandatory` event aimed AT that account. Here the account is not the
    * subject of the event at all, it is a candidate audience for somebody else's
@@ -572,7 +591,7 @@ export class NotificationsService implements OnModuleDestroy {
    *
    * NEVER REJECTS — including when the RECIPIENT QUERY ITSELF THROWS, which is
    * the failure mode unique to this method. The whole body runs inside
-   * {@link runContained} via {@link schedule}, and the query has its own
+   * `runContained` via `schedule`, and the query has its own
    * try/catch so a database blip is one log line rather than an unresolvable
    * dispatch. Every call site of this method is a failure path already (a
    * backup that failed, a sweep that found a dead node); a throw from here
@@ -641,7 +660,7 @@ export class NotificationsService implements OnModuleDestroy {
    * {@link notifyNow} gives: this is a background path that owns its own
    * lifetime, not a controller with a client waiting on a socket.
    *
-   * Like `notifyNow`, deliberately NOT tracked in {@link inFlight}: that set
+   * Like `notifyNow`, deliberately NOT tracked in `inFlight`: that set
    * exists to drain work nobody is awaiting, and this work has an awaiting
    * owner by definition.
    */
@@ -737,7 +756,7 @@ export class NotificationsService implements OnModuleDestroy {
    * `notify` and `dispatchToUser` do not move.
    *
    * The deferral and the never-throws containment both live in
-   * {@link runContained}, which this shares with the awaited `notifyNow` path
+   * `runContained`, which this shares with the awaited `notifyNow` path
    * (#321) so the two cannot drift apart. What is left HERE is the part that
    * is genuinely about detaching: the promise is stored in `inFlight` — the
    * already-contained one, so there is no window in which an unhandled
@@ -757,7 +776,7 @@ export class NotificationsService implements OnModuleDestroy {
    * Run a unit of work such that its promise CANNOT REJECT.
    *
    * ONE COPY OF THE NEVER-THROWS GUARANTEE, shared by the detached path
-   * ({@link schedule}, and so `notify`/`notifyAddress`) and the awaited one
+   * (`schedule`, and so `notify`/`notifyAddress`) and the awaited one
    * ({@link notifyNow}). Both make the identical promise to their callers, and
    * a promise made in two places is a promise that can be weakened in one of
    * them — a `catch` narrowed here, a rethrow added there — with the two
@@ -770,7 +789,7 @@ export class NotificationsService implements OnModuleDestroy {
    * why it opts out.
    *
    * `Promise.resolve().then(work)` rather than calling `work()` here for the
-   * reason {@link schedule} gives: it keeps the deferral independent of what
+   * reason `schedule` gives: it keeps the deferral independent of what
    * the work happens to do synchronously first. For `notifyNow`, where the
    * caller is awaiting anyway, the extra microtask is invisible.
    *
@@ -835,7 +854,7 @@ export class NotificationsService implements OnModuleDestroy {
    * Resolve the audience from a permission, then fan out to it.
    *
    * SPLIT FROM the two public entry points for the same reason
-   * {@link dispatchToUser} is split from `notify`/`notifyNow`: the detached and
+   * `dispatchToUser` is split from `notify`/`notifyNow`: the detached and
    * the awaited callers must share ONE body, or the day somebody fixes a
    * de-duplication bug in one of them the other keeps it.
    *

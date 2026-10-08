@@ -118,7 +118,13 @@ export { NOTIFICATIONS_USER_SETTINGS, notificationsPatchSchema } from './notific
 
 // ---- the stream --------------------------------------------------------------------------
 export { HEARTBEAT_INTERVAL_MS, NOTIFICATION_SSE_EVENT, parseNotificationStreamBusMessage } from './notification-stream.service';
-export type { NotificationStreamBusMessage, NotificationStreamEvent, SseMessage } from './notification-stream.service';
+export type {
+  NotificationStreamBusMessage,
+  NotificationStreamEvent,
+  NotificationStreamInlineMessage,
+  NotificationStreamRefMessage,
+  SseMessage,
+} from './notification-stream.service';
 
 // ---- Web Push configuration ----------------------------------------------------------------
 export { PUSH_CONFIG_KEY, PushConfigService } from './push-config.service';
@@ -157,7 +163,15 @@ export type {
   NotificationBroadcastRow,
   NotificationDeliveryRow,
   NotificationRow,
+  NotificationsBatchPayload,
+  NotificationsBatchTransaction,
+  NotificationsDelegate,
+  NotificationsForeignDelegate,
+  NotificationsInputJsonValue,
+  NotificationsJsonValue,
   NotificationsPrisma,
+  NotificationsQueryArgs,
   NotificationsTx,
+  NotificationsWhere,
   PushSubscriptionRow,
 } from './data/notifications-db';

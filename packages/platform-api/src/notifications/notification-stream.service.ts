@@ -134,11 +134,17 @@ import type { NotificationsPrisma } from './data/notifications-db';
   * @stability experimental
  */
 export interface NotificationStreamEvent {
+  /** The `notifications` row id. */
   id: string;
+  /** The event key. */
   eventKey: string;
+  /** The rendered title. */
   title: string;
+  /** The rendered body. */
   body: string;
+  /** A root-relative link, or null. */
   link: string | null;
+  /** Creation time (ISO 8601). */
   createdAt: string;
 
   /**
@@ -242,8 +248,11 @@ const HEARTBEAT_COMMENT = 'heartbeat';
   * @stability experimental
  */
 export interface SseMessage {
+  /** The `data:` payload (an object is serialised as JSON). */
   data?: string | object;
+  /** The `event:` name. */
   type?: string;
+  /** A comment line (a heartbeat). */
   comment?: string;
 }
 
@@ -257,9 +266,39 @@ export { NOTIFICATION_STREAM_BUS_CHANNEL };
   *
   * @stability experimental
  */
-export type NotificationStreamBusMessage =
-  | { userId: string; event: NotificationStreamEvent }
-  | { userId: string; ref: { notificationId: string; toast: boolean; pushed: boolean } };
+export type NotificationStreamBusMessage = NotificationStreamInlineMessage | NotificationStreamRefMessage;
+
+/**
+ * A bus message carrying the whole frame.
+ *
+ * @stability experimental
+ */
+export interface NotificationStreamInlineMessage {
+  /** The recipient. */
+  userId: string;
+  /** The frame. */
+  event: NotificationStreamEvent;
+}
+
+/**
+ * A bus message carrying a reference the receiving replica re-reads (a frame
+ * too large for the bus).
+ *
+ * @stability experimental
+ */
+export interface NotificationStreamRefMessage {
+  /** The recipient. */
+  userId: string;
+  /** The row to re-read, with the two flags that are not on the row. */
+  ref: {
+    /** The `notifications` row id. */
+    notificationId: string;
+    /** Whether the tab may raise an OS toast. */
+    toast: boolean;
+    /** Whether this dispatch also sent Web Push. */
+    pushed: boolean;
+  };
+}
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value !== '';
@@ -315,6 +354,11 @@ export function parseNotificationStreamBusMessage(raw: unknown): NotificationStr
   return null;
 }
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class NotificationStreamService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NotificationStreamService.name);

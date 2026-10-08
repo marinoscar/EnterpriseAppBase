@@ -130,7 +130,10 @@ export interface NotificationsExtendableEvent {
  */
 export interface NotificationsPushEvent extends NotificationsExtendableEvent {
   /** The message data, or null for an empty push. */
-  readonly data: { json(): unknown } | null;
+  readonly data: {
+    /** The payload, parsed as JSON (throws on malformed JSON). */
+    json(): unknown;
+  } | null;
 }
 
 /**
@@ -140,7 +143,12 @@ export interface NotificationsPushEvent extends NotificationsExtendableEvent {
  */
 export interface NotificationsClickEvent extends NotificationsExtendableEvent {
   /** The clicked notification. */
-  readonly notification: { close(): void; readonly data: unknown };
+  readonly notification: {
+    /** Dismisses it. */
+    close(): void;
+    /** The data it was shown with (`{ id, link }`). */
+    readonly data: unknown;
+  };
 }
 
 /**
@@ -151,7 +159,13 @@ export interface NotificationsClickEvent extends NotificationsExtendableEvent {
  */
 export interface NotificationsPushSubscriptionChangeEvent extends NotificationsExtendableEvent {
   /** The subscription that changed, or null. */
-  readonly oldSubscription?: { readonly options?: { readonly applicationServerKey?: ArrayBuffer | null } } | null;
+  readonly oldSubscription?: {
+    /** The options it was created with. */
+    readonly options?: {
+      /** The VAPID key it was created with. */
+      readonly applicationServerKey?: ArrayBuffer | null;
+    };
+  } | null;
 }
 
 /**

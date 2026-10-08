@@ -60,7 +60,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../../identity/headless/index.js';
+import { useAuth } from '../../identity/index.js';
 import { useIsMounted } from './useIsMounted.js';
 import {
   ApiError,

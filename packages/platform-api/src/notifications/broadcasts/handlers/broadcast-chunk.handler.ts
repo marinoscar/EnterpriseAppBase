@@ -285,6 +285,8 @@ export const BROADCAST_CHUNK_TYPE = 'admin.broadcast.chunk';
  * for. The gate is in-memory and per process; the durable half of the
  * backpressure is the deferred `scheduled_for` on the chunk's row, which every
  * replica honours.
+ *
+ * @internal
  */
 export const BROADCAST_EMAIL_PROVIDER_KEY = 'notifications.email';
 
@@ -340,6 +342,11 @@ interface GroupDispatchOutcome {
   retryAfterMs: number | null;
 }
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(BroadcastChunkHandler.name);

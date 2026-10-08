@@ -32,6 +32,8 @@ export class NotificationDto extends createZodDto(notificationSchema) {}
  * `GET /api/notifications` query.
  *
  * @stability stable
+ *
+ * @internal
  */
 export class NotificationListQueryDto extends createZodDto(notificationListQuerySchema) {}
 

@@ -84,6 +84,13 @@ export {
   vapidSubjectSchema,
 } from './schemas.js';
 export type {
+  BooleanQueryEnum,
+  BroadcastStatusEnum,
+  NoSecretIn,
+  SecretFieldNames,
+  PushTestConfigSourceEnum,
+  PushTestOverallEnum,
+  PushTestSendStatusEnum,
   BroadcastAudienceQuery,
   BroadcastAudienceResponse,
   BroadcastCreateResult,

@@ -84,6 +84,11 @@ export type {
 const MAX_TITLE_LENGTH = 200;
 const MAX_BODY_LENGTH = 2_000;
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class BrowserNotificationChannel implements NotificationChannelSender {
   readonly channel: NotificationChannel = 'browser';

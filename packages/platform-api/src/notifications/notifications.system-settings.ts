@@ -34,6 +34,7 @@ import type { SystemSettingsNamespace } from '../settings/index';
  * bodies keep the single-layer bound.
  */
 const effectiveNotificationsSchema = systemNotificationsSchema.extend({
+  /** Event keys suppressed (room for the org layer's union on top of the system list). */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS * 2),
 });
 
@@ -78,22 +79,34 @@ const NOTIFICATIONS_SYSTEM_DEFAULTS: SystemNotificationsValue = {
  * @stability stable
  */
 export const NOTIFICATIONS_SYSTEM_SETTINGS = {
+  /** The namespace key; permanent. */
   key: 'notifications',
+  /** What it holds. */
   description: 'Deployment-wide browser-notification policy: whether the browser channel is on, and which events are suppressed for everyone.',
+  /** The stored shape (also what an org-layer union may produce). */
   storedSchema: effectiveNotificationsSchema,
+  /** The internal PATCH shape. */
   patchSchema: systemNotificationsPatchSchema,
+  /** The `PUT /api/system-settings` block. */
   putSchema: notificationsSettingsSchema,
+  /** The `PATCH /api/system-settings` block. */
   wirePatchSchema: notificationsSettingsPatchSchema,
+  /** The response block. */
   responseSchema: notificationsResponseSchema,
+  /** On, suppressing nothing. */
   defaults: NOTIFICATIONS_SYSTEM_DEFAULTS,
-  // REQUIRED on PUT. A PUT that omits it is a 400 and not a silent reset to
-  // the defaults: the value it would reset is an operator's decision to turn a
-  // delivery channel off for everyone.
+  /**
+   * REQUIRED on PUT. A PUT that omits it is a 400 and not a silent reset to
+   * the defaults: the value it would reset is an operator's decision to turn a
+   * delivery channel off for everyone.
+   */
   requiredOnPut: true,
-  // The hand ladder `readKnownSettings` has always used for this namespace:
-  // two fields, and `disabledEvents` is salvaged entry by entry rather than as
-  // a unit (the service's `readStringArray` helper, #733).
-  read(stored, helpers) {
+  /**
+   * Salvages a stored value: the hand ladder `readKnownSettings` has always
+   * used for this namespace, two fields, `disabledEvents` salvaged entry by
+   * entry rather than as a unit (the `readStringArray` helper, #733).
+   */
+  read(stored, helpers): SystemNotificationsValue {
     const storedNotifications = helpers.asPlainObject(stored);
 
     return {
@@ -108,15 +121,19 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
       ),
     };
   },
+  /** The org layer (#738): an organization may only tighten the policy. */
   org: {
+    /** What an organization may store. */
     schema: orgNotificationsSchema,
+    /** System AND org for `browserEnabled`, the union for `disabledEvents`. */
     merge: tightenNotificationsPolicy,
-    // The org-settings permissions of #733: an org administrator manages the
-    // org's overrides from the Organization settings page.
+    /** Reading the org's overrides (#733's org-settings permission). */
     readPermission: 'org_settings:read',
+    /** Writing them, from the Organization settings page. */
     writePermission: 'org_settings:write',
   },
-  merge(current, patch) {
+  /** Merges a PATCH field by field; `disabledEvents` is replaced wholesale. */
+  merge(current, patch): SystemNotificationsValue {
     // Field by field, NOT by spread — and `disabledEvents` is therefore REPLACED wholesale when the caller sends
     // one. That is RFC 7396's rule for arrays and the only usable semantics
     // here: a merged list could only ever grow, so the admin page's "stop
@@ -147,6 +164,7 @@ declare module '../settings/registry/system-settings-namespace' {
     notifications: SystemNotificationsValue;
   }
   interface SystemSettingsNamespaceDeclarations {
+    /** The `notifications` declaration. */
     notifications: typeof NOTIFICATIONS_SYSTEM_SETTINGS;
   }
 }

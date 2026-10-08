@@ -38,6 +38,7 @@ import {
   REMOVE_CONFIRMATION,
   ROTATE_CONFIRMATION,
 } from './constants.js';
+import type { BroadcastStatusName, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -71,7 +72,7 @@ export const notificationEventKeySchema = z
 // ---- user settings: `notifications` ----------------------------------------------------
 
 /**
- * One channel's preferences: event key -> the user's explicit choice.
+ * One channel's preferences: event key to the user's explicit choice.
  * `boolean` only; an absent key means "use the event's default".
  *
  * @stability stable
@@ -79,7 +80,7 @@ export const notificationEventKeySchema = z
 export const notificationChannelPreferencesSchema = z.record(notificationEventKeySchema, z.boolean());
 
 /**
- * The `notifications` user settings namespace: channel -> that channel's
+ * The `notifications` user settings namespace: channel to that channel's
  * preferences, sparse at every level. Keyed by an OPEN channel id; the count
  * of channels and of events per channel is bounded on the merged value by the
  * API (`NOTIFICATION_MAX_CHANNELS`, `NOTIFICATION_MAX_EVENTS_PER_CHANNEL`).
@@ -97,10 +98,10 @@ export const notificationsSchema = z.record(notificationChannelIdSchema, notific
 export const notificationChannelPreferencesPatchSchema = z.record(notificationEventKeySchema, z.boolean().nullable());
 
 /**
- * PATCH form of the `notifications` namespace. Three levels of delete:
- * `{ notifications: null }` clears the namespace, `{ notifications: { email:
- * null } }` one channel, `{ notifications: { email: { 'k': null } } }` one
- * event. A non-null channel object deep-merges per event.
+ * PATCH form of the `notifications` namespace. Three levels of delete: a
+ * `null` namespace clears it, a `null` channel (`email: null`) clears one
+ * channel, a `null` event key clears one event. A non-null channel object
+ * deep-merges per event.
  *
  * @stability stable
  */
@@ -140,7 +141,9 @@ export type NotificationsPatchValue = z.infer<typeof notificationsPatchSchema>;
  * @stability stable
  */
 export const systemNotificationsSchema = z.object({
+  /** Whether the browser channel is on. */
   browserEnabled: z.boolean(),
+  /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS),
 });
 
@@ -158,7 +161,9 @@ export type SystemNotificationsValue = z.infer<typeof systemNotificationsSchema>
  * @stability stable
  */
 export const systemNotificationsPatchSchema = z.object({
+  /** Whether the browser channel is on. */
   browserEnabled: z.boolean().optional(),
+  /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS).optional(),
 });
 
@@ -168,7 +173,9 @@ export const systemNotificationsPatchSchema = z.object({
  * @stability stable
  */
 export const notificationsSettingsSchema = z.object({
+  /** Whether the browser channel is on. */
   browserEnabled: z.boolean(),
+  /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS),
 });
 
@@ -178,7 +185,9 @@ export const notificationsSettingsSchema = z.object({
  * @stability stable
  */
 export const notificationsSettingsPatchSchema = z.object({
+  /** Whether the browser channel is on. */
   browserEnabled: z.boolean().optional(),
+  /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS).optional(),
 });
 
@@ -188,7 +197,9 @@ export const notificationsSettingsPatchSchema = z.object({
  * @stability stable
  */
 export const notificationsResponseSchema = z.object({
+  /** Whether the browser channel is on. */
   browserEnabled: z.boolean(),
+  /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(z.string()),
 });
 
@@ -203,7 +214,9 @@ export const notificationsResponseSchema = z.object({
  * @stability experimental
  */
 export const orgNotificationsSchema = z.object({
+  /** Whether the browser channel is on. */
   browserEnabled: z.boolean().optional(),
+  /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS).optional(),
 });
 
@@ -213,6 +226,49 @@ export const orgNotificationsSchema = z.object({
  * @stability experimental
  */
 export type OrgNotificationsValue = z.infer<typeof orgNotificationsSchema>;
+
+// ---- named enum types (the schemas' types read as a reference) ------------------------
+
+/**
+ * The broadcast statuses, as `z.enum` types them: each keyed by itself.
+ *
+ * @stability stable
+ */
+export type BroadcastStatusEnum = { [K in BroadcastStatusName]: K };
+
+/**
+ * The push test verdicts, as `z.enum` types them.
+ *
+ * @stability stable
+ */
+export type PushTestOverallEnum = { [K in PushTestOverall]: K };
+
+/**
+ * The push test configuration sources, as `z.enum` types them.
+ *
+ * @stability stable
+ */
+export type PushTestConfigSourceEnum = { [K in PushTestConfigSource]: K };
+
+/**
+ * The push test send outcomes, as `z.enum` types them.
+ *
+ * @stability stable
+ */
+export type PushTestSendStatusEnum = { [K in PushTestSendStatus]: K };
+
+/**
+ * A boolean query parameter's two spellings, as `z.enum` types them.
+ *
+ * @stability stable
+ */
+export type BooleanQueryEnum = { [K in 'true' | 'false']: K };
+
+const broadcastStatusSchema: z.ZodEnum<BroadcastStatusEnum> = z.enum(BROADCAST_STATUSES);
+const pushTestOverallSchema: z.ZodEnum<PushTestOverallEnum> = z.enum(PUSH_TEST_OVERALL);
+const pushTestConfigSourceSchema: z.ZodEnum<PushTestConfigSourceEnum> = z.enum(PUSH_TEST_CONFIG_SOURCES);
+const pushTestSendStatusSchema: z.ZodEnum<PushTestSendStatusEnum> = z.enum(PUSH_TEST_SEND_STATUSES);
+const booleanQuerySchema: z.ZodEnum<BooleanQueryEnum> = z.enum(['true', 'false']);
 
 // ---- /api/notifications --------------------------------------------------------------
 
@@ -224,12 +280,19 @@ export type OrgNotificationsValue = z.infer<typeof orgNotificationsSchema>;
  * @stability stable
  */
 export const notificationEventSchema = z.object({
+  /** The event key, `<area>.<event>`; permanent. */
   key: z.string(),
+  /** The user-facing name. */
   label: z.string(),
+  /** The user-facing description. */
   description: z.string(),
+  /** The channels the preferences matrix may offer: declared, narrowed by the policy in force. */
   channels: z.array(notificationChannelIdSchema),
+  /** Every channel the event declares, unfiltered by policy. */
   declaredChannels: z.array(notificationChannelIdSchema),
+  /** What an account with no stored preference gets. */
   defaultEnabled: z.boolean(),
+  /** Whether a user may not opt out. */
   mandatory: z.boolean(),
 });
 
@@ -247,8 +310,11 @@ export type NotificationEventResponse = z.infer<typeof notificationEventSchema>;
  * @stability stable
  */
 export const notificationConfigSchema = z.object({
+  /** Whether the browser channel is on. */
   browserEnabled: z.boolean(),
+  /** Whether Web Push is configured and enabled. */
   pushEnabled: z.boolean(),
+  /** The VAPID application server key (URL-safe base64), or null. */
   vapidPublicKey: z.string().nullable(),
 });
 
@@ -265,12 +331,19 @@ export type NotificationConfigResponse = z.infer<typeof notificationConfigSchema
  * @stability stable
  */
 export const notificationSchema = z.object({
+  /** The id. */
   id: z.uuid(),
+  /** The event key. */
   eventKey: z.string(),
+  /** The title. */
   title: z.string(),
+  /** The body text. */
   body: z.string(),
+  /** A root-relative link, or null. */
   link: z.string().nullable(),
+  /** When the user read it (ISO 8601), or null. */
   readAt: z.iso.datetime().nullable(),
+  /** Creation time (ISO 8601). */
   createdAt: z.iso.datetime(),
 });
 
@@ -287,10 +360,12 @@ export type NotificationResponse = z.infer<typeof notificationSchema>;
  * @stability stable
  */
 export const notificationListQuerySchema = z.object({
+  /** The page number, from 1. */
   page: z.coerce.number().int().min(1).default(1),
+  /** Rows per page (at most 100). */
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  unreadOnly: z
-    .enum(['true', 'false'])
+  /** `true` for unread rows only. */
+  unreadOnly: booleanQuerySchema
     .default('false')
     .transform((value) => value === 'true'),
 });
@@ -319,6 +394,7 @@ export interface NotificationListResponse {
  * @stability stable
  */
 export const unreadCountSchema = z.object({
+  /** Unread notifications. */
   unreadCount: z.number().int().min(0),
 });
 
@@ -338,13 +414,21 @@ export type UnreadCountResponse = z.infer<typeof unreadCountSchema>;
  * @stability stable
  */
 export const notificationStreamEventSchema = z.object({
+  /** The id. */
   id: z.string(),
+  /** The event key. */
   eventKey: z.string(),
+  /** The title. */
   title: z.string(),
+  /** The body text. */
   body: z.string(),
+  /** A root-relative link, or null. */
   link: z.string().nullable(),
+  /** Creation time (ISO 8601). */
   createdAt: z.string(),
+  /** Whether the tab may raise an OS toast (the policy in force). */
   toast: z.boolean(),
+  /** Whether this dispatch also sent Web Push. */
   pushed: z.boolean(),
 });
 
@@ -364,11 +448,16 @@ export type NotificationStreamEventPayload = z.infer<typeof notificationStreamEv
  * @stability stable
  */
 export const pushSubscribeSchema = z.object({
+  /** The push service endpoint (a capability URL). */
   endpoint: z.string().min(1),
+  /** The subscription's keys. */
   keys: z.object({
+    /** The client's P-256 public key. */
     p256dh: z.string().min(1),
+    /** The client's auth secret. */
     auth: z.string().min(1),
   }),
+  /** When the browser says it expires (epoch ms), or null. */
   expirationTime: z.number().nullable().optional(),
 });
 
@@ -385,8 +474,11 @@ export type PushSubscribeRequest = z.infer<typeof pushSubscribeSchema>;
  * @stability stable
  */
 export const pushSubscriptionResponseSchema = z.object({
+  /** The id. */
   id: z.uuid(),
+  /** The registered endpoint. */
   endpoint: z.string(),
+  /** Creation time (ISO 8601). */
   createdAt: z.iso.datetime(),
 });
 
@@ -403,6 +495,7 @@ export type PushSubscriptionResponse = z.infer<typeof pushSubscriptionResponseSc
  * @stability stable
  */
 export const pushUnsubscribeSchema = z.object({
+  /** The endpoint to remove. */
   endpoint: z.string().min(1),
 });
 
@@ -436,8 +529,11 @@ export const vapidSubjectSchema = z
  * @stability stable
  */
 export const pushConfigSchema = z.object({
+  /** Whether Web Push is switched on. */
   enabled: z.boolean(),
+  /** The VAPID public key, or null. */
   publicKey: z.string().min(1).nullable(),
+  /** The VAPID subject (`mailto:` or `https://`), or null for the default. */
   subject: vapidSubjectSchema.nullable(),
 });
 
@@ -454,6 +550,7 @@ export type PushConfig = z.infer<typeof pushConfigSchema>;
  * @stability stable
  */
 export const generatePushConfigSchema = z.object({
+  /** The VAPID subject; absent or null uses the default. */
   subject: vapidSubjectSchema.nullable().optional(),
 });
 
@@ -470,7 +567,9 @@ export type GeneratePushConfigInput = z.infer<typeof generatePushConfigSchema>;
  * @stability stable
  */
 export const updatePushConfigSchema = z.object({
+  /** Whether Web Push is switched on. */
   enabled: z.boolean(),
+  /** The VAPID subject, or null for the default. */
   subject: vapidSubjectSchema.nullable(),
 });
 
@@ -487,7 +586,9 @@ export type UpdatePushConfigInput = z.infer<typeof updatePushConfigSchema>;
  * @stability stable
  */
 export const rotatePushConfigSchema = z.object({
+  /** The literal confirmation word. */
   confirmation: z.literal(ROTATE_CONFIRMATION),
+  /** A new VAPID subject; absent keeps the current one. */
   subject: vapidSubjectSchema.nullable().optional(),
 });
 
@@ -504,6 +605,7 @@ export type RotatePushConfigInput = z.infer<typeof rotatePushConfigSchema>;
  * @stability stable
  */
 export const removePushConfigSchema = z.object({
+  /** The literal confirmation word. */
   confirmation: z.literal(REMOVE_CONFIRMATION),
 });
 
@@ -520,9 +622,13 @@ export type RemovePushConfigInput = z.infer<typeof removePushConfigSchema>;
  * @stability stable
  */
 export const privateKeyStatusSchema = z.object({
+  /** Whether a value is stored. */
   configured: z.boolean(),
+  /** A short, non-secret hint of the stored value, or null. */
   hint: z.string().nullable(),
+  /** When it was stored (ISO 8601), or null. */
   updatedAt: z.iso.datetime().nullable(),
+  /** Who stored it, or null. */
   updatedByUserId: z.uuid().nullable(),
 });
 
@@ -532,14 +638,22 @@ export const privateKeyStatusSchema = z.object({
  * @stability stable
  */
 export const pushConfigResponseSchema = pushConfigSchema.extend({
+  /** Whether a key pair is stored. */
   configured: z.boolean(),
+  /** The VAPID private key's status (never its value). */
   privateKeyStatus: privateKeyStatusSchema,
+  /** Why the stored row failed validation, or null. */
   settingsError: z.string().nullable(),
+  /** The row version, sent back as `If-Match`. */
   version: z.number().int(),
+  /** Last update (ISO 8601), or null. */
   updatedAt: z.iso.datetime().nullable(),
+  /** Who saved last, or null. */
   updatedBy: z
     .object({
+      /** The id. */
       id: z.uuid(),
+      /** Their address. */
       email: z.email(),
     })
     .nullable(),
@@ -562,7 +676,9 @@ const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+={0,2}$/;
  */
 export const pushTestRequestSchema = z
   .object({
+    /** This browser's endpoint, to check it is registered. */
     endpoint: z.url().max(2048).optional(),
+    /** This browser's subscription key (base64url), to compare with the server's. */
     applicationServerKey: z
       .string()
       .max(200)
@@ -584,14 +700,23 @@ export type PushTestRequest = z.infer<typeof pushTestRequestSchema>;
  * @stability stable
  */
 export const pushTestConfigDiagnosticsSchema = z.object({
-  source: z.enum(PUSH_TEST_CONFIG_SOURCES),
+  /** Where the configuration was read from. */
+  source: pushTestConfigSourceSchema,
+  /** The stored switch, or null without a configuration. */
   enabled: z.boolean().nullable(),
+  /** Whether push would send right now. */
   active: z.boolean(),
+  /** The public key in force, or null. */
   publicKey: z.string().nullable(),
+  /** Whether the public key is a valid P-256 point. */
   publicKeyValid: z.boolean(),
+  /** Whether the stored private key matches the public key, or null when either is missing. */
   privateKeyMatchesPublicKey: z.boolean().nullable(),
+  /** The subject in force, or null. */
   subject: z.string().nullable(),
+  /** Whether the subject is a valid `mailto:` or `http(s)` URL. */
   subjectValid: z.boolean(),
+  /** What is wrong, in words. */
   problems: z.array(z.string()),
 });
 
@@ -608,8 +733,11 @@ export type PushTestConfigDiagnostics = z.infer<typeof pushTestConfigDiagnostics
  * @stability stable
  */
 export const pushTestBrowserDiagnosticsSchema = z.object({
+  /** Whether the caller sent its own endpoint. */
   endpointProvided: z.boolean(),
+  /** Whether that endpoint is registered for the caller, or null. */
   endpointRegistered: z.boolean().nullable(),
+  /** Whether this browser's key matches the server's, or null. */
   keyMatchesServer: z.boolean().nullable(),
 });
 
@@ -626,10 +754,15 @@ export type PushTestBrowserDiagnostics = z.infer<typeof pushTestBrowserDiagnosti
  * @stability stable
  */
 export const pushTestEventDiagnosticsSchema = z.object({
+  /** The event key. */
   eventKey: z.string(),
+  /** The user-facing name. */
   label: z.string(),
+  /** Whether a user may not opt out. */
   mandatory: z.boolean(),
+  /** Whether the deployment policy allows push for it. */
   policyAllows: z.boolean(),
+  /** Whether the caller's preference allows push for it. */
   preferenceAllows: z.boolean(),
 });
 
@@ -646,10 +779,15 @@ export type PushTestEventDiagnostics = z.infer<typeof pushTestEventDiagnosticsSc
  * @stability stable
  */
 export const pushTestSendResultSchema = z.object({
-  status: z.enum(PUSH_TEST_SEND_STATUSES),
+  /** How the send ended. */
+  status: pushTestSendStatusSchema,
+  /** The push service's HTTP status, or null. */
   statusCode: z.number().int().nullable(),
+  /** A short explanation, or null. */
   message: z.string().nullable(),
+  /** The push service's response body (capped), or null. */
   responseBody: z.string().nullable(),
+  /** How long it took, in milliseconds. */
   durationMs: z.number(),
 });
 
@@ -667,14 +805,23 @@ export type PushTestSendResult = z.infer<typeof pushTestSendResultSchema>;
  * @stability stable
  */
 export const pushTestSubscriptionResultSchema = z.object({
+  /** The subscription id. */
   id: z.string(),
+  /** The push service's host. */
   pushService: z.string(),
+  /** A shortened, non-capability form of the endpoint. */
   endpointPreview: z.string(),
+  /** Whether it is the calling browser's subscription. */
   isThisBrowser: z.boolean(),
+  /** The subscribing browser, or null. */
   userAgent: z.string().nullable(),
+  /** When it subscribed (ISO 8601). */
   createdAt: z.iso.datetime(),
+  /** The last successful delivery (ISO 8601), or null. */
   lastSuccessAt: z.iso.datetime().nullable(),
+  /** Consecutive delivery failures. */
   failureCount: z.number().int(),
+  /** The test send to it. */
   result: pushTestSendResultSchema,
 });
 
@@ -691,14 +838,23 @@ export type PushTestSubscriptionResult = z.infer<typeof pushTestSubscriptionResu
  * @stability stable
  */
 export const pushTestResponseSchema = z.object({
+  /** When the test ran (ISO 8601). */
   ranAt: z.iso.datetime(),
+  /** How long the whole test took, in milliseconds. */
   durationMs: z.number(),
-  overall: z.enum(PUSH_TEST_OVERALL),
+  /** The verdict. */
+  overall: pushTestOverallSchema,
+  /** The id the service worker acknowledges. */
   testId: z.string(),
+  /** The configuration diagnostics. */
   config: pushTestConfigDiagnosticsSchema,
+  /** The calling browser's diagnostics. */
   browser: pushTestBrowserDiagnosticsSchema,
+  /** The events that may push, and whether each would. */
   events: z.array(pushTestEventDiagnosticsSchema),
+  /** The caller's subscriptions and each one's send result. */
   subscriptions: z.array(pushTestSubscriptionResultSchema),
+  /** What to do next, in words. */
   hints: z.array(z.string()),
 });
 
@@ -719,15 +875,19 @@ const rootRelativeLink = z
   .min(1, 'link must not be empty')
   .max(BROADCAST_LINK_MAX)
   .refine((value) => !FORBIDDEN_LINK_CHARS.test(value), {
+    /** A short explanation, or null. */
     message: 'link must not contain spaces or control characters',
   })
   .refine((value) => value.startsWith('/'), {
+    /** A short explanation, or null. */
     message: 'link must be root-relative and start with "/"',
   })
   .refine((value) => !value.startsWith('//'), {
+    /** A short explanation, or null. */
     message: 'link must not be protocol-relative ("//…")',
   })
   .refine((value) => !value.startsWith('/\\'), {
+    /** A short explanation, or null. */
     message: 'link must not start with "/\\"',
   });
 
@@ -742,16 +902,22 @@ const rootRelativeLink = z
  */
 export const createBroadcastSchema = z
   .object({
+    /** The title. */
     title: z.string().trim().min(1, 'title must not be empty').max(BROADCAST_TITLE_MAX),
+    /** The body text. */
     body: z.string().trim().min(1, 'body must not be empty').max(BROADCAST_BODY_MAX),
+    /** A root-relative link (`/...`; never `//` or another origin). */
     link: rootRelativeLink.optional(),
+    /** The email call-to-action label; needs `link`. */
     ctaLabel: z.string().trim().min(1).max(BROADCAST_CTA_LABEL_MAX).optional(),
+    /** The channels (open channel ids). */
     channels: z
       .array(notificationChannelIdSchema)
       .min(1, 'select at least one channel')
       .refine((value) => new Set(value).size === value.length, {
         message: 'channels must not contain duplicates',
       }),
+    /** When to send (ISO 8601 with offset, in the future); absent sends now. */
     scheduledFor: z.iso
       .datetime({ offset: true })
       .transform((value) => new Date(value))
@@ -759,7 +925,9 @@ export const createBroadcastSchema = z
         message: 'scheduledFor must be in the future',
       })
       .optional(),
+    /** A critical broadcast cannot be muted (needs the `browser` channel). */
     critical: z.boolean().default(false),
+    /** Target one organization's active members. A system administrator may name any organization or omit it (every active user); an organization administrator's broadcast always targets their active organization. */
     targetOrgId: z.uuid().optional(),
   })
   .superRefine((value, ctx) => {
@@ -797,25 +965,45 @@ export type CreateBroadcastRequest = z.input<typeof createBroadcastSchema>;
  * @stability stable
  */
 export const broadcastSchema = z.object({
+  /** The id. */
   id: z.uuid(),
+  /** The title. */
   title: z.string(),
+  /** The body text. */
   body: z.string(),
+  /** A root-relative link, or null. */
   link: z.string().nullable(),
+  /** The email call-to-action label (needs `link`), or null. */
   ctaLabel: z.string().nullable(),
+  /** The event key. */
   eventKey: z.string(),
+  /** The channels (open channel ids). */
   channels: z.array(z.string()),
-  status: z.enum(BROADCAST_STATUSES),
+  /** The lifecycle status. */
+  status: broadcastStatusSchema,
+  /** When it is due (ISO 8601), or null for now. */
   scheduledFor: z.iso.datetime().nullable(),
+  /** When the start job froze the audience, or null. */
   startedAt: z.iso.datetime().nullable(),
+  /** When it settled, or null. */
   finishedAt: z.iso.datetime().nullable(),
+  /** When it was canceled, or null. */
   canceledAt: z.iso.datetime().nullable(),
+  /** The frozen audience cutoff, or null before it starts. */
   audienceCutoff: z.iso.datetime().nullable(),
+  /** The frozen audience size, or null before it is counted (never 0 for unknown). */
   recipientsTargeted: z.number().int().nullable(),
+  /** Recipients dispatched so far. */
   recipientsDispatched: z.number().int(),
+  /** The last failure, or null. */
   lastError: z.string().nullable(),
+  /** The author, or null once deleted. */
   createdById: z.uuid().nullable(),
+  /** Creation time (ISO 8601). */
   createdAt: z.iso.datetime(),
+  /** Last update (ISO 8601), or null. */
   updatedAt: z.iso.datetime(),
+  /** The organization targeted (its active members only), or null for every active user. */
   targetOrgId: z.uuid().nullable(),
 });
 
@@ -832,8 +1020,11 @@ export type BroadcastResponse = z.infer<typeof broadcastSchema>;
  * @stability stable
  */
 export const broadcastDeliveryCountSchema = z.object({
+  /** The channel id. */
   channel: z.string(),
+  /** The delivery status. */
   status: z.string(),
+  /** Delivery attempts. */
   count: z.number().int(),
 });
 
@@ -843,6 +1034,7 @@ export const broadcastDeliveryCountSchema = z.object({
  * @stability stable
  */
 export const broadcastDetailSchema = broadcastSchema.extend({
+  /** Delivery attempts by channel and status, approximate (attributed by event key and time window). */
   approximateDeliveryAttempts: z.array(broadcastDeliveryCountSchema),
 });
 
@@ -859,7 +1051,9 @@ export type BroadcastDetailResponse = z.infer<typeof broadcastDetailSchema>;
  * @stability stable
  */
 export const broadcastCreateResultSchema = z.object({
+  /** The broadcast row. */
   broadcast: broadcastSchema,
+  /** Non-fatal warnings to show (for example, browser notifications are off). */
   warnings: z.array(z.string()),
 });
 
@@ -877,6 +1071,7 @@ export type BroadcastCreateResult = z.infer<typeof broadcastCreateResultSchema>;
  * @stability stable
  */
 export const broadcastAudienceQuerySchema = z.object({
+  /** Count one organization's active members instead of every active user. */
   targetOrgId: z.uuid().optional(),
 });
 
@@ -893,6 +1088,7 @@ export type BroadcastAudienceQuery = z.infer<typeof broadcastAudienceQuerySchema
  * @stability stable
  */
 export const broadcastAudienceSchema = z.object({
+  /** Active users the broadcast would reach now. */
   activeUsers: z.number().int(),
 });
 
@@ -909,8 +1105,11 @@ export type BroadcastAudienceResponse = z.infer<typeof broadcastAudienceSchema>;
  * @stability stable
  */
 export const broadcastTestResultSchema = z.object({
+  /** The event the test raised. */
   eventKey: z.string(),
+  /** The channels the test went to. */
   channels: z.array(z.string()),
+  /** The caller, the only recipient of a test. */
   sentToUserId: z.uuid(),
 });
 
@@ -927,9 +1126,12 @@ export type BroadcastTestResult = z.infer<typeof broadcastTestResultSchema>;
  * @stability stable
  */
 export const broadcastListQuerySchema = z.object({
+  /** The page number, from 1. */
   page: z.coerce.number().int().min(1).default(1),
+  /** Rows per page (at most 100). */
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  status: z.enum(BROADCAST_STATUSES).optional(),
+  /** Only broadcasts in this status. */
+  status: broadcastStatusSchema.optional(),
 });
 
 /**
@@ -941,7 +1143,13 @@ export type BroadcastListQuery = z.output<typeof broadcastListQuerySchema>;
 
 // ---- compile-time proofs: no secret crosses this contract ------------------------------
 
-type SecretFieldNames =
+/**
+ * The field names no push response may carry: key material, the subscription
+ * keys and the endpoint (a capability URL).
+ *
+ * @stability stable
+ */
+export type SecretFieldNames =
   | 'privateKey'
   | 'vapidPrivateKey'
   | 'secret'
@@ -953,7 +1161,13 @@ type SecretFieldNames =
   | 'keys'
   | 'endpoint';
 
-type NoSecretIn<T> = Extract<keyof T, SecretFieldNames> extends never ? true : never;
+/**
+ * `true` when `T` names none of the secret-bearing field names, `never`
+ * otherwise: the building block of {@link PushContractCarriesNoSecret}.
+ *
+ * @stability stable
+ */
+export type NoSecretIn<T> = Extract<keyof T, SecretFieldNames> extends never ? true : never;
 
 /**
  * Resolves to `true` while neither the stored Web Push settings, the admin

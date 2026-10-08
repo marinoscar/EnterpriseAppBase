@@ -56,6 +56,11 @@ import { UpdatePushConfigDto } from './dto/update-push-config.dto';
 // API reference — aligned with the settings page it backs.
 // =============================================================================
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @ApiTags('Push Configuration')
 @Controller('admin/push-config')
 export class PushConfigController {

@@ -62,6 +62,8 @@ import {
  * organization's (the deployment's, tightened by the org). Never throws.
  *
  * @stability experimental
+ *
+ * @internal
  */
 @Injectable()
 export class NotificationPolicyService {

@@ -94,7 +94,11 @@ import type {
 // host + last 8 chars). See the compile-time proof in `dto/push-test.dto.ts`.
 // =============================================================================
 
-/** Sent as the payload's `eventKey`; not a registry event, and never persisted. */
+/**
+ * Sent as the payload's `eventKey`; not a registry event, and never persisted.
+ *
+ * @internal
+ */
 export const PUSH_TEST_EVENT_KEY = 'push.test';
 
 /** Where the service worker's click lands: the page that ran the test. */
@@ -117,6 +121,11 @@ const UNCOMPRESSED_P256_POINT_LENGTH = 65;
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+={0,2}$/;
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class PushTestService {
   private readonly logger = new Logger(PushTestService.name);
@@ -522,12 +531,20 @@ export class PushTestService {
 // Pure helpers (exported for tests)
 // =============================================================================
 
-/** Strip base64url padding so padded and unpadded encodings compare equal. */
+/**
+ * Strip base64url padding so padded and unpadded encodings compare equal.
+ *
+ * @internal
+ */
 export function normalizeBase64Url(value: string): string {
   return value.replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-/** A VAPID public key is a base64url-encoded, 65-byte uncompressed P-256 point. */
+/**
+ * A VAPID public key is a base64url-encoded, 65-byte uncompressed P-256 point.
+ *
+ * @internal
+ */
 export function isValidVapidPublicKey(publicKey: string): boolean {
   if (!BASE64URL_PATTERN.test(publicKey)) return false;
   const bytes = Buffer.from(normalizeBase64Url(publicKey), 'base64url');
@@ -538,6 +555,8 @@ export function isValidVapidPublicKey(publicKey: string): boolean {
  * Does `privateKey` derive `publicKey`? Computes the P-256 public point from
  * the private scalar and compares bytes. `false` for anything malformed —
  * `setPrivateKey` throws on an out-of-range or wrong-length scalar.
+ *
+ * @internal
  */
 export function privateKeyDerivesPublicKey(
   privateKey: string,
@@ -554,7 +573,11 @@ export function privateKeyDerivesPublicKey(
   }
 }
 
-/** `mailto:user@host.tld`, or an `https://` URL with a host. */
+/**
+ * `mailto:user@host.tld`, or an `https://` URL with a host.
+ *
+ * @internal
+ */
 export function isValidVapidSubject(subject: string): boolean {
   if (subject.startsWith('mailto:')) {
     return /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/.test(subject);
@@ -616,6 +639,8 @@ function computeOverall(
 /**
  * Plain-English next steps. Ordered roughly by where in the chain the break
  * is (config → browser → delivery → routing), de-duplicated.
+ *
+ * @internal
  */
 export function buildHints(result: PushTestResponse): string[] {
   const hints: string[] = [];

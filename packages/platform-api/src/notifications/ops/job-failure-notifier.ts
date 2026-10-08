@@ -101,6 +101,11 @@ import { NotificationsService } from '../notifications.service';
 // worth stating here that the guarantee lives over there.
 // =============================================================================
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class JobFailureNotifier {
   private readonly logger = new Logger(JobFailureNotifier.name);

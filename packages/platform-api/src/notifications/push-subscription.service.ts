@@ -56,6 +56,11 @@ import type { PushSubscribeRequest } from './dto/push-subscription.dto';
 // substitutes a generic fallback when none is configured.
 // =============================================================================
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class PushSubscriptionService {
   private readonly logger = new Logger(PushSubscriptionService.name);

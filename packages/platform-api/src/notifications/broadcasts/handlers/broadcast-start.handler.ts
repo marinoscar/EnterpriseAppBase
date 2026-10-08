@@ -125,11 +125,18 @@ export const BROADCAST_START_TYPE = 'admin.broadcast.start';
  * `admin.broadcast.chunk` enqueue against this broadcast (`buildDedupKey`,
  * the single definition of the format); named here so tests and readers can
  * point at it.
+ *
+ * @internal
  */
 export function broadcastFirstChunkDedupKey(broadcastId: string): string {
   return buildDedupKey(BROADCAST_CHUNK_TYPE, BROADCAST_SUBJECT_TYPE, broadcastId);
 }
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class BroadcastStartHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(BroadcastStartHandler.name);

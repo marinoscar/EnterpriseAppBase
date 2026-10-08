@@ -189,6 +189,7 @@ export type NotificationPreferencesPatch = Partial<
   * @stability experimental
  */
 export interface AppNotification {
+  /** The row id. */
   id: string;
   /**
    * The registry key that raised this (`security.role_changed`).
@@ -230,10 +231,15 @@ export interface AppNotification {
   * @stability experimental
  */
 export interface NotificationListResponse {
+  /** This page's rows, newest first. */
   items: AppNotification[];
+  /** Matching rows in total. */
   total: number;
+  /** The page number. */
   page: number;
+  /** The page size. */
   pageSize: number;
+  /** Pages in total. */
   totalPages: number;
 }
 
@@ -248,6 +254,7 @@ export interface NotificationListResponse {
   * @stability experimental
  */
 export interface UnreadCountResponse {
+  /** Unread notifications. */
   unreadCount: number;
 }
 
@@ -353,10 +360,15 @@ export interface NotificationConfigResponse {
   * @stability experimental
  */
 export interface PushSubscriptionPayload {
+  /** The push service endpoint. */
   endpoint: string;
+  /** When the browser says it expires (epoch ms), or null. */
   expirationTime?: number | null;
+  /** The subscription's keys. */
   keys: {
+    /** The client's P-256 public key. */
     p256dh: string;
+    /** The client's auth secret. */
     auth: string;
   };
 }
@@ -367,8 +379,11 @@ export interface PushSubscriptionPayload {
  * @stability experimental
  */
 export interface PushSubscriptionResponse {
+  /** The subscription id. */
   id: string;
+  /** The registered endpoint. */
   endpoint: string;
+  /** Creation time (ISO 8601). */
   createdAt: string;
 }
 
@@ -404,7 +419,12 @@ export interface NotificationsSystemSettingsDocument {
   /** Last update (ISO 8601). */
   updatedAt: string;
   /** Who saved it last, or null. */
-  updatedBy: { id: string; email: string } | null;
+  updatedBy: {
+    /** Their user id. */
+    id: string;
+    /** Their address. */
+    email: string;
+  } | null;
   /** The row version, sent back as `If-Match`. */
   version: number;
 }

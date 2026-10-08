@@ -21,6 +21,8 @@ export type { CreateBroadcastInput } from '@marinoscar/platform-contract/notific
  * the closed enum it replaces was.
  *
  * @stability stable
+ *
+ * @internal
  */
 export const createBroadcastSchema = wireCreateBroadcastSchema.superRefine((value, ctx) => {
   value.channels.forEach((channel, index) => {
@@ -38,6 +40,8 @@ export const createBroadcastSchema = wireCreateBroadcastSchema.superRefine((valu
  * `POST /api/admin/broadcasts` body.
  *
  * @stability stable
+ *
+ * @internal
  */
 export class CreateBroadcastDto extends createZodDto(createBroadcastSchema) {}
 
@@ -45,5 +49,7 @@ export class CreateBroadcastDto extends createZodDto(createBroadcastSchema) {}
  * `POST /api/admin/broadcasts/test` body (the same shape).
  *
  * @stability stable
+ *
+ * @internal
  */
 export class TestBroadcastDto extends createZodDto(createBroadcastSchema) {}

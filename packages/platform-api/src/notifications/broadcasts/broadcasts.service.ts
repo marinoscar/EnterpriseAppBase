@@ -71,9 +71,17 @@ import type { CreateBroadcastInput } from './dto/create-broadcast.dto';
  * Constants rather than inline literals because the same strings are used to
  * derive the key on the way in AND to window the delivery breakdown on the way
  * out; two spellings of one of them is a detail view that silently reports
- * zero deliveries.
+ * zero deliveries. This one is the ordinary (mutable) broadcast.
+ *
+ * @stability stable
  */
 export const BROADCAST_EVENT_KEY = 'admin.broadcast';
+
+/**
+ * The registry key of a critical (mandatory) broadcast.
+ *
+ * @stability stable
+ */
 export const BROADCAST_CRITICAL_EVENT_KEY = 'admin.broadcast_critical';
 
 /** `audit_events.target_type` for every row this service writes. */
@@ -91,7 +99,11 @@ const CANCELABLE_STATUSES = ['scheduled', 'sending', 'failed'] as const;
 /** Cap on an enqueue error quoted into `last_error` by a failed resume. */
 const MAX_RESUME_ERROR_LENGTH = 500;
 
-/** What `list` returns: the flat pagination shape every list in this API uses. */
+/**
+ * What `list` returns: the flat pagination shape every list in this API uses.
+ *
+ * @internal
+ */
 export interface BroadcastListResult {
   items: NotificationBroadcast[];
   total: number;
@@ -100,13 +112,22 @@ export interface BroadcastListResult {
   totalPages: number;
 }
 
-/** One `(channel, status)` cell of the approximate delivery breakdown. */
+/**
+ * One `(channel, status)` cell of the approximate delivery breakdown.
+ *
+ * @internal
+ */
 export interface BroadcastDeliveryCount {
   channel: string;
   status: string;
   count: number;
 }
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 export interface BroadcastDetail extends NotificationBroadcast {
   approximateDeliveryAttempts: BroadcastDeliveryCount[];
 }
@@ -130,11 +151,21 @@ export type BroadcastScope = { readonly kind: 'system' } | { readonly kind: 'org
  */
 export const SYSTEM_BROADCAST_SCOPE: BroadcastScope = Object.freeze({ kind: 'system' as const });
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 export interface BroadcastCreateResult {
   broadcast: NotificationBroadcast;
   warnings: string[];
 }
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class BroadcastsService {
   private readonly logger = new Logger(BroadcastsService.name);

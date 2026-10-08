@@ -110,6 +110,11 @@ const BROADCAST_FANOUT_TYPES: ReadonlySet<string> = new Set([
  */
 const MAX_QUOTED_ERROR_LENGTH = 500;
 
+/**
+ * Exported for an app's own unit tests (`@marinoscar/platform-api/notifications/testing`); not an extension point: reach it through `NotificationsModule` and its documented seams.
+ *
+ * @internal
+ */
 @Injectable()
 export class BroadcastFailureListener {
   private readonly logger = new Logger(BroadcastFailureListener.name);

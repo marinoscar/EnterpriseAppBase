@@ -29,6 +29,8 @@
  * `catch` binds `unknown` and a non-`Error` throw is not hypothetical here —
  * a rejected promise carrying a string, a Prisma error object, a library that
  * throws a plain object.
+ *
+ * @internal
  */
 export function describeThrown(err: unknown): string {
   if (err instanceof Error) return err.message;

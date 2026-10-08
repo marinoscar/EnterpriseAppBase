@@ -94,7 +94,7 @@ import { DataTable } from './datatable.js';
 import type { DataTableFilterModel, DataTableRowAction } from './datatable.js';
 import { BroadcastComposer } from './BroadcastComposer.js';
 import { BroadcastDetailDialog } from './BroadcastDetailDialog.js';
-import { usePermissions } from '../../identity/headless/index.js';
+import { usePermissions } from '../../identity/index.js';
 import {
   BROADCASTS_POLL_INTERVAL_MS,
   useBroadcastActions,

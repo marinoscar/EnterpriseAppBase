@@ -16,6 +16,12 @@
 import { nodeOfflineBrowserTemplate } from '../channels/browser-templates';
 import type { NotificationRegistration } from '../registry/bindings.registry';
 
+/**
+ * `nodes.node_offline`, raised to the holders of `nodes:read` when a worker
+ * node stops checking in (the `nodes.node.offline` event of the nodes slice).
+ *
+ * @stability stable
+ */
 export const NODES_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {
     event: {

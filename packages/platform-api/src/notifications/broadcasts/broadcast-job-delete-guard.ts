@@ -49,6 +49,8 @@ const TERMINAL_JOB_STATUSES: ReadonlySet<string> = new Set(['succeeded', 'failed
  *
  * One indexed primary-key read, no writes — per the `canDelete` contract. A
  * database error propagates; the admin service turns it into a refusal.
+ *
+ * @internal
  */
 export async function broadcastJobDeleteRefusal(
   prisma: NotificationsPrisma,

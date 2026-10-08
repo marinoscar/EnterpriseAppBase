@@ -154,6 +154,18 @@ function transactionSpans(source: string): Array<{ start: number; end: number }>
 }
 
 /**
+ * What {@link checkNotifyAfterCommit} found.
+ *
+ * @stability experimental
+ */
+export interface NotifyAfterCommitScan {
+  /** The violations, one per `notify` call inside a `$transaction`. */
+  findings: ConformanceFinding[];
+  /** The files scanned. */
+  files: string[];
+}
+
+/**
  * Check 3: no dispatcher call inside a `$transaction(...)` callback.
  *
  * @param context - the app's source roots.
@@ -165,7 +177,7 @@ function transactionSpans(source: string): Array<{ start: number; end: number }>
 export function checkNotifyAfterCommit(
   context: ConformanceContext,
   allowlist: readonly string[] = [],
-): { findings: ConformanceFinding[]; files: string[] } {
+): NotifyAfterCommitScan {
   const findings: ConformanceFinding[] = [];
   const files: string[] = [];
   const skip = new Set(allowlist);

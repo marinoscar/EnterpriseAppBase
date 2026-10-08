@@ -162,8 +162,9 @@ export interface NotificationRegistration {
  * });
  *
  * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY`, `DUPLICATE_ID` or `FROZEN`.
-  *
-  * @stability stable
+ *
+ * @extensionPoint registry
+ * @stability stable
  */
 export function registerNotification(input: NotificationRegistration): void {
   const { event, emailTemplate, browserTemplate } = input;

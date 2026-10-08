@@ -32,8 +32,8 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Container, Paper, Snackbar, Typography } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { usePermissions } from '../../identity/headless/index.js';
-import { useSystemSettings } from '../../settings/headless/index.js';
+import { usePermissions } from '../../identity/index.js';
+import { useSystemSettings } from '../../settings/index.js';
 import { LoadingSpinner } from './LoadingSpinner.js';
 import type { NotificationsSystemSettingsDocument as SystemSettings } from '../headless/types.js';
 

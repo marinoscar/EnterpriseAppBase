@@ -56,8 +56,12 @@ export const PUSH_VAPID_CREDENTIAL_LABEL = 'Web Push VAPID private key';
  * (#735), registered by `platform/credentials/credential-purposes.manifest.ts`.
  */
 export const PUSH_VAPID_CREDENTIAL_PURPOSE_DEF = {
+  /** The credential purpose. */
   purpose: PUSH_VAPID_CREDENTIAL_PURPOSE,
+  /** The owning slice. */
   owner: 'notifications',
+  /** The label the credentials page shows. */
   label: 'Web Push VAPID private key',
+  /** System tier only: the key is the deployment's. */
   tiers: ['system'],
 } as const satisfies CredentialPurposeDef;

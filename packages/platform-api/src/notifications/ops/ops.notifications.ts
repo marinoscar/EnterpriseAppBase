@@ -61,6 +61,12 @@ import type { NotificationRegistration } from '../registry/bindings.registry';
 // scheduler, a second state table and a second way for a failure to be late.
 // ===========================================================================
 
+/**
+ * `jobs.job_failed`, raised to the holders of the permission that can act on
+ * a job that failed for good.
+ *
+ * @stability stable
+ */
 export const OPS_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {
     event: {
