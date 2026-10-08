@@ -161,7 +161,6 @@ export interface AiResponsesPort {
  * its {@link AiCallContext}. Its capability ports' presence is the
  * declaration of what it can do. Adding one: docs/specs/ai-platform.md §4.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface AiProviderAdapter {

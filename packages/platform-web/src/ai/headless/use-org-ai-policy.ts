@@ -37,7 +37,6 @@ export interface UseOrgAiPolicyResult {
  *
  * @param options - the transport.
  *
- * @extensionPoint hook
  * @stability experimental
  */
 export function useOrgAiPolicy(options: UseOrgAiPolicyOptions = {}): UseOrgAiPolicyResult {

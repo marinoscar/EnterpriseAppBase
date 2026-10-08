@@ -33,7 +33,11 @@
  */
 export const AI_PROVIDER_IDS = ['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible'] as const;
 
-/** A registered AI provider id. See {@link AI_PROVIDER_IDS}. */
+/**
+ * A registered AI provider id. See {@link AI_PROVIDER_IDS}.
+ *
+ * @stability experimental
+ */
 export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
 
 /**
@@ -49,6 +53,8 @@ export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
  *    belongs in the encrypted credential store, never in this JSONB blob that
  *    `GET /api/system-settings` returns wholesale — see the block comment
  *    on `systemAiSchema` below.
+ *
+ * @stability experimental
  */
 export const AI_KEY_POLICIES = ['byok', 'byok_with_org_fallback'] as const;
 
@@ -59,43 +65,79 @@ export const AI_KEY_POLICIES = ['byok', 'byok_with_org_fallback'] as const;
  */
 export type AiKeyPolicyEnum = { [K in (typeof AI_KEY_POLICIES)[number]]: K };
 
-/** Upper bound on `ai.usageRetentionDays` — ten years; anything longer is "forever" in practice. */
+/**
+ * Upper bound on `ai.usageRetentionDays` — ten years; anything longer is "forever" in practice.
+ *
+ * @stability experimental
+ */
 export const AI_USAGE_RETENTION_MAX_DAYS = 3650;
 
 /**
  * One `ai.hostedTools.mcpAllowedHosts` entry: a hostname (`mcp.example.com`)
  * or a subdomain wildcard (`*.example.com`). No scheme, port or path — the
  * scheme is always `https`, and the entry is compared with the URL's host.
+ *
+ * @stability experimental
  */
 export const AI_MCP_ALLOWED_HOST_PATTERN =
   /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
-/** Most entries `ai.hostedTools.mcpAllowedHosts` may hold. */
+/**
+ * Most entries `ai.hostedTools.mcpAllowedHosts` may hold.
+ *
+ * @stability experimental
+ */
 export const AI_MCP_ALLOWED_HOSTS_MAX = 100;
 
 /**
  * One `ai.limits.perModel` key: `<provider>:<modelId>` — a lower-case
  * provider id, a colon, then the model id exactly as the catalog lists it
  * (`openai:gpt-4.1-mini`). The model id may itself contain colons.
+ *
+ * @stability experimental
  */
 export const AI_LIMIT_MODEL_KEY_PATTERN = /^[a-z0-9-]+:.+$/;
 
-/** Longest accepted `ai.limits.perModel` key. */
+/**
+ * Longest accepted `ai.limits.perModel` key.
+ *
+ * @stability experimental
+ */
 export const AI_LIMIT_MODEL_KEY_MAX = 256;
 
-/** Most entries `ai.limits.perModel` may hold. */
+/**
+ * Most entries `ai.limits.perModel` may hold.
+ *
+ * @stability experimental
+ */
 export const AI_LIMITS_PER_MODEL_MAX = 500;
 
-/** Upper bound on any one `ai.limits` number — a billion is "unlimited" in practice. */
+/**
+ * Upper bound on any one `ai.limits` number — a billion is "unlimited" in practice.
+ *
+ * @stability experimental
+ */
 export const AI_LIMIT_VALUE_MAX = 1_000_000_000;
 
-/** How the deployment sources a call's API key. See {@link AI_KEY_POLICIES}. */
+/**
+ * How the deployment sources a call's API key. See {@link AI_KEY_POLICIES}.
+ *
+ * @stability experimental
+ */
 export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
 
-/** Longest accepted `baseUrl` for the #448 slots. */
+/**
+ * Longest accepted `baseUrl` for the #448 slots.
+ *
+ * @stability experimental
+ */
 export const AI_ENDPOINT_URL_MAX = 2048;
 
-/** Why an endpoint URL is refused, or null when it is acceptable. Shared with the admin DTOs. */
+/**
+ * Why an endpoint URL is refused, or null when it is acceptable. Shared with the admin DTOs.
+ *
+ * @stability experimental
+ */
 export function aiEndpointUrlProblem(value: string, schemes: readonly string[]): string | null {
   let url: URL;
 
@@ -116,13 +158,25 @@ export function aiEndpointUrlProblem(value: string, schemes: readonly string[]):
   return null;
 }
 
-/** Schemes a `providers['azure-openai'].baseUrl` may use. */
+/**
+ * Schemes a `providers['azure-openai'].baseUrl` may use.
+ *
+ * @stability experimental
+ */
 export const AI_AZURE_ENDPOINT_SCHEMES = ['https'] as const;
 
-/** Schemes a `providers['openai-compatible'].baseUrl` may use. */
+/**
+ * Schemes a `providers['openai-compatible'].baseUrl` may use.
+ *
+ * @stability experimental
+ */
 export const AI_COMPATIBLE_ENDPOINT_SCHEMES = ['http', 'https'] as const;
 
-/** Which wire API an OpenAI-family adapter speaks. */
+/**
+ * Which wire API an OpenAI-family adapter speaks.
+ *
+ * @stability experimental
+ */
 export const AI_OPENAI_API_STYLES = ['responses', 'chat_completions'] as const;
 
 /**
@@ -143,16 +197,30 @@ export type AiOpenAiApiStyle = (typeof AI_OPENAI_API_STYLES)[number];
 /**
  * An Azure `api-version` query value (`2025-04-01-preview`, `2024-10-21`,
  * `preview`). A plain token: it is sent as a query parameter and nothing else.
+ *
+ * @stability experimental
  */
 export const AI_AZURE_API_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-/** An Azure deployment name: letters, digits, `.`, `_` and `-`, at most 64. */
+/**
+ * An Azure deployment name: letters, digits, `.`, `_` and `-`, at most 64.
+ *
+ * @stability experimental
+ */
 export const AI_AZURE_DEPLOYMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-/** Most entries `providers['azure-openai'].deployments` may hold. */
+/**
+ * Most entries `providers['azure-openai'].deployments` may hold.
+ *
+ * @stability experimental
+ */
 export const AI_AZURE_DEPLOYMENTS_MAX = 200;
 
-/** Longest accepted model id key in `deployments`. */
+/**
+ * Longest accepted model id key in `deployments`.
+ *
+ * @stability experimental
+ */
 export const AI_AZURE_MODEL_ID_MAX = 256;
 
 /**
@@ -173,11 +241,19 @@ export type AiSecretFieldNames =
 
 // ---- organization keys (`/api/admin/ai/org-keys`) ---------------------------
 
-/** Shortest key the org-key route accepts (the deployment-key route's bound). */
+/**
+ * Shortest key the org-key route accepts (the deployment-key route's bound).
+ *
+ * @stability experimental
+ */
 export const ORG_AI_KEY_MIN = 8;
 
 
-/** Longest key the org-key route accepts. */
+/**
+ * Longest key the org-key route accepts.
+ *
+ * @stability experimental
+ */
 export const ORG_AI_KEY_MAX = 512;
 
 /** Field names no org-key response may carry, ever. */

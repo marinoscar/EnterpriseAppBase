@@ -63,7 +63,6 @@ function messageOf(error: unknown): string {
  * @param options - the transport.
  * @returns the keys, the state and the actions.
  *
- * @extensionPoint hook
  * @stability experimental
  */
 export function useOrgAiKeys(options: UseOrgAiKeysOptions = {}): UseOrgAiKeysResult {

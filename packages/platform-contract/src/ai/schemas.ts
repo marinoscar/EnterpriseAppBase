@@ -65,6 +65,8 @@ import {
  * reasoning throughout this codebase — a user's saved preference for a model
  * later disabled or removed by an admin must remain a value this schema can
  * represent, even though nothing routes to it any more.
+ *
+ * @stability experimental
  */
 export const userAiSettingsSchema = z.object({
   /** The model an AI surface pre-selects; `null` means none chosen. */
@@ -90,6 +92,8 @@ export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
  * the object (an explicit `{ "ai": { "defaultModel": null } }` clears the
  * selection back to "none chosen"; the whole `ai` object itself is optional
  * to send at all, matching `dataTables`/`navigation` above).
+ *
+ * @stability experimental
  */
 export const userAiSettingsPatchSchema = z.object({
   /** The model an AI surface pre-selects; `null` means none chosen. */
@@ -150,6 +154,8 @@ export const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE
  *
  * Enforced by `AiLimitsService` (`ai/runtime/ai-limits.service.ts`); see
  * `docs/specs/ai-platform.md` §2.22.
+ *
+ * @stability experimental
  */
 export const systemAiLimitsSchema = z.object({
   /** Limits on every call a user makes, whoever's key pays. */
@@ -289,6 +295,8 @@ export type SystemAiLimitsValue = z.infer<typeof systemAiLimitsSchema>;
  * One provider's slot in `ai.providers`: its switch and optional endpoint
  * override. Every provider id has at least this shape; the two #448 slots
  * below extend it.
+ *
+ * @stability experimental
  */
 export const systemAiProviderSchema = z.object({
   /** Whether AI is switched on (the kill switch). */
@@ -321,7 +329,11 @@ export const systemAiProviderSchema = z.object({
 
 
 
-/** A `baseUrl` for an admin-chosen OpenAI-family endpoint, restricted to `schemes`. */
+/**
+ * A `baseUrl` for an admin-chosen OpenAI-family endpoint, restricted to `schemes`.
+ *
+ * @stability experimental
+ */
 export function aiEndpointUrlSchema(schemes: readonly string[]) {
   return z
     .string()
@@ -373,6 +385,8 @@ export const aiAzureDeploymentsSchema = z
  *    and a deployment may be named anything; when this map is set its keys
  *    ARE the model list the catalog discovers, and a model id missing from it
  *    is sent as its own deployment name.
+ *
+ * @stability experimental
  */
 export const systemAiAzureProviderSchema = systemAiProviderSchema.extend({
   /** The endpoint override; absent means the provider's default. */
@@ -398,6 +412,8 @@ export const systemAiAzureProviderSchema = systemAiProviderSchema.extend({
  *    keyless server: calls carry no credential, no user needs a key, and
  *    usage is recorded with `keySource: 'none'` (docs/specs/ai-platform.md
  *    §2.24).
+ *
+ * @stability experimental
  */
 export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
   /** The endpoint override; absent means the provider's default. */

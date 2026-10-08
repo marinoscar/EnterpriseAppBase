@@ -1,20 +1,38 @@
-# AI Platform (`apps/api/src/ai`)
+# @marinoscar/platform-api/ai
 
-Admin-governed, bring-your-own-key, multi-provider AI. This is the module's
-developer map — what lives where, how a request flows through the gate
-pipeline, how streaming works end to end, how a feature calls it, and how to
-test against it without a real provider. The design decisions and rationale
-live in
-[`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md); the
-operator runbook is
-[`docs/runbooks/ai-configuration.md`](../../../../docs/runbooks/ai-configuration.md).
-This file does not restate the design rationale — read those for the *why*.
+The AI platform: admin-governed, bring-your-own-key, multi-provider AI for the API layer. One runtime facade (`AiService.forUser`) runs every call through the same gate pipeline (kill switch, provider and model enablement, capability match, limits, key resolution), records usage and traces it; five provider adapters (OpenAI, Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) are the only place a provider SDK is imported. Moved out of the reference app's `src/ai/` by issue #739 (PP-8.6), which also added the organization tier: an organization's own provider keys, its tighten-only `ai` settings layer and its own kill switch, per-organization daily caps and usage, the feature registry and the target resolver. It depends on `core`, `doctor`, `otel-core`, `identity`, `settings`, `credentials`, `jobs`, `nodes`, `storage` and `testing` of this package (`packages/platform-slices.json`) and on `@marinoscar/platform-contract/ai` for the settings schemas and the org-key and feature shapes. The test kit is the nested subpath `@marinoscar/platform-api/ai/testing`, catalogued here. The design and its rationale are [docs/specs/ai-platform.md](../../../../docs/specs/ai-platform.md); the operator runbook is [docs/runbooks/ai-configuration.md](../../../../docs/runbooks/ai-configuration.md).
 
-## Module map
+## Purpose and scope
+
+One governed path from a feature to a model, so no feature holds a provider SDK, a key or a policy check of its own.
+
+| Part | Source | What it is |
+|---|---|---|
+| Module | `ai.module.ts`, `ai.options.ts`, `ports.ts` | `AiModule.forRoot(options)` and the host ports the app binds |
+| Core | `core/` | The provider-neutral contract: requests, responses, stream events, capabilities, `AiError`, the provider registry, tools and structured output |
+| Providers | `providers/<provider>/` | The five adapters; the only files that import `openai`, `@anthropic-ai/sdk` or `@google/genai` |
+| Catalogue | `catalog/` | Model discovery and classification (`ai_models`), the `ai.catalog.refresh` job |
+| Policy | `config/`, `ai.system-settings.ts`, `ai.user-settings.ts` | The `ai` settings namespaces (with the org layer), the kill switch (`AiEnabledGuard`, `AiOrgEnabledInterceptor`), the deployment's provider keys, `/api/admin/ai/*` |
+| Keys | `keys/` | A user's own keys (`/api/ai/keys`), an organization's own keys (`/api/admin/ai/org-keys`), `AiKeyResolver`, `UsableModelsService` |
+| Features | `features/`, `runtime/target-resolver.ts` | `registerAiFeature`, `GET /api/ai/features`, `AI_TARGET_RESOLVER` |
+| Runtime | `runtime/` | `AiService`, background runs (`ai_runs`, the `ai.*` job types), the tool loop, limits, usage recording |
+| HTTP | `http/` | `/api/ai/responses` (and its SSE stream), runs, embeddings, images, audio, realtime |
+| Storage | `storage/` | Storage objects in (`AiStorageInputResolver`) and out (`AiOutputWriter`, under `ai-outputs/`), over `AI_OBJECT_STORE` |
+| Usage | `usage/` | The usage report (`/api/admin/ai/usage`, `/api/admin/ai/org-usage`, `/api/ai/usage/me`) and its retention purge |
+| Test kit | `testing/` (`/ai/testing`) | `FakeAiProvider`, the runtime harness, the adapter conformance kit, the orchestration-boundary suite |
+
+Not here: the AI admin and user settings pages other than the Organization AI keys page (they stay in the reference app's `apps/web` for now; the org-key page is `@marinoscar/platform-web/ai`), orchestration graphs (an app's own, above the gateway), and object storage itself (`@marinoscar/platform-api/storage`, reached through the `AI_OBJECT_STORE` port).
+
+### Module map
 
 ```
 ai/
-  ai.module.ts            # The platform's root module — one import line per sub-module
+  ai.module.ts            # AiModule.forRoot(): the root module, one import line per sub-module
+  ai.options.ts / ports.ts  # forRoot's resolved options; the host ports (AI_SYSTEM_PRISMA, AI_OBJECT_STORE, AI_METRICS)
+  ai.permissions.ts        # AI_PERMISSIONS: ai_config:read/write, ai:use, org_ai_config:read/write
+  ai.system-settings.ts / ai.user-settings.ts   # the `ai` namespaces (schemas from @marinoscar/platform-contract/ai)
+  data/                    # AiDb, AiPrisma, AiSystemPrisma: the tables, structurally (no generated client)
+  features/                # registerAiFeature, the feature registry, GET /api/ai/features
   core/                    # Provider-agnostic contracts. Feature code imports FROM HERE.
     ai-error.ts              AiError, AiErrorCode, AI_ERROR_STATUS
     capabilities.ts          AiCapability, AI_CAPABILITIES, aiModelCapabilitiesSchema
@@ -62,7 +80,8 @@ ai/
     ai-public.controller.ts /api/ai/config (any authenticated user)
     ai-config-admin.service.ts, ai-models-admin.service.ts, ai-provider-test.service.ts
   keys/                    Per-user BYOK keys + which models a user can reach
-    ai-key-resolver.service.ts   AiKeyResolver — the ONE place the byok/org/admin rule is decided
+    ai-key-resolver.service.ts   AiKeyResolver — the ONE place the user/org/deployment key rule is decided
+    org-key.service.ts / org-keys.controller.ts   An organization's own keys, /api/admin/ai/org-keys (#739)
     usable-models.service.ts    UsableModelsService — "which models can I call?"
     user-ai-keys.service.ts / .controller.ts   /api/ai/keys/*, /api/ai/models
     ai-keys-recheck.handler.ts / .task.ts       `ai.keys.recheck` job (server-only)
@@ -82,7 +101,8 @@ ai/
     ai-run-operation.ts       aiRunOperation — `request.operation` tells runs apart
     ai-tool-loop.ts            runToolLoop — the function-calling agent loop
     ai-usage.recorder.ts       One ai_usage_events row per provider round-trip
-    ai-limits.service.ts       AiLimitsService — ai.limits rate limits, step 6b
+    ai-limits.service.ts       AiLimitsService — ai.limits rate limits (per user, org key, per org, per model), step 6b
+    target-resolver.ts         AI_TARGET_RESOLVER, DefaultAiTargetResolver — which model a call uses
   http/                    The consumer HTTP surface
     ai-responses.controller.ts   POST /api/ai/responses, POST /api/ai/responses/stream
     ai-runs.controller.ts        POST /api/ai/runs, GET/POST /api/ai/runs/:runId(/cancel)
@@ -97,26 +117,76 @@ ai/
     ai-storage-input.resolver.ts  AiStorageInputResolver — object id -> ownership-checked input (+ bytes)
     ai-output-writer.ts          AiOutputWriter — bytes -> the user's storage objects under ai-outputs/
     ai-storage-errors.ts         aiErrorFromStorage — storage failures as run outcomes
+    ai-storage-key-prefixes.ts   AI_STORAGE_KEY_PREFIXES — `ai-outputs/`, registered with the storage slice
   usage/                   Reading ai_usage_events back
     ai-usage.service.ts          AiUsageService — the aggregate report (GROUPING SETS SQL)
-    ai-usage-admin.controller.ts GET /api/admin/ai/usage (ai_config:read)
+    ai-usage-admin.controller.ts GET /api/admin/ai/usage (ai_config:read), GET /api/admin/ai/org-usage (org_ai_config:read)
     ai-usage.controller.ts       GET /api/ai/usage/me (ai:use, caller only)
     ai-usage-purge.handler.ts / .task.ts   `ai.usage.purge` job + daily enqueue-only cron
-  testing/                 FakeAiProvider, describeAiProviderConformance, test harness
+  testing/                 `/ai/testing`: FakeAiProvider, describeAiProviderConformance, the runtime harness,
+                           runOrchestrationBoundarySuite
 ```
 
-Every sub-module is wired into `ai.module.ts` by one import line — the same
-"being in the graph is the registration" idiom `app.module.ts` uses for
-`JobsModule`. A fork adding AI to its own feature imports `AiModule` and
+Every sub-module is wired into `ai.module.ts` by one import line. A fork
+adding AI to its own feature imports the one configured `AiModule` and
 injects `AiService`; it never reaches into `core/`, `providers/`, `config/`
-or `keys/` directly for that purpose (those are the platform's own internals,
-not a feature's dependency).
+or `keys/` directly for that purpose (those are the slice's own internals,
+not a feature's dependency). The HTTP surface (controllers, wire schemas) is
+exported for the reference app's route discovery and contract suites only,
+tagged `@internal`.
 
-## Using AI from a feature
+## Install and peer dependencies
 
-Import `AiModule`, inject `AiService`, and call `forUser(userId)`:
+Ships inside `@marinoscar/platform-api`; import it by its subpath:
 
 ```ts
+import { AiModule, AiService, registerAiFeature } from '@marinoscar/platform-api/ai';
+```
+
+The three provider SDKs (`openai`, `@anthropic-ai/sdk`, `@google/genai`) are dependencies of `@marinoscar/platform-api` itself, imported only under `providers/<provider>/` (each pinned by its SDK-boundary spec). The slice depends on no generated Prisma client: it declares the `ai` fragment's tables structurally (`AiDb`, `AiPrisma`, the `*Row` types) and receives the app's client through core's `PLATFORM_PRISMA` port and the bypass client through `AI_SYSTEM_PRISMA`. Never install an orchestration package outside an app's orchestration directory (see Security notes).
+
+## Quick start
+
+The reference app's binding ([`ai.config.ts`](../../../../apps/api/src/platform/ai/ai.config.ts)) configures the module once, with a `@Global()` host module ([`ai-host.module.ts`](../../../../apps/api/src/platform/ai/ai-host.module.ts)) binding the ports:
+
+```ts
+// apps/api/src/platform/ai/ai-host.module.ts
+@Global()
+@Module({
+  imports: [StorageProvidersModule],
+  providers: [
+    { provide: AI_SYSTEM_PRISMA, useExisting: PrismaSystemService },
+    { provide: AI_OBJECT_STORE, useClass: AiObjectStoreAdapter },
+    { provide: AI_METRICS, useExisting: AppMetricsService },
+  ],
+  exports: [AI_SYSTEM_PRISMA, AI_OBJECT_STORE, AI_METRICS],
+})
+export class AiHostModule {}
+
+// apps/api/src/platform/ai/ai.config.ts
+export const AiModule = PlatformAiModule.forRoot({ imports: [AiHostModule] });
+```
+
+A feature registers what it needs from a model and calls the facade ([`example-summary.feature.ts`](../../../../apps/api/src/examples/ai/example-summary.feature.ts), [`example-summary.service.ts`](../../../../apps/api/src/examples/ai/example-summary.service.ts)):
+
+```ts
+registerAiFeature({ id: 'example_summary', label: 'Summaries', needs: ['responses'] });
+
+const answer = await this.ai.forUser(userId, { orgId, feature: 'example_summary' }).respond({ input });
+```
+
+### Using AI from a feature
+
+Import the app's configured `AiModule`, inject `AiService`, and call
+`forUser(userId, scope?)`. `scope.orgId` is the call's organization (the
+principal's active one; a background job carries its own) and selects the
+organization's policy, caps and own key; `scope.feature` names a registered
+AI feature (`registerAiFeature`), which the target resolver and the
+`app.ai.*` metrics read:
+
+```ts
+import { AiModule } from '../platform/ai/ai.config'; // the app's one configured AiModule
+
 @Module({ imports: [AiModule], providers: [MyFeatureService] })
 export class MyFeatureModule {}
 ```
@@ -231,7 +301,25 @@ has the full table (`AI_DISABLED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_ENABLED`,
 rather than charging an attempt, the same idiom `RateLimitError` already
 uses elsewhere in this codebase.
 
-## The request lifecycle: the gate pipeline
+## Configuration
+
+`AiModule.forRoot(options)`. No option is an environment variable: keys, models, policy and limits are runtime configuration (the `ai` settings namespace, the credential stores, `ai_models`).
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `imports` | `Array<Type \| DynamicModule>` | `[]` | The `@Global()` modules binding the host ports (`AI_SYSTEM_PRISMA` and `AI_OBJECT_STORE` required; `AI_METRICS` and `AI_TARGET_RESOLVER` optional) |
+| `providers` | `AiProviderModuleId[]` | all five | Which provider adapters to load; an unloaded provider is absent from the registry (its settings slot stays, inert) |
+| `perUserDefaultModel` | `boolean` | `true` | Whether users pick their own default model (`ai.defaultModel`); `false` for an app whose features pick their model (an `AI_TARGET_RESOLVER`). `GET /api/ai/config` reports it, so the web hides the picker |
+
+### Runtime policy (the `ai` namespace)
+
+The deployment's `ai` system settings namespace (schemas: `@marinoscar/platform-contract/ai`) holds `enabled`, `keyPolicy` (`byok` or `byok_with_org_fallback`), one slot per provider, `defaults` (output-token cap, background runs, realtime), `logPromptContent`, `usageRetentionDays`, `hostedTools`, `limits` and `deploymentKeyServesOrgs` (#739, default `true`: whether the deployment's keys pay for an organization that stores none of its own). Edited at `/admin/settings/ai`.
+
+**The org layer (#739).** The namespace is org-overridable through the settings slice: an organization may only TIGHTEN it (`tightenAiPolicy`): switch AI off for its members, narrow `byok_with_org_fallback` to `byok`, switch providers off, and set lower `limits.perOrg` daily caps. `AiConfigService.resolveForOrg(orgId)` is the effective policy every gate reads; `AiOrgEnabledInterceptor` refuses a consumer route with `403 AI_DISABLED` (`details.scope: 'org'`) while the caller's organization has AI off.
+
+**Key resolution.** `AiKeyResolver.resolve(userId, provider, { orgId })` answers, in order: a keyless provider (`requiresKey: false`, `keySource: 'none'`); the user's own key; the organization's own key (under the fallback policy, or for a holder of `org_ai_config:write` in that organization); the deployment's key (when `deploymentKeyServesOrgs`, under the fallback policy or for a holder of `ai_config:write`); else `AI_KEY_REQUIRED`. The tier that paid is the span attribute `ai.key.tier`.
+
+### The request lifecycle: the gate pipeline
 
 Every call through `AiService.forUser(userId)` — `respond`, `stream`,
 `openStream`, `respondStructured`, `runTools`, `startRun` — runs the
@@ -239,7 +327,7 @@ identical sequence, documented in full in `runtime/ai.service.ts`'s own
 header comment:
 
 ```
- 1. kill switch                      -> AI_DISABLED
+ 1. kill switch (deployment, then the org's layer)  -> AI_DISABLED
  2. provider enabled + registered    -> AI_PROVIDER_DISABLED
  2b. hosted tools: shape, admin switch, MCP host  -> AI_INVALID_REQUEST / AI_TOOL_DISABLED
  3. model enabled / capability match /  AI_MODEL_NOT_ENABLED
@@ -249,7 +337,8 @@ header comment:
  4. reasoning effort offered by the model  -> AI_CAPABILITY_UNSUPPORTED
  5. clamp maxOutputTokens to the deployment cap, the ai.limits.perModel cap
     and the model's own limit (the smallest wins)
- 6. resolve the key (AiKeyResolver — the byok invariant lives HERE, only)
+ 6. resolve the key (AiKeyResolver — the byok invariant lives HERE, only):
+    keyless? -> the user's own -> the org's own -> the deployment's
  6b. rate limits (AiLimitsService)         -> AI_RATE_LIMITED (429)
  7. call the adapter: { apiKey, baseUrl, signal, requestId }
  8. record ONE ai_usage_events row (success, failure, or cancellation)
@@ -362,7 +451,7 @@ else. `GET /api/ai/config` publishes the flag per provider
 (`providers[].supportsPreviousResponseId`) so a client resends history
 rather than being refused. See `docs/specs/ai-platform.md` §2.10.
 
-## OpenAI-compatible endpoints and keyless servers
+### OpenAI-compatible endpoints and keyless servers
 
 `azure-openai` and `openai-compatible` are compositions of the OpenAI
 adapter's shared pieces, not new mappings: each has its own client factory
@@ -388,15 +477,7 @@ for compatible; no credentials, no fragment), an internal host is an explicit
 admin decision, and `noRedirectFetch` refuses every redirect. See
 `docs/specs/ai-platform.md` §2.24.
 
-## Adding a provider
-
-A new provider is an adapter implementation against the existing
-`AiProviderAdapter` contract, never a platform change. The full recipe —
-self-registration, the model classifier, error mapping onto `AiErrorCode`,
-and the conformance kit every adapter must pass — is
-[`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §4.
-
-## Rate limits and output caps
+### Rate limits and output caps
 
 `ai.limits` — `perUser.{requestsPerMinute,requestsPerDay}`,
 `orgKey.{requestsPerDayPerUser,tokensPerDayPerUser}` and
@@ -422,7 +503,9 @@ windows count since UTC midnight. `perModel[…].maxOutputTokens` is not a rate:
 through the runtime harness (`createAiRuntimeHarness({ clock })`). See
 `docs/specs/ai-platform.md` §2.22.
 
-## Hosted tools
+`limits.perOrg.{requestsPerDay,outputTokensPerDay}` (#739) cap one organization's whole daily volume, whoever's key pays; a refusal carries `details.scope: 'org'`. An organization's own layer may set lower values, never higher.
+
+### Hosted tools
 
 `AiResponseRequest.tools` may carry provider-hosted tools — `web_search`,
 `file_search`, `code_interpreter`, `image_generation`, `mcp` — a typed union
@@ -449,7 +532,7 @@ Two things never leave the facade, both handled by
   with headers, and the stored shape has no `headers` member). Any header
   value a server echoes back is replaced by `[REDACTED]`.
 
-## Streaming, end to end
+### Streaming, end to end
 
 1. A client `POST`s `/api/ai/responses/stream` with `Accept:
    text/event-stream`. `@Sse()` was deliberately **not** used —
@@ -502,7 +585,82 @@ Two things never leave the facade, both handled by
    no reconnect (a reconnect would re-submit the prompt) — see
    `apps/web/src/services/ai.ts` for how the AI chat surface uses it.
 
-## Testing without a real provider
+### Adding a provider
+
+A new provider is an adapter implementation against the existing
+`AiProviderAdapter` contract, never a platform change. The full recipe —
+self-registration, the model classifier, error mapping onto `AiErrorCode`,
+and the conformance kit every adapter must pass — is
+[`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §4.
+
+## Extension-point catalog
+
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `AiModule.forRoot` | option | `forRoot({ imports?, providers?, perUserDefaultModel? }): DynamicModule` | Configure the slice once, with the host-port modules; import the result everywhere | experimental | [example](../../../../apps/api/src/platform/ai/ai.config.ts) |
+| `AI_SYSTEM_PRISMA` | token | `InjectionToken<AiSystemPrisma>` | Bind the app's bypass client (retention purges, the deployment-wide usage report) | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
+| `AI_OBJECT_STORE` | token | `InjectionToken<AiObjectStore>` | Bind object storage for image, audio and file-input runs | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
+| `AI_METRICS` | token | `InjectionToken<AiMetrics>` | Bind the app's `app.ai.*` instruments; omit for none | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
+| `AI_TARGET_RESOLVER` | token | `InjectionToken<AiTargetResolver>` | Pick the provider and model per call (per feature, per organization) instead of the user's default model | experimental | [example](../../../../apps/api/src/examples/ai/example-target-resolver.ts) |
+| `registerAiFeature` | registry | `registerAiFeature({ id, label, needs, inputModalities?, providers?, requiresHostedTools?, defaultEffort? }): void` | Declare an AI feature before bootstrap; `forUser(userId, { feature })` then checks the model fits it, and `GET /api/ai/features` lists it | experimental | [example](../../../../apps/api/src/examples/ai/example-summary.feature.ts) |
+
+Not extension points, but the surface a feature uses: `AiService.forUser(userId, { orgId?, feature? })` and its client (`respond`, `stream`, `openStream`, `respondStructured`, `runTools`, `startRun`, `embed`, `generateImage`, `editImage`, `transcribe`, `speak`, `createRealtimeSession`), `defineTool`, `AiError`, `AiEnabledGuard` and `AiOrgEnabledInterceptor` (for an app's own `/api/ai/*` controller), `UserAiKeysService.importKey` (migrating keys an app already holds) and `AiOrgKeyService` (an organization's keys, programmatically).
+
+## Data
+
+The `ai` fragment of `@marinoscar/platform-db` (`schema/ai.prisma`):
+
+| Model (table) | What | Ownership | Notes |
+|---|---|---|---|
+| `AiModel` (`ai_models`) | One model of one provider: capabilities, enablement | `system` | Written by the catalogue sync and the AI Models page |
+| `UserAiKey` (`user_ai_keys`) | A user's own key, ciphertext under the `ai_user_key` purpose | `user` | Cascade with the user; the hint and verification only are ever returned |
+| `AiRun` (`ai_runs`) | One background run | `org` (row-level security) | `org_id` from the run's job; purged by `ai.runs.purge` |
+| `AiUsageEvent` (`ai_usage_events`) | One provider round-trip's accounting | `org` (row-level security) | `org_id` null only for the catalogue sync's discovery row; purged by `ai.usage.purge` |
+
+No migration in #739: `org_id` already existed on `ai_runs` and `ai_usage_events` (#725). An organization's own keys live in `org_credentials` under the registered purpose `ai` (credentials slice); the deployment's in `credentials` under the same purpose. Objects an AI run writes live under `ai-outputs/<userId>/<runId>/` (`AI_STORAGE_KEY_PREFIXES`, registered with the storage slice by `forRoot`). Apps never add columns to these tables.
+
+## Permissions and settings
+
+| Permission | Scope | Gates |
+|---|---|---|
+| `ai_config:read` / `ai_config:write` | system | `/api/admin/ai/*` (config, models, providers, usage); NOT behind `AiEnabledGuard`, so AI can always be switched back on |
+| `ai:use` | org | Every consumer route under `/api/ai/*` (with `AiEnabledGuard`), except `GET /api/ai/config` |
+| `org_ai_config:read` / `org_ai_config:write` | org (`org_admin`) | `/api/admin/ai/org-keys`, `GET /api/admin/ai/org-usage`, and the org layer of the `ai` namespace (`/api/org-settings`) |
+
+Declared as `AI_PERMISSIONS` and seeded by the app. Settings: the `ai` system namespace (`AI_SYSTEM_SETTINGS`, org-overridable) and the per-user `ai` namespace (`AI_USER_SETTINGS`: `defaultModel`). Credential purposes: `ai` (tiers `system` and `org`, `AI_CREDENTIAL_PURPOSE_DEF`) and the user keys' own `ai_user_key` cipher domain.
+
+## UI
+
+The settings pages (AI, AI Models, AI Usage, AI Keys, the Playground) are the reference app's (`apps/web/src/pages`), registered in its section registries with `feature: 'ai'` (except the admin AI card, where AI is switched on). The Organization AI keys page and its hooks are `@marinoscar/platform-web/ai` ([README](../../../platform-web/src/ai/README.md)), routed at `/admin/settings/ai/organization-keys` (`org_ai_config:read`).
+
+## Infra
+
+None of its own beyond the streaming route: `infra/nginx/nginx.conf` (and the CLI's deploy vhost) carry a `location /api/ai/responses/stream` block with buffering off (see Streaming). No environment variable: AI configuration is runtime configuration.
+
+## Observability
+
+Every provider round-trip is an `ai.request` span (provider, model, operation, `ai.key.source`, `ai.key.tier`, `ai.feature`; never a key, never prompt text) and one `ai_usage_events` row. Through `AI_METRICS` the app records `app.ai.*` metrics with bounded labels (provider, model, operation, status, key source, feature). With `logPromptContent` on, a bounded prompt preview is logged. The Doctor carries the AI checks (`ai-enabled`, `ai-providers`) and the AI hosts in its egress inventory.
+
+## Security notes
+
+- **Keys never leave the server.** A key is resolved per call and held only between resolution and the adapter call; no route, log line, span, `AiError`, usage row or `ai_runs.request` row carries one. The one secret returned is a realtime session's ephemeral provider secret (`POST /api/ai/realtime/sessions`), never a key. `ai-secret-egress.integration.spec.ts` sweeps every response for the user, organization and deployment sentinels.
+- **SDKs stay in their folder.** Only `providers/<provider>/` imports a provider SDK (`ai-no-sdk-leak.spec.ts`, each SDK-boundary spec).
+- **AI jobs are server-only.** No `ai.*` job type implements `nodeResultSchema`/`persistNodeResult`: a key is never brokered to a worker node.
+- **Orchestration stays above the gateway.** `@langchain/langgraph` and `@langchain/core` are allowed only under an app's orchestration directory, and `langchain`, `langsmith`, `@ai-sdk/*` and `@langchain/<provider>` never (`runOrchestrationBoundarySuite`).
+- **Tenant isolation.** `ai_runs` and `ai_usage_events` are under row-level security; `orgId` comes from the principal or the job, never request input. An organization's key is read only in that organization's scope.
+- **MCP headers** are secret like a key (see Hosted tools); **storage inputs** may carry presigned URLs, held only in `AiCallContext.storageInputs`.
+
+## Conformance suite
+
+`@marinoscar/platform-api/ai/testing` carries:
+
+| Suite / kit | What it pins |
+|---|---|
+| `describeAiProviderConformance(name, factory, options?)` | Every adapter behaves the same for each port it carries (listing, key verification, classification, responses, streaming, structured output, the tool round-trip, embeddings, images, audio) and surfaces every error as an `AiError` |
+| `runOrchestrationBoundarySuite(options)` | No file outside the allowed orchestration roots imports `@langchain/*`, and no banned orchestration package is installed or imported |
+| `createAiRuntimeHarness(options?)` | The real runtime over a scripted fake, in-memory tables and storage: for gate, key-policy and limit tests |
+
+### Testing without a real provider
 
 - **`FakeAiProvider`** (`testing/fake-ai-provider.ts`) implements
   `AiProviderAdapter` entirely in memory: scriptable responses, a call log
@@ -575,6 +733,41 @@ a future route, job type or provider adapter is covered automatically, with
 no edit to the suite — `ai-kill-switch.integration.spec.ts`,
 `ai-rbac-matrix.integration.spec.ts`, `ai-secret-egress.integration.spec.ts`,
 `ai-key-policy.integration.spec.ts`, `ai-jobs-server-only.spec.ts`, and
-`ai-no-sdk-leak.spec.ts` (plus the web-side
+`ai-no-sdk-leak.spec.ts`, `ai-orchestration-boundary.spec.ts` (which runs this
+slice's `runOrchestrationBoundarySuite`) (plus the web-side
 `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts`). See
 `CLAUDE.md`'s "MANDATORY: AI Platform Rules" rule 4 for what each one pins.
+
+## Upgrade notes
+
+New subpath in this version. From the reference app's `src/ai/` (#739):
+
+- Import from `@marinoscar/platform-api/ai` (and `/ai/testing`) instead of `src/ai/...`; the settings schemas from `@marinoscar/platform-contract/ai`.
+- `AiModule` is now `AiModule.forRoot({ imports })`: bind `AI_SYSTEM_PRISMA` and `AI_OBJECT_STORE` (and optionally `AI_METRICS`, `AI_TARGET_RESOLVER`) in a `@Global()` host module, configure once, import the result.
+- The `ai` namespace gains `deploymentKeyServesOrgs` (default `true`: unchanged behaviour) and `limits.perOrg`; stored documents without them read as before.
+- New routes: `GET /api/ai/features`, `/api/admin/ai/org-keys`, `GET /api/admin/ai/org-usage`; `GET /api/admin/ai/usage` takes `orgId` and `groupBy=org`. New permissions `org_ai_config:read`/`write` (seeded for `org_admin`).
+- `ai-outputs/` is registered by the slice (`AI_STORAGE_KEY_PREFIXES`); an app manifest may reuse the definition to keep its purge order.
+- Nothing is migrated: stored keys, runs and usage rows are read unchanged.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Nest can't resolve dependencies ... Symbol(@marinoscar/platform/ai/SYSTEM_PRISMA)` (or `OBJECT_STORE`) | The host port is not bound, or its module is not `@Global()` | Bind it in a `@Global()` module passed to `AiModule.forRoot({ imports })` |
+| `403 AI_DISABLED` with `details.scope: 'org'` | The caller's organization switched AI off in its `ai` layer | Its `org_admin` clears the override at Organization settings |
+| `403 AI_KEY_REQUIRED` although the deployment has a key | `deploymentKeyServesOrgs` is off, or the policy is `byok` | Store an organization key, switch the deployment keys back on, or switch to the fallback policy |
+| `400 AI_INVALID_REQUEST` "unknown feature" | `forUser(userId, { feature })` names a feature never registered | `registerAiFeature` it at import time, before bootstrap |
+| `Registry "ai-features" is frozen` | A feature registered after bootstrap | Register from the app's manifest, at import time |
+| `429 AI_RATE_LIMITED` with `details.limit: 'perOrg.*'` | The organization's daily cap | Raise `limits.perOrg` (deployment) or the org's own lower value |
+| `503 AI_STORAGE_UNAVAILABLE` on an image or speech run | Object storage is not configured | Configure it at `/admin/settings/storage` |
+
+## Links
+
+- [Package README](../../README.md)
+- [Spec: AI platform](../../../../docs/specs/ai-platform.md)
+- [Runbook: AI configuration](../../../../docs/runbooks/ai-configuration.md)
+- [Platform packages spec](../../../../docs/specs/platform-packages.md)
+- [Contract](../../../platform-contract/src/ai/README.md)
+- [Web counterpart](../../../platform-web/src/ai/README.md)
+- [Storage slice](../storage/README.md)
+- [Package documentation standard](../../../../docs/PACKAGES.md)
