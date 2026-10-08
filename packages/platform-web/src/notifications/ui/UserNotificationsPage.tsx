@@ -57,15 +57,15 @@
 
 import { useCallback, useState } from 'react';
 import { Alert } from '@mui/material';
-import { LoadingSpinner } from '../components/common/LoadingSpinner';
-import { NotificationSettings } from '../components/settings/NotificationSettings';
-import { useIsMounted } from '../hooks/useIsMounted';
-import { useNotificationCapability } from '../hooks/useNotificationCapability';
-import { useNotificationConfig } from '../hooks/useNotificationConfig';
-import { useNotificationEvents } from '../hooks/useNotificationEvents';
-import { requestPermissionAndSyncPush } from '../services/pushSubscription';
-import type { NotificationPreferencesPatch } from '../types';
-import { UserSettingsSection } from './UserSettingsSection';
+import { LoadingSpinner } from './LoadingSpinner.js';
+import { NotificationSettings } from './NotificationSettings.js';
+import { useIsMounted } from '../headless/useIsMounted.js';
+import { useNotificationCapability } from '../headless/useNotificationCapability.js';
+import { useNotificationConfig } from '../headless/useNotificationConfig.js';
+import { useNotificationEvents } from '../headless/useNotificationEvents.js';
+import { requestPermissionAndSyncPush } from '../headless/pushSubscription.js';
+import type { NotificationPreferencesPatch } from '../headless/types.js';
+import { UserSettingsSection } from './UserSettingsSection.js';
 
 /** Mirrors the `Notifications` card in `config/userSettingsSections.tsx`, so the
  *  hub card, the compact AppBar title (#95) and this page's `h1` all agree. */
@@ -73,6 +73,14 @@ const PAGE_TITLE = 'Notifications';
 const PAGE_DESCRIPTION =
   'Choose which events notify you, and whether they arrive by email or in your browser.';
 
+/**
+ * The `/settings/notifications` page: the signed-in user's per-channel, per-event preferences and this device's permission state.
+ *
+ * @returns the page.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export default function UserNotificationsPage() {
   // Both hooks at the top level of the component, NOT inside the render prop
   // below — a hook called from a callback is a hook called conditionally, and

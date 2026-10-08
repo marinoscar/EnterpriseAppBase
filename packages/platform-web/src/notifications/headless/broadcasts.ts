@@ -50,8 +50,8 @@
  * `services/maintenance.test.ts` uses for the maintenance marker.
  */
 
-import { api } from './api';
-import type { NotificationChannel } from '../types';
+import { api } from './api.js';
+import type { NotificationChannel } from './types.js';
 
 // =============================================================================
 // Enumerations and limits — the API's own, restated so a bad value cannot compile

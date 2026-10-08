@@ -27,8 +27,8 @@ import { useState, type ReactNode } from 'react';
 import { Alert, AlertTitle, Box, Button, CircularProgress, IconButton, Stack } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
-import type { NotificationCapability } from '../../hooks/useNotificationCapability';
-import type { NotificationConfigResponse } from '../../types';
+import type { NotificationCapability } from '../headless/useNotificationCapability.js';
+import type { NotificationConfigResponse } from '../headless/types.js';
 
 export const NOTIFICATION_SETTINGS_PATH = '/settings/notifications';
 export const BANNER_DISMISSED_STORAGE_KEY = 'notificationPermissionBanner.dismissed';
@@ -55,14 +55,33 @@ function writeDismissed(capability: BannerCapability): void {
   }
 }
 
+/**
+ * The props of {@link NotificationPermissionBanner}.
+ *
+ * @stability experimental
+ */
 export interface NotificationPermissionBannerProps {
   /** `null` while loading — renders nothing rather than flashing. */
   config: NotificationConfigResponse | null;
+  /** What this device can do about browser notifications. */
   capability: NotificationCapability;
+  /** Asks for permission (from the banner's button). */
   onRequestPermission: () => void;
+  /** Whether the permission prompt is open (disables the button). */
   isRequestingPermission?: boolean;
 }
 
+/**
+ * The app-wide banner that asks for notification permission (or explains why
+ * it cannot be granted on this device), dismissible per session. The app
+ * places it in its layout, fed by `usePushSubscriptionSync`.
+ *
+ * @param props - the config, the capability and the request action.
+ * @returns the banner, or null when there is nothing to ask.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export function NotificationPermissionBanner({
   config,
   capability,

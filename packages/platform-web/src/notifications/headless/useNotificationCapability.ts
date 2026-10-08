@@ -137,13 +137,15 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   useBrowserNotificationPermission,
   type BrowserNotificationPermission,
-} from './useBrowserNotificationPermission';
+} from './useBrowserNotificationPermission.js';
 
 /**
  * What this device can do about browser notifications, and therefore what the
  * UI must tell the user to do. Every arm has a DISTINCT remedy — see
  * `browserChannelState` in `components/settings/NotificationSettings.tsx`,
  * which is the one place these are turned into copy.
+  *
+  * @stability experimental
  */
 export type NotificationCapability =
   /** An administrator turned browser notifications off for everyone (#225). */
@@ -170,6 +172,8 @@ export type NotificationCapability =
  * SEPARATED FROM THE HOOK so the precedence order above is testable as a table
  * rather than only through eight different global-object stubs, and so the
  * order lives in one readable function instead of being spread across effects.
+  *
+  * @stability experimental
  */
 export interface NotificationCapabilityInputs {
   /** #225's kill switch. See `useNotificationCapability`'s options. */
@@ -198,6 +202,8 @@ export interface NotificationCapabilityInputs {
  *
  * Read top to bottom: this function IS the ordered list documented in the file
  * header, and the two must never disagree.
+  *
+  * @stability experimental
  */
 export function resolveNotificationCapability(
   inputs: NotificationCapabilityInputs,
@@ -253,6 +259,8 @@ export function resolveNotificationCapability(
  * total confidence. Nothing is lost by the leniency: every browser that has a
  * `Notification` constructor also has this flag, so an environment that lacks
  * it falls through to `unsupported` a line later, which is the honest answer.
+  *
+  * @stability experimental
  */
 export function readIsSecureContext(): boolean {
   if (typeof window === 'undefined') return false;
@@ -263,7 +271,11 @@ export function readIsSecureContext(): boolean {
   }
 }
 
-/** Is there a `Notification` constructor, and is touching it safe? */
+/**
+ * Is there a `Notification` constructor, and is touching it safe?
+ *
+ * @stability experimental
+ */
 export function readHasNotificationApi(): boolean {
   if (typeof window === 'undefined' || !('Notification' in window)) return false;
   try {
@@ -277,7 +289,11 @@ export function readHasNotificationApi(): boolean {
   }
 }
 
-/** Is there a `navigator.serviceWorker`? */
+/**
+ * Is there a `navigator.serviceWorker`?
+ *
+ * @stability experimental
+ */
 export function readHasServiceWorkerApi(): boolean {
   try {
     return typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
@@ -312,6 +328,8 @@ export function readHasServiceWorkerApi(): boolean {
  * enough to replace it, and Safari does not implement it at all. Both signals
  * are read, so a UA-spoofing extension that changes one of them still lands on
  * the right answer as long as the other is intact.
+  *
+  * @stability experimental
  */
 export function readIsIos(): boolean {
   try {
@@ -342,6 +360,8 @@ export function readIsIos(): boolean {
  * standard and is what Chrome/Edge/Android answer, while `navigator.standalone`
  * is Safari's own non-standard flag and is the ONLY one older iOS answers — and
  * iOS is the entire reason this function exists.
+  *
+  * @stability experimental
  */
 export function readIsStandalone(): boolean {
   if (typeof window === 'undefined') return false;

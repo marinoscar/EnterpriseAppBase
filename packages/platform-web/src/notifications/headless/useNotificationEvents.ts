@@ -29,9 +29,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, getNotificationEvents } from '../services/api';
-import type { NotificationEventDef } from '../types';
-import { useIsMounted } from './useIsMounted';
+import { ApiError, getNotificationEvents } from './api.js';
+import type { NotificationEventDef } from './types.js';
+import { useIsMounted } from './useIsMounted.js';
 
 interface UseNotificationEventsReturn {
   /**

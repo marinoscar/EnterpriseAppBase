@@ -39,14 +39,14 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
-import type { BroadcastDetail } from '../../services/broadcasts';
+import type { BroadcastDetail } from '../headless/broadcasts.js';
 import {
   STATUS_CHIP_COLOR,
   channelLabel,
   formatDateTime,
   formatProgress,
   isCriticalBroadcast,
-} from '../../pages/Admin/broadcastsTable';
+} from './broadcastsTable.js';
 
 interface BroadcastDetailDialogProps {
   open: boolean;

@@ -82,14 +82,14 @@ import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
 import { Navigate } from 'react-router-dom';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { usePushConfig } from '../../hooks/usePushConfig';
-import { LoadingSpinner } from '../../components/common/LoadingSpinner';
+import { usePermissions } from '../../identity/headless/index.js';
+import { usePushConfig } from '../headless/usePushConfig.js';
+import { LoadingSpinner } from './LoadingSpinner.js';
 import {
   PushConfigConfirmDialog,
   type PushConfigDialogAction,
-} from '../../components/admin/PushConfigConfirmDialog';
-import { PushTestPanel } from '../../components/admin/PushTestPanel';
+} from './PushConfigConfirmDialog.js';
+import { PushTestPanel } from './PushTestPanel.js';
 
 /** A `mailto:` or `https:` address — the VAPID subject/contact, exactly what `web-push` requires. */
 function validateSubject(raw: string): string | null {
@@ -156,6 +156,14 @@ function CopyableField({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The `/admin/settings/push` page: the Web Push (VAPID) key pair, generated, rotated and removed at run time (never an environment variable), and the test-push diagnostics.
+ *
+ * @returns the page.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export default function PushConfigPage() {
   const { hasPermission } = usePermissions();
   const {

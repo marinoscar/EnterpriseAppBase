@@ -40,9 +40,9 @@
  * a frame turns a degradation into a defect.
  */
 
-import { API_BASE_URL, api } from './api';
-import { connectSse, type SseConnection, type SseState } from './sse';
-import type { AppNotification, NotificationStreamEvent } from '../types';
+import { apiBaseUrl, api } from './api.js';
+import { connectSse, type SseConnection, type SseState } from './sse.js';
+import type { AppNotification, NotificationStreamEvent } from './types.js';
 
 /**
  * The `event:` name the API publishes notifications under.
@@ -59,7 +59,9 @@ import type { AppNotification, NotificationStreamEvent } from '../types';
 export const NOTIFICATION_SSE_EVENT = 'notification';
 
 /** The stream's URL, resolved against the same base as every other API call. */
-export const NOTIFICATION_STREAM_URL = `${API_BASE_URL}/notifications/stream`;
+export function notificationStreamUrl(): string {
+  return `${apiBaseUrl()}/notifications/stream`;
+}
 
 /**
  * Parse one frame's `data` into a stream event, or `null` if it is not one.
@@ -206,14 +208,14 @@ export function connectNotificationStream(
   handlers: NotificationStreamHandlers,
 ): SseConnection {
   return connectSse({
-    url: NOTIFICATION_STREAM_URL,
+    url: notificationStreamUrl(),
 
     authorization: () => {
-      const token = api.getAccessToken();
+      const token = api.getAccessToken?.() ?? null;
       return token ? `Bearer ${token}` : null;
     },
 
-    reauthenticate: () => api.refreshToken(),
+    reauthenticate: () => api.refreshToken?.() ?? Promise.resolve(false),
 
     onOpen: handlers.onOpen,
 

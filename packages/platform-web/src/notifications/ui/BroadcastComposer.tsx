@@ -100,11 +100,11 @@ import {
   BROADCAST_TITLE_MAX,
   isoToLocalInput,
   localInputToIso,
-} from '../../services/broadcasts';
-import type { CreateBroadcastRequest } from '../../services/broadcasts';
-import type { NotificationChannel } from '../../types';
-import { useNotificationConfig } from '../../hooks/useNotificationConfig';
-import { channelLabel } from '../../pages/Admin/broadcastsTable';
+} from '../headless/broadcasts.js';
+import type { CreateBroadcastRequest } from '../headless/broadcasts.js';
+import type { NotificationChannel } from '../headless/types.js';
+import { useNotificationConfig } from '../headless/useNotificationConfig.js';
+import { channelLabel } from './broadcastsTable.js';
 
 /**
  * The channels offered, in the order they are drawn.

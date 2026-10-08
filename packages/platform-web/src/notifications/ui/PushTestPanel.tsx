@@ -52,7 +52,7 @@ import SendIcon from '@mui/icons-material/Send';
 import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import BugReportOutlinedIcon from '@mui/icons-material/BugReportOutlined';
-import type { PushConfigAdminView, PushTestResult } from '../../services/pushConfig';
+import type { PushConfigAdminView, PushTestResult } from '../headless/pushConfig.js';
 import {
   DENIED_RECOVERY,
   STEP_ORDER,
@@ -65,10 +65,10 @@ import {
   type DiagnosticStepStatus,
   type LocalNotificationResult,
   type PushTestRun,
-} from '../../services/pushDiagnostics';
-import { requestPermissionAndSyncPush } from '../../services/pushSubscription';
-import { useNotificationConfig } from '../../hooks/useNotificationConfig';
-import { useIsMounted } from '../../hooks/useIsMounted';
+} from '../headless/pushDiagnostics.js';
+import { requestPermissionAndSyncPush } from '../headless/pushSubscription.js';
+import { useNotificationConfig } from '../headless/useNotificationConfig.js';
+import { useIsMounted } from '../headless/useIsMounted.js';
 
 type CheckLevel = 'ok' | 'warn' | 'fail' | 'info';
 

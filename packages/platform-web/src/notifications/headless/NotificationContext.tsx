@@ -60,8 +60,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAuth } from '@marinoscar/platform-web/identity/headless';
-import { useIsMounted } from '../hooks/useIsMounted';
+import { useAuth } from '../../identity/headless/index.js';
+import { useIsMounted } from './useIsMounted.js';
 import {
   ApiError,
   getNotificationConfig,
@@ -69,12 +69,12 @@ import {
   getUnreadNotificationCount,
   markAllNotificationsRead,
   markNotificationRead,
-} from '../services/api';
-import { connectNotificationStream, type SseState } from '../services/notificationStream';
-import { showAppNotification } from '../services/browserNotifications';
-import { hasActivePushSubscription } from '../services/pushSubscription';
-import { isInternalLink } from '../utils/internalLink';
-import type { AppNotification, NotificationConfigResponse } from '../types';
+} from './api.js';
+import { connectNotificationStream, type SseState } from './notificationStream.js';
+import { showAppNotification } from './browserNotifications.js';
+import { hasActivePushSubscription } from './pushSubscription.js';
+import { isInternalLink } from './internalLink.js';
+import type { AppNotification, NotificationConfigResponse } from './types.js';
 
 /**
  * How many notifications the centre holds.
@@ -85,6 +85,8 @@ import type { AppNotification, NotificationConfigResponse } from '../types';
  * the API caps `pageSize` at 100 anyway because an uncapped page on an
  * unbounded table is a way for any authenticated user to ask for their entire
  * history in one request.
+  *
+  * @stability experimental
  */
 export const RECENT_NOTIFICATION_COUNT = 20;
 
@@ -141,6 +143,12 @@ function rememberNotificationId(seen: Set<string>, id: string): void {
   }
 }
 
+/**
+ * What {@link useNotifications} returns: the signed-in user's recent inbox,
+ * the unread count and the actions on it.
+ *
+ * @stability experimental
+ */
 export interface NotificationContextValue {
   /** The recent list, newest first. Never `null` — an empty list is a real answer. */
   notifications: AppNotification[];
@@ -169,9 +177,29 @@ export interface NotificationContextValue {
 /**
  * `null` when no provider is mounted — see `useNotifications` below, which is
  * deliberately tolerant rather than throwing.
+  *
+  * @stability experimental
  */
 export const NotificationContext = createContext<NotificationContextValue | null>(null);
 
+/**
+ * The notification centre: loads the recent inbox and the unread count for
+ * the signed-in user, keeps them live over `GET /api/notifications/stream`,
+ * raises the in-page or OS toast for a new notification, and handles the
+ * service worker's click messages and the `?n=` cold-open parameter. Mount it
+ * once, inside the auth provider, around the app shell.
+ *
+ * @param props - `children`, the shell.
+ * @returns the provider.
+ *
+ * @example
+ * ```tsx
+ * <NotificationProvider><Layout /></NotificationProvider>
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -260,7 +288,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         // a second time when it lands. Safe here because we are in async
         // callback code, not a state updater.
         for (let i = page.items.length - 1; i >= 0; i--) {
-          rememberNotificationId(seenNotificationIds.current, page.items[i].id);
+          rememberNotificationId(seenNotificationIds.current, page.items[i]!.id);
         }
       } catch (err) {
         if (!isMounted()) return;
@@ -767,6 +795,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
  * The cost is that a wiring mistake hides the bell silently instead of failing
  * loudly, so the coverage that matters is a POSITIVE assertion — "with the
  * provider mounted, the bell is present" — rather than reliance on a crash.
+  *
+  * @stability experimental
  */
 export function useNotifications(): NotificationContextValue | null {
   return useContext(NotificationContext);

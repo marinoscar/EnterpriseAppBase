@@ -45,7 +45,7 @@ function announcePermissionChanged(): void {
   }
 }
 
-import type { AppNotification } from '../types';
+import type { AppNotification } from './types.js';
 
 /** Is the constructor there at all, and safe to touch? */
 function isSupported(): boolean {

@@ -123,6 +123,14 @@
       "types": "./dist/storage/ui/index.d.ts",
       "default": "./dist/storage/ui/index.js"
     },
+    "./notifications/headless": {
+      "types": "./dist/notifications/headless/index.d.ts",
+      "default": "./dist/notifications/headless/index.js"
+    },
+    "./notifications/ui": {
+      "types": "./dist/notifications/ui/index.d.ts",
+      "default": "./dist/notifications/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

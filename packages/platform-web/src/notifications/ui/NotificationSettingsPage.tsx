@@ -54,9 +54,9 @@ import {
   Typography,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
-import { SystemSettingsSection } from './SystemSettingsSection';
-import { useNotificationEvents } from '../../hooks/useNotificationEvents';
-import type { NotificationEventDef, SystemNotificationSettings } from '../../types';
+import { SystemSettingsSection } from './SystemSettingsSection.js';
+import { useNotificationEvents } from '../headless/useNotificationEvents.js';
+import type { NotificationEventDef, SystemNotificationSettings } from '../headless/types.js';
 
 const PAGE_TITLE = 'Notifications';
 const PAGE_DESCRIPTION =
@@ -143,6 +143,14 @@ function EventRow({ event, enabled, disabled, onChange }: EventRowProps) {
   );
 }
 
+/**
+ * The `/admin/settings/notifications` page: the deployment-wide browser channel switch and the per-event suppression list (`system_settings:read`; writes gated by `system_settings:write`).
+ *
+ * @returns the page.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export default function NotificationSettingsPage() {
   return (
     <SystemSettingsSection

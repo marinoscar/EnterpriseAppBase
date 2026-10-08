@@ -37,6 +37,7 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   Alert,
   Badge,
@@ -56,10 +57,10 @@ import {
   NotificationsNone as NotificationsNoneIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useNotifications } from '../../contexts/NotificationContext';
-import { isInternalLink } from '../../utils/internalLink';
-import { formatRelativeTime } from '../../utils/relativeTime';
-import type { AppNotification } from '../../types';
+import { useNotifications } from '../headless/NotificationContext.js';
+import { isInternalLink } from '../headless/internalLink.js';
+import { formatRelativeTime } from './relativeTime.js';
+import type { AppNotification } from '../headless/types.js';
 
 /**
  * The badge stops counting here and shows "20+".
@@ -70,7 +71,50 @@ import type { AppNotification } from '../../types';
  */
 const BADGE_MAX = 20;
 
-export function NotificationBell() {
+/**
+ * The bell's slots (#738): app content placed inside the packaged popover.
+ * Every slot is optional; without one the bell renders exactly as before.
+ *
+ * @stability experimental
+ */
+export interface NotificationBellSlots {
+  /** Replaces the "You're all caught up." text of an empty inbox. */
+  emptyState?: ReactNode;
+  /**
+   * Rendered under the list, inside the popover (a "View all" link, a
+   * settings shortcut). Receives `close`, to dismiss the popover before
+   * navigating.
+   */
+  footer?: (helpers: { close: () => void }) => ReactNode;
+  /** Extra content at the end of one row (an event-specific chip). */
+  itemExtra?: (notification: AppNotification) => ReactNode;
+}
+
+/**
+ * The props of {@link NotificationBell}.
+ *
+ * @stability experimental
+ */
+export interface NotificationBellProps {
+  /** The bell's slots. */
+  slots?: NotificationBellSlots;
+}
+
+/**
+ * The AppBar notification bell: the unread badge and the recent-notifications
+ * popover, reading the inbox from `NotificationProvider`. Renders nothing
+ * without the provider. The app places it in its own AppBar; the package
+ * never imports the app shell.
+ *
+ * @example
+ * ```tsx
+ * <NotificationBell slots={{ footer: ({ close }) => <Button onClick={close}>Close</Button> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export function NotificationBell({ slots }: NotificationBellProps = {}) {
   const centre = useNotifications();
   const navigate = useNavigate();
   const anchorRef = useRef<HTMLButtonElement | null>(null);
@@ -235,9 +279,11 @@ export function NotificationBell() {
             // A REAL ANSWER, distinct from the spinner above. An empty list with
             // no text is indistinguishable from one that failed to load.
             <Box sx={{ p: 4, textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                You&rsquo;re all caught up.
-              </Typography>
+              {slots?.emptyState ?? (
+                <Typography variant="body2" color="text.secondary">
+                  You&rsquo;re all caught up.
+                </Typography>
+              )}
             </Box>
           )}
 
@@ -309,6 +355,7 @@ export function NotificationBell() {
                           </Box>
                           {isUnread && ' · Unread'}
                         </Typography>
+                        {slots?.itemExtra?.(notification)}
                       </Box>
                     </ListItemButton>
                   </Box>
@@ -317,6 +364,12 @@ export function NotificationBell() {
             </List>
           )}
         </Box>
+        {slots?.footer && (
+          <>
+            <Divider />
+            <Box sx={{ flexShrink: 0 }}>{slots.footer({ close: () => setOpen(false) })}</Box>
+          </>
+        )}
       </Popover>
     </>
   );

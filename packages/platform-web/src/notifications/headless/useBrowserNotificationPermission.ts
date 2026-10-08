@@ -33,7 +33,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { NOTIFICATION_PERMISSION_CHANGED_EVENT } from '../services/browserNotifications';
+import { NOTIFICATION_PERMISSION_CHANGED_EVENT } from './browserNotifications.js';
 
 /**
  * Permission as this app needs to reason about it.

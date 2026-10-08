@@ -33,8 +33,8 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import { ApiError } from '../services/api';
-import { useVisiblePolling } from './useVisiblePolling';
+import { ApiError } from './api.js';
+import { useVisiblePolling } from './useVisiblePolling.js';
 import {
   cancelBroadcast,
   createBroadcast,
@@ -42,15 +42,15 @@ import {
   getBroadcasts,
   resumeBroadcast,
   sendTestBroadcast,
-} from '../services/broadcasts';
+} from './broadcasts.js';
 import type {
   Broadcast,
   BroadcastCreateResult,
   BroadcastListParams,
   BroadcastTestResult,
   CreateBroadcastRequest,
-} from '../services/broadcasts';
-import { useIsMounted } from './useIsMounted';
+} from './broadcasts.js';
+import { useIsMounted } from './useIsMounted.js';
 
 // See the file header: one implementation, in `hooks/useVisiblePolling.ts`.
 export { useVisiblePolling };

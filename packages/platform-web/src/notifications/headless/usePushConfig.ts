@@ -23,16 +23,16 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError } from '../services/api';
+import { ApiError } from './api.js';
 import {
   generatePushConfig,
   getPushConfig,
   removePushConfig,
   rotatePushConfig,
   updatePushConfig,
-} from '../services/pushConfig';
-import type { PushConfigAdminView, PushConfigSubjectInput, UpdatePushConfigInput } from '../services/pushConfig';
-import { useIsMounted } from './useIsMounted';
+} from './pushConfig.js';
+import type { PushConfigAdminView, PushConfigSubjectInput, UpdatePushConfigInput } from './pushConfig.js';
+import { useIsMounted } from './useIsMounted.js';
 
 /** 403 is named explicitly — it is the one failure an admin can act on themselves. */
 function messageFor(err: unknown, fallback: string): string {

@@ -21,18 +21,18 @@
  * arrive before the HTTP response does.
  */
 
-import { ApiError, subscribePushNotifications } from './api';
-import { requestBrowserNotificationPermission } from './browserNotifications';
-import { urlBase64ToUint8Array } from './pushSubscription';
-import { sendPushTest, type PushTestResult } from './pushConfig';
+import { ApiError, subscribePushNotifications } from './api.js';
+import { requestBrowserNotificationPermission } from './browserNotifications.js';
+import { urlBase64ToUint8Array } from './pushSubscription.js';
+import { sendPushTest, type PushTestResult } from './pushConfig.js';
 import {
   readHasNotificationApi,
   readHasServiceWorkerApi,
   readIsIos,
   readIsSecureContext,
   readIsStandalone,
-} from '../hooks/useNotificationCapability';
-import type { PushSubscriptionPayload } from '../types';
+} from './useNotificationCapability.js';
+import type { PushSubscriptionPayload } from './types.js';
 
 // =============================================================================
 // Types
@@ -187,7 +187,7 @@ export function bufferToBase64Url(input: ArrayBuffer | ArrayBufferView | null | 
         ? new Uint8Array(input)
         : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
     let binary = '';
-    for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
     return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   } catch {
     return null;

@@ -37,7 +37,7 @@ import {
   DialogTitle,
   TextField,
 } from '@mui/material';
-import { REMOVE_CONFIRMATION, ROTATE_CONFIRMATION } from '../../services/pushConfig';
+import { REMOVE_CONFIRMATION, ROTATE_CONFIRMATION } from '../headless/pushConfig.js';
 
 export type PushConfigDialogAction = 'rotate' | 'remove';
 

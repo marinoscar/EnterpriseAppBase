@@ -18,25 +18,49 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { useIsMounted } from './useIsMounted';
-import { useNotificationCapability, type NotificationCapability } from './useNotificationCapability';
-import { useNotificationConfig } from './useNotificationConfig';
+import { useIsMounted } from './useIsMounted.js';
+import { useNotificationCapability, type NotificationCapability } from './useNotificationCapability.js';
+import { useNotificationConfig } from './useNotificationConfig.js';
 import {
   claimAutoPermissionPrompt,
   requestPermissionAndSyncPush,
   syncPushSubscription,
-} from '../services/pushSubscription';
-import type { NotificationConfigResponse } from '../types';
+} from './pushSubscription.js';
+import type { NotificationConfigResponse } from './types.js';
 
+/**
+ * What {@link usePushSubscriptionSync} returns, for the permission banner.
+ *
+ * @stability experimental
+ */
 export interface UsePushSubscriptionSyncResult {
   /** `null` until `GET /api/notifications/config` resolves. */
   config: NotificationConfigResponse | null;
+  /** What this device can do about browser notifications. */
   capability: NotificationCapability;
   /** Ask for permission (from a click), then subscribe and sync if granted. */
   requestPermission: () => Promise<void>;
+  /** Whether the permission prompt is open. */
   isRequestingPermission: boolean;
 }
 
+/**
+ * The shell's once-per-load push sync (#365): reads the deployment's
+ * notification config, re-syncs this browser's Web Push subscription when
+ * permission is granted, and offers the permission request the app-wide
+ * banner shows. Call it once, from the app shell.
+ *
+ * @returns the config, the device capability and the request action.
+ *
+ * @example
+ * ```tsx
+ * const push = usePushSubscriptionSync();
+ * <NotificationPermissionBanner config={push.config} capability={push.capability} onRequestPermission={push.requestPermission} />
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
 export function usePushSubscriptionSync(): UsePushSubscriptionSyncResult {
   const { config } = useNotificationConfig();
   // `=== false`, never `!browserEnabled`: a `null` config is "not known yet".

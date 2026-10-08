@@ -18,11 +18,11 @@
  * swallowed.
  */
 
-import { subscribePushNotifications, unsubscribePushNotifications } from './api';
+import { subscribePushNotifications, unsubscribePushNotifications } from './api.js';
 import {
   requestBrowserNotificationPermission,
-} from './browserNotifications';
-import type { NotificationConfigResponse, PushSubscriptionPayload } from '../types';
+} from './browserNotifications.js';
+import type { NotificationConfigResponse, PushSubscriptionPayload } from './types.js';
 
 /**
  * How long to wait for `navigator.serviceWorker.ready`. That promise never
@@ -37,6 +37,8 @@ const LOGOUT_UNSUBSCRIBE_TIMEOUT_MS = 3_000;
 /**
  * VAPID public keys travel as URL-safe base64 without padding;
  * `pushManager.subscribe` wants the raw bytes.
+  *
+  * @stability experimental
  */
 export function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -135,6 +137,8 @@ async function runSync(vapidPublicKey: string): Promise<void> {
  * Make sure this browser holds a push subscription for the current VAPID key
  * and that the server has it. Safe to call on every boot; a no-op unless
  * permission is already `granted`. Never requests permission, never throws.
+  *
+  * @stability experimental
  */
 export function syncPushSubscription(vapidPublicKey: string): Promise<void> {
   if (inFlightSync) return inFlightSync;
@@ -158,6 +162,8 @@ export function syncPushSubscription(vapidPublicKey: string): Promise<void> {
  *
  * The sync is started, not awaited, so a caller's spinner tracks the browser
  * prompt rather than a service worker that may take seconds to become ready.
+  *
+  * @stability experimental
  */
 export async function requestPermissionAndSyncPush(
   config: NotificationConfigResponse | null,
@@ -178,6 +184,8 @@ export async function requestPermissionAndSyncPush(
  *
  * Uses `getRegistration()`, not `.ready`, so a page with no worker returns at
  * once instead of waiting out a timeout.
+  *
+  * @stability experimental
  */
 export async function removePushSubscription(): Promise<void> {
   invalidateActivePushSubscriptionCache();
@@ -209,6 +217,8 @@ export async function removePushSubscription(): Promise<void> {
  * burst of stream frames (a broadcast storm, a reconnect) costs one lookup,
  * short enough that a permission revoked in browser settings is noticed soon.
  * `syncPushSubscription` and `removePushSubscription` drop it immediately.
+  *
+  * @stability experimental
  */
 export const ACTIVE_PUSH_SUBSCRIPTION_CACHE_MS = 30_000;
 
@@ -252,6 +262,8 @@ async function lookupActivePushSubscription(vapidPublicKey: string | null): Prom
  * as a match, as in the sync above). NEVER THROWS: any failure is `false`,
  * which callers treat as "the page must show its own toast". Cached for
  * `ACTIVE_PUSH_SUBSCRIPTION_CACHE_MS` per key.
+  *
+  * @stability experimental
  */
 export function hasActivePushSubscription(vapidPublicKey: string | null): Promise<boolean> {
   const now = Date.now();
@@ -281,6 +293,8 @@ let autoPromptClaimed = false;
  * Claim the single automatic permission prompt this page load may make.
  * Returns `true` exactly once per full page load, so StrictMode's double
  * effects, re-renders and remounts of the shell cannot prompt twice.
+  *
+  * @stability experimental
  */
 export function claimAutoPermissionPrompt(): boolean {
   if (autoPromptClaimed) return false;
@@ -288,7 +302,11 @@ export function claimAutoPermissionPrompt(): boolean {
   return true;
 }
 
-/** Test-only: forget module state between tests. */
+/**
+ * Test-only: forget module state between tests.
+ *
+ * @stability experimental
+ */
 export function resetPushSubscriptionStateForTests(): void {
   autoPromptClaimed = false;
   inFlightSync = null;

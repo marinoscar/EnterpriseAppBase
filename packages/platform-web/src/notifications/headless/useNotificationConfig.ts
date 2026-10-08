@@ -31,9 +31,9 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, getNotificationConfig } from '../services/api';
-import type { NotificationConfigResponse } from '../types';
-import { useIsMounted } from './useIsMounted';
+import { ApiError, getNotificationConfig } from './api.js';
+import type { NotificationConfigResponse } from './types.js';
+import { useIsMounted } from './useIsMounted.js';
 
 interface UseNotificationConfigReturn {
   /**

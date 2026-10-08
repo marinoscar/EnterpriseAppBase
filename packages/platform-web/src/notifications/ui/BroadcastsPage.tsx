@@ -90,17 +90,17 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ReplayOutlinedIcon from '@mui/icons-material/ReplayOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { Navigate } from 'react-router-dom';
-import { DataTable } from '../../components/datatable';
-import type { DataTableFilterModel, DataTableRowAction } from '../../components/datatable';
-import { BroadcastComposer } from '../../components/admin/BroadcastComposer';
-import { BroadcastDetailDialog } from '../../components/admin/BroadcastDetailDialog';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
+import { DataTable } from './datatable.js';
+import type { DataTableFilterModel, DataTableRowAction } from './datatable.js';
+import { BroadcastComposer } from './BroadcastComposer.js';
+import { BroadcastDetailDialog } from './BroadcastDetailDialog.js';
+import { usePermissions } from '../../identity/headless/index.js';
 import {
   BROADCASTS_POLL_INTERVAL_MS,
   useBroadcastActions,
   useBroadcasts,
   useVisiblePolling,
-} from '../../hooks/useBroadcasts';
+} from '../headless/useBroadcasts.js';
 import {
   BROADCAST_CHUNK_SIZE,
   getBroadcast,
@@ -109,25 +109,33 @@ import {
   isBroadcastCancelable,
   isBroadcastDeletable,
   isBroadcastResumable,
-} from '../../services/broadcasts';
+} from '../headless/broadcasts.js';
 import type {
   Broadcast,
   BroadcastDetail,
   BroadcastListParams,
-} from '../../services/broadcasts';
+} from '../headless/broadcasts.js';
 import {
   STATUS_COLUMN_ID,
   TABLE_ID,
   asBroadcastStatus,
   buildBroadcastColumns,
   readIsFilter,
-} from './broadcastsTable';
+} from './broadcastsTable.js';
 
 /** Mirrors the `Broadcasts` card in `config/adminSections.tsx`, word for word. */
 const PAGE_TITLE = 'Broadcasts';
 const PAGE_DESCRIPTION =
   'Write an announcement and send it to every active user now or at a scheduled time, then watch it go out.';
 
+/**
+ * The `/admin/settings/broadcasts` page: the broadcast list, the composer and the detail dialog. A holder of `org_broadcasts:read` only sees and sends their organization's broadcasts.
+ *
+ * @returns the page.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export default function BroadcastsPage() {
   const { hasPermission } = usePermissions();
 

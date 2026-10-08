@@ -28,7 +28,7 @@
  * constants rather than a string re-typed a second time in a component.
  */
 
-import { api } from './api';
+import { api } from './api.js';
 
 /**
  * What the UI may know about the stored private key. Mirrors

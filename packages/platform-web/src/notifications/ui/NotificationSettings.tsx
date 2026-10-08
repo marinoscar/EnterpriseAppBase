@@ -94,9 +94,9 @@ import type {
   NotificationChannel,
   NotificationEventDef,
   NotificationPreferences,
-} from '../../types';
-import type { NotificationCapability } from '../../hooks/useNotificationCapability';
-import { AddToHomeScreenPanel } from './AddToHomeScreenPanel';
+} from '../headless/types.js';
+import type { NotificationCapability } from '../headless/useNotificationCapability.js';
+import { AddToHomeScreenPanel } from './AddToHomeScreenPanel.js';
 
 // =============================================================================
 // Derivation — the pure half, exported so it can be reasoned about and tested

@@ -29,7 +29,9 @@
     "src/jobs/headless/index.ts",
     "src/jobs/ui/index.ts",
     "src/storage/headless/index.ts",
-    "src/storage/ui/index.ts"
+    "src/storage/ui/index.ts",
+    "src/notifications/headless/index.ts",
+    "src/notifications/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

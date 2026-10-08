@@ -51,9 +51,9 @@
  */
 
 import { Chip, Stack, Tooltip, Typography } from '@mui/material';
-import type { DataTableColumn, DataTableFilterModel } from '../../components/datatable';
-import { BROADCAST_STATUSES } from '../../services/broadcasts';
-import type { Broadcast, BroadcastStatusName } from '../../services/broadcasts';
+import type { DataTableColumn, DataTableFilterModel } from './datatable.js';
+import { BROADCAST_STATUSES } from '../headless/broadcasts.js';
+import type { Broadcast, BroadcastStatusName } from '../headless/broadcasts.js';
 
 /**
  * Persistence key for `user_settings.dataTables`. A constant, never derived
