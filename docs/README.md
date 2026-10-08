@@ -50,6 +50,7 @@ In this order:
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
 | [specs/platform-packages.md](specs/platform-packages.md) | Proposed: turning the template into published platform packages (extension contract, tenancy, migrations, scaling, adoption roadmap) | you plan to share platform code between apps or change how forks consume it |
 | [platform-adoption/go-no-go-evopath.md](platform-adoption/go-no-go-evopath.md) | The platform-packages go/no-go gate: what one platform change cost by package and by copy in EvoPath, the verdict, the friction log and what a re-run needs | you decide whether a later packaging wave may start, or re-run the gate |
+| [specs/native-companion-architecture.md](specs/native-companion-architecture.md) | The Android companion: the web app in a Trusted Web Activity plus an optional native module, the five coordination channels, the Kotlin `platform-core`, hosted APK releases, Digital Asset Links, the `android_app` push channel | you build or release the Android app, or add a native capability |
 
 ## Decision records
 
@@ -82,6 +83,8 @@ In this order:
 | [runbooks/air-gapped.md](runbooks/air-gapped.md) | Running a deployment with no internet egress: `DEPLOYMENT_NETWORK=air-gapped`, the Doctor's `network.egress` row, and how to make each outbound dependency internal |
 | [runbooks/database-baseline.md](runbooks/database-baseline.md) | Adopting the platform migration history in an app that already has a production database: rehearse on a restored backup, `platform db baseline`, verify, roll back (operators, once per app) |
 | [runbooks/multi-org.md](runbooks/multi-org.md) | Running in multi-organization mode: setting `TENANCY_MODE=multi`, creating the first organization, inviting its administrator, managing members and invitations |
+| [runbooks/android-app.md](runbooks/android-app.md) | Installing the Android app, trusting its signing key so it opens full screen, pairing a native capability, Android troubleshooting |
+| [runbooks/android-release.md](runbooks/android-release.md) | Releasing an APK: keystore, versioning, `appctl android release`, the terminal menu, the deploy step, the web upload, CI, rollback |
 
 ## Developer recipes in the code
 
