@@ -114,7 +114,7 @@ export const DATABASE_BACKUP_SYSTEM_SETTINGS = {
   merge: mergeDatabaseBackupSettings,
 } satisfies SystemSettingsNamespace<'databaseBackup', SystemDatabaseBackupValue, DatabaseBackupSettingsPatchInput>;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '../settings/index' {
   interface SystemSettingsNamespaces {
     /** Database backup/restore policy (#256, epic #254). REQUIRED for the reason `jobs` gives. */
     databaseBackup: SystemDatabaseBackupValue;

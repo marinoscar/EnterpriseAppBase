@@ -161,7 +161,7 @@ export const NAVIGATION_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'navigation', NavigationValue, NavigationPatchValue>;
 
-declare module './user-settings-namespace' {
+declare module '../index' {
   interface UserSettingsNamespaces {
     /**
      * Per-table view preferences, keyed by table id.

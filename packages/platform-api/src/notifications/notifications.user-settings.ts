@@ -215,7 +215,7 @@ export const NOTIFICATIONS_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'notifications', NotificationsValue, NotificationsPatchValue>;
 
-declare module '../settings/registry/user-settings-namespace' {
+declare module '../settings/index' {
   interface UserSettingsNamespaces {
     /**
      * Per-channel, per-event notification preferences (#126), channel-outer:

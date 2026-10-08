@@ -69,7 +69,7 @@ export const AI_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'ai', UserAiSettingsValue, UserAiSettingsPatchValue>;
 
-declare module '../settings/registry/user-settings-namespace' {
+declare module '../settings/index' {
   interface UserSettingsNamespaces {
     /**
      * AI preferences (#423, epic #419, umbrella #418): which (provider, model)

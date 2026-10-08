@@ -28,6 +28,74 @@ export type {
   SettingsUserSettingsRow,
 } from './data/settings-db';
 
+// ---- the augmentable namespace maps (rung 2) ---------------------------------------------
+//
+// DECLARED HERE, IN THE MODULE `@marinoscar/platform-api/settings` RESOLVES TO,
+// AND NEVER RE-EXPORTED (#865). An app augments these four from outside the
+// package (`declare module '@marinoscar/platform-api/settings' { ... }`). When
+// the augmented interface is only a re-export of a declaration in another
+// file, TypeScript merges the app's augmentation through the alias, and a
+// second augmentation of the DECLARING file (every packaged slice's own
+// `declare module`) that the checker happens to process later replaces the
+// merged symbol: which keys survive then depends on file order, and an
+// installed app's `getNamespace('notes')` loses its key. Declaring them in the
+// entry module makes every augmentation, the slices' and the app's, target the
+// same file directly; slices augment `'../settings/index'`, never a deeper path.
+// `packages/platform-api/test/settings/namespace-augmentation.spec.ts` proves it
+// against the built declarations, in both file orders.
+
+/**
+ * Key → stored value type of every registered system namespace. Each slice's
+ * declaration file adds its key by module augmentation of this module; an app
+ * adds its own the same way, and `SystemSettingsService.getNamespace(key)`
+ * returns that type.
+ *
+ * @example
+ * ```ts
+ * declare module '@marinoscar/platform-api/settings' {
+ *   interface SystemSettingsNamespaces { coach: CoachSettings }
+ * }
+ * ```
+ *
+ * @stability experimental
+ */
+export interface SystemSettingsNamespaces {}
+
+/**
+ * Key → `typeof` the declaration, for the precise static types of the composed
+ * schemas (`updateSystemSettingsSchema.parse(...)` returning typed branches).
+ * Optional for an app: a namespace augmented only in
+ * {@link SystemSettingsNamespaces} is still validated, stored and returned;
+ * its request-body branch is just not statically typed.
+ *
+ * @stability experimental
+ */
+export interface SystemSettingsNamespaceDeclarations {}
+
+/**
+ * Key → stored value type of every registered user namespace. Slices add their
+ * keys by module augmentation of this module; an app adds its own the same
+ * way. Every key is OPTIONAL in `UserSettingsValue`.
+ *
+ * @example
+ * ```ts
+ * declare module '@marinoscar/platform-api/settings' {
+ *   interface UserSettingsNamespaces { coachPrefs: CoachPrefs }
+ * }
+ * ```
+ *
+ * @stability experimental
+ */
+export interface UserSettingsNamespaces {}
+
+/**
+ * Key → `typeof` the declaration, for the precise static types of the composed
+ * schemas. Optional for an app (see {@link SystemSettingsNamespaceDeclarations}).
+ *
+ * @stability experimental
+ */
+export interface UserSettingsNamespaceDeclarations {}
+
 // ---- the namespace registries (rung 2) ---------------------------------------------------
 export {
   RESERVED_SYSTEM_SETTINGS_KEYS,
@@ -39,9 +107,7 @@ export type {
   SettingsNamespaceOrgLayer,
   SettingsReadHelpers,
   SystemSettingsNamespace,
-  SystemSettingsNamespaceDeclarations,
   SystemSettingsNamespaceValue,
-  SystemSettingsNamespaces,
   SystemSettingsValue,
 } from './registry/system-settings-namespace';
 export {
@@ -51,8 +117,6 @@ export {
 } from './registry/user-settings-namespace';
 export type {
   UserSettingsNamespace,
-  UserSettingsNamespaceDeclarations,
-  UserSettingsNamespaces,
   UserSettingsNamespacesValue,
 } from './registry/user-settings-namespace';
 export { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './registry/secret-fields';

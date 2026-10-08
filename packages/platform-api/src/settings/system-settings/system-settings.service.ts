@@ -16,10 +16,10 @@ import {
   systemSettingsNamespaceRegistry,
   type SettingsReadHelpers,
   type SystemSettingsNamespace,
-  type SystemSettingsNamespaces,
   type SystemSettingsNamespaceValue,
   type SystemSettingsValue,
 } from '../registry/system-settings-namespace';
+import type { SystemSettingsNamespaces } from '../index';
 import { DEFAULT_SETTINGS_OPTIONS, SETTINGS_OPTIONS, type ResolvedSettingsModuleOptions } from '../settings.options';
 
 // =============================================================================

@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { defineRegistry } from '../../core/index';
 import { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './secret-fields';
 import { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './schema-walk';
+import type { SystemSettingsNamespaces } from '../index';
 
 /**
  * Helpers `SystemSettingsService` lends to a namespace's {@link SystemSettingsNamespace.read}.
@@ -145,32 +146,9 @@ export interface SettingsNamespaceOrgLayer<V> {
   readonly writePermission: string;
 }
 
-/**
- * Key → stored value type of every registered system namespace. Each platform
- * declaration file adds its key by module augmentation; an app adds its own
- * the same way (see `app-registrations/settings.ts`).
- *
- * @example
- * ```ts
- * declare module '@marinoscar/platform-api/settings' {
- *   interface SystemSettingsNamespaces { coach: CoachSettings }
- * }
- * ```
- *
- * @stability experimental
- */
-export interface SystemSettingsNamespaces {}
-
-/**
- * Key → `typeof` the declaration, for the precise static types of the composed
- * schemas (`updateSystemSettingsSchema.parse(...)` returning typed branches).
- * Optional for an app: a namespace augmented only in
- * {@link SystemSettingsNamespaces} is still validated, stored and returned;
- * its request-body branch is just not statically typed.
- *
- * @stability experimental
- */
-export interface SystemSettingsNamespaceDeclarations {}
+// `SystemSettingsNamespaces` and `SystemSettingsNamespaceDeclarations`, the
+// two interfaces a slice or an app augments, are DECLARED in the slice's entry
+// module (`../index.ts`), not here: see the note there (#865).
 
 /**
  * The stored system settings document, one property per registered namespace.

@@ -29,14 +29,13 @@ import {
 import {
   systemSettingsNamespaceRegistry,
   type SystemSettingsNamespace,
-  type SystemSettingsNamespaceDeclarations,
   type SystemSettingsValue,
 } from './system-settings-namespace';
 import {
   userSettingsNamespaceRegistry,
   type UserSettingsNamespace,
-  type UserSettingsNamespaceDeclarations,
 } from './user-settings-namespace';
+import type { SystemSettingsNamespaceDeclarations, UserSettingsNamespaceDeclarations } from '../index';
 
 // -----------------------------------------------------------------------------
 // Static types: the composed shapes, per platform declaration

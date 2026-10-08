@@ -137,7 +137,7 @@ export const STORAGE_SYSTEM_SETTINGS = {
   merge: mergeStorageSettings,
 } satisfies SystemSettingsNamespace<'storage', SystemStorageValue, StorageSettingsPatchInput>;
 
-declare module '../../settings/registry/system-settings-namespace' {
+declare module '../../settings/index' {
   interface SystemSettingsNamespaces {
     /**
      * Object-storage provider configuration (#373, epic #372): which provider,

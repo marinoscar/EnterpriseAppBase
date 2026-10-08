@@ -25,6 +25,7 @@ import { defineRegistry } from '../../core/index';
 import { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './secret-fields';
 import { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './schema-walk';
 import { SETTINGS_NAMESPACE_KEY_PATTERN } from './system-settings-namespace';
+import type { UserSettingsNamespaces } from '../index';
 
 /**
  * One optional namespace of a user's settings document.
@@ -72,29 +73,9 @@ export interface UserSettingsNamespace<K extends string = string, V = unknown, P
   readonly forbiddenKeys?: readonly string[];
 }
 
-/**
- * Key → stored value type of every registered user namespace. Platform
- * declaration files add their keys by module augmentation; an app adds its own
- * the same way. Every key is OPTIONAL in `UserSettingsValue`.
- *
- * @example
- * ```ts
- * declare module '@marinoscar/platform-api/settings' {
- *   interface UserSettingsNamespaces { coachPrefs: CoachPrefs }
- * }
- * ```
- *
- * @stability experimental
- */
-export interface UserSettingsNamespaces {}
-
-/**
- * Key → `typeof` the declaration, for the precise static types of the composed
- * schemas. Optional for an app (see `SystemSettingsNamespaceDeclarations`).
- *
- * @stability experimental
- */
-export interface UserSettingsNamespaceDeclarations {}
+// `UserSettingsNamespaces` and `UserSettingsNamespaceDeclarations`, the two
+// interfaces a slice or an app augments, are DECLARED in the slice's entry
+// module (`../index.ts`), not here: see the note there (#865).
 
 /**
  * The optional namespaces of a user's settings document.
