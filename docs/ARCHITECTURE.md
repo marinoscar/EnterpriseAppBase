@@ -673,6 +673,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/push` | Web Push | General | `push:read` | |
 | `/admin/settings/storage` | Storage | General | `storage_config:read` | |
 | `/admin/settings/maintenance` | Maintenance | General | `system_settings:read` | |
+| `/admin/settings/setup` | Setup guide | General | `system_settings:read` | none (lists AI and the other features while they are off); the Activation section is part of the page ([onboarding](specs/onboarding.md)) |
 | `/admin/settings/users` | Users & Allowlist | Access | `users:read` | |
 | `/admin/settings/jobs` | Jobs | Operations | `jobs:read` | |
 | `/admin/settings/jobs/insights` | Job Insights | Operations | `jobs:read` | |
@@ -693,6 +694,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
+| `/settings/getting-started` | Getting started | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/groups` | Groups (and `/settings/groups/:id`, the group's page) | Sharing | `groups:read` (org) | |

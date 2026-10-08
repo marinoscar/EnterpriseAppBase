@@ -65,6 +65,10 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: "Org administration (#726): SELECT ... FOR UPDATE on the caller's ACTIVE organization row, to serialize the last-admin check; Prisma has no row lock. The org id comes from the principal, never from the request.",
   },
   {
+    file: 'platform/onboarding/onboarding-data.adapter.ts',
+    why: "Onboarding activation metrics (#745): ONE read-only aggregate SELECT (cohort, milestones, funnel) built by @marinoscar/platform-api/onboarding from registered SQL fragments; every value a positional parameter, no per-user row returned.",
+  },
+  {
     file: 'data/identity-db.ts',
     why: "The identity slice's structural client (#727): DECLARES the `$queryRaw` / `$executeRaw` signatures the slice may call on the app's client; issues no statement itself.",
   },

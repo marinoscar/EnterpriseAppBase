@@ -82,6 +82,14 @@
       "types": "./dist/credentials/testing/index.d.ts",
       "default": "./dist/credentials/testing/index.js"
     },
+    "./onboarding": {
+      "types": "./dist/onboarding/index.d.ts",
+      "default": "./dist/onboarding/index.js"
+    },
+    "./onboarding/testing": {
+      "types": "./dist/onboarding/testing/index.d.ts",
+      "default": "./dist/onboarding/testing/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { PlatformSettingsPage } from '@marinoscar/platform-web/core';
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
+import { gettingStartedSettingsPage, setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
 
@@ -46,7 +47,18 @@ const PACKAGED_PAGES: ReadonlyArray<{
       literal: "id: 'groups:read',",
     },
   },
+  {
+    // #745: the admin block of GET /api/onboarding and the metrics route.
+    page: setupGuideSettingsPage,
+    enforcedBy: {
+      file: resolve(HERE, '../../../../../packages/platform-contract/src/onboarding/constants.ts'),
+      literal: "export const ONBOARDING_ADMIN_PERMISSION = 'system_settings:read' as const;",
+    },
+  },
 ];
+
+/** Packaged USER pages this app binds: one card, one route, no permission (every role holds `user_settings:read`). */
+const PACKAGED_USER_PAGES: ReadonlyArray<PlatformSettingsPage<never>> = [gettingStartedSettingsPage];
 
 /** Every `<Route>` in App.tsx as `path` -> the `permission` it wraps (same parser as destinations.test.ts). */
 function declaredRouteGates(): Array<{ path: string; permission: string | null }> {
@@ -135,3 +147,34 @@ describe('packaged telemetry cards', () => {
   });
 });
 
+
+/**
+ * The onboarding slice (#745): the Setup guide is an admin card (General,
+ * appended) and Getting started a user card (Account, appended), each with
+ * one route; a Danger Zone group, when one exists, stays last.
+ */
+describe('packaged onboarding pages', () => {
+  const cards = [...ADMIN_SECTIONS, ...USER_SETTINGS_SECTIONS].flatMap((section) => section.cards);
+
+  for (const page of PACKAGED_USER_PAGES) {
+    it(`${page.id}: one card from the descriptor and one ungated route`, () => {
+      const matching = cards.filter((card) => card.path === page.card.path);
+      expect(matching).toEqual([{ ...page.card, Icon: page.Icon }]);
+      expect(page.card.permission).toBeUndefined();
+      const routes = declaredRouteGates().filter((route) => route.path === page.card.path);
+      expect(routes).toEqual([{ path: page.card.path, permission: null }]);
+    });
+  }
+
+  it('appends the Setup guide to General and Getting started to Account', () => {
+    expect(ADMIN_SECTIONS.find((s) => s.label === 'General')?.cards.at(-1)?.path).toBe(setupGuideSettingsPage.card.path);
+    expect(USER_SETTINGS_SECTIONS.find((s) => s.label === 'Account')?.cards.at(-1)?.path).toBe(gettingStartedSettingsPage.card.path);
+  });
+
+  it('keeps any Danger Zone group last', () => {
+    for (const sections of [ADMIN_SECTIONS, USER_SETTINGS_SECTIONS]) {
+      const index = sections.findIndex((section) => /danger zone/i.test(section.label));
+      if (index !== -1) expect(index).toBe(sections.length - 1);
+    }
+  });
+});

@@ -45,6 +45,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
+import { GettingStartedMenuItem } from '@marinoscar/platform-web/onboarding/ui';
 
 export function UserMenu() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -149,6 +150,11 @@ export function UserMenu() {
             <ListItemText>{destination.label}</ListItemText>
           </MenuItem>
         ))}
+
+        {/* Issue #745. "Getting started" clears the stored welcome and
+            dismissals, so the welcome dialog and the checklists return. Renders
+            nothing without the shell's onboarding provider. */}
+        <GettingStartedMenuItem onDone={handleClose} />
 
         <Divider />
 

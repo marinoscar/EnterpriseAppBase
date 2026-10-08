@@ -916,6 +916,10 @@ describe('the Operations group (#266)', () => {
       // for the same reason as About: `@marinoscar/platform-api/doctor`
       // enforces `system_settings:read` (bound in
       // `apps/api/src/doctor/doctor.config.ts`), so the card mirrors it.
+      //
+      // GENERAL GAINED `Setup guide` (#745), appended, for the same reason:
+      // `@marinoscar/platform-api/onboarding` returns the admin block and the
+      // metrics under `system_settings:read`.
       const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
         ['system_settings:read', 'system_settings:write', 'users:read'].includes(permission),
       );
@@ -930,6 +934,7 @@ describe('the Operations group (#266)', () => {
         'Email',
         'Notifications',
         'Maintenance',
+        'Setup guide',
         'Users & Allowlist',
         'About',
         'Doctor',

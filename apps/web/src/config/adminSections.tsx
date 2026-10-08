@@ -59,6 +59,8 @@ import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 // Access and Organizations (#727): the identity slice's cards, as data.
 import { identityAdminSections } from '@marinoscar/platform-web/identity/ui';
+// Setup guide (#745; a packaged page: card and icon from its descriptor).
+import { setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 
 // The card and section TYPES and the helpers every surface runs over this
 // registry (`visibleSettingsSections`, `settingsPageTitle`, `isFeatureEnabled`)
@@ -204,6 +206,14 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         path: '/admin/settings/maintenance',
         permission: 'system_settings:read',
       },
+      // Issue #745, appended to General: the administrator's derived setup
+      // checklist (required: storage, email, access; recommended: AI, Web
+      // Push, backups), from `@marinoscar/platform-web/onboarding/ui`.
+      // `system_settings:read` is the permission under which
+      // `@marinoscar/platform-api/onboarding` returns the admin block and
+      // serves the activation metrics; its Activation section is a section of
+      // the page, not a card or a tab.
+      { ...setupGuideSettingsPage.card, Icon: setupGuideSettingsPage.Icon },
     ],
   },
   {

@@ -151,6 +151,15 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           '`org_settings:read`/`:write`; each namespace\'s own permissions gate its fields. Supports ' +
           '`If-Match`.',
       },
+      {
+        name: 'Onboarding',
+        description:
+          'First-run onboarding: the caller\'s Get started checklist and, for an administrator ' +
+          '(`system_settings:read`), the Setup guide, both DERIVED from the data on every request ' +
+          '(Doctor checks, the allowlist, the caller\'s settings), never stored; plus aggregate ' +
+          'new-user activation metrics. Read-only; the welcome and dismiss state is written through ' +
+          '`PATCH /api/user-settings` (`onboarding` namespace).',
+      },
     ],
   },
   {

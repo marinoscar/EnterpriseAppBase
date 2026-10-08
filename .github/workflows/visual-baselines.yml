@@ -79,12 +79,15 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      # Two installs, exactly as the `visual` job does: the root workspace
+      # Two installs and the package build, exactly as the `visual` job does: the root workspace
       # install provides `apps/web` and the Vite dev server the harness runs
       # on, and `tests/visual` is not an npm workspace (it is a test-runner
       # package, not application code), so its pinned `@playwright/test` is a
       # separate install.
       - run: npm ci
+      # The harness imports the @marinoscar/platform-* packages, which resolve
+      # to their dist/ output, exactly as in the `visual` job.
+      - run: npm run build:packages
       - run: npm ci
         working-directory: tests/visual
 

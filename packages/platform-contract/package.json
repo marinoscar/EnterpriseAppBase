@@ -90,6 +90,16 @@
         "default": "./dist/cjs/credentials/index.js"
       }
     },
+    "./onboarding": {
+      "import": {
+        "types": "./dist/esm/onboarding/index.d.ts",
+        "default": "./dist/esm/onboarding/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/onboarding/index.d.ts",
+        "default": "./dist/cjs/onboarding/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -91,6 +91,14 @@
       "types": "./dist/credentials/ui/index.d.ts",
       "default": "./dist/credentials/ui/index.js"
     },
+    "./onboarding/headless": {
+      "types": "./dist/onboarding/headless/index.d.ts",
+      "default": "./dist/onboarding/headless/index.js"
+    },
+    "./onboarding/ui": {
+      "types": "./dist/onboarding/ui/index.d.ts",
+      "default": "./dist/onboarding/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
