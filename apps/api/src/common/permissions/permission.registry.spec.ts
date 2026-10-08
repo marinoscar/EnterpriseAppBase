@@ -181,9 +181,9 @@ describe('permission registry', () => {
       expect(permissionRegistry.ids()).toEqual(Object.values(PERMISSIONS));
     });
 
-    it('declares 43 permissions and 4 roles, each exactly once', () => {
-      expect(permissionRegistry.size).toBe(43);
-      expect(new Set(Object.values(PERMISSIONS)).size).toBe(43);
+    it('declares 45 permissions and 4 roles, each exactly once', () => {
+      expect(permissionRegistry.size).toBe(45);
+      expect(new Set(Object.values(PERMISSIONS)).size).toBe(45);
       expect(roleRegistry.size).toBe(4);
     });
   });
@@ -245,6 +245,9 @@ describe('permission registry', () => {
         'sharing:read',
         'sharing:write',
         'sharing:admin',
+        // The settings slice's org layer (#733).
+        'org_settings:read',
+        'org_settings:write',
       ]);
     });
 
