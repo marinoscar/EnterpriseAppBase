@@ -384,7 +384,7 @@ export class PlatformHttpClient {
 
   /**
    * GET a binary body (an image, a file) as a `Blob`. Same bearer token,
-   * 401 -> refresh -> retry and error handling as every JSON call.
+   * 401, refresh and retry and error handling as every JSON call.
    *
    * @param endpoint - the path relative to `baseUrl`.
    * @param options - request options.
@@ -418,7 +418,7 @@ export class PlatformHttpClient {
 
   /**
    * POST a `multipart/form-data` body. The same bearer token, one-shot
-   * 401 -> refresh -> retry and error hook apply; the FormData is sent as-is
+   * 401, refresh and retry and error hook apply; the FormData is sent as-is
    * (never JSON-stringified) and can be re-sent on that retry.
    *
    * @param endpoint - the path relative to `baseUrl`.

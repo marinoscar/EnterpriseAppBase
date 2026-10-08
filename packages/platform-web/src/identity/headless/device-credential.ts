@@ -1,3 +1,4 @@
+// Moved from the reference app's `components/device-activation/credential.ts` (issue #727).
 /**
  * Interpreting the UNTRUSTED `clientInfo` blob that the activation page shows.
  *
@@ -9,7 +10,7 @@
  *     refresh token, roughly a week of life, dies with the session.
  *   - `pat` — a personal access token with a ~90-day life that authenticates
  *     against every ordinary guarded endpoint and stays valid until it expires
- *     or is revoked from Settings -> Access Tokens.
+ *     or is revoked from Settings, Access Tokens.
  *
  * Before this module existed the two approvals rendered IDENTICALLY. That is
  * the gap: `POST /auth/device/code` is public, so anyone can start a flow that
@@ -21,7 +22,11 @@
  * outputs, never the raw fields.
  */
 
-/** The credential kinds the UI knows how to describe. */
+/**
+ * The credential kinds the UI knows how to describe.
+ *
+ * @stability stable
+ */
 export type DeviceCredentialKind = 'session' | 'pat';
 
 /**
@@ -41,6 +46,8 @@ export type DeviceCredentialKind = 'session' | 'pat';
  * `DEVICE_PAT_EXPIRY_DAYS` shows a number that is off — still the right order
  * of magnitude, and still unambiguously "not a browser session", which is the
  * decision this screen actually drives.
+ *
+ * @stability stable
  */
 export const DEVICE_PAT_APPROX_DAYS = 90;
 
@@ -70,6 +77,11 @@ export const DEVICE_PAT_APPROX_DAYS = 90;
  *     conservative.
  *   - `clientInfo` not an object at all (a string, an array, a number): JSONB
  *     round-trips any of those, and a property read on them must not throw.
+ *
+ * @param clientInfo - the untrusted `clientInfo` of the activation response.
+ * @returns `'pat'` only for an exact `tokenType: 'pat'`, else `'session'`.
+ *
+ * @stability stable
  */
 export function readCredentialKind(clientInfo: unknown): DeviceCredentialKind {
   if (
@@ -95,9 +107,21 @@ export function readCredentialKind(clientInfo: unknown): DeviceCredentialKind {
  * one thing this screen exists to show. The user agent gets a longer budget
  * because real ones are genuinely long, and truncating a legitimate UA to 64
  * characters would hurt recognition, which is the entire reason it is shown.
+ *
+ * @stability stable
  */
 export const DEVICE_NAME_MAX_DISPLAY = 64;
+/**
+ * Display bound for the device's user agent, in characters (see {@link DEVICE_NAME_MAX_DISPLAY}).
+ *
+ * @stability stable
+ */
 export const USER_AGENT_MAX_DISPLAY = 180;
+/**
+ * Display bound for the device's IP address, in characters (see {@link DEVICE_NAME_MAX_DISPLAY}).
+ *
+ * @stability stable
+ */
 export const IP_ADDRESS_MAX_DISPLAY = 64;
 
 /**
@@ -127,6 +151,12 @@ export const IP_ADDRESS_MAX_DISPLAY = 64;
  *
  * Returns `null` (not `''`) when nothing is left to show, so callers drop the
  * whole labelled row instead of rendering a label over empty space.
+ *
+ * @param raw - one untrusted `clientInfo` value.
+ * @param maxLength - the display bound, in characters.
+ * @returns the text to render, or `null`.
+ *
+ * @stability stable
  */
 export function sanitizeDeviceText(
   raw: unknown,

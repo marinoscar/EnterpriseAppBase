@@ -59,6 +59,10 @@
       "types": "./dist/telemetry/ui/dashboard-page.d.ts",
       "default": "./dist/telemetry/ui/dashboard-page.js"
     },
+    "./identity/headless": {
+      "types": "./dist/identity/headless/index.d.ts",
+      "default": "./dist/identity/headless/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
