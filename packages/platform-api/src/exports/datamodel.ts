@@ -51,7 +51,10 @@ export interface ExportDatamodelModel {
   /** Its fields, in schema order. */
   readonly fields: readonly ExportDatamodelField[];
   /** A composite primary key, when the datamodel records one (Prisma 7's runtime datamodel does not). */
-  readonly primaryKey?: { readonly fields: readonly string[] } | null;
+  readonly primaryKey?: {
+    /** The key's fields, in order. */
+    readonly fields: readonly string[];
+  } | null;
 }
 
 /**

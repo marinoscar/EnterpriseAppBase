@@ -20,6 +20,7 @@ Slices (each a subpath export with its own README):
 | `@marinoscar/platform-contract/jobs` | The admin job routes' list query and row (with `orgId`), summary, insights and bulk-action shapes, and the status, reason and window lists (#734) | [src/jobs/README.md](src/jobs/README.md) |
 | `@marinoscar/platform-contract/nodes` | The worker-node control plane, data plane, per-job secret and node credential request shapes, and the node bounds (#734) | [src/nodes/README.md](src/nodes/README.md) |
 | `@marinoscar/platform-contract/storage` | The `storage` settings namespace (with the no-secret proof), the objects API and status shapes, and the storage-config admin bodies and results (save, connection test, bucket provisioning) (#736) | [src/storage/README.md](src/storage/README.md) |
+| `@marinoscar/platform-contract/exports` | The `/api/exports` request and responses, the cell, column and request-field shapes, and the JSON export file envelope (#744) | [src/exports/README.md](src/exports/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 
@@ -156,3 +157,4 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 - [Identity slice](src/identity/README.md)
 - [Settings slice](src/settings/README.md)
 - [Onboarding slice](src/onboarding/README.md)
+- [Exports slice](src/exports/README.md)

@@ -195,7 +195,7 @@ Files live in an S3-compatible object store: AWS S3, Cloudflare R2, or any S3-co
 
 Uploads come in two shapes. A simple upload (`POST /api/storage/objects`, up to 100 MB) streams through the API. A resumable upload initializes a multipart upload, lets the client send parts directly to the bucket through presigned URLs, then completes it. A completed upload checks, in the same transaction, whether any registered processor applies: if none does the object is marked `ready` immediately; otherwise the object is marked `processing` and the `storage.object.process` job runs the applicable processors (for example, metadata extraction) and stores their results on the object. Profile pictures and AI outputs are storage objects too. Abandoned uploads are swept by the `storage.cleanup.stale-uploads` job. Post-upload processors register with `ObjectProcessorRegistry` from their `onModuleInit`. Every key prefix a writer uses is declared in the storage key-prefix registry with a scope (`org`, `user` or `deployment`; apps add theirs in `app-registrations/storage-prefixes.ts`), and `npm run storage:purge` deletes only under those prefixes (`allKeyPrefixes()` of the booted app).
 
-**Key layout.** New objects of an org-scoped prefix are written under `<prefix><orgId>/…`: uploads are `uploads/<orgId>/<timestamp>/<uuid><ext>`, so one organization's objects are one listable prefix per root (`orgKeyPrefixes(orgId)`, for org offboarding). Objects written before #736 keep `uploads/<timestamp>/<uuid><ext>`; every read, download and delete uses the row's stored `storage_key`, never a rebuilt one, and the purge's root prefixes cover both layouts. Avatars stay user-scoped (`avatars/<userId>/…`); probes, node outputs and backups are deployment-scoped; AI outputs are `ai-outputs/<userId>/<runId>/…`.
+**Key layout.** New objects of an org-scoped prefix are written under `<prefix><orgId>/…`: uploads are `uploads/<orgId>/<timestamp>/<uuid><ext>`, so one organization's objects are one listable prefix per root (`orgKeyPrefixes(orgId)`, for org offboarding). Objects written before #736 keep `uploads/<timestamp>/<uuid><ext>`; every read, download and delete uses the row's stored `storage_key`, never a rebuilt one, and the purge's root prefixes cover both layouts. Avatars stay user-scoped (`avatars/<userId>/…`); probes, node outputs and backups are deployment-scoped; AI outputs are `ai-outputs/<userId>/<runId>/…`; data exports are `exports/users/<userId>/<exportId>.<ext>` (user-scoped) and `exports/orgs/<orgId>/<exportId>.<ext>` (org-scoped, #744).
 
 - **Code:** `packages/platform-api/src/storage/` (`@marinoscar/platform-api/storage`: `objects/`, `config/`, `providers/`, `processing/`, `profile-image/`, the key-prefix registry, `purge/`), `packages/platform-contract/src/storage/`, `packages/platform-web/src/storage/` (the page); the reference app's wiring in `apps/api/src/platform/storage/`, its processor example in `apps/api/src/examples/storage/`
 - **UI:** `/admin/settings/storage`
@@ -412,6 +412,24 @@ Link shares (issue #730): a grant of kind `link` shares one record, with one rol
 - **Doctor:** `sharing.groups.orphaned` (warn: groups without an admin)
 - **Read more:** [sharing README](../packages/platform-api/src/sharing/README.md), [specs/platform-packages.md](specs/platform-packages.md#tenancy-and-access-model)
 
+### 5.24 Data export (`@marinoscar/platform-api/exports`)
+
+Answers "give me my data" (a GDPR or CCPA access request) and "give us our organization's data before we leave" (issue #744, harvested from EvoPath's health export and kvox's exporters):
+- **Sources and writers.** An export **source** turns a request into datasets, read-only and paged; an export **writer** streams them into one file. `POST /api/exports` queues an `export.run` job and answers `202`. The job streams the writer's output straight into object storage, never buffered.
+- **No export table.** The export id is the job id, the outcome is the job's `payload.result`, and the status (`pending`, `running`, `ready`, `expired`, `failed`) is derived. `GET /api/exports/:id` mints a 5-minute signed download with `Content-Disposition: attachment` while `ready`.
+- **Platform sources.**
+  - `user-data` (every role, through `user_settings:read`): one dataset per model the user-owned registry marks `export: 'include'`, plus the account row.
+  - `org-data` (`org_members:read` for the active organization, `organizations:read` across organizations): every `org` model filtered on the organization, plus the member list. It is read through the bypass client with an explicit `orgId` filter.
+- **Built-in writers.** `json` (versioned envelope), `csv` (a zip of RFC 4180 files with BOM, CRLF and formula neutralisation) and `xlsx` (one sheet per dataset).
+- **Redaction.** Columns are the scalar fields minus `exportOmit`, minus `Bytes`, and minus a default rule no entry can lower (`secret`, `tokenHash`, `password`, `hint`, `*Secret`, `*Hash`, `*Ciphertext`, `*Salt`). The `exports` conformance suite and `exports.db.spec.ts` prove no secret byte reaches a file.
+- **Expiry.** Files live under `exports/users/<userId>/` and `exports/orgs/<orgId>/` and are deleted after 7 days by `export.purge`, which a daily cron only enqueues.
+- **Notifications.** `export.ready` and `export.failed` go to the requester after commit.
+
+- **Code:** `packages/platform-api/src/exports/`, `packages/platform-contract/src/exports/`, `packages/platform-web/src/exports/`; the app's binding is `apps/api/src/platform/exports/` and `app-registrations/exports.ts`; reference examples in `apps/api/src/examples/exports/`
+- **Tables:** none of its own (`jobs`, `storage_objects`)
+- **Metrics:** `app.exports` (`source`, `format`, `outcome`), `app.export.duration`, `app.export.size`
+- **Read more:** [specs/data-export.md](specs/data-export.md), [exports README](../packages/platform-api/src/exports/README.md)
+
 ---
 
 ## 6. Data architecture
@@ -593,7 +611,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 29 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
+All 31 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
 
 | Type | Label | Handler | What it does | Node-eligible |
 |---|---|---|---|:-:|
@@ -626,6 +644,8 @@ All 29 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `telemetry.retention.apply` | Telemetry retention | `packages/platform-api/src/telemetry/handlers/telemetry-retention.handler.ts` (the telemetry slice) | Sets GreptimeDB's database-level TTL to `telemetry.retentionDays`; daily and on policy change | No |
 | `telemetry.stack.deploy` | Telemetry services deploy | `packages/platform-api/src/telemetry/stack/telemetry-stack-deploy.handler.ts` (the telemetry slice) | Starts GreptimeDB and the collector through `stack-agent`, on admin request | No |
 | `sharing.grants.prune` | (none) | `packages/platform-api/src/sharing/jobs/grants-prune.handler.ts` (the sharing slice) | Deletes grants revoked or expired more than `grants.retentionDays` ago and grants whose record no longer exists (each type's `loadOwners`), in chunks; daily at 03:00 | No |
+| `export.run` | Data export | `packages/platform-api/src/exports/handlers/export-run.handler.ts` (the exports slice) | Streams one user's or one organization's export file into object storage and records the result on the job; subject `user` or `organization`, at most 3 in flight per subject | No |
+| `export.purge` | Export expiry | `packages/platform-api/src/exports/handlers/export-purge.handler.ts` (the exports slice) | Deletes export files older than the retention period (7 days), bytes then row; daily at 03:00 | No |
 
 Every `ai.*` type is server-only permanently: no AI key is ever brokered to a worker node. `db.backup.run` is offered to nodes only when `nodes.jobSecretBrokerEnabled` and `databaseBackup.nodeOffloadEnabled` are both on and the broker can mint a role.
 
@@ -706,6 +726,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/groups` | Groups (and `/settings/groups/:id`, the group's page) | Sharing | `groups:read` (org) | |
+| `/settings/data-export` | Download your data | Your data | | |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content. The Organization page (#726) follows the same precedent: Members and Invites are parallel views of "who belongs to this organization", and `org_invites:read` gates the Invites tab. Both organization cards exist only when `/api/auth/me` reports `tenancyMode: 'multi'` (the `orgs` feature); an organization's own administrator, who holds no system permission, reaches the Console through `org_members:read` and sees only the Organization card. The AppBar's organization switcher (`OrgSwitcher` of `@marinoscar/platform-web/identity/ui`) appears in multi-org mode for a user with two or more active memberships.
 
@@ -856,6 +877,7 @@ Health endpoints (public, reachable during maintenance):
 | The login page's logo, title, footer or buttons, a sign-in button look, the identity pages' spinner, table or client (`LoginPage` slots, web `registerAuthProvider`, `IdentityWebAdapters`) | [web identity README](../packages/platform-web/src/identity/README.md#extension-point-catalog); examples in `apps/web/src/identity/` |
 | A shareable resource type, a group-owned table, a list of what a caller may see, or a public link route | [sharing README, extension-point catalog](../packages/platform-api/src/sharing/README.md#extension-point-catalog) (examples in `apps/api/test/examples/sharing/`; UI: [web sharing README](../packages/platform-web/src/sharing/README.md#extension-point-catalog)) |
 | A secret stored encrypted (a new cipher purpose) | [core README](../packages/platform-api/src/core/README.md) (crypto), [specs/user-credentials.md](specs/user-credentials.md) |
+| An export source or format, a document exporter, the CSV helpers | [exports README, extension-point catalog](../packages/platform-api/src/exports/README.md#extension-point-catalog), [specs/data-export.md](specs/data-export.md) |
 
 ---
 

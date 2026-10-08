@@ -18,6 +18,7 @@
 import {
   EXPORT_FAILED_MESSAGE,
   EXPORT_ID_PATTERN,
+  exportScopeSchema,
   type ExportStatus,
   type ExportView,
 } from '@marinoscar/platform-contract/exports';
@@ -67,7 +68,7 @@ export const exportJobPayloadSchema = z.object({
   /** The user who asked; the notification recipient and the file's uploader. */
   requestedById: z.string().min(1),
   /** The source's scope. */
-  scope: z.enum(['user', 'org']),
+  scope: exportScopeSchema,
   /** The user (`user`) or organization (`org`) whose data it is; equals the job's subject. */
   subjectId: z.string().min(1),
   /** The organization the file's `storage_objects` row belongs to. */

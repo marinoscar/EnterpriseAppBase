@@ -112,7 +112,7 @@ export { ExportPurgeHandler } from './handlers/export-purge.handler';
 export type { ExportPurgeResult } from './handlers/export-purge.handler';
 export { ExportPurgeTask } from './tasks/export-purge.task';
 export { EXPORT_NOT_FOUND, ExportsService } from './exports.service';
-export type { ExportPrincipal, ExportsJobsPrisma } from './exports.service';
+export type { ExportJobSubjectRow, ExportPrincipal, ExportsJobsPrisma } from './exports.service';
 export {
   CreateExportDto,
   ExportListResponseDto,

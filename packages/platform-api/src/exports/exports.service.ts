@@ -83,10 +83,25 @@ export const EXPORT_NOT_FOUND = 'Export not found';
 export interface ExportsJobsPrisma {
   /** `jobs`. */
   job: {
+    /** Counts the subject's in-flight exports. */
     count(args: unknown): Promise<number>;
+    /** Lists the caller's exports. */
     findMany(args: unknown): Promise<ExportJobRow[]>;
-    findFirst(args: unknown): Promise<(ExportJobRow & { subjectType: string | null; subjectId: string | null }) | null>;
+    /** Reads one export. */
+    findFirst(args: unknown): Promise<ExportJobSubjectRow | null>;
   };
+}
+
+/**
+ * A job row with its subject, as `GET /exports/:id` reads it.
+ *
+ * @stability experimental
+ */
+export interface ExportJobSubjectRow extends ExportJobRow {
+  /** `user` or `organization`. */
+  subjectType: string | null;
+  /** The user or organization id. */
+  subjectId: string | null;
 }
 
 const JOB_SELECT = { id: true, status: true, payload: true, createdAt: true, finishedAt: true } as const;

@@ -43,7 +43,9 @@ export const DEFAULT_EXPORT_PURGE_PROFILE: JobExecutionProfile = Object.freeze({
 /**
  * A job type an app ran before adopting the slice, kept registered as an
  * alias so its rows still have a handler (a job `type` is permanent).
+ * Passed as `ExportsModule.forRoot({ legacyJobTypes })`.
  *
+ * @extensionPoint option
  * @stability experimental
  * @example
  * ```ts
@@ -127,7 +129,12 @@ export interface ResolvedExportsModuleOptions {
   /** `export.purge`. */
   readonly purgeProfile: JobExecutionProfile;
   /** The platform sources registered. */
-  readonly platformSources: { readonly userData: boolean; readonly orgData: boolean };
+  readonly platformSources: {
+    /** Whether `user-data` is registered. */
+    readonly userData: boolean;
+    /** Whether `org-data` is registered. */
+    readonly orgData: boolean;
+  };
   /** The aliases. */
   readonly legacyJobTypes: readonly ExportLegacyJobType[];
   /** The modules imported next to the slice. */

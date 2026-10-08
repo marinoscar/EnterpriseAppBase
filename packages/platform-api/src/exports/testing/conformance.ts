@@ -75,6 +75,32 @@ export function exportSentinel(model: string, field: string): string {
 }
 
 /**
+ * What {@link collectExportOutput} returns.
+ *
+ * @stability experimental
+ */
+export interface CollectedExportOutput {
+  /** Every byte the writer wrote. */
+  bytes: Buffer;
+  /** What the writer reported. */
+  result: ExportWriteResult;
+}
+
+/**
+ * One output of {@link runSentinelExports}.
+ *
+ * @stability experimental
+ */
+export interface SentinelExportOutput {
+  /** The source id. */
+  source: string;
+  /** The writer id. */
+  format: string;
+  /** The output's searchable text (zips decompressed). */
+  text: string;
+}
+
+/**
  * Writes `tables` with `writer` into memory.
  *
  * @param writer - the writer.
@@ -93,7 +119,7 @@ export async function collectExportOutput(
   writer: ExportWriter,
   tables: AsyncIterable<ExportTable>,
   source = 'test',
-): Promise<{ bytes: Buffer; result: ExportWriteResult }> {
+): Promise<CollectedExportOutput> {
   const chunks: Buffer[] = [];
   const out = new Writable({
     write(chunk: Buffer | string, _encoding, callback) {
@@ -226,8 +252,8 @@ export function forbiddenExportSentinels(datamodel: ExportDatamodel, source: str
  */
 export async function runSentinelExports(
   options: ExportsConformanceOptions,
-): Promise<Array<{ source: string; format: string; text: string }>> {
-  const outputs: Array<{ source: string; format: string; text: string }> = [];
+): Promise<SentinelExportOutput[]> {
+  const outputs: SentinelExportOutput[] = [];
   for (const id of [USER_DATA_EXPORT_SOURCE_ID, ORG_DATA_EXPORT_SOURCE_ID]) {
     const source = exportSourceRegistry.get(id);
     if (!source) continue;

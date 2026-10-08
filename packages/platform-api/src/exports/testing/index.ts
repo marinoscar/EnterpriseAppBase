@@ -13,6 +13,6 @@ export {
   sentinelExportDb,
   tablesOf,
 } from './conformance';
-export type { ExportsConformanceOptions } from './conformance';
+export type { CollectedExportOutput, ExportsConformanceOptions, SentinelExportOutput } from './conformance';
 export { exportFileText, isZip, readZipEntries } from './zip';
 export type { ZipEntry } from './zip';
