@@ -583,11 +583,26 @@ model NotificationBroadcast {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
+  // The audience's organization (#738, PP-8.5). NULL = every active user of
+  // the deployment (a system broadcast, as before #738); set = the ACTIVE
+  // members of that organization only. Read by the start and chunk handlers
+  // from the row (the job payloads carry only the broadcast id, unchanged), so
+  // `audienceWhere(cutoff, targetOrgId)` and the keyset cursor stay one query.
+  // No row-level security on this table: a system broadcast belongs to no
+  // organization, and RLS would hide it from the job that delivers it; the
+  // API authorizes `targetOrgId` instead (`broadcasts:*` may name any org,
+  // `org_broadcasts:*` only the caller's active org). CASCADE: an
+  // organization's broadcasts have no audience once it is deleted.
+  targetOrgId String? @map("target_org_id") @db.Uuid
+
   // Relations
-  createdBy User? @relation("BroadcastAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy User?         @relation("BroadcastAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  targetOrg Organization? @relation("BroadcastTargetOrg", fields: [targetOrgId], references: [id], onDelete: Cascade)
 
   @@index([status, scheduledFor])
   @@index([createdAt(sort: Desc)])
+  // A holder of only `org_broadcasts:read` lists its organization's broadcasts.
+  @@index([targetOrgId])
   @@map("notification_broadcasts")
 }
 
@@ -607,4 +622,8 @@ extend model User {
   notifications          Notification[]          @relation("UserNotifications")
   pushSubscriptions      PushSubscription[]      @relation("UserPushSubscriptions")
   broadcastsCreated      NotificationBroadcast[] @relation("BroadcastAuthor")
+}
+
+extend model Organization {
+  notificationBroadcasts NotificationBroadcast[] @relation("BroadcastTargetOrg")
 }
