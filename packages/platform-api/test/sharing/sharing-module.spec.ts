@@ -64,18 +64,21 @@ describe('SharingModule.forRoot', () => {
     });
     const module = SharingModule.forRoot({ host });
     const paths = (module.controllers ?? []).map((c) => Reflect.getMetadata(PATH_METADATA, c));
-    expect(paths).toEqual(['groups/invites', 'groups']);
-    // Every route asks for one of the three org permissions (the probe call aside).
+    expect(paths).toEqual(['groups/invites', 'groups', 'grants']);
+    // Every route asks for one of the org permissions (the probe call aside).
     const real = calls.filter((c) => c[0] !== 'platform:probe');
-    expect(new Set(real.flat())).toEqual(new Set(['groups:read', 'groups:write']));
+    expect(new Set(real.flat())).toEqual(new Set(['groups:read', 'groups:write', 'sharing:read', 'sharing:write']));
     expect(module.exports).toEqual(expect.arrayContaining([expect.any(Function)]));
   });
 
-  it('declares three org-scope permissions with the matrix grants', () => {
+  it('declares six org-scope permissions with the matrix grants', () => {
     expect(Object.values(SHARING_PERMISSION_DECLARATIONS).map((p) => [p.id, p.scope, [...p.defaultGrants]])).toEqual([
       ['groups:read', 'org', ['org_admin', 'contributor', 'viewer']],
       ['groups:write', 'org', ['org_admin', 'contributor']],
       ['groups:admin', 'org', ['org_admin']],
+      ['sharing:read', 'org', ['org_admin', 'contributor', 'viewer']],
+      ['sharing:write', 'org', ['org_admin', 'contributor']],
+      ['sharing:admin', 'org', ['org_admin']],
     ]);
   });
 });

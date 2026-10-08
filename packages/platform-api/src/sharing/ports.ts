@@ -13,11 +13,12 @@
 
 /**
  * Why the slice runs without an organization scope. A subset of core's
- * `SystemAccessReason`: the user purge and the read-only Doctor check.
+ * `SystemAccessReason`: the user purge, the read-only Doctor check and the
+ * `sharing.grants.prune` retention job (#729).
  *
  * @stability experimental
  */
-export type SharingSystemReason = 'purge' | 'doctor';
+export type SharingSystemReason = 'purge' | 'doctor' | 'retention';
 
 /**
  * Injection token of the app's {@link SharingDataPort}.
@@ -180,4 +181,85 @@ export const SHARING_TENANCY: unique symbol = Symbol.for('@marinoscar/platform/s
 export interface SharingTenancy {
   /** `single` or `multi`. */
   mode(): 'single' | 'multi';
+}
+
+// ---- the job queue (#729) -------------------------------------------------------------
+
+/**
+ * Injection token of the app's {@link SharingJobsPort}. Optional: without
+ * one the `sharing.grants.prune` job is neither registered nor scheduled, and
+ * revoked, expired and dangling grants stay until an app removes them.
+ *
+ * @extensionPoint token
+ * @stability experimental
+ */
+export const SHARING_JOBS: unique symbol = Symbol.for('@marinoscar/platform/sharing/JOBS');
+
+/**
+ * The job record a sharing handler is given, structurally the app's job row.
+ *
+ * @stability experimental
+ */
+export interface SharingJobRecord {
+  /** The job's id. */
+  id: string;
+  /** The job type. */
+  type: string;
+  /** The handler-defined payload (JSON). */
+  payload: unknown;
+}
+
+/**
+ * A job type's execution profile: the lease and the reaper's patience are
+ * derived from `maxRuntimeMs`.
+ *
+ * @stability experimental
+ */
+export interface SharingJobExecutionProfile {
+  /** The longest one attempt may run. */
+  maxRuntimeMs: number;
+  /** Attempts before the job fails for good. */
+  maxAttempts: number;
+}
+
+/**
+ * A sharing job type's handler, structurally the app's `JobHandler`. The
+ * sharing job type is SERVER-ONLY: it declares no `nodeResultSchema` and no
+ * `persistNodeResult`, because it reads the app's tables mid-computation
+ * (each resource type's `loadOwners`).
+ *
+ * @stability experimental
+ */
+export interface SharingJobHandler {
+  /** The job type. Permanent once jobs of it exist. */
+  readonly type: string;
+  /** The execution profile, when the global default does not fit. */
+  readonly profile?: SharingJobExecutionProfile;
+  /**
+   * Runs one job; throws to fail it.
+   *
+   * @param job - the claimed job.
+   */
+  process(job: SharingJobRecord): Promise<void>;
+}
+
+/**
+ * The app's job queue, as the sharing slice uses it.
+ *
+ * @stability experimental
+ */
+export interface SharingJobsPort {
+  /**
+   * Registers a handler with the queue's dispatcher. Called from `onModuleInit`.
+   *
+   * @param handler - the handler.
+   */
+  registerHandler(handler: SharingJobHandler): void;
+  /**
+   * Queues one global housekeeping job of `type` unless one is pending or
+   * running. Never throws: a failure is logged on `logger`.
+   *
+   * @param options - the type, a lower-case phrase for the log line, and the caller's logger.
+   */
+  enqueueHousekeepingJob(options: { type: string; what: string; logger: { log(message: string): void; warn(message: string): void } }): Promise<void>;
 }

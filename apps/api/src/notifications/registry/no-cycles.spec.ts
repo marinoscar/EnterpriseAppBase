@@ -29,7 +29,7 @@ describe('notification registry: no import cycles', () => {
     const mod = loadFirst<typeof import('../notification-events')>('../notification-events');
 
     expect(mod.NOTIFICATION_CHANNELS).toEqual(['email', 'browser', 'push']);
-    expect(mod.NOTIFICATION_EVENTS.length).toBe(11);
+    expect(mod.NOTIFICATION_EVENTS.length).toBe(12);
     for (const name of ['findEvent', 'channelsFor', 'supportsChannel', 'isMandatory', 'listNotificationEvents'] as const) {
       expect(typeof mod[name]).toBe('function');
     }
@@ -39,8 +39,8 @@ describe('notification registry: no import cycles', () => {
   it('email/templates/index.ts loads first with every export defined', () => {
     const mod = loadFirst<typeof import('../../email/templates')>('../../email/templates');
 
-    expect(mod.EMAIL_TEMPLATE_NAMES).toHaveLength(11);
-    expect(Object.keys(mod.EMAIL_TEMPLATES)).toHaveLength(11);
+    expect(mod.EMAIL_TEMPLATE_NAMES).toHaveLength(12);
+    expect(Object.keys(mod.EMAIL_TEMPLATES)).toHaveLength(12);
     expect(typeof mod.PLATFORM_EMAIL_TEMPLATES['test-email']).toBe('function');
     expect(typeof mod.findEmailTemplate('user-welcome')).toBe('function');
     expect(mod.isEmailTemplateName('broadcast')).toBe(true);
@@ -61,10 +61,10 @@ describe('notification registry: no import cycles', () => {
     const mod = loadFirst<typeof import('.')>('.');
 
     expect(mod.notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
-    expect(mod.notificationEventRegistry.size).toBe(11);
-    expect(mod.emailTemplateRegistry.size).toBe(11);
-    expect(mod.eventEmailTemplateRegistry.size).toBe(11);
-    expect(mod.eventBrowserTemplateRegistry.size).toBe(7);
+    expect(mod.notificationEventRegistry.size).toBe(12);
+    expect(mod.emailTemplateRegistry.size).toBe(12);
+    expect(mod.eventEmailTemplateRegistry.size).toBe(12);
+    expect(mod.eventBrowserTemplateRegistry.size).toBe(8);
   });
 
   it('the browser channel loads first with its exports defined', () => {
@@ -72,7 +72,7 @@ describe('notification registry: no import cycles', () => {
       '../channels/browser-notification.channel',
     );
 
-    expect(Object.keys(mod.EVENT_BROWSER_TEMPLATES)).toHaveLength(7);
+    expect(Object.keys(mod.EVENT_BROWSER_TEMPLATES)).toHaveLength(8);
     expect(typeof mod.sanitizeLink).toBe('function');
     expect(typeof mod.BrowserNotificationChannel).toBe('function');
   });

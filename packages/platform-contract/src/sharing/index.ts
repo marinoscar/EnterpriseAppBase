@@ -1,11 +1,24 @@
 // `@marinoscar/platform-contract/sharing`: the wire shapes of the sharing
-// routes (issue #728, PP-7.1): groups, their members and their invites. The
+// routes: groups, their members and their invites (issue #728, PP-7.1), and
+// grants of every kind, link shares included (issue #729, PP-7.2). The
 // API's sharing slice wraps the schemas as its nestjs-zod DTOs. constants.ts is
 // zod-free. Documented in
 // ./README.md. Explicit named exports only.
 
-export { GROUP_INVITE_LIST_FILTERS, GROUP_INVITE_STATUSES, GROUP_LIST_SCOPES, GROUP_ROLES, SHARING_LIMITS } from './constants.js';
-export type { GroupInviteStatus, GroupRole, SharingEnumEntries } from './constants.js';
+export {
+  ACCESS_SCOPES,
+  GRANT_GRANTEE_KINDS,
+  GROUP_INVITE_LIST_FILTERS,
+  GROUP_INVITE_STATUSES,
+  GROUP_LIST_SCOPES,
+  GROUP_ROLES,
+  LINK_TOKEN_HEADER,
+  SHARED_WITH_ME_VIA,
+  SHARING_IDENTIFIER_PATTERN,
+  SHARING_LIMITS,
+  buildLinkUrl,
+} from './constants.js';
+export type { AccessScope, GrantGranteeKind, GroupInviteStatus, GroupRole, SharingEnumEntries } from './constants.js';
 export {
   addGroupMemberSchema,
   createGroupInviteSchema,
@@ -27,6 +40,25 @@ export {
   pageQuerySchema,
   updateGroupMemberSchema,
   updateGroupSchema,
+  // grants (#729) and link shares (#730)
+  createGrantSchema,
+  grantGranteeInputSchema,
+  grantGranteeKindSchema,
+  grantGranteeViewSchema,
+  grantListQuerySchema,
+  grantListSchema,
+  grantRoleSchema,
+  grantSchema,
+  groupGranteeSchema,
+  linkGrantCreateSchema,
+  linkGrantViewSchema,
+  publicLinkResolutionSchema,
+  resourceTypeSchema,
+  sharedWithMeItemSchema,
+  sharedWithMeListSchema,
+  sharedWithMeQuerySchema,
+  updateGrantSchema,
+  userGranteeSchema,
 } from './schemas.js';
 export type {
   AddGroupMemberInput,
@@ -46,4 +78,18 @@ export type {
   PageQuery,
   UpdateGroupInput,
   UpdateGroupMemberInput,
+  // grants (#729) and link shares (#730)
+  CreateGrantInput,
+  GrantDto,
+  GrantGranteeInput,
+  GrantGranteeView,
+  GrantList,
+  GrantListQuery,
+  LinkGrantCreate,
+  LinkGrantView,
+  PublicLinkResolution,
+  SharedWithMeItem,
+  SharedWithMeList,
+  SharedWithMeQuery,
+  UpdateGrantInput,
 } from './schemas.js';

@@ -1531,14 +1531,25 @@ second line behind `@Auth(...)` and the service's checks, never a replacement.
 registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`, a
 `@marinoscar/platform-api/core` registry): `StorageObject`,
 `StorageObjectChunk`, `AiRun`, `AiUsageEvent`, and the sharing slice's `Group`,
-`GroupMember` and `GroupInvite` (#728, declared by
-`@marinoscar/platform-api/sharing`). Each carries `org_id`, has
+`GroupMember`, `GroupInvite` (#728) and `Grant` (#729), declared by
+`@marinoscar/platform-api/sharing`. Each carries `org_id`, has
 `ENABLE` and `FORCE ROW LEVEL SECURITY`, and one policy named in
 `packages/platform-db/rls-policies.json` (`RLS_POLICIES`). `AuditEvent` has a
 nullable `org_id` and no policy yet (`org-optional`); `user` and `system`
 models carry no organization. A table that merely **references** an
 organization (`Membership`, `Invite`, org-bound tokens) says so with
 `orgReference` and is not isolated by RLS; its service code guards it.
+
+**Owner, group and grant rules (#729)** are the app-policy layer above RLS:
+RLS confines a request to its organization, and `AccessPolicy`
+(`@marinoscar/platform-api/sharing`) decides which of that organization's
+records the caller may act on. A grant names its record polymorphically and
+cannot name another organization's group (composite key `(grantee_group_id,
+org_id)`) or user (the API requires an active membership of the record's
+organization, 422 otherwise). A denial of a type that hides existence is the
+same `404` as a missing record; a missing action permission is a `403` naming
+it, even for the owner. Decisions are memoised per request only, so a revoked
+grant stops working on the next request.
 
 **The policy.** Every org table uses this template (the ADR's):
 

@@ -23,7 +23,7 @@ const OWNERSHIP: Record<string, string[]> = {
   jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'JobStatus', 'JobReason', 'NodeStatus'],
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
   ai: ['AiModel', 'UserAiKey', 'AiRun', 'AiUsageEvent'],
-  sharing: ['Group', 'GroupMember', 'GroupInvite', 'GroupRole'],
+  sharing: ['Group', 'GroupMember', 'GroupInvite', 'GroupRole', 'Grant', 'GrantGranteeKind'],
 };
 
 const files = readdirSync(SCHEMA_DIR).filter((f) => f.endsWith('.prisma')).sort();
@@ -44,10 +44,10 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 37 models and 14 enums, each once', () => {
+  it('declare 38 models and 15 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
-    expect(all.filter((b) => b.kind === 'model')).toHaveLength(37);
-    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(14);
+    expect(all.filter((b) => b.kind === 'model')).toHaveLength(38);
+    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(15);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
 
@@ -67,7 +67,7 @@ describe('the shipped platform fragments', () => {
     expect(composeFragments(inputs).warnings).toEqual([]);
   });
 
-  it('move the 22 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
+  it('move the 25 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
     const { extensions } = composeFragments(inputs);
     const by = (m: string): string[] => extensions.filter((e) => e.model === m).map((e) => `${e.from.replace('package:', '').replace('.prisma', '')}:${e.field}`).sort();
     expect(by('User')).toEqual([
@@ -77,6 +77,7 @@ describe('the shipped platform fragments', () => {
       'jobs:nodeCredentials', 'jobs:workerNodes',
       'notifications:broadcastsCreated', 'notifications:notificationDeliveries', 'notifications:notifications', 'notifications:pushSubscriptions',
       'settings:settingsUpdates', 'settings:userSettings',
+      'sharing:grantsGiven', 'sharing:grantsReceived', 'sharing:grantsRevoked',
       'sharing:groupInvitesClaimed', 'sharing:groupInvitesSent', 'sharing:groupMembersAdded', 'sharing:groupMemberships', 'sharing:groupsCreated',
       'storage:storageObjects',
     ]);

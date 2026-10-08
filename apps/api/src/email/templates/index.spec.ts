@@ -137,6 +137,17 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     expiresAt: '2026-01-15T00:00:00.000Z',
     signInUrl: 'https://app.example.com/login',
   },
+  // #729 (PP-7.2): the record title (from the type's describe()) and the
+  // sharer's name are user-typed, so they get a hostile fragment too.
+  'shared-with-you': {
+    resourceType: 'transcript',
+    resourceId: '11111111-1111-4111-8111-111111111111',
+    role: 'editor',
+    title: '<script>alert(document.cookie)</script>',
+    sharedBy: '"><img src=x onerror=alert(1)>',
+    expiresAt: '2026-01-15T00:00:00.000Z',
+    openUrl: 'https://app.example.com/transcripts/11111111-1111-4111-8111-111111111111',
+  },
 };
 
 function render(name: EmailTemplateName): RenderedEmail {

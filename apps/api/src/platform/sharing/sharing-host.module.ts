@@ -7,6 +7,7 @@
 //   SHARING_EVENT_EMITTER  EventEmitter2 (EventEmitterModule.forRoot in app.module.ts)
 //   SHARING_NOTIFIER       SharingNotifierAdapter (NotificationsService)
 //   SHARING_TENANCY        TenancyService (the identity slice's OrganizationsModule)
+//   SHARING_JOBS           SharingJobsAdapter (JobsService, JobHandlerRegistry; #729)
 // =============================================================================
 
 import { Module } from '@nestjs/common';
@@ -15,18 +16,21 @@ import {
   SHARING_DATA,
   SHARING_EVENT_BUS,
   SHARING_EVENT_EMITTER,
+  SHARING_JOBS,
   SHARING_NOTIFIER,
   SHARING_TENANCY,
 } from '@marinoscar/platform-api/sharing';
 import { OrganizationsModule, TenancyService } from '@marinoscar/platform-api/identity';
 
 import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
+import { JobsModule } from '../../jobs/jobs.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { SharingDataAdapter } from './sharing-data.adapter';
+import { SharingJobsAdapter } from './sharing-jobs.adapter';
 import { SharingNotifierAdapter } from './sharing-notifier.adapter';
 
 @Module({
-  imports: [NotificationsModule, OrganizationsModule],
+  imports: [NotificationsModule, OrganizationsModule, JobsModule],
   providers: [
     SharingDataAdapter,
     SharingNotifierAdapter,
@@ -35,7 +39,9 @@ import { SharingNotifierAdapter } from './sharing-notifier.adapter';
     { provide: SHARING_EVENT_EMITTER, useExisting: EventEmitter2 },
     { provide: SHARING_NOTIFIER, useExisting: SharingNotifierAdapter },
     { provide: SHARING_TENANCY, useExisting: TenancyService },
+    SharingJobsAdapter,
+    { provide: SHARING_JOBS, useExisting: SharingJobsAdapter },
   ],
-  exports: [SHARING_DATA, SHARING_EVENT_BUS, SHARING_EVENT_EMITTER, SHARING_NOTIFIER, SHARING_TENANCY],
+  exports: [SHARING_DATA, SHARING_EVENT_BUS, SHARING_EVENT_EMITTER, SHARING_NOTIFIER, SHARING_TENANCY, SHARING_JOBS],
 })
 export class SharingHostModule {}

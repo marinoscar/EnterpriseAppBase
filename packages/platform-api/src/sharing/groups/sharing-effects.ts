@@ -1,5 +1,5 @@
 // =============================================================================
-// SharingEffects: what happens AFTER a group write commits (issue #728)
+// SharingEffects: what happens AFTER a group or grant write commits (#728, #729)
 // =============================================================================
 //
 // Every mutation of the slice ends the same way, outside its transaction:
@@ -19,6 +19,7 @@ import { MetricsHostService } from '../../otel-core/index';
 import type { SharingEventName } from '../events';
 import { SHARING_GROUP_MUTATIONS_METRIC, type SharingMutationOp } from '../metrics';
 import { GROUPS_INVITATION_EVENT_KEY, type GroupInvitationNotificationData } from '../notifications/group-invitation.templates';
+import { SHARED_WITH_YOU_EVENT_KEY, type SharedWithYouNotificationData } from '../notifications/shared-with-you.templates';
 import { SHARING_EVENT_EMITTER, SHARING_NOTIFIER, type SharingEventEmitter, type SharingNotifier } from '../ports';
 import { PrincipalGroupsProvider } from '../principal-groups.provider';
 
@@ -85,6 +86,42 @@ export class SharingEffects {
       this.metrics?.add(SHARING_GROUP_MUTATIONS_METRIC, 1, { op: change.op });
     } catch {
       // Metrics never fail a request.
+    }
+  }
+
+  /**
+   * Emits the events of a committed grant change (#729). Never throws; a
+   * grant change invalidates no cache (decisions are per request).
+   *
+   * @param events - the events, ids only.
+   */
+  grantCommitted(events: readonly SharingEmittedEvent[]): void {
+    for (const event of events) {
+      try {
+        this.emitter?.emit(event.name, event.payload);
+      } catch (error) {
+        this.logger.warn(`A listener of ${event.name} threw: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  /**
+   * Dispatches `sharing.shared_with_you` to `userId` for a user grant whose
+   * transaction has COMMITTED. Fire-and-forget; a failure is logged with the
+   * grant id only.
+   *
+   * @param userId - the grantee.
+   * @param data - the template data.
+   * @param grantId - the grant, for the log line.
+   */
+  notifySharedWithYou(userId: string, data: SharedWithYouNotificationData, grantId: string): void {
+    if (!this.notifier) return;
+    const failed = (error: unknown) =>
+      this.logger.warn(`Share notification for grant ${grantId} could not be dispatched: ${error instanceof Error ? error.message : String(error)}`);
+    try {
+      Promise.resolve(this.notifier.notify(SHARED_WITH_YOU_EVENT_KEY, userId, data)).catch(failed);
+    } catch (error) {
+      failed(error);
     }
   }
 

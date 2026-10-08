@@ -31,6 +31,8 @@ export interface Delegate<Row> {
   updateMany(args: QueryArgs): Promise<{ count: number }>;
   delete<T = Row>(args: QueryArgs): Promise<T>;
   deleteMany(args?: QueryArgs): Promise<{ count: number }>;
+  /** `GROUP BY` in SQL (unlike `distinct`, which Prisma applies in memory), so `take` bounds the query. */
+  groupBy<T = Record<string, unknown>>(args: QueryArgs): Promise<T[]>;
 }
 
 /**
@@ -112,6 +114,60 @@ export interface OrgInviteRow {
 }
 
 /**
+ * A `grants` row (#729).
+ *
+ * @stability experimental
+ */
+export interface GrantRow {
+  /** The grant's id. */
+  id: string;
+  /** The organization of the shared record. */
+  orgId: string;
+  /** The registered resource type. */
+  resourceType: string;
+  /** The shared record. */
+  resourceId: string;
+  /** `user`, `group` or `link`. */
+  granteeKind: 'user' | 'group' | 'link';
+  /** The user grantee, or `null`. */
+  granteeUserId: string | null;
+  /** The group grantee, or `null`. */
+  granteeGroupId: string | null;
+  /** One of the type's roles. */
+  role: string;
+  /** Link grants only (#730): SHA-256 of the token. */
+  linkTokenHash: string | null;
+  /** Link grants only (#730): the token, encrypted. */
+  linkTokenCiphertext: string | null;
+  /** Link grants only (#730): a label. */
+  linkLabel: string | null;
+  /** When it stops working, or `null`. */
+  expiresAt: Date | null;
+  /** When it was revoked, or `null`. */
+  revokedAt: Date | null;
+  /** Who revoked it, or `null`. */
+  revokedById: string | null;
+  /** Who granted it, or `null`. */
+  grantedById: string | null;
+  /** App-defined JSON, or `null`. */
+  metadata: unknown;
+  /** When it was created. */
+  createdAt: Date;
+  /** When it last changed. */
+  updatedAt: Date;
+}
+
+/**
+ * A raw SQL fragment as Prisma's `$queryRaw` takes it (`Prisma.Sql`), seen
+ * structurally.
+ */
+export interface SqlLike {
+  readonly sql: string;
+  readonly values: readonly unknown[];
+  readonly strings: readonly string[];
+}
+
+/**
  * The transaction client the slice works with: the app's Prisma transaction
  * client, seen structurally.
  */
@@ -119,12 +175,13 @@ export interface SharingTx {
   group: Delegate<GroupRow>;
   groupMember: Delegate<GroupMemberRow>;
   groupInvite: Delegate<GroupInviteRow>;
+  grant: Delegate<GrantRow>;
   user: Delegate<UserRow>;
   membership: Delegate<OrgMembershipRow>;
   invite: Delegate<OrgInviteRow>;
   auditEvent: { create(args: QueryArgs): Promise<unknown> };
-  $queryRaw<T = unknown>(query: TemplateStringsArray, ...values: unknown[]): Promise<T>;
-  $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
+  $queryRaw<T = unknown>(query: TemplateStringsArray | SqlLike, ...values: unknown[]): Promise<T>;
+  $executeRaw(query: TemplateStringsArray | SqlLike, ...values: unknown[]): Promise<number>;
 }
 
 /** Narrows the `unknown` transaction client a host port hands out. */

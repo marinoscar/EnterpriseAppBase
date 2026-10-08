@@ -92,6 +92,9 @@ const MIGRATIONS_AT_288 = [
   // #728 (PP-7.1): groups, group members and group invites with row-level
   // security. About sharing, not the operational notification events.
   '20261007222406_add_groups',
+  // #729 (PP-7.2): grants with row-level security and partial unique indexes.
+  // About sharing, not the operational notification events.
+  '20261008000859_add_grants',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

@@ -1,4 +1,4 @@
-import { groupInvitationBrowserTemplate } from '@marinoscar/platform-api/sharing';
+import { groupInvitationBrowserTemplate, sharedWithYouBrowserTemplate } from '@marinoscar/platform-api/sharing';
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../common/schemas/user-settings-namespaces.schema';
 import {
@@ -66,6 +66,8 @@ const PLATFORM_EVENT_KEYS = [
   'org.invitation',
   // #728 (PP-7.1), the sharing slice's group invitation.
   'groups.invitation',
+  // #729 (PP-7.2), a record shared with the user.
+  'sharing.shared_with_you',
 ];
 
 /** A valid app event; tests spread it and break one field. */
@@ -116,11 +118,11 @@ describe('notification registries (#678)', () => {
       expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
     });
 
-    it('registers the nine platform events in the old array order, then org.invitation (#726) and groups.invitation (#728)', () => {
+    it('registers the nine platform events in the old array order, then org.invitation (#726), groups.invitation (#728) and sharing.shared_with_you (#729)', () => {
       expect(notificationEventRegistry.ids()).toEqual(PLATFORM_EVENT_KEYS);
     });
 
-    it('registers the nine platform email templates in the old literal order, then org-invitation (#726) and group-invitation (#728)', () => {
+    it('registers the nine platform email templates in the old literal order, then org-invitation (#726), group-invitation (#728) and shared-with-you (#729)', () => {
       expect(emailTemplateRegistry.ids()).toEqual([
         'test-email',
         'user-welcome',
@@ -133,6 +135,7 @@ describe('notification registries (#678)', () => {
         'restore-completed',
         'org-invitation',
         'group-invitation',
+        'shared-with-you',
       ]);
       for (const [name, render] of Object.entries(PLATFORM_EMAIL_TEMPLATES)) {
         expect(emailTemplateRegistry.require(name).render).toBe(render);
@@ -152,10 +155,11 @@ describe('notification registries (#678)', () => {
         'db_backup.restore_completed': 'restore-completed',
         'org.invitation': 'org-invitation',
         'groups.invitation': 'group-invitation',
+        'sharing.shared_with_you': 'shared-with-you',
       });
     });
 
-    it('binds a browser renderer exactly where main had one (six keys), plus groups.invitation (#728)', () => {
+    it('binds a browser renderer exactly where main had one (six keys), plus groups.invitation (#728) and sharing.shared_with_you (#729)', () => {
       expect(Object.fromEntries(eventBrowserTemplateRegistry.list().map((b) => [b.eventKey, b.render]))).toEqual({
         'security.role_changed': roleChangedBrowserTemplate,
         'admin.broadcast': broadcastBrowserTemplate,
@@ -164,6 +168,7 @@ describe('notification registries (#678)', () => {
         'db_backup.backup_failed': backupFailedBrowserTemplate,
         'db_backup.restore_completed': restoreCompletedBrowserTemplate,
         'groups.invitation': groupInvitationBrowserTemplate,
+        'sharing.shared_with_you': sharedWithYouBrowserTemplate,
       });
     });
 

@@ -21,6 +21,7 @@ import { type RoleChangedEmailData, roleChangedEmail } from './role-changed.emai
 import { type TestEmailData, testEmail } from './test-email.email';
 import { type OrgInvitationEmailData, orgInvitationEmail } from './org-invitation.email';
 import { type GroupInvitationEmailData, groupInvitationEmail } from './group-invitation.email';
+import { type SharedWithYouEmailData, sharedWithYouEmail } from './shared-with-you.email';
 import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.email';
 
 // =============================================================================
@@ -94,6 +95,10 @@ export interface PlatformEmailTemplateDataMap {
   // #728 (PP-7.1). An invitation to one GROUP of an organization; the words
   // are the sharing slice's, the layout this app's.
   'group-invitation': GroupInvitationEmailData;
+
+  // #729 (PP-7.2). A record shared with the user, or their role on it changed;
+  // the words are the sharing slice's, the layout this app's.
+  'shared-with-you': SharedWithYouEmailData;
 }
 
 /** A platform template name. */
@@ -121,4 +126,5 @@ export const PLATFORM_EMAIL_TEMPLATES: {
   'restore-completed': restoreCompletedEmail,
   'org-invitation': orgInvitationEmail,
   'group-invitation': groupInvitationEmail,
+  'shared-with-you': sharedWithYouEmail,
 };

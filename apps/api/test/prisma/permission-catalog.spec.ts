@@ -84,6 +84,10 @@ const BASELINE_PERMISSIONS = [
   { name: 'groups:read', description: 'View the groups you belong to, answer your group invitations and leave a group', scope: 'org' },
   { name: 'groups:write', description: 'Create groups and manage the members and invitations of groups you administer', scope: 'org' },
   { name: 'groups:admin', description: 'View and administer every group of the organization, including groups you do not belong to', scope: 'org' },
+  // Grants (#729, PP-7.2): records shared inside an organization.
+  { name: 'sharing:read', description: 'View what is shared with you and who a record you can share is shared with, and remove your own access', scope: 'org' },
+  { name: 'sharing:write', description: 'Share records you are allowed to share with people and groups of the organization, and change or revoke those shares', scope: 'org' },
+  { name: 'sharing:admin', description: 'Manage the shares of every record of the organization, including records you do not own', scope: 'org' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -125,12 +129,15 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'ai:use',
     'groups:read',
     'groups:write',
+    'sharing:read',
+    'sharing:write',
   ],
   viewer: [
     'user_settings:read',
     'user_settings:write',
     'storage:read',
     'groups:read',
+    'sharing:read',
   ],
   org_admin: [
     'user_settings:read',
@@ -145,6 +152,9 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'groups:read',
     'groups:write',
     'groups:admin',
+    'sharing:read',
+    'sharing:write',
+    'sharing:admin',
   ],
 };
 

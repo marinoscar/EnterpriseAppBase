@@ -17,16 +17,18 @@ function build(tx: FakeTx) {
 }
 
 describe('the sharing declarations', () => {
-  it('register GroupMember as owned (delete, export) and the actor columns as detach', () => {
+  it('register GroupMember and Grant as owned (delete, export) and the actor columns as detach', () => {
     expect(SHARING_USER_OWNED_MODELS.map((d) => [d.model, d.ownerField ?? null, [...(d.actorFields ?? [])], d.purge, d.export])).toEqual([
       ['GroupMember', 'userId', ['addedById'], 'delete', 'include'],
       ['GroupInvite', null, ['invitedById', 'acceptedById'], 'detach', 'exclude'],
       ['Group', null, ['createdById'], 'detach', 'exclude'],
+      ['Grant', 'granteeUserId', ['grantedById', 'revokedById'], 'delete', 'include'],
     ]);
     expect(SHARING_MODEL_OWNERSHIP.map((d) => [d.model, d.kind])).toEqual([
       ['Group', 'org'],
       ['GroupMember', 'org'],
       ['GroupInvite', 'org'],
+      ['Grant', 'org'],
     ]);
   });
 });

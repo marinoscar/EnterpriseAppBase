@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { cronEnqueueOnlySuite } from '@marinoscar/platform-api/testing';
 
-import { CRON_SOURCE_ROOTS, TELEMETRY_SLICE_SOURCE_ROOT } from './cron-source-roots';
+import { CRON_SOURCE_ROOTS, SHARING_SLICE_SOURCE_ROOT, TELEMETRY_SLICE_SOURCE_ROOT } from './cron-source-roots';
 
 // =============================================================================
 // The cron rule demonstrably scans the packaged telemetry slice (issue #703)
@@ -25,6 +25,15 @@ describe('cron-enqueue-only source roots', () => {
     const report = cronEnqueueOnlySuite.check({ sourceRoots: [TELEMETRY_SLICE_SOURCE_ROOT] }, OPTIONS);
 
     expect(report.scannedFiles.cronFiles).toContain('tasks/telemetry-retention.task.ts');
+    expect(report.findings).toEqual([]);
+  });
+
+  it('include the packaged sharing slice, and its grants prune task is scanned (#729)', () => {
+    expect(CRON_SOURCE_ROOTS).toContain(SHARING_SLICE_SOURCE_ROOT);
+
+    const report = cronEnqueueOnlySuite.check({ sourceRoots: [SHARING_SLICE_SOURCE_ROOT] }, OPTIONS);
+
+    expect(report.scannedFiles.cronFiles).toContain('jobs/grants-prune.task.ts');
     expect(report.findings).toEqual([]);
   });
 

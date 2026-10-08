@@ -294,6 +294,14 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'their invitations. Org permissions `groups:read`, `groups:write` and `groups:admin`; a group you may ' +
           'not see is always 404, never 403. Invitees answer from `/api/groups/invites/mine`.',
       },
+      {
+        name: 'Grants',
+        description:
+          'Share one record of a registered resource type with a user or a group of the caller\'s active ' +
+          'organization, with a role and an optional expiry; one role per grantee, revocation is soft. Org ' +
+          'permissions `sharing:read`, `sharing:write` and `sharing:admin` (the `share` action on every record); a ' +
+          'record you may not share is 404. `/api/grants/shared-with-me` lists what is shared with you.',
+      },
     ],
   },
 ];

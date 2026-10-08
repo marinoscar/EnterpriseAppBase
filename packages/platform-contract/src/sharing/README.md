@@ -1,12 +1,12 @@
 # @marinoscar/platform-contract/sharing
 
-The wire shapes of the sharing routes: groups, their members and their invites (`/api/groups`, issue #728), as zod schemas with their inferred types and the zod-free role and status lists they are built from. The API's sharing slice (`@marinoscar/platform-api/sharing`) wraps the schemas as its nestjs-zod DTOs, so the OpenAPI document is generated from them. It depends on no other slice (`packages/platform-slices.json`).
+The wire shapes of the sharing routes: groups, their members and their invites (`/api/groups`, issue #728) and grants of every kind (`/api/grants`, issue #729; the link-share shapes #730 builds on included), as zod schemas with their inferred types and the zod-free role and status lists they are built from. The API's sharing slice (`@marinoscar/platform-api/sharing`) wraps the schemas as its nestjs-zod DTOs, so the OpenAPI document is generated from them. It depends on no other slice (`packages/platform-slices.json`).
 
 ## Purpose and scope
 
-One source for what every group route sends and accepts, so the API and a client cannot drift apart: `groupRoleSchema` (`admin`, `editor`, `viewer`), the group, member and invite bodies and responses, the flat pagination shape (`page`, `pageSize`, `items`, `total`, `totalPages`) and `SHARING_LIMITS`. The slice follows the contract layout: `constants.ts` (zod-free: `GROUP_ROLES`, `GROUP_INVITE_STATUSES`, `SHARING_LIMITS`), `schemas.ts` (the barrel of `groups.ts`) and `index.ts`.
+One source for what every group route sends and accepts, so the API and a client cannot drift apart: `groupRoleSchema` (`admin`, `editor`, `viewer`), the group, member and invite bodies and responses, the flat pagination shape (`page`, `pageSize`, `items`, `total`, `totalPages`) and `SHARING_LIMITS`; and for grants the create, update, list and "shared with me" shapes, the link-grant shapes (`linkGrantCreateSchema`, `linkGrantViewSchema`, `publicLinkResolutionSchema`), `LINK_TOKEN_HEADER` (`x-link-token`) and `buildLinkUrl(appUrl, token)` (`${appUrl}/s#${token}`: the token travels in the URL fragment, never in a path or a query). The slice follows the contract layout: `constants.ts` (zod-free: `GROUP_ROLES`, `GROUP_INVITE_STATUSES`, `GRANT_GRANTEE_KINDS`, `ACCESS_SCOPES`, `SHARING_IDENTIFIER_PATTERN`, `SHARING_LIMITS`, `LINK_TOKEN_HEADER`, `buildLinkUrl`), `schemas.ts` (the barrel of `groups.ts` and `grants.ts`) and `index.ts`.
 
-Not here: the services, controllers, the ownership contract, the principal enrichment and the permission strings (the API slice), and any UI (#731). Grants and link shares arrive with #729 and #730.
+Not here: the services, controllers, the ownership contract, the resource-type registry, `AccessPolicy`, the principal enrichment and the permission strings (the API slice), the link routes (#730) and any UI (#731).
 
 ## Install and peer dependencies
 
@@ -42,10 +42,15 @@ No tables. The shapes mirror the `sharing` fragment of `@marinoscar/platform-db`
 | `addGroupMemberSchema`, `updateGroupMemberSchema`, `groupMemberSchema`, `groupMemberListSchema` | `/api/groups/:id/members` | exactly one of `email` and `userId` |
 | `createGroupInviteSchema`, `groupInviteListQuerySchema`, `groupInviteSchema`, `groupInviteListSchema` | `/api/groups/:id/invites` | e-mail lower-cased; `status` derived at read time (`expired` included) |
 | `myGroupInviteSchema`, `myGroupInviteListSchema`, `groupMembershipSchema` | `/api/groups/invites/mine`, `.../accept` | the caller's own invites carry no address |
+| `grantListQuerySchema`, `grantListSchema`, `grantSchema` | `GET /api/grants?resourceType&resourceId` | the active grants of one record; `grantee` is flat, the other kind's fields `null` |
+| `createGrantSchema` (`grantGranteeInputSchema`: `userGranteeSchema` or `groupGranteeSchema`) | `POST /api/grants` | a user by exactly one of `email` and `userId`; `expiresAt` an ISO instant with offset |
+| `updateGrantSchema` | `PATCH /api/grants/:id` | `role` and/or `expiresAt` (`null` removes the expiry) |
+| `sharedWithMeQuerySchema`, `sharedWithMeItemSchema`, `sharedWithMeListSchema` | `GET /api/grants/shared-with-me` | `via` is `user_grant` or `group_grant`; `title`/`path` when the type describes its records |
+| `linkGrantCreateSchema`, `linkGrantViewSchema`, `publicLinkResolutionSchema` | the link routes (#730) | defined now so #730 and #731 build in parallel |
 
 ## Permissions and settings
 
-None declared here. The routes enforce `groups:read`, `groups:write` and `groups:admin` (organization scope), declared by the API slice.
+None declared here. The routes enforce `groups:read`, `groups:write`, `groups:admin`, `sharing:read`, `sharing:write` and `sharing:admin` (organization scope), declared by the API slice.
 
 ## UI
 
@@ -61,7 +66,7 @@ None. The package emits nothing at run time.
 
 ## Security notes
 
-The e-mail schema trims and lower-cases, so the API compares addresses exactly. `myGroupInviteSchema` deliberately omits the address. `groupMetadataSchema` caps the object at 32 keys and is never meant for secret material.
+The e-mail schema trims and lower-cases, so the API compares addresses exactly. A resource type and a role are lower-case snake_case of at most 64 characters, so neither can smuggle SQL or a path. A link token is never part of a schema of this slice except as the fragment of `buildLinkUrl`'s result. `myGroupInviteSchema` deliberately omits the address. `groupMetadataSchema` caps the object at 32 keys and is never meant for secret material.
 
 ## Conformance suite
 

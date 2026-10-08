@@ -1,11 +1,11 @@
 {
-  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin).",
+  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin). Edited on purpose by issue #729 (PP-7.2): the three org permissions sharing:read (every org role), sharing:write (org_admin, contributor) and sharing:admin (org_admin).",
   "counts": {
     "roles": 4,
-    "permissions": 40,
+    "permissions": 43,
     "allowedEmails": 1,
     "systemSettings": 1,
-    "rolePermissions": 51
+    "rolePermissions": 57
   },
   "roles": [
     {
@@ -131,6 +131,18 @@
       "description": "Manage roles and permissions"
     },
     {
+      "name": "sharing:admin",
+      "description": "Manage the shares of every record of the organization, including records you do not own"
+    },
+    {
+      "name": "sharing:read",
+      "description": "View what is shared with you and who a record you can share is shared with, and remove your own access"
+    },
+    {
+      "name": "sharing:write",
+      "description": "Share records you are allowed to share with people and groups of the organization, and change or revoke those shares"
+    },
+    {
       "name": "storage:delete_any",
       "description": "Admin: delete any object"
     },
@@ -222,6 +234,8 @@
       "ai:use",
       "groups:read",
       "groups:write",
+      "sharing:read",
+      "sharing:write",
       "storage:read",
       "storage:write",
       "user_settings:read",
@@ -236,6 +250,9 @@
       "org_invites:write",
       "org_members:read",
       "org_members:write",
+      "sharing:admin",
+      "sharing:read",
+      "sharing:write",
       "storage:read",
       "storage:write",
       "user_settings:read",
@@ -243,6 +260,7 @@
     ],
     "viewer": [
       "groups:read",
+      "sharing:read",
       "storage:read",
       "user_settings:read",
       "user_settings:write"

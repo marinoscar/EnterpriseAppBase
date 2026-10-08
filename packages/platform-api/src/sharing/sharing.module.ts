@@ -1,6 +1,9 @@
 import { DynamicModule, Module } from '@nestjs/common';
 
+import { AccessPolicy } from './access/access-policy.service';
 import { GroupsOrphanedDoctorCheck } from './doctor/groups-orphaned.doctor-check';
+import { createGrantsController } from './grants/grants.controller';
+import { GrantsService } from './grants/grants.service';
 import { createGroupInvitesController } from './groups/group-invites.controller';
 import { GroupInvitesService } from './groups/group-invites.service';
 import { GroupMembershipService } from './groups/group-membership.service';
@@ -8,18 +11,24 @@ import { createGroupsController } from './groups/groups.controller';
 import { GroupsService } from './groups/groups.service';
 import { MemberLookupThrottle } from './groups/member-lookup-throttle';
 import { SharingEffects } from './groups/sharing-effects';
+import { GrantsPruneHandler } from './jobs/grants-prune.handler';
+import { GrantsPruneTask } from './jobs/grants-prune.task';
 import { PrincipalGroupsProvider } from './principal-groups.provider';
 import { SHARING_OPTIONS, resolveSharingModuleOptions, type SharingModuleOptions } from './sharing.options';
 import { GroupMembershipPurge } from './user-data';
 
 // =============================================================================
-// SharingModule (issue #728, PP-7.1; epic #666)
+// SharingModule (issues #728 and #729; epic #666)
 // =============================================================================
 //
 // The platform's sharing primitives, first slice: groups inside an
 // organization, their members (roles `admin`, `editor`, `viewer`) and their
 // invites, the ownership contract for app tables (a row owned by a user or by
 // a group), and the principal enrichment that fills `Scope.groupIds`.
+// Second slice (#729): grants (a record shared with a user or a group, with a
+// role and an optional expiry), the resource-type registry, `AccessPolicy`
+// (`can(principal, action, resource)`), the "resources I can see" helpers,
+// `/api/grants` and the server-only `sharing.grants.prune` job.
 //
 // PACKAGED FROM THE START: nothing here imports the app or identity internals.
 // Every app capability comes through a host port (./ports.ts) the app binds in
@@ -29,9 +38,10 @@ import { GroupMembershipPurge } from './user-data';
 // =============================================================================
 
 /**
- * The sharing slice: the `/api/groups` routes, their services, the principal
- * groups provider, the user purge and the `sharing.groups.orphaned` Doctor
- * check.
+ * The sharing slice: the `/api/groups` and `/api/grants` routes, their
+ * services, `AccessPolicy`, the principal groups provider, the user purge,
+ * the `sharing.groups.orphaned` Doctor check and the `sharing.grants.prune`
+ * job with its daily enqueue.
  *
  * @stability experimental
  */
@@ -43,8 +53,8 @@ export class SharingModule {
    *
    * @param options - the module options, merged over the defaults.
    * @returns the dynamic module. It exports `PrincipalGroupsProvider`,
-   *   `GroupsService`, `GroupMembershipService`, `GroupInvitesService` and
-   *   `GroupMembershipPurge`.
+   *   `GroupsService`, `GroupMembershipService`, `GroupInvitesService`,
+   *   `GroupMembershipPurge`, `AccessPolicy` and `GrantsService`.
    * @throws Error when an option is invalid (the message names it).
    *
    * @example
@@ -61,7 +71,7 @@ export class SharingModule {
       module: SharingModule,
       imports: [...resolved.imports],
       // The invitee's static `groups/invites/*` routes BEFORE the `groups/:id` routes.
-      controllers: [createGroupInvitesController(resolved), createGroupsController(resolved)],
+      controllers: [createGroupInvitesController(resolved), createGroupsController(resolved), createGrantsController(resolved)],
       providers: [
         { provide: SHARING_OPTIONS, useValue: resolved },
         { provide: MemberLookupThrottle, useFactory: () => new MemberLookupThrottle() },
@@ -72,8 +82,12 @@ export class SharingModule {
         GroupInvitesService,
         GroupMembershipPurge,
         GroupsOrphanedDoctorCheck,
+        AccessPolicy,
+        GrantsService,
+        GrantsPruneHandler,
+        GrantsPruneTask,
       ],
-      exports: [PrincipalGroupsProvider, GroupsService, GroupMembershipService, GroupInvitesService, GroupMembershipPurge],
+      exports: [PrincipalGroupsProvider, GroupsService, GroupMembershipService, GroupInvitesService, GroupMembershipPurge, AccessPolicy, GrantsService],
     };
   }
 }

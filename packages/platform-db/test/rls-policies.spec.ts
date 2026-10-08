@@ -39,10 +39,11 @@ describe('the shipped package', () => {
     }
   });
 
-  it('lists the seven org-owned tables, each with a policy named <table>_org_isolation and a document that exists', () => {
+  it('lists the eight org-owned tables, each with a policy named <table>_org_isolation and a document that exists', () => {
     expect(RLS_POLICIES.map((p) => p.table).sort()).toEqual([
       'ai_runs',
       'ai_usage_events',
+      'grants',
       'group_invites',
       'group_members',
       'groups',
@@ -58,7 +59,7 @@ describe('the shipped package', () => {
 
   it('flags the migrations that create them with rls: true in the manifest', () => {
     const flagged = manifest.filter((e) => e.rls === true).map((e) => e.id);
-    expect(flagged).toEqual(['0025_org_scoped_rls', '0026_add_groups']);
+    expect(flagged).toEqual(['0025_org_scoped_rls', '0026_add_groups', '0027_add_grants']);
     expect(new Set(RLS_POLICIES.map((p) => p.createdIn))).toEqual(new Set(flagged));
   });
 
