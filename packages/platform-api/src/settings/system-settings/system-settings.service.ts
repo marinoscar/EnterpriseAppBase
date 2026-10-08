@@ -127,16 +127,33 @@ import { DEFAULT_SETTINGS_OPTIONS, SETTINGS_OPTIONS, type ResolvedSettingsModule
  *
  * @stability stable
  */
-export type SystemSettingsResponse = SystemSettingsValue & {
+export type SystemSettingsResponse = SystemSettingsValue & SystemSettingsResponseCore;
+
+/**
+ * The core fields of {@link SystemSettingsResponse}, around the namespaces.
+ *
+ * @stability stable
+ */
+export interface SystemSettingsResponseCore {
   /** The session policy the token signer uses: derived configuration, never stored. */
-  security: { jwtAccessTtlMinutes: number; refreshTtlDays: number };
+  security: {
+    /** The access token's lifetime, in minutes. */
+    jwtAccessTtlMinutes: number;
+    /** The refresh token's lifetime, in days. */
+    refreshTtlDays: number;
+  };
   /** When the row last changed. */
   updatedAt: Date;
   /** Who last changed it, or `null`. */
-  updatedBy: { id: string; email: string } | null;
+  updatedBy: {
+    /** The user's id. */
+    id: string;
+    /** The user's email. */
+    email: string;
+  } | null;
   /** The row version. */
   version: number;
-};
+}
 
 /** A `system_settings` row loaded with who last changed it. */
 type RowWithUpdater = SettingsSystemSettingsRow & { updatedByUser: { id: string; email: string } | null };
@@ -326,8 +343,8 @@ export class SystemSettingsService {
    * row is `null`, or a string, or `{ notifications: 42 }`, must still be able
    * to repair it through the API. `mergePreservingUnknown` and
    * `collectUnknownKeys` were written to honour that and do; `patchSettings`
-   * never reached them, because it first did `row.value as unknown as
-   * SystemSettingsValue` and then read nested fields straight off it. A cast is
+   * never reached them, because it first did
+   * `row.value as unknown as SystemSettingsValue` and then read nested fields straight off it. A cast is
    * not a check — it asserts a shape nobody verified — so a `null` row threw
    * `TypeError: Cannot read properties of null` before a single defensive line
    * ran. PUT was unaffected only because it happens never to

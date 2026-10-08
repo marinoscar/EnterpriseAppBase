@@ -51,6 +51,12 @@ export {
   userProfileSettingsSchema,
 } from './schemas.js';
 export type {
+  DataTableDensityEnum,
+  DataTableSortDirectionEnum,
+  OrgSettingsFieldKindEnum,
+  OrgSettingsMergeModeEnum,
+  ProfileImageSourceEnum,
+  ThemePreferenceEnum,
   DataTableDensity,
   DataTableEntry,
   DataTableSort,

@@ -13,6 +13,16 @@ import type { PlatformApiClient } from '../../core/index.js';
 import { useIsMounted } from '../internal/use-is-mounted.js';
 
 /**
+ * The least a settings document carries for the hooks: the row version.
+ *
+ * @stability experimental
+ */
+export interface VersionedSettingsDocument {
+  /** The row version, sent back as `If-Match`. */
+  version: number;
+}
+
+/**
  * Options of {@link useSystemSettings} and its siblings.
  *
  * @stability experimental
@@ -32,7 +42,7 @@ export interface SettingsHookOptions {
  *
  * @stability experimental
  */
-export interface UseSystemSettingsResult<T extends { version: number }> {
+export interface UseSystemSettingsResult<T extends VersionedSettingsDocument> {
   /** The document, or `null` until loaded (or when the load failed). */
   settings: T | null;
   /** Whether the first load (or a refresh) is in flight. */
@@ -81,7 +91,7 @@ export function useSettingsApi(options: SettingsHookOptions | undefined): Platfo
  * @extensionPoint hook
  * @stability experimental
  */
-export function useSystemSettings<T extends { version: number } = SystemSettingsResponseBase>(
+export function useSystemSettings<T extends VersionedSettingsDocument = SystemSettingsResponseBase>(
   options?: SettingsHookOptions,
 ): UseSystemSettingsResult<T> {
   const api = useSettingsApi(options);

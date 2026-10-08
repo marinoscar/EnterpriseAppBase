@@ -42,10 +42,32 @@ import {
 // Static types: the composed shapes, per platform declaration
 // -----------------------------------------------------------------------------
 
-type SysDecls = SystemSettingsNamespaceDeclarations;
-type SysField<K extends keyof SysDecls, F extends string> = SysDecls[K] extends Record<F, infer S>
+/**
+ * The system declarations' map (an alias of `SystemSettingsNamespaceDeclarations`).
+ *
+ * @stability experimental
+ */
+export type SysDecls = SystemSettingsNamespaceDeclarations;
+/**
+ * The zod schema a system declaration names in field `F`.
+ *
+ * @typeParam K - the namespace key.
+ * @typeParam F - the declaration field (`storedSchema`, `putSchema`, ...).
+ *
+ * @stability experimental
+ */
+export type SysField<K extends keyof SysDecls, F extends string> = SysDecls[K] extends Record<F, infer S>
   ? Extract<S, z.ZodType>
   : never;
+/**
+ * A declaration whose namespace a PUT body must carry.
+ *
+ * @stability experimental
+ */
+export interface RequiredOnPutDeclaration {
+  /** Always `true`. */
+  requiredOnPut: true;
+}
 
 /**
  * Shape of `systemSettingsSchema` (place 1).
@@ -65,7 +87,7 @@ export type ComposedSystemSettingsPatchShape = { [K in keyof SysDecls]: z.ZodOpt
  * @stability experimental
  */
 export type ComposedUpdateSystemSettingsShape = {
-  [K in keyof SysDecls]: SysDecls[K] extends { requiredOnPut: true }
+  [K in keyof SysDecls]: SysDecls[K] extends RequiredOnPutDeclaration
     ? SysField<K, 'putSchema'>
     : z.ZodOptional<SysField<K, 'putSchema'>>;
 };
@@ -86,12 +108,33 @@ export type ComposedSystemSettingsResponseShape = {
   [K in keyof SysDecls as [SysField<K, 'responseSchema'>] extends [never] ? never : K]: SysField<K, 'responseSchema'>;
 };
 
-type UserDecls = UserSettingsNamespaceDeclarations;
-type UserField<K extends keyof UserDecls, F extends string> = UserDecls[K] extends Record<F, infer S>
+/**
+ * The user declarations' map (an alias of `UserSettingsNamespaceDeclarations`).
+ *
+ * @stability experimental
+ */
+export type UserDecls = UserSettingsNamespaceDeclarations;
+/**
+ * The zod schema a user declaration names in field `F`.
+ *
+ * @typeParam K - the namespace key.
+ * @typeParam F - the declaration field.
+ *
+ * @stability experimental
+ */
+export type UserField<K extends keyof UserDecls, F extends string> = UserDecls[K] extends Record<F, infer S>
   ? Extract<S, z.ZodType>
   : never;
-/** `putSchema ?? schema`, `wirePatchSchema ?? patchSchema`, `responseSchema ?? schema`, statically. */
-type UserFieldOr<K extends keyof UserDecls, F extends string, Fallback extends string> = [UserField<K, F>] extends [
+/**
+ * `putSchema ?? schema`, `wirePatchSchema ?? patchSchema`, `responseSchema ?? schema`, statically.
+ *
+ * @typeParam K - the namespace key.
+ * @typeParam F - the declaration field.
+ * @typeParam Fallback - the field used when `F` is absent.
+ *
+ * @stability experimental
+ */
+export type UserFieldOr<K extends keyof UserDecls, F extends string, Fallback extends string> = [UserField<K, F>] extends [
   never,
 ]
   ? UserDecls[K] extends Record<F, null>
@@ -191,7 +234,9 @@ export type UserSettingsDto = z.infer<ReturnType<typeof composeUserSettingsSchem
  * @stability experimental
  */
 export type UserSettingsCoreShape = {
+  /** The theme preference. */
   theme: typeof themePreferenceSchema;
+  /** The profile preferences. */
   profile: typeof userProfileSettingsSchema;
 };
 
@@ -201,7 +246,9 @@ export type UserSettingsCoreShape = {
  * @stability experimental
  */
 export type UserSettingsCorePatchShape = {
+  /** The theme preference. */
   theme: z.ZodOptional<typeof themePreferenceSchema>;
+  /** The profile preferences, field by field. */
   profile: z.ZodOptional<typeof userProfileSettingsPatchSchema>;
 };
 
@@ -211,14 +258,28 @@ export type UserSettingsCorePatchShape = {
  * @stability experimental
  */
 export type UserSettingsCoreResponseShape = {
+  /** The theme preference. */
   theme: typeof themePreferenceSchema;
-  profile: z.ZodObject<{
-    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    imageSource: typeof profileImageSourceSchema;
-    imageObjectId: z.ZodNullable<z.ZodString>;
-  }>;
+  /** The normalised profile. */
+  profile: z.ZodObject<UserProfileResponseShape>;
+  /** When the row last changed. */
   updatedAt: z.ZodISODateTime;
+  /** The row version. */
   version: z.ZodNumber;
+};
+
+/**
+ * The profile of the user settings response.
+ *
+ * @stability experimental
+ */
+export type UserProfileResponseShape = {
+  /** The display name. */
+  displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+  /** Which picture represents the user. */
+  imageSource: typeof profileImageSourceSchema;
+  /** The uploaded avatar's object id, or `null`. */
+  imageObjectId: z.ZodNullable<z.ZodString>;
 };
 
 /**
@@ -227,10 +288,38 @@ export type UserSettingsCoreResponseShape = {
  * @stability experimental
  */
 export type SystemSettingsCoreResponseShape = {
-  security: z.ZodObject<{ jwtAccessTtlMinutes: z.ZodNumber; refreshTtlDays: z.ZodNumber }>;
+  /** The session policy (derived configuration). */
+  security: z.ZodObject<SecurityPolicyShape>;
+  /** When the row last changed. */
   updatedAt: z.ZodISODateTime;
-  updatedBy: z.ZodNullable<z.ZodObject<{ id: z.ZodString; email: z.ZodString }>>;
+  /** Who last changed it. */
+  updatedBy: z.ZodNullable<z.ZodObject<UpdatedByShape>>;
+  /** The row version. */
   version: z.ZodNumber;
+};
+
+/**
+ * The session policy of the system settings response.
+ *
+ * @stability experimental
+ */
+export type SecurityPolicyShape = {
+  /** The access token's lifetime, in minutes. */
+  jwtAccessTtlMinutes: z.ZodNumber;
+  /** The refresh token's lifetime, in days. */
+  refreshTtlDays: z.ZodNumber;
+};
+
+/**
+ * Who last changed the system settings row.
+ *
+ * @stability experimental
+ */
+export type UpdatedByShape = {
+  /** The user's id. */
+  id: z.ZodString;
+  /** The user's email. */
+  email: z.ZodString;
 };
 
 // -----------------------------------------------------------------------------

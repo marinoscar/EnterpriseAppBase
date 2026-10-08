@@ -7,10 +7,15 @@ export {
   registeredSettingsFeatures,
   useSettingsFeatures,
 } from './features.js';
-export type { SettingsFeatureKey, SettingsFeatureRegistry, SettingsFeatures } from './features.js';
+export type { SettingsFeatureKey, SettingsFeatureRegistry, SettingsFeatureResolver, SettingsFeatures } from './features.js';
 export { useSystemSettings } from './use-system-settings.js';
-export type { SettingsHookOptions, UseSystemSettingsResult } from './use-system-settings.js';
+export type { SettingsHookOptions, UseSystemSettingsResult, VersionedSettingsDocument } from './use-system-settings.js';
 export { useUserSettings } from './use-user-settings.js';
-export type { UseUserSettingsOptions, UseUserSettingsResult, UserSettingsDocument } from './use-user-settings.js';
+export type {
+  UseUserSettingsOptions,
+  UseUserSettingsResult,
+  UserSettingsDocument,
+  UserSettingsUpdateBase,
+} from './use-user-settings.js';
 export { useOrgSettings } from './use-org-settings.js';
 export type { UseOrgSettingsResult } from './use-org-settings.js';

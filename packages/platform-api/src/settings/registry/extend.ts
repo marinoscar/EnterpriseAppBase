@@ -23,7 +23,36 @@ import { z } from 'zod';
 import type { SettingsReadHelpers, SystemSettingsNamespace } from './system-settings-namespace';
 import type { UserSettingsNamespace } from './user-settings-namespace';
 
-type AnyObject = z.ZodObject<z.ZodRawShape>;
+/**
+ * Any zod object schema.
+ *
+ * @stability experimental
+ */
+export type AnyObject = z.ZodObject<z.ZodRawShape>;
+
+/**
+ * Anything with a namespace key.
+ *
+ * @stability experimental
+ */
+export interface KeyedNamespace {
+  /** The namespace key. */
+  readonly key: string;
+}
+
+/**
+ * The platform and app namespace lists, before and after folding.
+ *
+ * @typeParam N - the namespace type.
+ *
+ * @stability experimental
+ */
+export interface NamespaceLists<N> {
+  /** The platform's namespaces, in order. */
+  platform: readonly N[];
+  /** The app's namespaces, in order. */
+  app: readonly N[];
+}
 
 /**
  * Fields an app adds inside a registered SYSTEM settings namespace.
@@ -239,12 +268,12 @@ export function extendUserSettingsNamespace(
  *
  * @stability experimental
  */
-export function foldSettingsExtensions<N extends { readonly key: string }, E extends { readonly key: string }>(
-  lists: { platform: readonly N[]; app: readonly N[] },
+export function foldSettingsExtensions<N extends KeyedNamespace, E extends KeyedNamespace>(
+  lists: NamespaceLists<N>,
   extensions: readonly E[],
   extend: (base: N, extension: E) => N,
   registryName: string,
-): { platform: N[]; app: N[] } {
+): NamespaceLists<N> {
   const keys = new Set([...lists.platform, ...lists.app].map((ns) => ns.key));
   for (const extension of extensions) {
     if (!keys.has(extension.key)) {

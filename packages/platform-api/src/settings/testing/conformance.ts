@@ -45,12 +45,22 @@ declare module '../../testing/index' {
  */
 export interface SettingsConformanceOptions {
   /** The app's permission registry (`id` and `scope` of every permission). */
-  readonly permissions: ReadonlyArray<{ readonly id: string; readonly scope: 'system' | 'org' }>;
+  readonly permissions: ReadonlyArray<{
+    /** The permission id. */
+    readonly id: string;
+    /** Its scope. */
+    readonly scope: 'system' | 'org';
+  }>;
   /**
    * The committed defaults catalog and the fix its staleness message names.
    * Omit to skip the check.
    */
-  readonly catalog?: { readonly contents: string | undefined; readonly staleMessage: string };
+  readonly catalog?: {
+    /** The committed file's contents, or `undefined` when it is missing. */
+    readonly contents: string | undefined;
+    /** What to report when it is stale (the app's fix command). */
+    readonly staleMessage: string;
+  };
   /** The fewest system namespaces the app must have registered (a wiring check). Default 1. */
   readonly minSystemNamespaces?: number;
 }

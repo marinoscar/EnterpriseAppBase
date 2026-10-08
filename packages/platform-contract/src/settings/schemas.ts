@@ -36,6 +36,47 @@ import {
 } from './constants.js';
 
 // =============================================================================
+// Enum entry types (named, so the published types stay readable)
+// =============================================================================
+
+/**
+ * The entries of the theme enum.
+ *
+ * @stability stable
+ */
+export type ThemePreferenceEnum = { [K in (typeof THEME_PREFERENCES)[number]]: K };
+/**
+ * The entries of the profile image source enum.
+ *
+ * @stability stable
+ */
+export type ProfileImageSourceEnum = { [K in (typeof PROFILE_IMAGE_SOURCES)[number]]: K };
+/**
+ * The entries of the row density enum.
+ *
+ * @stability stable
+ */
+export type DataTableDensityEnum = { [K in (typeof DATA_TABLE_DENSITIES)[number]]: K };
+/**
+ * The entries of the sort direction enum.
+ *
+ * @stability stable
+ */
+export type DataTableSortDirectionEnum = { [K in (typeof DATA_TABLE_SORT_DIRECTIONS)[number]]: K };
+/**
+ * The entries of the org-settings field kind enum.
+ *
+ * @stability experimental
+ */
+export type OrgSettingsFieldKindEnum = { [K in (typeof ORG_SETTINGS_FIELD_KINDS)[number]]: K };
+/**
+ * The entries of the org-settings merge mode enum.
+ *
+ * @stability experimental
+ */
+export type OrgSettingsMergeModeEnum = { [K in (typeof ORG_SETTINGS_MERGE_MODES)[number]]: K };
+
+// =============================================================================
 // Core fields: theme and profile
 // =============================================================================
 
@@ -44,14 +85,14 @@ import {
  *
  * @stability stable
  */
-export const themePreferenceSchema = z.enum(THEME_PREFERENCES);
+export const themePreferenceSchema: z.ZodEnum<ThemePreferenceEnum> = z.enum(THEME_PREFERENCES);
 
 /**
  * `profile.imageSource`.
  *
  * @stability stable
  */
-export const profileImageSourceSchema = z.enum(PROFILE_IMAGE_SOURCES);
+export const profileImageSourceSchema: z.ZodEnum<ProfileImageSourceEnum> = z.enum(PROFILE_IMAGE_SOURCES);
 
 /**
  * `profile` as stored. `imageObjectId` is nullable (no avatar uploaded, or it
@@ -62,8 +103,11 @@ export const profileImageSourceSchema = z.enum(PROFILE_IMAGE_SOURCES);
  * @stability stable
  */
 export const userProfileSettingsSchema = z.object({
+  /** The name the user chose to be shown under. */
   displayName: z.string().max(PROFILE_DISPLAY_NAME_MAX).optional(),
+  /** Which picture represents the user. */
   imageSource: profileImageSourceSchema,
+  /** The uploaded avatar's object id; `null` when none. */
   imageObjectId: z.string().uuid().nullable().optional(),
 });
 
@@ -81,8 +125,11 @@ export type UserProfileSettingsValue = z.infer<typeof userProfileSettingsSchema>
  * @stability stable
  */
 export const userProfileSettingsPatchSchema = z.object({
+  /** The new display name. */
   displayName: z.string().max(PROFILE_DISPLAY_NAME_MAX).optional(),
+  /** The new picture source. */
   imageSource: profileImageSourceSchema.optional(),
+  /** The new avatar object id; `null` clears it. */
   imageObjectId: z.string().uuid().nullable().optional(),
 });
 
@@ -102,14 +149,14 @@ export type UserProfileSettingsPatchValue = z.infer<typeof userProfileSettingsPa
  *
  * @stability stable
  */
-export const dataTableDensitySchema = z.enum(DATA_TABLE_DENSITIES);
+export const dataTableDensitySchema: z.ZodEnum<DataTableDensityEnum> = z.enum(DATA_TABLE_DENSITIES);
 
 /**
  * Sort direction of one table.
  *
  * @stability stable
  */
-export const dataTableSortDirectionSchema = z.enum(DATA_TABLE_SORT_DIRECTIONS);
+export const dataTableSortDirectionSchema: z.ZodEnum<DataTableSortDirectionEnum> = z.enum(DATA_TABLE_SORT_DIRECTIONS);
 
 /**
  * Persisted sort state of one table.
@@ -118,7 +165,9 @@ export const dataTableSortDirectionSchema = z.enum(DATA_TABLE_SORT_DIRECTIONS);
  */
 export const dataTableSortSchema = z
   .object({
+    /** The column sorted by. */
     field: z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH),
+    /** The direction. */
     direction: dataTableSortDirectionSchema,
   })
   .strict();
@@ -131,12 +180,16 @@ export const dataTableSortSchema = z
  */
 export const dataTableEntrySchema = z
   .object({
+    /** The column ids shown, in order. */
     visibleColumns: z
       .array(z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH))
       .max(DATA_TABLE_MAX_VISIBLE_COLUMNS)
       .optional(),
+    /** The row density. */
     density: dataTableDensitySchema.optional(),
+    /** The sort state. */
     sort: dataTableSortSchema.optional(),
+    /** The page size. */
     pageSize: z.number().int().min(1).max(DATA_TABLE_MAX_PAGE_SIZE).optional(),
   })
   .strict();
@@ -207,6 +260,7 @@ export type DataTablesPatchValue = z.infer<typeof dataTablesPatchSchema>;
  */
 export const navigationSchema = z
   .object({
+    /** Whether the navigation rail is collapsed. */
     railCollapsed: z.boolean().optional(),
   })
   .strict();
@@ -219,6 +273,7 @@ export const navigationSchema = z
  */
 export const navigationPatchSchema = z
   .object({
+    /** Whether the rail is collapsed; `null` deletes the preference. */
     railCollapsed: z.boolean().nullable().optional(),
   })
   .strict();
@@ -249,11 +304,12 @@ export const orgSettingsFieldSchema = z.object({
   /** The field's key inside the namespace. */
   name: z.string(),
   /** The control the page renders; `other` links to the slice's own page. */
-  kind: z.enum(ORG_SETTINGS_FIELD_KINDS),
+  kind: z.enum(ORG_SETTINGS_FIELD_KINDS) as z.ZodEnum<OrgSettingsFieldKindEnum>,
   /** The allowed values of an `enum` field. */
   options: z.array(z.string()).optional(),
-  /** The bounds of a `number` field, when the schema declares them. */
+  /** The lower bound of a `number` field, when the schema declares one. */
   min: z.number().optional(),
+  /** The upper bound of a `number` field, when the schema declares one. */
   max: z.number().optional(),
   /** Whether a `number` field must be an integer. */
   integer: z.boolean().optional(),
@@ -279,7 +335,7 @@ export const orgSettingsNamespaceSchema = z.object({
   /** One sentence on what it configures. */
   description: z.string(),
   /** How the org value combines with the system value. */
-  merge: z.enum(ORG_SETTINGS_MERGE_MODES),
+  merge: z.enum(ORG_SETTINGS_MERGE_MODES) as z.ZodEnum<OrgSettingsMergeModeEnum>,
   /** Whether the caller may PATCH it (holds its write permission). */
   writable: z.boolean(),
   /** The fields an organization may set, in declaration order. */
@@ -304,11 +360,17 @@ export type OrgSettingsNamespace = z.infer<typeof orgSettingsNamespaceSchema>;
  * @stability experimental
  */
 export const orgSettingsResponseSchema = z.object({
+  /** The organization (the caller's active one). */
   orgId: z.string().uuid(),
+  /** Its stored overrides: namespace key to the fields it sets. */
   value: z.record(z.string(), z.record(z.string(), z.unknown())),
+  /** The effective value of each org-overridable namespace (system, then org). */
   effective: z.record(z.string(), z.unknown()),
+  /** The row version for `If-Match`; `0` while the organization has no row. */
   version: z.number().int(),
+  /** The descriptor of every org-overridable namespace the caller may read. */
   namespaces: z.array(orgSettingsNamespaceSchema),
+  /** When the row last changed, or `null`. */
   updatedAt: z.iso.datetime().nullable(),
 });
 

@@ -16,7 +16,10 @@ export type { ResolvedSettingsModuleOptions, SettingsModuleOptions } from './set
 export { SETTINGS_DATA, SETTINGS_PROFILE_IMAGES } from './ports';
 export type { NormalizedProfileSettings, SettingsDataPort, SettingsProfileImages } from './ports';
 export type {
+  SettingsBatchResult,
   SettingsDelegate,
+  SettingsIdRow,
+  SettingsUserRow,
   SettingsOrgSettingsRow,
   SettingsOrgTx,
   SettingsPrisma,
@@ -54,14 +57,20 @@ export type {
 } from './registry/user-settings-namespace';
 export { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './registry/secret-fields';
 export type { SettingsSecretFieldName } from './registry/secret-fields';
-export { findDefaultPaths, findSecretFieldPaths, isZodSchema, walkSchema } from './registry/schema-walk';
+export { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './registry/schema-walk';
 export { mergeOptional } from './registry/merge-helpers';
 export {
   extendSystemSettingsNamespace,
   extendUserSettingsNamespace,
   foldSettingsExtensions,
 } from './registry/extend';
-export type { SystemSettingsNamespaceExtension, UserSettingsNamespaceExtension } from './registry/extend';
+export type {
+  AnyObject,
+  KeyedNamespace,
+  NamespaceLists,
+  SystemSettingsNamespaceExtension,
+  UserSettingsNamespaceExtension,
+} from './registry/extend';
 export { DATA_TABLES_USER_SETTINGS, NAVIGATION_USER_SETTINGS } from './registry/core-user-namespaces';
 
 // ---- composition: the composed schemas, request bodies and defaults ----------------------
@@ -104,8 +113,17 @@ export type {
   ComposedUserSettingsResponseShape,
   ComposedUserSettingsShape,
   ComposedUserSettingsShapes,
+  RequiredOnPutDeclaration,
+  SecurityPolicyShape,
+  SysDecls,
+  SysField,
   SystemSettingsCoreResponseShape,
   SystemSettingsDto,
+  UpdatedByShape,
+  UserDecls,
+  UserField,
+  UserFieldOr,
+  UserProfileResponseShape,
   UserSettingsCorePatchShape,
   UserSettingsCoreResponseShape,
   UserSettingsCoreShape,
@@ -115,7 +133,7 @@ export { checkSystemSettingsCatalog, renderSystemSettingsCatalog } from './regis
 
 // ---- the services ----------------------------------------------------------------------
 export { SystemSettingsService } from './system-settings/system-settings.service';
-export type { SystemSettingsResponse } from './system-settings/system-settings.service';
+export type { SystemSettingsResponse, SystemSettingsResponseCore } from './system-settings/system-settings.service';
 export { DEFAULT_USER_SETTINGS, UserSettingsService } from './user-settings/user-settings.service';
 export type { UserSettingsResponse, UserSettingsValue } from './user-settings/user-settings.service';
 export { ORG_SETTINGS_PATCH_AUDIT_ACTION, OrgSettingsService } from './org-settings/org-settings.service';

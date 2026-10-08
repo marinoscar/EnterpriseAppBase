@@ -47,9 +47,41 @@ export interface SettingsDelegate<Row> {
   /** `upsert`. */
   upsert<T = Row>(args: SettingsQueryArgs): Promise<T>;
   /** `updateMany`. */
-  updateMany(args: SettingsQueryArgs): Promise<{ count: number }>;
+  updateMany(args: SettingsQueryArgs): Promise<SettingsBatchResult>;
   /** `deleteMany`. */
-  deleteMany(args?: SettingsQueryArgs): Promise<{ count: number }>;
+  deleteMany(args?: SettingsQueryArgs): Promise<SettingsBatchResult>;
+}
+
+/**
+ * What a batch write returns.
+ *
+ * @stability experimental
+ */
+export interface SettingsBatchResult {
+  /** How many rows it changed. */
+  count: number;
+}
+
+/**
+ * A row identified by its id (the users and audit delegates' default shape).
+ *
+ * @stability experimental
+ */
+export interface SettingsIdRow {
+  /** The row's id. */
+  id: string;
+}
+
+/**
+ * The `users` columns the display-name sync writes.
+ *
+ * @stability experimental
+ */
+export interface SettingsUserRow {
+  /** The user's id. */
+  id: string;
+  /** The display name, or `null`. */
+  displayName: string | null;
 }
 
 /**
@@ -123,9 +155,9 @@ export interface SettingsPrisma {
   /** `user_settings`. */
   userSettings: SettingsDelegate<SettingsUserSettingsRow>;
   /** `users`: the display-name sync. */
-  user: SettingsDelegate<{ id: string; displayName: string | null }>;
+  user: SettingsDelegate<SettingsUserRow>;
   /** `audit_events`: the settings audit trail. */
-  auditEvent: SettingsDelegate<{ id: string }>;
+  auditEvent: SettingsDelegate<SettingsIdRow>;
 }
 
 /**
@@ -139,5 +171,5 @@ export interface SettingsOrgTx {
   /** `org_settings`, confined to the scope's organization. */
   orgSettings: SettingsDelegate<SettingsOrgSettingsRow>;
   /** `audit_events`. */
-  auditEvent: SettingsDelegate<{ id: string }>;
+  auditEvent: SettingsDelegate<SettingsIdRow>;
 }

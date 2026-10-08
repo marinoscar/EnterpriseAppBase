@@ -86,7 +86,6 @@ export interface UserSettingsNamespace<K extends string = string, V = unknown, P
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- an augmentation target
 export interface UserSettingsNamespaces {}
 
 /**
@@ -95,7 +94,6 @@ export interface UserSettingsNamespaces {}
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- an augmentation target
 export interface UserSettingsNamespaceDeclarations {}
 
 /**

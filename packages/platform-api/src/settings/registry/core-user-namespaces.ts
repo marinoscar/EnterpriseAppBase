@@ -34,22 +34,26 @@ import type { UserSettingsNamespace } from './user-settings-namespace';
  * @stability stable
  */
 export const DATA_TABLES_USER_SETTINGS = {
+  /** The namespace key. */
   key: 'dataTables',
+  /** What it holds. */
   description: 'Per-table view preferences (visible columns, density, page size, sort), keyed by table id.',
+  /** The stored shape. */
   schema: dataTablesSchema,
   // The outer `.nullable()` the composition adds is what lets
   // `{ "dataTables": null }` clear the whole namespace; the inner nullability
   // (in dataTablesPatchSchema) is what lets `{ "dataTables": { "jobs": null } }`
   // delete a single entry.
+  /** The PATCH shape. */
   patchSchema: dataTablesPatchSchema,
   /**
    * Merge the `dataTables` namespace using JSON Merge Patch semantics,
    * PER TABLE ID.
    *
-   * - patch absent            -> keep the stored namespace untouched
-   * - patch is `null`         -> clear the whole namespace
-   * - `{ jobs: null }`        -> delete the `jobs` entry, leave others alone
-   * - `{ jobs: { pageSize } }`-> REPLACE the `jobs` entry wholesale. This is
+   * - patch absent            =\> keep the stored namespace untouched
+   * - patch is `null`         =\> clear the whole namespace
+   * - `{ jobs: null }`        =\> delete the `jobs` entry, leave others alone
+   * - `{ jobs: { pageSize } }` =\> REPLACE the `jobs` entry wholesale. This is
    *   deliberately not a deep merge: a table's preferences are a single
    *   coherent view state, and a client that sends a partial entry is stating
    *   the entry it wants, so any previously stored `density` for `jobs` is
@@ -116,18 +120,22 @@ export const DATA_TABLES_USER_SETTINGS = {
  * @stability stable
  */
 export const NAVIGATION_USER_SETTINGS = {
+  /** The namespace key. */
   key: 'navigation',
+  /** What it holds. */
   description: 'Navigation chrome preferences (whether the navigation rail is collapsed).',
+  /** The stored shape. */
   schema: navigationSchema,
+  /** The PATCH shape. */
   patchSchema: navigationPatchSchema,
   /**
    * Merge the `navigation` namespace field-wise.
    *
-   * - patch absent           -> keep the stored namespace untouched
-   * - patch is `null`        -> clear the whole namespace
-   * - field omitted          -> stored value untouched
-   * - field set to a value   -> replaces the stored value
-   * - field set to `null`    -> deletes the field, so the client falls back to
+   * - patch absent           =\> keep the stored namespace untouched
+   * - patch is `null`        =\> clear the whole namespace
+   * - field omitted          =\> stored value untouched
+   * - field set to a value   =\> replaces the stored value
+   * - field set to `null`    =\> deletes the field, so the client falls back to
    *   its built-in default rather than to a hard-coded stored one
    *
    * As with dataTables, an empty result collapses to `undefined`.
@@ -167,7 +175,9 @@ declare module './user-settings-namespace' {
     navigation: NavigationValue;
   }
   interface UserSettingsNamespaceDeclarations {
+    /** The `dataTables` declaration. */
     dataTables: typeof DATA_TABLES_USER_SETTINGS;
+    /** The `navigation` declaration. */
     navigation: typeof NAVIGATION_USER_SETTINGS;
   }
 }

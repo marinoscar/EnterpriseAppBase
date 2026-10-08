@@ -105,8 +105,8 @@ export interface SystemSettingsNamespace<K extends string = string, V = unknown,
   /**
    * The org layer (issue #733): the fields an organization may set for itself
    * and how they combine with the system value. Absent means the namespace is
-   * deployment-wide only and cannot be overridden per organization (a `PATCH
-   * /api/org-settings` naming it is a 400).
+   * deployment-wide only and cannot be overridden per organization (a
+   * `PATCH /api/org-settings` naming it is a 400).
    */
   readonly org?: SettingsNamespaceOrgLayer<V>;
   /**
@@ -159,7 +159,6 @@ export interface SettingsNamespaceOrgLayer<V> {
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- an augmentation target
 export interface SystemSettingsNamespaces {}
 
 /**
@@ -171,7 +170,6 @@ export interface SystemSettingsNamespaces {}
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- an augmentation target
 export interface SystemSettingsNamespaceDeclarations {}
 
 /**

@@ -67,9 +67,14 @@ export function isFeatureEnabled(feature: SettingsFeatureKey | undefined, featur
   return feature === undefined || features[feature] === true;
 }
 
-type FeatureResolver = () => boolean;
+/**
+ * How one feature is read: a React hook returning whether it is on.
+ *
+ * @stability experimental
+ */
+export type SettingsFeatureResolver = () => boolean;
 
-const resolvers = new Map<string, FeatureResolver>();
+const resolvers = new Map<string, SettingsFeatureResolver>();
 let sealed = false;
 
 /**
@@ -92,7 +97,7 @@ let sealed = false;
  * @extensionPoint registry
  * @stability experimental
  */
-export function registerSettingsFeature(key: SettingsFeatureKey, useIsOn: FeatureResolver): void {
+export function registerSettingsFeature(key: SettingsFeatureKey, useIsOn: SettingsFeatureResolver): void {
   if (sealed && !resolvers.has(key)) {
     throw new Error(
       `registerSettingsFeature("${key}"): the feature set is fixed once useSettingsFeatures() rendered; register at module scope.`,

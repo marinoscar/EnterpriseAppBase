@@ -25,6 +25,18 @@ export interface UserSettingsDocument {
 }
 
 /**
+ * The least a user settings PATCH body may carry for the hook.
+ *
+ * @stability experimental
+ */
+export interface UserSettingsUpdateBase {
+  /** A new theme preference. */
+  theme?: ThemePreference;
+  /** New profile preferences. */
+  profile?: unknown;
+}
+
+/**
  * Options of {@link useUserSettings}.
  *
  * @stability experimental
@@ -90,7 +102,7 @@ export interface UseUserSettingsResult<T extends UserSettingsDocument, U> {
  */
 export function useUserSettings<
   T extends UserSettingsDocument = UserSettingsResponseBase,
-  U extends { theme?: ThemePreference; profile?: unknown } = Partial<T>,
+  U extends UserSettingsUpdateBase = Partial<T>,
 >(options: UseUserSettingsOptions = {}): UseUserSettingsResult<T, U> {
   const { syncTheme = true, applyTheme } = options;
   const api = useSettingsApi(options);
