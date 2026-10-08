@@ -1,204 +1,27 @@
 // =============================================================================
 // The data plane's request and response bodies (issue #269, epic #254)
-// =============================================================================
 //
-// #268 gave a node a CONTROL plane: claim a job, renew its lease, report an
-// outcome. What it could not do was read a single byte or write one, because
-// a node holds no storage credentials — by design, and permanently. These
-// bodies are the whole of the answer.
-//
-// -----------------------------------------------------------------------------
-// THE SHAPE OF THE SOLUTION, AND THE TWO ALTERNATIVES IT BEATS
-// -----------------------------------------------------------------------------
-//
-// The server mints a SHORT-LIVED, SINGLE-OBJECT signed URL and the node talks
-// to the storage provider directly. Bytes never pass through the API.
-//
-// REJECTED: PROXYING BYTES THROUGH THE API (`GET /nodes/:id/jobs/:jobId/input`
-// streaming the object, `POST …/output` accepting it). It is the smallest
-// diff and it is the worst outcome. Every byte of every job would cross the
-// API process twice — once in, once out — so the API's memory, its event loop
-// and its egress bill become a function of how much work the FLEET is doing,
-// which is the exact coupling a worker node exists to remove. A ten-node fleet
-// hashing 1 GB objects would saturate the API before it saturated anything
-// that was actually computing. It also puts long-lived streaming connections
-// on the same process that serves interactive requests, so one large transfer
-// degrades every page load, and a node on a slow link holds a request open for
-// minutes against every timeout in the stack (Nginx, Fastify, the platform's
-// load balancer) — each of which would have to be raised, for everyone.
-//
-// REJECTED: GIVING NODES STORAGE CREDENTIALS. Also small, also worse. A
-// credential handed to a node is a bucket-wide capability sitting in a config
-// file on a machine this deployment may not own, for as long as that machine
-// exists — it does not expire when the job ends, it is not scoped to one
-// object, and it cannot be revoked without rotating it for every other holder.
-// A node compromised on Tuesday can read every object in the bucket on
-// Friday. The signed URL below is the same capability reduced along three
-// axes at once: ONE object, ONE verb, and MINUTES. Nothing has to be rotated
-// when a node is decommissioned, because a decommissioned node holds nothing.
-//
-// -----------------------------------------------------------------------------
-// ⚠ THE SERVER CHOOSES THE UPLOAD KEY. THE NODE NEVER DOES.
-// -----------------------------------------------------------------------------
-//
-// REJECTED: `{ key: "outputs/my-thing.bin" }` in the upload request. A signed
-// PUT is an unconditional overwrite of exactly the key it was signed for, so a
-// key taken from the request body is a write primitive over the entire bucket,
-// handed to the least trustworthy participant. `../../etc/config.json`,
-// `uploads/<someone-else's-object>` and the storage key of any row in
-// `storage_objects` are all just strings, and the provider will not object to
-// any of them: S3 keys are opaque, `..` is not special, and there is no
-// filesystem to refuse the traversal. The damage is silent — a job that
-// "succeeded" while overwriting another user's file.
-//
-// The key is therefore derived server-side from the job id and a fresh UUID
-// (`NodeDataPlaneService.createUploadTarget`), and a node-supplied one is
-// REFUSED rather than silently ignored. Both are safe; the difference is what
-// the node's author learns. Ignoring means their `key` field vanishes without
-// a word: the upload succeeds, the bytes land somewhere they did not choose,
-// and their code goes on referring to a path with nothing at it. That bug is
-// found days later by a person, not minutes later by a machine. A `400` naming
-// the field is found on the first run, by the person who just wrote it, and it
-// costs a correct client exactly nothing — no legitimate node ever sends the
-// field.
+// The wire schemas, and the design notes that used to sit here, live in
+// `@marinoscar/platform-contract/nodes` since #734 (`schemas.ts`, section
+// "From node-data-plane.dto.ts"). This file wraps them with `createZodDto`, which is how
+// they reach the OpenAPI document and the global `ZodValidationPipe`.
 // =============================================================================
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
-import { z } from 'zod';
+import {
+  nodeDownloadUrlSchema,
+  nodeUploadUrlSchema,
+} from '@marinoscar/platform-contract/nodes';
 
-import { claimTokenField } from './claim-token.field';
-
-/**
- * Cap on a node-declared `Content-Type`.
- *
- * It ends up in a signed header, so it is bounded for the same reason every
- * other node-supplied string in this folder is: it arrives from a machine
- * this deployment may not own.
- */
-const MAX_CONTENT_TYPE_LENGTH = 255;
-
-// =============================================================================
-// POST /nodes/:id/jobs/:jobId/download-url
-// =============================================================================
-//
-// ONE FIELD, AND IT IS NOT A REQUEST FOR ANYTHING. This body had none at all
-// until #364, and the distinction that let it acquire one is worth stating,
-// because it is what keeps the next field out: `claimToken` does not ask the
-// server for a different URL, a longer expiry or a different object. It
-// answers "who is asking" — an ASSERTION about which claim of this job the
-// caller is, checked against the row and never used to compute anything. A
-// field that changed what came back would still be refused.
-//
-// So what has NOT changed: the server decides WHICH bytes (the job's
-// `subjectId`, resolved server-side) and FOR HOW LONG. A DTO whose only field
-// was `expiresIn` was considered and dropped for the same reason a
-// node-supplied lease was dropped in #268 — the bound exists to limit the
-// blast radius of a leaked URL, so the party the bound protects against does
-// not get to set it.
-//
-// It is a POST rather than a GET even though it reads nothing, because it
-// MINTS A CREDENTIAL. A GET's URL is the thing every layer between here and
-// the node writes down — proxy access logs, browser history, a CDN cache key,
-// an APM trace's endpoint label — and a response body containing a bearer URL
-// has no business being cacheable by anything. POST is uncacheable by default
-// and carries no such expectation.
-
-/**
- * What a node may say when asking to read its input: which claim is asking,
- * and nothing else.
- *
- * ⚠ `.default({})` IS THE BACKWARD-COMPATIBILITY GUARANTEE, not a convenience.
- * This route took no body at all until #364, so every node in every fleet
- * posts to it with no payload and no `Content-Type` — Fastify hands Nest
- * `undefined`, and a bare `z.object({...})` would reject that outright and
- * fail every download from every node that has not been upgraded yet. The
- * default is what makes "no body" parse to "no assertion", which is the
- * pre-#364 behaviour spelled as data. Do not unwrap it. `nodeUploadUrlSchema`
- * below and `nodeJobSecretRequestSchema` carry it for the milder version of
- * the same reason — there, an empty body was always legal.
- *
- * A plain object rather than the `z.looseObject` its sibling uses: unknown
- * keys here are stripped, exactly as they were ignored before this body
- * existed. The loose-then-refuse-by-name treatment next door exists for `key`,
- * a field whose silent omission would send a node's bytes somewhere it did not
- * choose; nothing a node can put in THIS body has ever had an effect, so there
- * is no misunderstanding to name.
- */
-export const nodeDownloadUrlSchema = z
-  .object({
-    claimToken: claimTokenField.optional(),
-  })
-  .default({});
+// The wire schemas live in @marinoscar/platform-contract/nodes since #734; re-exported under
+// their old names so every import inside the slice is unchanged.
+export {
+  nodeDownloadUrlSchema,
+  nodeUploadUrlSchema,
+};
 
 export class NodeDownloadUrlDto extends createZodDto(nodeDownloadUrlSchema) {}
-
-// =============================================================================
-// POST /nodes/:id/jobs/:jobId/upload-url
-// =============================================================================
-
-/**
- * What a node may say when asking for somewhere to write.
- *
- * ⚠ `z.looseObject` RATHER THAN `z.strictObject`, AND THE REASON IS THE ERROR
- * MESSAGE. Strict mode rejects an unknown key with a perfectly good Zod issue
- * naming it — and that issue is then DESTROYED on the way out, because
- * `http-exception.filter.ts` rebuilds every error body from a fixed key
- * allowlist (`message`, `code`, `details`) and the validation pipe puts its
- * issues under `errors`. The node would receive a bare
- * `400 "Validation failed"`, which for the one field this endpoint most needs
- * to talk about — `key` — is the least useful answer available.
- *
- * So unknown keys are CAPTURED here and refused in
- * `NodeDataPlaneService.createUploadTarget`, which can raise a
- * `BadRequestException` carrying a message that names the field, explains that
- * the server chooses the key, and survives the filter intact. The security
- * outcome is identical either way (the key is never read); what differs is
- * whether the node's author is told why.
- *
- * `.default({})` so a node with nothing to declare may send an EMPTY BODY
- * rather than being required to send `{}` to satisfy a parser.
- */
-export const nodeUploadUrlSchema = z
-  .looseObject({
-    /**
-     * The `Content-Type` the node will send on its PUT.
-     *
-     * ⚠ IT BECOMES PART OF THE SIGNATURE. A node that declares it MUST send
-     * exactly this header, or the provider answers `SignatureDoesNotMatch` —
-     * an error that names the signature and not the header that broke it. A
-     * node that is unsure should omit it and send whatever it likes.
-     */
-    contentType: z
-      .string()
-      .trim()
-      .min(1)
-      .max(MAX_CONTENT_TYPE_LENGTH)
-      .optional(),
-
-    /**
-     * WHICH CLAIM is asking for somewhere to write — see
-     * `claim-token.field.ts`.
-     *
-     * ⚠ THE SHARPEST OF THE SIX ROUTES THAT CARRY THIS, and the quietest if it
-     * is missing. Since #348 a type may derive its output key from the JOB
-     * (`deriveOutputKey`), so the key is a function of the row and not of the
-     * claim — which means a node's stale worker slot asking here is handed a
-     * signed PUT for the EXACT key its own later claim is currently writing.
-     * Both PUTs answer 200, the surviving bytes are whichever landed last, and
-     * nothing in any log ties the two together. The token is what refuses the
-     * first slot before the URL is minted.
-     *
-     * ⚠ IT IS ALSO A PERMITTED FIELD, which is not automatic here:
-     * `NodeDataPlaneService.rejectCallerSuppliedFields` refuses anything
-     * outside its allowlist by name, so adding a field to this schema without
-     * adding it there would 400 every upgraded node. The allowlist is the
-     * authority; this schema only describes.
-     */
-    claimToken: claimTokenField.optional(),
-  })
-  .default({});
-
 export class NodeUploadUrlDto extends createZodDto(nodeUploadUrlSchema) {}
 
 // =============================================================================

@@ -110,6 +110,26 @@
         "default": "./dist/cjs/email/index.js"
       }
     },
+    "./jobs": {
+      "import": {
+        "types": "./dist/esm/jobs/index.d.ts",
+        "default": "./dist/esm/jobs/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/jobs/index.d.ts",
+        "default": "./dist/cjs/jobs/index.js"
+      }
+    },
+    "./nodes": {
+      "import": {
+        "types": "./dist/esm/nodes/index.d.ts",
+        "default": "./dist/esm/nodes/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/nodes/index.d.ts",
+        "default": "./dist/cjs/nodes/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
