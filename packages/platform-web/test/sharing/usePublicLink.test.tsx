@@ -31,6 +31,9 @@ describe('parseLinkTokenFromHash (#731)', () => {
     expect(parseLinkTokenFromHash('')).toBeNull();
     expect(parseLinkTokenFromHash('#')).toBeNull();
     expect(parseLinkTokenFromHash('#short')).toBeNull();
+    // Not the contract's shape (`lnk_` and 43 base64url characters): never sent.
+    expect(parseLinkTokenFromHash('#abcdefghijklmnopqrstuvwxyz')).toBeNull();
+    expect(parseLinkTokenFromHash(`#${TOKEN}x`)).toBeNull();
     expect(parseLinkTokenFromHash('#lnk_has spaces and <tags>')).toBeNull();
     expect(parseLinkTokenFromHash('#%E0%A4%A')).toBeNull();
   });

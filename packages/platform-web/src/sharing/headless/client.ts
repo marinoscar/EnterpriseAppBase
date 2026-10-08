@@ -174,7 +174,10 @@ function query(params: Record<string, string | number | undefined>): string {
 
 const enc = encodeURIComponent;
 
-/** A link list may arrive as an array or a page; either way, the active links. */
+/**
+ * The active links of a `linkGrantListSchema` page (#730: newest first, a
+ * revoked link included with `url: null`). An array is accepted too.
+ */
 function linkItems(body: unknown): LinkGrantView[] {
   const items = Array.isArray(body)
     ? (body as LinkGrantView[])
@@ -184,7 +187,7 @@ function linkItems(body: unknown): LinkGrantView[] {
   return items.filter((link) => link.revokedAt === null || link.revokedAt === undefined);
 }
 
-/** The create response may be `{ grant, url, token }` or the view with a `token`. */
+/** `issuedLinkGrantSchema` (`{ grant, url, token }`, #730); a bare view is accepted too. */
 function issued(body: unknown): IssuedLinkGrant {
   const value = (body ?? {}) as Partial<IssuedLinkGrant> & Partial<LinkGrantView> & { token?: string | null };
   if (value.grant && typeof value.grant === 'object') {
@@ -256,7 +259,12 @@ export function createSharingClient(api: PlatformApiClient, paths: SharingClient
         options,
       ),
     listLinkGrants: async (resource, options) =>
-      linkItems(await api.get<unknown>(`${grants}/links${query({ resourceType: resource.type, resourceId: resource.id })}`, options)),
+      linkItems(
+        await api.get<unknown>(
+          `${grants}/links${query({ resourceType: resource.type, resourceId: resource.id, pageSize: 100 })}`,
+          options,
+        ),
+      ),
     createLinkGrant: async (resource, input = {}) =>
       issued(
         await api.post<unknown>(`${grants}/links`, {

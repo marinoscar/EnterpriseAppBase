@@ -24,6 +24,7 @@
 // the same `unavailable` status, matching the API's uniform 404.
 // =============================================================================
 
+import { LINK_TOKEN_PATTERN } from '@marinoscar/platform-contract/sharing';
 import type { PublicLinkResolution } from '@marinoscar/platform-contract/sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -34,12 +35,11 @@ import type { SharingClient } from './client.js';
 import { toSharingError } from './errors.js';
 import type { SharingError } from './types.js';
 
-/** A link token: `lnk_` plus base64url today; any base64url-ish string up to 256 characters is passed on. */
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,256}$/;
-
 /**
  * The token in a URL fragment (`#lnk_…`), or `null` when the fragment is
- * empty or cannot be a token. Pure: it neither reads nor changes the location.
+ * empty or is not a well-formed link token (`LINK_TOKEN_PATTERN`: `lnk_` and
+ * 43 base64url characters), which is then never sent. Pure: it neither reads
+ * nor changes the location.
  *
  * @param hash - `location.hash`, with or without the leading `#`.
  * @returns the token, or `null`.
@@ -54,7 +54,7 @@ export function parseLinkTokenFromHash(hash: string): string | null {
     return null;
   }
   raw = raw.trim();
-  return TOKEN_PATTERN.test(raw) ? raw : null;
+  return LINK_TOKEN_PATTERN.test(raw) ? raw : null;
 }
 
 /**
