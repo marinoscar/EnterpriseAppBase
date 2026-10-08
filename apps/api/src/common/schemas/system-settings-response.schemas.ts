@@ -25,20 +25,9 @@ export { notificationsResponseSchema } from '@marinoscar/platform-contract/notif
 // than imported for the same reason the request bodies are — this is the
 // OpenAPI-visible contract — and kept in step by
 // `common/schemas/settings-parity.spec.ts`.
-export const jobsResponseSchema = z.object({
-  history: z.object({
-    retentionDays: z.number(),
-    purgeEnabled: z.boolean(),
-  }),
-  stuckThresholdMinutes: z.number(),
-});
-
-export const nodesResponseSchema = z.object({
-  staleHeartbeatSeconds: z.number(),
-  offlineStaleMultiplier: z.number(),
-  offlineRetentionDays: z.number(),
-  jobSecretBrokerEnabled: z.boolean(),
-});
+// `jobs` and `nodes` (#865): `@marinoscar/platform-contract/jobs` and `/nodes`, re-exported unchanged.
+export { jobsResponseSchema } from '@marinoscar/platform-contract/jobs';
+export { nodesResponseSchema } from '@marinoscar/platform-contract/nodes';
 
 // `databaseBackup` (#740): `@marinoscar/platform-contract/db-backup`, re-exported unchanged.
 export { databaseBackupResponseSchema } from '@marinoscar/platform-contract/db-backup';

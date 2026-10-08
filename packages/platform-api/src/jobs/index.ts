@@ -13,6 +13,7 @@ export { jobsConfiguration } from './jobs.configuration';
 export type { JobsConfiguration, JobsConfigurationKeys, NodesConfigurationKeys } from './jobs.configuration';
 export { DEFAULT_JOBS_POLICY, DEFAULT_NODES_POLICY } from './jobs.policy';
 export type { JobsPolicy, NodesPolicy } from './jobs.policy';
+export { JOBS_SYSTEM_SETTINGS, mergeJobsSettings } from './jobs.system-settings';
 
 // ---- the host ports (rung 3) -------------------------------------------------------------
 export { JOBS_EVENT_BUS, JOBS_METRICS, JOBS_ORG_SCOPE, NOOP_JOBS_METRICS } from './ports';

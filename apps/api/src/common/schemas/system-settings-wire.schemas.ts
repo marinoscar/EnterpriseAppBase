@@ -63,20 +63,10 @@ import {
 // one of them lands and every client is sending it, promoting that block to
 // required here is a one-line change with a test that already covers it.
 
-export const jobsSettingsSchema = z.object({
-  history: z.object({
-    retentionDays: z.number().int().min(1).max(3650),
-    purgeEnabled: z.boolean(),
-  }),
-  stuckThresholdMinutes: z.number().int().min(1).max(10080),
-});
-
-export const nodesSettingsSchema = z.object({
-  staleHeartbeatSeconds: z.number().int().min(5).max(86400),
-  offlineStaleMultiplier: z.number().int().min(1).max(100),
-  offlineRetentionDays: z.number().int().min(1).max(3650),
-  jobSecretBrokerEnabled: z.boolean(),
-});
+// The `jobs` and `nodes` branches live in `@marinoscar/platform-contract/jobs`
+// and `/nodes` since #865, re-exported unchanged (PATCH branches included).
+export { jobsSettingsPatchSchema, jobsSettingsSchema } from '@marinoscar/platform-contract/jobs';
+export { nodesSettingsPatchSchema, nodesSettingsSchema } from '@marinoscar/platform-contract/nodes';
 
 // The `databaseBackup` branches live in `@marinoscar/platform-contract/db-backup`
 // since #740, re-exported unchanged.
@@ -180,22 +170,7 @@ export const retentionPolicyPatchSettingsSchema = z.object({
 // is missing, that body parses to `{}` and the PATCH is a no-op that returns
 // 200 — the defect `settings-parity.spec.ts` and
 // `test/settings/system-settings.integration.spec.ts` both pin.
-export const jobsSettingsPatchSchema = z.object({
-  history: z
-    .object({
-      retentionDays: z.number().int().min(1).max(3650).optional(),
-      purgeEnabled: z.boolean().optional(),
-    })
-    .optional(),
-  stuckThresholdMinutes: z.number().int().min(1).max(10080).optional(),
-});
-
-export const nodesSettingsPatchSchema = z.object({
-  staleHeartbeatSeconds: z.number().int().min(5).max(86400).optional(),
-  offlineStaleMultiplier: z.number().int().min(1).max(100).optional(),
-  offlineRetentionDays: z.number().int().min(1).max(3650).optional(),
-  jobSecretBrokerEnabled: z.boolean().optional(),
-});
+// `jobsSettingsPatchSchema`, `nodesSettingsPatchSchema`: re-exported above from the contract (#865).
 
 // `databaseBackupSettingsPatchSchema`: re-exported above from the contract (#740).
 

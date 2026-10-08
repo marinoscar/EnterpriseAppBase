@@ -8,6 +8,7 @@
 export { NodesModule } from './nodes.module';
 export { NODES_OPTIONS, resolveNodesModuleOptions } from './nodes.options';
 export type { NodesModuleOptions, ResolvedNodesModuleOptions } from './nodes.options';
+export { NODES_SYSTEM_SETTINGS, mergeNodesSettings } from './nodes.system-settings';
 export { NodeCredentialModule } from './node-credential.module';
 
 // ---- the host ports (rung 3) -------------------------------------------------------------

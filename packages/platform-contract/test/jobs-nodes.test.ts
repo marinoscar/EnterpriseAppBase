@@ -9,6 +9,11 @@ import {
   jobInsightsQuerySchema,
   jobListQuerySchema,
   jobSchema,
+  jobsResponseSchema,
+  jobsSettingsPatchSchema,
+  jobsSettingsSchema,
+  systemJobsPatchSchema,
+  systemJobsSchema,
 } from '../src/jobs/index.js';
 import {
   MAX_NODE_CONCURRENCY,
@@ -16,6 +21,11 @@ import {
   createNodeCredentialSchema,
   heartbeatNodeSchema,
   nodeDownloadUrlSchema,
+  nodesResponseSchema,
+  nodesSettingsPatchSchema,
+  nodesSettingsSchema,
+  systemNodesPatchSchema,
+  systemNodesSchema,
 } from '../src/nodes/index.js';
 
 const ORG = '11111111-1111-4111-8111-aaaaaaaaaaaa';
@@ -84,5 +94,31 @@ describe('nodes contract', () => {
   it('requires a node credential name', () => {
     expect(createNodeCredentialSchema.safeParse({ name: '  ' }).success).toBe(false);
     expect(createNodeCredentialSchema.parse({ name: 'build box' })).toEqual({ name: 'build box' });
+  });
+});
+
+// The `jobs` and `nodes` system-settings namespaces' schemas (#865), moved
+// from the reference app: the stored shapes, their partials and the wire branches.
+describe('jobs and nodes settings namespaces', () => {
+  const jobs = { history: { retentionDays: 30, purgeEnabled: true }, stuckThresholdMinutes: 30 };
+  const nodes = { staleHeartbeatSeconds: 90, offlineStaleMultiplier: 4, offlineRetentionDays: 30, jobSecretBrokerEnabled: false };
+
+  it('accepts the shipped values in the stored, PUT and response shapes', () => {
+    for (const schema of [systemJobsSchema, jobsSettingsSchema, jobsResponseSchema]) expect(schema.parse(jobs)).toEqual(jobs);
+    for (const schema of [systemNodesSchema, nodesSettingsSchema, nodesResponseSchema]) expect(schema.parse(nodes)).toEqual(nodes);
+  });
+
+  it('keeps every bound: a week of stuck threshold, ten years of retention, 5 s to a day of heartbeat', () => {
+    expect(systemJobsSchema.safeParse({ ...jobs, stuckThresholdMinutes: 10081 }).success).toBe(false);
+    expect(jobsSettingsSchema.safeParse({ ...jobs, history: { retentionDays: 3651, purgeEnabled: true } }).success).toBe(false);
+    expect(systemNodesSchema.safeParse({ ...nodes, staleHeartbeatSeconds: 4 }).success).toBe(false);
+    expect(nodesSettingsSchema.safeParse({ ...nodes, offlineStaleMultiplier: 101 }).success).toBe(false);
+  });
+
+  it('parses a partial PATCH branch field by field, and applies no default', () => {
+    expect(jobsSettingsPatchSchema.parse({ history: { purgeEnabled: false } })).toEqual({ history: { purgeEnabled: false } });
+    expect(systemJobsPatchSchema.parse({})).toEqual({});
+    expect(nodesSettingsPatchSchema.parse({ jobSecretBrokerEnabled: true })).toEqual({ jobSecretBrokerEnabled: true });
+    expect(systemNodesPatchSchema.parse({})).toEqual({});
   });
 });

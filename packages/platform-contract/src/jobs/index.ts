@@ -47,3 +47,13 @@ export type {
   JobStatusEnum,
   ProcessedWithinEnum,
 } from './schemas.js';
+
+// ---- ./settings-schemas.ts: the `jobs` system-settings namespace (#865)
+export {
+  jobsResponseSchema,
+  jobsSettingsPatchSchema,
+  jobsSettingsSchema,
+  systemJobsPatchSchema,
+  systemJobsSchema,
+} from './settings-schemas.js';
+export type { JobsSettingsPatchInput, SystemJobsValue } from './settings-schemas.js';
