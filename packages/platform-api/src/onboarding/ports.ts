@@ -21,7 +21,12 @@ export interface OnboardingDataPort {
   /** Whether the user has at least one active Web Push subscription. Optional: absent reads as `false`. */
   hasPushSubscription?(userId: string): Promise<boolean>;
   /** In the organization: active members other than `userId`, and pending invites. Optional: absent omits `admin.org-invite`. */
-  orgInviteProgress?(orgId: string, userId: string): Promise<{ otherMembers: number; pendingInvites: number }>;
+  orgInviteProgress?(orgId: string, userId: string): Promise<{
+    /** Active members other than `userId`. */
+    otherMembers: number;
+    /** Pending invites. */
+    pendingInvites: number;
+  }>;
   /** Runs ONE read-only aggregate statement with positional parameters (`$1`, ...). The metrics' only query. */
   queryAggregate<T>(sql: string, values: readonly unknown[]): Promise<T[]>;
 }

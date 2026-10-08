@@ -39,7 +39,12 @@ export interface OnboardingMetricsQuery {
   /** The parameter values, in order. */
   values: unknown[];
   /** Column alias per milestone and funnel step, in order. */
-  columns: { milestones: string[]; steps: string[] };
+  columns: {
+    /** One alias prefix per milestone (`m0`, ...). */
+    milestones: string[];
+    /** One alias prefix per funnel step (`f0`, ...). */
+    steps: string[];
+  };
 }
 
 /**

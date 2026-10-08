@@ -84,7 +84,7 @@ function DefaultUserPane({ descriptionId, appName }: WelcomePaneProps): ReactEle
 
 /**
  * The one-time welcome. Mount it once, inside the app's layout, under the
- * {@link OnboardingProvider}; it renders nothing until it should open.
+ * `OnboardingProvider` (`/onboarding/headless`); it renders nothing until it should open.
  *
  * @param props - see {@link WelcomeDialogProps}.
  * @returns the dialog, or `null`.

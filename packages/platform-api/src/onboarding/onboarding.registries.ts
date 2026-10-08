@@ -27,7 +27,11 @@ import type {
   OnboardingStepDef,
 } from './onboarding.types';
 
-/** The fact the `doctorChecks` sugar adds. */
+/**
+ * The fact the `doctorChecks` sugar adds.
+ *
+ * @stability experimental
+ */
 export const DOCTOR_FACT_ID = 'doctor';
 
 function nonEmpty(value: unknown, field: string): void {

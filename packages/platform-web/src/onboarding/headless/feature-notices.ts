@@ -11,7 +11,7 @@
 export interface FeatureNoticeDef {
   /** The feature key (`ai`, `storage`, `push`, an app's own). */
   feature: string;
-  /** Its name in copy: "{label} isn't enabled yet". */
+  /** Its name in copy: "<label> isn't enabled yet". */
   label: string;
   /** The exact admin read permission of its settings page; its holders see "Set it up". */
   adminPermission: string;

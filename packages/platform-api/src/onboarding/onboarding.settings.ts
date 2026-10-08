@@ -126,7 +126,7 @@ export const ONBOARDING_USER_SETTINGS = {
   merge: mergeOnboardingSettings,
 } satisfies UserSettingsNamespace<'onboarding', OnboardingSettings, OnboardingSettingsPatch>;
 
-declare module '../settings/index' {
+declare module '../settings/registry/user-settings-namespace' {
   interface UserSettingsNamespaces {
     /** First-run onboarding UI state (#745). Absent: never seen, never dismissed, nothing skipped. */
     onboarding: OnboardingSettings;

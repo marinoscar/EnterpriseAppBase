@@ -20,6 +20,10 @@ export {
 } from './constants.js';
 export type { OnboardingAudience, OnboardingStatus, OnboardingTier } from './constants.js';
 export {
+  onboardingAudienceSchema,
+  onboardingRefreshSchema,
+  onboardingStatusSchema,
+  onboardingTierSchema,
   onboardingBlockSchema,
   onboardingFunnelStepSchema,
   onboardingMetricsQuerySchema,
@@ -34,6 +38,10 @@ export {
   onboardingStepSchema,
 } from './schemas.js';
 export type {
+  OnboardingAudienceEnum,
+  OnboardingRefreshEnum,
+  OnboardingStatusEnum,
+  OnboardingTierEnum,
   OnboardingBlock,
   OnboardingFunnelStep,
   OnboardingMetricsResponse,

@@ -26,6 +26,65 @@ import {
 } from './constants.js';
 
 // =============================================================================
+// Enum entry types (named, so the published types stay readable)
+// =============================================================================
+
+/**
+ * The entries of the audience enum.
+ *
+ * @stability experimental
+ */
+export type OnboardingAudienceEnum = { [K in (typeof ONBOARDING_AUDIENCES)[number]]: K };
+/**
+ * The entries of the tier enum.
+ *
+ * @stability experimental
+ */
+export type OnboardingTierEnum = { [K in (typeof ONBOARDING_TIERS)[number]]: K };
+/**
+ * The entries of the status enum.
+ *
+ * @stability experimental
+ */
+export type OnboardingStatusEnum = { [K in (typeof ONBOARDING_STATUSES)[number]]: K };
+/**
+ * The entries of the `refresh` query enum.
+ *
+ * @stability experimental
+ */
+export type OnboardingRefreshEnum = {
+  /** Bypass the Doctor's cache. */
+  true: 'true';
+  /** Use it. */
+  false: 'false';
+};
+
+/**
+ * A step's audience.
+ *
+ * @stability experimental
+ */
+export const onboardingAudienceSchema: z.ZodEnum<OnboardingAudienceEnum> = z.enum(ONBOARDING_AUDIENCES);
+/**
+ * A step's tier.
+ *
+ * @stability experimental
+ */
+export const onboardingTierSchema: z.ZodEnum<OnboardingTierEnum> = z.enum(ONBOARDING_TIERS);
+/**
+ * A step's derived status.
+ *
+ * @stability experimental
+ */
+export const onboardingStatusSchema: z.ZodEnum<OnboardingStatusEnum> = z.enum(ONBOARDING_STATUSES);
+/**
+ * The raw `refresh` query value.
+ *
+ * @stability experimental
+ */
+export const onboardingRefreshSchema: z.ZodEnum<OnboardingRefreshEnum> = z.enum(['true', 'false']);
+
+// =============================================================================
 // The stored namespace
 // =============================================================================
 
@@ -73,9 +132,13 @@ export type OnboardingSettings = z.infer<typeof onboardingSettingsSchema>;
  */
 export const onboardingSettingsPatchSchema = z
   .object({
+    /** Set when the welcome was closed; `null` clears it. */
     welcomeSeenAt: isoDateTime.nullable().optional(),
+    /** Set when the Get started checklist was hidden; `null` clears it. */
     checklistDismissedAt: isoDateTime.nullable().optional(),
+    /** Set when the Setup guide prompt was hidden; `null` clears it. */
     adminDismissedAt: isoDateTime.nullable().optional(),
+    /** The skipped step ids, replacing the stored list; `null` clears it. */
     skipped: onboardingSettingsShape.skipped.unwrap().nullable().optional(),
   })
   .strict();
@@ -100,8 +163,7 @@ export type OnboardingSettingsPatch = z.infer<typeof onboardingSettingsPatchSche
  */
 export const onboardingQuerySchema = z.object({
   /** `true` bypasses the Doctor's report cache for the Doctor-backed steps. */
-  refresh: z
-    .enum(['true', 'false'])
+  refresh: onboardingRefreshSchema
     .transform((value) => value === 'true')
     .optional(),
 });
@@ -115,11 +177,11 @@ export const onboardingStepSchema = z.object({
   /** The permanent step id (`admin.storage`, `user.profile`, `<app>.<step>`). */
   id: z.string(),
   /** Who it is for. */
-  audience: z.enum(ONBOARDING_AUDIENCES),
+  audience: onboardingAudienceSchema,
   /** How much it matters. */
-  tier: z.enum(ONBOARDING_TIERS),
+  tier: onboardingTierSchema,
   /** Derived now, never stored. */
-  status: z.enum(ONBOARDING_STATUSES),
+  status: onboardingStatusSchema,
   /** The step's title. */
   title: z.string(),
   /** One sentence on what the step achieves. */
@@ -179,9 +241,13 @@ export type OnboardingBlock = z.infer<typeof onboardingBlockSchema>;
  */
 export const onboardingStateSchema = z
   .object({
+    /** When the welcome was closed, or `null`. */
     welcomeSeenAt: z.string().nullable(),
+    /** When the Get started checklist was hidden, or `null`. */
     checklistDismissedAt: z.string().nullable(),
+    /** When the Setup guide prompt was hidden, or `null`. */
     adminDismissedAt: z.string().nullable(),
+    /** The skipped ids that are still registered, skippable steps. */
     skipped: z.array(z.string()),
   })
   .passthrough();

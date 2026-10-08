@@ -113,14 +113,23 @@ export const PLATFORM_ONBOARDING_FACTS: readonly OnboardingFactDef[] = [
  * @stability experimental
  */
 export const ONBOARDING_STEP_IDS = {
+  /** Connect object storage (required). */
   STORAGE: 'admin.storage',
+  /** Set up email delivery (required). */
   EMAIL: 'admin.email',
+  /** Invite the first users to the allowlist (required). */
   ACCESS: 'admin.access',
+  /** Turn on AI (recommended). */
   AI: 'admin.ai',
+  /** Enable Web Push (recommended). */
   PUSH: 'admin.push',
+  /** Schedule database backups (recommended). */
   BACKUP: 'admin.backup',
+  /** Invite the first organization member (recommended, multi-org). */
   ORG_INVITE: 'admin.org-invite',
+  /** Complete the profile (optional). */
   PROFILE: 'user.profile',
+  /** Choose notifications (optional). */
   NOTIFICATIONS: 'user.notifications',
 } as const;
 

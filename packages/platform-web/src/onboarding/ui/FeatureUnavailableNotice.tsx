@@ -31,7 +31,7 @@ export interface FeatureUnavailableNoticeProps {
 }
 
 /**
- * "{Feature} isn't enabled yet", with "Set it up" for the feature's
+ * "<Feature> isn't enabled yet", with "Set it up" for the feature's
  * administrators.
  *
  * @param props - see {@link FeatureUnavailableNoticeProps}.
