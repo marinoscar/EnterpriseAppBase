@@ -155,6 +155,14 @@
       "types": "./dist/db-backup/ui/index.d.ts",
       "default": "./dist/db-backup/ui/index.js"
     },
+    "./android-app/headless": {
+      "types": "./dist/android-app/headless/index.d.ts",
+      "default": "./dist/android-app/headless/index.js"
+    },
+    "./android-app/ui": {
+      "types": "./dist/android-app/ui/index.d.ts",
+      "default": "./dist/android-app/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
