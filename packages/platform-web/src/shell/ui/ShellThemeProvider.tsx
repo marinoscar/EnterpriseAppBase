@@ -26,13 +26,25 @@ function readStoredMode(storageKey: string): ShellThemeMode {
 }
 
 /**
+ * The app's two themes.
+ *
+ * @stability experimental
+ */
+export interface ShellThemes {
+  /** Shown for `light`, and for `system` when the OS prefers light. */
+  light: Theme;
+  /** Shown for `dark`, and for `system` when the OS prefers dark. */
+  dark: Theme;
+}
+
+/**
  * Props of {@link ShellThemeProvider}.
  *
  * @stability experimental
  */
 export interface ShellThemeProviderProps {
   /** The two themes (`createShellTheme('light' | 'dark', ...)`); keep them module constants. */
-  themes: { light: Theme; dark: Theme };
+  themes: ShellThemes;
   /** Where the choice is kept in `localStorage`. Default `'theme_mode'`. */
   storageKey?: string;
   /** The app. */

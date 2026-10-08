@@ -29,7 +29,17 @@ import type { SettingsFeatureKey, SettingsFeatures, SettingsSectionDef } from '.
  *
  * @stability experimental
  */
-export type ShellIcon = ComponentType<{ fontSize?: 'inherit' | 'large' | 'medium' | 'small' }>;
+export type ShellIcon = ComponentType<ShellIconProps>;
+
+/**
+ * What the shell passes a {@link ShellIcon}.
+ *
+ * @stability experimental
+ */
+export interface ShellIconProps {
+  /** `small` in the collapsed rail and the user menu, `medium` in the expanded rail. */
+  fontSize?: 'inherit' | 'large' | 'medium' | 'small';
+}
 
 /**
  * One navigation destination, fully described for every surface that draws it.
@@ -98,7 +108,19 @@ export interface ShellConsole {
   /** The registry the Console lists (`ADMIN_SECTIONS`). */
   sections: SettingsSectionDef[];
   /** The way out. Default `{ label: 'Back to library', path: '/' }`. */
-  back?: { label: string; path: string };
+  back?: ShellConsoleBack;
+}
+
+/**
+ * The Console's permanent "back" row.
+ *
+ * @stability experimental
+ */
+export interface ShellConsoleBack {
+  /** The row's label and accessible name. */
+  label: string;
+  /** Where it goes. */
+  path: string;
 }
 
 /**

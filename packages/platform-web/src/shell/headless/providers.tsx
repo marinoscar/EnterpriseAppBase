@@ -19,7 +19,17 @@ import type { ComponentType, ReactElement, ReactNode } from 'react';
  *
  * @stability experimental
  */
-export type ShellProvider = ComponentType<{ children: ReactNode }>;
+export type ShellProvider = ComponentType<ShellProviderProps>;
+
+/**
+ * What {@link ShellProviders} passes each provider.
+ *
+ * @stability experimental
+ */
+export interface ShellProviderProps {
+  /** The rest of the stack, then the shell. */
+  children: ReactNode;
+}
 
 /**
  * Nest `providers` around `children`, the first OUTERMOST. Renders no element

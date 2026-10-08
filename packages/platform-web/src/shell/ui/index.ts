@@ -13,4 +13,4 @@ export type { ShellBottomNavProps } from './ShellBottomNav.js';
 export { ShellUserMenu } from './ShellUserMenu.js';
 export type { ShellUserMenuProps } from './ShellUserMenu.js';
 export { ShellRoot, ShellThemeProvider } from './ShellThemeProvider.js';
-export type { ShellThemeProviderProps } from './ShellThemeProvider.js';
+export type { ShellThemeProviderProps, ShellThemes } from './ShellThemeProvider.js';

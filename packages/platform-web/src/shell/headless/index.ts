@@ -10,8 +10,10 @@ export {
 } from './navigation.js';
 export type {
   ShellConsole,
+  ShellConsoleBack,
   ShellDestination,
   ShellIcon,
+  ShellIconProps,
   ShellNavigation,
   ShellRailPreference,
   ShellSettingsSurface,
@@ -27,4 +29,4 @@ export {
 } from './theme.js';
 export type { ShellThemeContextValue, ShellThemeMode, ShellThemeOptions } from './theme.js';
 export { ShellProviders } from './providers.js';
-export type { ShellProvider } from './providers.js';
+export type { ShellProvider, ShellProviderProps } from './providers.js';
