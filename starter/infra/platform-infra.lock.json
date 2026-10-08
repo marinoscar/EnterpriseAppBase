@@ -1,0 +1,47 @@
+{
+  "version": "0.1.0-next.3",
+  "identity": {
+    "cliName": "appctl",
+    "envPrefix": "APPCTL_",
+    "serviceName": "my-app-api",
+    "workerImage": "ghcr.io/OWNER/REPO-worker:latest",
+    "testDatabase": "my_app_test",
+    "testContainer": "my-app-db-test"
+  },
+  "fragments": {
+    "compose": {
+      "files": {
+        "infra/compose/base.compose.yml": "707ce6e894e2b4a2485537c04581835510d4b54dcc53b79af63f011afae082ab",
+        "infra/compose/dev.compose.yml": "5c289ee8d21b816550c677b3dc35de37c7a8a7033bbd3a2b0c7c2b477825d07c",
+        "infra/compose/devdb.compose.yml": "3eb626711e6a4cd68178fe09ed8449c10c9c862782f1797891ad2a61bf9f6441",
+        "infra/compose/prod.compose.yml": "027ca7b6c38af5c056a465d849af205528f78a3c2ebc6a57b7a8534877125e6a",
+        "infra/compose/vps.compose.yml": "bbf434f023f1c60f166722ad248e14ddd5e5f8976c1f2b51baed43d8617876fc",
+        "infra/compose/worker.compose.yml": "313ba4bc510d35b388463a6d61533116e751f8a4f1780391bf190a372b9f6a9a",
+        "infra/compose/worker.build.compose.yml": "8675ce8b0dfb5e8de057d9fed224bea918abfebf6c856d8c643156baf28c27d8",
+        "infra/compose/test.compose.yml": "d3b6bc39da7cfc3c1bb00b6526a595dc2bf7b4e7d8242c955bb2449f9d44f6c0"
+      }
+    },
+    "nginx": {
+      "files": {
+        "infra/nginx/nginx.conf": "e9543d3d1e83781be09f4d3a7e2bb2e9340a10aef55d429edcd6a658e82bb119",
+        "infra/nginx/csp.conf": "e470f258feb62e44afb00f0deda04ea0046a9faa0310aa4a74090773ac429a58",
+        "infra/nginx/csp.dev.conf": "7b4f5c022e0f9c1bfe665b47730f035611ca72b114c053482b4d7d103e48f6b9",
+        "infra/nginx/platform/security-headers.conf": "1a390bbd1562e92f7a73b3c8b55387a3a73de3fa1a35907b3bd1f6bda88011ca",
+        "infra/nginx/platform/sse-proxy.conf": "09d146b21acf14a29c8b5b4341b764d23c9be8319ff5d02359bd2c6d0d1cabe0"
+      }
+    },
+    "env": {
+      "files": {
+        "infra/compose/.env.example": "89d47a2626a6d2f332c3ae88b4b44ee5c3bab7b20a27a39d1a67deec3526f72c",
+        "infra/compose/.env.worker.example": "fcd72cfc171509675e72ef6f18c9e2d44cfd088e177159ed46d5acd99a17fdf6"
+      }
+    },
+    "telemetry": {
+      "files": {
+        "infra/compose/telemetry.compose.yml": "4b24874db3bc359cad2e0dc0176400a46842f0b21faee7190e1c83a7f11c8f31",
+        "infra/compose/vps.telemetry.compose.yml": "4e35f520f4e99c17162ae53b39a45949693ba9cb9b5d3fa006c1db1bee6e66d9",
+        "infra/otel/otel-collector-config.yaml": "4f7f560b7787a8cea8152bd6e22664ae5e262f135f8944287d779647cdca3832"
+      }
+    }
+  }
+}
