@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { AddToHomeScreenPanel } from '../../../components/settings/AddToHomeScreenPanel';
+import { render } from './test-utils.js';
+import { AddToHomeScreenPanel } from '../../src/notifications/ui/AddToHomeScreenPanel.js';
 
 /**
  * Issue #231, epic #215. `AddToHomeScreenPanel` is deliberately dumb — no

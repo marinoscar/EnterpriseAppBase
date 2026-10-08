@@ -20,9 +20,10 @@ import { AuthProvider, RequireAuth } from '@marinoscar/platform-web/identity/hea
 import { ThemeContextProvider } from '../../contexts/ThemeContext';
 import LoginPage from '../../identity/LoginPage';
 import { api, ApiError, ApiService } from '../../services/api';
-import { removePushSubscription } from '../../services/pushSubscription';
+import { removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
 
-vi.mock('../../services/pushSubscription', () => ({
+vi.mock('@marinoscar/platform-web/notifications/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/notifications/headless')>()),
   removePushSubscription: vi.fn().mockResolvedValue(undefined),
 }));
 

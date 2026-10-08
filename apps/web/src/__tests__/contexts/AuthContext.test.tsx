@@ -15,11 +15,12 @@ import { api } from '../../services/api';
 // `pushSubscription.test.ts` already owns) so these tests are only about
 // AuthContext's OWN wiring: that it is called, in what order relative to
 // `POST /auth/logout`, and that logout still completes if it rejects.
-vi.mock('../../services/pushSubscription', () => ({
+vi.mock('@marinoscar/platform-web/notifications/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/notifications/headless')>()),
   removePushSubscription: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { removePushSubscription } from '../../services/pushSubscription';
+import { removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
 
 const mockRemovePushSubscription = vi.mocked(removePushSubscription);
 

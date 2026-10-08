@@ -12,9 +12,11 @@ import {
   RequirePermission,
 } from '@marinoscar/platform-web/identity/headless';
 import { api } from './services/api';
-import { removePushSubscription } from './services/pushSubscription';
 import { appIdentityAdapters } from './platform/identityAdapters';
-import { NotificationProvider } from './contexts/NotificationContext';
+// The notifications web slice (#738): its configuration first, for its side
+// effect, then the provider and the logout hook it exports.
+import './platform/notifications';
+import { NotificationProvider, removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
 import { AiConfigProvider } from './contexts/AiConfigContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
@@ -77,7 +79,9 @@ const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
 // theme, not anything under the Console.
 const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
 // Issue #126, epic #109 — the per-user event x channel notification matrix.
-const UserNotificationsPage = lazy(() => import('./pages/UserNotificationsPage'));
+const UserNotificationsPage = lazy(() =>
+  import('@marinoscar/platform-web/notifications/ui').then((m) => ({ default: m.UserNotificationsPage })),
+);
 const UserTokensPage = lazy(() =>
   import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.UserTokensPage })),
 );
@@ -88,11 +92,13 @@ const SettingsHubPage = lazy(() => import('./pages/Admin/SettingsHubPage'));
 // Issue #124, epic #109 — the admin email configuration and its test send.
 const EmailSettingsPage = lazy(() => import('@marinoscar/platform-web/email/ui'));
 // Issue #225, epic #215 — the deployment-wide browser-notification policy.
-const NotificationSettingsPage = lazy(
-  () => import('./pages/Admin/NotificationSettingsPage'),
+const NotificationSettingsPage = lazy(() =>
+  import('@marinoscar/platform-web/notifications/ui').then((m) => ({ default: m.NotificationSettingsPage })),
 );
 // Issue #355 — runtime-configurable Web Push (VAPID) key management.
-const PushConfigPage = lazy(() => import('./pages/Admin/PushConfigPage'));
+const PushConfigPage = lazy(() =>
+  import('@marinoscar/platform-web/notifications/ui').then((m) => ({ default: m.PushConfigPage })),
+);
 // Issue #376, epic #372 — the object-storage configuration, its connection
 // test and its bucket provisioner.
 const StorageConfigPage = lazy(() => import('@marinoscar/platform-web/storage/ui'));
@@ -122,7 +128,9 @@ const DbBackupPage = lazy(() => import('./pages/Admin/DbBackupPage'));
 // Issue #325, epic #319 — the admin broadcast list and its composer. Lazy for
 // the same reason: a DataTable, a composer dialog and a detail dialog that
 // nobody who never opens the Console will ever mount.
-const BroadcastsPage = lazy(() => import('./pages/Admin/BroadcastsPage'));
+const BroadcastsPage = lazy(() =>
+  import('@marinoscar/platform-web/notifications/ui').then((m) => ({ default: m.BroadcastsPage })),
+);
 // Issue #401, epic #397 — what is actually deployed here: the version, the
 // commit, the deploy run that put it there. Lazy like every other admin page;
 // nobody who never opens the Console mounts it.
@@ -686,7 +694,7 @@ function AppRoutes() {
                       Workers routes above are, and on `broadcasts:read` — the
                       literal string
                       `notifications/broadcasts/broadcasts.controller.ts`
-                      enforces on its audience count, its list and its detail
+                      (`@marinoscar/platform-api/notifications`) enforces on its audience count, its list and its detail
                       read (`PERMISSIONS.BROADCASTS_READ`), and the same one the
                       `Broadcasts` card declares (the invariant
                       `destinations.test.ts` asserts for every card). Composing,
@@ -702,12 +710,19 @@ function AppRoutes() {
                       `broadcasts:read` is an admin who also holds
                       `system_settings:read`, so nothing is unreachable.
                       Widening one side without the other is exactly the
-                      disagreement that test exists to catch. */}
+                      disagreement that test exists to catch.
+
+                      #738: ANY OF `broadcasts:read` and the org-scoped
+                      `org_broadcasts:read`, the two strings the packaged
+                      controller (`@Auth({ anyPermissions })`) accepts and the
+                      card's permission list declares. An organization's
+                      administrator reaches the Console on `org_members:read`
+                      and sees only their organization's broadcasts. */}
                   <Route
                     path="/admin/settings/broadcasts"
                     element={
                       <RequirePermission
-                        permission="broadcasts:read"
+                        permissions={['broadcasts:read', 'org_broadcasts:read']}
                         fallback={<Navigate to="/" replace />}
                       >
                         <BroadcastsPage />

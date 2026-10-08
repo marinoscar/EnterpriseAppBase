@@ -337,9 +337,11 @@ describe('the Broadcasts card (#325)', () => {
     // `notifications/broadcasts/broadcasts.controller.ts` — the registry never
     // invents a permission. NOT `system_settings:read`, which would let the
     // hub decide reachability on evidence unrelated to whether the request
-    // behind the card will be authorized.
-    expect(card?.permission).toBe('broadcasts:read');
-    expect(card?.permission).not.toBe('system_settings:read');
+    // behind the card will be authorized. Since #738 the controller accepts
+    // ANY OF the system `broadcasts:read` and the org-scoped
+    // `org_broadcasts:read`, so the card declares exactly that list.
+    expect(card?.permission).toEqual(['broadcasts:read', 'org_broadcasts:read']);
+    expect(card?.permission).not.toContain('system_settings:read');
   });
 
   it('is not an alwaysShow escape hatch — the gate must be able to deny it', () => {
@@ -354,6 +356,15 @@ describe('the Broadcasts card (#325)', () => {
     const result = visibleSettingsSections(
       ADMIN_SECTIONS,
       (permission) => permission === 'broadcasts:read',
+    );
+
+    expect(titlesOf(result)).toContain('Broadcasts');
+  });
+
+  it('appears for an organization administrator holding only org_broadcasts:read (#738)', () => {
+    const result = visibleSettingsSections(
+      ADMIN_SECTIONS,
+      (permission) => permission === 'org_broadcasts:read',
     );
 
     expect(titlesOf(result)).toContain('Broadcasts');
@@ -821,8 +832,9 @@ describe('the Operations group (#266)', () => {
       resolve(PLATFORM_API_SRC, 'nodes/nodes-admin.controller.ts'),
       'utf8',
     );
+    // Notifications is a packaged slice since #738.
     const broadcastsController = readFileSync(
-      resolve(API_SRC, 'notifications/broadcasts/broadcasts.controller.ts'),
+      resolve(PLATFORM_API_SRC, 'notifications/broadcasts/broadcasts.controller.ts'),
       'utf8',
     );
     const dbBackupController = readFileSync(
@@ -850,19 +862,23 @@ describe('the Operations group (#266)', () => {
       expect(nodesAdminController).toContain('PERMISSIONS.NODES_READ');
     });
 
-    it('binds Broadcasts to broadcasts:read, which broadcasts.controller.ts enforces on its reads', () => {
+    it('binds Broadcasts to broadcasts:read OR org_broadcasts:read, which broadcasts.controller.ts enforces on its reads', () => {
       // #325, epic #319. The dedicated pair exists so composing an
       // announcement to every user can be granted — or withheld — without
       // handing over the settings document, and mirroring
-      // `system_settings:read` here would quietly undo that.
-      expect(cardsByTitle.get('Broadcasts')?.permission).toBe('broadcasts:read');
-      expect(cardsByTitle.get('Broadcasts')?.permission).not.toBe('system_settings:read');
+      // `system_settings:read` here would quietly undo that. #738 added the
+      // org-scoped pair, which the controller accepts as an alternative.
+      expect(cardsByTitle.get('Broadcasts')?.permission).toEqual(['broadcasts:read', 'org_broadcasts:read']);
+      expect(cardsByTitle.get('Broadcasts')?.permission).not.toContain('system_settings:read');
       expect(rolesConstants).toContain("BROADCASTS_READ: 'broadcasts:read'");
       expect(rolesConstants).toContain("BROADCASTS_WRITE: 'broadcasts:write'");
-      // And the controller really does enforce it — the mechanical half of
+      expect(rolesConstants).toContain("ORG_BROADCASTS_READ: 'org_broadcasts:read'");
+      // And the controller really does enforce both — the mechanical half of
       // CLAUDE.md Settings UI Pattern rule 3.
       expect(broadcastsController).toContain('PERMISSIONS.BROADCASTS_READ');
+      expect(broadcastsController).toContain('PERMISSIONS.ORG_BROADCASTS_READ');
       expect(broadcastsController).toContain('PERMISSIONS.BROADCASTS_WRITE');
+      expect(broadcastsController).toMatch(/@Auth\(\{ anyPermissions: READ \}\)/);
     });
 
     it('binds Database Backup to the dedicated db_backup:read, never to system_settings:read', () => {

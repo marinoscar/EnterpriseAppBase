@@ -368,7 +368,8 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       },
       {
         // Issue #325, epic #319. `broadcasts:read` is the literal string
-        // `notifications/broadcasts/broadcasts.controller.ts` enforces on its
+        // `notifications/broadcasts/broadcasts.controller.ts`
+        // (`@marinoscar/platform-api/notifications`) enforces on its
         // audience count, its list and its detail read
         // (`PERMISSIONS.BROADCASTS_READ`) — the registry never invents a
         // permission, it mirrors one. Composing, scheduling, cancelling,
@@ -395,7 +396,13 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
           'Write an announcement and send it to every active user now or at a scheduled time, then watch it go out.',
         Icon: CampaignOutlinedIcon,
         path: '/admin/settings/broadcasts',
-        permission: 'broadcasts:read',
+        // #738: ANY OF the two strings the packaged controller accepts
+        // (`@Auth({ anyPermissions: [...] })`): `broadcasts:read` (system
+        // scope, every user) and `org_broadcasts:read` (org scope, held through
+        // the `org_admin` membership role; that organization's members only).
+        // One destination, so one card with a permission list, never a second
+        // `Org broadcasts` card for the same page.
+        permission: ['broadcasts:read', 'org_broadcasts:read'],
       },
       {
         // Issue #401, epic #397. `system_settings:read` is the literal string

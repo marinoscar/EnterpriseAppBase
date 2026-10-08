@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isInternalLink } from '../../utils/internalLink';
+import { isInternalLink } from '../../src/notifications/headless/internalLink.js';
 
 /**
  * Issue #127, epic #109. `isInternalLink` is the client-side re-check of a
