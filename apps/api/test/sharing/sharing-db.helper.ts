@@ -17,6 +17,9 @@ import { Module } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { definePlatformHost, type Principal } from '@marinoscar/platform-api/core';
 import {
+  AccessPolicy,
+  GrantsPruneHandler,
+  GrantsService,
   GroupInvitesService,
   GroupMembershipService,
   GroupsService,
@@ -26,6 +29,7 @@ import {
   SHARING_NOTIFIER,
   SHARING_TENANCY,
   SharingModule,
+  type SharingDataPort,
 } from '@marinoscar/platform-api/sharing';
 
 import { SharingDataAdapter } from '../../src/platform/sharing/sharing-data.adapter';
@@ -37,7 +41,11 @@ export interface SharingDb {
   members: GroupMembershipService;
   invites: GroupInvitesService;
   principalGroups: PrincipalGroupsProvider;
-  notifications: Array<{ kind: 'user' | 'address'; to: string; data: unknown }>;
+  /** Grants (#729). */
+  access: AccessPolicy;
+  grants: GrantsService;
+  prune: GrantsPruneHandler;
+  notifications: Array<{ kind: 'user' | 'address'; to: string; data: unknown; key?: string }>;
   events: Array<{ name: string; payload: unknown }>;
   close(): Promise<void>;
 }
@@ -49,9 +57,14 @@ const noop = (() => () => undefined) as unknown as () => MethodDecorator & Class
  * `SharingModule.forRoot` with the app's data adapter and recording doubles
  * for the emitter and the notifier.
  */
-export async function sharingServices(db: RlsDatabase, mode: 'single' | 'multi' = 'single'): Promise<SharingDb> {
+export async function sharingServices(
+  db: RlsDatabase,
+  mode: 'single' | 'multi' = 'single',
+  options: { wrapData?: (data: SharingDataPort) => SharingDataPort; grants?: { retentionDays?: number } } = {},
+): Promise<SharingDb> {
   const { prisma, system, close } = rlsServices(db);
-  const data = new SharingDataAdapter(prisma, system);
+  const adapter = new SharingDataAdapter(prisma, system);
+  const data = (options.wrapData ? options.wrapData(adapter) : adapter) as SharingDataAdapter;
   const notifications: SharingDb['notifications'] = [];
   const events: SharingDb['events'] = [];
 
@@ -62,7 +75,7 @@ export async function sharingServices(db: RlsDatabase, mode: 'single' | 'multi' 
       {
         provide: SHARING_NOTIFIER,
         useValue: {
-          notify: async (_key: string, userId: string, payload: unknown) => void notifications.push({ kind: 'user', to: userId, data: payload }),
+          notify: async (key: string, userId: string, payload: unknown) => void notifications.push({ kind: 'user', to: userId, data: payload, key }),
           notifyAddress: async (_key: string, email: string, payload: unknown) => void notifications.push({ kind: 'address', to: email, data: payload }),
         },
       },
@@ -77,6 +90,7 @@ export async function sharingServices(db: RlsDatabase, mode: 'single' | 'multi' 
       SharingModule.forRoot({
         host: definePlatformHost({ access: { requirePermissions: noop, requireAuthenticated: noop } }),
         imports: [TestSharingHostModule],
+        ...(options.grants ? { grants: options.grants } : {}),
       }),
     ],
   }).compile();
@@ -88,6 +102,9 @@ export async function sharingServices(db: RlsDatabase, mode: 'single' | 'multi' 
     members: moduleRef.get(GroupMembershipService),
     invites: moduleRef.get(GroupInvitesService),
     principalGroups: moduleRef.get(PrincipalGroupsProvider),
+    access: moduleRef.get(AccessPolicy),
+    grants: moduleRef.get(GrantsService),
+    prune: moduleRef.get(GrantsPruneHandler),
     notifications,
     events,
     close: async () => {
@@ -106,7 +123,11 @@ export function principalOf(
   memberships: string[] = [orgId],
 ): Principal {
   const permissions =
-    role === 'org_admin' ? ['groups:read', 'groups:write', 'groups:admin'] : role === 'contributor' ? ['groups:read', 'groups:write'] : ['groups:read'];
+    role === 'org_admin'
+      ? ['groups:read', 'groups:write', 'groups:admin', 'sharing:read', 'sharing:write', 'sharing:admin']
+      : role === 'contributor'
+        ? ['groups:read', 'groups:write', 'sharing:read', 'sharing:write']
+        : ['groups:read', 'sharing:read'];
   return {
     kind: 'user',
     userId,
