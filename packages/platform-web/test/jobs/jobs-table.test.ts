@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__/pages/Admin/jobsTable.test.ts, issue #854).
 /**
  * Admin → Operations → Jobs: the column contract and its pure helpers
  * (issue #266, epic #254).
@@ -13,7 +14,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { DataTableFilterModel } from '../../../components/datatable';
+import type { JobsTableFilter } from '../../src/jobs/headless/index.js';
+import { formatDuration } from '../../src/jobs/headless/index.js';
 import {
   PROCESSED_WITHIN_COLUMN_ID,
   SCHEDULED_COLUMN_ID,
@@ -25,9 +27,10 @@ import {
   asProcessedWithin,
   buildJobColumns,
   enforceExclusiveJobFilters,
-  formatDuration,
   readIsFilter,
-} from '../../../pages/Admin/jobsTable';
+} from '../../src/jobs/ui/jobsTable.js';
+
+type DataTableFilterModel = JobsTableFilter[];
 
 const TYPE_OPTIONS = [
   { value: 'image.thumbnail', label: 'Thumbnail' },
@@ -107,7 +110,7 @@ describe('jobsTable — what the endpoint can actually serve', () => {
   });
 
   it('pins the first primary column visible, since it names every row control', () => {
-    const [first] = columns();
+    const first = columns()[0]!;
     expect(first.id).toBe(TYPE_COLUMN_ID);
     expect(first.priority).toBe('primary');
     expect(first.hideable).toBe(false);
@@ -116,7 +119,7 @@ describe('jobsTable — what the endpoint can actually serve', () => {
   it('gives each row a UNIQUE accessible name, not just its job type', () => {
     // Two jobs of one type are the normal case in a queue. A scalar of
     // "Thumbnail" alone would name a screenful of buttons identically.
-    const [first] = columns();
+    const first = columns()[0]!;
     const a = first.value?.({ id: 'aaaaaaaa-1111', typeLabel: 'Thumbnail' } as never);
     const b = first.value?.({ id: 'bbbbbbbb-2222', typeLabel: 'Thumbnail' } as never);
 

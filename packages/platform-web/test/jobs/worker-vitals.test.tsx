@@ -1,6 +1,7 @@
+// Moved from the reference app (apps/web/src/__tests__/pages/Admin/workerVitals.test.tsx, issue #854).
 /**
  * Worker node vitals — the pure helpers and the fleet table's compact cell
- * (`pages/Admin/workerVitals.tsx`, issue #606).
+ * (`jobs/ui/workerVitals.tsx`, issue #606).
  *
  * The rules this file pins: absent is not zero, freshness is the API's health
  * verdict (never a clock here), stale/offline is said in words as well as
@@ -23,14 +24,14 @@ import {
   ratio,
   staleLabel,
   vitalsSummaryText,
-} from '../../../pages/Admin/workerVitals';
+} from '../../src/jobs/ui/workerVitals.js';
 import {
   fullVitals,
   lowDiskVitals,
   partialVitals,
   versionsOnlyVitals,
   vitalsNode,
-} from '../../mocks/fixtures/nodeVitals';
+} from './vitals-fixtures.js';
 
 const NOW = new Date('2026-01-01T12:00:00.000Z');
 const THREE_MIN_AGO = '2026-01-01T11:57:00.000Z';

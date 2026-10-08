@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__/pages/Admin/workersTable.test.ts, issue #854).
 /**
  * Admin → Operations → Worker Nodes: the column contracts (issue #271, epic #254).
  *
@@ -28,10 +29,10 @@ import {
   formatExpiry,
   formatHeartbeat,
   formatOwner,
-} from '../../../pages/Admin/workersTable';
-import { NODE_HEALTHS, NODE_STATUSES, nodeCredentialStatus } from '../../../services/nodes';
-import type { NodeCredential, WorkerNode } from '../../../services/nodes';
-import { fullVitals } from '../../mocks/fixtures/nodeVitals';
+} from '../../src/jobs/ui/workersTable.js';
+import { NODE_HEALTHS, NODE_STATUSES, nodeCredentialStatus } from '../../src/jobs/headless/index.js';
+import type { JobsTableColumn, NodeCredential, WorkerNode } from '../../src/jobs/headless/index.js';
+import { fullVitals } from './vitals-fixtures.js';
 
 const NOW = new Date('2026-01-01T12:00:00.000Z');
 
@@ -77,7 +78,7 @@ const credentialColumns = buildNodeCredentialColumns(NOW);
 function column<Row>(columns: { id: string }[], id: string) {
   const found = columns.find((candidate) => candidate.id === id);
   expect(found, `column ${id} must exist`).toBeDefined();
-  return found as unknown as import('../../../components/datatable').DataTableColumn<Row>;
+  return found as unknown as JobsTableColumn<Row>;
 }
 
 describe('the table ids', () => {

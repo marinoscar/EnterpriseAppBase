@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__/components/admin/NodeVitalsDialog.test.tsx, issue #854).
 /**
  * `NodeVitalsDialog` — a worker node's full vitals snapshot (issue #606).
  *
@@ -8,14 +9,14 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { NodeVitalsDialog, VITALS_COUNTER_ROWS } from '../../../components/admin/NodeVitalsDialog';
+import { userEvent } from '@testing-library/user-event';
+import { NodeVitalsDialog, VITALS_COUNTER_ROWS } from '../../src/jobs/ui/NodeVitalsDialog.js';
 import {
   fullVitals,
   lowDiskVitals,
   partialVitals,
   vitalsNode,
-} from '../../mocks/fixtures/nodeVitals';
+} from './vitals-fixtures.js';
 
 const NOW = new Date('2026-01-01T12:00:00.000Z');
 const THREE_MIN_AGO = '2026-01-01T11:57:00.000Z';

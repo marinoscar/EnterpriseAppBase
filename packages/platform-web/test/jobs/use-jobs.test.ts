@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__/hooks/useJobs.test.ts, issue #854).
 /**
  * The queue hooks — issue #266, epic #254.
  *
@@ -18,62 +19,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-vi.mock('../../services/jobs', async () => {
-  const actual = await vi.importActual<typeof import('../../services/jobs')>(
-    '../../services/jobs',
-  );
-  return {
-    ...actual,
-    getJobs: vi.fn(),
-    getJobStats: vi.fn(),
-    retryJob: vi.fn(),
-    deleteJob: vi.fn(),
-    retryFailedJobs: vi.fn(),
-    resetStuckJobs: vi.fn(),
-  };
-});
+import { ApiError } from '../../src/core/index.js';
+import { useJobActions, useJobs, useVisiblePolling } from '../../src/jobs/headless/index.js';
+import type { Job, JobListResponse } from '../../src/jobs/headless/index.js';
+import { fakeJobsApi, job as jobFixture } from './harness.js';
 
-import {
-  deleteJob,
-  getJobs,
-  retryFailedJobs,
-  retryJob,
-} from '../../services/jobs';
-import type { Job, JobListResponse } from '../../services/jobs';
-import { ApiError } from '../../services/api';
-import { useJobActions, useJobs, useVisiblePolling } from '../../hooks/useJobs';
-
-const mockGetJobs = vi.mocked(getJobs);
-const mockRetryJob = vi.mocked(retryJob);
-const mockDeleteJob = vi.mocked(deleteJob);
-const mockRetryFailedJobs = vi.mocked(retryFailedJobs);
+// The fake jobs client stands in for the reference app's mocked
+// `services/jobs.ts`; the hooks take it as their explicit client.
+const api = fakeJobsApi();
+const mockGetJobs = api.getJobs;
+const mockRetryJob = api.retryJob;
+const mockDeleteJob = api.deleteJob;
+const mockRetryFailedJobs = api.retryFailedJobs;
 
 function job(overrides: Partial<Job> = {}): Job {
-  return {
-    id: 'job-1',
-    type: 'image.thumbnail',
-    typeLabel: 'Thumbnail',
-    subjectType: null,
-    subjectId: null,
-    dedupKey: null,
-    status: 'pending',
-    reason: 'upload',
-    priority: 0,
-    providerKey: null,
-    modelVersion: null,
-    attempts: 0,
-    lastError: null,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    startedAt: null,
-    finishedAt: null,
-    scheduledFor: null,
-    rateLimitedAt: null,
-    rateLimitHits: 0,
-    claimedByNodeId: null,
-    leaseExpiresAt: null,
-    executor: null,
-    ...overrides,
-  };
+  return jobFixture(overrides);
 }
 
 function listOf(items: Job[]): JobListResponse {
@@ -224,7 +184,7 @@ describe('useJobs', () => {
   it('loads rows and the server’s total', async () => {
     mockGetJobs.mockResolvedValue(listOf([job(), job({ id: 'job-2' })]));
 
-    const { result } = renderHook(() => useJobs());
+    const { result } = renderHook(() => useJobs(api));
     await act(async () => {
       await result.current.fetchJobs({ page: 1, pageSize: 20 });
     });
@@ -236,7 +196,7 @@ describe('useJobs', () => {
 
   it('reports a failure as a string and clears the stale rows behind it', async () => {
     mockGetJobs.mockResolvedValueOnce(listOf([job()]));
-    const { result } = renderHook(() => useJobs());
+    const { result } = renderHook(() => useJobs(api));
     await act(async () => {
       await result.current.fetchJobs({});
     });
@@ -257,7 +217,7 @@ describe('useJobs', () => {
   it('names a 403 as a permission problem rather than echoing the API', async () => {
     mockGetJobs.mockRejectedValueOnce(new ApiError('Forbidden resource', 403));
 
-    const { result } = renderHook(() => useJobs());
+    const { result } = renderHook(() => useJobs(api));
     await act(async () => {
       await result.current.fetchJobs({});
     });
@@ -267,7 +227,7 @@ describe('useJobs', () => {
 
   it('repeats the LAST query on refresh, so a poll re-reads the current view', async () => {
     mockGetJobs.mockResolvedValue(listOf([job()]));
-    const { result } = renderHook(() => useJobs());
+    const { result } = renderHook(() => useJobs(api));
 
     await act(async () => {
       await result.current.fetchJobs({ page: 2, pageSize: 50, status: 'failed' });
@@ -281,7 +241,7 @@ describe('useJobs', () => {
 
   it('does not raise the loading flag for a refresh', async () => {
     mockGetJobs.mockResolvedValue(listOf([job()]));
-    const { result } = renderHook(() => useJobs());
+    const { result } = renderHook(() => useJobs(api));
     await act(async () => {
       await result.current.fetchJobs({});
     });
@@ -310,7 +270,7 @@ describe('useJobActions', () => {
   it('reports success as a boolean and re-reads the queue afterwards', async () => {
     mockRetryJob.mockResolvedValue(job({ status: 'pending' }));
     const onChanged = vi.fn();
-    const { result } = renderHook(() => useJobActions(onChanged));
+    const { result } = renderHook(() => useJobActions(onChanged, api));
 
     let ok: boolean | undefined;
     await act(async () => {
@@ -325,7 +285,7 @@ describe('useJobActions', () => {
     // `deleteJob` resolves `undefined`; a naive "did it return something"
     // check would call every successful delete a failure.
     mockDeleteJob.mockResolvedValue(undefined);
-    const { result } = renderHook(() => useJobActions());
+    const { result } = renderHook(() => useJobActions(undefined, api));
 
     let ok: boolean | undefined;
     await act(async () => {
@@ -341,7 +301,7 @@ describe('useJobActions', () => {
       new ApiError('Cannot retry a running job', 400),
     );
     const onChanged = vi.fn();
-    const { result } = renderHook(() => useJobActions(onChanged));
+    const { result } = renderHook(() => useJobActions(onChanged, api));
 
     let ok: boolean | undefined;
     await act(async () => {
@@ -356,7 +316,7 @@ describe('useJobActions', () => {
 
   it('hands back the sweep’s own counts rather than a bare boolean', async () => {
     mockRetryFailedJobs.mockResolvedValue({ retried: 12, skipped: 3, remaining: 5 });
-    const { result } = renderHook(() => useJobActions());
+    const { result } = renderHook(() => useJobActions(undefined, api));
 
     let sweep: Awaited<ReturnType<typeof result.current.retryAllFailed>>;
     await act(async () => {
