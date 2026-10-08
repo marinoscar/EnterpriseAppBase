@@ -2,9 +2,10 @@
 // GrantsService: the grants API and the dangling-grant hygiene (issue #729)
 // =============================================================================
 //
-// Share one record with a user or a group of its organization (link grants
-// are #730), change or revoke the share, and list what is shared with the
-// caller. Every query runs in ONE transaction scoped to the caller's ACTIVE
+// Share one record with a user or a group of its organization, change or
+// revoke the share (any kind: link grants, minted by `LinkGrantsService`
+// (#730), are changed and revoked here too), and list what is shared with
+// the caller. Every query runs in ONE transaction scoped to the caller's ACTIVE
 // organization, so row-level security confines it there whatever id the
 // request names; the `share` decision is `AccessPolicy`'s, inside the same
 // transaction.
@@ -49,6 +50,7 @@ import {
   grantNotFound,
   groupNotInOrg,
   lookupThrottled,
+  notALinkGrant,
   notAnOrgMember,
   resourceNotFound,
   roleNotGrantable,
@@ -60,8 +62,10 @@ import { MemberLookupThrottle } from '../groups/member-lookup-throttle';
 import { SharingEffects } from '../groups/sharing-effects';
 import type { SharedWithYouNotificationData } from '../notifications/shared-with-you.templates';
 import { SHARING_PERMISSIONS } from '../permissions';
+import { linkEventPayload, linkShareAction, resolveLinkExpiry, writeLinkAudit } from '../links/link-grants.service';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 import { PrincipalGroupsProvider } from '../principal-groups.provider';
+import { SHARING_LINK_DEFAULTS, SHARING_OPTIONS, type ResolvedSharingModuleOptions } from '../sharing.options';
 
 /**
  * Optional injection token of the grants service's clock (ms since epoch).
@@ -183,7 +187,13 @@ export class GrantsService {
     private readonly throttle: MemberLookupThrottle,
     private readonly effects: SharingEffects,
     @Optional() @Inject(GRANTS_CLOCK) private readonly now: () => number = Date.now,
+    @Optional() @Inject(SHARING_OPTIONS) private readonly options?: Pick<ResolvedSharingModuleOptions, 'links'>,
   ) {}
+
+  /** The link lifetime bounds (#730). */
+  private get linkTtl(): Pick<ResolvedSharingModuleOptions['links'], 'maxTtlDays' | 'defaultTtlDays'> {
+    return this.options?.links ?? SHARING_LINK_DEFAULTS;
+  }
 
   /**
    * Deletes every grant of the given records. Call it INSIDE the transaction
@@ -391,22 +401,24 @@ export class GrantsService {
   }
 
   /**
-   * Loads an active user or group grant of the caller's organization and
-   * checks the caller may manage it (`share` on its record). A caller who
-   * may not gets the same 404 as for a missing grant.
+   * Loads an active grant of the caller's organization (any kind, links
+   * included, #730) and checks the caller may manage it: `share` on its
+   * record (a link: the type's `share_link` action when it declares one). A
+   * caller who may not gets the same 404 as for a missing grant.
    */
   private async manageable(raw: unknown, principal: Principal, orgId: string, grantId: string, self: (row: GrantRow) => boolean) {
     const tx = asSharingTx(raw);
     const row = await tx.grant.findFirst<GrantWithGrantee>({
-      where: { id: grantId, orgId, revokedAt: null, granteeKind: { in: ['user', 'group'] } },
+      where: { id: grantId, orgId, revokedAt: null },
       include: GRANTEE_COLUMNS,
     });
     if (!row) throw grantNotFound();
     const rt = findResourceType(row.resourceType);
     if (!rt) throw grantNotFound();
     if (!self(row)) {
+      const action = row.granteeKind === 'link' ? linkShareAction(rt) : 'share';
       try {
-        await this.policy.requireIn(raw, principal, 'share', { type: rt.type, id: row.resourceId });
+        await this.policy.requireIn(raw, principal, action, { type: rt.type, id: row.resourceId });
       } catch (error) {
         if (error instanceof NotFoundException) throw grantNotFound();
         throw error;
@@ -416,38 +428,58 @@ export class GrantsService {
   }
 
   /**
-   * `PATCH /api/grants/:id`: changes the role and/or the expiry. The caller
-   * must pass the `share` action on the grant's record.
+   * `PATCH /api/grants/:id`: changes the role and/or the expiry, and a link
+   * grant's label (#730). The caller must pass the `share` action on the
+   * grant's record (a link: `share_link` when the type declares it). A link's
+   * expiry is capped by `links.maxTtlDays`.
    *
    * @param principal - the caller (`sharing:write`).
    * @param grantId - the grant.
-   * @param input - the new role and/or expiry.
+   * @param input - the new role, expiry and/or (links only) label.
    * @returns the grant.
    * @throws NotFoundException 404 for a grant the caller may not manage.
+   * @throws UnprocessableEntityException 422 `NOT_A_LINK_GRANT` for a label on a user or group grant.
    */
   @Trace('sharing.grant.update')
   async update(principal: Principal, grantId: string, input: UpdateGrantInput): Promise<GrantDto> {
     const orgId = requireActiveOrg(principal);
+    const now = this.now();
+    // Validated before the transaction: an expiry in the past is a 400 for every kind.
     const expiresAt = input.expiresAt === undefined ? undefined : this.expiry(input.expiresAt);
     const outcome = await this.data.runInOrg({ orgId, userId: principal.userId }, async (raw) => {
       const { tx, row, rt } = await this.manageable(raw, principal, orgId, grantId, () => false);
+      const isLink = row.granteeKind === 'link';
+      if (input.label !== undefined && !isLink) throw notALinkGrant();
       if (input.role !== undefined) {
         const grantable = rt.grantable(row.granteeKind);
         if (!grantable.includes(input.role)) throw roleNotGrantable(input.role, row.granteeKind, grantable);
       }
       const data: Record<string, unknown> = {};
       if (input.role !== undefined) data.role = input.role;
-      if (expiresAt !== undefined) data.expiresAt = expiresAt;
+      // A link's expiry is capped by the deployment's maximum link lifetime (#730).
+      if (expiresAt !== undefined) data.expiresAt = isLink ? resolveLinkExpiry(input.expiresAt, this.linkTtl, now, 'update') : expiresAt;
+      if (input.label !== undefined) data.linkLabel = input.label;
       const updated = await tx.grant.update<GrantWithGrantee>({ where: { id: row.id }, data, include: GRANTEE_COLUMNS });
       const roleChanged = updated.role !== row.role;
-      const changed = roleChanged || (updated.expiresAt?.getTime() ?? null) !== (row.expiresAt?.getTime() ?? null);
-      if (changed) await this.audit(tx, { orgId, actorUserId: principal.userId, action: 'grant:update', row: updated, previousRole: row.role });
+      const changed =
+        roleChanged ||
+        (updated.expiresAt?.getTime() ?? null) !== (row.expiresAt?.getTime() ?? null) ||
+        (isLink && updated.linkLabel !== row.linkLabel);
+      if (changed && isLink) {
+        await writeLinkAudit(tx, { orgId, actorUserId: principal.userId, action: 'grant:link:update', row: updated, previousRole: row.role });
+      } else if (changed) {
+        await this.audit(tx, { orgId, actorUserId: principal.userId, action: 'grant:update', row: updated, previousRole: row.role });
+      }
       const notify = updated.granteeKind === 'user' && roleChanged ? await this.notificationData(raw, rt, updated, row.role, principal.userId) : null;
       return { row: updated, previousRole: row.role, changed, notify };
     });
 
     if (outcome.changed) {
-      this.effects.grantCommitted([{ name: SHARING_EVENTS.GRANT_UPDATED, payload: eventPayload(outcome.row, outcome.previousRole, principal.userId) }]);
+      const payload =
+        outcome.row.granteeKind === 'link'
+          ? linkEventPayload(outcome.row, outcome.previousRole, principal.userId)
+          : eventPayload(outcome.row, outcome.previousRole, principal.userId);
+      this.effects.grantCommitted([{ name: SHARING_EVENTS.GRANT_UPDATED, payload }]);
     }
     if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id);
     return toGrantDto(outcome.row);
@@ -481,7 +513,11 @@ export class GrantsService {
         data: { revokedAt: new Date(this.now()), revokedById: principal.userId },
         include: GRANTEE_COLUMNS,
       });
-      await this.audit(tx, { orgId, actorUserId: principal.userId, action: 'grant:revoke', row: updated, previousRole: row.role });
+      if (updated.granteeKind === 'link') {
+        await writeLinkAudit(tx, { orgId, actorUserId: principal.userId, action: 'grant:link:revoke', row: updated, previousRole: row.role });
+      } else {
+        await this.audit(tx, { orgId, actorUserId: principal.userId, action: 'grant:revoke', row: updated, previousRole: row.role });
+      }
       return updated;
     });
     this.effects.grantCommitted([{ name: SHARING_EVENTS.GRANT_REVOKED, payload: eventPayload(revoked, revoked.role, principal.userId) }]);

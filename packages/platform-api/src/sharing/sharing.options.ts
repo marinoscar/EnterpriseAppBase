@@ -1,5 +1,5 @@
 // =============================================================================
-// SharingModule.forRoot options (issue #728, PP-7.1): rung 1
+// SharingModule.forRoot options (issues #728, #729, #730): rung 1
 // =============================================================================
 //
 // Merged over the defaults below and frozen. No environment variable: an app
@@ -59,6 +59,28 @@ export interface SharingGrantsOptions {
 }
 
 /**
+ * The link-share options (#730).
+ *
+ * @stability experimental
+ */
+export interface SharingLinksOptions {
+  /**
+   * The application's public origin, read when a link URL is built
+   * (`${appUrl}/s#<token>`). The reference app passes its `APP_URL`; without
+   * it the URL is root-relative (`/s#<token>`).
+   */
+  appUrl?: () => string | undefined;
+  /** Max lifetime of a link in days; `null` = unlimited. Default 365. */
+  maxTtlDays?: number | null;
+  /** Default lifetime when the caller sends none; `null` = no expiry. Default 30. */
+  defaultTtlDays?: number | null;
+  /** Max ACTIVE links per record (on top of the type's `maxGrantsPerResource`). Default 20. */
+  maxActivePerResource?: number;
+  /** Failed public resolutions allowed per client IP per 10 minutes before `429`. Default 30. */
+  maxMissesPerIp?: number;
+}
+
+/**
  * The options of `SharingModule.forRoot`.
  *
  * @stability experimental
@@ -72,6 +94,8 @@ export interface SharingModuleOptions {
   groups?: SharingGroupsOptions;
   /** Grant retention (#729). */
   grants?: SharingGrantsOptions;
+  /** Link shares (#730). */
+  links?: SharingLinksOptions;
   /**
    * Reads the caller's principal from the framework request. Default:
    * `request.principal` (set by the reference app's authentication guard).
@@ -107,6 +131,21 @@ export interface ResolvedSharingModuleOptions {
     /** Days a revoked or expired grant is kept before the prune job deletes it. */
     readonly retentionDays: number;
   };
+  /** Link shares, every field set (#730). */
+  readonly links: {
+    /** The public origin, or `undefined` (root-relative URLs). */
+    readonly appUrl: () => string | undefined;
+    /** Max lifetime in days, or `null` for unlimited. */
+    readonly maxTtlDays: number | null;
+    /** Default lifetime in days, or `null` for no expiry. */
+    readonly defaultTtlDays: number | null;
+    /** Max active links per record. */
+    readonly maxActivePerResource: number;
+    /** Failed resolutions per client IP per window before 429. */
+    readonly maxMissesPerIp: number;
+    /** The miss window, in milliseconds (10 minutes). */
+    readonly missWindowMs: number;
+  };
   /** The principal resolver. */
   readonly principal: (request: unknown) => Principal | undefined;
 }
@@ -130,6 +169,19 @@ export const SHARING_GROUP_DEFAULTS: ResolvedSharingModuleOptions['groups'] = Ob
  * @stability experimental
  */
 export const SHARING_GRANT_DEFAULTS: ResolvedSharingModuleOptions['grants'] = Object.freeze({ retentionDays: 90 });
+
+/**
+ * The link-share defaults {@link resolveSharingModuleOptions} applies (#730).
+ *
+ * @stability experimental
+ */
+export const SHARING_LINK_DEFAULTS: Omit<ResolvedSharingModuleOptions['links'], 'appUrl'> = Object.freeze({
+  maxTtlDays: 365,
+  defaultTtlDays: 30,
+  maxActivePerResource: 20,
+  maxMissesPerIp: 30,
+  missWindowMs: 10 * 60_000,
+});
 
 /**
  * The default principal resolver: `request.principal` when it is an object
@@ -184,6 +236,16 @@ export function resolveSharingModuleOptions(options: SharingModuleOptions): Reso
   }
   const grants = options.grants ?? {};
   if (grants === null || typeof grants !== 'object') fail('`grants` must be an object');
+  const links = options.links ?? {};
+  if (links === null || typeof links !== 'object') fail('`links` must be an object');
+  const ttl = (value: number | null | undefined, name: string, fallback: number | null): number | null =>
+    value === null ? null : value === undefined ? fallback : positiveInteger(value, name, 1, false, 'links');
+  const maxTtlDays = ttl(links.maxTtlDays, 'maxTtlDays', SHARING_LINK_DEFAULTS.maxTtlDays);
+  const defaultTtlDays = ttl(links.defaultTtlDays, 'defaultTtlDays', SHARING_LINK_DEFAULTS.defaultTtlDays);
+  if (maxTtlDays !== null && (defaultTtlDays === null || defaultTtlDays > maxTtlDays)) {
+    fail('`links.defaultTtlDays` must be a lifetime within `links.maxTtlDays` (not `null` while a maximum is set)');
+  }
+  if (links.appUrl !== undefined && typeof links.appUrl !== 'function') fail('`links.appUrl` must be a function returning the public origin');
   const principal = options.principal ?? defaultSharingPrincipal;
   if (typeof principal !== 'function') fail('`principal` must be a function');
 
@@ -204,6 +266,14 @@ export function resolveSharingModuleOptions(options: SharingModuleOptions): Reso
     }),
     grants: Object.freeze({
       retentionDays: positiveInteger(grants.retentionDays, 'retentionDays', SHARING_GRANT_DEFAULTS.retentionDays, false, 'grants'),
+    }),
+    links: Object.freeze({
+      appUrl: links.appUrl ?? (() => undefined),
+      maxTtlDays,
+      defaultTtlDays,
+      maxActivePerResource: positiveInteger(links.maxActivePerResource, 'maxActivePerResource', SHARING_LINK_DEFAULTS.maxActivePerResource, false, 'links'),
+      maxMissesPerIp: positiveInteger(links.maxMissesPerIp, 'maxMissesPerIp', SHARING_LINK_DEFAULTS.maxMissesPerIp, false, 'links'),
+      missWindowMs: SHARING_LINK_DEFAULTS.missWindowMs,
     }),
     principal,
   };

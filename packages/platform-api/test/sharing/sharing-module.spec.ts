@@ -1,11 +1,12 @@
 // SharingModule.forRoot (issue #728): options merged over defaults and
 // validated, the invitee's static routes before the :id routes, every route
 // guarded, the notification templates, and the Doctor check's verdict.
-import { Logger } from '@nestjs/common';
-import { PATH_METADATA } from '@nestjs/common/constants';
+import { Logger, SetMetadata } from '@nestjs/common';
+import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 
 import {
   GROUPS_INVITATION_EVENT,
+  LinkGrantGuard,
   SHARING_GROUP_DEFAULTS,
   SHARING_PERMISSION_DECLARATIONS,
   SharingModule,
@@ -64,11 +65,29 @@ describe('SharingModule.forRoot', () => {
     });
     const module = SharingModule.forRoot({ host });
     const paths = (module.controllers ?? []).map((c) => Reflect.getMetadata(PATH_METADATA, c));
-    expect(paths).toEqual(['groups/invites', 'groups', 'grants']);
+    // The static grants/links before grants/:id (#730). No allowPublic on this host: no public route.
+    expect(paths).toEqual(['groups/invites', 'groups', 'grants/links', 'grants']);
     // Every route asks for one of the org permissions (the probe call aside).
     const real = calls.filter((c) => c[0] !== 'platform:probe');
     expect(new Set(real.flat())).toEqual(new Set(['groups:read', 'groups:write', 'sharing:read', 'sharing:write']));
     expect(module.exports).toEqual(expect.arrayContaining([expect.any(Function)]));
+  });
+
+  it("mounts the public link route only with the host's allowPublic marker, and marks it with it (#730)", () => {
+    const marker = Symbol('public');
+    const host = definePlatformHost({
+      access: {
+        requirePermissions: () => (() => undefined) as never,
+        requireAuthenticated: () => (() => undefined) as never,
+        allowPublic: () => SetMetadata(marker, true) as never,
+      },
+    });
+    const module = SharingModule.forRoot({ host });
+    const controllers = module.controllers ?? [];
+    expect(controllers.map((c) => Reflect.getMetadata(PATH_METADATA, c))).toEqual(['groups/invites', 'groups', 'grants/links', 'grants', 'public/links']);
+    const publicController = controllers.at(-1)!;
+    expect(Reflect.getMetadata(marker, publicController.prototype.current)).toBe(true);
+    expect(Reflect.getMetadata(GUARDS_METADATA, publicController)).toEqual([LinkGrantGuard]);
   });
 
   it('declares six org-scope permissions with the matrix grants', () => {

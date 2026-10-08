@@ -13,12 +13,13 @@
 
 /**
  * Why the slice runs without an organization scope. A subset of core's
- * `SystemAccessReason`: the user purge, the read-only Doctor check and the
- * `sharing.grants.prune` retention job (#729).
+ * `SystemAccessReason`: the user purge, the read-only Doctor check, the
+ * `sharing.grants.prune` retention job (#729) and the one-row lookup of a
+ * link token by its hash (`link-resolution`, #730).
  *
  * @stability experimental
  */
-export type SharingSystemReason = 'purge' | 'doctor' | 'retention';
+export type SharingSystemReason = 'purge' | 'doctor' | 'retention' | 'link-resolution';
 
 /**
  * Injection token of the app's {@link SharingDataPort}.
