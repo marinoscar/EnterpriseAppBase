@@ -26,6 +26,11 @@ import { join } from 'node:path';
 
 import type { PrismaClient } from '@prisma/client';
 
+import { platformPermissionCatalog } from '@marinoscar/platform-api/manifest';
+import { platformSeedInputFrom, seedPlatform } from '@marinoscar/platform-db/seed';
+
+import { APP_PERMISSIONS, APP_ROLES } from '../../src/app-registrations/permissions';
+import { SEED_SNAPSHOT } from '../../prisma/seed-data';
 import { createDatabase, databaseExists, dropDatabase, resolveAdminConnection, withAdminConnection, type AdminConnection } from '@marinoscar/platform-api/db-backup/testing';
 import { envFor, migrateDeploy, prismaClientFor } from '../helpers/scratch-database.helper';
 import { resolveDbSuite } from '../jobs/db-test-support';
@@ -177,6 +182,35 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     expect(afterSecond.rolePermissions).toEqual(afterFirst.rolePermissions);
     expect(afterSecond.settings).toEqual(afterFirst.settings);
     expect(afterSecond.allowed).toEqual(afterFirst.allowed);
+  });
+
+  it('a seed composed from the packaged registry writes the same rows: nothing new, every baseline row upserted (#866)', async () => {
+    // What an app whose seed imports its packages does instead of reading the
+    // committed catalog: `platformPermissionCatalog()` plus the app's own.
+    const input = platformSeedInputFrom(
+      {
+        permissions: platformPermissionCatalog({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS] } }),
+        settings: SEED_SNAPSHOT.settings,
+      },
+      { INITIAL_ADMIN_EMAIL: INITIAL_ADMIN },
+    );
+
+    const summary = await seedPlatform(prisma, input);
+
+    expect({ roles: summary.roles, permissions: summary.permissions, rolePermissions: summary.rolePermissions }).toEqual({
+      roles: baseline.counts.roles,
+      permissions: baseline.counts.permissions,
+      rolePermissions: baseline.counts.rolePermissions,
+    });
+    expect(summary.skippedGrants).toEqual([]);
+    const after = await readRows(prisma);
+    expect(after.roles.map((r) => r.id)).toEqual(afterSecond.roles.map((r) => r.id));
+    expect(after.permissions.map(({ id, name, description, scope }) => ({ id, name, description, scope }))).toEqual(
+      afterSecond.permissions.map(({ id, name, description, scope }) => ({ id, name, description, scope })),
+    );
+    expect(after.grantIds).toEqual(afterSecond.grantIds);
+    expect(after.settings).toEqual(afterSecond.settings);
+    expect(after.allowed).toEqual(afterSecond.allowed);
   });
 
   it('never overwrites an admin-edited setting or allowlist note, and never deletes a row', async () => {
