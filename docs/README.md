@@ -88,7 +88,7 @@ READMEs that live next to the code they describe.
 
 | README | Use it for |
 |---|---|
-| [../apps/api/src/jobs/handlers/README.md](../apps/api/src/jobs/handlers/README.md) | Adding a job type |
+| [../packages/platform-api/src/jobs/handlers/README.md](../packages/platform-api/src/jobs/handlers/README.md) | Adding a job type |
 | [../apps/api/src/jobs/contracts/README.md](../apps/api/src/jobs/contracts/README.md) | Result schemas a worker node posts back for a node-eligible type |
 | [../packages/platform-cli/src/engine/node/executors/README.md](../packages/platform-cli/src/engine/node/executors/README.md) | The CLI side of a node-eligible job type |
 | [../apps/api/src/ai/README.md](../apps/api/src/ai/README.md) | Using AI from a feature; the AI module's map |

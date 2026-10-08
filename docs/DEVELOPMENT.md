@@ -646,7 +646,7 @@ migrate on startup.
 
 Anything that outlives the request must be a queue job; see
 [the job queue spec](specs/job-queue.md) and
-[`apps/api/src/jobs/handlers/README.md`](../apps/api/src/jobs/handlers/README.md).
+[`packages/platform-api/src/jobs/handlers/README.md`](../packages/platform-api/src/jobs/handlers/README.md).
 
 ### Adding New Guards
 

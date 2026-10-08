@@ -1,6 +1,6 @@
 # Worker Nodes
 
-> **Status:** shipped · **Code:** `apps/api/src/nodes/`, `apps/api/src/jobs/contracts/`, `apps/api/src/storage/storage-job-input.ts`, `packages/platform-cli/src/engine/node/` · **API:** `/api/nodes/*`, `/api/node-credentials`, `/api/admin/nodes/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/workers` · **Runbooks:** [Running worker nodes](../runbooks/run-worker-nodes.md), [Node job secrets](../runbooks/node-job-secrets.md) · **Recipes:** [Job handlers](../../apps/api/src/jobs/handlers/README.md), [Node executors](../../packages/platform-cli/src/engine/node/executors/README.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/nodes/` (`@marinoscar/platform-api/nodes`, since #734; [slice README](../../packages/platform-api/src/nodes/README.md)), `packages/platform-contract/src/nodes/` (the request shapes), `apps/api/src/jobs/contracts/`, `apps/api/src/storage/storage-job-input.ts`, `apps/api/src/platform/jobs/` (the app's port bindings), `packages/platform-cli/src/engine/node/` · **API:** `/api/nodes/*`, `/api/node-credentials`, `/api/admin/nodes/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/workers` · **Runbooks:** [Running worker nodes](../runbooks/run-worker-nodes.md), [Node job secrets](../runbooks/node-job-secrets.md) · **Recipes:** [Job handlers](../../packages/platform-api/src/jobs/handlers/README.md), [Node executors](../../packages/platform-cli/src/engine/node/executors/README.md)
 
 A worker node is a process, usually `appctl node start` on a machine the deployment may not own, that pulls node-eligible jobs off this API's queue, runs them, and reports results back. It authenticates with a `nod_` credential confined to `/api/nodes/*`, holds no durable database or storage access, reads and writes object bytes through presigned URLs, and receives any per-job secret in memory only, for the life of one lease. The server keeps every decision that matters: which types a node may claim, how long it may hold them, whether a result is valid, and when a silent node is declared offline.
 
@@ -38,7 +38,7 @@ Per-column reasoning lives in the block comments of `packages/platform-db/schema
 
 ### Node credentials
 
-A `nod_` token is a separate token family, not a personal access token. It mirrors `PersonalAccessToken` on purpose: 32 bytes of `randomBytes`, sha256 at rest, a short display prefix, the raw value shown exactly once, and a fire-and-forget `lastUsedAt`. `apps/api/src/nodes/node-credential.service.ts` beside `packages/platform-api/src/identity/pat/pat.service.ts` shows every divergence, and there is exactly one:
+A `nod_` token is a separate token family, not a personal access token. It mirrors `PersonalAccessToken` on purpose: 32 bytes of `randomBytes`, sha256 at rest, a short display prefix, the raw value shown exactly once, and a fire-and-forget `lastUsedAt`. `packages/platform-api/src/nodes/node-credential.service.ts` beside `packages/platform-api/src/identity/pat/pat.service.ts` shows every divergence, and there is exactly one:
 
 - **`expiresAt` is nullable.** `null` means "never expires; authenticate until revoked". A PAT's forced expiry nudges a human to rotate. On an unattended node it produces a whole fleet going dark when a timer nobody scheduled fires. The route allowlist already bounds a leak, so a mandatory expiry buys nothing. An operator can still set `expiresInDays`.
 - **Revocation is the control, and it is immediate.** `revokedAt` is re-read from the row on every authentication; there is no cache and no TTL.
@@ -88,7 +88,7 @@ A node id belonging to another owner answers `403`, not `404`. Node ids are prin
 
 1. **Requested types are intersected with the row's `eligibleTypes`.** A node can only narrow, never widen.
 2. **The limit is clamped to the node's `concurrency`, read live off the row.** A larger request is capped, not refused.
-3. **Types the server does not offer to nodes are dropped with a warning.** The offer set is `NodeOffloadService.offeredTypes()` (`apps/api/src/jobs/node-offload.service.ts`): node-eligible types (`JobHandlerRegistry` derives eligibility from `nodeResultSchema` + `persistNodeResult`), minus any type whose `nodeSecretBroker` cannot issue here (`nodes.jobSecretBrokerEnabled` off, or the broker's `usable()` probe fails), minus any type whose handler's `nodeOffloadEnabled()` answers false. All run at claim time; none mutates the registry. Letting a node claim a type it cannot settle creates a loop of refused results, reaped leases and burned attempts.
+3. **Types the server does not offer to nodes are dropped with a warning.** The offer set is `NodeOffloadService.offeredTypes()` (`packages/platform-api/src/jobs/node-offload.service.ts`): node-eligible types (`JobHandlerRegistry` derives eligibility from `nodeResultSchema` + `persistNodeResult`), minus any type whose `nodeSecretBroker` cannot issue here (`nodes.jobSecretBrokerEnabled` off, or the broker's `usable()` probe fails), minus any type whose handler's `nodeOffloadEnabled()` answers false. All run at claim time; none mutates the registry. Letting a node claim a type it cannot settle creates a loop of refused results, reaped leases and burned attempts.
 
 `JobWorker`'s `system` mode claims the **complement** of the same offer set, so the fleet and the API server partition the queue by construction ([job-queue.md](job-queue.md), §2 Worker modes).
 
@@ -144,11 +144,13 @@ A node holds no storage credentials. Two routes, both `nodes:write` and both beh
 
 The node talks to the storage provider directly; no object bytes enter the API process.
 
+**`NODE_OBJECT_STORE` (#734).** The data plane mints both URLs through a two-method port, `NodeObjectStore` (`getSignedDownloadUrl(key, options)`, `getSignedPutUrl(key, options)`), and the nodes slice imports nothing from the storage slice: the narrow port is least privilege, and depending on storage directly would make a slice cycle (storage's handlers depend on the queue). The option types are declared structurally in the slice. The reference app binds the token to its `STORAGE_PROVIDER` (`{ provide: NODE_OBJECT_STORE, useExisting: STORAGE_PROVIDER }` in `apps/api/src/platform/jobs/jobs-host.module.ts`, with a compile-time proof that `StorageProvider` satisfies the port); a second port, `NODE_JOB_INPUTS`, resolves a held job's input object (the app's `resolveStorageObjectInput`). The port contract is `packages/platform-api/src/nodes/node-object-store.spec.ts`.
+
 - **`POST`, not `GET`**, because they mint a credential. A `GET` URL is what proxies, CDNs and traces write down.
 - **Expiry.** `storage.signedUrlExpiry` (from `SIGNED_URL_EXPIRY`, default 3600s) is honoured when stricter, clamped to 900s when not, with a 60s floor (`NODE_SIGNED_URL_MAX_TTL_SECONDS`, `NODE_SIGNED_URL_MIN_TTL_SECONDS`). A node needing longer asks again while it holds the lease. There is no node-only env var.
 - **The URL is never logged** by any component. `test/nodes/node-data-plane.integration.spec.ts` asserts it across a real request.
 - **Minted on demand, not in the claim response.** A node claiming its whole `concurrency` would otherwise age the last job's URL before that job starts.
-- **Input resolution is internal.** The download resolves through `resolveStorageObjectInput` (`apps/api/src/storage/storage-job-input.ts`), not `ObjectsService.getDownloadUrl`, whose per-user ownership check would compare against the node's owner and wrongly `403` every cross-user job. What bounds a node is the lease: exactly the input of exactly the job it holds, for as long as it holds it. `NodesModule` imports `StorageProvidersModule`, not `StorageModule`, which keeps the wrong method out of reach.
+- **Input resolution is internal.** The download resolves through `resolveStorageObjectInput` (`apps/api/src/storage/storage-job-input.ts`), not `ObjectsService.getDownloadUrl`, whose per-user ownership check would compare against the node's owner and wrongly `403` every cross-user job. What bounds a node is the lease: exactly the input of exactly the job it holds, for as long as it holds it. The app's port binding imports `StorageProvidersModule`, not `StorageModule`, which keeps the wrong method out of reach.
 - **Input failures are named.** `resolveStorageObjectInput` returns a `StorageObject` with a non-empty `storageKey` or throws one of three reasons, answered over HTTP as `422` with `details.reason` and `details.retryable: false`. The node should report the job failed.
 
   | `reason` | Meaning |
@@ -171,12 +173,12 @@ The node talks to the storage provider directly; no object bytes enter the API p
 
 ### Per-job secrets
 
-A job type whose remote executor needs a credential declares `nodeSecretBroker` on its handler (`apps/api/src/jobs/job-secret-broker.ts`). The node calls `POST /api/nodes/{id}/jobs/{jobId}/secret` while holding the lease:
+A job type whose remote executor needs a credential declares `nodeSecretBroker` on its handler (`packages/platform-api/src/jobs/job-secret-broker.ts`). The node calls `POST /api/nodes/{id}/jobs/{jobId}/secret` while holding the lease:
 
 - The credential is issued per job, bounded by the job's lease, returned once, held in the node's memory only, and revoked when the job settles.
 - The server stores the credential's handle in `job_node_secrets`, never its material. A second request for the same job and broker extends the existing grant rather than minting another.
 - `403` when `nodes.jobSecretBrokerEnabled` is off, `404` when the type declares no broker, `503` when the broker cannot mint right now.
-- Three layers revoke a grant: the job-settle listener, the ten-minute `node-secret-sweep` cron (`apps/api/src/nodes/tasks/node-secret-sweep.task.ts`, a permanent queue exemption), and, for the PostgreSQL broker, `VALID UNTIL` enforced by the database.
+- Three layers revoke a grant: the job-settle listener, the ten-minute `node-secret-sweep` cron (`packages/platform-api/src/nodes/tasks/node-secret-sweep.task.ts`, a permanent queue exemption), and, for the PostgreSQL broker, `VALID UNTIL` enforced by the database.
 
 The node's own `nod_` token is the one credential a node persists; it is an identity, not a job-scoped grant. The mechanism is designed in full against its first consumer in [database-backup.md](database-backup.md); operators audit issued roles with [node-job-secrets.md](../runbooks/node-job-secrets.md).
 
@@ -201,7 +203,7 @@ The route is a literal under `/nodes` and is declared before any `:id` route; ot
 
 ### Derived health
 
-`deriveNodeHealth` (`apps/api/src/nodes/node-lifecycle.service.ts`):
+`deriveNodeHealth` (`packages/platform-api/src/nodes/node-lifecycle.service.ts`):
 
 | Health | When |
 |---|---|
@@ -213,7 +215,7 @@ List and detail reads call it with the same policy, so they cannot disagree. Per
 
 ### Fleet metrics
 
-`NodeFleetMetrics` (`apps/api/src/nodes/node-fleet-metrics.service.ts`, #606) exports the fleet as `app.*` OpenTelemetry gauges, following the `AppMetricsService` conventions ([telemetry.md §11.13](telemetry.md#1113-application-metrics)): registered only with `OTEL_ENABLED`, no query while the telemetry gate is closed, one cached read (one `worker_nodes` `findMany` plus one `groupBy(type)` over due pending jobs) reused for 30 seconds, never throwing. It lives in `NodesModule`, not the global metrics module, because it reads `NodeOffloadService` and the fleet policy; it borrows the `app` meter and gate through `AppMetricsService.gaugeContext()`.
+`NodeFleetMetrics` (`packages/platform-api/src/nodes/node-fleet-metrics.service.ts`, #606; its gauge declarations are `NODES_APP_METRICS`, which the app spreads into its metric list) exports the fleet as `app.*` OpenTelemetry gauges, following the `AppMetricsService` conventions ([telemetry.md §11.13](telemetry.md#1113-application-metrics)): registered only with `OTEL_ENABLED`, no query while the telemetry gate is closed, one cached read (one `worker_nodes` `findMany` plus one `groupBy(type)` over due pending jobs) reused for 30 seconds, never throwing. It lives in `NodesModule`, not the global metrics module, because it reads `NodeOffloadService` and the fleet policy; it borrows the `app` meter and gate through `AppMetricsService.gaugeContext()`.
 
 - `app.nodes.count`: nodes by `status` and `health`, derived by `deriveNodeHealth` with `nodes.staleHeartbeatSeconds` exactly as the admin list derives it. All seven valid pairs are observed every time, zeros included.
 - Per-node vitals (`node_id`, `node_name`): only nodes that are not `offline` and whose `lastVitalsAt` is within 3 × `staleHeartbeatSeconds`, newest first, at most 200. The node's counters become one gauge, `app.nodes.counter`, labelled `counter` in snake_case. They are cumulative since the node process started and reset when it restarts.
@@ -224,14 +226,14 @@ Every value is self-reported and display-only, as on the Workers page.
 
 ### Span relay
 
-A node records the phases of each job it runs and hands them to `POST /api/nodes/{id}/telemetry` (#608). The server re-emits each phase as an OpenTelemetry span through its own tracer, so a node never holds a collector address or exporter credential. `NodeTelemetryService` (`apps/api/src/nodes/node-telemetry.service.ts`) handles the route in this order:
+A node records the phases of each job it runs and hands them to `POST /api/nodes/{id}/telemetry` (#608). The server re-emits each phase as an OpenTelemetry span through its own tracer, so a node never holds a collector address or exporter credential. `NodeTelemetryService` (`packages/platform-api/src/nodes/node-telemetry.service.ts`) handles the route in this order:
 
 1. **Ownership.** `assertOwnership` runs first: `404` for a missing node, `403` for another owner's. No job is read before it passes.
 2. **Rate limit.** `NodeTelemetryRateLimiter` keeps two in-memory token buckets per node, 60 requests and 1000 spans a minute. A batch either bucket cannot cover is refused whole with `429` (`details.reason: "rate_limited"`). The buckets are per API replica, so N replicas allow up to N times the budget. The limit stops a runaway node; it does not meter one.
 3. **Attribution, per span.** A span is accepted only when its job is held by this node now (`claimedByNodeId` is the path id), or when this node settled the job within the last 10 minutes. A span that fails both checks is dropped and counted in `dropped`, never accepted. Dropping one span does not reject the rest of the batch.
 4. **Emission.** The span's parent is the job's stored `trace_context` (#607, `jobParentContext`). A job with none becomes a root span, like a server-run job. The span carries `node.id` and `node.name` from the path and the node row, `job.id` and `job.type` from the job row, `job.executor: node` and `telemetry.relay: node`. Allowlisted attributes are renamed on the way through: `bytes` → `job.phase.bytes`, `attempt` → `job.attempt`, `exitCode` → `process.exit_code`, `httpStatus` → `http.response.status_code`. An errored phase gets status `ERROR` and `error.type`. Emission never throws. With OTel off, an accepted span is dropped by the no-op tracer and still counts as accepted.
 
-Settling a job clears `claimed_by_node_id`, and `executor` records only *that* a node ran the job, not which one. So `NodesService` records `jobId → nodeId` in `NodeSettlementLedger` (`apps/api/src/nodes/node-settlement-ledger.ts`) whenever a node's result or failure settles a job it held, including the persist-failure path where the server settles. The ledger is in memory, holds at most 10,000 entries (oldest evicted first), and forgets an entry after 10 minutes. A span that lands on a different replica, or after a restart, is dropped rather than misattributed.
+Settling a job clears `claimed_by_node_id`, and `executor` records only *that* a node ran the job, not which one. So `NodesService` records `jobId → nodeId` in `NodeSettlementLedger` (`packages/platform-api/src/nodes/node-settlement-ledger.ts`) whenever a node's result or failure settles a job it held, including the persist-failure path where the server settles. The ledger is in memory, holds at most 10,000 entries (oldest evicted first), and forgets an entry after 10 minutes. A span that lands on a different replica, or after a restart, is dropped rather than misattributed.
 
 The body is untrusted input and is `.strict()` at every level:
 
@@ -250,7 +252,7 @@ The CLI side is `NodeSpanRelay` and `JobSpanRecorder` in `@marinoscar/platform-c
 
 ### Fleet sweep and prune
 
-A crashed node never deregisters, so without a sweep its row stays `online` forever and retention (which selects `offline`) never reaches it. The two jobs are a pair with an order. Both crons only decide whether work is due and enqueue; the handlers in `apps/api/src/nodes/handlers/` do the work.
+A crashed node never deregisters, so without a sweep its row stays `online` forever and retention (which selects `offline`) never reaches it. The two jobs are a pair with an order. Both crons only decide whether work is due and enqueue; the handlers in `packages/platform-api/src/nodes/handlers/` do the work.
 
 | Job type | Cron (task file) | Kill switch | What it does |
 |---|---|---|---|
@@ -271,7 +273,7 @@ UPDATE worker_nodes SET status = 'offline'
 - `cutoff = now − staleHeartbeatSeconds × offlineStaleMultiplier` (defaults 90s × 4 = 6 min). "Offline" is always a whole number of stale windows after "stale", in the same units.
 - The `registered_at` arm catches a node that registered and never heartbeated; `NULL < cutoff` is never true in SQL.
 - `disabled` is never transitioned. `offline` is cleared by re-registration, so sweeping a disabled node would let a restart bring it back online and enabled.
-- It raises `nodes.node_offline` once per node it actually flipped, to holders of `nodes:read` (see [browser-notifications.md](browser-notifications.md)). That is why it returns rows rather than a count.
+- It emits `nodes.node.offline` (`NODE_OFFLINE_EVENT`, a `NodeOfflineEvent` with the node's id, name, last heartbeat, when it was marked and the stale window) once per node it actually flipped, after the `updateManyAndReturn` has returned, so after the write committed. That is why it returns rows rather than a count. Since #734 the slice no longer calls the notifications slice: the reference app's listener `apps/api/src/notifications/ops/node-offline-notifier.ts` raises the unchanged `nodes.node_offline` notification (same event key, same template) to holders of `nodes:read` (see [browser-notifications.md](browser-notifications.md)), through the detached dispatch path, which is the documented exception of `on-event-no-io`. An emit or listener failure never fails the sweep; `apps/api/test/nodes/node-offline-event.integration.spec.ts` proves the order and the notification.
 
 **Prune.** Selects `offline` rows aged by `last_heartbeat_at`, or by `registered_at` when never heartbeated (mirroring the sweep's arms), excludes any node still holding a `running` job, then deletes. The `DELETE` re-asserts the full predicate, so a node that re-registered in between is left alone. The `running` exclusion is not about safety (`SetNull` makes deletion safe); it avoids manufacturing a `running` job owned by nobody. A skipped node is taken on a later day, after the reaper settles its job.
 
@@ -357,7 +359,7 @@ The `credentials` literals are declared before `:id`; Nest matches in declaratio
 
 Making a job type runnable on a node takes two halves:
 
-1. **Server handler** — give it `nodeResultSchema` and `persistNodeResult` (both, never one), and put the schema in `apps/api/src/jobs/contracts/`. Route `process` and `persistNodeResult` through one write method, as `example-checksum.handler.ts` does. Full recipe: [apps/api/src/jobs/handlers/README.md](../../apps/api/src/jobs/handlers/README.md).
+1. **Server handler** — give it `nodeResultSchema` and `persistNodeResult` (both, never one), and put the schema next to the handler (the reference app's are in `apps/api/src/jobs/contracts/`). Route `process` and `persistNodeResult` through one write method, as `apps/api/src/examples/jobs/example-checksum.handler.ts` does. Full recipe: [packages/platform-api/src/jobs/handlers/README.md](../../packages/platform-api/src/jobs/handlers/README.md).
 2. **CLI executor** — implement `JobExecutor` and register it in `defaultExecutors()`. `execute` returns the result and throws to fail. Recipe: [packages/platform-cli/src/engine/node/executors/README.md](../../packages/platform-cli/src/engine/node/executors/README.md).
 
 Optional, only when the default is wrong:
@@ -374,34 +376,36 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 | Test | Enforces |
 |---|---|
 | `packages/platform-api/test/identity/auth/guards/jwt-auth.guard.spec.ts` | Allowlist, prefix-boundary paths, route check before `validateToken` (spy), untouched `pat_`/JWT branches |
+| `packages/platform-api/src/nodes/node-object-store.spec.ts` | The data plane uses only the two `NodeObjectStore` methods; a store failure propagates |
+| `apps/api/test/nodes/node-offline-event.integration.spec.ts` | `nodes.node.offline` reaches the app's notifier after the sweep's write; nobody is notified for no change or a failed write |
 | `apps/api/test/nodes/node-credential.integration.spec.ts` | `403` for a `nod_` token on `/api/users`, `/api/admin/jobs`, `/api/node-credentials` with an admin owner; RBAC; show-once; `lastUsedAt` stamped on allowed routes |
-| `apps/api/src/nodes/node-credential.service.spec.ts` | Four rejection paths; `expiresAt: null` group |
+| `packages/platform-api/test/nodes/node-credential.service.spec.ts` | Four rejection paths; `expiresAt: null` group |
 | `apps/api/src/common/maintenance/maintenance.guard.spec.ts` | `OPAQUE_BEARER_PREFIXES` contains `NODE_TOKEN_PREFIX` |
 | `apps/api/test/auth/pat-universality.integration.spec.ts` | A PAT stays universal (why nodes need their own family) |
-| `apps/api/src/nodes/nodes.service.spec.ts` | Register-or-reattach incl. `P2002`; the three claim filters; lease guard's five conditions one at a time across `renew`/`result`/`failure` |
+| `packages/platform-api/test/nodes/nodes.service.spec.ts` | Register-or-reattach incl. `P2002`; the three claim filters; lease guard's five conditions one at a time across `renew`/`result`/`failure` |
 | `apps/api/test/nodes/nodes.integration.spec.ts` | `409` on late submission, Zod issues in `details`, `claimToken` round trip, `400` for a non-uuid token; `traceparent` on the assignment (`null` when absent or malformed); heartbeat vitals persisted and shown by the admin read, `400` for unknown or out-of-range vitals |
-| `apps/api/src/nodes/dto/node-control-plane.dto.spec.ts` | Vitals schema: strict at both levels, every bound, a pre-vitals heartbeat still parses |
-| `apps/api/src/nodes/node-fleet-metrics.service.spec.ts` | Fleet gauges: health derivation, vitals freshness and the 200-node cap, counter mapping, no-eligible-node computation, no query while the gate is closed or OTel is off |
+| `packages/platform-api/test/nodes/dto/node-control-plane.dto.spec.ts` | Vitals schema: strict at both levels, every bound, a pre-vitals heartbeat still parses |
+| `packages/platform-api/test/nodes/node-fleet-metrics.service.spec.ts` | Fleet gauges: health derivation, vitals freshness and the 200-node cap, counter mapping, no-eligible-node computation, no query while the gate is closed or OTel is off |
 | `apps/api/test/nodes/node-claim-contention.db.spec.ts` | Real Postgres: a node and the in-process worker never claim the same row |
-| `apps/api/src/nodes/node-data-plane.service.spec.ts` | Guard reached, server-derived key, expiry clamp both ways, three input reasons, stale `claimToken` refused on both URL routes |
+| `packages/platform-api/test/nodes/node-data-plane.service.spec.ts` | Guard reached, server-derived key, expiry clamp both ways, three input reasons, stale `claimToken` refused on both URL routes |
 | `apps/api/test/nodes/node-data-plane.integration.spec.ts` | `job-types` route order, valid JSON Schemas, `409`/`400`/`422`, no signed URL in logs |
 | `apps/api/test/nodes/node-checksum-data-plane.db.spec.ts` | Real Postgres: `example.checksum` end to end through a local signing provider |
-| `apps/api/src/jobs/handlers/example-checksum.handler.spec.ts` | Both executors leave the same row |
+| `apps/api/src/examples/jobs/example-checksum.handler.spec.ts` | Both executors leave the same row |
 | `apps/api/src/storage/storage-job-input.spec.ts` | Three input failures, each naming the job |
-| `apps/api/src/nodes/node-secret-broker.service.spec.ts`, `apps/api/test/nodes/node-job-secret.integration.spec.ts` | Secret route outcomes (`403`/`404`/`503`), lease-bounded grants |
+| `packages/platform-api/test/nodes/node-secret-broker.service.spec.ts`, `apps/api/test/nodes/node-job-secret.integration.spec.ts` | Secret route outcomes (`403`/`404`/`503`), lease-bounded grants |
 | `packages/platform-cli/src/engine/node/executors/db-backup-run.test.ts` | The backup executor imports no config writer (secret never persisted) |
 | `packages/platform-cli/src/engine/node/capabilities.test.ts` | Required vs. degradable capability outcomes |
-| `apps/api/src/nodes/dto/node-telemetry.dto.spec.ts` | Span relay body: strict at every level, phase-name enum, integer-only attribute allowlist, identifier-only `errorType`, batch cap, time window |
-| `apps/api/src/nodes/node-telemetry.service.spec.ts` | Held job accepted; foreign, missing and expired-grace jobs dropped and never emitted; ownership before any job read; one query per batch; `429` before any job read; parent is the stored `traceparent`; `node.id` from the path; attribute renaming; emission never throws |
-| `apps/api/src/nodes/node-telemetry-rate-limiter.spec.ts` | Request and span buckets, refill, per-node isolation; settlement ledger grace window and bound |
-| `apps/api/src/nodes/nodes.service.spec.ts` (settlement ledger) | A settle records the node, including the persist-failure path; a refused or lost settle records nothing |
+| `packages/platform-api/test/nodes/dto/node-telemetry.dto.spec.ts` | Span relay body: strict at every level, phase-name enum, integer-only attribute allowlist, identifier-only `errorType`, batch cap, time window |
+| `packages/platform-api/test/nodes/node-telemetry.service.spec.ts` | Held job accepted; foreign, missing and expired-grace jobs dropped and never emitted; ownership before any job read; one query per batch; `429` before any job read; parent is the stored `traceparent`; `node.id` from the path; attribute renaming; emission never throws |
+| `packages/platform-api/test/nodes/node-telemetry-rate-limiter.spec.ts` | Request and span buckets, refill, per-node isolation; settlement ledger grace window and bound |
+| `packages/platform-api/test/nodes/nodes.service.spec.ts` (settlement ledger) | A settle records the node, including the persist-failure path; a refused or lost settle records nothing |
 | `apps/api/test/nodes/node-telemetry.integration.spec.ts` | `nod_` admitted with no guard change; `401`/`403` RBAC; another owner's node `403`; missing node `404`; eight `400` bodies; `429` with `TOO_MANY_REQUESTS` |
 | `packages/platform-cli/src/telemetry/node-span-relay.test.ts`, `packages/platform-cli/src/engine/node/node-span-relay.test.ts` (the same cases with the CLI's real `ApiError`), `node-engine.test.ts` (span relay) | `errorType` never carries a message; batches of 50; oldest dropped first; `404` disables once; `400`/`403`/`429`/`500` drop the batch; a hanging relay never holds a job slot |
 | `apps/api/test/nodes/node-fleet-lifecycle.spec.ts` | Sweep then prune in sequence: crashed node, never-heartbeated node, `disabled` untouched, busy node deferred |
 | `apps/api/test/nodes/node-fleet-lifecycle.db.spec.ts` | Real Postgres: `NULL < cutoff` is not true, `SetNull`, reaper requeues a deleted node's job |
-| `apps/api/src/nodes/handlers/node-fleet-sweep.handler.spec.ts`, `node-fleet-prune.handler.spec.ts` | The statements each handler sends |
-| `apps/api/src/nodes/tasks/node-stale-offline.task.spec.ts`, `node-offline-prune.task.spec.ts` | Kill switches; crons only enqueue |
-| `apps/api/src/nodes/nodes-admin.service.spec.ts` | One `groupBy` (call count); list and detail agree on health |
+| `packages/platform-api/test/nodes/handlers/node-fleet-sweep.handler.spec.ts`, `node-fleet-prune.handler.spec.ts` | The statements each handler sends |
+| `packages/platform-api/test/nodes/tasks/node-stale-offline.task.spec.ts`, `node-offline-prune.task.spec.ts` | Kill switches; crons only enqueue |
+| `packages/platform-api/test/nodes/nodes-admin.service.spec.ts` | One `groupBy` (call count); list and detail agree on health |
 | `apps/api/test/nodes/nodes-admin.integration.spec.ts` | `/credentials` resolves before `:id`; Admin-only RBAC on all five routes |
 
 The prefix-boundary cases (`/api/nodesX`, `/api/nodes-other`, `/api/nodes/`) are direct guard invocations, because those paths `404` in the router whatever the guard decides.
@@ -454,3 +458,4 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - #606: fleet metrics (`app.nodes.*` gauges).
 - #607: `traceparent` on each claim assignment.
 - #608: span relay (`POST /api/nodes/{id}/telemetry`), node phase spans in the CLI.
+- PP-8.2 (#734): the fleet becomes `@marinoscar/platform-api/nodes` (`NodesModule.forRoot()`, `NodeCredentialModule`); the request schemas move to `@marinoscar/platform-contract/nodes`; the data plane goes through `NODE_OBJECT_STORE`; the sweep emits `nodes.node.offline` instead of calling the notifier; relayed spans carry the job's `org.id`.
