@@ -90,6 +90,20 @@ const SIGNING_SUBKEY_LABEL_PREFIX = 'enterpriseappbase:signing-key:v1:';
 export const USER_CREDENTIAL_DOMAIN_PREFIX = 'user:';
 
 /**
+ * First segment of every organization-bound sub-key domain (issue #735). See
+ * {@link orgCredentialPurpose}. Like {@link USER_CREDENTIAL_DOMAIN_PREFIX}, no
+ * system purpose can begin with it, because a system purpose may not contain
+ * `:`; and it cannot collide with a user domain, whose first segment differs.
+ *
+ * @stability stable
+ * @example
+ * ```ts
+ * purpose.startsWith(ORG_CREDENTIAL_DOMAIN_PREFIX); // an organization-bound domain
+ * ```
+ */
+export const ORG_CREDENTIAL_DOMAIN_PREFIX = 'org:';
+
+/**
  * A canonical UUID: lowercase hex, 8-4-4-4-12. Postgres and Prisma both
  * render `uuid` values this way, so an id read back from the database always
  * matches; an uppercase or brace-wrapped spelling of the same id does not.
@@ -195,8 +209,9 @@ function getMasterKey(): Buffer {
  * ('smtp', 'oauth', …), not user input, so this Map cannot grow unboundedly.
  *
  * OWNER-BOUND DOMAINS ARE NOT CACHED (issue #387). A per-user domain
- * (`userCredentialPurpose()` below) is one string per user × purpose, which is
- * exactly the open-ended vocabulary this cache must not hold: it would grow
+ * (`userCredentialPurpose()` below) is one string per user × purpose, and a
+ * per-organization one (`orgCredentialPurpose()`, #735) one per org × purpose:
+ * that is exactly the open-ended vocabulary this cache must not hold: it would grow
  * with the user base for the life of the process and keep one derived key per
  * user resident in the heap. One HMAC-SHA256 per decrypt costs microseconds.
  *
@@ -247,8 +262,12 @@ function deriveKey(purpose: string): Buffer {
   }
 
   // Only the closed vocabulary of system purposes ('smtp', 'oauth', ...) is
-  // cached; owner- and row-bound domains carry a `:` (see the cache's comment).
-  const cacheable = !purpose.startsWith(USER_CREDENTIAL_DOMAIN_PREFIX) && !purpose.includes(':');
+  // cached; owner- and row-bound domains (user:, org:, ...) carry a `:` (see
+  // the cache's comment).
+  const cacheable =
+    !purpose.startsWith(USER_CREDENTIAL_DOMAIN_PREFIX) &&
+    !purpose.startsWith(ORG_CREDENTIAL_DOMAIN_PREFIX) &&
+    !purpose.includes(':');
 
   if (cacheable) {
     const cached = derivedKeyCache.get(purpose);
@@ -507,4 +526,44 @@ export function userCredentialPurpose(userId: string, purpose: string): string {
   }
 
   return `${USER_CREDENTIAL_DOMAIN_PREFIX}${userId}:${purpose}`;
+}
+
+/**
+ * The organization-bound sub-key domain for an organization's own credential
+ * (issue #735): `org:<orgId>:<purpose>`, the organization counterpart of
+ * {@link userCredentialPurpose}. Binding the owner into the domain means a
+ * ciphertext copied from organization A's row into organization B's row (a SQL
+ * write, a bug copying rows) fails GCM authentication rather than handing B
+ * the use of A's key.
+ *
+ * The string decomposes one way only, for the reasons given on
+ * {@link userCredentialPurpose}: `orgId` is a canonical UUID, `purpose` has no
+ * `:`, and the `org:` and `user:` prefixes differ, so (orgId, purpose) → domain
+ * is injective and disjoint from every user and system domain.
+ *
+ * @throws a plain Error (no values in it) on a non-canonical id or a bad
+ *         purpose. Callers validate first and report their own error.
+ * @param orgId - The owning organization: a canonical UUID.
+ * @param purpose - The kind of secret; non-empty, no `:`.
+ * @returns `org:<orgId>:<purpose>`.
+ * @stability stable
+ * @example
+ * ```ts
+ * const stored = encryptSecret(apiKey, orgCredentialPurpose(orgId, 'ai'));
+ * ```
+ */
+export function orgCredentialPurpose(orgId: string, purpose: string): string {
+  if (!isCanonicalUuid(orgId)) {
+    throw new Error(
+      'orgCredentialPurpose requires a canonical (lowercase, hyphenated) UUID orgId.',
+    );
+  }
+
+  if (typeof purpose !== 'string' || purpose.length === 0 || purpose.includes(':')) {
+    throw new Error(
+      'orgCredentialPurpose requires a non-empty purpose containing no ":".',
+    );
+  }
+
+  return `${ORG_CREDENTIAL_DOMAIN_PREFIX}${orgId}:${purpose}`;
 }

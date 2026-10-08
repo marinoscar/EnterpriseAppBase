@@ -24,6 +24,8 @@
 // address.
 // =============================================================================
 
+import type { CredentialPurposeDef } from '@marinoscar/platform-api/credentials';
+
 /**
  * Credential store address for the VAPID private key: the sub-key domain.
  *
@@ -48,3 +50,14 @@ export const PUSH_VAPID_CREDENTIAL_NAME = 'default';
  * shown verbatim in any credential listing.
  */
 export const PUSH_VAPID_CREDENTIAL_LABEL = 'Web Push VAPID private key';
+
+/**
+ * The `push_vapid` purpose's declaration for the credential purpose registry
+ * (#735), registered by `platform/credentials/credential-purposes.manifest.ts`.
+ */
+export const PUSH_VAPID_CREDENTIAL_PURPOSE_DEF = {
+  purpose: PUSH_VAPID_CREDENTIAL_PURPOSE,
+  owner: 'notifications',
+  label: 'Web Push VAPID private key',
+  tiers: ['system'],
+} as const satisfies CredentialPurposeDef;

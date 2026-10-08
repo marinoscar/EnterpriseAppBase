@@ -2,7 +2,7 @@ import { APP_SLUG } from '@app/shared';
 import { z } from 'zod';
 
 import { AiError } from '../../ai/core/ai-error';
-import { CredentialsService } from '../../credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import {
   TELEMETRY_AI,
   TELEMETRY_APP_INFO,

@@ -66,7 +66,6 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef<Prisma.ModelNa
   { model: 'Notification', kind: 'user', rationale: "A user's inbox entry." },
   { model: 'NotificationDelivery', kind: 'user', rationale: "A delivery attempt of one user's notification." },
   { model: 'PushSubscription', kind: 'user', rationale: "A user's own browser push endpoint." },
-  { model: 'UserCredential', kind: 'user', rationale: "A user's own encrypted key." },
   { model: 'UserAiKey', kind: 'user', rationale: "A user's own bring-your-own AI key." },
   { model: 'UserIdentity', kind: 'user', rationale: 'A provider identity the user signs in with.' },
   {
@@ -93,7 +92,6 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef<Prisma.ModelNa
   // ---------------------------------------------------------------------------
   { model: 'User', kind: 'system', rationale: 'The identity itself, read across organisations at login. A Membership links it to organisations.' },
   { model: 'SystemSettings', kind: 'system', rationale: 'Deployment-wide settings.' },
-  { model: 'Credential', kind: 'system', rationale: 'Deployment-wide encrypted credentials (SMTP, storage, VAPID).' },
   { model: 'AiModel', kind: 'system', rationale: 'The deployment-wide AI model catalogue.' },
   { model: 'Role', kind: 'system', rationale: 'Global role rows (system and org scoped).' },
   { model: 'Permission', kind: 'system', rationale: 'Global permission rows.' },

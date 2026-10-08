@@ -16,8 +16,7 @@ import { StorageModule } from './storage/storage.module';
 import { StorageConfigModule } from './storage/config/storage-config.module';
 import { NodeCredentialModule } from './nodes/node-credential.module';
 import { NodesModule } from './nodes/nodes.module';
-import { CredentialsModule } from './credentials/credentials.module';
-import { UserCredentialsModule } from './user-credentials/user-credentials.module';
+import { credentialsModules } from './platform/credentials/credentials.config';
 import { EmailModule } from './email/email.module';
 import { BroadcastsModule } from './notifications/broadcasts/broadcasts.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -111,14 +110,13 @@ import configuration from './config/configuration';
     // dependency weight rather than by topic is what keeps the guard's
     // dependency graph acyclic.
     NodeCredentialModule,
-    // Encrypted credential store (#115). Registered here so it is part of the
-    // module graph; consumers still import CredentialsModule explicitly (it is
-    // not @Global) so every user of a plaintext-returning service is visible.
-    CredentialsModule,
-    // Per-user (owner-bound) encrypted credential store (#387): the sibling
-    // of CredentialsModule for keys a user brings themselves. Registered for
-    // the same reason and on the same terms — not @Global, no controller.
-    UserCredentialsModule,
+    // Encrypted credential stores (#115, #387, #735), from
+    // `@marinoscar/platform-api/credentials`: the deployment's, a user's own
+    // and an organization's. Registered here so they are part of the module
+    // graph; consumers still import the module they need explicitly (none is
+    // @Global) so every user of a plaintext-returning service is visible. The
+    // app's binding (its purposes) is `platform/credentials/credentials.config.ts`.
+    ...credentialsModules,
     // Email transports (#122, epic #109) and, since #124, the admin email
     // settings endpoints. Registered here even though nothing sends mail
     // automatically yet: it makes a broken provider graph fail at boot rather

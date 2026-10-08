@@ -18,7 +18,7 @@ const OWNERSHIP: Record<string, string[]> = {
   ],
   settings: ['OrgSettings', 'SystemSettings', 'UserSettings'],
   storage: ['StorageObject', 'StorageObjectChunk', 'StorageObjectStatus'],
-  credentials: ['Credential', 'UserCredential'],
+  credentials: ['Credential', 'UserCredential', 'OrgCredential'],
   notifications: ['Notification', 'NotificationDelivery', 'PushSubscription', 'NotificationBroadcast', 'NotificationDeliveryStatus', 'NotificationBroadcastStatus'],
   jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'JobStatus', 'JobReason', 'NodeStatus'],
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
@@ -44,9 +44,9 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 39 models and 15 enums, each once', () => {
+  it('declare 40 models and 15 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
-    expect(all.filter((b) => b.kind === 'model')).toHaveLength(39);
+    expect(all.filter((b) => b.kind === 'model')).toHaveLength(40);
     expect(all.filter((b) => b.kind === 'enum')).toHaveLength(15);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
@@ -72,7 +72,7 @@ describe('the shipped platform fragments', () => {
     const by = (m: string): string[] => extensions.filter((e) => e.model === m).map((e) => `${e.from.replace('package:', '').replace('.prisma', '')}:${e.field}`).sort();
     expect(by('User')).toEqual([
       'ai:aiKeys', 'ai:aiModelsUpdated', 'ai:aiRuns', 'ai:aiUsageEvents',
-      'credentials:credentialUpdates', 'credentials:userCredentials',
+      'credentials:credentialUpdates', 'credentials:orgCredentialUpdates', 'credentials:userCredentials',
       'db-backup:databaseBackupRuns', 'db-backup:databaseRestores',
       'jobs:nodeCredentials', 'jobs:workerNodes',
       'notifications:broadcastsCreated', 'notifications:notificationDeliveries', 'notifications:notifications', 'notifications:pushSubscriptions',
@@ -84,6 +84,7 @@ describe('the shipped platform fragments', () => {
     expect(by('Job')).toEqual(['db-backup:backupRun']);
     expect(by('StorageObject')).toEqual([]);
     expect(by('Group')).toEqual([]);
+    expect(by('Organization').filter((e) => e.startsWith('credentials:'))).toEqual(['credentials:orgCredentials']);
   });
 
   it('let an app add a back-relation to Group, so an app table can be owned by a group (#728)', () => {

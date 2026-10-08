@@ -51,6 +51,8 @@ describe('@marinoscar/platform-api', () => {
       './identity/testing': { types: './dist/identity/testing/index.d.ts', default: './dist/identity/testing/index.js' },
       './settings': { types: './dist/settings/index.d.ts', default: './dist/settings/index.js' },
       './settings/testing': { types: './dist/settings/testing/index.d.ts', default: './dist/settings/testing/index.js' },
+      './credentials': { types: './dist/credentials/index.d.ts', default: './dist/credentials/index.js' },
+      './credentials/testing': { types: './dist/credentials/testing/index.d.ts', default: './dist/credentials/testing/index.js' },
       './package.json': './package.json',
     });
   });

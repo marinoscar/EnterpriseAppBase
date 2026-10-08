@@ -12,6 +12,7 @@
 
 import { registerUserOwnedModels } from '@marinoscar/platform-api/core';
 import { SETTINGS_USER_OWNED_MODELS } from '@marinoscar/platform-api/settings';
+import { CREDENTIALS_USER_OWNED_MODELS } from '@marinoscar/platform-api/credentials';
 import { SHARING_USER_OWNED_MODELS } from '@marinoscar/platform-api/sharing';
 
 import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models';
@@ -22,6 +23,8 @@ registerUserOwnedModels(PLATFORM_USER_OWNED_MODELS);
 registerUserOwnedModels(SHARING_USER_OWNED_MODELS);
 // The settings slice's org table (#733), declared by the package.
 registerUserOwnedModels(SETTINGS_USER_OWNED_MODELS);
+// The credentials slice's three models (#735), declared by the package.
+registerUserOwnedModels(CREDENTIALS_USER_OWNED_MODELS);
 
 // App-owned entries last.
 registerUserOwnedModels(APP_USER_OWNED_MODELS);

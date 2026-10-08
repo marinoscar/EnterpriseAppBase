@@ -23,7 +23,7 @@ describe('model ownership vs prisma/schema/', () => {
     expect(modelNames.filter((m) => !registered.includes(m))).toEqual([]);
   });
 
-  it('lists exactly the eight org models, the org-optional AuditEvent, and the user and system rest', () => {
+  it('lists exactly the ten org models, the org-optional AuditEvent, and the user and system rest', () => {
     expect(modelsOfKind('org').map((d) => d.model).sort()).toEqual([
       'AiRun',
       'AiUsageEvent',
@@ -31,6 +31,7 @@ describe('model ownership vs prisma/schema/', () => {
       'Group',
       'GroupInvite',
       'GroupMember',
+      'OrgCredential',
       'OrgSettings',
       'StorageObject',
       'StorageObjectChunk',

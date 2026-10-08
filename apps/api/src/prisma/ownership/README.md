@@ -198,8 +198,9 @@ body). The scoped client guarantees that once it has decided, a forgotten
 
 ## Adopting the scoped client in an existing service
 
-`user-credentials/user-credentials.service.ts` is the reference adoption,
-with unchanged behaviour:
+`UserCredentialsService` (now in `@marinoscar/platform-api/credentials`,
+where it calls the package's `forUser(prisma, { userId })` on the
+`PLATFORM_PRISMA` port) was the reference adoption, with unchanged behaviour:
 
 1. Inject `ScopedPrismaService` (it is global; no module import needed).
 2. Replace `this.prisma.<model>` with `this.scoped.forUser(userId).<model>`

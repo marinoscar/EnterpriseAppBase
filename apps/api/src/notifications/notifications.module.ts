@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { CredentialsModule } from '../credentials/credentials.module';
+import { CredentialsModule } from '@marinoscar/platform-api/credentials';
 import { JobsModule } from '../jobs/jobs.module';
 import { EmailModule } from '../email/email.module';
 import { PrismaModule } from '../prisma/prisma.module';

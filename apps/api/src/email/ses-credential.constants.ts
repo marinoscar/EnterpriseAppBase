@@ -16,7 +16,7 @@
 // loading second sees `undefined` where a constructor parameter type should
 // be, and Nest fails to resolve the dependency at boot.
 //
-// So the shared value lives in a leaf module that imports nothing. The
+// So the shared value lives in a leaf module that imports nothing at run time. The
 // provider re-exports both names, so `SES_CREDENTIAL_PURPOSE` and
 // `SES_CREDENTIAL_NAME` remain importable from exactly where #585 put them
 // and the `../email` barrel is unchanged.
@@ -27,6 +27,8 @@
 // by a character produces a credential that saves without complaint and can
 // never be decrypted back. There is deliberately nothing to keep in sync.
 // =============================================================================
+
+import type { CredentialPurposeDef } from '@marinoscar/platform-api/credentials';
 
 /**
  * Credential store address for the SES secret access key: the sub-key domain.
@@ -54,3 +56,14 @@ export const SES_CREDENTIAL_NAME = 'default';
  * says what it is for rather than only `email_ses/default`.
  */
 export const SES_CREDENTIAL_LABEL = 'SES secret access key';
+
+/**
+ * The `email_ses` purpose's declaration for the credential purpose registry
+ * (#735), registered by `platform/credentials/credential-purposes.manifest.ts`.
+ */
+export const SES_CREDENTIAL_PURPOSE_DEF = {
+  purpose: SES_CREDENTIAL_PURPOSE,
+  owner: 'email',
+  label: 'SES secret access key',
+  tiers: ['system'],
+} as const satisfies CredentialPurposeDef;

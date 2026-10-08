@@ -13,6 +13,7 @@ import { JobsModule } from './jobs.module';
 import { JwtAuthGuard } from '@marinoscar/platform-api/identity';
 import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
+import { platformHostModule } from '../platform/platform-host.module';
 import { doctorModule } from '../doctor/doctor.config';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -205,6 +206,9 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
         ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
         EventEmitterModule.forRoot(),
         PrismaModule,
+        // Binds core's PLATFORM_PRISMA (and the other host ports), which the
+        // packaged credential stores reached through SettingsModule inject (#735).
+        platformHostModule,
         // Global in the app: `JobsModule`'s doctor checks (#634) inject its
         // registry, so a graph built without `AppModule` must supply it too.
         doctorModule,

@@ -62,7 +62,13 @@ export function telemetryDeploymentHost(environmentHost: string | null | undefin
   return environmentHost?.trim() || TELEMETRY_DEFAULT_HOST;
 }
 
-/** Credential-store purpose (and cipher sub-key domain) of the two passwords. */
+/**
+ * Credential-store purpose (and cipher sub-key domain) of the two passwords.
+ * Permanent: renaming it strands both stored passwords. The app declares it in
+ * the credential purpose registry (`registerCredentialPurpose`, #735).
+ *
+ * @stability stable
+ */
 export const TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE = 'telemetry_greptime';
 
 /** The two logins the API uses. Also the credential names inside the purpose. */

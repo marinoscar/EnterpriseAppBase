@@ -78,15 +78,6 @@ export const PLATFORM_USER_OWNED_MODELS = [
       "The user's membership of an organization (PP-6.1). It means nothing without the user; the export lists which organizations the user belongs to.",
   },
   {
-    model: 'UserCredential',
-    ownerField: 'userId',
-    purge: 'delete',
-    export: 'include',
-    exportOmit: ['secret'],
-    rationale:
-      "The user's own encrypted keys (bring your own key). The export lists the addresses and hints; the ciphertext never leaves the server.",
-  },
-  {
     model: 'Notification',
     ownerField: 'userId',
     purge: 'delete',
@@ -181,13 +172,6 @@ export const PLATFORM_USER_OWNED_MODELS = [
     purge: 'detach',
     export: 'exclude',
     rationale: 'The deployment allowlist; it records who added an entry and who claimed it, neither of whom owns it.',
-  },
-  {
-    model: 'Credential',
-    actorFields: ['updatedByUserId'],
-    purge: 'detach',
-    export: 'exclude',
-    rationale: 'A deployment-owned secret; the user only last changed it.',
   },
   {
     model: 'NotificationBroadcast',

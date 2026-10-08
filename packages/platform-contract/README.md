@@ -14,6 +14,7 @@ Slices (each a subpath export with its own README):
 | `@marinoscar/platform-contract/telemetry` | Telemetry wire shapes, `stable`: config, status, explorer, connection, stack, dashboard, assistant and the `telemetry` settings namespace (#702) | [src/telemetry/README.md](src/telemetry/README.md) |
 | `@marinoscar/platform-contract/identity` | Identity wire shapes, `stable`: the sign-in error codes (`AUTH_ERROR_CODES`, the single source), `/api/auth/me`, token responses, personal access tokens, the device flow, organizations, members and invitations (#727) | [src/identity/README.md](src/identity/README.md) |
 | `@marinoscar/platform-contract/settings` | Settings wire shapes, `stable` (the org-settings shapes `experimental`): the core user fields (`theme`, `profile`), the `dataTables` and `navigation` user namespaces, the system and user response bases, and `/api/org-settings` (#733) | [src/settings/README.md](src/settings/README.md) |
+| `@marinoscar/platform-contract/credentials` | The presentation-safe shapes of a stored credential (deployment, user, organization), the tiers and the secret-bearing key list (#735) | [src/credentials/README.md](src/credentials/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 

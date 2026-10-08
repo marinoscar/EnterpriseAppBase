@@ -10,8 +10,7 @@ import {
 import type { Prisma } from '@prisma/client';
 
 import type { SystemAiValue } from '../../common/schemas/settings.schema';
-import type { CredentialInfo } from '../../credentials/interfaces/credential-info.interface';
-import { CredentialsService } from '../../credentials/credentials.service';
+import { CredentialsService, type CredentialInfo } from '@marinoscar/platform-api/credentials';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiError, isAiErrorCode } from '../core/ai-error';

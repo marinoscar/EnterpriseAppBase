@@ -117,6 +117,9 @@ export { TELEMETRY_ASSISTANT_AUDIT_ACTION } from './assistant/telemetry-assistan
 
 // ---- the job types (permanent strings; both server-only) --------------------------
 export { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler';
+// The credential purpose of the GreptimeDB passwords, for the app's credential
+// purpose manifest (#735).
+export { TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE } from './connection/telemetry-connection.schema';
 export { TELEMETRY_STACK_DEPLOY_TYPE } from './stack/telemetry-stack-deploy.handler';
 
 // ---- errors and the SQL guard -------------------------------------------------------

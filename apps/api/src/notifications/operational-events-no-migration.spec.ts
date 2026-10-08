@@ -96,6 +96,7 @@ const MIGRATIONS_AT_288 = [
   // About sharing, not the operational notification events.
   '20261008000859_add_grants',
   '20261008012052_add_org_settings',
+  '20261008041856_add_org_credentials',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

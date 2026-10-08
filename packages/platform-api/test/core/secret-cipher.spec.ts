@@ -338,6 +338,54 @@ describe('secret-cipher', () => {
   });
 
   // ===========================================================================
+  // Organization-bound sub-key domains for org credentials (issue #735)
+  // ===========================================================================
+  describe('orgCredentialPurpose (organization-bound domains, #735)', () => {
+    const ORG_A = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+    const ORG_B = 'a1b2c3d4-e5f6-4789-9abc-def012345678';
+    const ALICE = '0b6f1d7e-3c2a-4f5b-9e8d-7a6c5b4d3e2f';
+    let cipher: SecretCipherModule;
+
+    beforeEach(() => {
+      cipher = loadCipher(VALID_KEY);
+    });
+
+    it('builds `org:<orgId>:<purpose>`', () => {
+      expect(cipher.orgCredentialPurpose(ORG_A, 'ai')).toBe(`org:${ORG_A}:ai`);
+      expect(cipher.ORG_CREDENTIAL_DOMAIN_PREFIX).toBe('org:');
+    });
+
+    it('round-trips under the organization-bound domain, repeatedly (not cached)', () => {
+      const domain = cipher.orgCredentialPurpose(ORG_A, 'ai');
+      const payload = cipher.encryptSecret('org-a-key', domain);
+      for (let i = 0; i < 3; i++) expect(cipher.decryptSecret(payload, domain)).toBe('org-a-key');
+    });
+
+    it("fails GCM auth when one organization's ciphertext is copied into another's row", () => {
+      const payload = cipher.encryptSecret('org-a-key', cipher.orgCredentialPurpose(ORG_A, 'ai'));
+      expect(() => cipher.decryptSecret(payload, cipher.orgCredentialPurpose(ORG_B, 'ai'))).toThrow(
+        /Failed to decrypt secret/,
+      );
+    });
+
+    it('org, user and system domains for the same purpose cannot decrypt each other', () => {
+      const orgDomain = cipher.orgCredentialPurpose(ORG_A, 'ai');
+      const userDomain = cipher.userCredentialPurpose(ALICE, 'ai');
+      const orgPayload = cipher.encryptSecret('org-key', orgDomain);
+      expect(() => cipher.decryptSecret(orgPayload, 'ai')).toThrow(/Failed to decrypt secret/);
+      expect(() => cipher.decryptSecret(orgPayload, userDomain)).toThrow(/Failed to decrypt secret/);
+      expect(() => cipher.decryptSecret(cipher.encryptSecret('sys', 'ai'), orgDomain)).toThrow(/Failed to decrypt secret/);
+    });
+
+    it('rejects a non-canonical organization id and a purpose with ":"', () => {
+      expect(() => cipher.orgCredentialPurpose(ORG_A.toUpperCase(), 'ai')).toThrow(/canonical/);
+      expect(() => cipher.orgCredentialPurpose('acme', 'ai')).toThrow(/canonical/);
+      expect(() => cipher.orgCredentialPurpose(ORG_A, 'a:b')).toThrow(/no ":"/);
+      expect(() => cipher.orgCredentialPurpose(ORG_A, '')).toThrow(/no ":"/);
+    });
+  });
+
+  // ===========================================================================
   // Owner-bound sub-key domains for per-user credentials (issue #387)
   // ===========================================================================
   describe('userCredentialPurpose (owner-bound domains, #387)', () => {

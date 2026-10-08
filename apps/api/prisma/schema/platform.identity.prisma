@@ -57,6 +57,11 @@ model User {
   // secret has no meaning once its owner is gone — see `UserCredential`.
   userCredentials        UserCredential[]        @relation("UserCredentials")
 
+  // composed from package:credentials.prisma
+  // Provenance on an organization's credential (issue #735). SetNull: an
+  // org's key outlives the administrator who last typed it in.
+  orgCredentialUpdates OrgCredential[] @relation("OrgCredentialUpdatedBy")
+
   // composed from package:db-backup.prisma
   // Two relations to ONE table, deliberately (#281, epic #254): a
   // `database_backup_runs` row records both "who asked for this backup" and,
@@ -431,6 +436,9 @@ model Organization {
   // for why one is `Restrict` and the other `SetNull`.
   aiRuns        AiRun[]
   aiUsageEvents AiUsageEvent[]
+
+  // composed from package:credentials.prisma
+  orgCredentials OrgCredential[]
 
   // composed from package:settings.prisma
   settings OrgSettings?

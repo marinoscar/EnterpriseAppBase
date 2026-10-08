@@ -37,13 +37,12 @@ import request from 'supertest';
 import { supportBundleSchema } from '@marinoscar/platform-contract/doctor';
 import { DoctorCheckRegistry, DoctorService } from '@marinoscar/platform-api/doctor';
 
-import { CredentialsService } from '../../src/credentials/credentials.service';
+import { CredentialsService, UserCredentialsService } from '@marinoscar/platform-api/credentials';
 import {
   GreptimeClient,
   TelemetrySettingsService,
 } from '@marinoscar/platform-api/telemetry';
 import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
-import { UserCredentialsService } from '../../src/user-credentials/user-credentials.service';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

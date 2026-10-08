@@ -6,7 +6,7 @@
 // under in the encrypted credential store (#115, epic #108). Mirrors
 // `../email/smtp-credential.constants.ts` and
 // `../notifications/push-vapid-credential.constants.ts` exactly, including why
-// it lives in a leaf module that imports nothing: several modules need this
+// it lives in a leaf module that imports nothing at run time: several modules need this
 // address (the settings write path that stores the key, the provider factory
 // that reads it back), and a file with no imports of its own is safe to import
 // from either side without inviting a module import cycle under
@@ -37,6 +37,8 @@
 // secret.
 // =============================================================================
 
+import type { CredentialPurposeDef } from '@marinoscar/platform-api/credentials';
+
 /**
  * Credential store address for the storage secret access key: the sub-key
  * domain.
@@ -63,3 +65,14 @@ export const STORAGE_CREDENTIAL_NAME = 'default';
  * says what it is for rather than only `storage/default`.
  */
 export const STORAGE_CREDENTIAL_LABEL = 'Storage secret access key';
+
+/**
+ * The `storage` purpose's declaration for the credential purpose registry
+ * (#735), registered by `platform/credentials/credential-purposes.manifest.ts`.
+ */
+export const STORAGE_CREDENTIAL_PURPOSE_DEF = {
+  purpose: STORAGE_CREDENTIAL_PURPOSE,
+  owner: 'storage',
+  label: 'Storage secret access key',
+  tiers: ['system'],
+} as const satisfies CredentialPurposeDef;

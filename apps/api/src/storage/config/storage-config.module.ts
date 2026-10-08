@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { CredentialsModule } from '../../credentials/credentials.module';
+import { CredentialsModule } from '@marinoscar/platform-api/credentials';
 import { SettingsModule } from '../../platform/settings/settings.config';
 import { StorageProvidersModule } from '../providers/storage-providers.module';
 import { StorageBucketProvisionService } from './storage-bucket-provision.service';

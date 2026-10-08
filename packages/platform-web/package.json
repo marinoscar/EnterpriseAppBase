@@ -83,6 +83,14 @@
       "types": "./dist/sharing/ui/index.d.ts",
       "default": "./dist/sharing/ui/index.js"
     },
+    "./credentials/headless": {
+      "types": "./dist/credentials/headless/index.d.ts",
+      "default": "./dist/credentials/headless/index.js"
+    },
+    "./credentials/ui": {
+      "types": "./dist/credentials/ui/index.d.ts",
+      "default": "./dist/credentials/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

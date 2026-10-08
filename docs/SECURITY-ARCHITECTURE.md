@@ -840,7 +840,7 @@ memberships with role and status, roles, permissions and credential kind.
 | `personal_access_tokens`, `node_credentials` | SHA-256 hashes, display prefix, `revokedAt`; a PAT's bound `org_id` |
 | `device_codes` | Device-flow codes, stored hashed; the approved session's `org_id` |
 | `allowed_emails` | The allowlist |
-| `credentials`, `user_credentials`, `user_ai_keys` | Encrypted secrets |
+| `credentials`, `user_credentials`, `org_credentials`, `user_ai_keys` | Encrypted secrets |
 | `job_node_secrets` | Handles of brokered per-job secrets, never material |
 | `audit_events` | Append-only audit log |
 
@@ -1226,6 +1226,7 @@ environment variable needs a redeploy. Those are encrypted at rest.
 |---|---|---|---|---|
 | `CredentialsService` | The deployment | `credentials` | The row's purpose: `smtp`, `push_vapid`, `storage`, `ai`, `telemetry_greptime` | SMTP password, VAPID private key, object-storage secret key, AI provider org keys, GreptimeDB reader/admin passwords |
 | `UserCredentialsService` | A user | `user_credentials` | `user:<userId>:<purpose>` | Generic per-user secrets (no production purposes declared yet) |
+| `OrgCredentialsService` | An organization | `org_credentials` (row-level security forced) | `org:<orgId>:<purpose>` | Organization-owned secrets (#735); the `ai` purpose's `org` tier is where an organization's AI key goes |
 | `UserAiKeysService` | A user | `user_ai_keys` | `ai_user_key` | A user's own AI provider keys (BYOK) |
 
 None of these stores has a generic HTTP surface. Each feature exposes its own
@@ -1574,11 +1575,13 @@ second line behind `@Auth(...)` and the service's checks, never a replacement.
 **What is isolated.** The models registered `org` in the model ownership
 registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`, a
 `@marinoscar/platform-api/core` registry): `StorageObject`,
-`StorageObjectChunk`, `AiRun`, `AiUsageEvent`, and the sharing slice's `Group`,
+`StorageObjectChunk`, `AiRun`, `AiUsageEvent`, the sharing slice's `Group`,
 `GroupMember`, `GroupInvite` (#728) and `Grant` (#729), declared by
-`@marinoscar/platform-api/sharing`, and the settings slice's `OrgSettings`
+`@marinoscar/platform-api/sharing`, the settings slice's `OrgSettings`
 (#733, an organization's settings overrides, declared by
-`@marinoscar/platform-api/settings`). Each carries `org_id`, has
+`@marinoscar/platform-api/settings`), and the credentials slice's
+`OrgCredential` (#735, declared by `@marinoscar/platform-api/credentials`;
+policy `org_credentials_org_isolation`). Each carries `org_id`, has
 `ENABLE` and `FORCE ROW LEVEL SECURITY`, and one policy named in
 `packages/platform-db/rls-policies.json` (`RLS_POLICIES`). `AuditEvent` has a
 nullable `org_id` and no policy yet (`org-optional`); `user` and `system`

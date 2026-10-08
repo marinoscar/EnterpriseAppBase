@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 
 import { BaseEmailProvider, SecretRedactor } from '../base-email.provider';
-import { CredentialsService } from '../../credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import { EmailSettingsService } from '../email-settings.service';
 import {
   SES_CREDENTIAL_NAME,

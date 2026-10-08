@@ -43,7 +43,7 @@ import {
 } from '../helpers/auth-mock.helper';
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { decryptSecret } from '@marinoscar/platform-api/core';
-import { CredentialsService } from '../../src/credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { AiConfigService } from '../../src/ai/config/ai-config.service';
 import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';

@@ -15,10 +15,12 @@
 //
 // ONE DEFINITION, EVERY READER: the admin config API (#428) that stores the key
 // and the catalog sync (#427) that reads it back both import THIS file. It is a
-// leaf — it imports nothing — so either module can depend on it without a
+// leaf — it imports nothing at run time — so either module can depend on it without a
 // module import cycle. A second copy of the purpose string that differed by a
 // character would store keys that can never be decrypted back.
 // =============================================================================
+
+import type { CredentialPurposeDef } from '@marinoscar/platform-api/credentials';
 
 /** `CredentialsService` purpose for every admin/org AI provider key. */
 export const AI_CREDENTIAL_PURPOSE = 'ai';
@@ -39,3 +41,16 @@ export function aiCredentialName(providerId: string): string {
 export function aiCredentialLabel(providerDisplayName: string): string {
   return `AI provider key (${providerDisplayName})`;
 }
+
+/**
+ * The `ai` purpose's declaration for the credential purpose registry (#735),
+ * registered by `platform/credentials/credential-purposes.manifest.ts`. The
+ * `org` tier is where an organization's own provider key goes (its policy is
+ * the AI slice's, #739).
+ */
+export const AI_CREDENTIAL_PURPOSE_DEF = {
+  purpose: AI_CREDENTIAL_PURPOSE,
+  owner: 'ai',
+  label: 'AI provider keys',
+  tiers: ['system', 'org'],
+} as const satisfies CredentialPurposeDef;

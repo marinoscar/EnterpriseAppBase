@@ -41,12 +41,14 @@ export { ErrorDto } from './errors/error.dto';
 // from the same master key (issue #822). The cipher reads
 // SECRETS_ENCRYPTION_KEY from the environment once and caches it.
 export {
+  ORG_CREDENTIAL_DOMAIN_PREFIX,
   USER_CREDENTIAL_DOMAIN_PREFIX,
   assertEncryptionKeyConfigured,
   decryptSecret,
   deriveSigningKey,
   encryptSecret,
   isCanonicalUuid,
+  orgCredentialPurpose,
   userCredentialPurpose,
 } from './crypto/secret-cipher';
 export { verifyEncryptionKeyAtStartup } from './crypto/encryption-key-startup-check';

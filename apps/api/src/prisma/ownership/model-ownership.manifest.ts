@@ -11,6 +11,7 @@
 
 import { registerModelOwnership } from '@marinoscar/platform-api/core';
 import { SETTINGS_MODEL_OWNERSHIP } from '@marinoscar/platform-api/settings';
+import { CREDENTIALS_MODEL_OWNERSHIP } from '@marinoscar/platform-api/credentials';
 import { SHARING_MODEL_OWNERSHIP } from '@marinoscar/platform-api/sharing';
 
 import { APP_MODEL_OWNERSHIP } from '../../app-registrations/model-ownership';
@@ -21,6 +22,8 @@ registerModelOwnership(PLATFORM_MODEL_OWNERSHIP);
 registerModelOwnership(SHARING_MODEL_OWNERSHIP);
 // The settings slice's org table (#733), declared by the package.
 registerModelOwnership(SETTINGS_MODEL_OWNERSHIP);
+// The credentials slice's three models (#735), declared by the package.
+registerModelOwnership(CREDENTIALS_MODEL_OWNERSHIP);
 
 // App-owned entries last.
 registerModelOwnership(APP_MODEL_OWNERSHIP);

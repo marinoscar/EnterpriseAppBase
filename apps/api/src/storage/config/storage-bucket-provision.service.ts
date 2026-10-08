@@ -9,7 +9,7 @@ import {
 } from '@aws-sdk/client-s3';
 import type { Prisma } from '@prisma/client';
 
-import { CredentialsService } from '../../credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { StorageProviderKind } from '../../common/schemas/settings.schema';
 import { buildS3ClientConfig } from '../providers/s3/s3-storage.provider';

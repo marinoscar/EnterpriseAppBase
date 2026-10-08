@@ -80,6 +80,16 @@
         "default": "./dist/cjs/settings/index.js"
       }
     },
+    "./credentials": {
+      "import": {
+        "types": "./dist/esm/credentials/index.d.ts",
+        "default": "./dist/esm/credentials/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/credentials/index.d.ts",
+        "default": "./dist/cjs/credentials/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
