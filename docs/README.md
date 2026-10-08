@@ -15,7 +15,7 @@ In this order:
 3. [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md): authentication, credential kinds, RBAC, transport and data protection.
 4. [DEVELOPMENT.md](DEVELOPMENT.md): the dev loop and Fastify, Prisma and Passport gotchas.
 5. [TESTING.md](TESTING.md): test layers, helpers and how to run each suite.
-6. [RENAMING.md](RENAMING.md): turning the template into your own product.
+6. [RENAMING.md](RENAMING.md): starting a new product from the starter (`new-project.mjs create`), renaming an app, and the legacy flow for existing forks.
 
 ## Guides
 
@@ -114,6 +114,7 @@ READMEs that live next to the code they describe.
 | [../packages/platform-api/src/sharing/README.md](../packages/platform-api/src/sharing/README.md) | Sharing, API slice: groups, grants, `AccessPolicy`, the list helpers, link shares and the public-route pattern; a tested example per extension point (`apps/api/test/examples/sharing/`), the conformance suite and the kvox and MemoriaHub migration recipes; start here to make a table shareable |
 | [../packages/platform-contract/src/sharing/README.md](../packages/platform-contract/src/sharing/README.md) | Sharing wire shapes: the group, grant and link schemas, `LINK_TOKEN_HEADER` and `buildLinkUrl` |
 | [../packages/](../packages/) (`platform-*/README.md`) | The `@marinoscar/platform-*` packages: one README per package; layout and commands in [DEVELOPMENT.md § Platform packages](DEVELOPMENT.md#platform-packages) |
+| [../starter/README.md](../starter/README.md) | The starter: what `new-project.mjs create` copies (an app on the published packages), running it, adding a first feature, upgrading with Renovate, the `next` channel, seam requests; its CI proof is the `starter` job (`scripts/starter-smoke.mjs`) |
 
 ## Agent rules
 
@@ -121,5 +122,5 @@ For AI coding agents working in this repository.
 
 - [../CLAUDE.md](../CLAUDE.md): binding rules and pointers.
 - [../.claude/agents/](../.claude/agents/): the specialised subagents (backend, frontend, database, testing, docs, ops).
-- [../.claude/skills/new-project/SKILL.md](../.claude/skills/new-project/SKILL.md): bootstrap a new product from the template.
-- [../.claude/skills/rename-app/SKILL.md](../.claude/skills/rename-app/SKILL.md): rename and rebrand a fork.
+- [../.claude/skills/new-project/SKILL.md](../.claude/skills/new-project/SKILL.md): start a new product from the starter (`new-project.mjs create`), or bootstrap an existing fork.
+- [../.claude/skills/rename-app/SKILL.md](../.claude/skills/rename-app/SKILL.md): rename and rebrand an app (the starter plan) or a fork (the template plan).

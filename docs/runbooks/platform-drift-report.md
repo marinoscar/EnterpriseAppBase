@@ -53,7 +53,7 @@ node scripts/platform-drift.mjs --app ../MemoriaHub \
 | `api` | `apps/api/src` | first path segment; files directly under the root are `(root)` |
 | `api-test` | `apps/api/test` | first segment |
 | `web` | `apps/web/src` | `components/<x>` and `pages/<x>`, else first segment |
-| `cli` | `apps/cli/src` | first segment |
+| `cli` | `apps/cli/src`; on a side that has the packaged CLI (this platform repository), `packages/platform-cli/src/engine`, where the CLI moved with its layout intact (#715) | first segment |
 | `prisma` | `apps/api/prisma` | `schema.prisma`, `migrations`, `seed` |
 | `infra` | `infra` | first segment (`compose`, `nginx`, `otel`) |
 | `stack-agent` | `apps/stack-agent/src` | first segment |

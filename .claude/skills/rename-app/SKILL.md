@@ -1,9 +1,30 @@
 ---
 name: rename-app
-description: Rebrand this template for a new product — set the application name, repository slug and brand colours, run the identity codemod, and finish the steps it cannot do. Use when the user asks to rename the app, rebrand a fork, change the product name or theme colour, or set up this template for a new project.
+description: Rebrand an app — set the application name, repository slug, CLI name and brand colours, run the identity codemod (the starter plan for an app started from the starter, the template plan for a fork of the whole template), and finish the steps it cannot do. Use when the user asks to rename the app, rebrand a fork, change the product name or theme colour, or set up this template for a new project.
 ---
 
-# Rebranding this template
+# Rebranding an app
+
+**First, which layout is this?** `scripts/rename.mjs` detects it and says so:
+
+- **An app started from the starter** (`new-project.mjs create`; no
+  `packages/platform-*` source, the platform comes from npm). Its identity is
+  `packages/shared/identity.json`, CLI name included, and every runtime reads
+  it. `node scripts/rename.mjs --name ... --repo ... [--cli-name ...] [--theme ...]`
+  applies the **starter plan**: identity.json, then only the literal targets
+  nothing can derive (the root `package.json` name, `README.md`, `install.sh`,
+  the two SVG fills, the CI test database, the CLI `bin` key), each with its
+  declared hit count, then `platform-infra sync` re-renders `infra/`. There is
+  no OpenAPI anchor, no Dockerfile `ENV` block and no CLI test to fix by hand:
+  renaming the binary is safe in a starter app (only machines already running
+  it keep `~/.<old>/`). The steps below still apply (issue, dry run, verify,
+  commit), with `npm run platform:check`, `npm run typecheck` and `npm test` as
+  the verification, and no visual baselines unless the app added some.
+- **A fork of the whole template** (it carries `packages/platform-*`). The
+  rest of this file is written for it: the template plan, unchanged.
+
+From a platform checkout, `node scripts/rename.mjs --root <app> ...` applies
+the right plan to another repository.
 
 This repository is a starting point, never a destination. Your job here is to
 take it from the template's identity to the user's, completely, without leaving

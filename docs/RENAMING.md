@@ -7,6 +7,14 @@ baked into a published OpenAPI document, a database backup filename, and a
 dozen other places nobody thought to check. This guide is the complete
 runbook — read it once, end to end, before you run anything.
 
+> **Starting a new product?** Do not fork this repository: create the app from
+> the starter with `node scripts/new-project.mjs create` (see
+> [Starting a whole new project](#starting-a-whole-new-project)). An app made
+> that way renames with its own `scripts/rename.mjs` and the short
+> [starter plan](#renaming-an-app-started-from-the-starter). The rest of this
+> guide is the **template plan**, for the forks of the whole repository that
+> already exist, until they adopt the packages.
+
 Two things are worth knowing before you start:
 
 - **Renaming is idempotent.** `scripts/rename.mjs` reads the *current* values
@@ -16,6 +24,37 @@ Two things are worth knowing before you start:
 - **It cannot leave things half-done silently.** Every edit it makes declares
   how many times it expects to find its target text, and a mismatch is a hard
   failure with nothing written — see [Troubleshooting](#troubleshooting).
+
+## Renaming an app started from the starter
+
+An app created from `starter/` depends on the published `@marinoscar/platform-*`
+packages and reads its identity from one file, `packages/shared/identity.json`
+(`productName`, `tagline`, `repoSlug`, `themeColor`, `backgroundColor`,
+`cliName`): the API passes it to the platform, the web renders its `<title>`
+and manifest from it at build time, the CLI calls `createCli({ identity })`
+with it, and `platform-infra sync` renders `infra/` from it. Its own
+`scripts/rename.mjs` writes that file and then only the literal targets no
+runtime read can reach, each with its declared hit count:
+
+| Target | Why it cannot derive |
+|---|---|
+| root `package.json` `name` | Read by npm before any code runs |
+| `README.md` title, tagline, CI badge, clone path | Prose |
+| `install.sh` raw URL, clone URL and CLI name | Fetched by `curl \| bash` before the repository exists |
+| `apps/web/public/favicon.svg`, `apps/web/public/icons/source.svg` fill | Static vectors |
+| `.github/workflows/ci.yml` test database | A service container's environment |
+| `apps/cli/package.json` `bin` key (with `--cli-name`) | Read by npm; a test pins it to `cliName` |
+
+```bash
+node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub [--cli-name acmectl] [--theme '#7c3aed'] [--dry-run]
+```
+
+It re-renders `infra/` with `platform-infra sync` when the packages are
+installed (otherwise it says to run `npm run platform:infra:sync`), it is
+idempotent, and it never commits. From a platform checkout,
+`node scripts/rename.mjs --root <app> ...` detects the layout and applies the
+starter plan to that app. Nothing on the [Do not rename](#do-not-rename) list is
+in a starter app: those strings live inside the packages.
 
 ## TL;DR
 
@@ -86,11 +125,16 @@ edits:
 | `install.sh` (the `curl \| bash` header comment, the `APPCTL_REPO` default) | **This is the sharpest example.** It is fetched and executed via `curl \| bash` *before the repository exists on disk* — there is nothing to read a manifest out of, because the clone that manifest lives in hasn't happened yet. This is a permanent codemod target; it can never move to the "derived" group. |
 | `apps/cli/README.md` (the same install/uninstall one-liners and `APPCTL_REPO` default, restated in docs) | Prose describing the installer above — same reasoning, once removed. |
 | `README.md` (title, tagline, CI badge URL, clone/`cd` instructions, directory-tree root) | The one place in the codebase where the product name and repo slug appear as hand-written prose rather than as a rendered value. |
-| `infra/compose/.env.example` and `base.compose.yml` (`OTEL_SERVICE_NAME` default) | These are Compose-file string defaults, not JavaScript — nothing executes `@app/shared` to produce them. The codemod changes the *value* only; it never adds a new key, because `apps/cli/src/deploy/env-spec.test.ts` counts every commented `# KEY=value` line in `.env.example` as a declared variable, and a new key would fail that test. |
+| `infra/compose/.env.example` and `base.compose.yml` (`OTEL_SERVICE_NAME` default) | These are Compose-file string defaults, not JavaScript — nothing executes `@app/shared` to produce them. The codemod changes the *value* only; it never adds a new key, because `packages/platform-cli/src/engine/deploy/env-spec.test.ts` counts every commented `# KEY=value` line in `.env.example` as a declared variable, and a new key would fail that test. |
 | `infra/compose/test.compose.yml`, `apps/api/.env.test`, `scripts/dev.ps1` (test database name and container name) | Same reasoning as the OTEL default — Compose/env-file values, not code. |
 | `package.json`'s `"name"` field | npm reads this before any of the repository's own code runs, so it is necessarily a second copy of the slug. |
 | `apps/web/public/favicon.svg` and `apps/web/public/icons/source.svg` (the `fill` attribute on the background rect) | These are the two hand-editable *vector* masters. `generate-icons.py` reads the manifest for the *rasters* but deliberately does not rasterise these two SVGs — see [The binary-name decision](#the-binary-name-decision)'s sibling note in `packages/shared/README.md` on why an SVG toolchain is refused. |
 | `apps/cli/src/branding.ts` and `apps/cli/package.json`'s `bin` key | Only touched when `--cli-name` is passed — see the next section. |
+
+After the edits, the script re-runs `platform-infra sync` (issue #714): the
+generated `infra/` files and `infra/platform-infra.lock.json` follow the new
+identity. Without a build of the packages it says to run
+`npm run build:packages && npm run platform:infra:sync` instead.
 
 ### Never renamed
 
@@ -262,8 +306,8 @@ stay exactly as it is. The first row is the one that matters most.
 | The HKDF label `enterpriseappbase:secret-cipher:v1:` | `packages/platform-api/src/core/crypto/secret-cipher.ts` | **Every stored credential becomes permanently undecryptable.** This string happens to be lowercase and to contain the template's old name, which makes it look renameable — it isn't. A case-insensitive find-and-replace across the repository is the realistic way this gets broken by someone who never opened this file; say so explicitly, because "don't do a blind find-and-replace" is the actual lesson here. It lives in the published `@marinoscar/platform-api` package (`core` slice), so a fork consuming the package cannot change it at all; the risk is a fork that vendors or edits the package source. (Naming the literal here is safe: the guard test's check is case-sensitive against the *current product name*, and this label is lowercase and structurally different from it, so quoting it does not trip CI.) |
 | The signing label `enterpriseappbase:signing-key:v1:` | `packages/platform-api/src/core/crypto/secret-cipher.ts` (`deriveSigningKey`) | Every outstanding token signed under a derived signing key (download links) stops verifying. Same trap and same package as the HKDF label above: never include it in a find-and-replace. |
 | The `Symbol.for(...)` registry key | `packages/platform-api/src/core/errors/verbatim-error-body.exception.ts` | `Symbol.for` interns by string across realms (a worker thread, a separately-loaded copy of the module). Changing the string breaks that cross-realm identity check silently — two symbols that were supposed to compare equal stop doing so. |
-| The `# Managed by appctl deploy` sentinel comment | `apps/cli/src/deploy/proxy.ts` | This line is written into an nginx vhost file on a live server *and* parsed back out of it later to recognise which vhosts the CLI itself manages. Change the string and the CLI stops recognising vhosts it wrote before the change. |
-| The `.appctl-deploy.json` filename | `apps/cli/src/deploy/state.ts` | Read from live deployment servers as the CLI's own state file. Renaming it orphans the deployment state of every server the CLI has already touched. |
+| The `# Managed by appctl deploy` sentinel comment | `packages/platform-cli/src/engine/deploy/proxy.ts` | This line is written into an nginx vhost file on a live server *and* parsed back out of it later to recognise which vhosts the CLI itself manages. Change the string and the CLI stops recognising vhosts it wrote before the change. |
+| The `.appctl-deploy.json` filename | `packages/platform-cli/src/engine/deploy/state.ts` | Read from live deployment servers as the CLI's own state file. Renaming it orphans the deployment state of every server the CLI has already touched. |
 | The `@marinoscar/platform-*` package names | `packages/platform-*/package.json`, and every `import` of them | These are published npm packages, not this product's identity. A fork that renames itself still depends on the same packages; renaming them breaks the install and every import. `scripts/rename.mjs` never touches them (`apps/cli/src/rename-script.test.ts` asserts it), and a hand-written find-and-replace must not either. |
 | `@app/shared`, and the `api` / `web` / `nginx` Compose service names | — | These are internal plumbing names, not identity — nothing user-facing reads them, and nothing about a rebrand depends on them. |
 
@@ -336,22 +380,56 @@ tracked too, so `git checkout .` reverts them along with everything else.
 
 ## Starting a whole new project
 
-Renaming (above) is the first step of turning this template into your own
-project, not the whole of it. What follows is the rest of the bootstrap:
-getting a database, getting the app running, and deciding what a fork keeps
-from the template versus what it eventually sheds.
-[`.claude/skills/new-project/SKILL.md`](../.claude/skills/new-project/SKILL.md)
-walks an agent through this same sequence with the same checkpoints — this
-section is its human-facing twin, not a second, conflicting version of it.
+A new product starts from **`starter/`**: a small app that depends on the
+published `@marinoscar/platform-*` packages (never on workspace paths) and
+keeps only its composition, its domain code and its appearance.
 
-### 1. Rename first
+```bash
+npm run build:packages   # lets create render infra/ with this checkout's platform-infra
+node scripts/new-project.mjs create --dir ../acme-hub --name "Acme Hub" --repo oscar/acme-hub \
+  [--cli acmectl] [--theme '#c62828'] [--license mit --holder "Acme Inc"] [--dry-run]
+```
+
+`create`:
+
+1. refuses a `--dir` that is not empty, or that is inside this repository;
+2. copies `starter/` (no `node_modules`, build output or lockfile);
+3. runs the copy's own `scripts/rename.mjs`, which writes `identity.json`,
+   sets the [literal targets](#renaming-an-app-started-from-the-starter) and
+   re-renders `infra/` (the worker fragment then carries `ACMECTL_*`);
+4. writes `LICENSE` when asked;
+5. sets `CHANGELOG.md` to `[Unreleased]` + `[0.1.0]` and every version to `0.1.0`;
+6. runs `git init`, and **never commits**;
+7. prints the next steps: `npm install`, `npm run setup`, and the three values
+   nothing can generate (`INITIAL_ADMIN_EMAIL`, `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET`, as in [step 3](#3-the-three-things-nothing-can-generate) below).
+
+`--dry-run` checks the plan against `starter/` and writes nothing. The new
+app's `README.md` covers running it, adding a first feature from the package
+documentation, upgrading with Renovate and the `next` channel; its
+`CLAUDE.md` carries the rule that platform code is never edited in an app (a
+missing seam is a seam request). The CI `starter` job proves the starter and a
+created project typecheck, test and build against freshly packed packages.
+[`.claude/skills/new-project/SKILL.md`](../.claude/skills/new-project/SKILL.md)
+walks an agent through the same sequence.
+
+### For existing forks
+
+The steps below are the bootstrap of a fork of the whole template (the
+platform's source included). Renaming (above) is the first step of turning it
+into your own project, not the whole of it. What follows is the rest:
+getting a database, getting the app running, and deciding what a fork keeps
+from the template versus what it eventually sheds. The skill's legacy flow is
+the agent-facing twin of this section.
+
+#### 1. Rename first
 
 Do the rename in the [TL;DR](#tldr) above before anything below. Everything
 past this point assumes `identity.json` already describes your product,
 because `scripts/new-project.mjs`'s own safety check (step 6) refuses to run
 against a checkout that still looks like the template.
 
-### 2. Generate a local environment: `npm run setup`
+#### 2. Generate a local environment: `npm run setup`
 
 ```bash
 npm run setup
@@ -384,7 +462,7 @@ Useful flags:
   missing while keeping every value already set, secrets included — a
   top-up, not a reset.
 
-### 3. The three things nothing can generate
+#### 3. The three things nothing can generate
 
 `npm run setup` cannot manufacture these, and skipping any one of them fails
 in its own specific, memorable way:
@@ -406,7 +484,7 @@ in its own specific, memorable way:
   opt-in overlay (step 5) or point `POSTGRES_*` in `.env` at an instance you
   already run.
 
-### 4. Create the shared Docker network, once per machine
+#### 4. Create the shared Docker network, once per machine
 
 ```bash
 docker network create devnet
@@ -420,7 +498,7 @@ from this template can share one PostgreSQL container on a shared host, and
 you need it even when you aren't sharing anything, because the network is
 declared unconditionally.
 
-### 5. Bring it up, migrate, seed
+#### 5. Bring it up, migrate, seed
 
 ```bash
 cd infra/compose
@@ -445,7 +523,7 @@ Confirm you can actually log in at `http://localhost:3535` with the
 `INITIAL_ADMIN_EMAIL` address before moving on — that round trip is the
 real acceptance test for everything above.
 
-### 6. Reset what a fork inherits: `scripts/new-project.mjs`
+#### 6. Reset what a fork inherits: `scripts/new-project.mjs`
 
 `scripts/rename.mjs` changes the *identity*. `scripts/new-project.mjs`
 changes the *state* — the release history, the version numbers, the
@@ -481,7 +559,7 @@ node scripts/new-project.mjs --reset-release --license mit --holder "Your Name o
 - Which licence to use is a decision for you to make; the script has no
   default and won't guess.
 
-### 7. Walk the audit
+#### 7. Walk the audit
 
 ```bash
 node scripts/new-project.mjs --audit
@@ -512,7 +590,7 @@ The audit's other items — the stub `deploy.yml` staging/production jobs,
 migrations inherited from the template — are ordinary "fine to leave, here's
 what to know" defaults, not action items.
 
-### 8. The one-way steps — only if you mean it
+#### 8. The one-way steps — only if you mean it
 
 None of these are part of the bootstrap above, and none should happen on
 your own initiative. Each is irreversible in a way `git checkout .` cannot

@@ -46,7 +46,9 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
     nginx/                    # nginx.conf, CSP headers, platform/ snippets (security headers, SSE proxy)
       app.d/                  # app-owned include points: http/, server/, locations/, permissions-policy.conf
     otel/                     # collector and GreptimeDB config
-  scripts/                    # rename.mjs, new-project.mjs, platform-drift.mjs (plus dev.ps1, worktree.ps1)
+  starter/                    # what `new-project.mjs create` copies: an app on PUBLISHED @marinoscar/platform-* ranges, never workspace paths
+                              # (NOT a root workspace; its own install). CI job `starter` (scripts/starter-smoke.mjs) proves it against packed tarballs
+  scripts/                    # rename.mjs, new-project.mjs, platform-drift.mjs, starter-smoke.mjs, sync-starter-versions.mjs (plus dev.ps1, worktree.ps1)
   tests/
     e2e/                      # Playwright end-to-end tests
     visual/                   # visual regression baselines
@@ -122,6 +124,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Package: core and otel-core (the registry primitive, the org-aware principal and scope contract, the exception filter, the secret cipher, scoped data access and the user-owned data registry, the host ports; `otel-core`: the OpenTelemetry SDK behind a runtime export gate, the metric name registry, `@Trace()`; web: the host ports and `PlatformHostProvider`) and the three package overviews (peer dependencies, subpath exports) | [packages/platform-api/src/core/README.md](packages/platform-api/src/core/README.md), [packages/platform-api/src/otel-core/README.md](packages/platform-api/src/otel-core/README.md), [packages/platform-web/src/core/README.md](packages/platform-web/src/core/README.md), [packages/platform-api/README.md](packages/platform-api/README.md), [packages/platform-web/README.md](packages/platform-web/README.md), [packages/platform-contract/README.md](packages/platform-contract/README.md) |
 | Package: conformance harness (`runPlatformConformance` for the API, `runPlatformWebConformance` for the web; the table of every suite id, its owner slice and how an app runs, extends or skips it with a reason) | [packages/platform-api/src/testing/README.md](packages/platform-api/src/testing/README.md), [packages/platform-web/src/testing/README.md](packages/platform-web/src/testing/README.md), [docs/TESTING.md](docs/TESTING.md#platform-conformance) |
 | Package: platform-db, platform-cli, platform-infra (schema fragments, migrations, the lock, `platform db compose/sync/drift/baseline`; the `createCli` factory, TUI and worker-node engine; the Compose, nginx and env fragments and `platform-infra sync`) | [packages/platform-db/README.md](packages/platform-db/README.md), [packages/platform-cli/README.md](packages/platform-cli/README.md), [packages/platform-infra/README.md](packages/platform-infra/README.md) |
+| Starter: a new app on the published packages (`new-project.mjs create`, the starter's rename plan, the `starter` CI job, `sync-starter-versions.mjs`) | [starter/README.md](starter/README.md), [docs/RENAMING.md](docs/RENAMING.md#starting-a-whole-new-project) |
 
 ## MANDATORY: Issue-Driven Development
 
