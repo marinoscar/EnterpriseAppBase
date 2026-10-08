@@ -114,7 +114,11 @@ import {
 // question about it.
 // =============================================================================
 
-/** Where the operator-facing instructions live. Referenced, never restated. */
+/**
+ * Where the operator-facing instructions live. Referenced, never restated.
+ *
+ * @stability experimental
+ */
 export const RESTORE_RUNBOOK_PATH = 'docs/runbooks/database-restore.md';
 
 /**
@@ -130,6 +134,8 @@ export const RESTORE_RUNBOOK_PATH = 'docs/runbooks/database-restore.md';
  * `admin-connection.util.ts`: a timeout that abandons a `CREATE DATABASE`
  * halfway buys only ambiguity. Nothing in this service creates anything, which
  * is exactly why this one is safe to set here and nowhere else.
+ *
+ * @stability experimental
  */
 export const PREFLIGHT_PROBE_TIMEOUT_MS = 15_000;
 
@@ -140,6 +146,8 @@ export const PREFLIGHT_PROBE_TIMEOUT_MS = 15_000;
  * be a real number rather than a placeholder, because the whole value of the
  * guided path is that it can be pasted. Four is safe on any server that can
  * host this application and well short of `MAX_RESTORE_JOBS`.
+ *
+ * @stability experimental
  */
 export const GUIDED_RESTORE_JOBS = 4;
 
@@ -170,6 +178,7 @@ export { RESTORE_SCHEMA_OVERRIDE_FIELD };
 // `@marinoscar/platform-contract/db-backup` since #740 (the wire enum is built
 // from it), re-exported here.
 export { RESTORE_GATE_IDS };
+/** @stability experimental */
 export type { RestoreGateId };
 
 /**
@@ -203,10 +212,16 @@ const GUIDED_GATE_IDS: readonly RestoreGateId[] = [
  *  - `replicas` — a heuristic about the deployment's shape. Warning only.
  *  - `overridable` — a correctness question a human may answer. Blocks until
  *    they do.
+ *
+ * @stability experimental
  */
 export type RestoreGateKind = 'capability' | 'disk' | 'replicas' | 'overridable';
 
-/** One gate's verdict. `warning` is a pass that says something. */
+/**
+ * One gate's verdict. `warning` is a pass that says something.
+ *
+ * @stability experimental
+ */
 export type RestoreGateVerdict = 'pass' | 'warning' | 'block';
 
 /**
@@ -217,10 +232,15 @@ export type RestoreGateVerdict = 'pass' | 'warning' | 'block';
  * production database is entitled to see what was checked, not only what
  * failed — so a gate that returns nothing when it is happy would leave a hole
  * in that dialog and no way to tell "checked, fine" from "never ran".
+ *
+ * @stability experimental
  */
 export interface RestoreGateResult {
+  /** Id. */
   id: RestoreGateId;
+  /** Kind. */
   kind: RestoreGateKind;
+  /** Verdict. */
   verdict: RestoreGateVerdict;
   /** Short label, safe to render as a row heading. */
   title: string;
@@ -248,12 +268,20 @@ export interface RestoreGateResult {
  * what makes the downgrade message honest: "retain_database → pre_restore_dump"
  * says what you still have, where "retain_database → drop_database" would only
  * say what you lost.
+ *
+ * @stability experimental
  */
 export type EffectiveRollbackMode = 'retain_database' | 'pre_restore_dump';
 
-/** What a restore's rollback story is, after pre-flight has had its say. */
+/**
+ * What a restore's rollback story is, after pre-flight has had its say.
+ *
+ * @stability experimental
+ */
 export interface RestoreRollbackPlan {
+  /** Configured. */
   configured: SystemDatabaseBackupValue['restoreRollbackMode'];
+  /** Effective. */
   effective: EffectiveRollbackMode;
   /** `true` when disk pressure changed the answer. */
   downgraded: boolean;
@@ -261,7 +289,11 @@ export interface RestoreRollbackPlan {
   reason: string | null;
 }
 
-/** The ready-to-paste answer the `guided` outcome exists to deliver. */
+/**
+ * The ready-to-paste answer the `guided` outcome exists to deliver.
+ *
+ * @stability experimental
+ */
 export interface GuidedRestoreInstructions {
   /** Which gate(s) sent the operator here, in one sentence. */
   reason: string;
@@ -275,9 +307,15 @@ export interface GuidedRestoreInstructions {
   runbook: string;
 }
 
-/** What blocked, and whether the caller can do anything about it. */
+/**
+ * What blocked, and whether the caller can do anything about it.
+ *
+ * @stability experimental
+ */
 export interface RestoreBlock {
+  /** Gate id. */
   gateId: RestoreGateId;
+  /** Message. */
   message: string;
   /** `true` only for the schema gate. */
   overridable: boolean;
@@ -290,7 +328,11 @@ export interface RestoreBlock {
   overrideParameter: string | null;
 }
 
-/** Everything every outcome carries. */
+/**
+ * Everything every outcome carries.
+ *
+ * @stability experimental
+ */
 export interface RestorePreflightBase {
   /** The backup this was asked about. */
   runId: string;
@@ -300,10 +342,13 @@ export interface RestorePreflightBase {
   scratchDatabase: string;
   /** The name the live database would be renamed to. */
   oldDatabase: string;
+  /** Gates. */
   gates: RestoreGateResult[];
+  /** Rollback. */
   rollback: RestoreRollbackPlan;
   /** The migration recorded on the archive, and the one live right now. */
   archiveMigration: string | null;
+  /** Live migration. */
   liveMigration: string | null;
   /**
    * The live database's on-disk size, as a DECIMAL STRING.
@@ -318,11 +363,26 @@ export interface RestorePreflightBase {
   freeDiskBytes: string | null;
 }
 
+/** @stability experimental */
 export type RestorePreflightResult =
-  | (RestorePreflightBase & { outcome: 'ok' })
-  | (RestorePreflightBase & { outcome: 'guided'; guidance: GuidedRestoreInstructions })
-  | (RestorePreflightBase & { outcome: 'blocked'; block: RestoreBlock });
+  | (RestorePreflightBase & {
+      /** Every gate passed (warnings included): the automated restore may run. */
+      outcome: 'ok';
+    })
+  | (RestorePreflightBase & {
+      /** This deployment cannot restore automatically; a human can. */
+      outcome: 'guided';
+      /** How. */
+      guidance: GuidedRestoreInstructions;
+    })
+  | (RestorePreflightBase & {
+      /** A gate refused the restore. */
+      outcome: 'blocked';
+      /** Which, and whether an override exists. */
+      block: RestoreBlock;
+    });
 
+/** @stability experimental */
 export interface RestorePreflightOptions {
   /**
    * Accepts a schema mismatch and proceeds.
@@ -349,13 +409,17 @@ export interface RestorePreflightOptions {
  * four unrelated functions. The shape follows `DB_BACKUP_ENGINE` in
  * `db-backup-runner.service.ts` for the same reason it exists there: a suite
  * that needs a live PostgreSQL is a suite CI skips.
+ *
+ * @stability experimental
  */
 export interface RestorePreflightSeam {
   /** Where the admin session goes, and what database it is about. */
   resolveConnection(): AdminConnection;
   /** Runs a read-only unit of work against the maintenance database. */
   withAdminConnection<T>(
+    /** Config. */
     config: AdminConnection,
+    /** Fn. */
     fn: (client: AdminQueryClient) => Promise<T>
   ): Promise<T>;
   /** The `pg_restore` client major against the server's. */
@@ -382,10 +446,16 @@ export interface RestorePreflightSeam {
  * this service directly can substitute one. A stubbed cluster in production
  * would report a clean pre-flight against nothing at all, which is the single
  * most dangerous lie this subsystem could tell.
+ *
+ * @stability experimental
  */
 export const RESTORE_PREFLIGHT_SEAM = 'RESTORE_PREFLIGHT_SEAM';
 
-/** The real seam. Every member is a thin binding to the utility that owns it. */
+/**
+ * The real seam. Every member is a thin binding to the utility that owns it.
+ *
+ * @stability experimental
+ */
 export const defaultRestorePreflightSeam: RestorePreflightSeam = {
   resolveConnection: () => resolveAdminConnection(),
 
@@ -433,6 +503,11 @@ interface ClusterProbeResult {
   rlsBypass: { superuser: boolean; bypassRls: boolean; optionApplied: boolean } | null;
 }
 
+/**
+ * The restore pre-flight: every gate, read-only. It creates, drops, renames and alters nothing.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class DatabaseRestorePreflightService {
   private readonly logger = new Logger(DatabaseRestorePreflightService.name);
@@ -1335,6 +1410,8 @@ interface GuidedCommandContext {
  *
  * Nothing here hard-codes an application, product or repository name: every
  * name in the block is derived from this deployment's own configuration.
+ *
+ * @stability experimental
  */
 export function buildGuidedRestoreCommands(context: GuidedCommandContext): string {
   const { connection, run, scratchDatabase, oldDatabase, schemaMismatch } = context;

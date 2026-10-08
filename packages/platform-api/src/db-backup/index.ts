@@ -16,6 +16,7 @@ export {
   resolveDbBackupModuleOptions,
   resolveRestoreEnabled,
 } from './options';
+/** @stability experimental */
 export type { DbBackupModuleOptions, ResolvedDbBackupModuleOptions } from './options';
 export { DbBackupRestoreGate, restoreGateFor } from './restore-gate';
 
@@ -28,6 +29,7 @@ export {
   DB_BACKUP_SYSTEM_DATA,
   NOOP_DB_BACKUP_METRICS,
 } from './ports';
+/** @stability experimental */
 export type {
   DbBackupDeploymentMode,
   DbBackupMaintenance,
@@ -41,10 +43,12 @@ export type {
 
 // ---- the restore carry-over registry (rung 2) -------------------------------------------
 export { registerRestoreCarryOver, registerRestoreCarryOvers, restoreCarryOverRegistry } from './carry-over.registry';
+/** @stability experimental */
 export type { RestoreCarryOver } from './carry-over.registry';
 
 // ---- data -------------------------------------------------------------------------------
 export { DatabaseBackupStatus, DatabaseBackupTrigger } from './data/db-backup-db';
+/** @stability experimental */
 export type {
   DatabaseBackupRun,
   DatabaseBackupRunCreateData,
@@ -58,6 +62,7 @@ export type {
 
 // ---- registrations the app makes ----------------------------------------------------------
 export { DB_BACKUP_PERMISSIONS } from './db-backup.permissions';
+/** @stability experimental */
 export type { DbBackupPermissionDeclaration } from './db-backup.permissions';
 export { DATABASE_BACKUP_SYSTEM_SETTINGS, mergeDatabaseBackupSettings } from './db-backup.system-settings';
 export { DATABASE_BACKUPS_KEY_PREFIX, DB_BACKUP_KEY_PREFIX, registerDbBackupKeyPrefix } from './db-backup-key-prefix';
@@ -67,11 +72,16 @@ export {
   DB_BACKUP_NOTIFICATION_EVENTS,
   DB_BACKUP_JOB_TYPES,
 } from './db-backup.registrations';
+/** @stability experimental */
 export type { DbBackupAppMetricDef } from './db-backup.registrations';
 
 // ---- the services an app may drive ----------------------------------------------------
 export { DatabaseBackupRunnerService, BACKUP_JOB_TYPE } from './db-backup-runner.service';
+/** @stability experimental */
+export type { CancelBackupResult, QueuedBackup, StartBackupInput } from './db-backup-runner.service';
 export { DatabaseBackupRetentionService } from './db-backup-retention.service';
+/** @stability experimental */
+export type { BackupPruneResult } from './db-backup-retention.service';
 export { DB_RESTORE_RUN_TYPE } from './database-restore.service';
 export { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
 export { DB_RESTORE_OLD_DB_DROP_TYPE } from './handlers/db-restore-old-db-drop.handler';

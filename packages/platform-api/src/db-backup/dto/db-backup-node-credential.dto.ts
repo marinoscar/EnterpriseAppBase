@@ -54,9 +54,11 @@ export {
   guidedJobRoleInstructionsSchema,
   nodeCredentialPreflightSchema,
 } from '@marinoscar/platform-contract/db-backup';
+/** @stability experimental */
 export type {
   NodeCredentialPreflight,
 } from '@marinoscar/platform-contract/db-backup';
 
+/** @stability experimental */
 export class NodeCredentialPreflightDto extends createZodDto(nodeCredentialPreflightSchema) {}
 

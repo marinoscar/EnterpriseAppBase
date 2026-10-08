@@ -14,7 +14,11 @@ import { BACKUP_SETTINGS_PATH } from './backup-schedule.doctor-check';
 /** The org-owned tables a backup must carry in full. */
 const ORG_TABLES = ['storage_objects', 'storage_object_chunks', 'ai_runs', 'ai_usage_events'] as const;
 
-/** Row counts of the org-owned tables, per table. */
+/**
+ * Row counts of the org-owned tables, per table.
+ *
+ * @stability experimental
+ */
 export type OrgTableCounts = Record<(typeof ORG_TABLES)[number], number>;
 
 /** The counts as flat doctor data: `<prefix>.<table>`. */
@@ -22,7 +26,11 @@ function flat(prefix: string, counts: OrgTableCounts): Record<string, number> {
   return Object.fromEntries(ORG_TABLES.map((table) => [`${prefix}.${table}`, Number(counts[table] ?? 0)]));
 }
 
-/** What the check compares. */
+/**
+ * What the check compares.
+ *
+ * @stability experimental
+ */
 export interface BackupRlsFacts {
   /** Counted by the system client (the bypass flag set transaction-locally). */
   system: OrgTableCounts;
@@ -46,6 +54,8 @@ const RUNBOOK = 'docs/specs/database-backup.md (Row-level security)';
  *   transaction-mode pooler refuses it: dump and restore need a DIRECT
  *   connection to the database).
  * - `pass`: every count matches.
+ *
+ * @stability experimental
  */
 export function decideBackupRls(facts: BackupRlsFacts): DoctorCheckOutcome {
   if ('error' in facts.startupOption) {
@@ -85,6 +95,8 @@ export function decideBackupRls(facts: BackupRlsFacts): DoctorCheckOutcome {
  * rows. Read-only: four counts over the system client and the same four over a
  * short-lived `pg` connection with the dump's startup option; nothing is
  * written.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class BackupRlsDoctorCheck implements DoctorCheck, OnModuleInit {

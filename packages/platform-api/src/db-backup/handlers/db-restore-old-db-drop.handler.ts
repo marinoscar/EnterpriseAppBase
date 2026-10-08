@@ -58,9 +58,12 @@ import { DatabaseRestoreService } from '../database-restore.service';
  * The handler key, and therefore the `Job.type` every old-database-drop row
  * carries. PERMANENT — rows outlive handlers. Exported so the scheduling task
  * asks about the same string it queues.
+ *
+ * @stability experimental
  */
 export const DB_RESTORE_OLD_DB_DROP_TYPE = 'db.restore.old-db-drop';
 
+/** @stability experimental */
 @Injectable()
 export class DatabaseRestoreOldDbDropHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(DatabaseRestoreOldDbDropHandler.name);

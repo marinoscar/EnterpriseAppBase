@@ -57,14 +57,17 @@ export {
   databaseBackupConfigSchema,
   updateDatabaseBackupConfigSchema,
 } from '@marinoscar/platform-contract/db-backup';
+/** @stability experimental */
 export type {
   DatabaseBackupConfigResponse,
   UpdateDatabaseBackupConfig,
 } from '@marinoscar/platform-contract/db-backup';
 
+/** @stability experimental */
 export class UpdateDatabaseBackupConfigDto extends createZodDto(
   updateDatabaseBackupConfigSchema
 ) {}
 
+/** @stability experimental */
 export class DatabaseBackupConfigDto extends createZodDto(databaseBackupConfigSchema) {}
 

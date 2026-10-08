@@ -13,7 +13,11 @@ import { BACKUP_SETTINGS_PATH } from './backup-schedule.doctor-check';
 
 const RUNBOOK = 'docs/runbooks/postgres-client-version.md';
 
-/** Pure: judges the `pg_dump` client against the pin and the server. */
+/**
+ * Pure: judges the `pg_dump` client against the pin and the server.
+ *
+ * @stability experimental
+ */
 export function decidePgClient(check: PgVersionCheck): DoctorCheckOutcome {
   const data = { client: check.client ?? null, clientMajor: check.clientMajor, serverMajor: check.serverMajor };
 
@@ -58,6 +62,8 @@ export function decidePgClient(check: PgVersionCheck): DoctorCheckOutcome {
  * `backup` / `backup.pg-client` — this process's `pg_dump` can back up the
  * database. Runs `pg_dump --version` (prints and exits) and reads
  * `server_version_num` over a short-lived connection; writes nothing.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class BackupPgClientDoctorCheck implements DoctorCheck, OnModuleInit {

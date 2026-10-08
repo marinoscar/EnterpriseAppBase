@@ -170,9 +170,12 @@ import { PgJobRoleBroker } from '../pg-job-role.broker';
  * claim survives before the reaper reclaims it. That coupling is deliberate
  * (see `job-execution-profile.ts`); it is the reason a lease may not be
  * declared separately.
+ *
+ * @stability experimental
  */
 export const BACKUP_JOB_MAX_RUNTIME_MS = 6 * 60 * 60 * 1000;
 
+/** @stability experimental */
 @Injectable()
 export class DatabaseBackupRunHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(DatabaseBackupRunHandler.name);

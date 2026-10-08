@@ -42,9 +42,11 @@ import {
 export {
   backupRunListQuerySchema,
 } from '@marinoscar/platform-contract/db-backup';
+/** @stability experimental */
 export type {
   BackupRunListQuery,
 } from '@marinoscar/platform-contract/db-backup';
 
+/** @stability experimental */
 export class BackupRunListQueryDto extends createZodDto(backupRunListQuerySchema) {}
 

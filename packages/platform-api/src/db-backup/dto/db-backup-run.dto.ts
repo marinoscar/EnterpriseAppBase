@@ -95,6 +95,7 @@ export {
   RESTORE_STATUSES,
   backupRunSchema,
 } from '@marinoscar/platform-contract/db-backup';
+/** @stability experimental */
 export type {
   BackupRunResponse,
   BackupStatusName,
@@ -115,9 +116,12 @@ type Exhaustive<Enum extends string, Listed extends string> = [
 
 // Fails to compile if `schema.prisma` gains a status or a trigger the tuples
 // above do not list.
+/** @stability experimental */
 export type BackupStatusesAreExhaustive = Exhaustive<DatabaseBackupStatus, BackupStatusName>;
+/** @stability experimental */
 export type BackupTriggersAreExhaustive = Exhaustive<DatabaseBackupTrigger, BackupTriggerName>;
 
+/** @stability experimental */
 export class DatabaseBackupRunDto extends createZodDto(backupRunSchema) {}
 
 /** A `Date` as an ISO string, preserving `null`. */
@@ -138,6 +142,8 @@ function isoOrNull(value: Date | null): string | null {
  * It takes the whole Prisma row rather than a narrowed `select`, so adding a
  * column to `schema.prisma` cannot silently change what this returns: the
  * response is the list of properties written out below and nothing else.
+ *
+ * @stability experimental
  */
 export function toRunDto(run: DatabaseBackupRun): BackupRunResponse {
   return {

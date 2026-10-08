@@ -220,6 +220,8 @@ import {
  *
  * A plain string column rather than an enum, exactly as `schema.prisma` says:
  * adding `rolled_back` below cost no migration, which is the whole argument.
+ *
+ * @stability experimental
  */
 export const RESTORE_STATUSES = [
   'restoring',
@@ -231,23 +233,40 @@ export const RESTORE_STATUSES = [
   'rolled_back',
 ] as const;
 
+/** @stability experimental */
 export type RestoreStatus = (typeof RESTORE_STATUSES)[number];
 
-/** Audit actions. `<area>:<verb>`, matching `maintenance:enable` and `users:update`. */
+/**
+ * Audit actions. `<area>:<verb>`, matching `maintenance:enable` and `users:update`.
+ *
+ * @stability experimental
+ */
 export const RESTORE_AUDIT_START = 'db_restore:start';
+/** @stability experimental */
 export const RESTORE_AUDIT_SWAP = 'db_restore:swap';
+/** @stability experimental */
 export const RESTORE_AUDIT_COMPLETE = 'db_restore:complete';
 /**
  * Not one of the three the issue names, and it earns its place: a restore that
  * FAILED is the one an operator greps `audit_events` for, and without this row
  * the only trace of it in that table is a `db_restore:start` with nothing after
  * it — indistinguishable from a restore that is still running.
+ *
+ * @stability experimental
  */
 export const RESTORE_AUDIT_FAILED = 'db_restore:failed';
-/** Written into the database the rollback promoted, after the renames. */
+/**
+ * Written into the database the rollback promoted, after the renames.
+ *
+ * @stability experimental
+ */
 export const RESTORE_AUDIT_ROLLBACK = 'db_restore:rollback';
 
-/** `target_type` on every row above; `target_id` is the backup run's id. */
+/**
+ * `target_type` on every row above; `target_id` is the backup run's id.
+ *
+ * @stability experimental
+ */
 export const RESTORE_AUDIT_TARGET_TYPE = 'database_backup_run';
 
 /**
@@ -258,6 +277,8 @@ export const RESTORE_AUDIT_TARGET_TYPE = 'database_backup_run';
  * pressed the button must not get restores with different performance
  * characteristics, or the two paths become impossible to compare when one of
  * them is slow.
+ *
+ * @stability experimental
  */
 export const RESTORE_JOBS = GUIDED_RESTORE_JOBS;
 
@@ -269,6 +290,8 @@ export const RESTORE_JOBS = GUIDED_RESTORE_JOBS;
  * claimed, because a multi-gigabyte dump outlives every HTTP timeout in the
  * stack), so the only way to know it finished is to watch the row it writes.
  * Five seconds against a dump measured in minutes to hours is free.
+ *
+ * @stability experimental
  */
 export const PRE_RESTORE_POLL_INTERVAL_MS = 5_000;
 
@@ -280,6 +303,8 @@ export const PRE_RESTORE_POLL_INTERVAL_MS = 5_000;
  * outlived the window plus this margin is one the stale sweep is about to
  * settle. Waiting longer would mean a restore that hangs forever because a
  * container disappeared.
+ *
+ * @stability experimental
  */
 export const PRE_RESTORE_SETTLE_GRACE_MS = 60_000;
 
@@ -292,6 +317,8 @@ export const PRE_RESTORE_SETTLE_GRACE_MS = 60_000;
  * rollback is different — it is fast enough that an operator is still holding
  * the connection when the process decides to exit, and killing the process
  * mid-response would show them a network error for an operation that succeeded.
+ *
+ * @stability experimental
  */
 export const ROLLBACK_EXIT_DELAY_MS = 500;
 
@@ -300,6 +327,8 @@ export const ROLLBACK_EXIT_DELAY_MS = 500;
  *
  * ⚠ NO APPLICATION, PRODUCT OR REPOSITORY NAME. This is a template; every
  * user-visible string in it describes what is happening, not whose it is.
+ *
+ * @stability experimental
  */
 export const RESTORE_MAINTENANCE_MESSAGE =
   'A database restore is being completed. The service will return on its own within a ' +
@@ -319,6 +348,8 @@ export const RESTORE_MAINTENANCE_MESSAGE =
  *
  * PERMANENT once rows of this type exist — `jobs` rows outlive the handler that
  * produced them, so renaming this orphans every historical restore.
+ *
+ * @stability experimental
  */
 export const DB_RESTORE_RUN_TYPE = 'db.restore.run';
 
@@ -343,12 +374,19 @@ export const DB_RESTORE_RUN_TYPE = 'db.restore.run';
  *
  * Identifiers only, per `EnqueueJobInput.payload` — `runId` is re-read at run
  * time so the handler works from the row's current state.
+ *
+ * @stability experimental
  */
 export interface RestoreJobPayload {
+  /** Run id. */
   runId: string;
+  /** Actor user id. */
   actorUserId: string | null;
+  /** Scratch database. */
   scratchDatabase: string;
+  /** Old database. */
   oldDatabase: string;
+  /** Rollback mode. */
   rollbackMode: 'retain_database' | 'pre_restore_dump';
   /** ISO-8601. The instant the restore was accepted, not the instant it ran. */
   startedAt: string;
@@ -364,6 +402,8 @@ export interface RestoreJobPayload {
  * carrying "malformed payload" is the correct outcome — with `maxAttempts: 1`
  * it is also a final one, so nothing retries a restore whose plan cannot be
  * read.
+ *
+ * @stability experimental
  */
 export function parseRestoreJobPayload(payload: unknown): RestoreJobPayload {
   const value = (payload ?? {}) as Record<string, unknown>;
@@ -407,14 +447,23 @@ export function parseRestoreJobPayload(payload: unknown): RestoreJobPayload {
 // Results
 // -----------------------------------------------------------------------------
 
-/** What `startRestore` decided. #286 turns each case into a status code. */
+/**
+ * What `startRestore` decided. #286 turns each case into a status code.
+ *
+ * @stability experimental
+ */
 export type StartRestoreResult =
   /** Accepted. The work is detached; poll `restore_status` on the run. */
   | {
+      /** Outcome. */
       outcome: 'started';
+      /** Run id. */
       runId: string;
+      /** Scratch database. */
       scratchDatabase: string;
+      /** Old database. */
       oldDatabase: string;
+      /** Preflight. */
       preflight: RestorePreflightResult;
     }
   /**
@@ -422,7 +471,12 @@ export type StartRestoreResult =
    * was created. The whole verdict is returned rather than an error message:
    * a `guided` outcome carries a command block the operator needs.
    */
-  | { outcome: 'refused'; preflight: RestorePreflightResult }
+  | {
+      /** Outcome. */
+      outcome: 'refused';
+      /** Preflight. */
+      preflight: RestorePreflightResult;
+    }
   /**
    * A restore is already in flight IN THIS PROCESS.
    *
@@ -437,28 +491,61 @@ export type StartRestoreResult =
    * states; this guard is the in-process half of it, for the case that
    * prerequisite is met and an operator double-clicks.
    */
-  | { outcome: 'already_running'; runId: string };
+  | {
+      /** Outcome. */
+      outcome: 'already_running';
+      /** Run id. */
+      runId: string;
+    };
 
-/** What `rollback` managed. All three are honest answers, including the last. */
+/**
+ * What `rollback` managed. All three are honest answers, including the last.
+ *
+ * @stability experimental
+ */
 export type RestoreRollbackResult =
   /**
    * `retain_database` mode: the displaced database was renamed back into place.
    * SECONDS — this is the entire justification for paying roughly double the
    * PostgreSQL volume during the retention window.
    */
-  | { outcome: 'renamed'; runId: string; promoted: string; parked: string }
+  | {
+      /** Outcome. */
+      outcome: 'renamed';
+      /** Run id. */
+      runId: string;
+      /** Promoted. */
+      promoted: string;
+      /** Parked. */
+      parked: string;
+    }
   /**
    * `pre_restore_dump` mode: there is no database to rename, so this delegates
    * back into the restore path against the safety backup. HOURS.
    */
-  | { outcome: 'restore_started'; runId: string; preRestoreRunId: string }
+  | {
+      /** Outcome. */
+      outcome: 'restore_started';
+      /** Run id. */
+      runId: string;
+      /** Pre restore run id. */
+      preRestoreRunId: string;
+    }
   /**
    * Neither exists. REPORTED HONESTLY RATHER THAN AS A FAILURE: nothing went
    * wrong just now, the rollback window simply closed, and an operator needs to
    * know that as a fact rather than as an error to retry.
    */
-  | { outcome: 'unavailable'; runId: string; reason: string };
+  | {
+      /** Outcome. */
+      outcome: 'unavailable';
+      /** Run id. */
+      runId: string;
+      /** Reason. */
+      reason: string;
+    };
 
+/** @stability experimental */
 export interface StartRestoreOptions {
   /** The administrator who asked. `null` only for an internal delegation. */
   actorUserId?: string | null;
@@ -481,8 +568,11 @@ export interface StartRestoreOptions {
  * binary and permission to call `process.exit` is a suite CI skips, and a
  * skipped test guards nothing — which for THIS file would mean the swap
  * sequence is not tested at all.
+ *
+ * @stability experimental
  */
 export interface DatabaseRestoreSeam {
+  /** Where the admin session goes, and which database it is about. */
   resolveConnection(): AdminConnection;
   /**
    * One unit of work on a maintenance-database session.
@@ -494,20 +584,34 @@ export interface DatabaseRestoreSeam {
    * and there is no safe automated response to "maybe".
    */
   withAdminConnection<T>(
+    /** Config. */
     config: AdminConnection,
+    /** Fn. */
     fn: (client: AdminQueryClient) => Promise<T>
   ): Promise<T>;
   /** An absolute path carrying the janitor-swept prefix. Creates nothing. */
   tempFilePath(): string;
   /** Streams `source` to `path`, hashing and counting in the SAME single pass. */
-  writeArchiveToFile(source: Readable, path: string): Promise<{ bytes: bigint; sha256: string }>;
+  writeArchiveToFile(
+    /** Source. */
+    source: Readable,
+    /** Path. */
+    path: string,
+  ): Promise<{
+    /** The bytes written. */
+    bytes: bigint;
+    /** Lower-case hex SHA-256 of them. */
+    sha256: string;
+  }>;
   /** `pg_restore --list` over a local file. Zero means "restores nothing". */
   readTocEntryCount(file: string): Promise<number>;
   /** `pg_restore --exit-on-error -j N` into an existing database. */
   runPgRestore(options: { connection: PgConnection; file: string; jobs: number }): Promise<void>;
   /** Best-effort removal; a missing file is not an error. */
   removeFile(path: string): Promise<void>;
+  /** Waits `ms` milliseconds. */
   sleep(ms: number): Promise<void>;
+  /** The current instant. */
   now(): Date;
   /**
    * Ends this process so a supervisor can start one with a fresh pool.
@@ -527,10 +631,16 @@ export interface DatabaseRestoreSeam {
  * seam in production would be a restore that reports success having renamed
  * nothing — or, worse, an `exitProcess` that does not exit, leaving a process
  * serving from a pool pointed at a database that no longer exists.
+ *
+ * @stability experimental
  */
 export const DATABASE_RESTORE_SEAM = 'DATABASE_RESTORE_SEAM';
 
-/** The real seam. Every member is a thin binding to the utility that owns it. */
+/**
+ * The real seam. Every member is a thin binding to the utility that owns it.
+ *
+ * @stability experimental
+ */
 export const defaultDatabaseRestoreSeam: DatabaseRestoreSeam = {
   resolveConnection: () => resolveAdminConnection(),
 
@@ -1053,6 +1163,11 @@ function readCount(rows: Array<Record<string, unknown>>): number {
   return Number.isFinite(parsed) ? parsed : -1;
 }
 
+/**
+ * The restore: replays an archive into a scratch database, verifies it, swaps it in by renaming, carries the backup catalog and the registered `RestoreCarryOver` tables across, and exits the process. Also the rollback. Server-only, permanently.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class DatabaseRestoreService {
   private readonly logger = new Logger(DatabaseRestoreService.name);

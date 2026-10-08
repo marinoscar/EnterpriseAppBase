@@ -113,6 +113,8 @@ import { DatabaseBackupRetentionService } from '../db-backup-retention.service';
  * PERMANENT — rows outlive handlers. Exported because three callers need the
  * same string: the scheduling task, the runner\'s post-backup enqueue, and the
  * tests that assert both.
+ *
+ * @stability experimental
  */
 export const DB_BACKUP_SWEEP_TYPE = 'db.backup.sweep';
 
@@ -121,6 +123,7 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
+/** @stability experimental */
 @Injectable()
 export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(DatabaseBackupSweepHandler.name);

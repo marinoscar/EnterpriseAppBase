@@ -112,12 +112,15 @@ import { DatabaseBackupStorageProviderError } from './db-backup.errors';
 // drift that would let a purge report success while leaving every archive in
 // the bucket. Kept exported under this name because it is what callers already
 // import.
+/** @stability experimental */
 export const BACKUP_KEY_PREFIX = DATABASE_BACKUPS_KEY_PREFIX;
 
 /**
  * The archive format recorded on every run, and the only one this repository
  * writes: `pg_dump -Fc`. See `buildPgDumpArgs` for why custom format is the
  * only one `pg_restore` can list, filter and restore in parallel.
+ *
+ * @stability experimental
  */
 export const BACKUP_ARCHIVE_FORMAT = 'custom';
 
@@ -127,6 +130,8 @@ export const BACKUP_ARCHIVE_FORMAT = 'custom';
  * Deliberately opaque: a custom-format archive is compressed binary with no
  * registered media type, and claiming `application/gzip` would be a lie that
  * some client eventually acts on by trying to gunzip it.
+ *
+ * @stability experimental
  */
 export const BACKUP_CONTENT_TYPE = 'application/octet-stream';
 
@@ -141,6 +146,8 @@ const NEUTRAL_SLUG = 'app';
  * and produce a doubled separator in the prefix — cosmetic here, but the same
  * fallback in `job-temp.ts` is a genuine safety property, and having the two
  * behave differently is how someone later "fixes" the wrong one.
+ *
+ * @stability experimental
  */
 export function slugifyAppName(name: string): string {
   const slug = name
@@ -159,6 +166,8 @@ export function slugifyAppName(name: string): string {
  * {@link configureBackupNameSlug} once, at import time, before any backup can
  * run, exactly as `JobsModule.forRoot({ appName })` configures the temp-file
  * prefix. Until then it is the neutral `app`.
+ *
+ * @stability experimental
  */
 export let BACKUP_NAME_SLUG = NEUTRAL_SLUG;
 
@@ -167,6 +176,8 @@ export let BACKUP_NAME_SLUG = NEUTRAL_SLUG;
  *
  * @param appName - the app's name (`APP_NAME`).
  * @returns the slug now in use.
+ *
+ * @stability experimental
  */
 export function configureBackupNameSlug(appName: string): string {
   BACKUP_NAME_SLUG = slugifyAppName(appName);
@@ -181,6 +192,8 @@ export function configureBackupNameSlug(appName: string): string {
  * dump to run; the key is expressed in UTC because it is an identifier that
  * must stay sortable and unambiguous across a DST transition — a local-time
  * key repeats an hour every autumn.
+ *
+ * @stability experimental
  */
 export function compactTimestamp(at: Date): string {
   return at.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
@@ -193,6 +206,8 @@ export function compactTimestamp(at: Date): string {
  * cannot disagree about when the backup happened.
  * @param runId the run's own id, generated before the insert precisely so the
  * key can contain it.
+ *
+ * @stability experimental
  */
 export function buildBackupStorageKey(at: Date, runId: string): string {
   const year = at.getUTCFullYear().toString().padStart(4, '0');
@@ -227,6 +242,8 @@ export function buildBackupStorageKey(at: Date, runId: string): string {
  * setting, not a constant. A default here could only be a literal `'s3'`, which
  * is precisely the wrong answer for the R2 deployment this check exists to
  * protect.
+ *
+ * @stability experimental
  */
 export function isUsableStorageProvider(
   configured: string | null | undefined,
@@ -252,6 +269,8 @@ export function isUsableStorageProvider(
  * the two sites cannot be handed different answers.
  *
  * @throws {DatabaseBackupStorageProviderError} which #283 maps to a 400.
+ *
+ * @stability experimental
  */
 export function assertUsableStorageProvider(
   configured: string | null | undefined,

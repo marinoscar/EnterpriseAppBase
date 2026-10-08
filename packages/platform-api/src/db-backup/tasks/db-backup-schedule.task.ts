@@ -180,7 +180,11 @@ import {
 // zone that starts working clears the latch so a later regression is loud.
 // =============================================================================
 
-/** What one `fireDueBackup` decided. Exposed so a test can assert the verdict directly. */
+/**
+ * What one `fireDueBackup` decided. Exposed so a test can assert the verdict directly.
+ *
+ * @stability experimental
+ */
 export type BackupFireOutcome =
   /** A run was claimed and is streaming. */
   | 'fired'
@@ -198,6 +202,7 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
+/** @stability experimental */
 @Injectable()
 export class DatabaseBackupScheduleTask {
   private readonly logger = new Logger(DatabaseBackupScheduleTask.name);

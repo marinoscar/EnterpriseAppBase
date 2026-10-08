@@ -11,6 +11,8 @@ import { DB_BACKUP_PERMISSIONS } from './db-backup.permissions';
  * The permission ids the slice checks, by their `PERMISSIONS` name.
  *
  * @internal
+ *
+ * @stability experimental
  */
 export const PERMISSIONS = Object.freeze({
   DB_BACKUP_READ: DB_BACKUP_PERMISSIONS.DB_BACKUP_READ.id,
@@ -22,5 +24,7 @@ export const PERMISSIONS = Object.freeze({
  * The identity slice's role ids.
  *
  * @internal
+ *
+ * @stability experimental
  */
 export const ROLES = IDENTITY_ROLE_IDS;

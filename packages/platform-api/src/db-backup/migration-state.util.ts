@@ -38,6 +38,8 @@ type MigrationQueryClient = Pick<DbBackupPrisma, '$queryRaw'>;
  * degrades to a warning rather than blocking. A missing `_prisma_migrations`
  * table, or a role without permission to read it, must not be able to stop
  * either operation.
+ *
+ * @stability experimental
  */
 export async function readLatestAppliedMigration(
   prisma: MigrationQueryClient
@@ -58,7 +60,11 @@ export async function readLatestAppliedMigration(
   }
 }
 
-/** How an archive's schema relates to the live one. */
+/**
+ * How an archive's schema relates to the live one.
+ *
+ * @stability experimental
+ */
 export type MigrationComparison =
   /** Same migration. The archive restores into exactly the schema the code expects. */
   | 'match'
@@ -90,6 +96,8 @@ export type MigrationComparison =
  *     will consider the schema up to date and apply nothing, so nobody is ever
  *     told. It is reported and blocked for the same reason: a restore across a
  *     schema boundary is a decision, and it has to be made by a human.
+ *
+ * @stability experimental
  */
 export function compareMigrationNames(
   archiveMigration: string | null,

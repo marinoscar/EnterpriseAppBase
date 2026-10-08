@@ -6,16 +6,24 @@ import { PLATFORM_PRISMA } from '../../core/index';
 import type { DbBackupPrisma } from '../data/db-backup-db';
 import { DatabaseBackupAdminService } from '../db-backup-admin.service';
 
+/** @stability experimental */
 export const BACKUP_SETTINGS_PATH = '/admin/settings/db-backup';
 
-/** An enabled schedule whose last success is older than this is overdue. */
+/**
+ * An enabled schedule whose last success is older than this is overdue.
+ *
+ * @stability experimental
+ */
 export const BACKUP_MAX_AGE_HOURS = 48;
 
 /** How much of a run's `lastError` the report carries. */
 const MAX_ERROR_LENGTH = 300;
 
+/** @stability experimental */
 export interface BackupFacts {
+  /** Enabled. */
   enabled: boolean;
+  /** Next run at. */
   nextRunAt: string | null;
   /** The most recent run that reached a terminal state. */
   latestTerminal: { status: string; finishedAt: Date | null; lastError: string | null } | null;
@@ -23,7 +31,11 @@ export interface BackupFacts {
   lastSuccessAt: Date | null;
 }
 
-/** Pure: judges the schedule and the run history. */
+/**
+ * Pure: judges the schedule and the run history.
+ *
+ * @stability experimental
+ */
 export function decideBackupSchedule(facts: BackupFacts, now: Date = new Date()): DoctorCheckOutcome {
   const ageHours =
     facts.lastSuccessAt === null ? null : Math.floor((now.getTime() - facts.lastSuccessAt.getTime()) / 3_600_000);
@@ -81,7 +93,11 @@ export function decideBackupSchedule(facts: BackupFacts, now: Date = new Date())
   };
 }
 
-/** `backup` / `backup.schedule` — backups are scheduled and recently succeeded. */
+/**
+ * `backup` / `backup.schedule` — backups are scheduled and recently succeeded.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class BackupScheduleDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'backup.schedule';

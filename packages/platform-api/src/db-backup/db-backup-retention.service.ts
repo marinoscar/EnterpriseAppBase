@@ -116,7 +116,11 @@ import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db
 // been proven good. That trade is not close.
 // =============================================================================
 
-/** What one prune managed, split by which rule reached each row. */
+/**
+ * What one prune managed, split by which rule reached each row.
+ *
+ * @stability experimental
+ */
 export interface BackupPruneResult {
   /** Rows deleted by the count rule (ordinary `completed` runs). */
   prunedByCount: number;
@@ -138,6 +142,11 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
+/**
+ * Retention: which archives may be deleted, and deleting them. Runs only after a verified backup (never on a timer of its own).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class DatabaseBackupRetentionService {
   private readonly logger = new Logger(DatabaseBackupRetentionService.name);

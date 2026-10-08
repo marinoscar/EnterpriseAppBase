@@ -216,15 +216,26 @@ import type {
  * leaked — is a knob worth not having. `storage.signedUrlExpiry` is deliberately
  * NOT reused: that default (an hour) is sized for user-uploaded files, and a
  * database archive is not one.
+ *
+ * @stability experimental
  */
 export const BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS = 300;
 
-/** One page of runs, in the flat shape every paginated list in this API uses. */
+/**
+ * One page of runs, in the flat shape every paginated list in this API uses.
+ *
+ * @stability experimental
+ */
 export interface BackupRunListResult {
+  /** Items. */
   items: BackupRunResponse[];
+  /** Total. */
   total: number;
+  /** Page. */
   page: number;
+  /** Page size. */
   pageSize: number;
+  /** Total pages. */
   totalPages: number;
 }
 
@@ -233,6 +244,11 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
+/**
+ * The admin surface behind `DatabaseBackupController`: reads the run table, projects the schedule, writes the policy and delegates claiming, cancelling and restoring to the runner and the restore service.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class DatabaseBackupAdminService {
   private readonly logger = new Logger(DatabaseBackupAdminService.name);

@@ -135,6 +135,7 @@ export {
   startRestoreResponseSchema,
   startRestoreRunningSchema,
 } from '@marinoscar/platform-contract/db-backup';
+/** @stability experimental */
 export type {
   RestoreMode,
   RestorePreflightView,
@@ -149,6 +150,7 @@ export type {
 // Requests
 // ---------------------------------------------------------------------------
 
+/** @stability experimental */
 export class StartRestoreRequestDto extends createZodDto(startRestoreRequestSchema) {}
 
 /**
@@ -161,6 +163,8 @@ export class StartRestoreRequestDto extends createZodDto(startRestoreRequestSche
  * either side would produce a `blocked` response telling the client to set a
  * parameter the API rejects, which is the most frustrating possible failure:
  * the server has told you exactly what to do and refuses when you do it.
+ *
+ * @stability experimental
  */
 export type RestoreOverrideFieldIsReal =
   typeof RESTORE_SCHEMA_OVERRIDE_FIELD extends keyof StartRestoreRequest
@@ -176,15 +180,21 @@ export type RestoreOverrideFieldIsReal =
  * exactly the case it exists to catch.
  */
 type AssertTrue<T extends true> = T;
+/** @stability experimental */
 export type RestoreOverrideFieldTie = AssertTrue<RestoreOverrideFieldIsReal>;
 
+/** @stability experimental */
 export class RollbackRestoreRequestDto extends createZodDto(rollbackRestoreRequestSchema) {}
 
 // ---------------------------------------------------------------------------
 // The pre-flight verdict, on the wire
 // ---------------------------------------------------------------------------
 
-/** The pre-flight result as the API publishes it. Drops nothing but the union member. */
+/**
+ * The pre-flight result as the API publishes it. Drops nothing but the union member.
+ *
+ * @stability experimental
+ */
 export function toPreflightView(preflight: RestorePreflightResult): RestorePreflightView {
   return {
     outcome: preflight.outcome,
@@ -219,16 +229,32 @@ export function toPreflightView(preflight: RestorePreflightResult): RestorePrefl
 // POST runs/:id/restore
 // ---------------------------------------------------------------------------
 
-/** `mode: "running"` on the wire. Registered for `oneOf`; see the union above. */
+/**
+ * `mode: "running"` on the wire. Registered for `oneOf`; see the union above.
+ *
+ * @stability experimental
+ */
 export class StartRestoreRunningDto extends createZodDto(startRestoreRunningSchema) {}
 
-/** `mode: "guided"` on the wire. NOT an error — see this file's header. */
+/**
+ * `mode: "guided"` on the wire. NOT an error — see this file's header.
+ *
+ * @stability experimental
+ */
 export class StartRestoreGuidedDto extends createZodDto(startRestoreGuidedSchema) {}
 
-/** `mode: "blocked"` on the wire. Re-send with `overrideSchemaCheck: true`. */
+/**
+ * `mode: "blocked"` on the wire. Re-send with `overrideSchemaCheck: true`.
+ *
+ * @stability experimental
+ */
 export class StartRestoreBlockedDto extends createZodDto(startRestoreBlockedSchema) {}
 
-/** The three, in the order the controller publishes them. */
+/**
+ * The three, in the order the controller publishes them.
+ *
+ * @stability experimental
+ */
 export const START_RESTORE_RESPONSE_DTOS = [
   StartRestoreRunningDto,
   StartRestoreGuidedDto,
@@ -242,6 +268,8 @@ export const START_RESTORE_RESPONSE_DTOS = [
  * is a 409, because unlike the three above it means the request could not be
  * answered at all. The controller maps it — see there for why the mapping is
  * not in the service.
+ *
+ * @stability experimental
  */
 export function toStartRestoreResponse(
   result: Extract<StartRestoreResult, { outcome: 'started' | 'refused' }>
@@ -300,23 +328,43 @@ export function toStartRestoreResponse(
 // POST runs/:id/rollback
 // ---------------------------------------------------------------------------
 
-/** `mode: "renamed"` on the wire. Seconds. */
+/**
+ * `mode: "renamed"` on the wire. Seconds.
+ *
+ * @stability experimental
+ */
 export class RollbackRenamedDto extends createZodDto(rollbackRenamedSchema) {}
 
-/** `mode: "restore_started"` on the wire. Hours. */
+/**
+ * `mode: "restore_started"` on the wire. Hours.
+ *
+ * @stability experimental
+ */
 export class RollbackRestoreStartedDto extends createZodDto(rollbackRestoreStartedSchema) {}
 
-/** `mode: "unavailable"` on the wire. A `200`, and honest. */
+/**
+ * `mode: "unavailable"` on the wire. A `200`, and honest.
+ *
+ * @stability experimental
+ */
 export class RollbackUnavailableDto extends createZodDto(rollbackUnavailableSchema) {}
 
-/** The three, in the order the controller publishes them. */
+/**
+ * The three, in the order the controller publishes them.
+ *
+ * @stability experimental
+ */
 export const ROLLBACK_RESPONSE_DTOS = [
   RollbackRenamedDto,
   RollbackRestoreStartedDto,
   RollbackUnavailableDto,
 ] as const;
 
-/** {@link RestoreRollbackResult} as the API publishes it. */
+/**
+ * {@link RestoreRollbackResult} as the API publishes it.
+ *
+ * @stability experimental
+ */
 export function toRollbackResponse(result: RestoreRollbackResult): RollbackRestoreResponse {
   switch (result.outcome) {
     case 'renamed':

@@ -62,6 +62,8 @@ import { buildDatabaseUrl, type DatabaseEnv } from '../core/index';
  * Debian and macOS all put the binaries somewhere different. Every entry point
  * takes a `command` override for the deployment that needs one, so no
  * environment variable had to be invented for this.
+ *
+ * @stability experimental
  */
 export const PG_DUMP_COMMAND = 'pg_dump';
 
@@ -74,6 +76,8 @@ export const PG_DUMP_COMMAND = 'pg_dump';
  * real dump so that it never truncates a legitimately slow one. Callers that
  * know their own budget (the scheduled backup has `runStaleMinutes`) pass it
  * explicitly. `timeoutMs: 0` disables the timer entirely.
+ *
+ * @stability experimental
  */
 export const DEFAULT_PG_PROCESS_TIMEOUT_MS = 6 * 60 * 60 * 1000;
 
@@ -87,18 +91,33 @@ export const DEFAULT_PG_PROCESS_TIMEOUT_MS = 6 * 60 * 60 * 1000;
  * head is the least useful part of that output (it is the first of ten
  * thousand identical warnings); the tail is where the error that actually
  * stopped the process is printed.
+ *
+ * @stability experimental
  */
 export const STDERR_TAIL_BYTES = 8 * 1024;
 
-/** The compression level used when the caller names none. Matches the `databaseBackup` default. */
+/**
+ * The compression level used when the caller names none. Matches the `databaseBackup` default.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_COMPRESSION_LEVEL = 6;
 
-/** Connection parameters, already decoded, ready to be handed to a `pg_*` process. */
+/**
+ * Connection parameters, already decoded, ready to be handed to a `pg_*` process.
+ *
+ * @stability experimental
+ */
 export interface PgConnection {
+  /** Host (or a socket directory). */
   host: string;
+  /** Port, as a string. */
   port: string;
+  /** Role, percent-decoded. */
   user: string;
+  /** Password, percent-decoded. Never logged. */
   password: string;
+  /** Database. */
   database: string;
   /** `sslmode` from the connection URL, or `null`. Passed to the child as `PGSSLMODE`. */
   sslMode: string | null;
@@ -112,6 +131,8 @@ export interface PgConnection {
  * the settle-once behaviour with NO PostgreSQL binaries installed — a suite
  * that needs `pg_dump` on the runner is a suite that gets skipped in CI, and a
  * skipped test guards nothing.
+ *
+ * @stability experimental
  */
 export type PgSpawnFn = (
   command: string,
@@ -121,7 +142,11 @@ export type PgSpawnFn = (
 
 const defaultSpawn: PgSpawnFn = (command, args, options) => nodeSpawn(command, args, options);
 
-/** A running `pg_*` process, shaped for `Promise.all([upload, dump.done])`. */
+/**
+ * A running `pg_*` process, shaped for `Promise.all([upload, dump.done])`.
+ *
+ * @stability experimental
+ */
 export interface PgProcess {
   /**
    * The child's stdout, LIVE. Nothing in this module reads it — the caller
@@ -146,15 +171,25 @@ export interface PgProcess {
   kill(signal?: NodeJS.Signals): void;
 }
 
-/** Why a `pg_*` process failed, with everything needed to write a useful log line. */
+/**
+ * Why a `pg_*` process failed, with everything needed to write a useful log line.
+ *
+ * @stability experimental
+ */
 export class PgProcessError extends Error {
   constructor(
     message: string,
+    /** What happened to the child. Never carries the password. */
     readonly detail: {
+      /** The binary that ran. */
       command: string;
+      /** Its exit code, or `null` when a signal ended it. */
       exitCode: number | null;
+      /** The signal that ended it, or `null`. */
       signal: NodeJS.Signals | null;
+      /** Whether the wall-clock bound fired. */
       timedOut: boolean;
+      /** The tail of its stderr. */
       stderr: string;
     }
   ) {
@@ -163,6 +198,7 @@ export class PgProcessError extends Error {
   }
 }
 
+/** @stability experimental */
 export interface SpawnPgProcessOptions {
   /** Binary to run, e.g. `pg_dump`. Resolved from `PATH` unless it is an absolute path. */
   command: string;
@@ -189,6 +225,8 @@ export interface SpawnPgProcessOptions {
  * completion promise.
  *
  * @see the module header for the four properties this exists to guarantee.
+ *
+ * @stability experimental
  */
 export function spawnPgProcess(options: SpawnPgProcessOptions): PgProcess {
   const {
@@ -387,6 +425,8 @@ function stderrSuffix(stderr: string): string {
  * `buildDatabaseUrl` encoded them: `pg_dump` wants the literal password, and a
  * password containing `/` (which `openssl rand -base64 32` produces routinely)
  * would otherwise be handed over as `%2F`.
+ *
+ * @stability experimental
  */
 export function resolvePgConnection(env: DatabaseEnv = process.env): PgConnection {
   const url = new URL(buildDatabaseUrl(env));
@@ -420,6 +460,8 @@ export function resolvePgConnection(env: DatabaseEnv = process.env): PgConnectio
  * the Doctor's `backup.rls-bypass` check compares a bypass-side row count with a
  * count over a connection carrying this option, to catch the day one half is
  * lost.
+ *
+ * @stability experimental
  */
 export const RLS_BYPASS_PGOPTIONS = '-c app.rls_bypass=on';
 
@@ -430,6 +472,8 @@ export const RLS_BYPASS_PGOPTIONS = '-c app.rls_bypass=on';
  * option ("unsupported startup parameter").
  *
  * @param baseEnv - the environment the child inherits; defaults to this process's.
+ *
+ * @stability experimental
  */
 export function rlsBypassEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const existing = baseEnv.PGOPTIONS?.trim();
@@ -443,12 +487,16 @@ export function rlsBypassEnv(baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.P
  * `PGPASSWORD` is deliberately NOT here: it is a separate, named option on
  * {@link spawnPgProcess}, so that the one variable with a security rule
  * attached to it cannot be lost in a spread of an environment object.
+ *
+ * @stability experimental
  */
 export function pgClientEnv(connection: PgConnection): NodeJS.ProcessEnv {
   return connection.sslMode === null ? {} : { PGSSLMODE: connection.sslMode };
 }
 
+/** @stability experimental */
 export interface PgDumpArgsOptions {
+  /** Connection. */
   connection: PgConnection;
   /** 0-9; clamped rather than rejected, so a bad stored setting cannot stop a backup. */
   compressionLevel?: number;
@@ -483,6 +531,8 @@ export interface PgDumpArgsOptions {
  *
  * Host, port, user and database are separate flags rather than one URI on
  * purpose — a URI would carry the password into argv.
+ *
+ * @stability experimental
  */
 export function buildPgDumpArgs(options: PgDumpArgsOptions): string[] {
   const { connection, compressionLevel = DEFAULT_COMPRESSION_LEVEL } = options;
@@ -517,20 +567,27 @@ export function buildPgDumpArgs(options: PgDumpArgsOptions): string[] {
  * a value out of range here means something upstream is already wrong — and
  * "run the backup at level 9" is a far better answer to that than "take no
  * backup tonight".
+ *
+ * @stability experimental
  */
 export function clampCompressionLevel(level: number): number {
   if (!Number.isFinite(level)) return DEFAULT_COMPRESSION_LEVEL;
   return Math.min(9, Math.max(0, Math.trunc(level)));
 }
 
+/** @stability experimental */
 export interface SpawnPgDumpOptions {
   /** Defaults to {@link resolvePgConnection} over `env`. */
   connection?: PgConnection;
   /** Environment the connection is derived from, when `connection` is absent. */
   env?: DatabaseEnv;
+  /** Compression level. */
   compressionLevel?: number;
+  /** Timeout ms. */
   timeoutMs?: number;
+  /** Command. */
   command?: string;
+  /** Spawn fn. */
   spawnFn?: PgSpawnFn;
 }
 
@@ -544,6 +601,8 @@ export interface SpawnPgDumpOptions {
  * declares no `db` service), so the only thing this process can assume about
  * the server is that the same `POSTGRES_*` variables Prisma connects with will
  * reach it too.
+ *
+ * @stability experimental
  */
 export function spawnPgDump(options: SpawnPgDumpOptions = {}): PgProcess {
   const connection = options.connection ?? resolvePgConnection(options.env);

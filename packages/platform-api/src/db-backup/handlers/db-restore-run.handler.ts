@@ -124,9 +124,12 @@ import { DatabaseRestoreService, DB_RESTORE_RUN_TYPE } from '../database-restore
  * raising it lengthens how long a dead executor's claim survives before the
  * reaper reclaims it. That coupling is deliberate — see
  * `job-execution-profile.ts` for why a lease may not be declared separately.
+ *
+ * @stability experimental
  */
 export const RESTORE_JOB_MAX_RUNTIME_MS = 6 * 60 * 60 * 1000;
 
+/** @stability experimental */
 @Injectable()
 export class DatabaseRestoreRunHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(DatabaseRestoreRunHandler.name);

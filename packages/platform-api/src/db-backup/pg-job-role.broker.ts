@@ -221,6 +221,8 @@ import {
  * `.readonly` is part of the name because it is part of the promise: a future
  * broker that needed a writing role would be a DIFFERENT kind, so that a
  * deployment auditing its grants can tell the two apart from the row alone.
+ *
+ * @stability experimental
  */
 export const PG_JOB_ROLE_KIND = 'postgres.readonly';
 
@@ -232,6 +234,8 @@ export const PG_JOB_ROLE_KIND = 'postgres.readonly';
  * and {@link assertBrokerHandle}, which is what stops a corrupted handle from
  * turning revocation into `DROP ROLE postgres`. Changing it strands every
  * existing role — they become invisible to all three.
+ *
+ * @stability experimental
  */
 export const JOB_ROLE_PREFIX = 'appjob_';
 
@@ -242,6 +246,8 @@ export const JOB_ROLE_PREFIX = 'appjob_';
  * for uniqueness — uniqueness is the random suffix's job. Short enough that the
  * whole name is nowhere near {@link MAX_IDENTIFIER_BYTES}, long enough to
  * identify the job at a glance.
+ *
+ * @stability experimental
  */
 export const JOB_ROLE_ID_CHARS = 8;
 
@@ -261,6 +267,8 @@ const ROLE_SUFFIX_BYTES = 8;
  * compromised or looping node can use to exhaust `max_connections` for the
  * whole deployment — the application included. A bound that never binds in
  * normal operation and caps the worst case is the right shape for this.
+ *
+ * @stability experimental
  */
 export const ROLE_CONNECTION_LIMIT = 4;
 
@@ -271,6 +279,8 @@ export const ROLE_CONNECTION_LIMIT = 4;
  * `randomBytes(32)` provides — the length is derived from the entropy, not
  * chosen for looks. The alphabet is what {@link quoteLiteral} accepts, and
  * that is not a coincidence: see {@link generateRolePassword}.
+ *
+ * @stability experimental
  */
 export const ROLE_PASSWORD_CHARS = 43;
 
@@ -289,13 +299,23 @@ const PASSWORD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0
  * takes effect while the operator is still watching, long enough that the probe
  * is amortised across a whole poll cycle. It is deliberately NOT indefinite —
  * a cache that never expires turns "fixed it" into "restart the API".
+ *
+ * @stability experimental
  */
 export const USABLE_CACHE_MS = 60_000;
 
-/** Wall-clock bound on the privilege probe. It runs inside a node's request. */
+/**
+ * Wall-clock bound on the privilege probe. It runs inside a node's request.
+ *
+ * @stability experimental
+ */
 export const BROKER_PROBE_TIMEOUT_MS = 10_000;
 
-/** Where an operator goes to read about all of this. */
+/**
+ * Where an operator goes to read about all of this.
+ *
+ * @stability experimental
+ */
 export const NODE_JOB_SECRETS_RUNBOOK_PATH = 'docs/runbooks/node-job-secrets.md';
 
 // -----------------------------------------------------------------------------
@@ -310,6 +330,8 @@ export const NODE_JOB_SECRETS_RUNBOOK_PATH = 'docs/runbooks/node-job-secrets.md'
  * refusal somebody works around. `commands` is real SQL with the deployment's
  * actual role name in it — a block with a placeholder is not a deliverable, it
  * is homework.
+ *
+ * @stability experimental
  */
 export interface GuidedJobRoleInstructions {
   /** What sent the operator here, in one sentence. */
@@ -329,15 +351,34 @@ export interface GuidedJobRoleInstructions {
  * is the ORDINARY configuration, not a fault: answering it with an error status
  * tells an operator their platform is unsupported when it is not, and what they
  * actually need is two lines of SQL.
+ *
+ * @stability experimental
  */
 export type JobRolePreflightResult =
-  | { outcome: 'ok'; kind: string; databaseRole: string; targetDatabase: string; detail: string }
   | {
-      outcome: 'guided';
+      /** Outcome. */
+      outcome: 'ok';
+      /** Kind. */
       kind: string;
+      /** Database role. */
       databaseRole: string;
+      /** Target database. */
       targetDatabase: string;
+      /** Detail. */
       detail: string;
+    }
+  | {
+      /** Outcome. */
+      outcome: 'guided';
+      /** Kind. */
+      kind: string;
+      /** Database role. */
+      databaseRole: string;
+      /** Target database. */
+      targetDatabase: string;
+      /** Detail. */
+      detail: string;
+      /** Guidance. */
       guidance: GuidedJobRoleInstructions;
     };
 
@@ -366,6 +407,8 @@ export type JobRolePreflightResult =
  * REJECTED: modulo over raw bytes (`bytes[i] % 62`), which is one line shorter
  * still and biases the first four letters of the alphabet upward. Rejection
  * sampling costs a few extra bytes of randomness and nothing else.
+ *
+ * @stability experimental
  */
 export function generateRolePassword(length: number = ROLE_PASSWORD_CHARS): string {
   const size = PASSWORD_ALPHABET.length;
@@ -397,6 +440,8 @@ export function generateRolePassword(length: number = ROLE_PASSWORD_CHARS): stri
  *
  * `job` when a job id somehow contains nothing usable — the name still has to
  * be a legal identifier, and the random suffix is what makes it unique anyway.
+ *
+ * @stability experimental
  */
 export function jobRoleSlug(jobId: string): string {
   const cleaned = (jobId ?? '').replace(/[^A-Za-z0-9]/g, '').toLowerCase();
@@ -411,6 +456,8 @@ export function jobRoleSlug(jobId: string): string {
  * that an unusable name is reported when it is BUILT, before anything has been
  * created. At 22 characters it is nowhere near PostgreSQL's 63-byte limit; the
  * check is a guard against a future change to either half, not a live risk.
+ *
+ * @stability experimental
  */
 export function buildJobRoleName(jobId: string): string {
   const name = `${JOB_ROLE_PREFIX}${jobRoleSlug(jobId)}_${randomBytes(ROLE_SUFFIX_BYTES).toString('hex')}`;
@@ -430,6 +477,8 @@ export function buildJobRoleName(jobId: string): string {
  * match anything in practice today — nothing else in this cluster is named that
  * way — which is precisely why it would survive review and then match something
  * a fork added later.
+ *
+ * @stability experimental
  */
 export function jobRolePattern(jobId: string): string {
   return `${JOB_ROLE_PREFIX.replace(/_/g, '\\_')}${jobRoleSlug(jobId)}\\_%`;
@@ -451,6 +500,8 @@ export function jobRolePattern(jobId: string): string {
  * something else, and the correct outcome is a loud failure that leaves the row
  * for a human — not a silent success that reports having revoked something it
  * never touched.
+ *
+ * @stability experimental
  */
 export function assertBrokerHandle(handle: string): void {
   if (typeof handle !== 'string' || !handle.startsWith(JOB_ROLE_PREFIX)) {
@@ -477,6 +528,8 @@ export function assertBrokerHandle(handle: string): void {
  * That is a real answer and the runbook says so plainly: leave node offload off
  * and let the API take its own backups. It is not a degraded mode — it is what
  * this deployment did before the epic.
+ *
+ * @stability experimental
  */
 export function buildCreateRoleGrantCommands(databaseRole: string): string {
   return [
@@ -507,14 +560,19 @@ export function buildCreateRoleGrantCommands(databaseRole: string): string {
  * sufficient for `pg_dump`, that `DROP ROLE` needs `DROP OWNED BY` first, that
  * `VALID UNTIL` is enforced — are covered by `pg-job-role.broker.db.spec.ts`
  * against a real server.
+ *
+ * @stability experimental
  */
 export interface PgJobRoleSeam {
   /** Where the admin session goes, and which database it is about. */
   resolveConnection(): AdminConnection;
   /** Runs one unit of work against `config.database`, and always closes it. */
   withAdminConnection<T>(
+    /** Config. */
     config: AdminConnection,
+    /** Fn. */
     fn: (client: AdminQueryClient) => Promise<T>,
+    /** Options. */
     options?: { timeoutMs?: number }
   ): Promise<T>;
 }
@@ -527,10 +585,16 @@ export interface PgJobRoleSeam {
  * application always talks to the real cluster; only a test that constructs
  * this broker directly substitutes one. A stub bound in production is a broker
  * that reports minting credentials it never made.
+ *
+ * @stability experimental
  */
 export const PG_JOB_ROLE_SEAM = 'PG_JOB_ROLE_SEAM';
 
-/** The real seam: two thin bindings to `admin-connection.util.ts`. */
+/**
+ * The real seam: two thin bindings to `admin-connection.util.ts`.
+ *
+ * @stability experimental
+ */
 export const defaultPgJobRoleSeam: PgJobRoleSeam = {
   resolveConnection: () => resolveAdminConnection(),
   withAdminConnection: (config, fn, options) => withAdminConnection(config, fn, options),
@@ -545,6 +609,7 @@ interface ProbeOutcome {
   unreachable: boolean;
 }
 
+/** @stability experimental */
 @Injectable()
 export class PgJobRoleBroker implements JobSecretBroker {
   private readonly logger = new Logger(PgJobRoleBroker.name);

@@ -55,7 +55,11 @@
 // February - eleven backups a year from a setting that reads like twelve.
 // =============================================================================
 
-/** Cron's own day-of-month ceiling for this feature. See the header. */
+/**
+ * Cron's own day-of-month ceiling for this feature. See the header.
+ *
+ * @stability experimental
+ */
 export const MAX_BACKUP_DAY_OF_MONTH = 28;
 
 /**
@@ -64,6 +68,8 @@ export const MAX_BACKUP_DAY_OF_MONTH = 28;
  * The same 02:00 that `DEFAULT_SYSTEM_SETTINGS.databaseBackup.timeOfDay`
  * ships: whatever went wrong upstream, the fallback should be the time a fresh
  * deployment would have used, not a value invented here.
+ *
+ * @stability experimental
  */
 export const DEFAULT_BACKUP_TIME_OF_DAY = '02:00';
 
@@ -76,12 +82,17 @@ export const DEFAULT_BACKUP_TIME_OF_DAY = '02:00';
  * finite enough that a nonsense expression (a day-of-month that no month has,
  * a hand-written one that got past the parser) returns `null` in microseconds
  * instead of spinning forever inside a cron tick.
+ *
+ * @stability experimental
  */
 export const SCHEDULE_SEARCH_LIMIT_DAYS = 400;
 
+/** @stability experimental */
 export type BackupFrequency = 'daily' | 'weekly' | 'monthly';
 
+/** @stability experimental */
 export interface BackupScheduleInput {
+  /** Frequency. */
   frequency: BackupFrequency;
   /** 0 (Sunday) - 6 (Saturday). Used by `weekly` only. */
   dayOfWeek?: number;
@@ -102,6 +113,8 @@ export interface BackupScheduleInput {
  * setting" from "nothing due", and #283 could not tell a 400 from a 200 with
  * an empty field. Callers that must not throw wrap one call in one try/catch;
  * callers that want the 400 let it propagate.
+ *
+ * @stability experimental
  */
 export class InvalidTimezoneError extends Error {
   constructor(readonly timezone: string) {
@@ -123,6 +136,8 @@ export class InvalidTimezoneError extends Error {
  * approximated - a scheduler that silently mis-reads an expression fires at
  * the wrong time forever, and nobody looks at a backup's schedule again after
  * the day they set it.
+ *
+ * @stability experimental
  */
 export class InvalidCronExpressionError extends Error {
   constructor(readonly expression: string) {
@@ -135,11 +150,19 @@ export class InvalidCronExpressionError extends Error {
   }
 }
 
-/** A parsed expression. `null` in a day field means `*`. */
+/**
+ * A parsed expression. `null` in a day field means `*`.
+ *
+ * @stability experimental
+ */
 export interface ParsedCronExpression {
+  /** Minute. */
   minute: number;
+  /** Hour. */
   hour: number;
+  /** Day of month. */
   dayOfMonth: number | null;
+  /** Day of week. */
   dayOfWeek: number | null;
 }
 
@@ -148,6 +171,8 @@ export interface ParsedCronExpression {
  *
  * Total: every input, however broken, produces a valid expression. See the
  * header for why that is the right trade here.
+ *
+ * @stability experimental
  */
 export function backupScheduleToCron(schedule: BackupScheduleInput): string {
   const { hour, minute } = parseTimeOfDay(schedule.timeOfDay);
@@ -166,13 +191,21 @@ export function backupScheduleToCron(schedule: BackupScheduleInput): string {
   }
 }
 
-/** Clamps to cron's 0-6 (Sunday-Saturday); anything unusable becomes Sunday. */
+/**
+ * Clamps to cron's 0-6 (Sunday-Saturday); anything unusable becomes Sunday.
+ *
+ * @stability experimental
+ */
 export function clampDayOfWeek(dayOfWeek: number | undefined): number {
   if (dayOfWeek === undefined || !Number.isFinite(dayOfWeek)) return 0;
   return Math.min(6, Math.max(0, Math.trunc(dayOfWeek)));
 }
 
-/** Clamps to 1-{@link MAX_BACKUP_DAY_OF_MONTH}; 31 becomes 28, so February is never skipped. */
+/**
+ * Clamps to 1-{@link MAX_BACKUP_DAY_OF_MONTH}; 31 becomes 28, so February is never skipped.
+ *
+ * @stability experimental
+ */
 export function clampDayOfMonth(dayOfMonth: number | undefined): number {
   if (dayOfMonth === undefined || !Number.isFinite(dayOfMonth)) return 1;
   return Math.min(MAX_BACKUP_DAY_OF_MONTH, Math.max(1, Math.trunc(dayOfMonth)));
@@ -188,6 +221,8 @@ export function clampDayOfMonth(dayOfMonth: number | undefined): number {
  *  - `'tuesday'`, `''` or `undefined` carry no time at all, so they fall back
  *    to {@link DEFAULT_BACKUP_TIME_OF_DAY} rather than to an arbitrary
  *    midnight that would move every backup on the deployment.
+ *
+ * @stability experimental
  */
 export function parseTimeOfDay(timeOfDay: string | undefined): { hour: number; minute: number } {
   const match = /^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$/.exec(timeOfDay ?? '');
@@ -210,6 +245,8 @@ export function parseTimeOfDay(timeOfDay: string | undefined): { hour: number; m
  * Parses the cron subset this module emits.
  *
  * @throws {InvalidCronExpressionError} for anything outside that subset.
+ *
+ * @stability experimental
  */
 export function parseCronExpression(expression: string): ParsedCronExpression {
   const fields = expression.trim().split(/\s+/);
@@ -251,6 +288,8 @@ export function parseCronExpression(expression: string): ParsedCronExpression {
  * @returns `null` when nothing was due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
  * @throws {InvalidTimezoneError} for a timezone this runtime does not know.
  * @throws {InvalidCronExpressionError} for an unsupported expression.
+ *
+ * @stability experimental
  */
 export function previousFireBoundary(
   expression: string,
@@ -266,6 +305,8 @@ export function previousFireBoundary(
  * @returns `null` when nothing is due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
  * @throws {InvalidTimezoneError} for a timezone this runtime does not know.
  * @throws {InvalidCronExpressionError} for an unsupported expression.
+ *
+ * @stability experimental
  */
 export function nextFireAt(expression: string, from: Date, timezone: string): Date | null {
   return walk(expression, from, timezone, 'forward');

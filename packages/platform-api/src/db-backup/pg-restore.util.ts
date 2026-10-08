@@ -50,7 +50,11 @@ import {
 // exited 0 — the transaction boundary is the swap, not the restore.
 // =============================================================================
 
-/** Default binary name; `PG_DUMP_COMMAND` carries the note on why it is not an absolute path. */
+/**
+ * Default binary name; `PG_DUMP_COMMAND` carries the note on why it is not an absolute path.
+ *
+ * @stability experimental
+ */
 export const PG_RESTORE_COMMAND = 'pg_restore';
 
 /**
@@ -61,10 +65,14 @@ export const PG_RESTORE_COMMAND = 'pg_restore';
  * connection-limit outage on the server it is restoring to. Sixteen is far
  * past the point of diminishing returns for a restore that is almost always
  * I/O bound.
+ *
+ * @stability experimental
  */
 export const MAX_RESTORE_JOBS = 16;
 
+/** @stability experimental */
 export interface PgRestoreArgsOptions {
+  /** Connection. */
   connection: PgConnection;
   /**
    * The archive to read.
@@ -73,7 +81,7 @@ export interface PgRestoreArgsOptions {
    * straight out of object storage does, and which rules out `-j` (see below).
    */
   file?: string;
-  /** Parallel jobs. Clamped to 1..{@link MAX_RESTORE_JOBS}; ignored without `file`. */
+  /** Parallel jobs. Clamped to 1..`MAX_RESTORE_JOBS`; ignored without `file`. */
   jobs?: number;
 }
 
@@ -95,6 +103,8 @@ export interface PgRestoreArgsOptions {
  *    immediate usage error.
  *
  * The password is absent here, as everywhere: it travels in `PGPASSWORD`.
+ *
+ * @stability experimental
  */
 export function buildPgRestoreArgs(options: PgRestoreArgsOptions): string[] {
   const { connection, file, jobs } = options;
@@ -130,7 +140,11 @@ export function buildPgRestoreArgs(options: PgRestoreArgsOptions): string[] {
   return args;
 }
 
-/** Clamps `-j` into 1..{@link MAX_RESTORE_JOBS}; a non-finite value means "not parallel". */
+/**
+ * Clamps `-j` into 1..`MAX_RESTORE_JOBS`; a non-finite value means "not parallel".
+ *
+ * @stability experimental
+ */
 export function clampRestoreJobs(jobs: number): number {
   if (!Number.isFinite(jobs)) return 1;
   return Math.min(MAX_RESTORE_JOBS, Math.max(1, Math.trunc(jobs)));
@@ -142,20 +156,30 @@ export function clampRestoreJobs(jobs: number): number {
  * No connection flags at all, and that is the point: listing reads the archive
  * header and nothing else, so a verification can run against an object pulled
  * out of storage on a host that cannot reach the database.
+ *
+ * @stability experimental
  */
 export function buildPgRestoreListArgs(options: { file?: string } = {}): string[] {
   return options.file === undefined ? ['--list'] : ['--list', options.file];
 }
 
+/** @stability experimental */
 export interface SpawnPgRestoreOptions extends PgRestoreArgsOptions {
   /** Piped into the child's stdin. Required when `file` is absent. */
   stdin?: Readable;
+  /** Timeout ms. */
   timeoutMs?: number;
+  /** Command. */
   command?: string;
+  /** Spawn fn. */
   spawnFn?: PgSpawnFn;
 }
 
-/** Starts `pg_restore` against `connection`, from a file or from a stream. */
+/**
+ * Starts `pg_restore` against `connection`, from a file or from a stream.
+ *
+ * @stability experimental
+ */
 export function spawnPgRestore(options: SpawnPgRestoreOptions): PgProcess {
   const { connection, file, jobs, stdin, timeoutMs, command, spawnFn } = options;
 
@@ -186,22 +210,37 @@ export function spawnPgRestore(options: SpawnPgRestoreOptions): PgProcess {
  * naively would report a healthy count for an EMPTY archive, whose listing is
  * all header — which is exactly the case the verification in #281 has to
  * catch.
+ *
+ * @stability experimental
  */
 export function isTocEntryLine(line: string): boolean {
   const trimmed = line.trim();
   return trimmed !== '' && !trimmed.startsWith(';');
 }
 
-/** Counts the table-of-contents entries in a complete `pg_restore --list` output. */
+/**
+ * Counts the table-of-contents entries in a complete `pg_restore --list` output.
+ *
+ * @stability experimental
+ */
 export function parseTocEntryCount(listing: string): number {
   return listing.split('\n').filter(isTocEntryLine).length;
 }
 
+/** @stability experimental */
 export interface ReadTocEntryCountOptions {
   /** A stream of archive bytes, or a path to an archive file. */
-  source: Readable | { file: string };
+  source:
+    | Readable
+    | {
+        /** The archive file's path. */
+        file: string;
+      };
+  /** Timeout ms. */
   timeoutMs?: number;
+  /** Command. */
   command?: string;
+  /** Spawn fn. */
   spawnFn?: PgSpawnFn;
 }
 
@@ -219,6 +258,8 @@ export interface ReadTocEntryCountOptions {
  * The lines are counted AS THEY ARRIVE rather than buffered: the table of
  * contents of a large schema is itself large, and the whole point of this
  * subsystem is that nothing about a backup is proportional to the heap.
+ *
+ * @stability experimental
  */
 export async function readTocEntryCount(options: ReadTocEntryCountOptions): Promise<number> {
   const { source, timeoutMs, command, spawnFn } = options;

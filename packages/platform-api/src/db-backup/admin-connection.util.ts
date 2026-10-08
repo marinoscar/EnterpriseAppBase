@@ -63,6 +63,8 @@ import { resolvePgConnection, type PgConnection } from './pg-dump.util';
  * `postgres` exists on every cluster initdb has ever created and is the
  * conventional maintenance database — it is what `createdb`, `dropdb` and
  * `psql -l` connect to for exactly this reason.
+ *
+ * @stability experimental
  */
 export const DEFAULT_MAINTENANCE_DATABASE = 'postgres';
 
@@ -75,6 +77,8 @@ export const DEFAULT_MAINTENANCE_DATABASE = 'postgres';
  * attaching to it would put the admin session INSIDE the database the swap has
  * to rename — the one thing this whole file exists to avoid. `template1` is
  * the other database initdb always creates.
+ *
+ * @stability experimental
  */
 export const FALLBACK_MAINTENANCE_DATABASE = 'template1';
 
@@ -87,13 +91,23 @@ export const FALLBACK_MAINTENANCE_DATABASE = 'template1';
  *
  * Bytes, not characters — but {@link quoteIdentifier}'s allowlist is ASCII
  * only, so for every name this module can produce the two are the same number.
+ *
+ * @stability experimental
  */
 export const MAX_IDENTIFIER_BYTES = 63;
 
-/** The suffix that marks the database an archive is replayed into. */
+/**
+ * The suffix that marks the database an archive is replayed into.
+ *
+ * @stability experimental
+ */
 export const SCRATCH_SUFFIX = '_restore_';
 
-/** The suffix that marks the database a swap displaced. */
+/**
+ * The suffix that marks the database a swap displaced.
+ *
+ * @stability experimental
+ */
 export const OLD_SUFFIX = '_old_';
 
 /**
@@ -144,6 +158,8 @@ const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
  * Thrown, not reported: every name this module quotes is either derived here
  * from the configured database name or supplied by our own code, so a rejection
  * means a value reached DDL from somewhere it should not have.
+ *
+ * @stability experimental
  */
 export class InvalidDatabaseIdentifierError extends Error {
   constructor(readonly identifier: string) {
@@ -159,7 +175,7 @@ export class InvalidDatabaseIdentifierError extends Error {
 }
 
 /**
- * A value failed {@link SAFE_LITERAL_PATTERN} or {@link ISO_TIMESTAMP_PATTERN}
+ * A value failed `SAFE_LITERAL_PATTERN` or `ISO_TIMESTAMP_PATTERN`
  * on its way into a SQL string literal.
  *
  * ⚠ THE OFFENDING VALUE IS NOT IN THE MESSAGE, AND MUST NEVER BE. The only
@@ -173,9 +189,14 @@ export class InvalidDatabaseIdentifierError extends Error {
  * Thrown, never reported: a rejection here means the generator produced
  * something outside its own alphabet, which is a programming error and not a
  * condition any operator can act on.
+ *
+ * @stability experimental
  */
 export class InvalidSqlLiteralError extends Error {
-  constructor(readonly what: string) {
+  constructor(
+    /** The KIND of literal that was refused, never its value. */
+    readonly what: string,
+  ) {
     super(
       `A ${what} this application was about to put into a SQL string literal is not one it ` +
         'will interpolate. Generated literals are ASCII letters and digits only, and ' +
@@ -192,6 +213,8 @@ export class InvalidSqlLiteralError extends Error {
  *
  * Only reachable when the caller asked for a bound — see
  * {@link WithAdminConnectionOptions.timeoutMs}, which is off by default.
+ *
+ * @stability experimental
  */
 export class AdminConnectionTimeoutError extends Error {
   constructor(readonly timeoutMs: number) {
@@ -216,6 +239,8 @@ export class AdminConnectionTimeoutError extends Error {
  * `liveDatabase` is the application's, which the session acts ON and never
  * connects to. Keeping both on one object is what stops a caller from
  * accidentally passing the live name where the attachment goes.
+ *
+ * @stability experimental
  */
 export interface AdminConnection extends PgConnection {
   /** The application's database — the one a restore displaces. Never connected to. */
@@ -246,6 +271,8 @@ export interface AdminConnection extends PgConnection {
  * deployments that need something other than `postgres` are rare enough that a
  * caller-supplied value is the right seam, and an unused variable in
  * `.env.example` is a knob nobody maintains.
+ *
+ * @stability experimental
  */
 export function resolveAdminConnection(
   env: DatabaseEnv = process.env,
@@ -271,20 +298,36 @@ export function resolveAdminConnection(
  * a skipped test guards nothing. Unlike that one this seam takes BIND
  * PARAMETERS, because every read below is parameterised — only DDL, which
  * cannot be, goes through {@link quoteIdentifier}.
+ *
+ * @stability experimental
  */
 export interface AdminQueryClient {
   // `Promise<unknown>`, matching `PgQueryClient`: `pg`'s own `connect()`
   // resolves with the client, and narrowing it would make the real driver fail
   // to satisfy the seam that describes it.
+  /** Opens the session. */
   connect(): Promise<unknown>;
+  /** One statement, with bind parameters. */
   query(
+    /** Text. */
     text: string,
+    /** Values. */
     values?: unknown[]
-  ): Promise<{ rows: Array<Record<string, unknown>>; rowCount?: number | null }>;
+  ): Promise<{
+    /** The rows. */
+    rows: Array<Record<string, unknown>>;
+    /** Rows affected, when reported. */
+    rowCount?: number | null;
+  }>;
+  /** Closes the session. */
   end(): Promise<void>;
 }
 
-/** Test seam: builds an unconnected client for one admin session. */
+/**
+ * Test seam: builds an unconnected client for one admin session.
+ *
+ * @stability experimental
+ */
 export type AdminClientFactory = (config: AdminConnection) => AdminQueryClient;
 
 /**
@@ -296,6 +339,8 @@ export type AdminClientFactory = (config: AdminConnection) => AdminQueryClient;
  * substitute one. A binding here would be a seam a fork could fill by
  * accident, and a stubbed cluster connection in production is a restore
  * subsystem that reports a clean pre-flight against nothing.
+ *
+ * @stability experimental
  */
 export const RESTORE_ADMIN_CLIENT_FACTORY = 'RESTORE_ADMIN_CLIENT_FACTORY';
 
@@ -340,7 +385,9 @@ function resolveSslOption(sslMode: string | null): boolean | { rejectUnauthorize
     : { rejectUnauthorized: false };
 }
 
+/** @stability experimental */
 export interface WithAdminConnectionOptions {
+  /** Client factory. */
   clientFactory?: AdminClientFactory;
   /**
    * Wall-clock bound on the WHOLE callback, in milliseconds. `0` (the default)
@@ -373,6 +420,8 @@ export interface WithAdminConnectionOptions {
  * has been stopped, is the worst place in this subsystem to discover a leak.
  * So every exit path — return, throw, and the timeout below — goes through one
  * `end()`.
+ *
+ * @stability experimental
  */
 export async function withAdminConnection<T>(
   config: AdminConnection,
@@ -443,6 +492,8 @@ export async function withAdminConnection<T>(
  * clear error from a code path an operator is watching. Every name this
  * subsystem uses is either the configured database name or one derived from it
  * by the builders below, so the allowlist costs nothing real.
+ *
+ * @stability experimental
  */
 export function quoteIdentifier(identifier: string): string {
   if (
@@ -492,6 +543,8 @@ export function quoteIdentifier(identifier: string): string {
  * interpolates is a live database password.
  *
  * @param what what KIND of literal this is, for the error message only.
+ *
+ * @stability experimental
  */
 export function quoteLiteral(value: string, what = 'literal'): string {
   if (typeof value !== 'string' || !SAFE_LITERAL_PATTERN.test(value)) {
@@ -522,6 +575,8 @@ export function quoteLiteral(value: string, what = 'literal'): string {
  * PostgreSQL parses `2026-09-07T12:00:00.000Z` as a `timestamptz` (ISO 8601,
  * `T` separator, `Z` meaning UTC), so no local-timezone assumption is made
  * anywhere: the grant expires at an instant, not at a wall-clock reading.
+ *
+ * @stability experimental
  */
 export function quoteTimestampLiteral(at: Date): string {
   if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
@@ -579,12 +634,20 @@ function buildDerivedDatabaseName(base: string, suffix: string, at: Date): strin
   return name;
 }
 
-/** The database an archive is replayed into. Never the live one. */
+/**
+ * The database an archive is replayed into. Never the live one.
+ *
+ * @stability experimental
+ */
 export function buildScratchDatabaseName(liveDatabase: string, at: Date): string {
   return buildDerivedDatabaseName(liveDatabase, SCRATCH_SUFFIX, at);
 }
 
-/** The name the live database is renamed to when a restore swaps. */
+/**
+ * The name the live database is renamed to when a restore swaps.
+ *
+ * @stability experimental
+ */
 export function buildOldDatabaseName(liveDatabase: string, at: Date): string {
   return buildDerivedDatabaseName(liveDatabase, OLD_SUFFIX, at);
 }
@@ -607,6 +670,8 @@ export function buildOldDatabaseName(liveDatabase: string, at: Date): string {
  * the attribute being set. `current_user` rather than the configured user
  * name: `SET ROLE`, a connection pooler, or a `DATABASE_URL` override can all
  * make the session's role something other than what the environment says.
+ *
+ * @stability experimental
  */
 export async function probeCreateDatabasePrivilege(client: AdminQueryClient): Promise<boolean> {
   const result = await client.query(
@@ -647,6 +712,8 @@ export async function probeCreateDatabasePrivilege(client: AdminQueryClient): Pr
  * `CREATEROLE` is the only part that is ever missing; a deployment where it is
  * not gets a real error from the `GRANT`, which the broker surfaces as a
  * refusal rather than as a half-privileged role.
+ *
+ * @stability experimental
  */
 export async function probeCreateRolePrivilege(client: AdminQueryClient): Promise<boolean> {
   const result = await client.query(
@@ -669,6 +736,8 @@ export async function probeCreateRolePrivilege(client: AdminQueryClient): Promis
  *
  * ⚠ A READ, like every other probe here: `pg_roles` and `current_setting`.
  * It sets, grants and alters nothing.
+ *
+ * @stability experimental
  */
 export async function readRlsBypassCapability(
   client: AdminQueryClient
@@ -691,6 +760,8 @@ export async function readRlsBypassCapability(
  * that statement. `pg_available_extensions` is the only thing that knows;
  * `pg_extension` (what is installed HERE) does not, which is why both are read
  * — see the extensions gate in `restore-preflight.service.ts`.
+ *
+ * @stability experimental
  */
 export async function probePgExtensionAvailable(
   client: AdminQueryClient,
@@ -715,6 +786,8 @@ export async function probePgExtensionAvailable(
  *
  * Takes the name as a BIND PARAMETER — `pg_database_size(name text)` is a
  * function call, not DDL, so nothing here needs {@link quoteIdentifier}.
+ *
+ * @stability experimental
  */
 export async function readDatabaseSizeBytes(
   client: AdminQueryClient,
@@ -738,6 +811,8 @@ export async function readDatabaseSizeBytes(
  *
  * Swallowing the error is safe here because nothing runs in a transaction: a
  * failed `SHOW` leaves the session perfectly usable for the probes that follow.
+ *
+ * @stability experimental
  */
 export async function readDataDirectory(client: AdminQueryClient): Promise<string | null> {
   try {
@@ -750,7 +825,11 @@ export async function readDataDirectory(client: AdminQueryClient): Promise<strin
   }
 }
 
-/** Whether a database of this name exists in the cluster. */
+/**
+ * Whether a database of this name exists in the cluster.
+ *
+ * @stability experimental
+ */
 export async function databaseExists(
   client: AdminQueryClient,
   database: string
@@ -775,6 +854,8 @@ export async function databaseExists(
  * `client_addr IS NULL` for connections over a Unix socket, which are on the
  * database host itself; they are excluded rather than counted as a mystery
  * address.
+ *
+ * @stability experimental
  */
 export async function countDistinctClientAddresses(
   client: AdminQueryClient,
@@ -808,6 +889,8 @@ export async function countDistinctClientAddresses(
  * the reasons the swap in #285 is not "wrapped in a transaction" and its
  * atomicity comes from restoring into a scratch database and only renaming a
  * restore that exited 0.
+ *
+ * @stability experimental
  */
 export async function createDatabase(
   client: AdminQueryClient,
@@ -826,6 +909,8 @@ export async function createDatabase(
  * `IF EXISTS` because the caller that cleans up after a failed restore cannot
  * know how far the failure got, and a cleanup that throws because there was
  * nothing to clean up is a cleanup that leaves everything else undone.
+ *
+ * @stability experimental
  */
 export async function dropDatabase(client: AdminQueryClient, database: string): Promise<void> {
   await client.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(database)}`);
@@ -846,6 +931,8 @@ export async function dropDatabase(client: AdminQueryClient, database: string): 
  * indication of what killed it.
  *
  * @returns how many backends were signalled.
+ *
+ * @stability experimental
  */
 export async function terminateConnections(
   client: AdminQueryClient,
@@ -866,6 +953,8 @@ export async function terminateConnections(
  * The atomic half of the swap: it is a catalog update, so it either happens or
  * it does not, and it is why the restore is "replay somewhere else, then
  * rename" rather than "restore over the top of the live database".
+ *
+ * @stability experimental
  */
 export async function renameDatabase(
   client: AdminQueryClient,

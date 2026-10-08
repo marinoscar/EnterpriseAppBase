@@ -50,10 +50,16 @@ import { PG_DUMP_COMMAND, PgSpawnFn, spawnPgProcess } from './pg-dump.util';
  * Dockerfile line is edited by whoever is fixing an image, this constant is
  * read by whoever is debugging a backup, and nothing else would ever bring the
  * two people together.
+ *
+ * @stability experimental
  */
 export const MIN_PG_CLIENT_MAJOR = 17;
 
-/** What the check concluded, and what the caller should do about it. */
+/**
+ * What the check concluded, and what the caller should do about it.
+ *
+ * @stability experimental
+ */
 export type PgVersionStatus =
   /** Client can dump this server. Proceed. */
   | 'ok'
@@ -62,9 +68,13 @@ export type PgVersionStatus =
   /** One side could not be read. Log the message and proceed anyway. */
   | 'unknown';
 
+/** @stability experimental */
 export interface PgVersionCheck {
+  /** Status. */
   status: PgVersionStatus;
+  /** Client major. */
   clientMajor: number | null;
+  /** Server major. */
   serverMajor: number | null;
   /**
    * The RAW `pg_dump --version` banner, e.g. `pg_dump (PostgreSQL) 17.2`, or
@@ -86,7 +96,11 @@ export interface PgVersionCheck {
   warning?: string;
 }
 
-/** Reads `pg_dump --version` output. Returns `null` when it cannot be read at all. */
+/**
+ * Reads `pg_dump --version` output. Returns `null` when it cannot be read at all.
+ *
+ * @stability experimental
+ */
 export type ClientVersionReader = () => Promise<string | null>;
 
 /**
@@ -95,8 +109,10 @@ export type ClientVersionReader = () => Promise<string | null>;
  * INJECTED, ALWAYS. The natural implementation is a Prisma
  * `$queryRaw<{ server_version_num: string }[]>` or a `pg` client, and either
  * one would make every test in this file need a database. The parser
- * ({@link parseServerVersionNum}) is exported separately so the call site can
+ * (`parseServerVersionNum`) is exported separately so the call site can
  * stay a one-liner.
+ *
+ * @stability experimental
  */
 export type ServerVersionNumReader = () => Promise<number | null>;
 
@@ -112,6 +128,8 @@ export type ServerVersionNumReader = () => Promise<number | null>;
  *
  * Returns `null` for anything it cannot read, which the caller turns into
  * "warn and proceed" — never into a failure.
+ *
+ * @stability experimental
  */
 export function parsePgClientMajor(output: string | null | undefined): number | null {
   if (output === null || output === undefined) return null;
@@ -136,6 +154,8 @@ export function parsePgClientMajor(output: string | null | undefined): number | 
  * `SHOW server_version_num` returns text, and drivers differ on what they do
  * with `current_setting(...)::int`. Handling the union here is what keeps the
  * call site from having to know which it got.
+ *
+ * @stability experimental
  */
 export function parseServerVersionNum(value: unknown): number | null {
   const numeric =
@@ -159,6 +179,8 @@ export function parseServerVersionNum(value: unknown): number | null {
  * (`170004` → 17) and as `major * 10000 + minor * 100 + patch` before it
  * (`90624` → 9). Integer division by 10000 is correct for both, which is why
  * there is no special case here for the older shape.
+ *
+ * @stability experimental
  */
 export function serverMajorFromVersionNum(versionNum: number | null): number | null {
   if (versionNum === null || !Number.isFinite(versionNum) || versionNum <= 0) return null;
@@ -168,9 +190,13 @@ export function serverMajorFromVersionNum(versionNum: number | null): number | n
   return major >= 1 && major <= 999 ? major : null;
 }
 
+/** @stability experimental */
 export interface ReadPgClientVersionOptions {
+  /** Command. */
   command?: string;
+  /** Timeout ms. */
   timeoutMs?: number;
+  /** Spawn fn. */
   spawnFn?: PgSpawnFn;
 }
 
@@ -181,6 +207,8 @@ export interface ReadPgClientVersionOptions {
  * that takes longer than a few seconds is a broken or missing binary, and the
  * whole point of this reader is to answer quickly and never to be the thing
  * that hangs a backup.
+ *
+ * @stability experimental
  */
 export const CLIENT_VERSION_TIMEOUT_MS = 10_000;
 
@@ -193,6 +221,8 @@ export const CLIENT_VERSION_TIMEOUT_MS = 10_000;
  * status, which proceeds. The output is bounded because the reader only ever
  * needs the first line and a wedged binary streaming megabytes at us is not a
  * reason to grow the heap.
+ *
+ * @stability experimental
  */
 export async function readPgClientVersion(
   options: ReadPgClientVersionOptions = {}
@@ -238,17 +268,32 @@ export async function readPgClientVersion(
 // without going through the ORM, so it still works while the application
 // database is mid-swap.
 
-/** The subset of a `pg` client this module uses. Keeps the tests free of a database. */
+/**
+ * The subset of a `pg` client this module uses. Keeps the tests free of a database.
+ *
+ * @stability experimental
+ */
 export interface PgQueryClient {
-  // `Promise<unknown>` rather than `Promise<void>`: `pg`'s own `connect()`
-  // resolves with the client, and narrowing it here would make the real driver
-  // fail to satisfy the seam it exists to describe.
+  /**
+   * `Promise<unknown>` rather than `Promise<void>`: `pg`'s own `connect()`
+   * resolves with the client, and narrowing it here would make the real driver
+   * fail to satisfy the seam it exists to describe.
+   */
   connect(): Promise<unknown>;
-  query(text: string): Promise<{ rows: Array<Record<string, unknown>> }>;
+  /** One statement. */
+  query(text: string): Promise<{
+    /** The rows. */
+    rows: Array<Record<string, unknown>>;
+  }>;
+  /** Closes the session. */
   end(): Promise<void>;
 }
 
-/** Test seam: builds a client from a connection string. */
+/**
+ * Test seam: builds a client from a connection string.
+ *
+ * @stability experimental
+ */
 export type PgClientFactory = (connectionString: string) => PgQueryClient;
 
 const defaultPgClientFactory: PgClientFactory = (connectionString) =>
@@ -266,6 +311,8 @@ const defaultPgClientFactory: PgClientFactory = (connectionString) =>
  * Returns `null` rather than throwing on any failure, because its one consumer
  * ({@link checkPgClientVersion}) treats an unreadable version as "warn and
  * proceed" and nothing else should be able to turn it into a blocked backup.
+ *
+ * @stability experimental
  */
 export async function readServerVersionNumWithPgClient(
   options: { env?: DatabaseEnv; clientFactory?: PgClientFactory } = {}
@@ -287,6 +334,7 @@ export async function readServerVersionNumWithPgClient(
   }
 }
 
+/** @stability experimental */
 export interface CheckPgClientVersionOptions {
   /** Defaults to running `pg_dump --version`. */
   readClientVersion?: ClientVersionReader;
@@ -300,6 +348,8 @@ export interface CheckPgClientVersionOptions {
  * @returns `blocked` only when BOTH majors are known and the client is the
  * older one. Every other uncertainty is `unknown`, which the caller logs and
  * ignores — see the module header for why this fails open.
+ *
+ * @stability experimental
  */
 export async function checkPgClientVersion(
   options: CheckPgClientVersionOptions

@@ -40,6 +40,8 @@
  * (see `database_backup_runs_active_uniq_idx`), so this error is evidence that
  * a concurrent run genuinely exists at the instant of the insert — which a
  * `findFirst` could never promise.
+ *
+ * @stability experimental
  */
 export class DatabaseBackupAlreadyRunningError extends Error {
   constructor(
@@ -81,10 +83,14 @@ export class DatabaseBackupAlreadyRunningError extends Error {
  * validating only on write would let a value that predates the check (a seed,
  * a restored settings blob, a provider swap) sit there until the night the
  * backup silently went somewhere nobody expected.
+ *
+ * @stability experimental
  */
 export class DatabaseBackupStorageProviderError extends Error {
   constructor(
+    /** The provider the settings pin. */
     readonly configured: string,
+    /** The provider this deployment actually has. */
     readonly active: string
   ) {
     super(
@@ -106,11 +112,15 @@ export class DatabaseBackupStorageProviderError extends Error {
  * Carries `checkPgClientVersion`'s own message verbatim, because that message
  * already names both majors and points at the runbook. Re-wording it here
  * would make the run's `lastError` and the log line disagree.
+ *
+ * @stability experimental
  */
 export class DatabaseBackupClientVersionError extends Error {
   constructor(
     message: string,
+    /** The `pg_dump`/`pg_restore` client major, or `null` when unreadable. */
     readonly clientMajor: number | null,
+    /** The server major, or `null` when unreadable. */
     readonly serverMajor: number | null
   ) {
     super(message);
@@ -127,10 +137,14 @@ export class DatabaseBackupClientVersionError extends Error {
  * cannot: a truncated upload, a zero-byte object, a dump that ran against the
  * wrong (empty) database. See `DatabaseBackupRunnerService`'s verification
  * step for why the check reads STORAGE rather than the stream we just sent.
+ *
+ * @stability experimental
  */
 export class DatabaseBackupVerificationError extends Error {
   constructor(
+    /** The archive's object key. */
     readonly storageKey: string,
+    /** How many entries `pg_restore --list` found. */
     readonly tocEntries: number
   ) {
     super(
@@ -153,9 +167,14 @@ export class DatabaseBackupVerificationError extends Error {
  * teardown mechanism for cancellation would be a second chance to leave a
  * half-written object in the bucket — see the runner's own comments on why
  * cancellation is deliberately not special.
+ *
+ * @stability experimental
  */
 export class DatabaseBackupCancelledError extends Error {
-  constructor(readonly runId: string) {
+  constructor(
+    /** The backup run. */
+    readonly runId: string,
+  ) {
     super(`Database backup run ${runId} was cancelled by an operator.`);
     this.name = 'DatabaseBackupCancelledError';
     Object.setPrototypeOf(this, DatabaseBackupCancelledError.prototype);
@@ -212,10 +231,14 @@ export class DatabaseBackupCancelledError extends Error {
  * It is raised BEFORE `CREATE DATABASE`, so a corrupt archive costs a download
  * and nothing else — no scratch database, no dropped anything, the live
  * database untouched.
+ *
+ * @stability experimental
  */
 export class DatabaseRestoreArchiveError extends Error {
   constructor(
+    /** The archive's object key. */
     readonly storageKey: string,
+    /** Why, in one machine-readable token or sentence. */
     readonly reason: string
   ) {
     super(
@@ -242,11 +265,16 @@ export class DatabaseRestoreArchiveError extends Error {
  *     swap by hand. That is the state `docs/runbooks/database-restore.md` §5.2
  *     exists for, and it is why this flag is on the error rather than only in a
  *     log line.
+ *
+ * @stability experimental
  */
 export class DatabaseRestoreSwapError extends Error {
   constructor(
+    /** The database the swap was renaming. */
     readonly liveDatabase: string,
+    /** Whether the original database was put back. */
     readonly originalRestored: boolean,
+    /** The underlying failure. */
     readonly cause: Error
   ) {
     super(
@@ -274,10 +302,14 @@ export class DatabaseRestoreSwapError extends Error {
  * `pg_restore --exit-on-error` proves no statement failed; it does not prove the
  * archive contained any statements worth running. Raised BEFORE the swap, so a
  * failure here costs a scratch database that is then dropped.
+ *
+ * @stability experimental
  */
 export class DatabaseRestoreVerificationError extends Error {
   constructor(
+    /** The scratch database the archive was replayed into. */
     readonly scratchDatabase: string,
+    /** Why, in one machine-readable token or sentence. */
     readonly reason: string
   ) {
     super(
@@ -308,9 +340,14 @@ export class DatabaseRestoreVerificationError extends Error {
  *
  * → `404`. The id goes in `details` and nowhere else, because the exception
  * filter rebuilds the body from `message` and `details` alone.
+ *
+ * @stability experimental
  */
 export class DatabaseRestoreRunNotFoundError extends Error {
-  constructor(readonly runId: string) {
+  constructor(
+    /** The backup run. */
+    readonly runId: string,
+  ) {
     super(`Database backup run ${runId} was not found.`);
     this.name = 'DatabaseRestoreRunNotFoundError';
     Object.setPrototypeOf(this, DatabaseRestoreRunNotFoundError.prototype);
@@ -334,10 +371,14 @@ export class DatabaseRestoreRunNotFoundError extends Error {
  *     wearing the wrong word.
  *
  * `reason` is a stable machine-readable token; `message` is the sentence.
+ *
+ * @stability experimental
  */
 export class DatabaseRestoreNotAllowedError extends Error {
   constructor(
+    /** The backup run. */
     readonly runId: string,
+    /** Why, in one machine-readable token or sentence. */
     readonly reason: string,
     message: string
   ) {
@@ -362,6 +403,8 @@ export class DatabaseRestoreNotAllowedError extends Error {
  * mode changed fails without touching a database. A SaaS deployment recovers
  * through its managed database provider's point-in-time recovery instead; see
  * `docs/runbooks/database-restore.md`.
+ *
+ * @stability experimental
  */
 export class DatabaseRestoreDisabledError extends Error {
   /** Stable, machine-readable. The config response's `restore.reason` uses the same token. */

@@ -231,6 +231,8 @@ import {
  * would be a better answer than "well inside the smallest stale window", and a
  * knob whose only wrong settings are silent (too slow → false stale sweeps)
  * is a knob worth not having.
+ *
+ * @stability experimental
  */
 export const BACKUP_HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -265,15 +267,27 @@ const CLAIM_MAX_ATTEMPTS = 3;
  * renewal (#347) runs on the very same clock, so a node this far out is a node
  * whose next long job may lose its claim for reasons nobody will connect to
  * the time.
+ *
+ * @stability experimental
  */
 export const NODE_CLOCK_SKEW_WARN_MS = 5 * 60 * 1000;
 
+/**
+ * The raw-SQL partial unique index that admits ONE `pending`/`running` run
+ * (intentional schema drift: never `@@unique`, never a `findFirst` pre-check).
+ *
+ * @stability experimental
+ */
 export const ACTIVE_RUN_INDEX_NAME = 'database_backup_runs_active_uniq_idx';
 
 /** The physical column and the Prisma field the index is built over. */
 const ACTIVE_RUN_COLUMN_NAME = 'status';
 
-/** The statuses the index's predicate covers — "an active run". */
+/**
+ * The statuses the index's predicate covers — "an active run".
+ *
+ * @stability experimental
+ */
 export const ACTIVE_RUN_STATUSES = ['pending', 'running'] as const;
 
 /**
@@ -290,6 +304,8 @@ export const ACTIVE_RUN_STATUSES = ['pending', 'running'] as const;
  * `JobHandler.type` says: `jobs` rows outlive the handler that produced them,
  * so renaming this string orphans every historical row and every job already
  * queued under the old name.
+ *
+ * @stability experimental
  */
 export const BACKUP_JOB_TYPE = 'db.backup.run';
 
@@ -308,6 +324,8 @@ export const BACKUP_JOB_TYPE = 'db.backup.run';
  * because the index enforces uniqueness over whatever string the enqueue path
  * puts in the column — and a literal here that drifted from the builder would
  * silently stop colliding with the rows it is supposed to collide with.
+ *
+ * @stability experimental
  */
 export const BACKUP_JOB_DEDUP_KEY = buildDedupKey(BACKUP_JOB_TYPE, null, null);
 
@@ -321,13 +339,21 @@ export const BACKUP_JOB_DEDUP_KEY = buildDedupKey(BACKUP_JOB_TYPE, null, null);
  * path the run row already exists and this payload is never read, which is
  * why it carries nothing else: everything an operator wants about a backup
  * lives on `database_backup_runs`, not in opaque JSONB.
+ *
+ * @stability experimental
  */
 export interface BackupJobPayload {
+  /** Trigger. */
   trigger: DatabaseBackupTrigger;
+  /** Created by id. */
   createdById: string | null;
 }
 
-/** What a caller may say about the backup it wants taken. */
+/**
+ * What a caller may say about the backup it wants taken.
+ *
+ * @stability experimental
+ */
 export interface StartBackupInput {
   /** Why this run exists. No default: an unattributable run is a run nobody can explain. */
   trigger: DatabaseBackupTrigger;
@@ -342,7 +368,11 @@ export interface StartBackupInput {
   createdById?: string | null;
 }
 
-/** A queued backup: the job that will execute it, and the row it will fill in. */
+/**
+ * A queued backup: the job that will execute it, and the row it will fill in.
+ *
+ * @stability experimental
+ */
 export interface QueuedBackup {
   /** `pending`, with its server-chosen `storageKey` already set. */
   run: DatabaseBackupRun;
@@ -366,11 +396,17 @@ export interface QueuedBackup {
  * always available — and it is deliberately the API's version on BOTH paths,
  * because it records which application wrote the row, not which binary wrote
  * the file. That is what `pgDumpVersion` is for.
+ *
+ * @stability experimental
  */
 export interface BackupRunAudit {
+  /** Db version. */
   dbVersion: string | null;
+  /** App version. */
   appVersion: string;
+  /** Migration name. */
   migrationName: string | null;
+  /** Pg dump version. */
   pgDumpVersion: string | null;
 }
 
@@ -383,10 +419,20 @@ export interface BackupRunAudit {
  * left to tell), and the queued path MUST reject (the worker settles the job
  * from that rejection). Returning the outcome lets each caller decide, rather
  * than having the engine guess which of the two it is serving.
+ *
+ * @stability experimental
  */
 export type BackupRunOutcome =
-  | { status: 'completed' }
-  | { status: 'failed'; error: Error };
+  | {
+      /** Status. */
+      status: 'completed';
+    }
+  | {
+      /** Status. */
+      status: 'failed';
+      /** Error. */
+      error: Error;
+    };
 
 /**
  * What `cancel` actually managed to do.
@@ -397,16 +443,28 @@ export type BackupRunOutcome =
  * child can signal it — so a run started on another replica cannot be
  * cancelled from here, and reporting that as `true` would tell an operator
  * their dump had stopped when it is still streaming.
+ *
+ * @stability experimental
  */
 export type CancelBackupResult =
   /** The child was signalled and the upload torn down; the run will settle as `failed`. */
-  | { outcome: 'signalled'; runId: string }
+  | {
+      /** Outcome. */
+      outcome: 'signalled';
+      /** Run id. */
+      runId: string;
+    }
   /**
    * No in-process handle exists. Either the run belongs to another replica, or
    * it already settled. Either way THIS process cannot stop it, and #283 must
    * say so rather than reporting success.
    */
-  | { outcome: 'not_running_here'; runId: string };
+  | {
+      /** Outcome. */
+      outcome: 'not_running_here';
+      /** Run id. */
+      runId: string;
+    };
 
 /**
  * The `pg_*` seam.
@@ -416,6 +474,8 @@ export type CancelBackupResult =
  * contents, and a blocked version pair WITH NO PostgreSQL BINARIES INSTALLED.
  * A suite that needs `pg_dump` on the runner is a suite CI skips, and a skipped
  * test guards nothing — the same argument `PgSpawnFn` makes one layer down.
+ *
+ * @stability experimental
  */
 export interface DatabaseBackupEngine {
   /** Starts `pg_dump -Fc` against this deployment's database. */
@@ -435,10 +495,16 @@ export interface DatabaseBackupEngine {
  * `JOB_CLOCK`. The application always gets {@link systemDatabaseBackupEngine};
  * only a test that constructs this service directly can substitute one, so a
  * fork cannot ship a stubbed dump engine by accident.
+ *
+ * @stability experimental
  */
 export const DB_BACKUP_ENGINE = Symbol('DB_BACKUP_ENGINE');
 
-/** The real engine: real binaries, real database. */
+/**
+ * The real engine: real binaries, real database.
+ *
+ * @stability experimental
+ */
 export const systemDatabaseBackupEngine: DatabaseBackupEngine = {
   startDump: ({ compressionLevel, timeoutMs }) =>
     spawnPgDump({ compressionLevel, timeoutMs }),
@@ -451,13 +517,23 @@ export const systemDatabaseBackupEngine: DatabaseBackupEngine = {
     }),
 };
 
-/** The heartbeat's timer seam. */
+/**
+ * The heartbeat's timer seam.
+ *
+ * @stability experimental
+ */
 export interface BackupTimers {
+  /** `setInterval`: the heartbeat's timer. */
   setInterval(handler: () => void, ms: number): NodeJS.Timeout;
+  /** `clearInterval`. */
   clearInterval(handle: NodeJS.Timeout): void;
 }
 
-/** DI token for {@link BackupTimers}. Optional and unprovided, as {@link DB_BACKUP_ENGINE} is. */
+/**
+ * DI token for {@link BackupTimers}. Optional and unprovided, as {@link DB_BACKUP_ENGINE} is.
+ *
+ * @stability experimental
+ */
 export const DB_BACKUP_TIMERS = Symbol('DB_BACKUP_TIMERS');
 
 /**
@@ -469,6 +545,8 @@ export const DB_BACKUP_TIMERS = Symbol('DB_BACKUP_TIMERS');
  * the process alive — which is correct, because at that point there is no dump
  * left to report progress for either. (The `typeof` guard is for fake-timer
  * configurations whose handle is a bare number.)
+ *
+ * @stability experimental
  */
 export const systemBackupTimers: BackupTimers = {
   setInterval: (handler, ms) => {
@@ -515,6 +593,8 @@ interface ActiveRunHandle {
  * `meta.driverAdapterError.cause`, the classic engine under `meta.target`. Both
  * are checked so that switching adapters degrades to "the P2002 propagates",
  * never to "an unrelated conflict is silently swallowed".
+ *
+ * @stability experimental
  */
 export function isActiveRunConflict(error: unknown): boolean {
   if (!(error instanceof PrismaClientKnownRequestError) || error.code !== 'P2002') {
@@ -593,6 +673,11 @@ function readBackupJobPayload(job: Job): StartBackupInput {
   };
 }
 
+/**
+ * The backup engine: the ONE writer of `database_backup_runs`. Claims a run (the partial unique index arbitrates), streams `pg_dump` into object storage without buffering, verifies the archive, prunes by retention and records the outcome. Drive it through `queueBackup` (the queue) or `startBackup`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class DatabaseBackupRunnerService {
   private readonly logger = new Logger(DatabaseBackupRunnerService.name);
@@ -1670,7 +1755,7 @@ export class DatabaseBackupRunnerService {
    *      "Read-back verification", already settled that verification means
    *      "what the bucket holds", and the cost — one download per backup — is
    *      the cost this path already pays on the server.
-   *   4. WRITE THROUGH {@link completeRun}, the same method `executeRun` uses.
+   *   4. WRITE THROUGH `completeRun`, the same method `executeRun` uses.
    *
    * ⚠ THIS IS NOT A SECOND DUMP ENGINE AND MUST NOT BECOME ONE. It does not
    * re-hash the archive, does not recompute the size, and does not "fix" a

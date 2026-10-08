@@ -174,6 +174,11 @@ import {
   DatabaseBackupRunDto,
 } from './dto/db-backup-run.dto';
 
+/**
+ * The `/api/admin/db-backup` routes: system `admin` plus `db_backup:read`, `:write` or `:restore` on each.
+ *
+ * @stability experimental
+ */
 @ApiTags('Database Backup')
 @Controller('admin/db-backup')
 export class DatabaseBackupController {
@@ -184,6 +189,7 @@ export class DatabaseBackupController {
   // see the file header.
   // ---------------------------------------------------------------------------
 
+  /** `GET config`: the policy, the next run and the restore availability. */
   @Get('config')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_READ] })
   @ApiOperation({
@@ -214,6 +220,7 @@ export class DatabaseBackupController {
     return this.backups.getConfig();
   }
 
+  /** `PUT config`: write the policy. */
   @Put('config')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_WRITE] })
   @ApiOperation({
@@ -252,6 +259,7 @@ export class DatabaseBackupController {
   // backup: the dump is still streaming and may yet fail verification. `202` is
   // precisely "understood, started, not finished", which is what the returned
   // run's `running` status and its heartbeat then let the caller follow.
+  /** `POST runs`: take a backup now (202 with the claimed run). */
   @Post('runs')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_WRITE] })
   @HttpCode(HttpStatus.ACCEPTED)
@@ -285,6 +293,7 @@ export class DatabaseBackupController {
     return this.backups.startRun(userId);
   }
 
+  /** `GET runs`: newest first, paginated. */
   @Get('runs')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_READ] })
   @ApiOperation({
@@ -308,6 +317,7 @@ export class DatabaseBackupController {
     return this.backups.listRuns(query);
   }
 
+  /** `GET node-credential-preflight`: whether a node credential can be minted. */
   @Get('node-credential-preflight')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_READ] })
   @ApiOperation({
@@ -341,6 +351,7 @@ export class DatabaseBackupController {
   // Parameterised routes. Nothing literal may be declared below this line.
   // ---------------------------------------------------------------------------
 
+  /** `GET runs/:id/download`: a signed, expiring download URL. */
   @Get('runs/:id/download')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_READ] })
   @ApiOperation({
@@ -363,6 +374,7 @@ export class DatabaseBackupController {
     return this.backups.getDownloadUrl(id);
   }
 
+  /** `POST runs/:id/cancel`: signal the dump, when this replica runs it. */
   @Post('runs/:id/cancel')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_WRITE] })
   @HttpCode(HttpStatus.OK)
@@ -394,6 +406,7 @@ export class DatabaseBackupController {
   // ⚠ The two destructive routes (#286). Read this file's header first.
   // ---------------------------------------------------------------------------
 
+  /** `POST runs/:id/restore`: start a restore (`running`, `guided` or `blocked`). */
   @Post('runs/:id/restore')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_RESTORE] })
   @HttpCode(HttpStatus.OK)
@@ -489,6 +502,7 @@ export class DatabaseBackupController {
     }
   }
 
+  /** `POST runs/:id/rollback`: undo a restore. */
   @Post('runs/:id/rollback')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_RESTORE] })
   @HttpCode(HttpStatus.OK)
@@ -553,6 +567,7 @@ export class DatabaseBackupController {
     }
   }
 
+  /** `GET runs/:id`: one run. */
   @Get('runs/:id')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_READ] })
   @ApiOperation({
@@ -572,6 +587,7 @@ export class DatabaseBackupController {
     return this.backups.getRun(id);
   }
 
+  /** `DELETE runs/:id`: the row and its archive. */
   @Delete('runs/:id')
   @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.DB_BACKUP_WRITE] })
   @HttpCode(HttpStatus.OK)

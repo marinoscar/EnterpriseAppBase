@@ -75,9 +75,13 @@ export interface DbBackupNotifier {
    * @param options - extra recipients.
    */
   notifyPermissionHoldersNow(
+    /** Event. */
     event: string,
+    /** Permission. */
     permission: string,
+    /** Payload. */
     payload: object,
+    /** Options. */
     options?: DbBackupNotifyOptions,
   ): Promise<unknown>;
 }

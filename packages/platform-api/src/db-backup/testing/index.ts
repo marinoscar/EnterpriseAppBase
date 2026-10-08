@@ -15,10 +15,13 @@ export {
   checkSystemScopePermissions,
   dbBackupConformanceSuite,
 } from './conformance';
+/** @stability experimental */
 export type { DbBackupConformanceOptions } from './conformance';
 
 // ---- services, handlers and the controller ------------------------------------------------
 export { DatabaseBackupAdminService, BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../db-backup-admin.service';
+/** @stability experimental */
+export type { BackupRunListResult } from '../db-backup-admin.service';
 export { DatabaseBackupController } from '../db-backup.controller';
 export {
   ACTIVE_RUN_INDEX_NAME,
@@ -27,20 +30,35 @@ export {
   systemBackupTimers,
   systemDatabaseBackupEngine,
 } from '../db-backup-runner.service';
+/** @stability experimental */
 export type { BackupTimers, DatabaseBackupEngine } from '../db-backup-runner.service';
 export {
   DATABASE_RESTORE_SEAM,
   DatabaseRestoreService,
   defaultDatabaseRestoreSeam,
 } from '../database-restore.service';
-export type { DatabaseRestoreSeam } from '../database-restore.service';
+/** @stability experimental */
+export type { DatabaseRestoreSeam, RestoreRollbackResult, StartRestoreOptions, StartRestoreResult } from '../database-restore.service';
 export {
   DatabaseRestorePreflightService,
   RESTORE_PREFLIGHT_SEAM,
   RESTORE_SCHEMA_OVERRIDE_FIELD,
   defaultRestorePreflightSeam,
 } from '../restore-preflight.service';
-export type { RestorePreflightSeam } from '../restore-preflight.service';
+/** @stability experimental */
+export type {
+  EffectiveRollbackMode,
+  GuidedRestoreInstructions,
+  RestoreBlock,
+  RestoreGateKind,
+  RestoreGateResult,
+  RestoreGateVerdict,
+  RestorePreflightBase,
+  RestorePreflightOptions,
+  RestorePreflightResult,
+  RestorePreflightSeam,
+  RestoreRollbackPlan,
+} from '../restore-preflight.service';
 export { DatabaseBackupRunHandler } from '../handlers/db-backup-run.handler';
 export { DatabaseRestoreRunHandler } from '../handlers/db-restore-run.handler';
 export {
@@ -51,9 +69,12 @@ export {
   generateRolePassword,
   jobRolePattern,
 } from '../pg-job-role.broker';
-export type { PgJobRoleSeam } from '../pg-job-role.broker';
+/** @stability experimental */
+export type { GuidedJobRoleInstructions, JobRolePreflightResult, PgJobRoleSeam } from '../pg-job-role.broker';
 export { BACKUP_ARCHIVE_FORMAT, BACKUP_KEY_PREFIX } from '../db-backup-storage';
-export { startRestoreRequestSchema } from '../dto/db-backup-restore.dto';
+export { startRestoreRequestSchema, RollbackRestoreRequestDto, StartRestoreRequestDto } from '../dto/db-backup-restore.dto';
+export { BackupRunListQueryDto } from '../dto/db-backup-list-query.dto';
+export { UpdateDatabaseBackupConfigDto } from '../dto/db-backup-config.dto';
 
 // ---- the cluster utilities (outside the Prisma pool, on the maintenance database) ----------
 export {
@@ -67,7 +88,9 @@ export {
   resolveAdminConnection,
   withAdminConnection,
 } from '../admin-connection.util';
-export type { AdminConnection, AdminQueryClient } from '../admin-connection.util';
+export { InvalidSqlLiteralError } from '../admin-connection.util';
+/** @stability experimental */
+export type { AdminClientFactory, AdminConnection, AdminQueryClient, WithAdminConnectionOptions } from '../admin-connection.util';
 export {
   PG_DUMP_COMMAND,
   buildPgDumpArgs,
@@ -76,6 +99,20 @@ export {
   spawnPgDump,
   spawnPgProcess,
 } from '../pg-dump.util';
-export type { PgConnection, PgProcess, PgSpawnFn } from '../pg-dump.util';
+export { PgProcessError } from '../pg-dump.util';
+/** @stability experimental */
+export type { PgConnection, PgDumpArgsOptions, PgProcess, PgSpawnFn, SpawnPgDumpOptions, SpawnPgProcessOptions } from '../pg-dump.util';
 export { readTocEntryCount, spawnPgRestore } from '../pg-restore.util';
+/** @stability experimental */
+export type { ReadTocEntryCountOptions, SpawnPgRestoreOptions } from '../pg-restore.util';
 export { MIN_PG_CLIENT_MAJOR, checkPgClientVersion, readServerVersionNumWithPgClient } from '../pg-version.util';
+/** @stability experimental */
+export type {
+  CheckPgClientVersionOptions,
+  ClientVersionReader,
+  PgClientFactory,
+  PgQueryClient,
+  PgVersionCheck,
+  PgVersionStatus,
+  ServerVersionNumReader,
+} from '../pg-version.util';

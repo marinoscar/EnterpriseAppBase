@@ -56,6 +56,7 @@ export {
   cancelBackupResultSchema,
   deleteBackupResultSchema,
 } from '@marinoscar/platform-contract/db-backup';
+/** @stability experimental */
 export type {
   BackupDownloadUrl,
   CancelBackupResult,
@@ -66,17 +67,20 @@ export type {
 // DELETE runs/:id
 // ---------------------------------------------------------------------------
 
+/** @stability experimental */
 export class DeleteBackupResultDto extends createZodDto(deleteBackupResultSchema) {}
 
 // ---------------------------------------------------------------------------
 // POST runs/:id/cancel
 // ---------------------------------------------------------------------------
 
+/** @stability experimental */
 export class CancelBackupResultDto extends createZodDto(cancelBackupResultSchema) {}
 
 // ---------------------------------------------------------------------------
 // GET runs/:id/download
 // ---------------------------------------------------------------------------
 
+/** @stability experimental */
 export class BackupDownloadUrlDto extends createZodDto(backupDownloadUrlSchema) {}
 
