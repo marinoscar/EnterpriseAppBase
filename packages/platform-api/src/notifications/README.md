@@ -1,271 +1,202 @@
-# Notifications module
+# @marinoscar/platform-api/notifications
 
-Server side of the notification framework: an event registry, a dispatcher
-that applies user preferences and admin policy, three delivery channels, the
-in-app inbox, Web Push subscriptions and configuration, and admin broadcasts.
+The platform's notification framework: the event, channel and template registries, the dispatcher that applies the deployment policy (system, then organization), the recipient's preferences and the `mandatory` rule, the three platform channels (email, the in-app inbox with its SSE stream, Web Push), the runtime-configured Web Push (VAPID) keys, and admin broadcasts to every active user or to one organization's members. Moved out of the reference app's `src/notifications/` by issue #738 (PP-8.5). It depends on `core`, `doctor`, `otel-core`, `identity` (the `@Auth` decorators, the permission strings), `settings` (the namespaces, the org layer, the row store), `credentials` (the VAPID private key), `email` (the template registry and the transports), `jobs` (the broadcast fan-out), `nodes` (the `nodes.node.offline` event) and `testing` of this package (`packages/platform-slices.json`), and on `@marinoscar/platform-contract/notifications` for the wire shapes. The conformance suite and the internals an app's unit tests need are the nested subpath `@marinoscar/platform-api/notifications/testing`, catalogued here.
 
-## Module map
+## Purpose and scope
 
-| Path | What it does |
-|---|---|
-| `registry/` | The registries: channels, events, email templates, the event-to-template bindings and `registerNotification` (static, filled at import time by `registry/notification.manifest.ts`), plus `NotificationChannelSenderRegistry` (DI-held, the transports). See [`registry/README.md`](registry/README.md). |
-| `notification-events.ts` | Views over the registry: `NOTIFICATION_EVENTS`, `NOTIFICATION_CHANNELS` (`email`, `browser`, `push`, then any app channel), `findEvent`, `channelsFor`, `supportsChannel`, `isMandatory`, `listNotificationEvents`. |
-| `notifications.service.ts` | The dispatcher. `notify`, `notifyNow`, `notifyAddress`, `notifyPermissionHolders` and `notifyPermissionHoldersNow` all converge on one private `dispatch()`. |
-| `notification-preferences.ts` | Pure functions: what this user wants, per event and channel (`user_settings.notifications`). |
-| `notification-policy.ts`, `notification-policy.service.ts` | What this deployment is willing to send (`system_settings.notifications`: `browserEnabled`, `disabledEvents`). |
-| `notification-delivery.service.ts` | Writes one `notification_deliveries` row per channel attempt. |
-| `notification-store.service.ts`, `notification-stream.service.ts` | The in-app inbox (`notifications` table) and the per-user SSE stream that pushes new rows to open tabs. |
-| `notifications.controller.ts` | `/api/notifications`: event list, config, SSE stream, inbox reads and mark-read, push subscribe/unsubscribe. |
-| `channels/` | One `NotificationChannelSender` per channel. `email-notification.channel.ts` renders an email template and sends it over SMTP or SES. `browser-notification.channel.ts` writes the inbox row and publishes it to the stream. `push-notification.channel.ts` sends an encrypted Web Push message to each of the user's `push_subscriptions`. `browser-templates.ts` holds the platform's browser/push renderers (a leaf, so declaration files can import it). |
-| `push-config.*`, `push-subscription.service.ts` | Web Push: runtime VAPID key management (`/api/admin/push-config`, including the test-push route served by `push-test.service.ts`) and storage of browser push subscriptions. |
-| `broadcasts/` | Admin broadcasts: `/api/admin/broadcasts`, the audience, and the two fan-out job handlers under `broadcasts/handlers/`. A sibling module (`BroadcastsModule`), not part of `NotificationsModule`. `broadcasts.notifications.ts` declares its two events. |
-| `ops/` | `JobFailureNotifier`, a `job.settled` listener that raises `jobs.job_failed` to everyone holding the permission that can act on it. `ops.notifications.ts` declares that event. |
+One way to tell a user something: raise a registered event by key, after the write that caused it commits, and let the dispatcher decide which channels it reaches.
 
-Email templates live outside this folder: the platform's nine (and the
-template registry) in `@marinoscar/platform-api/email`
-([README](../../../../packages/platform-api/src/email/README.md)), the ones
-the identity and sharing slices own the words of in
-[`../platform/email/templates/`](../platform/email/templates/index.ts). Each platform module declares the
-events it raises in its own `<module>.notifications.ts`
-(`auth/`, `allowlist/`, `users/`, `nodes/`, `db-backup/`, plus `broadcasts/`
-and `ops/` here). This application's own channels, templates and
-notifications go in
-[`../app-registrations/notifications.ts`](../app-registrations/notifications.ts).
+| Part | Source | What it is |
+|---|---|---|
+| Module | `notifications.module.ts`, `notifications.options.ts` | `NotificationsModule.forRoot({ imports })`: global; the dispatcher, the channels, the inbox and push routes, the doctor check. `BroadcastsModule` (`broadcasts/`) is a sibling module. |
+| Registries | `registry/` | Events (`registerNotificationEvent`), channels (`registerNotificationChannel`, open ids), the event-to-template bindings (`registerEmailNotificationTemplate`, `registerBrowserNotificationTemplate`), the one-call `registerNotification`, and the DI-held `NotificationChannelSenderRegistry` (the transports). |
+| Dispatcher | `notifications.service.ts` | `notify`, `notifyNow`, `notifyAddress`, `notifyPermissionHolders`, `notifyPermissionHoldersNow`; one delivery row per channel attempt; never throws to its caller. |
+| Policy | `notification-policy*.ts`, `notifications.system-settings.ts` | The `notifications` system namespace (`browserEnabled`, `disabledEvents`) with an org layer that may only tighten it (#738). |
+| Preferences | `notification-preferences.ts`, `notifications.user-settings.ts` | The `notifications` user namespace, sparse, keyed by open channel ids. |
+| Channels | `channels/` | Email (renders a registered template, forwards its inline `attachments`), browser (the `notifications` row plus the SSE publish), push (Web Push to each subscription). |
+| Inbox and stream | `notification-store.service.ts`, `notification-stream.service.ts`, `notifications.controller.ts` | `/api/notifications`: events, config, the SSE stream (cross-replica through `NOTIFICATIONS_EVENT_BUS`), the inbox, push subscriptions. |
+| Web Push | `push-config.*`, `push-subscription.service.ts`, `push-test.service.ts` | `/api/admin/push-config`: generate, rotate, remove, enable, test. The private key lives in the credential store; the rest in the `webPush` row of `system_settings`. |
+| Broadcasts | `broadcasts/` | `/api/admin/broadcasts` and the `admin.broadcast.start` / `admin.broadcast.chunk` jobs; `targetOrgId` (#738) narrows the audience to one organization. |
+| Ops | `ops/` | `jobs.job_failed` (a job that failed for good) and `nodes.node_offline` (from the nodes slice's `nodes.node.offline` event), raised to the holders of the permission that can act. |
+| Doctor | `doctor/` | `push.vapid` (the key pair is usable) and the Web Push egress entries. |
+| Test seams | `testing/` (`/notifications/testing`) | The `notifications` conformance suite, plus the slice's internals (`@internal`) for an app's own unit tests. |
 
-## Delivery model
+Not here: the notification-retention purge (the reference app's `common/retention`, which owns every retention policy), the email transports and templates themselves (`@marinoscar/platform-api/email`), and any digest or batching of events (no consumer).
 
-A caller raises an event by key. The dispatcher looks the event up in the
-event registry, takes the channels it declares, narrows them by admin
-policy (`policyChannels`), then by the recipient's stored preferences
-(`resolveChannels`). A `mandatory` event ignores stored preferences, so every
-declared channel stays on. Each surviving channel receives the event through
-its `NotificationChannelSender`. Before each attempt the dispatcher writes a
-`queued` row to `notification_deliveries`, then updates it to `sent` or
-`failed`. Dispatch runs in-process and detached from the caller. There is no
-retry: a process killed mid-send leaves a row stuck at `queued`, which is the
-evidence. A channel failure is recorded, never thrown back to the caller.
+## Install and peer dependencies
 
-The browser channel's durable `notifications` row is the delivery; the SSE
-publish and the OS toast are liveness on top of it. The admin kill switch
-(`browserEnabled: false`, or an event in `disabledEvents`) drops the browser
-channel for ordinary events, so they write no inbox row. A `mandatory` event
-keeps its row and arrives with `toast: false`. See `policyChannels` and
-`isBrowserToastAllowed` in `notification-policy.ts`. Web Push sends only
-while a VAPID key pair is generated and enabled at `/admin/settings/push`;
-there is no environment-variable fallback.
-
-## Adding a notification
-
-Three steps and no migration. An application adds its own notifications in
-[`../app-registrations/notifications.ts`](../app-registrations/notifications.ts);
-a platform module declares its own in `<module>.notifications.ts` next to the
-code that raises them, and appends one line to
-[`registry/notification.manifest.ts`](registry/notification.manifest.ts).
-Neither edits a list in this folder.
-
-### 1. Declare the event
-
-Each notification is one `NotificationRegistration`: the event, plus the
-email template and the browser renderer that render it.
+Ships inside `@marinoscar/platform-api`; import it by its subpath:
 
 ```ts
-// app-registrations/notifications.ts (in an application)
-export const APP_NOTIFICATIONS: readonly NotificationRegistration[] = [
-  {
-    event: {
-      key: 'billing.invoice_ready',
-      label: 'Invoice ready',
-      description: 'Sent when a new invoice is available to download.',
-      channels: ['email', 'browser'],
-      defaultEnabled: true,
-    },
-    emailTemplate: 'invoice-ready',            // a registered template name
-    browserTemplate: invoiceReadyBrowserTemplate, // also serves push
-  },
-];
+import { NotificationsModule, NotificationsService, registerNotification } from '@marinoscar/platform-api/notifications';
 ```
 
-The event's fields:
+`web-push` is a dependency of the package. Beyond the package's peers (`@nestjs/common`, `@nestjs/event-emitter`, `nestjs-zod`, `zod`), the slice needs from the app: core's `PlatformHostModule` (`PLATFORM_PRISMA`, `AUDIT_SINK`), `SettingsModule.forRoot()` (the namespaces and the row store), the email module (`EmailModule.forRoot(...)`, passed in `imports`), the jobs module (the broadcast handlers), the composed `notifications` fragment of `@marinoscar/platform-db`, and `SECRETS_ENCRYPTION_KEY` for the credential store.
 
-- `key`: stable and dotted, `<area>.<event>` (`billing.invoice_ready`),
-  lower snake case, at most 64 characters. **Never rename a key; add a new
-  one.** Stored preferences and delivery rows are keyed by it, and a user who
-  muted the old key would silently start receiving the new one.
-- `label` and `description`: user-facing copy for the preferences page.
-- `channels`: the channels this event can genuinely be delivered over
-  (`email`, `browser`, `push`, or a channel the application registered). An
-  event whose recipient has no account, such as `allowlist.invitation`,
-  declares `email` only.
-- `defaultEnabled`: what an account with no stored preference gets.
-- `mandatory: true`: only for events a user must not be able to silence, such
-  as a privilege or security change. A mandatory event must also be
-  `defaultEnabled: true`.
+## Quick start
 
-The manifest registers it with `registerNotification`, which validates the
-event and both bindings before it registers any of them. A malformed or
-duplicate key, an empty or unregistered channel, `mandatory` without
-`defaultEnabled`, a template name nobody registered, an email template on an
-event without `email`, or a browser renderer on an event with neither
-`browser` nor `push` fails at import time with a `RegistryError` naming the
-key. App notifications register after the platform's, so they list after the
-platform's on `GET /api/notifications/events` and in the preferences matrix.
-
-This one entry feeds the dispatcher, the `/settings/notifications` matrix and
-`GET /api/notifications/events`. There is no second list to update, and no
-preference row is created for anybody: an absent preference means "use the
-event's default".
-
-### 2. Write the templates
-
-Write one template per channel the event declares.
-
-**Email.** Create the template module. Export a payload interface and a pure
-function `(data, ctx?) => { subject, html, text }` (the render context carries
-the product name and the layout; `resolveEmailRenderContext(ctx)`), all from
-`@marinoscar/platform-api/email`.
-
-- Build the body with the `html` tagged literal so every interpolation is
-  escaped.
-- Pass it to `renderLayout`. Put any call-to-action URL through the layout,
-  which applies `safeUrl`.
-- Hand-write the text part. There is no HTML-to-text helper.
-- Register it with `registerEmailTemplate(name, template)` (or an
-  `APP_EMAIL_TEMPLATES` entry in
-  [`../app-registrations/notifications.ts`](../app-registrations/notifications.ts)),
-  and type its data by augmenting `EmailTemplateDataMap` of
-  `@marinoscar/platform-api/email`. A name already registered throws
-  `DUPLICATE_ID`; `{ override: true }` replaces a platform template on
-  purpose. Template names are stable ids once an event maps to them.
-- Name it in the notification's `emailTemplate`. An event that declares
-  `email` with no template is a recorded delivery failure, not a silent skip.
-
-**Browser and push.** Give the notification a `browserTemplate` returning
-`{ title, body, link? }`. The push channel uses the same renderer. It is
-optional: without one, the event's `label` and `description` are used. `link`
-must be a root-relative path. A platform renderer lives in
-[`channels/browser-templates.ts`](channels/browser-templates.ts), never in the
-channel class (the declaration files import it, and the class imports the
-registry).
-
-Worked examples:
-[`example-digest.email.ts`](../platform-extensions/email/examples/example-digest.email.ts),
-[`org-invitation.email.ts`](../platform/email/templates/org-invitation.email.ts) and
-[`../users/users.notifications.ts`](../users/users.notifications.ts).
-
-### 3. Call `notify()` at the real trigger
-
-Call it from a service whose module has `imports: [NotificationsModule]`:
+The reference app's binding ([`notifications.config.ts`](../../../../apps/api/src/platform/notifications/notifications.config.ts)) and host ports ([`notifications-host.module.ts`](../../../../apps/api/src/platform/notifications/notifications-host.module.ts)):
 
 ```ts
-await this.notifications.notify('billing.invoice_ready', userId, payload);
+import './index'; // the manifest: channels, events and bindings, before any module composes
+
+export const NotificationsModule = PlatformNotificationsModule.forRoot({
+  imports: [EmailModule, NotificationsHostModule], // NOTIFICATIONS_METRICS, NOTIFICATIONS_EVENT_BUS
+});
+export const BroadcastsModule = PlatformBroadcastsModule;
 ```
 
-- Call it **after** the triggering write has committed and **outside** any
-  `$transaction`.
-- `notify` is detached. It schedules the dispatch and returns before anything
-  is rendered or sent. It never rejects, never joins your transaction and
-  never delays your response.
-- `notify` takes `data: unknown`. Annotate the payload with the template's
-  data type at the call site; that is the only place its shape is checked.
+The manifest ([`notification.manifest.ts`](../../../../apps/api/src/platform/notifications/notification.manifest.ts)) registers at import time, never from `onModuleInit`:
 
-Pick the entry point by recipient and by whether you must wait:
+```ts
+registerPlatformNotificationChannels();   // email, browser, push (idempotent)
+registerNotifications(BROADCASTS_NOTIFICATIONS);
+registerNotifications(APP_NOTIFICATIONS);
+```
 
-| Method | Use it when |
+An app's own notification is one call ([`invoice-ready.notification.ts`](../../../../apps/api/src/examples/notifications/invoice-ready.notification.ts)), raised after the write commits:
+
+```ts
+registerNotification({ event, emailTemplate: 'example-invoice-ready', browserTemplate });
+await this.notifications.notify('example.invoice_ready', userId, { invoiceNumber, amount });
+```
+
+## Configuration
+
+`NotificationsModule.forRoot(options)`:
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `imports` | `NotificationsImport[]` | `[]` | The modules the slice needs from the app: the email module, and the module binding the host ports (`NOTIFICATIONS_METRICS`, `NOTIFICATIONS_EVENT_BUS`, both optional). |
+
+**None of this is runtime notification configuration.** The deployment policy (`/admin/settings/notifications`), an organization's tightening (`/admin/settings/org-settings`), each user's preferences (`/settings/notifications`) and the Web Push key pair (`/admin/settings/push`) are configured at run time. There is no environment variable for any of them: no VAPID key, subject or switch in `.env`.
+
+## Extension-point catalog
+
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `NotificationsModule.forRoot` | option | `forRoot(options?: NotificationsModuleOptions): DynamicModule` | Mount the slice once, with the email module and the host ports | experimental | [example](../../../../apps/api/src/platform/notifications/notifications.config.ts) |
+| `registerNotification` | registry | `registerNotification({ event, emailTemplate?, browserTemplate? }): void` | Add a notification: the event and its renderers, validated together | stable | [example](../../../../apps/api/src/examples/notifications/invoice-ready.notification.ts) |
+| `registerNotificationEvent` | registry | `registerNotificationEvent(event: NotificationEventDef): void` | Declare an event alone (its bindings registered elsewhere) | stable | [example](../../../../apps/api/src/examples/notifications/shipment-sent.notification.ts) |
+| `registerEmailNotificationTemplate` | registry | `registerEmailNotificationTemplate(eventKey: string, template: string): void` | Bind a registered email template to an event that declares `email` | stable | [example](../../../../apps/api/src/examples/notifications/shipment-sent.notification.ts) |
+| `registerBrowserNotificationTemplate` | registry | `registerBrowserNotificationTemplate(eventKey: string, render: BrowserNotificationTemplate): void` | Bind the bell row, OS toast and push renderer to an event | stable | [example](../../../../apps/api/src/examples/notifications/shipment-sent.notification.ts) |
+| `registerNotificationChannel` | registry | `registerNotificationChannel(channel: NotificationChannelDef): void` | Declare an app channel id (open: no package edit) | stable | [example](../../../../apps/api/src/examples/notifications/example-webhook.channel.ts) |
+| `notificationChannelRegistry` | registry | `Registry<NotificationChannelDef>` | List the channels, or extend them in a test | stable | [example](../../../../apps/api/test/examples/notifications/app-channel-and-event.example.spec.ts) |
+| `NotificationChannelSenderRegistry` | registry | `register(sender: NotificationChannelSender): void` | Provide the transport of an app channel, from its `onModuleInit` | stable | [example](../../../../apps/api/src/examples/notifications/example-webhook.channel.ts) |
+| `NotificationsService` | token | `notify(eventKey, userId, data, options?)`, `notifyNow`, `notifyAddress(eventKey, email, data)`, `notifyPermissionHolders(eventKey, permission, data)`, `notifyPermissionHoldersNow` | Raise an event, after the triggering write commits and outside any `$transaction` | stable | [example](../../../../apps/api/src/platform/identity/identity-notifier.adapter.ts) |
+| `NOTIFICATIONS_SYSTEM_SETTINGS` | schema | `SystemSettingsNamespace<'notifications', ...>` with `org: { schema, merge: tightenNotificationsPolicy }` | Register the deployment policy and its org layer (an organization may only tighten it) | stable | [example](../../../../apps/api/src/settings/registry/system-settings.manifest.ts) |
+| `NOTIFICATIONS_USER_SETTINGS` | schema | `UserSettingsNamespace<'notifications', ...>` | Register the per-user, per-channel preferences | stable | [example](../../../../apps/api/src/settings/registry/user-settings.manifest.ts) |
+| `NOTIFICATIONS_METRICS` | token | `unique symbol` -> `NotificationsMetrics` | Bind the app's delivery counter (no method takes an organization or a user) | experimental | [example](../../../../apps/api/src/platform/notifications/notifications-host.module.ts) |
+| `NOTIFICATIONS_EVENT_BUS` | token | `unique symbol` -> `NotificationsEventBus` | Bind the cross-replica bus the SSE stream fans out on | experimental | [example](../../../../apps/api/src/platform/notifications/notifications-host.module.ts) |
+| `notificationsConformanceSuite` | registry | `ConformanceSuite<NotificationsConformanceOptions>` | Run the slice's invariants in the app through `runPlatformConformance({ suites: { notifications } })` | experimental | [example](../../../../apps/api/test/notifications/notifications-conformance.spec.ts) |
+
+Supporting exports (experimental unless noted): `BroadcastsModule`; the options and `NOTIFICATIONS_OPTIONS`; `registerNotifications`, `registerNotificationChannels`, `registerPlatformNotificationChannels`, `isRegisteredNotificationChannel`, `listNotificationChannels`, `notificationEventRegistry`, `eventEmailTemplateRegistry`, `eventBrowserTemplateRegistry`, `PLATFORM_NOTIFICATION_CHANNELS`; `findEvent`, `channelsFor`, `supportsChannel`, `isMandatory`, `listNotificationEvents`; the channel sender contract (`NotificationChannelSender`, `NotificationDispatchContext`, `ChannelDeliveryResult`, `NotifyOptions`); the platform's declarations (`BROADCASTS_NOTIFICATIONS`, `OPS_NOTIFICATIONS`, `NODES_NOTIFICATIONS`, stable) and browser renderers; `sanitizeLink`; the policy (`DEFAULT_NOTIFICATION_POLICY`, `policyChannels`, `isBrowserToastAllowed`, `tightenNotificationsPolicy`); `notificationsPatchSchema`; the stream's bus message types; `PushConfigService`, `PUSH_CONFIG_KEY`, the VAPID credential address and purpose; the broadcast event keys and job types (stable); the permission declarations (`BROADCASTS_PERMISSIONS`, `ORG_BROADCASTS_PERMISSIONS`, `PUSH_PERMISSIONS`); the structural data types (`NotificationsPrisma` and the rows); the DTO classes over the contract schemas.
+
+### The three rungs, for notifications
+
+1. **Option.** `forRoot({ imports })` and the runtime settings: an operator turns the browser channel off or suppresses events for everyone; an organization's administrator tightens that for their members; a user mutes what they may.
+2. **Registry.** `registerNotification` adds an event and its renderers; `registerNotificationChannel` adds a channel id. Neither edits a package file. **An event key and a channel id are permanent** once preferences or delivery rows name them: add one, never rename one (a user who muted the old key would silently start receiving the new one).
+3. **Token.** A transport for an app channel is a `NotificationChannelSender` that registers itself with `NotificationChannelSenderRegistry` in `onModuleInit` (the example webhook channel). A second sender for a channel that has one fails at bootstrap (`Duplicate notification channel sender registered for 'email'.`); a declared channel with no sender is skipped quietly, so declaring the id before the transport ships is safe.
+
+### Adding a notification
+
+1. **Declare the event.** `key` is `<area>.<event>`, lower snake case, at most 64 characters; `channels` are the channels it can genuinely be delivered over (an event whose recipient may have no account declares `email` only); `defaultEnabled` is what an account with no stored preference gets; `mandatory: true` (only for privilege and security changes) requires `defaultEnabled: true`. A malformed or duplicate key, an unregistered channel or a binding the event cannot use fails at import time with a `RegistryError` naming the key.
+2. **Write the renderers.** The email template is registered with the email slice's `registerEmailTemplate` (its data typed by augmenting `EmailTemplateDataMap`) and named in the binding; an event that declares `email` with no template is a recorded delivery failure. The browser renderer returns `{ title, body, link? }`, `link` root-relative; push uses it too; without one the event's `label` and `description` are shown.
+3. **Call `notify()` at the real trigger,** after the write commits and outside any `$transaction`. `notify` is detached: it never rejects, never joins your transaction and never delays your response. `notifyNow` is the awaited form for a job handler; `notifyAddress` for a recipient who may have no account; `notifyPermissionHolders` for "whoever can act on this" (the permission constant the area's controller enforces). `NotifyOptions.orgId` names the organization whose policy applies; omitted, the recipient's most recently active membership decides.
+
+### Adding a channel
+
+Declare the id ([`example-webhook.channel.ts`](../../../../apps/api/src/examples/notifications/example-webhook.channel.ts)), provide the sender in the app's own module (its `deliver` returns `{ success: false, error }`, never throws), and list the channel on the events that can use it. A channel with `userConfigurable: false` follows its event default and takes no user preference.
+
+## Data
+
+Models of the `notifications` fragment of `@marinoscar/platform-db`: `Notification` (`notifications`, the inbox), `NotificationDelivery` (`notification_deliveries`, one row per channel attempt: `queued`, then `sent` or `failed`), `PushSubscription` (`push_subscriptions`) and `NotificationBroadcast` (`notification_broadcasts`). #738 adds `notification_broadcasts.target_org_id` (nullable, FK to `organizations`, `Cascade`, indexed): platform migration `0032_add_broadcast_target_org`. The slice reads `users`, `memberships`, `user_settings`, `system_settings`, `jobs` and `organizations`, and appends to `audit_events`, all through `PLATFORM_PRISMA` as structural types (it never imports a generated client). The Web Push configuration is the `webPush` row of `system_settings`, through `SystemSettingsRowStore` (audited `push_config:*`); the private key is the credential-store row of `PUSH_VAPID_CREDENTIAL_PURPOSE`. None of these tables has row-level security: a broadcast is scoped by its `target_org_id` in the service.
+
+## Permissions and settings
+
+| Permission | Scope | Seeded to | Gates |
+|---|---|---|---|
+| `broadcasts:read`, `broadcasts:write` | system | `admin` | Every broadcast, any audience (`/api/admin/broadcasts`) |
+| `org_broadcasts:read`, `org_broadcasts:write` | org | `org_admin` | The active organization's broadcasts only; the target is forced to it, and another organization's broadcast reads as 404 |
+| `push:read`, `push:write` | system | `admin` | `/api/admin/push-config` |
+
+The broadcast routes declare `@Auth({ anyPermissions: [system, org] })`: either string admits, and the service scopes by which one the caller holds. The `Broadcasts` card declares the same list (`['broadcasts:read', 'org_broadcasts:read']`). `/api/notifications/*` needs only a signed-in user. Settings: the `notifications` system namespace (`system_settings:read` / `system_settings:write`; its org layer through `/api/org-settings` with `org_settings:read` / `org_settings:write`) and the `notifications` user namespace (`user_settings:*`).
+
+## UI
+
+None in this slice. The bell, the permission banner, the preferences matrix, the admin pages and the service-worker helpers are `@marinoscar/platform-web/notifications`.
+
+## Infra
+
+None. No environment variable: Web Push keys, subject and switch are runtime-configured. The SSE stream needs the reverse proxy's SSE settings (`infra/nginx/platform/`), which the platform infra already ships.
+
+## Observability
+
+Every dispatch is a `notifications.dispatch` span with `notification.event_key`, `notification.channels` and `org.id` (a span attribute, never a metric label). The delivery counter is the app's (`NOTIFICATIONS_METRICS`; the reference app's `app.notifications.deliveries`, labelled by channel, outcome and event key, never by organization or user). Logs: a channel failure (event, channel, the redacted error), an unknown event key (`debug`), a broadcast's progress and failure, each push-config change (never key material).
+
+## Security notes
+
+- **`notify()` runs after the triggering write commits, outside any `$transaction`.** A notification about a rolled-back write is a lie, and a dispatch inside a transaction holds it open across a network round trip. The conformance suite's `after-commit` case scans the app's sources for it.
+- **The VAPID private key never leaves the credential store** except into the push channel's signing call: no route, log line, audit row or response carries it, and the contract carries compile-time proofs of that (`PUSH_CONTRACT_CARRIES_NO_SECRET`). A subscription endpoint is a capability URL: logged by host only.
+- **Links are root-relative.** `sanitizeLink` drops anything else at write time, and the web client re-validates before navigating.
+- **A `mandatory` event ignores stored preferences;** the admin kill switch still withholds its OS toast but keeps its inbox row.
+- **Broadcast scope is enforced in the service,** not only by the route gate: an organization administrator's target is forced to their active organization, and naming another (or an unknown one) is a 422.
+
+## Conformance suite
+
+Importing `@marinoscar/platform-api/notifications/testing` registers the `notifications` suite with `runPlatformConformance()`. Run it after the app's manifest has registered:
+
+```ts
+import { runPlatformConformance } from '@marinoscar/platform-api/testing';
+import '@marinoscar/platform-api/notifications/testing';
+import '../../src/platform/notifications';
+
+runPlatformConformance({ sourceRoots: [API_SOURCE_ROOT], suites: { notifications: { afterCommitAllowlist: [] } } });
+```
+
+| Case | Fails when |
 |---|---|
-| `notify(eventKey, userId, data)` | The recipient is a user account. The default. |
-| `notifyAddress(eventKey, email, data)` | The recipient may have no account, such as an allowlist invitation. An address that matches an account uses that account's preferences. |
-| `notifyNow(eventKey, userId, data)` | A job handler must not return before delivery has been attempted. Awaited, still never rejects. |
-| `notifyPermissionHolders(eventKey, permission, data)` | The audience is "whoever can act on this": every user holding a permission. Use the constant from `PERMISSIONS`, the same one the area's controller enforces. `notifyPermissionHoldersNow` is the awaited form. |
+| `platform` | The platform channels (`email`, `browser`, `push`) or the platform notifications are not registered |
+| `templates` | An event that declares `email` has no registered email template |
+| `after-commit` | A `notify*()` call sits inside a `$transaction` callback in the app's sources (minus `afterCommitAllowlist`) |
+| `no-secret` | The Web Push settings or their admin view declare a secret-bearing field |
 
-Live examples:
+## Upgrade notes
 
-- `AuthService.handleGoogleLogin`: `user.welcome`.
-- `AllowlistService.addEmail`: `allowlist.invitation` through `notifyAddress`.
-- `OrgInvitesService.dispatchInvitation` (#726): `org.invitation` through
-  `notifyAddress`, after the invitation's transaction commits.
-- `OrgMembersService.update` (#726): `security.role_changed` when an org
-  administrator changes a member's org role.
-- `UsersService.updateUserRoles`: `security.role_changed`, mandatory.
-- Operational events raised to permission holders: `jobs.job_failed`
-  (`ops/job-failure-notifier.ts`), `nodes.node_offline`,
-  `db_backup.backup_failed` and `db_backup.restore_completed` (mandatory).
-  See §2.9 and §6 of the
-  [browser notifications spec](../../../../docs/specs/browser-notifications.md)
-  for the operational events and why `jobs.job_failed` has no digest.
+New subpath in this version. From the reference app's local `src/notifications/` (#738):
 
-## Adding a channel
+- Import from `@marinoscar/platform-api/notifications`; mount `NotificationsModule.forRoot({ imports: [EmailModule, <host ports module>] })` once. It is global.
+- Channel ids are open strings: `NOTIFICATION_CHANNELS` and the `NotificationChannelIds` augmentation are gone; register a channel with `registerNotificationChannel`. Preference keys and broadcast channels are checked against the registry at run time; the OpenAPI channel fields are patterns, not enums.
+- The `notifications` system namespace has an org layer: an organization may turn the browser channel off and suppress more events for its members. `NotificationPolicyService.getPolicy(orgId?)` resolves it.
+- Broadcasts take an optional `targetOrgId`, and the org-scoped `org_broadcasts:*` pair exists (seed it to `org_admin`). The routes accept either pair.
+- The email channel forwards the rendered template's `attachments` (the layout's brand mark), as the test email always did.
+- Web Push configuration is read and written through the settings slice's `SystemSettingsRowStore` (the `webPush` row; stored values and audit actions unchanged).
+- The cross-replica stream rides `NOTIFICATIONS_EVENT_BUS`; the delivery counter `NOTIFICATIONS_METRICS`. Both optional.
+- Internals an app's unit tests used (the channels, the stream, the controllers, the broadcast handlers) are on `/notifications/testing`, `@internal`.
 
-A channel is two things: an id in the channel registry, and a transport
-(`NotificationChannelSender`) that delivers over it.
+## Troubleshooting
 
-1. **Declare the id** in `APP_NOTIFICATION_CHANNELS` in
-   [`../app-registrations/notifications.ts`](../app-registrations/notifications.ts),
-   and widen the type by augmenting `NotificationChannelIds`:
+| Symptom | Cause | Fix |
+|---|---|---|
+| `RegistryError ... is not a registered notification channel` at import | An event names a channel no one registered (or registers before the channel) | Register the channel first (`registerNotificationChannel`, or `registerPlatformNotificationChannels()` for the platform's) |
+| `Duplicate notification channel sender registered for 'x'.` at bootstrap | Two senders for one channel | Remove one; a platform channel's sender is not replaceable (file a seam request if you need that) |
+| `PATCH /user-settings` 400 `"x" is not a registered notification channel` | A preference for a channel this deployment does not register | Register the channel, or drop the key from the client |
+| An event never reaches the bell | `browserEnabled: false` (system or the recipient's organization), the event in `disabledEvents`, or the user muted it | Check `/admin/settings/notifications`, the organization's settings, the user's preferences |
+| Web Push: nothing arrives, the doctor's `push.vapid` fails | No key pair, the switch off, or the private key unreadable (rotated `SECRETS_ENCRYPTION_KEY`) | Generate or rotate at `/admin/settings/push`; run its test |
+| Broadcast `422` naming the organization | An org administrator named another organization, or the organization does not exist | Omit `targetOrgId` (it defaults to the active organization) |
+| The stream shows a notification on one replica only | No `NOTIFICATIONS_EVENT_BUS` bound | Bind the app's event bus in the host ports module |
+| The conformance `after-commit` case fails | A `notify` inside `$transaction(async (tx) => ...)` | Move the call after the transaction resolves |
 
-   ```ts
-   export const APP_NOTIFICATION_CHANNELS: readonly NotificationChannelDef[] = [
-     { id: 'android_app', label: 'Android app', description: 'A notification on the paired Android app.' },
-   ];
+## Links
 
-   declare module '../notifications/registry/channel.registry' {
-     interface NotificationChannelIds { android_app: true }
-   }
-   ```
-
-   A channel id is persisted in preferences and delivery rows: never rename
-   one.
-
-2. **Provide the sender** in the application's own module, which imports
-   `NotificationsModule`. The sender injects `NotificationChannelSenderRegistry`
-   and registers itself in `onModuleInit`, the same pattern as a doctor check:
-
-   ```ts
-   @Injectable()
-   export class AndroidAppNotificationChannel implements NotificationChannelSender, OnModuleInit {
-     readonly channel = 'android_app';
-     constructor(private readonly registry: NotificationChannelSenderRegistry) {}
-     onModuleInit(): void {
-       this.registry.register(this);
-     }
-     resolveTo(recipient: NotificationRecipient): string | null { /* ... */ }
-     async deliver(context: NotificationDispatchContext, to: string): Promise<ChannelDeliveryResult> { /* ... */ }
-   }
-   ```
-
-   `deliver` must never throw: return `{ success: false, error }` instead.
-
-3. **Declare the channel on the events** that can use it (`channels: [...,
-   'android_app']`).
-
-The registration is an explicit call in the application's diff, never
-discovery. A second sender for a channel that already has one (`email`, say)
-fails at bootstrap with `Duplicate notification channel sender registered for
-'email'.`; a sender for an undeclared channel fails too. The platform's own
-three senders stay in the `NOTIFICATION_CHANNEL_SENDERS` factory in
-`notifications.module.ts`. A declared channel with no sender is skipped
-quietly, so declaring the id before the transport ships is safe.
-
-## Admin broadcasts
-
-A broadcast is one message an administrator sends to every active user, now
-or at a scheduled time. It adds no second notification system. It raises one
-of two registry events (`admin.broadcast`, which users can mute, or
-`admin.broadcast_critical`, which is mandatory) through the same dispatcher,
-and fans out over two job types:
-
-- `admin.broadcast.start` freezes the audience and enqueues the chunks.
-- `admin.broadcast.chunk` delivers to one slice of the audience with
-  `notifyNow`. Chunks are enqueued with `skipDedup: true`.
-
-The full design is in the broadcasts spec below.
-
-## Further reading
-
-- [Browser notifications and Web Push spec](../../../../docs/specs/browser-notifications.md):
-  service worker, capability model, kill switch, Web Push, operational events.
-- [Notification broadcasts spec](../../../../docs/specs/notification-broadcasts.md):
-  audience, lifecycle, fan-out, channel selection.
-- [VAPID keys runbook](../../../../docs/runbooks/vapid-keys.md): generating,
-  rotating and removing Web Push keys.
-- [Job handler recipe](../../jobs/handlers/README.md): how the broadcast
-  handlers register with the queue.
+- [Package README](../../README.md)
+- [Platform packages spec](../../../../docs/specs/platform-packages.md)
+- [Contract](../../../platform-contract/src/notifications/README.md)
+- [Web counterpart](../../../platform-web/src/notifications/README.md)
+- [Email slice (templates, transports)](../email/README.md)
+- [Settings slice (namespaces, the org layer, the row store)](../settings/README.md)
+- [Jobs slice (the broadcast fan-out)](../jobs/README.md)
+- [Browser notifications and Web Push spec](../../../../docs/specs/browser-notifications.md)
+- [Notification broadcasts spec](../../../../docs/specs/notification-broadcasts.md)
+- [VAPID keys runbook](../../../../docs/runbooks/vapid-keys.md)
+- [Package documentation standard](../../../../docs/PACKAGES.md)

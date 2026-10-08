@@ -352,6 +352,8 @@ const FORBIDDEN_LINK_CHARS = /[\u0000-\u0020\u007F]/;
  * worth delivering without its link — refusing the whole thing would let a
  * malformed link silence a mandatory security alert, trading a small usability
  * bug for the exact failure mode `mandatory` exists to prevent.
+  *
+  * @stability experimental
  */
 export function sanitizeLink(link: string | undefined): string | null {
   if (!link) return null;

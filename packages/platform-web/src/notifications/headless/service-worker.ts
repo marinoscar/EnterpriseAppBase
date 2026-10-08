@@ -202,6 +202,7 @@ function iconsOf(options: NotificationServiceWorkerOptions | undefined): { icon:
  * self.addEventListener('notificationclick', (event) => handleNotificationClick(self, event));
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function handleNotificationClick(scope: NotificationsServiceWorkerScope, event: NotificationsClickEvent): void {
@@ -300,6 +301,7 @@ async function showTestPush(
  * self.addEventListener('push', (event) => event.waitUntil(handlePushEvent(self, event)));
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export async function handlePushEvent(
@@ -344,6 +346,7 @@ export async function handlePushEvent(
  * @param event - the change event.
  * @returns when the attempt settles; never rejects.
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export async function handlePushSubscriptionChange(
@@ -373,6 +376,7 @@ export async function handlePushSubscriptionChange(
  * registerNotificationServiceWorkerHandlers(self, { icon: '/icons/icon-192.png', badge: '/icons/badge-96.png' });
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function registerNotificationServiceWorkerHandlers(

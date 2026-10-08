@@ -44,7 +44,7 @@ export const EMAIL_MODULE_OPTIONS: EmailModuleOptions = {
 export const EmailModule = PlatformEmailModule.forRoot(EMAIL_MODULE_OPTIONS);
 ```
 
-A feature imports that one object (`imports: [EmailModule]`) and injects `EmailSettingsService` and the two providers. Templates register at import time, from a manifest, never from `onModuleInit` ([`notification.manifest.ts`](../../../../apps/api/src/notifications/registry/notification.manifest.ts)):
+A feature imports that one object (`imports: [EmailModule]`) and injects `EmailSettingsService` and the two providers. Templates register at import time, from a manifest, never from `onModuleInit` ([`notification.manifest.ts`](../../../../apps/api/src/platform/notifications/notification.manifest.ts)):
 
 ```ts
 configureEmailRendering(EMAIL_MODULE_OPTIONS);   // the same options forRoot receives
@@ -80,12 +80,12 @@ With no `layout` option every platform template renders byte for byte what the p
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `EmailModule.forRoot` | option | `forRoot(options: EmailModuleOptions): DynamicModule` | Mount the slice once, with the product name, URL, look and classifier | experimental | [example](../../../../apps/api/src/platform/email/email.config.ts) |
-| `configureEmailRendering` | option | `configureEmailRendering(options: EmailRenderingOptions): EmailRenderContext` | Configure rendering where templates render before Nest composes modules (a manifest, a seed), with forRoot's options | experimental | [example](../../../../apps/api/src/notifications/registry/notification.manifest.ts) |
+| `configureEmailRendering` | option | `configureEmailRendering(options: EmailRenderingOptions): EmailRenderContext` | Configure rendering where templates render before Nest composes modules (a manifest, a seed), with forRoot's options | experimental | [example](../../../../apps/api/src/platform/notifications/notification.manifest.ts) |
 | `registerEmailTemplate` | registry | `registerEmailTemplate<K>(name: K, template: EmailTemplate<EmailTemplateDataMap[K]>, opts?: { override?, registrant? }): void` | Add an app template; `{ override: true }` replaces an existing one on purpose | experimental | [example](../../../../apps/api/test/email/email-extension-points.spec.ts) |
 | `emailTemplateRegistry` | registry | `Registry<EmailTemplateEntry>` | Register a list of templates (`registerEmailTemplates`), list them, or extend them in a test | experimental | [example](../../../../apps/api/src/platform/email/templates/index.ts) |
 | `EmailTemplateDataMap` | schema | `interface EmailTemplateDataMap { [name]: Data }` | Type an app template's data by module augmentation | experimental | [example](../../../../apps/api/src/platform-extensions/email/examples/example-digest.email.ts) |
 | `renderEmailTemplate` | hook | `renderEmailTemplate<K>(name: K, data: EmailTemplateDataMap[K], ctx?: EmailRenderContext): RenderedEmail` | Render a template you know statically, its data checked | experimental | [example](../../../../apps/api/test/email/email-extension-points.spec.ts) |
-| `findEmailTemplate` | hook | `findEmailTemplate(name: string): EmailTemplate<unknown> \| undefined` | Render by a name from persisted data; never throws | experimental | [example](../../../../apps/api/src/notifications/channels/email-notification.channel.ts) |
+| `findEmailTemplate` | hook | `findEmailTemplate(name: string): EmailTemplate<unknown> \| undefined` | Render by a name from persisted data; never throws | experimental | [example](../../../../apps/api/test/email/email-extension-points.spec.ts) |
 | `EmailLayoutTheme` | theme-token | `{ colors, tones?, dark?, fontStack? }` | Brand the layout without forking it | experimental | [example](../../../../apps/api/src/platform-extensions/email/examples/branded-layout.example.ts) |
 | `EmailBrandMark` | slot | `{ pngBase64, cid, displaySize, alt? }` | Show a logo, inline by `cid:`, never remote | experimental | [example](../../../../apps/api/src/platform-extensions/email/examples/branded-layout.example.ts) |
 | `renderLayout` | hook | `renderLayout(opts: RenderLayoutOptions, ctx?): string` | Wrap a template body in the shared HTML shell | experimental | [example](../../../../apps/api/src/platform-extensions/email/examples/example-digest.email.ts) |
@@ -188,5 +188,5 @@ New subpath in this version. From the reference app's local `src/email/` (#737):
 - [Web counterpart](../../../platform-web/src/email/README.md)
 - [Settings slice (the row store)](../settings/README.md)
 - [Credentials slice (the secrets)](../credentials/README.md)
-- [Notifications: write the templates](../../../../apps/api/src/notifications/README.md)
+- [Notifications: write the templates](../notifications/README.md)
 - [Package documentation standard](../../../../docs/PACKAGES.md)

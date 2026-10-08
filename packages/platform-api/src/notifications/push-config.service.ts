@@ -87,7 +87,11 @@ import type { UpdatePushConfigInput } from './dto/update-push-config.dto';
 // storage and SES were retired.
 // =============================================================================
 
-/** The `system_settings.key` this configuration is stored under. */
+/**
+ * The `system_settings.key` this configuration is stored under.
+ *
+ * @stability stable
+ */
 export const PUSH_CONFIG_KEY = 'webPush';
 
 /** The `webPush` row read as stored, for the admin view's damage report. */
@@ -98,6 +102,8 @@ const RAW_ROW = z.unknown();
  * renders. Mirrors `SmtpPasswordStatus` exactly, including why a boolean
  * alone is not enough: an admin who has just rotated the keys needs to see
  * WHICH pair is live.
+  *
+  * @stability experimental
  */
 export interface PrivateKeyStatus {
   /** Is a private key stored at `(purpose 'push_vapid', name 'default')`? */
@@ -118,6 +124,8 @@ export interface PrivateKeyStatus {
  * `PushConfig` rather than nesting it, matching
  * `EmailSettingsAdminView`, so a field added to the schema appears here with
  * no edit.
+  *
+  * @stability experimental
  */
 export interface PushConfigAdminView extends PushConfig {
   /**
@@ -151,7 +159,11 @@ export interface PushConfigAdminView extends PushConfig {
   } | null;
 }
 
-/** What a channel needs to actually sign and send a push. Never rendered to a client. */
+/**
+ * What a channel needs to actually sign and send a push. Never rendered to a client.
+ *
+ * @stability experimental
+ */
 export interface ActiveVapidConfig {
   /** The VAPID public key. */
   publicKey: string;

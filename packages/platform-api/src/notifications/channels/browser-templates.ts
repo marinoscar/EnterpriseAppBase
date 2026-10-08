@@ -35,6 +35,8 @@ import type { RoleChangedEmailData } from '../../email/index';
  * contract — three fields, no HTML, because the destinations are a bell row
  * and an OS toast, both of which render plain text and neither of which will
  * ever run markup from this payload.
+  *
+  * @stability experimental
  */
 export interface BrowserNotificationContent {
   /** One short line. The toast headline and the bell row's heading. */
@@ -53,7 +55,11 @@ export interface BrowserNotificationContent {
   link?: string;
 }
 
-/** Renders one event's payload into what the user actually sees. */
+/**
+ * Renders one event's payload into what the user actually sees.
+ *
+ * @stability experimental
+ */
 export type BrowserNotificationTemplate = (
   data: never,
 ) => BrowserNotificationContent;
@@ -113,6 +119,8 @@ function formatRoles(roles: string[]): string {
  * map is reached with an unchecked `data: unknown`, and a payload that does not
  * match is a recorded delivery failure inside the channel's try/catch, never a
  * thrown broadcast.
+  *
+  * @stability experimental
  */
 export const broadcastBrowserTemplate: BrowserNotificationTemplate = (data: never): BrowserNotificationContent => {
   const { title, body, link } = data as BroadcastEmailData;
@@ -144,6 +152,8 @@ export const broadcastBrowserTemplate: BrowserNotificationTemplate = (data: neve
  * boundary the channel's `render` describes at length. It is inside the
  * channel's try/catch, so a payload that does not match is a recorded
  * delivery failure, never a thrown role change.
+  *
+  * @stability experimental
  */
 export const roleChangedBrowserTemplate: BrowserNotificationTemplate = (data: never): BrowserNotificationContent => {
   const { previousRoles, currentRoles } = data as RoleChangedEmailData;
@@ -179,7 +189,11 @@ export const roleChangedBrowserTemplate: BrowserNotificationTemplate = (data: ne
 //
 // (`jobs.job_failed` has none; `notifications/ops/ops.notifications.ts` says why.)
 
-/** The browser/push rendering of `nodes.node_offline` (#288). */
+/**
+ * The browser/push rendering of `nodes.node_offline` (#288).
+ *
+ * @stability experimental
+ */
 export const nodeOfflineBrowserTemplate: BrowserNotificationTemplate = (data: never): BrowserNotificationContent => {
   const { nodeName, lastHeartbeatAt } = data as NodeOfflineEmailData;
 
@@ -197,7 +211,11 @@ export const nodeOfflineBrowserTemplate: BrowserNotificationTemplate = (data: ne
   };
 };
 
-/** The browser/push rendering of `db_backup.backup_failed` (#288). */
+/**
+ * The browser/push rendering of `db_backup.backup_failed` (#288).
+ *
+ * @stability experimental
+ */
 export const backupFailedBrowserTemplate: BrowserNotificationTemplate = (data: never): BrowserNotificationContent => {
   const { runId, outcome, error } = data as BackupFailedEmailData;
 
@@ -216,7 +234,11 @@ export const backupFailedBrowserTemplate: BrowserNotificationTemplate = (data: n
   };
 };
 
-/** The browser/push rendering of `db_backup.restore_completed` (#288). */
+/**
+ * The browser/push rendering of `db_backup.restore_completed` (#288).
+ *
+ * @stability experimental
+ */
 export const restoreCompletedBrowserTemplate: BrowserNotificationTemplate = (data: never): BrowserNotificationContent => {
   const { runId, backupTakenAt } = data as RestoreCompletedEmailData;
 

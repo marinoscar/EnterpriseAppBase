@@ -50,6 +50,8 @@ import type { NotificationsJsonValue, NotificationsInputJsonValue, Notifications
  * around — it works until someone moves one of them to a class-property
  * initializer and gets `undefined` at boot. One shared module, imported by
  * both, has no such failure mode.
+  *
+  * @stability experimental
  */
 export const BROADCAST_SUBJECT_TYPE = 'notification_broadcast';
 
@@ -90,6 +92,8 @@ export { BROADCAST_CHUNK_SIZE } from '@marinoscar/platform-contract/notification
  * number ALSO the duplicate bound on a throttled page: only sends already in
  * flight when the first refusal came back can have landed past the committed
  * cursor, and there are at most this many of those.
+  *
+  * @stability experimental
  */
 export const BROADCAST_SEND_CONCURRENCY = 5;
 

@@ -211,6 +211,7 @@ export const notificationsResponseSchema = z.object({
  * suppresses more events (the effective list is the union). Every field is
  * optional: an org stores only what it overrides.
  *
+ * @extensionPoint schema
  * @stability experimental
  */
 export const orgNotificationsSchema = z.object({
@@ -875,19 +876,15 @@ const rootRelativeLink = z
   .min(1, 'link must not be empty')
   .max(BROADCAST_LINK_MAX)
   .refine((value) => !FORBIDDEN_LINK_CHARS.test(value), {
-    /** A short explanation, or null. */
     message: 'link must not contain spaces or control characters',
   })
   .refine((value) => value.startsWith('/'), {
-    /** A short explanation, or null. */
     message: 'link must be root-relative and start with "/"',
   })
   .refine((value) => !value.startsWith('//'), {
-    /** A short explanation, or null. */
     message: 'link must not be protocol-relative ("//…")',
   })
   .refine((value) => !value.startsWith('/\\'), {
-    /** A short explanation, or null. */
     message: 'link must not start with "/\\"',
   });
 
@@ -898,6 +895,7 @@ const rootRelativeLink = z
  * system `broadcasts:write` holder may name one (an `org_broadcasts:write`
  * holder's target is forced to their active organization).
  *
+ * @extensionPoint schema
  * @stability stable
  */
 export const createBroadcastSchema = z

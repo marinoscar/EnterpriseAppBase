@@ -115,6 +115,8 @@ import { BROADCAST_CHUNK_TYPE } from './broadcast-chunk.handler';
  *
  * Exported because #324's API enqueues it by name, and two string literals is
  * one typo away from a "Send now" button that queues work no handler claims.
+  *
+  * @stability stable
  */
 export const BROADCAST_START_TYPE = 'admin.broadcast.start';
 
@@ -127,6 +129,8 @@ export const BROADCAST_START_TYPE = 'admin.broadcast.start';
  * point at it.
  *
  * @internal
+  *
+  * @stability experimental
  */
 export function broadcastFirstChunkDedupKey(broadcastId: string): string {
   return buildDedupKey(BROADCAST_CHUNK_TYPE, BROADCAST_SUBJECT_TYPE, broadcastId);

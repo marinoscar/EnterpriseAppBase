@@ -268,6 +268,8 @@ import { broadcastJobDeleteRefusal } from '../broadcast-job-delete-guard';
  * Exported because `broadcast-start.handler.ts` enqueues the first chunk by
  * name and this file enqueues every later one; two literals is one typo away
  * from a fan-out that stops after the start job.
+  *
+  * @stability stable
  */
 export const BROADCAST_CHUNK_TYPE = 'admin.broadcast.chunk';
 
@@ -287,6 +289,8 @@ export const BROADCAST_CHUNK_TYPE = 'admin.broadcast.chunk';
  * replica honours.
  *
  * @internal
+  *
+  * @stability experimental
  */
 export const BROADCAST_EMAIL_PROVIDER_KEY = 'notifications.email';
 

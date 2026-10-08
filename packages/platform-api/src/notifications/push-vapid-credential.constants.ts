@@ -32,6 +32,8 @@ import type { CredentialPurposeDef } from '../credentials/index';
  * `purpose` is also the AES-GCM sub-key domain (see `CredentialsService`), so
  * changing this string orphans every already-stored VAPID private key — they
  * remain in the table and become permanently unreadable. It is not a rename.
+  *
+  * @stability stable
  */
 export const PUSH_VAPID_CREDENTIAL_PURPOSE = 'push_vapid';
 
@@ -39,6 +41,8 @@ export const PUSH_VAPID_CREDENTIAL_PURPOSE = 'push_vapid';
  * Discriminator within the purpose. 'default' because this app has one Web
  * Push identity; a future multi-tenant setup keys additional rows by tenant id
  * without touching anything above.
+  *
+  * @stability stable
  */
 export const PUSH_VAPID_CREDENTIAL_NAME = 'default';
 
@@ -48,12 +52,16 @@ export const PUSH_VAPID_CREDENTIAL_NAME = 'default';
  * NON-SECRET, and it must stay that way: `CredentialMeta` carries a
  * compile-time proof that it has no secret-bearing field, and this string is
  * shown verbatim in any credential listing.
+  *
+  * @stability experimental
  */
 export const PUSH_VAPID_CREDENTIAL_LABEL = 'Web Push VAPID private key';
 
 /**
  * The `push_vapid` purpose's declaration for the credential purpose registry
  * (#735), registered by `platform/credentials/credential-purposes.manifest.ts`.
+  *
+  * @stability experimental
  */
 export const PUSH_VAPID_CREDENTIAL_PURPOSE_DEF = {
   /** The credential purpose. */
