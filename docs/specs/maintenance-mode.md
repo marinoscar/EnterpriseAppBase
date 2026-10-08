@@ -1,6 +1,6 @@
 # Maintenance Mode
 
-> **Status:** shipped · **Code:** `apps/api/src/common/maintenance/`, `apps/web/src/components/common/MaintenanceGate.tsx`, `apps/web/src/services/maintenance.ts` · **API:** `/api/admin/maintenance` (see `/api/docs`) · **Admin UI:** `/admin/settings/maintenance` · **Runbook:** [maintenance-mode.md](../runbooks/maintenance-mode.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `apps/web/src/components/common/MaintenanceGate.tsx`, `apps/web/src/services/maintenance.ts` · **API:** `/api/admin/maintenance` (see `/api/docs`) · **Admin UI:** `/admin/settings/maintenance` · **Runbook:** [maintenance-mode.md](../runbooks/maintenance-mode.md)
 
 Maintenance mode takes the application out of service on purpose. While a
 window is open, every API route answers `503` with an operator-supplied message
@@ -92,8 +92,11 @@ load. A change needs a restart.
 
 ### 2.4 The guard
 
-`MaintenanceGuard` is registered as a global `APP_GUARD`, so it runs before
-any route-level guard. At that point `request.user` does not exist yet, so the
+`MaintenanceGuard` is registered as a global `APP_GUARD` by the host core
+(`PlatformHostCoreModule.forRoot()`, #867), so it runs before any route-level
+guard. It is the application's only `APP_GUARD`: there is no global JWT guard,
+and the `host` conformance suite fails an app that registers another one
+anywhere in its module graph. At that point `request.user` does not exist yet, so the
 guard verifies the bearer token itself with its own `JwtService` and reads the
 `roles` claim.
 
@@ -108,10 +111,12 @@ guard verifies the bearer token itself with its own `JwtService` and reads the
   call `GET`/`PUT /api/admin/maintenance`, so an operator can close a window
   from a shell.
 
-`MaintenanceModule` registers its own `JwtModule.registerAsync` against the
+The host core registers its own `JwtModule.registerAsync` against the
 same `jwt.secret` and does **not** import `AuthModule`. It does not re-export
-its `JwtModule`. `app.module.ts` aliases the guard with `useExisting`, so the
-instance is built in `MaintenanceModule`'s context.
+its `JwtModule`. It aliases the guard to `APP_GUARD` with `useExisting`, so
+the instance is built in the host core's context, next to its `JwtService`.
+(Before #867 this was the reference app's `MaintenanceModule`, aliased in
+`app.module.ts`.)
 
 ### 2.5 The 503 contract
 
@@ -169,7 +174,8 @@ Not exempt: `POST /api/auth/device/code` and `POST /api/auth/device/token`.
 PAT, or the environment break-glass.
 
 `/api/docs` and `/api/openapi.json` are mounted directly on Fastify by
-`openapi/register-docs-routes.ts`, outside Nest's router. No Nest guard sees
+`registerPlatformDocs` (the host slice's `openapi/register-docs-routes.ts`),
+outside Nest's router. No Nest guard sees
 them, so they stay readable during a window. This is intentional.
 
 `@AllowDuringMaintenance()` is not `@Public()`. Exemption is reachability
@@ -223,9 +229,10 @@ in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 | Invariant | Test |
 |---|---|
-| Layer precedence; only `'true'`/`'false'` count (table-driven over `1`, `0`, `yes`, `no`, `TRUE`, `False`, `on`, `off`, `''`); audit rows | `apps/api/src/common/maintenance/maintenance-mode.service.spec.ts` |
-| Never populates `request.user`; `pat_`/`nod_` never bypass | `apps/api/src/common/maintenance/maintenance.guard.spec.ts` |
-| `MaintenanceModule` does not import `AuthModule` (module-graph walk) | `apps/api/src/common/maintenance/maintenance.module.spec.ts` |
+| Layer precedence; only `'true'`/`'false'` count (table-driven over `1`, `0`, `yes`, `no`, `TRUE`, `False`, `on`, `off`, `''`); audit rows | `packages/platform-api/test/host/maintenance/maintenance-mode.service.spec.ts` |
+| Never populates `request.user`; `pat_`/`nod_` never bypass | `packages/platform-api/test/host/maintenance/maintenance.guard.spec.ts` |
+| The host core does not import `AuthModule` nor re-export its `JwtModule`; the guard is its only `APP_GUARD` | `packages/platform-api/test/host/host-core.module.spec.ts` |
+| The guard is the app's only `APP_GUARD`, anywhere in the module graph | `apps/api/test/platform/host-conformance.spec.ts` (the `host` conformance suite) |
 | Readiness answers `503` before the DB probe runs | `apps/api/src/health/health.controller.spec.ts` |
 | Marker survives the real exception filter; `Retry-After`; env override end to end | `apps/api/test/maintenance/maintenance.integration.spec.ts` |
 | Exact reachable set, enumerated from the router; `/api/docs` stays readable | `apps/api/test/maintenance/maintenance-reachable-set.integration.spec.ts` |

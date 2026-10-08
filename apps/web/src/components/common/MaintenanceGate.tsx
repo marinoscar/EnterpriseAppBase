@@ -33,7 +33,7 @@
  * =============================================================================
  *
  * `MAINTENANCE_ADMIN_PATH` is the client mirror of `@AllowDuringMaintenance()`
- * on `apps/api/src/common/maintenance/maintenance.controller.ts`. The API
+ * on `packages/platform-api/src/host/maintenance/maintenance.controller.ts`. The API
  * exempts its own maintenance endpoints for the obvious reason — the switch
  * that ends a window has to be reachable while the window is open — and both
  * halves of that argument have to hold, or an administrator caught by an

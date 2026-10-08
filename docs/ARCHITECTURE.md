@@ -76,15 +76,15 @@ Every API request passes through the same stages, in this order:
 | # | Stage | Where | What it does |
 |---|---|---|---|
 | 1 | nginx | `infra/nginx/nginx.conf` | Adds security headers, routes `/api` to the API. `/api/notifications/stream` and `/api/ai/responses/stream` are unbuffered for SSE. |
-| 2 | Request ID | `apps/api/src/common/middleware/request-id.middleware.ts` | Assigns a request ID and captures trace context for log correlation. |
-| 3 | Maintenance gate | `apps/api/src/common/maintenance/maintenance.guard.ts` | The application's only global guard (`APP_GUARD`). Answers `503` while a maintenance window is open, except on routes marked `@AllowDuringMaintenance()`. |
+| 2 | Request ID | `packages/platform-api/src/host/http/request-id.middleware.ts` (the host core, #867) | Assigns a request ID and captures trace context for log correlation. |
+| 3 | Maintenance gate | `packages/platform-api/src/host/maintenance/maintenance.guard.ts` (the host core, #867) | The application's only global guard (`APP_GUARD`), registered by `PlatformHostCoreModule.forRoot()`; the `host` conformance suite fails any other. Answers `503` while a maintenance window is open, except on routes marked `@AllowDuringMaintenance()`. |
 | 4 | Feature gate | `packages/platform-api/src/ai/…` (`AiEnabledGuard`) | Controller-level, on `/api/ai/*` consumer controllers only. Answers `403 AI_DISABLED` while AI is switched off. |
 | 5 | Authentication | `packages/platform-api/src/identity/auth/guards/jwt-auth.guard.ts` | Applied by `@Auth()`. Accepts a session JWT, a `pat_` personal access token, or a `nod_` node credential (confined to `/api/nodes/*`). Rejects deactivated users and a credential whose org is no longer an active membership (#724). Sets `request.user` (the loaded graph) and `request.principal` (ADR 0001's `Principal`: user id, `activeOrgId` (absent for a system-scoped node), memberships with role and status, roles, permissions, credential kind `session`/`device`/`pat`/`node`), read with `@CurrentUser()` and `@CurrentPrincipal()`. Skipped on routes marked `@Public()`. |
 | 6 | Roles | `packages/platform-api/src/identity/auth/guards/roles.guard.ts` | Applied by `@Auth({ roles })`. The caller needs any one listed role. |
 | 7 | Permissions | `packages/platform-api/src/identity/auth/guards/permissions.guard.ts` | Applied by `@Auth({ permissions })`. The caller needs all listed permissions, read from `request.principal.permissions` (the active org's). `@Auth({ anyPermissions })` (#738) admits a caller holding at least one of the listed permissions; the broadcast routes use it for their system and org permission pairs. |
-| 8 | Interceptors and validation | `LoggingInterceptor`, `TransformInterceptor`, `ZodValidationPipe` | Logs the request, validates input against Zod schemas, wraps success bodies in `{ data, meta }`. |
+| 8 | Interceptors and validation | `LoggingInterceptor`, `TransformInterceptor` (the host core), `ZodValidationPipe` (the app's `APP_PIPE`) | Logs the request, validates input against Zod schemas, wraps success bodies in `{ data, meta }`. |
 | 9 | Controller → service → Prisma | `apps/api/src/<module>/` | Controllers stay thin; services hold business logic and ownership checks; Prisma is the only data access path. A handler that touches tenant data takes the active organization with `@CurrentOrg()` (`principal.activeOrgId`) and its service reads and writes through `PrismaService.forOrg(orgId)` / `runInOrg(orgId, fn)`, which set `app.org_id` transaction-locally as the first statement; PostgreSQL row-level security then shows the transaction that organization's rows only (#725; [SECURITY-ARCHITECTURE.md §18](SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls)). A job carries `orgId` in its payload and does the same. |
-| 10 | Exception filter | `HttpExceptionFilter` | Formats every error into the standard error envelope. |
+| 10 | Exception filter | `HttpExceptionFilter` (core, registered by the host core) | Formats every error into the standard error envelope. |
 
 `@Auth()` (`packages/platform-api/src/identity/auth/decorators/auth.decorator.ts`) also stamps the enforced roles and permissions onto the OpenAPI operation, so the "Requires" line in the API reference is generated from the same metadata the guards read. Response envelopes, pagination and error codes are described in [API.md](API.md).
 
@@ -290,7 +290,7 @@ A restore (`db.restore.run`) replaces the live database from a chosen backup, op
 
 A maintenance window takes the application out of service on purpose. While open, every API route answers `503` with an operator message and `Retry-After`, except sign-in, health, token refresh, device activation and the maintenance endpoints themselves. The state resolves from three layers: the `MAINTENANCE_MODE` environment variable (break-glass, both directions), an in-memory override (used by the restore swap), and the persisted `maintenance` setting. The web app shows a maintenance screen and banner.
 
-- **Code:** `apps/api/src/common/maintenance/`, `apps/web/src/components/common/MaintenanceGate.tsx`
+- **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `apps/web/src/components/common/MaintenanceGate.tsx`
 - **UI:** `/admin/settings/maintenance`
 - **Permissions:** `system_settings:read/write`
 - **Read more:** [specs/maintenance-mode.md](specs/maintenance-mode.md), [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md)
@@ -349,7 +349,7 @@ The API uses Jest and Supertest for mocked integration tests (`*.integration.spe
 
 ### 5.21 Event bus
 
-A small publish/subscribe seam, the `EventBus` interface behind the `EVENT_BUS` token, that reaches every API process sharing the database, not just the publishing one. It is what lets a second API replica run without losing live behaviour. `EventBusModule` is `@Global()` and imported once in `app.module.ts`; `EVENT_BUS_ADAPTER` (deployment topology, read once at boot) picks the adapter:
+A small publish/subscribe seam, the `EventBus` interface behind the `EVENT_BUS` token, that reaches every API process sharing the database, not just the publishing one. It is what lets a second API replica run without losing live behaviour. The global host core (`PlatformHostCoreModule.forRoot()` of `@marinoscar/platform-api/host`, #867) provides it, imported once in `app.module.ts`; `EVENT_BUS_ADAPTER` (deployment topology, read once at boot) picks the adapter:
 
 | Adapter | Transport | Use |
 |---|---|---|
@@ -366,13 +366,13 @@ All logical channels are multiplexed onto one physical Postgres channel, `platfo
 | `jobs.enqueued` | `JobsService.enqueue` (due now; never `enqueueWithin`) | every running `JobWorker` (not mode `off`) | `{ type }` |
 | `auth.principal.invalidate` | `PrincipalCache.invalidate` / `invalidateUser`, after a user, role, membership, PAT-revoke or device-session-revoke write commits | every replica's `PrincipalCache` | `{ userId }` or `{ all: true }` |
 
-- **Code:** `apps/api/src/common/event-bus/`
+- **Code:** `packages/platform-api/src/host/event-bus/`
 - **Doctor:** `core.event-bus` reports the adapter and the listener's state.
 - **Read more:** [specs/browser-notifications.md §2.13](specs/browser-notifications.md#213-fan-out-across-replicas), [specs/job-queue.md](specs/job-queue.md) (Worker modes, "Wake-up")
 
 ### 5.22 Platform core (`@marinoscar/platform-api/core`)
 
-The primitives every other platform slice builds on, consumed by the API as a package rather than kept in `apps/api/src/common/` (issue #698): the typed registry primitive (`defineRegistry`, `Registry`, `RegistryFreezeService`), the org-aware principal and scope types ([ADR 0001](adr/0001-org-aware-principal-and-scope.md)), `HttpExceptionFilter` with `ErrorDto`, `withVerbatimErrorBody` and `DatabaseSeedException`, the secret cipher (`encryptSecret`, `decryptSecret`, `userCredentialPurpose`) with `verifyEncryptionKeyAtStartup`, the OpenAPI tag registry (`openApiTags`), and the role and permission registries (`roleRegistry`, `permissionRegistry`, `buildPermissionCatalog`, #866). Code only, no tables; it imports no other slice and no Prisma client. The app registers `HttpExceptionFilter` as its `APP_FILTER` (`app.module.ts`), provides `RegistryFreezeService` (`CommonModule`), calls `verifyEncryptionKeyAtStartup(() => prisma.credential.count(), logger)` before binding the port (`main.ts`), and registers its OpenAPI taxonomy in `openapi/tags.ts`. `apps/api/test/platform/no-local-core-copies.spec.ts` fails if a local copy of any of these reappears under `apps/api/src/common/`.
+The primitives every other platform slice builds on, consumed by the API as a package rather than kept in `apps/api/src/common/` (issue #698): the typed registry primitive (`defineRegistry`, `Registry`, `RegistryFreezeService`), the org-aware principal and scope types ([ADR 0001](adr/0001-org-aware-principal-and-scope.md)), `HttpExceptionFilter` with `ErrorDto`, `withVerbatimErrorBody` and `DatabaseSeedException`, the secret cipher (`encryptSecret`, `decryptSecret`, `userCredentialPurpose`) with `verifyEncryptionKeyAtStartup`, the OpenAPI tag registry (`openApiTags`), and the role and permission registries (`roleRegistry`, `permissionRegistry`, `buildPermissionCatalog`, #866). Code only, no tables; it imports no other slice and no Prisma client. The host core ([§5.26](#526-api-host-core-marinoscarplatform-apihost)) registers `HttpExceptionFilter` as the `APP_FILTER`; the app provides `RegistryFreezeService` (`CommonModule`), calls `verifyEncryptionKeyAtStartup(() => prisma.credential.count(), logger)` before binding the port (`main.ts`), and registers its OpenAPI taxonomy in `openapi/tags.ts`. `apps/api/test/platform/no-local-core-copies.spec.ts` fails if a local copy of any of these reappears under `apps/api/src/common/`.
 
 - **Code:** `packages/platform-api/src/core/`
 - **Read more:** [core README](../packages/platform-api/src/core/README.md), [specs/platform-packages.md](specs/platform-packages.md) (Dependency graph)
@@ -442,6 +442,15 @@ The Android app is the web app in a Trusted Web Activity plus an optional native
 - **Doctor:** `android.assetlinks`, `android.releases`
 - **UI:** `/admin/settings/android`
 - **Read more:** [specs/native-companion-architecture.md](specs/native-companion-architecture.md), [API slice README](../packages/platform-api/src/android-app/README.md), [runbooks/android-app.md](runbooks/android-app.md), [runbooks/android-release.md](runbooks/android-release.md)
+
+### 5.26 API host core (`@marinoscar/platform-api/host`)
+
+The plumbing every slice assumes is around it, packaged so an app mounts it with one `PlatformHostCoreModule.forRoot()` instead of copying it (issue #867; it was this app's `src/common/` and `src/openapi/` code). One global module provides the event bus ([§5.21](#521-event-bus)), the platform's `AppMetricsService` and app-metric declarations ([§11](#11-observability)), maintenance mode ([§5.14](#514-maintenance-mode)) with `MaintenanceGuard` as the application's **only** `APP_GUARD` (there is no global JWT guard), the `{ data }` envelope (`TransformInterceptor`), the request log line (`LoggingInterceptor`), core's `HttpExceptionFilter` and request ids (`RequestIdMiddleware`). The OpenAPI document and `/api/docs` are bootstrap-time helpers of the same slice (`createOpenApiDocument`, `registerPlatformDocs`). The reference app binds it in `apps/api/src/platform/host-core.config.ts` and imports it right after `HealthModule`, where `/api/admin/maintenance` belongs in the generated document; its identity and tag taxonomy for the document stay in `apps/api/src/openapi/`. The `host` conformance suite (`apps/api/test/platform/host-conformance.spec.ts`) walks the module graph: one `APP_GUARD` and it is the maintenance guard, one host core, the envelope and the filter once each.
+
+- **Code:** `packages/platform-api/src/host/` (`event-bus/`, `metrics/`, `maintenance/`, `http/`, `openapi/`, `testing/`); the app's binding `apps/api/src/platform/host-core.config.ts`, `apps/api/src/openapi/document.ts`
+- **Routes:** `/api/admin/maintenance` (`system_settings:read/write`); `/api/docs`, `/api/openapi.json` (raw Fastify routes, public)
+- **Doctor:** `core.event-bus`, `maintenance.mode`
+- **Read more:** [host README](../packages/platform-api/src/host/README.md), [specs/maintenance-mode.md](specs/maintenance-mode.md), [API.md](API.md)
 
 ---
 
@@ -861,7 +870,7 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 - A second, independent switch — the `telemetry.enabled` system setting — decides whether the SDK's output is actually exported, checked at export time by a runtime gate (`telemetryGate`, `packages/platform-api/src/otel-core/sdk/telemetry-gate.ts`) that starts closed and converges across a fleet within about five seconds of an administrator's change. See [specs/telemetry.md §2](specs/telemetry.md#2-the-two-switches).
 - The collector (`infra/otel/otel-collector-config.yaml`) redacts credential-bearing attributes (`Authorization`, `Cookie`, `Set-Cookie`, query strings) before anything reaches GreptimeDB, and authenticates to it as a write-only user.
 - The collector also scrapes the host (`hostmetrics` over a read-only `/hostfs` mount), its own pipeline counters and a subset of GreptimeDB's `/metrics`, into their own tables, and probes uptime and TLS expiry of the app, the API and the public origin (`httpcheck`) and nginx's connection counters (`nginx` over an internal `:8081` listener). See [specs/telemetry.md §11.2](specs/telemetry.md#112-data-sources-what-is-collected-and-why-no-docker-stats).
-- `AppMetricsModule` (`apps/api/src/common/otel/`, global) is the one place first-party application metrics (`app.*`: jobs, backups, auth, AI, notifications, the event bus) are created; features record through `AppMetricsService`. Every metric is declared in the app-metric registry (`appMetricRegistry` in `@marinoscar/platform-api/otel-core`; the platform's in `platform-app-metrics.ts`, an app's in `app-registrations/telemetry.ts`), and an app emits its own with `add(key, …)`/`record(key, …)`. The instruments, label bounding and the gauge-provider seam are the package's `MetricsHostService` (`OtelMetricsModule`); `AppMetricsService` keeps the typed recorders and the database-backed gauges. See [specs/telemetry.md §11.13](specs/telemetry.md#1113-application-metrics).
+- The host core's `AppMetricsService` (`packages/platform-api/src/host/metrics/`, global, #867) is the one place first-party application metrics (`app.*`: jobs, backups, auth, AI, notifications, the event bus) are created; features record through it. Every metric is declared in the app-metric registry (`appMetricRegistry` in `@marinoscar/platform-api/otel-core`; the platform's in the host slice's `PLATFORM_APP_METRICS`, registered by `registerPlatformHostAppMetrics` from the app's manifest `apps/api/src/common/otel/app-metric.manifest.ts`, an app's in `app-registrations/telemetry.ts`), and an app emits its own with `add(key, …)`/`record(key, …)`. The instruments, label bounding and the gauge-provider seam are the package's `MetricsHostService` (`OtelMetricsModule`); `AppMetricsService` keeps the typed recorders and the database-backed gauges. See [specs/telemetry.md §11.13](specs/telemetry.md#1113-application-metrics).
 - The dashboard's metric groups are a registry too (`packages/platform-api/src/telemetry/metrics/metric-group.registry.ts`: the six platform groups in `groups/`, the reference app's "App activity" group in `apps/api/src/platform-extensions/telemetry/`, a fork's in `app-registrations/telemetry.ts`). `GET /api/admin/telemetry/dashboard/metric-groups` (`telemetry:query`) serves their metadata, and the web renders one section per group. See [specs/telemetry.md §11.14](specs/telemetry.md#1114-metric-catalog-and-the-metrics-route).
 - Each log line carries the request ID and trace ID assigned by the request-ID middleware, so a log line leads to its trace.
 - Never log secrets. The AI platform, credential stores and auth guards keep key material out of logs, spans and error bodies by design.
@@ -906,6 +915,7 @@ Health endpoints (public, reachable during maintenance):
 | A shareable resource type, a group-owned table, a list of what a caller may see, or a public link route | [sharing README, extension-point catalog](../packages/platform-api/src/sharing/README.md#extension-point-catalog) (examples in `apps/api/test/examples/sharing/`; UI: [web sharing README](../packages/platform-web/src/sharing/README.md#extension-point-catalog)) |
 | A secret stored encrypted (a new cipher purpose) | [core README](../packages/platform-api/src/core/README.md) (crypto), [specs/user-credentials.md](specs/user-credentials.md) |
 | An export source or format, a document exporter, the CSV helpers | [exports README, extension-point catalog](../packages/platform-api/src/exports/README.md#extension-point-catalog), [specs/data-export.md](specs/data-export.md) |
+| An event bus channel, an app metric emitted through the platform's `AppMetricsService`, or the host core itself in a new app (event bus, maintenance, envelope, request ids, `/api/docs`) | [host README, extension-point catalog](../packages/platform-api/src/host/README.md#extension-point-catalog) |
 
 ---
 

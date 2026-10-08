@@ -148,7 +148,7 @@ Forks edit platform files to extend them, because the extension points are close
 | Closed list | Where | What a fork does to it |
 |---|---|---|
 | `METRIC_GROUPS`, a closed `as const` tuple of six groups | `apps/api/src/telemetry/metrics/metric-catalog.ts` | Cannot add a group without editing the tuple |
-| Metric-name map | `apps/api/src/common/otel/app-metrics.service.ts` | EvoPath adds about 25 `app.health.*` and `app.coach.*` names inline |
+| Metric-name map | `apps/api/src/common/otel/app-metrics.service.ts` (now `packages/platform-api/src/host/metrics/`, #867) | EvoPath adds about 25 `app.health.*` and `app.coach.*` names inline |
 | Roles and permissions constants | `apps/api/src/common/constants/roles.constants.ts` | EvoPath adds domain permissions |
 | Seed data (462 lines: `ROLES`, `PERMISSIONS` with 31 base permissions, `ROLE_PERMISSIONS`, `DEFAULT_SYSTEM_SETTINGS`) | `apps/api/prisma/seed-data.ts` | Every app edits the same arrays |
 | Settings schemas | `apps/api/src/common/schemas/` | Namespaces added in place |
@@ -315,8 +315,9 @@ flowchart TD
     doctor["doctor"]
     sharing["sharing<br/>groups, ownership, grants"]
   end
+  host["host<br/>the API host core: event bus, app metrics,<br/>maintenance, envelope, request ids, OpenAPI"]
   apps["Apps<br/>domain code only"]
-  core --> otel --> ident --> slices --> apps
+  core --> otel --> ident --> slices --> host --> apps
 ```
 
 Rules:
@@ -324,6 +325,7 @@ Rules:
 - `core` is code only. It owns no tables. Shipped so far (issue #698): registries (including the OpenAPI tag registry), principal and scope types, errors (`HttpExceptionFilter`, `ErrorDto`), crypto (the secret cipher and its startup check); scoped data access follows (issue #699). "Config" and "zod helpers" turned out to have no generic code to move: the app's `configuration.ts` maps its own variables, `database-url.ts` moves with `platform-db`, and zod is used directly through `nestjs-zod`'s `createZodDto` and the global `ZodValidationPipe`.
 - `otel-core` (emitting) is separate from the **telemetry product** (viewing and querying). Every slice emits through `otel-core`. Apps must still run with `OTEL_ENABLED=false` and no telemetry stack.
 - `identity` owns the user tables, so every other slice may reference a user.
+- `host` (issue #867) is the API host core the app mounts once with `PlatformHostCoreModule.forRoot()`: the cross-replica event bus, the platform's `AppMetricsService`, maintenance mode (`MaintenanceGuard`, the only `APP_GUARD`), the `{ data }` envelope, the exception filter, request ids, and the OpenAPI document with `/api/docs` (`registerPlatformDocs`). It sits at the bottom of the slice graph, above the app: the slices reach the bus and the metrics through their own ports (`JOBS_EVENT_BUS`, `IDENTITY_METRICS`, ...), which the app binds to what `host` provides, so no slice depends on it. (It is not core's `PlatformHostModule`, which only binds the DI-time host ports.)
 - A slice may depend only on slices above it in the graph. Lint enforces it.
 - `manifest` (#866) sits at the bottom of the API package, below every slice that declares roles, permissions or user-owned models: it holds only their **registration order** (the seed order of the permission sets, the order of the platform's user-owned inventory) and the functions that register them plus an app's own. No slice depends on it; an app's manifests call it once.
 
@@ -1087,6 +1089,8 @@ The gap assessment of kvox and MemoriaHub is **done**: see [Measured drift](#mea
 The **Doctor framework** (`apps/api/src/doctor`, 9 files, no drift, no tables; see [doctor spec](doctor.md)): publish it, consume it in every app, wire Renovate and the Docker build. It proves the delivery pipeline in days, before any hard design work.
 
 Extracted by #696 into `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor/{headless,ui}`. Being the first slice to leave the app, it also defined the **host ports** every later slice reuses unchanged: on the API, a decorator-time access port (`definePlatformHost`: the app's own auth decorators, applied to a controller the slice creates inside its `forRoot()`) and DI-time tokens (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`, bound once by `PlatformHostModule.forRoot()`); on the web, `PlatformHostProvider` (the app's transport and viewer) and the `PlatformSettingsPage` descriptor the app turns into a registry card and a route. They live in each package's `core` slice; the app binds them in `apps/api/src/platform/` and `apps/web/src/platform/`. See the [platform-api core README](../../packages/platform-api/src/core/README.md#host-ports) and the [platform-web core README](../../packages/platform-web/src/core/README.md).
+
+The API **host core** the slices assume around them (the event bus, the app metrics service, maintenance mode, the `{ data }` envelope, request ids, the OpenAPI document and `/api/docs`) stayed app code until #867, a seam found while building the starter (#741). It is the `host` slice, `PlatformHostCoreModule.forRoot()` plus the bootstrap-time `registerPlatformDocs(app, openApi)`; the reference app's generated OpenAPI document is byte-identical before and after, and the starter mounts the same module. See the [host README](../../packages/platform-api/src/host/README.md).
 
 ### Wave 2: core contracts
 

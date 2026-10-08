@@ -588,7 +588,7 @@ Three independent checks in the page:
 memory: a connection lives on the replica whose socket it is. `publish(userId,
 event)` delivers to this replica's connections for that user directly, then
 publishes `{ userId, event }` on the event bus's `notifications.stream` channel
-(`apps/api/src/common/event-bus/`, docs/ARCHITECTURE.md "Event bus"). Every
+(`packages/platform-api/src/host/event-bus/`, docs/ARCHITECTURE.md "Event bus"). Every
 other replica's instance receives it and delivers it into its own bucket for
 that one user. The signature, the return value (connections reached on this
 replica) and the caller in the browser channel are unchanged.

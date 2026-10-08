@@ -671,7 +671,7 @@ The walk-through below adds a `coach` group over one counter the app records
    and call `registerGaugeProvider(({ meter, gateOpen }) => …)` with
    `createRegisteredGauge(meter, key)` inside (it runs only when
    `OTEL_ENABLED=true`; return early from the callback while `gateOpen()` is
-   false). `apps/api/src/common/otel/app-metrics.service.ts` (`registerGauges`)
+   false). `packages/platform-api/src/host/metrics/app-metrics.service.ts` (`registerGauges`)
    is the reference. To type the key, augment
    `declare module '@marinoscar/platform-api/otel-core' { interface AppMetricKeys { coachNudgesSent: true } }`.
    Never label with a user id, an e-mail, a URL or an error message.
