@@ -94,6 +94,7 @@ export type {
   PushTestConfigSourceEnum,
   PushTestOverallEnum,
   PushTestSendStatusEnum,
+  PushSubscriptionPlatformEnum,
   BroadcastAudienceQuery,
   BroadcastAudienceResponse,
   BroadcastCreateResult,

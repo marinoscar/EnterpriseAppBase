@@ -16,7 +16,14 @@ export interface AndroidReleaseFacts {
   /** Paired devices across every device source. */
   activeDevices: number;
   /** The current release, or null. */
-  current: { packageName: string; versionName: string; versionCode: number } | null;
+  current: {
+    /** Its package. */
+    packageName: string;
+    /** Its version name. */
+    versionName: string;
+    /** Its version code. */
+    versionCode: number;
+  } | null;
   /** Devices running an older build of the current package (sources that record it). */
   devicesBehind: number;
 }

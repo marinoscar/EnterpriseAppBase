@@ -125,9 +125,13 @@ export function trustedAppKey(packageName: string, sha256: string): string {
  * @stability experimental
  */
 export const TRUSTED_APPS_ERROR_REASONS = Object.freeze({
+  /** More than `MAX_TRUSTED_ANDROID_APPS` pairs. */
   TOO_MANY_TRUSTED_APPS: 'TOO_MANY_TRUSTED_APPS',
+  /** A package name that is not a valid application id. */
   INVALID_PACKAGE_NAME: 'INVALID_PACKAGE_NAME',
+  /** A fingerprint that is not 32 bytes of hex. */
   INVALID_FINGERPRINT: 'INVALID_FINGERPRINT',
+  /** Any other malformed body. */
   INVALID_TRUSTED_APPS: 'INVALID_TRUSTED_APPS',
 } as const);
 
@@ -224,18 +228,31 @@ export const DOWNLOAD_ROUTE_PREFIX = '/api/android-app/download/' as const;
  * @stability experimental
  */
 export const ANDROID_RELEASE_REASONS = Object.freeze({
+  /** 409: that (package, versionCode) is already published. */
   VERSION_EXISTS: 'RELEASE_VERSION_EXISTS',
+  /** 409: making current a release whose versionCode is not newer, without `force`. */
   VERSION_NOT_NEWER: 'RELEASE_VERSION_NOT_NEWER',
+  /** 409: the APK's (package, signing key) is not trusted while others are, without `trust`. */
   UNTRUSTED_APP: 'RELEASE_UNTRUSTED_APP',
+  /** 409: deleting the current release. */
   IS_CURRENT: 'RELEASE_IS_CURRENT',
+  /** 409: a concurrent "make current" won the one-current index. */
   CURRENT_CONFLICT: 'RELEASE_CURRENT_CONFLICT',
+  /** 404: no such release. */
   NOT_FOUND: 'RELEASE_NOT_FOUND',
+  /** 404: no release is current. */
   NO_RELEASE: 'NO_RELEASE',
+  /** 400: the upload is not a signed APK. */
   NOT_AN_APK: 'RELEASE_NOT_AN_APK',
+  /** 413: over `MAX_APK_BYTES`. */
   TOO_LARGE: 'RELEASE_TOO_LARGE',
+  /** 400: a malformed multipart body or field. */
   INVALID_UPLOAD: 'RELEASE_INVALID_UPLOAD',
+  /** 503: no object storage is configured. */
   STORAGE_NOT_CONFIGURED: 'STORAGE_NOT_CONFIGURED',
+  /** 404: a malformed or tampered download token. */
   LINK_INVALID: 'DOWNLOAD_LINK_INVALID',
+  /** 410: an expired download token. */
   LINK_EXPIRED: 'DOWNLOAD_LINK_EXPIRED',
 } as const);
 
@@ -284,9 +301,13 @@ export type AndroidAppTestStatus = (typeof ANDROID_APP_TEST_STATUSES)[number];
  * @stability experimental
  */
 export const TWA_LAUNCH_PARAMS = Object.freeze({
+  /** The query parameter that marks a TWA launch. */
   SOURCE: 'source',
+  /** Its value. */
   SOURCE_VALUE: 'twa',
+  /** The installed `versionName`. */
   APP_VERSION: 'appVersion',
+  /** The installed `versionCode`. */
   APP_VERSION_CODE: 'appVersionCode',
 } as const);
 

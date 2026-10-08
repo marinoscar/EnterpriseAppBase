@@ -38,6 +38,20 @@ export interface InstalledAppVersion {
 }
 
 /**
+ * The `sessionStorage` keys the launch flags live under.
+ *
+ * @stability experimental
+ */
+export interface TwaSessionKeys {
+  /** `1` when the session started from the Android app. */
+  launched: string;
+  /** The installed `versionName`. */
+  versionName: string;
+  /** The installed `versionCode`. */
+  versionCode: string;
+}
+
+/**
  * The three `sessionStorage` keys of a prefix.
  *
  * @param prefix - the key prefix.
@@ -45,7 +59,7 @@ export interface InstalledAppVersion {
  *
  * @stability experimental
  */
-export function twaSessionKeys(prefix: string = DEFAULT_TWA_KEY_PREFIX): { launched: string; versionName: string; versionCode: string } {
+export function twaSessionKeys(prefix: string = DEFAULT_TWA_KEY_PREFIX): TwaSessionKeys {
   return { launched: `${prefix}.twa`, versionName: `${prefix}.twa.appVersion`, versionCode: `${prefix}.twa.appVersionCode` };
 }
 

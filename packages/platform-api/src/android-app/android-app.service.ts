@@ -32,7 +32,11 @@ import { androidDeviceSourceRegistry, mergeReportedApps, type AndroidDeviceSourc
 // subscription counts by platform (EvoPath).
 // =============================================================================
 
-/** The audit action of a trusted-apps write (both apps' string). */
+/**
+ * The audit action of a trusted-apps write (both apps' string).
+ *
+ * @stability experimental
+ */
 export const ANDROID_APP_TRUSTED_APPS_UPDATED_ACTION = 'android_app.trusted_apps.updated';
 
 const EMPTY: AndroidAppSettingsValue = { trustedApps: [] };

@@ -22,7 +22,14 @@ export {
   toPublicRelease,
   versionRuleRefusal,
 } from './releases/android-release.service';
-export type { OpenedDownload, ReleaseUploadPart } from './releases/android-release.service';
+export type {
+  OpenedDownload,
+  ReleaseUploader,
+  ReleaseUploadPart,
+  ReleaseUploadStream,
+  ReleaseWithUploader,
+  UploadTarget,
+} from './releases/android-release.service';
 export {
   ANDROID_APP_TEST_EVENT_KEY,
   ANDROID_APP_TEST_NOTIFICATION_ACTION,
@@ -63,6 +70,7 @@ export { ANDROID_APP_MODEL_OWNERSHIP, ANDROID_APP_USER_OWNED_MODELS } from './us
 // ---- structural data ----------------------------------------------------------
 export { isUniqueViolation } from './data/android-app-db';
 export type {
+  AndroidAppBatchResult,
   AndroidAppDelegate,
   AndroidAppPrisma,
   AndroidAppQueryArgs,

@@ -66,6 +66,9 @@ export {
 export type {
   AdminRelease,
   AndroidAppResponse,
+  AndroidAppTestReasonEnum,
+  AndroidAppTestStatusEnum,
+  BooleanFieldEnum,
   AndroidAppSettingsValue,
   AndroidAppTestNotificationRequest,
   AndroidAppTestNotificationResponse,

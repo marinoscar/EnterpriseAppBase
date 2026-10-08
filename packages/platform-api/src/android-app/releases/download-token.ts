@@ -51,7 +51,19 @@ export interface DownloadTokenClaims {
  *
  * @stability experimental
  */
-export type DownloadTokenVerdict = { ok: true; claims: DownloadTokenClaims } | { ok: false; reason: 'invalid' | 'expired' };
+export type DownloadTokenVerdict =
+  | {
+      /** Valid and unexpired. */
+      ok: true;
+      /** What the token names. */
+      claims: DownloadTokenClaims;
+    }
+  | {
+      /** Refused. */
+      ok: false;
+      /** `invalid` (malformed or tampered) or `expired`. */
+      reason: 'invalid' | 'expired';
+    };
 
 function uuidToBytes(value: string): Buffer {
   if (!UUID.test(value)) throw new Error('Download token ids must be UUIDs');

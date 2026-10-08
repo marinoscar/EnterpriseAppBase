@@ -54,6 +54,16 @@ export interface AndroidAppReleaseRow {
 }
 
 /**
+ * What a batch write (`updateMany`, `deleteMany`) returns.
+ *
+ * @stability experimental
+ */
+export interface AndroidAppBatchResult {
+  /** Rows affected. */
+  count: number;
+}
+
+/**
  * One delegate of the composed client, as the slice calls it.
  *
  * @stability experimental
@@ -70,9 +80,9 @@ export interface AndroidAppDelegate<Row> {
   /** Prisma `update`. */
   update(args: AndroidAppQueryArgs): Promise<Row>;
   /** Prisma `updateMany`. */
-  updateMany(args: AndroidAppQueryArgs): Promise<{ count: number }>;
+  updateMany(args: AndroidAppQueryArgs): Promise<AndroidAppBatchResult>;
   /** Prisma `deleteMany`. */
-  deleteMany(args?: AndroidAppQueryArgs): Promise<{ count: number }>;
+  deleteMany(args?: AndroidAppQueryArgs): Promise<AndroidAppBatchResult>;
   /** Prisma `count`. */
   count(args?: AndroidAppQueryArgs): Promise<number>;
   /** Prisma `groupBy`. */

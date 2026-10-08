@@ -25,10 +25,18 @@ import type { AndroidAppPrisma } from './data/android-app-db';
 // and hosts only: an endpoint is a capability URL.
 // =============================================================================
 
-/** The audit action of a test notification. */
+/**
+ * The audit action of a test notification.
+ *
+ * @stability experimental
+ */
 export const ANDROID_APP_TEST_NOTIFICATION_ACTION = 'android_app.test_notification.sent';
 
-/** The event key the payload carries, so the service worker can recognise a test. */
+/**
+ * The event key the payload carries, so the service worker can recognise a test.
+ *
+ * @stability experimental
+ */
 export const ANDROID_APP_TEST_EVENT_KEY = 'android_app.test';
 
 /**

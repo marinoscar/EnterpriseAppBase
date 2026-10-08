@@ -39,7 +39,7 @@ import {
   ROTATE_CONFIRMATION,
   PUSH_SUBSCRIPTION_PLATFORMS,
 } from './constants.js';
-import type { BroadcastStatusName, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
+import type { BroadcastStatusName, PushSubscriptionPlatform, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -272,6 +272,15 @@ const pushTestConfigSourceSchema: z.ZodEnum<PushTestConfigSourceEnum> = z.enum(P
 const pushTestSendStatusSchema: z.ZodEnum<PushTestSendStatusEnum> = z.enum(PUSH_TEST_SEND_STATUSES);
 const booleanQuerySchema: z.ZodEnum<BooleanQueryEnum> = z.enum(['true', 'false']);
 
+/**
+ * The push subscription platforms, as `z.enum` types them.
+ *
+ * @stability experimental
+ */
+export type PushSubscriptionPlatformEnum = { [K in PushSubscriptionPlatform]: K };
+
+const pushSubscriptionPlatformSchema: z.ZodEnum<PushSubscriptionPlatformEnum> = z.enum(PUSH_SUBSCRIPTION_PLATFORMS);
+
 // ---- /api/notifications --------------------------------------------------------------
 
 /**
@@ -467,7 +476,7 @@ export const pushSubscribeSchema = z.object({
    * row of the same endpoint; a `browser` post never downgrades an
    * `android_app` row.
    */
-  platform: z.enum(PUSH_SUBSCRIPTION_PLATFORMS).optional(),
+  platform: pushSubscriptionPlatformSchema.optional(),
 });
 
 /**
@@ -488,7 +497,7 @@ export const pushSubscriptionResponseSchema = z.object({
   /** The registered endpoint. */
   endpoint: z.string(),
   /** The stored platform (#746): what the row is tagged after this call. */
-  platform: z.enum(PUSH_SUBSCRIPTION_PLATFORMS),
+  platform: pushSubscriptionPlatformSchema,
   /** Creation time (ISO 8601). */
   createdAt: z.iso.datetime(),
 });

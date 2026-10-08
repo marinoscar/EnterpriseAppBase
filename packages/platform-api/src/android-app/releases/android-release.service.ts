@@ -62,22 +62,63 @@ import { downloadTokenKey, signDownloadToken, verifyDownloadToken } from './down
 // an orphaned object nobody can find.
 // =============================================================================
 
-/** The audit actions of the release routes (both apps' strings). */
+/**
+ * The audit actions of the release routes (both apps' strings).
+ *
+ * @stability experimental
+ */
 export const ANDROID_RELEASE_AUDIT = Object.freeze({
+  /** A release was uploaded. */
   UPLOADED: 'android_app.release.uploaded',
+  /** A release was made current. */
   MADE_CURRENT: 'android_app.release.made_current',
+  /** A release was deleted. */
   DELETED: 'android_app.release.deleted',
 } as const);
 
-/** The raw-SQL partial unique index that keeps one current release. */
+/**
+ * The raw-SQL partial unique index that keeps one current release.
+ *
+ * @stability experimental
+ */
 export const ONE_CURRENT_RELEASE_INDEX = 'android_app_releases_one_current_uniq_idx';
 
 const REQUIRED_FIELDS = ['packageName', 'versionName', 'versionCode', 'signingSha256'] as const;
 
 const UPLOADER = { uploadedBy: { select: { id: true, email: true, displayName: true } } } as const;
 
-type ReleaseWithUploader = AndroidAppReleaseRow & {
-  uploadedBy?: { id: string; email: string; displayName: string | null } | null;
+/**
+ * A release row with its uploader, as the service reads it.
+ *
+ * @stability experimental
+ */
+export type ReleaseWithUploader = AndroidAppReleaseRow & {
+  /** Who uploaded it, or null once that account is gone. */
+  uploadedBy?: ReleaseUploader | null;
+};
+
+/**
+ * The uploader of a release.
+ *
+ * @stability experimental
+ */
+export interface ReleaseUploader {
+  /** The user id. */
+  id: string;
+  /** Their email. */
+  email: string;
+  /** Their display name, if any. */
+  displayName: string | null;
+}
+
+/**
+ * A file part's stream.
+ *
+ * @stability experimental
+ */
+export type ReleaseUploadStream = Readable & {
+  /** True once the plugin's size limit fired. */
+  truncated?: boolean;
 };
 
 /**
@@ -101,7 +142,7 @@ export type ReleaseUploadPart =
       /** The field name. */
       fieldname: string;
       /** The bytes; `truncated` once the plugin's size limit fired. */
-      file: Readable & { truncated?: boolean };
+      file: ReleaseUploadStream;
     };
 
 /**
@@ -118,8 +159,15 @@ export interface OpenedDownload {
   fileName: string;
 }
 
-interface UploadTarget {
+/**
+ * Where an upload goes: the storage provider and bucket active when it started.
+ *
+ * @stability experimental
+ */
+export interface UploadTarget {
+  /** The provider id. */
   provider: string;
+  /** The bucket. */
   bucket: string;
 }
 
@@ -547,7 +595,7 @@ export class AndroidReleaseService {
     }
   }
 
-  private async storeApk(storageKey: string, source: Readable & { truncated?: boolean }): Promise<StoredApk> {
+  private async storeApk(storageKey: string, source: ReleaseUploadStream): Promise<StoredApk> {
     const inspector = new ApkInspector(MAX_APK_BYTES);
     source.on('limit', () => inspector.rejectTooLarge());
     source.on('error', (error) => inspector.destroy(error));

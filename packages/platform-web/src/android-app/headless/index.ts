@@ -16,7 +16,7 @@ export type {
 } from '@marinoscar/platform-contract/android-app';
 export { androidIdentity } from './identity.js';
 export { DEFAULT_TWA_KEY_PREFIX, captureTwaLaunch, getInstalledAppVersion, isRunningInTwa, twaSessionKeys } from './twa.js';
-export type { InstalledAppVersion } from './twa.js';
+export type { InstalledAppVersion, TwaSessionKeys } from './twa.js';
 export { createAndroidAppClient } from './client.js';
 export type { AndroidAppClient, AndroidAppTransport, AndroidReleaseUploadInput } from './client.js';
 export { useAndroidAppClient, useAndroidAppConfig, useAndroidRelease } from './hooks.js';

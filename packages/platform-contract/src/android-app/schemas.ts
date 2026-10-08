@@ -25,6 +25,7 @@ import {
   normalizeSha256Fingerprint,
   trustedAppKey,
 } from './constants.js';
+import type { AndroidAppTestReason, AndroidAppTestStatus } from './constants.js';
 
 // ---- trusted apps -----------------------------------------------------------
 
@@ -244,9 +245,34 @@ export type AndroidAppResponse = z.infer<typeof androidAppResponseSchema>;
 
 // ---- releases ---------------------------------------------------------------
 
+/**
+ * The string spellings a multipart boolean field accepts, as `z.enum` types them.
+ *
+ * @stability experimental
+ */
+export type BooleanFieldEnum = { [K in 'true' | 'false' | '1' | '0']: K };
+
+/**
+ * The Android test statuses, as `z.enum` types them.
+ *
+ * @stability experimental
+ */
+export type AndroidAppTestStatusEnum = { [K in AndroidAppTestStatus]: K };
+
+/**
+ * The Android test reasons, as `z.enum` types them.
+ *
+ * @stability experimental
+ */
+export type AndroidAppTestReasonEnum = { [K in AndroidAppTestReason]: K };
+
+const booleanFieldStringSchema: z.ZodEnum<BooleanFieldEnum> = z.enum(['true', 'false', '1', '0']);
+const androidAppTestStatusSchema: z.ZodEnum<AndroidAppTestStatusEnum> = z.enum(ANDROID_APP_TEST_STATUSES);
+const androidAppTestReasonSchema: z.ZodEnum<AndroidAppTestReasonEnum> = z.enum(ANDROID_APP_TEST_REASONS);
+
 const booleanField = (fallback: boolean) =>
   z
-    .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+    .union([z.boolean(), booleanFieldStringSchema])
     .optional()
     .transform((value) => (value === undefined ? fallback : value === true || value === 'true' || value === '1'));
 
@@ -408,7 +434,7 @@ export const androidAppTestResultRowSchema = z.object({
   /** The push service host (never the endpoint: it is a capability URL). */
   endpointHost: z.string(),
   /** `sent`, `failed` or `gone`. */
-  status: z.enum(ANDROID_APP_TEST_STATUSES),
+  status: androidAppTestStatusSchema,
   /** Why it failed, when it did. */
   error: z.string().optional(),
 });
@@ -433,7 +459,7 @@ export const androidAppTestNotificationResponseSchema = z.object({
   /** One row per subscription pushed to. */
   results: z.array(androidAppTestResultRowSchema),
   /** Why nothing was sent, when nothing was. */
-  reason: z.enum(ANDROID_APP_TEST_REASONS).optional(),
+  reason: androidAppTestReasonSchema.optional(),
 });
 
 /**

@@ -20,7 +20,11 @@ import { ANDROID_RELEASE_REASONS, MAX_APK_BYTES } from '@marinoscar/platform-con
 // trusted list by the service.
 // =============================================================================
 
-/** The ZIP local-file-header signature every APK starts with. */
+/**
+ * The ZIP local-file-header signature every APK starts with.
+ *
+ * @stability experimental
+ */
 export const ZIP_MAGIC: Buffer = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
 /**
@@ -37,7 +41,7 @@ export class ApkInspector extends Transform {
   failure: BadRequestException | PayloadTooLargeException | null = null;
 
   /**
-   * @param maxBytes - the size ceiling (default {@link MAX_APK_BYTES}).
+   * @param maxBytes - the size ceiling (default `MAX_APK_BYTES`).
    */
   constructor(private readonly maxBytes: number = MAX_APK_BYTES) {
     super();
@@ -63,6 +67,8 @@ export class ApkInspector extends Transform {
   }
 
   /**
+   * Counts, checks the ZIP magic of, and hashes the next chunk.
+   *
    * @param chunk - the next bytes.
    * @param _encoding - unused.
    * @param callback - the stream callback.
@@ -83,6 +89,8 @@ export class ApkInspector extends Transform {
   }
 
   /**
+   * Refuses an upload that ended before its ZIP magic.
+   *
    * @param callback - the stream callback.
    */
   override _flush(callback: TransformCallback): void {
