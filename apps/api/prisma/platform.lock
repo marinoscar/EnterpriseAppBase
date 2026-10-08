@@ -168,6 +168,12 @@
       "originId": "platform:0028_add_org_settings",
       "sha256": "e4d811ab7c5446d905e5e4fbb3ce2b94e06d82488f916352a2a413cdc55f94a4",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261008041856_add_org_credentials",
+      "originId": "platform:0029_add_org_credentials",
+      "sha256": "fa5db76f0081149b5716f763166d2099b134857f27f15f36f9a4ea33e1a0806e",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"

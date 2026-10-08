@@ -1,4 +1,5 @@
 import { SETTINGS_USER_OWNED_MODELS } from '@marinoscar/platform-api/settings';
+import { CREDENTIALS_USER_OWNED_MODELS } from '@marinoscar/platform-api/credentials';
 import { SHARING_USER_OWNED_MODELS } from '@marinoscar/platform-api/sharing';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,17 +20,19 @@ import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models
 // =============================================================================
 
 describe('the app fills userOwnedModelRegistry', () => {
-  it('registers the platform inventory, then the sharing slice\'s, then the (empty) app list', () => {
+  it('registers the platform inventory, then the sharing and credentials slices\', then the (empty) app list', () => {
     expect(APP_USER_OWNED_MODELS).toEqual([]);
-    expect(userOwnedModelRegistry.ids()).toEqual([...PLATFORM_USER_OWNED_MODELS, ...SHARING_USER_OWNED_MODELS, ...SETTINGS_USER_OWNED_MODELS].map((def) => def.model));
+    expect(userOwnedModelRegistry.ids()).toEqual(
+      [...PLATFORM_USER_OWNED_MODELS, ...SHARING_USER_OWNED_MODELS, ...SETTINGS_USER_OWNED_MODELS, ...CREDENTIALS_USER_OWNED_MODELS].map((def) => def.model),
+    );
   });
 
-  it('holds 31 models and 38 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733)', () => {
+  it('holds 32 models and 39 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733; org credentials 1 and 1, #735)', () => {
     const fields = userOwnedModelRegistry
       .list()
       .flatMap((def) => [...(def.ownerField ? [def.ownerField] : []), ...(def.actorFields ?? [])]);
-    expect(userOwnedModelRegistry.size).toBe(31);
-    expect(fields).toHaveLength(38);
+    expect(userOwnedModelRegistry.size).toBe(32);
+    expect(fields).toHaveLength(39);
   });
 
   it('gives every entry a non-empty rationale', () => {

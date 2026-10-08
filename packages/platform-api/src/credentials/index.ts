@@ -33,3 +33,6 @@ export type {
   OrgCredentialRow,
   UserCredentialRow,
 } from './data/credentials-db';
+
+// ---- the model ownership and user-owned data declarations ---------------------------
+export { CREDENTIALS_MODEL_OWNERSHIP, CREDENTIALS_USER_OWNED_MODELS } from './ownership';

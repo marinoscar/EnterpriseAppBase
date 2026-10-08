@@ -62,6 +62,13 @@
       "reason": "Organization isolation of an organization's settings overrides (PP-8.1): one row per organization, read and written only inside runInOrg.",
       "doc": "docs/SECURITY-ARCHITECTURE.md",
       "createdIn": "0028_add_org_settings"
+    },
+    {
+      "name": "org_credentials_org_isolation",
+      "table": "org_credentials",
+      "reason": "Organization isolation of organization-owned encrypted credentials (PP-8.8): an org's key is visible only inside that organization's scope.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0029_add_org_credentials"
     }
   ]
 }
