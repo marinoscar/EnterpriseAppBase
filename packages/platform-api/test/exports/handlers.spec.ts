@@ -178,6 +178,20 @@ describe('export.run', () => {
     await expect(handler.process({ ...job(payload()), subjectId: UUID.other })).rejects.toThrow(/does not match/);
   });
 
+  it('a source that throws before yielding fails the job and ends the upload', async () => {
+    registerExportSource({
+      ...USER_DATA_EXPORT_SOURCE,
+      id: 'throws-early',
+      collect: () => {
+        throw new Error('source misconfigured');
+      },
+    });
+    const { handler, storage } = setup();
+    await expect(handler.process(job(payload({ source: 'throws-early' })))).rejects.toThrow('source misconfigured');
+    expect(storage.objects.size).toBe(0);
+    expect(storage.deleted).toEqual([`exports/users/${UUID.user}/${UUID.job}.json`]);
+  });
+
   it('re-validates the request at job start', async () => {
     const { handler } = setup();
     await expect(handler.process(job(payload({ request: { injected: true } })))).rejects.toThrow();

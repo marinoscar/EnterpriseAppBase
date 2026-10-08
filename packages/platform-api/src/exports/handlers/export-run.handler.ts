@@ -198,11 +198,14 @@ export class ExportRunHandler implements JobHandler, OnModuleInit {
         counter.destroy(error instanceof Error ? error : new Error(String(error)));
         throw error;
       });
-      const written = writer.write(source.collect(ctx, request), counter, {
-        source: source.id,
-        exportedAt: now,
-        appSlug: this.options.appSlug(),
-      });
+      // A source that throws before yielding, or a writer that rejects
+      // without destroying its output, must still end the upload.
+      const written = Promise.resolve()
+        .then(() => writer.write(source.collect(ctx, request), counter, { source: source.id, exportedAt: now, appSlug: this.options.appSlug() }))
+        .catch((error: unknown) => {
+          if (!counter.destroyed) counter.destroy(error instanceof Error ? error : new Error(String(error)));
+          throw error;
+        });
       const [writeResult, uploadResult] = await Promise.all([written, uploaded]);
       rowCounts = writeResult.rowCounts;
       bucket = uploadResult.bucket;
