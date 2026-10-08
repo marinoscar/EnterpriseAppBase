@@ -22,14 +22,14 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockUser } from '../../utils/test-utils';
-import { PersonalAccessTokens } from '../../../components/settings/PersonalAccessTokens';
+import { PersonalAccessTokens } from '@marinoscar/platform-web/identity/ui';
 import {
   installLayoutStubs,
   resetContainerWidth,
   setInitialContainerWidth,
 } from '../../../components/datatable/__tests__/testUtils/layoutStubs';
 import { api } from '../../../services/api';
-import type { PersonalAccessToken, PatCreatedResponse } from '../../../types';
+import type { PersonalAccessToken, PatCreatedResponse } from '@marinoscar/platform-web/identity/headless';
 
 // The list is packaged (#727): it reads its hook from the identity slice's
 // headless entry, so that entry is what this suite stubs.

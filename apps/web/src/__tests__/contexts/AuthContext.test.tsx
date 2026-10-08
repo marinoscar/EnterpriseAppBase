@@ -3,9 +3,10 @@ import { waitFor } from '@testing-library/react';
 import { renderHook, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { AuthProvider, useAuth } from '../../contexts/AuthContext';
+import { AuthProvider, useAuth } from '@marinoscar/platform-web/identity/headless';
 import { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import { api } from '../../services/api';
 
 // Issue #365: logout drops this device's push subscription from the server
 // before it signs out, so a shared browser stops receiving the previous
@@ -22,12 +23,13 @@ import { removePushSubscription } from '../../services/pushSubscription';
 
 const mockRemovePushSubscription = vi.mocked(removePushSubscription);
 
-// Wrapper for hooks that need AuthProvider
+// Wrapper for hooks that need AuthProvider: the package's provider, bound to
+// the app's transport and logout clean-up exactly as `App.tsx` binds it (#727).
 function createAuthWrapper(initialEntries?: string[]) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <MemoryRouter initialEntries={initialEntries}>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider client={api} onBeforeLogout={removePushSubscription}>{children}</AuthProvider>
       </MemoryRouter>
     );
   };

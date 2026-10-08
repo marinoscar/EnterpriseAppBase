@@ -1,9 +1,20 @@
+/**
+ * `useUsers` over the app's identity client and transport (#727).
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useUsers } from '../../hooks/useUsers';
+import { useUsers } from '@marinoscar/platform-web/identity/headless';
+import type { UserListItem, UsersResponse } from '@marinoscar/platform-web/identity/headless';
 import { server } from '../mocks/server';
 import { http, HttpResponse } from 'msw';
-import type { UserListItem, UsersResponse } from '../../types';
+import { appIdentityAdapters } from '../../platform/identityAdapters';
+
+// The packaged hook over the app's identity client (#727): the package's
+// `createIdentityApi` bound to the app transport, as `App.tsx` hands it to the
+// identity pages, answered by MSW. The hook's own suite runs in
+// `packages/platform-web`; this one proves the app's binding sends the
+// requests the API expects.
+const identityApi = appIdentityAdapters.api;
 
 // Mock user data
 const mockUser1: UserListItem = {
@@ -61,7 +72,7 @@ describe('useUsers', () => {
 
   describe('Initial Loading State', () => {
     it('should start with empty users and not loading', () => {
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       expect(result.current.users).toEqual([]);
       expect(result.current.total).toBe(0);
@@ -73,7 +84,7 @@ describe('useUsers', () => {
     });
 
     it('should provide all expected methods', () => {
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       expect(typeof result.current.fetchUsers).toBe('function');
       expect(typeof result.current.updateUser).toBe('function');
@@ -89,7 +100,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -117,7 +128,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       let fetchPromise: Promise<void>;
       act(() => {
@@ -152,7 +163,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers({ page: 2, pageSize: 20 });
@@ -177,7 +188,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -200,7 +211,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -218,7 +229,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -239,7 +250,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -256,7 +267,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       // First fetch successfully
       await act(async () => {
@@ -301,7 +312,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers({ search: 'user1@example.com' });
@@ -327,7 +338,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers({ role: 'Admin' });
@@ -353,7 +364,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers({ isActive: false });
@@ -373,7 +384,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers({
@@ -410,7 +421,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       // First fetch users
       await act(async () => {
@@ -446,7 +457,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -476,7 +487,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -506,7 +517,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -537,7 +548,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -566,7 +577,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -604,7 +615,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -633,7 +644,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -664,7 +675,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -693,7 +704,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -726,7 +737,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -748,7 +759,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       // Initial fetch
       await act(async () => {
@@ -791,7 +802,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       // Fetch with filters
       await act(async () => {
@@ -821,7 +832,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -847,7 +858,7 @@ describe('useUsers', () => {
 
   describe('Loading States During Operations', () => {
     it('should not be loading initially', () => {
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
       expect(result.current.isLoading).toBe(false);
     });
 
@@ -864,7 +875,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       let fetchPromise: Promise<void>;
       act(() => {
@@ -893,7 +904,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -915,7 +926,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -944,7 +955,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -972,7 +983,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -1001,7 +1012,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -1048,7 +1059,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -1103,7 +1114,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -1128,7 +1139,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -1154,7 +1165,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       await act(async () => {
         await result.current.fetchUsers();
@@ -1179,7 +1190,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       // Start multiple fetches concurrently
       await act(async () => {
@@ -1199,7 +1210,7 @@ describe('useUsers', () => {
 
     it('should handle update while users list is empty', async () => {
       // Don't set up a handler, so users list stays empty
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       expect(result.current.users).toEqual([]);
 
@@ -1249,7 +1260,7 @@ describe('useUsers', () => {
         })
       );
 
-      const { result } = renderHook(() => useUsers());
+      const { result } = renderHook(() => useUsers(identityApi));
 
       // Fetch users
       await act(async () => {

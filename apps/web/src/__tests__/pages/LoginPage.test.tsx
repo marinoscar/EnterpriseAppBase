@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { render } from '../utils/test-utils';
-import LoginPage from '../../pages/LoginPage';
+import LoginPage from '../../identity/LoginPage';
 
 describe('LoginPage', () => {
   beforeEach(() => {

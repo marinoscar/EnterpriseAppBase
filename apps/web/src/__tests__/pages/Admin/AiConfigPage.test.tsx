@@ -26,13 +26,14 @@ vi.mock('../../../hooks/useAiAdminConfig', () => ({
   useAiAdminConfig: vi.fn(),
 }));
 
-vi.mock('../../../hooks/usePermissions', () => ({
+vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
   usePermissions: vi.fn(),
 }));
 
 import { useAiAdminConfig } from '../../../hooks/useAiAdminConfig';
 import type { UseAiAdminConfigReturn } from '../../../hooks/useAiAdminConfig';
-import { usePermissions } from '../../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import AiConfigPage from '../../../pages/Admin/AiConfigPage';
 
 const mockUseAiAdminConfig = vi.mocked(useAiAdminConfig);

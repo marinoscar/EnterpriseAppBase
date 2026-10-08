@@ -5,7 +5,8 @@ import { CssBaseline } from '@mui/material';
 import { vi } from 'vitest';
 
 // Import AuthContext and ThemeContextProvider
-import { AuthContext } from '../../contexts/AuthContext';
+import { AuthContext, IdentityWebAdaptersProvider } from '@marinoscar/platform-web/identity/headless';
+import type { AuthProviderInfo as AuthProviderType } from '@marinoscar/platform-web/identity/headless';
 import { ThemeContextProvider } from '../../contexts/ThemeContext';
 import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
 import {
@@ -22,9 +23,7 @@ import {
   mockTelemetryPublicConfigDisabled,
   mockTelemetryPublicConfigEnabled,
 } from '../mocks/fixtures/telemetry';
-import type { AuthProvider as AuthProviderType } from '../../types';
 import { AppPlatformHostProvider } from '../../platform/platformHost';
-import { IdentityWebAdaptersProvider } from '@marinoscar/platform-web/identity/headless';
 import { appIdentityAdapters } from '../../platform/identityAdapters';
 import { appTelemetryAdapters } from '../../platform/telemetryAdapters';
 

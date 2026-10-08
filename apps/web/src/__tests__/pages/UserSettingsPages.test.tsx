@@ -71,7 +71,7 @@ vi.mock('../../components/settings/ProfileSettings', () => ({
 import { useUserSettings } from '../../hooks/useUserSettings';
 import UserProfilePage from '../../pages/UserProfilePage';
 import UserAppearancePage from '../../pages/UserAppearancePage';
-import UserTokensPage from '../../pages/UserTokensPage';
+import { UserTokensPage } from '@marinoscar/platform-web/identity/ui';
 
 const mockUseUserSettings = vi.mocked(useUserSettings);
 

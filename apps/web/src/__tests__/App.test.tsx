@@ -40,8 +40,13 @@ vi.mock('../pages/Admin/MaintenancePage', () => ({
   default: () => <h1>Admin Maintenance</h1>,
 }));
 
-vi.mock('../pages/Admin/UsersPage', () => ({
-  default: () => <h1>Admin Users</h1>,
+// The identity pages are packaged (#727): `App.tsx` lazy-loads them from
+// `@marinoscar/platform-web/identity/ui`, so the stand-ins replace the
+// package's exports and keep everything else it exports real.
+vi.mock('@marinoscar/platform-web/identity/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/ui')>()),
+  UsersPage: () => <h1>Admin Users</h1>,
+  UserTokensPage: () => <h1>User Tokens Page</h1>,
 }));
 
 // Issue #392: the target of the `/admin/settings/deployment` redirect.
@@ -91,10 +96,6 @@ vi.mock('../pages/UserProfilePage', () => ({
 
 vi.mock('../pages/UserAppearancePage', () => ({
   default: () => <h1>User Appearance Page</h1>,
-}));
-
-vi.mock('../pages/UserTokensPage', () => ({
-  default: () => <h1>User Tokens Page</h1>,
 }));
 
 // Issue #126, epic #109. Same rationale as the four stand-ins above: the real
@@ -150,7 +151,7 @@ describe('App', () => {
 
   describe('Route-level authorization', () => {
     /**
-     * Issue #55. `ProtectedRoute` establishes only that SOMEONE is logged in.
+     * Issue #55. `RequireAuth` establishes only that SOMEONE is logged in.
      * Authorization now happens at the route too, through `RequirePermission`
      * — which until this change was dead code with zero usages anywhere in the
      * app despite existing, tested, in `components/common/`.
@@ -329,7 +330,7 @@ describe('App', () => {
       // The strongest version of "not gated": no permissions at all, not even
       // `user_settings:read`. `/admin/settings` above redirects a user
       // lacking BOTH `system_settings:read` and `users:read`; these routes
-      // have no such check to fail, because `ProtectedRoute` (authentication)
+      // have no such check to fail, because `RequireAuth` (authentication)
       // is the only thing standing between a signed-in user and their own
       // settings.
       signInAs([]);
