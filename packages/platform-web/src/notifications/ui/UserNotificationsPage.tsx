@@ -21,8 +21,8 @@
  * `onToggle` below is the ONLY place this feature writes preferences, and it
  * sends a document with exactly one channel and exactly one event key in it:
  *
- *     { notifications: { email: { 'user.welcome': false } } }   // store a choice
- *     { notifications: { email: { 'user.welcome': null  } } }   // DELETE the key
+ *     \{ notifications: \{ email: \{ 'user.welcome': false \} \} \}   // store a choice
+ *     \{ notifications: \{ email: \{ 'user.welcome': null  \} \} \}   // DELETE the key
  *
  * The API deep-merges the channel object per event key (see
  * `mergeNotifications` in `UserSettingsService`, and

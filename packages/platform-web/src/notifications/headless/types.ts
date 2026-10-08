@@ -49,7 +49,6 @@
  */
 // OPEN since #738: any channel id the API registered (an app's own included);
 // the three platform ids are named for completion.
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type NotificationChannel = 'email' | 'browser' | 'push' | (string & {});
 
 /**
@@ -101,7 +100,7 @@ export interface NotificationEventDef {
 }
 
 /**
- * One channel's stored preferences: event key -> the user's explicit choice.
+ * One channel's stored preferences: event key -\> the user's explicit choice.
  *
  * SPARSE. A key is present only where the user deliberately chose something. An
  * absent key is NOT `false` and must never be normalised into one — absent

@@ -77,17 +77,17 @@ export const NOTIFICATIONS_USER_SETTINGS = {
    * Merge the `notifications` namespace (#126, epic #109) using JSON Merge
    * Patch semantics, PER CHANNEL and then PER EVENT KEY.
    *
-   * - patch absent                       -> keep the stored namespace untouched
-   * - patch is `null`                    -> clear the whole namespace
-   * - `{ email: null }`                  -> clear the `email` channel, leaving
+   * - patch absent                       -\> keep the stored namespace untouched
+   * - patch is `null`                    -\> clear the whole namespace
+   * - `{ email: null }`                  -\> clear the `email` channel, leaving
    *   any `browser` preferences alone
-   * - `{ email: { 'user.welcome': null } }` -> DELETE that one event key, so
+   * - `{ email: { 'user.welcome': null } }` -\> DELETE that one event key, so
    *   the event falls back to the registry's `defaultEnabled`. This is the
    *   operation the preferences page sends when a control returns to its
    *   default; storing the default value instead would pin that user to
    *   today's default forever and re-materialise the key the sparse contract
    *   exists to keep absent.
-   * - `{ email: { 'user.welcome': false } }` -> set that one key, touching
+   * - `{ email: { 'user.welcome': false } }` -\> set that one key, touching
    *   nothing else on the channel.
    *
    * WHY THIS DEEP-MERGES WHERE mergeDataTables REPLACES. A data table entry is

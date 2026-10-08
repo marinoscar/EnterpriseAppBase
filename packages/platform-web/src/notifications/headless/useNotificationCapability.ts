@@ -105,10 +105,10 @@
  * problem state that leaves its control enabled. It therefore describes a
  * granted-but-degraded device, not a pre-permission one:
  *
- *     denied                          -> denied
- *     default                         -> default          (prompt offered)
- *     granted + no registration       -> sw-unavailable   (degraded)
- *     granted + registration          -> granted
+ *     denied                          -\> denied
+ *     default                         -\> default          (prompt offered)
+ *     granted + no registration       -\> sw-unavailable   (degraded)
+ *     granted + registration          -\> granted
  *
  * Granting is a prerequisite for BOTH delivery paths, so offering the prompt in
  * `default` costs nothing even when the worker is missing: the page-level

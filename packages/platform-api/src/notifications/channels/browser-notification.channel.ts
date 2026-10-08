@@ -128,7 +128,7 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
    * genuinely failure-prone operation (the INSERT) is wrapped, and the publish
    * that follows it cannot throw by its own contract.
    *
-   * @param to the user id from {@link resolveTo}, passed in rather than
+   * @param to - the user id from {@link resolveTo}, passed in rather than
    *           re-derived so the delivery row's `recipient` and the row this
    *           writes can never disagree about who was notified.
    */

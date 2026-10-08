@@ -201,7 +201,7 @@ export class NotificationsService implements OnModuleDestroy {
   private readonly logger = new Logger(NotificationsService.name);
 
   /**
-   * Channel -> sender, built once from whatever the module registered.
+   * Channel -\> sender, built once from whatever the module registered.
    *
    * A Map rather than a `switch` or a chain of `if`s: the dispatcher iterates
    * the channels the event and the user's preferences agree on, and asks this
@@ -276,17 +276,17 @@ export class NotificationsService implements OnModuleDestroy {
    * NEVER REJECTS. Not for a database failure, not for a mail server, not for
    * a template bug, not for an event key that does not exist.
    *
-   * @param eventKey a key from `NOTIFICATION_EVENTS`. An UNKNOWN KEY IS A
+   * @param eventKey - a key from `NOTIFICATION_EVENTS`. An UNKNOWN KEY IS A
    *        NO-OP THAT RECORDS NOTHING — not a throw, and not a delivery row.
    *        Both matter: a throw would fail the action that raised the stale
    *        event (the exact coupling this issue exists to prevent), and a row
    *        for a non-existent event would put a key in
    *        `notification_deliveries` that no registry entry explains, poisoning
    *        the table that answers "what did we send?".
-   * @param userId the recipient's account.
-   * @param data the event's payload, passed to the channel's template
+   * @param userId - the recipient's account.
+   * @param data - the event's payload, passed to the channel's template
    *        untouched. Never logged.
-   * @param options per-dispatch options (#321). Today that is a
+   * @param options - per-dispatch options (#321). Today that is a
    *        NARROWING-ONLY channel subset — see {@link NotifyOptions}, which
    *        states at length what it cannot do. OMITTING IT REPRODUCES THE
    *        PRE-#321 BEHAVIOUR EXACTLY, which is why the existing call sites
@@ -402,11 +402,11 @@ export class NotificationsService implements OnModuleDestroy {
    * ignores the result (the broadcast `sendTest` path does) gets exactly the
    * pre-#456 behaviour.
    *
-   * @param eventKey a key from `NOTIFICATION_EVENTS`. Unknown is a no-op that
+   * @param eventKey - a key from `NOTIFICATION_EVENTS`. Unknown is a no-op that
    *        records nothing, exactly as in `notify`.
-   * @param userId the recipient's account.
-   * @param data the event's payload, passed to the template untouched.
-   * @param options the narrowing-only per-dispatch options; see
+   * @param userId - the recipient's account.
+   * @param data - the event's payload, passed to the template untouched.
+   * @param options - the narrowing-only per-dispatch options; see
    *        {@link NotifyOptions}.
    */
   async notifyNow(
@@ -488,12 +488,12 @@ export class NotificationsService implements OnModuleDestroy {
    * NEVER REJECTS, and never joins the caller's transaction — same guarantees
    * as {@link notify}, by the same mechanism (`schedule`).
    *
-   * @param eventKey a key from `NOTIFICATION_EVENTS`. Unknown is a no-op.
-   * @param email the recipient's address. Matched case-insensitively, because
+   * @param eventKey - a key from `NOTIFICATION_EVENTS`. Unknown is a no-op.
+   * @param email - the recipient's address. Matched case-insensitively, because
    *        the allowlist stores addresses lower-cased while `users.email`
    *        holds whatever the OAuth provider returned.
-   * @param data the event's payload, passed to the template untouched.
-   * @param options the narrowing-only per-dispatch options (#321), carried
+   * @param data - the event's payload, passed to the template untouched.
+   * @param options - the narrowing-only per-dispatch options (#321), carried
    *        here as well as on {@link notify} so the two public paths cannot
    *        end up with different capabilities — the divergence this method's
    *        whole design (one gate, two ways of building a recipient) exists to
@@ -597,13 +597,13 @@ export class NotificationsService implements OnModuleDestroy {
    * backup that failed, a sweep that found a dead node); a throw from here
    * would turn one failure into two.
    *
-   * @param eventKey a key from `NOTIFICATION_EVENTS`. Unknown is a no-op that
+   * @param eventKey - a key from `NOTIFICATION_EVENTS`. Unknown is a no-op that
    *        records nothing, exactly as in `notify`.
-   * @param permission the permission string — use `PERMISSIONS` from
+   * @param permission - the permission string — use `PERMISSIONS` from
    *        `common/constants/roles.constants.ts`, never a literal, and use THE
    *        SAME ONE the controller for this area enforces.
-   * @param data the event's payload, passed to the template untouched.
-   * @param options narrowing-only channels, plus `alsoNotifyUserIds` for an
+   * @param data - the event's payload, passed to the template untouched.
+   * @param options - narrowing-only channels, plus `alsoNotifyUserIds` for an
    *        audience that is "the permission holders AND this specific person".
    *        See {@link NotifyPermissionHoldersOptions}.
    */
@@ -967,8 +967,8 @@ export class NotificationsService implements OnModuleDestroy {
    *
    * THE ORDER IS THE SECURITY PROPERTY. The account lookup happens FIRST, and
    * an address with an account is dispatched as that account — with its stored
-   * preferences — rather than as an anonymous address. See {@link
-   * notifyAddress} for why the reverse would be a hole in the preference gate.
+   * preferences — rather than as an anonymous address. See
+   * `notifyAddress` for why the reverse would be a hole in the preference gate.
    */
   private async dispatchToAddress(
     event: NotificationEventDef,

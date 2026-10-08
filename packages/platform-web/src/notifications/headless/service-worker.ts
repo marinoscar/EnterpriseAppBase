@@ -109,7 +109,6 @@ export interface NotificationsServiceWorkerScope {
    * Adds an event listener. The event is untyped here: the worker's own
    * overloads type it per event name, which a structural shape cannot repeat.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   addEventListener(type: string, listener: (event: any) => void): void;
 }
 

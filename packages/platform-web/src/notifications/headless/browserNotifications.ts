@@ -128,7 +128,7 @@ export async function requestBrowserNotificationPermission(): Promise<
  * misbehaving embedded browser, a registration stuck mid-update, etc) — one
  * `try` around one call, reused from two call sites instead of duplicated.
  *
- * @param onClick invoked when the user activates the toast. The window is
+ * @param onClick - invoked when the user activates the toast. The window is
  *        focused first, because a toast is clicked from outside the browser and
  *        navigating a background tab the user cannot see is not a useful
  *        outcome. THIS FOCUS/ONCLICK WIRING HAS NO EQUIVALENT ON THE SW PATH —
@@ -236,7 +236,7 @@ function showPageNotification(
  * independently `granted`. Falling back — rather than requiring a SW — keeps
  * every browser this worked on before #222 working exactly as before.
  *
- * @param onClick invoked when the user activates the toast — see
+ * @param onClick - invoked when the user activates the toast — see
  *        `showPageNotification` above for why this ONLY fires on the page
  *        path, never on the SW path.
  * @returns which path actually raised the toast (`'sw'` or `'page'`), or

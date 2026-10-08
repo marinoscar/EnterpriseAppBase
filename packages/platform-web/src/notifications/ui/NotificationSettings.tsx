@@ -10,7 +10,7 @@
  *
  * The stored document is `user_settings.value.notifications`, channel-outer:
  *
- *     { email: { 'user.welcome': false }, browser: { ... } }
+ *     \{ email: \{ 'user.welcome': false \}, browser: \{ ... \} \}
  *
  * A key is present ONLY where the user deliberately chose. Absent — at the
  * namespace, the channel, or the event level — means "use the registry's
@@ -121,7 +121,7 @@ import { AddToHomeScreenPanel } from './AddToHomeScreenPanel.js';
  * receive. Rendering the stored `false` there would be an honest reading of the
  * document and a lie about the behaviour.
  *
- * @param preferences the raw stored namespace, or `undefined` when the user has
+ * @param preferences - the raw stored namespace, or `undefined` when the user has
  *                    never saved a preference — the single most common case.
  */
 export function isEventChannelEnabled(
@@ -161,8 +161,8 @@ export function isEventChannelEnabled(
  *
  * Both directions matter, which is why this compares against `defaultEnabled`
  * rather than special-casing "re-enabling":
- *   * default `true`, user muted it, user un-mutes  -> next `true`  -> DELETE
- *   * default `false`, user opted in, user opts out -> next `false` -> DELETE
+ *   * default `true`, user muted it, user un-mutes  -\> next `true`  -\> DELETE
+ *   * default `false`, user opted in, user opts out -\> next `false` -\> DELETE
  * and a first, non-default change stores the explicit boolean.
  */
 export function preferenceWriteFor(

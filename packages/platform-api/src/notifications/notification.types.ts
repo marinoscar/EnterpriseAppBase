@@ -273,8 +273,8 @@ export interface ChannelDeliveryResult {
    *
    * It does NOT change how the delivery row is written: a throttled send is
    * still a `failed` row with its `error` text, because for that recipient it
-   * genuinely did fail. What it changes is what {@link
-   * NotificationsService.notifyNow} reports back to an AWAITING caller (see
+   * genuinely did fail. What it changes is what
+   * `NotificationsService.notifyNow` reports back to an AWAITING caller (see
    * {@link NotifyNowResult}) — which is how the broadcast fan-out learns to
    * stop sending into a refusing provider. The detached `notify()` has no
    * caller to report to and ignores it.
@@ -308,8 +308,8 @@ export interface ChannelDeliveryResult {
  * one the caller can do anything about (stop, and come back later).
  *
  * `notifyNow` still NEVER REJECTS; a dispatch that threw internally, found no
- * user, or resolved no channel reports `{ rateLimited: false, retryAfterMs:
- * null }` — the same "nothing to back off from" as a clean send.
+ * user, or resolved no channel reports
+ * `{ rateLimited: false, retryAfterMs: null }` — the same "nothing to back off from" as a clean send.
   *
   * @stability stable
  */
@@ -377,7 +377,7 @@ export interface NotificationChannelSender {
    * not read this comment. A guarantee that depends on every future
    * implementer being careful is not a guarantee.
    *
-   * @param to the destination from {@link resolveTo}, passed in rather than
+   * @param to - the destination from {@link resolveTo}, passed in rather than
    *           re-derived so the row's `recipient` and the actual send can
    *           never disagree.
    */

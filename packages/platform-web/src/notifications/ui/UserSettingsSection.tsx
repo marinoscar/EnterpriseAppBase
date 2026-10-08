@@ -63,8 +63,8 @@ export interface UserSettingsSaveMessages {
   success: string;
   /**
    * Success-path fallback for the ERROR snackbar when the rejection is not an
-   * `Error` and therefore carries no `.message`, e.g. `'Failed to update
-   * theme'`. Carried per call site rather than hardcoded to one generic string
+   * `Error` and therefore carries no `.message`, e.g.
+   * `'Failed to update theme'`. Carried per call site rather than hardcoded to one generic string
    * so the two pages keep the exact copy the stacked page used.
    */
   failure: string;

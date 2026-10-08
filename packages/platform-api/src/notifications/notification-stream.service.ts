@@ -388,7 +388,7 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
   }
 
   /**
-   * user id -> that user's open connections.
+   * user id -\> that user's open connections.
    *
    * A `Set` per user because one person legitimately has several tabs open,
    * and each is its own connection that must receive its own copy. The bucket
@@ -406,7 +406,7 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
    * subscribed (a client that vanishes during setup) registers nothing and
    * leaks nothing.
    *
-   * @param userId the AUTHENTICATED principal's id. There is no other correct
+   * @param userId - the AUTHENTICATED principal's id. There is no other correct
    *        argument — see the isolation note in the header. A caller passing
    *        an id taken from a request parameter has built an IDOR, and the
    *        controller is written so that value does not exist.

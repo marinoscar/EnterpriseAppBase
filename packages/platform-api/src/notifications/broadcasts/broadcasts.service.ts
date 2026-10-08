@@ -336,7 +336,7 @@ export class BroadcastsService {
    *
    * A `failed` broadcast (#459) is cancelable too: it is how an operator who
    * will not resume closes the record honestly. The cancel and
-   * `BroadcastFailureListener`'s `sending` -> `failed` flip race the same way
+   * `BroadcastFailureListener`'s `sending` -\> `failed` flip race the same way
    * — both are conditional — and the cancel succeeds against either status.
    *
    * `count === 0` IS AMBIGUOUS BY ITSELF — no such row, or a row in a status
@@ -393,7 +393,7 @@ export class BroadcastsService {
    *
    * THREE STEPS, NO TRANSACTION, IN THIS ORDER — the file header's rule 2:
    *
-   *   1. A COMPARE-AND-SWAP `failed` -> `sending`, clearing `finishedAt` and
+   *   1. A COMPARE-AND-SWAP `failed` -\> `sending`, clearing `finishedAt` and
    *      `lastError`. `audienceCutoff: { not: null }` is in the `WHERE`
    *      because a chunk refuses to page an unfrozen audience: a `failed` row
    *      that never had its cutoff stamped (not reachable by the listener,
@@ -411,7 +411,7 @@ export class BroadcastsService {
    *      If the old failed chunk is ALSO retried from the Jobs page, both
    *      chains send the same page and the chunk's cursor compare-and-swap
    *      stops whichever commits second.
-   *   3. IF THE ENQUEUE THROWS, COMPENSATE: flip `sending` -> `failed` again
+   *   3. IF THE ENQUEUE THROWS, COMPENSATE: flip `sending` -\> `failed` again
    *      (conditional, so a cancel that landed in between is not overwritten),
    *      record why in `lastError`, and rethrow. Without this the broadcast
    *      would be `sending` with no job — the very state #459 fixes.

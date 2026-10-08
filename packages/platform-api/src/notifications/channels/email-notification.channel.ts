@@ -94,7 +94,7 @@ export class EmailNotificationChannel implements NotificationChannelSender {
   private readonly logger = new Logger(EmailNotificationChannel.name);
 
   /**
-   * Transport kind -> transport.
+   * Transport kind -\> transport.
    *
    * A `Record<EmailProviderKind, EmailProvider>` rather than a `switch`, for
    * the reason spelled out on the identical map in `EmailTestSendService`:

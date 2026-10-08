@@ -85,7 +85,7 @@ import {
 export const NOTIFICATION_PREFERENCES_NAMESPACE = 'notifications';
 
 /**
- * Event key -> the user's explicit choice, for one channel.
+ * Event key -\> the user's explicit choice, for one channel.
  *
  * SPARSE: a key is present only where the user deliberately chose. An absent
  * key is not `false`, and must never be normalised into one.
@@ -178,7 +178,7 @@ function ownProperty(
  * added in a newer deployment during a rolling upgrade, and dropping it here
  * would be a lossy read that #126's read-modify-write would then persist.
  *
- * @param settingsValue the raw `user_settings.value` JSONB, or `null`/
+ * @param settingsValue - the raw `user_settings.value` JSONB, or `null`/
  *                      `undefined` when the user has no settings row at all —
  *                      the single most common case, and the one the sparse
  *                      contract is built around.
@@ -327,7 +327,7 @@ export function isChannelEnabled(
  * the policy filter (its `notifications` row is the delivery, and muting a
  * toast must not mute an audit-relevant inbox entry).
  *
- * @param policy the stored admin policy. Defaults to the permissive
+ * @param policy - the stored admin policy. Defaults to the permissive
  *        {@link DEFAULT_NOTIFICATION_POLICY} — the honest answer for a caller
  *        that has none, since that is also what a deployment that has never
  *        touched the setting has. Failing closed here would let an unread

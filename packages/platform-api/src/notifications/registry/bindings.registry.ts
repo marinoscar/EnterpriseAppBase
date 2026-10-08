@@ -37,7 +37,7 @@ import {
 } from './event.registry';
 
 /**
- * Event key -> the name of the email template that renders it.
+ * Event key -\> the name of the email template that renders it.
  *
  * @stability stable
  */
@@ -49,7 +49,7 @@ export interface EventEmailTemplateBinding {
 }
 
 /**
- * Event key -> the renderer for its bell row and OS toast (browser and push).
+ * Event key -\> the renderer for its bell row and OS toast (browser and push).
  *
  * @stability stable
  */
@@ -100,7 +100,7 @@ function assertBrowserBinding(
 }
 
 /**
- * Event key -> email template name. Filled by `notification.manifest.ts`
+ * Event key -\> email template name. Filled by `notification.manifest.ts`
  * through {@link registerNotification}; frozen once the application has
  * bootstrapped.
   *
@@ -116,7 +116,7 @@ export const eventEmailTemplateRegistry = defineRegistry<EventEmailTemplateBindi
 });
 
 /**
- * Event key -> browser/push renderer. Filled by `notification.manifest.ts`
+ * Event key -\> browser/push renderer. Filled by `notification.manifest.ts`
  * through {@link registerNotification}; frozen once the application has
  * bootstrapped.
   *
@@ -154,12 +154,12 @@ export interface NotificationRegistration {
  * `RegistryError` from the registry that refused, naming the event key.
  *
  * @example
- * registerNotification({
- *   event: { key: 'coach.weekly_review', label: 'Weekly review', description: '...',
- *            channels: ['email', 'browser'], defaultEnabled: true },
+ * registerNotification(\{
+ *   event: \{ key: 'coach.weekly_review', label: 'Weekly review', description: '...',
+ *            channels: ['email', 'browser'], defaultEnabled: true \},
  *   emailTemplate: 'coach-weekly-review',
  *   browserTemplate: weeklyReviewBrowserTemplate,
- * });
+ * \});
  *
  * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY`, `DUPLICATE_ID` or `FROZEN`.
  *

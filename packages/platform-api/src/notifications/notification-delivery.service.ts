@@ -152,7 +152,7 @@ export class NotificationDeliveryService {
   /**
    * Close a delivery record as delivered.
    *
-   * @param deliveryId `null` when {@link queue} could not write a row — the
+   * @param deliveryId - `null` when {@link queue} could not write a row — the
    *        call is then a no-op, so the dispatcher does not need a null check
    *        at every call site.
    */

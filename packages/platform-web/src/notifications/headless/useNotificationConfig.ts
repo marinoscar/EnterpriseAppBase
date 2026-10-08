@@ -25,8 +25,8 @@
  * `true` (disabled) during the loading window, which is the one thing the
  * issue this hook exists for says must not happen: it would flicker the
  * "Allow notifications" button (or the admin-disabled banner) in and out on
- * every page load. The correct read is `config ? !config.browserEnabled :
- * false`, or equivalently `config?.browserEnabled === false` — see the call
+ * every page load. The correct read is
+ * `config ? !config.browserEnabled : false`, or equivalently `config?.browserEnabled === false` — see the call
  * site in `pages/UserNotificationsPage.tsx`.
  */
 

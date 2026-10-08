@@ -90,7 +90,6 @@ export interface NotificationChannelIds {
  *
  * @stability stable
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type NotificationChannel = (keyof NotificationChannelIds & string) | (string & {});
 
 /**

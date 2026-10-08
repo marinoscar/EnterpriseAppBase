@@ -774,8 +774,8 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
   /**
    * The payload every channel renders this broadcast from.
    *
-   * ANNOTATED WITH THE TEMPLATE'S OWN TYPE ON PURPOSE. `notifyNow` takes `data:
-   * unknown` — one untyped entry point for every event, so no call site has to
+   * ANNOTATED WITH THE TEMPLATE'S OWN TYPE ON PURPOSE. `notifyNow` takes
+   * `data: unknown` — one untyped entry point for every event, so no call site has to
    * import a per-event payload type — which means THIS IS THE ONLY PLACE the
    * shape is checked at all. Drop the annotation and a renamed field in
    * `broadcast.email.ts` becomes a runtime render failure recorded as a failed

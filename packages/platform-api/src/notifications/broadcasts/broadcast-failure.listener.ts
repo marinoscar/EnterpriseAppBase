@@ -160,7 +160,7 @@ export class BroadcastFailureListener {
   }
 
   /**
-   * Moves the broadcast `sending` -> `failed`. Resolves `true` when this call
+   * Moves the broadcast `sending` -\> `failed`. Resolves `true` when this call
    * made the transition, `false` when the broadcast was not `sending` (already
    * canceled, sent or failed — left alone) or no longer exists.
    *

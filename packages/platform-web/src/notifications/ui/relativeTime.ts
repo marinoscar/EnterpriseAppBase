@@ -38,8 +38,8 @@ const UNITS: { limit: number; ms: number; unit: Intl.RelativeTimeFormatUnit }[] 
 const JUST_NOW_MS = 45_000;
 
 /**
- * @param iso an ISO-8601 timestamp, as every API date field in this app is.
- * @param now injectable so this is testable without freezing the clock, and so
+ * @param iso - an ISO-8601 timestamp, as every API date field in this app is.
+ * @param now - injectable so this is testable without freezing the clock, and so
  *        a list rendered in one pass dates every row against the same instant
  *        rather than against seven slightly different ones.
  */

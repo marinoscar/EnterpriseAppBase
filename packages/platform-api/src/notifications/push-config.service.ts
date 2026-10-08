@@ -485,8 +485,8 @@ export class PushConfigService {
    * `enabled: true` is requested but no key pair exists (no stored
    * `publicKey`, or no private-key credential) — an admin must `generate`
    * first. Disabling is always allowed: it is the non-destructive action
-   * (keys are retained, see the plan), so there is no guard on `enabled:
-   * false`.
+   * (keys are retained, see the plan), so there is no guard on
+   * `enabled: false`.
    *
    * Copies the `If-Match`/version-conflict handling verbatim from
    * `EmailSettingsService.update`.

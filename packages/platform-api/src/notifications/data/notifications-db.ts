@@ -31,7 +31,6 @@
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type NotificationsQueryArgs = any;
 
 /**
@@ -39,7 +38,6 @@ export type NotificationsQueryArgs = any;
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type NotificationsWhere = { [field: string]: any };
 
 /**
@@ -284,7 +282,6 @@ export interface NotificationsDelegate<Row> {
   /** Prisma `count`. */
   count(args?: NotificationsQueryArgs): Promise<number>;
   /** Prisma `groupBy`. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   groupBy(args: NotificationsQueryArgs): Promise<Array<{ [field: string]: any }>>;
 }
 
@@ -295,7 +292,6 @@ export interface NotificationsDelegate<Row> {
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type NotificationsForeignDelegate = NotificationsDelegate<any>;
 
 /**

@@ -169,7 +169,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
    * implementation happens to keep today. Every branch below returns a
    * `ChannelDeliveryResult`.
    *
-   * @param to the user id from {@link resolveTo}.
+   * @param to - the user id from {@link resolveTo}.
    */
   async deliver(
     context: NotificationDispatchContext,

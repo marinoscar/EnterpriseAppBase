@@ -88,7 +88,7 @@ export class NotificationChannelSenderRegistry implements OnApplicationBootstrap
   private readonly appChannels = new Set<string>();
 
   /**
-   * @param platformSenders the platform's senders, from the module factory.
+   * @param platformSenders - the platform's senders, from the module factory.
    * @throws RegistryError when two of them claim one channel.
    */
   constructor(@Inject(NOTIFICATION_CHANNEL_SENDERS) platformSenders: NotificationChannelSender[]) {
