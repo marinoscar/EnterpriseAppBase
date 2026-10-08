@@ -1,6 +1,6 @@
 # VPS Deployment (`appctl deploy`)
 
-> **Status:** shipped · **Code:** `apps/cli/src/deploy/`, `apps/cli/src/commands/deploy.ts`, `apps/cli/src/tui/screens/deploy.tsx`, `infra/compose/vps.compose.yml`, `apps/api/src/about/`, `apps/web/src/pages/Admin/AboutPage.tsx` · **API:** `GET /api/admin/about` (see `/api/docs`) · **Admin UI:** `/admin/settings/about` · **Runbooks:** [deploy-to-vps.md](../runbooks/deploy-to-vps.md), [deployment-info.md](../runbooks/deployment-info.md) · **Command reference:** [apps/cli/README.md](../../apps/cli/README.md#deploying-to-a-server)
+> **Status:** shipped · **Code:** `packages/platform-cli/src/engine/deploy/`, `packages/platform-cli/src/engine/commands/deploy.ts`, `packages/platform-cli/src/engine/tui/screens/deploy.tsx`, `infra/compose/vps.compose.yml`, `apps/api/src/about/`, `apps/web/src/pages/Admin/AboutPage.tsx` · **API:** `GET /api/admin/about` (see `/api/docs`) · **Admin UI:** `/admin/settings/about` · **Runbooks:** [deploy-to-vps.md](../runbooks/deploy-to-vps.md), [deployment-info.md](../runbooks/deployment-info.md) · **Command reference:** [apps/cli/README.md](../../apps/cli/README.md#deploying-to-a-server)
 
 `appctl deploy` installs, updates, inspects and removes this application on a
 Linux server with Docker. The operator runs it on the server itself. It clones
@@ -171,7 +171,7 @@ ran.
 
 ### Doctor checks
 
-Registered in `apps/cli/src/deploy/checks/`, one module per area, shared by
+Registered in `packages/platform-cli/src/engine/deploy/checks/`, one module per area, shared by
 `doctor` and the pipelines' `preflight`:
 
 | Area | Check ids |
@@ -372,7 +372,7 @@ ANSI-stripped output, and an `AbortSignal`.
 
 `0` OK, `1` failure, `2` usage, `3` API, `4` network, `5` auth, `6`
 `PRECONDITION` (a required check failed before anything destructive ran).
-Defined in `apps/cli/src/errors.ts`.
+Defined in `packages/platform-cli/src/engine/errors.ts`.
 
 ## 3. Configuration and permissions
 
@@ -398,7 +398,7 @@ Everything else comes from `infra/compose/.env.example`; see the wizard above.
 - `json-file` log rotation (10 MB × 3) on `nginx`, `api` and `web`.
 
 When the `observability` group is recorded for the deployment,
-`composeFilesFor` (`apps/cli/src/deploy/compose-files.ts`) also layers
+`composeFilesFor` (`packages/platform-cli/src/engine/deploy/compose-files.ts`) also layers
 `telemetry.compose.yml` (before the VPS files, so it inherits their
 hardening) and `vps.telemetry.compose.yml` last (so its `ports: !override`
 is the final word): the OTel Collector publishes no host port at all, and
@@ -456,7 +456,7 @@ check compares `nginx.conf` and `csp.conf` only.
   wizard picks them up. Add an `env-metadata.ts` entry for anything secret
   (`secret: true`), generated, derived, essential or grouped, or register an
   env-spec fragment for a set of keys that belongs together
-  (`registerEnvSpecFragment` in `apps/cli/src/platform-host/register.ts`; see
+  (`registerEnvSpecFragment` in `apps/cli/src/app.ts`; see
   [the CLI README](../../apps/cli/README.md#extending-the-cli-from-an-app)). Never add a
   commented `# KEY=value` example line that is not a real optional key: the
   parser treats it as a declaration.
@@ -467,7 +467,7 @@ check compares `nginx.conf` and `csp.conf` only.
 - **A new pipeline step.** Add it to `install.ts` and/or `update.ts`. Make it
   idempotent, since `--resume` re-enters after the last completed step.
 - **A new About field.** Add it to the document builder in
-  `apps/cli/src/deploy/deploy-info.ts` and to the reader
+  `packages/platform-cli/src/engine/deploy/deploy-info.ts` and to the reader
   (`apps/api/src/about/deploy-info.ts`) and DTO. Do not bump `schema`.
 - **Different hosting.** Not a CLI flag. A registry-based deploy
   (`deploy.yml` already builds images) would be a new mode that skips `build`.
@@ -478,13 +478,13 @@ check compares `nginx.conf` and `csp.conf` only.
 |---|---|
 | `.github/workflows/deploy-e2e.yml` | Real Docker, a real PostgreSQL service, a fake VPS layout: unattended `install`, the version bump rolled back (not left ahead of origin), the document reaching the running container, `update` twice with nothing moved and no image rebuilt, journal redaction, `status` healthy. Runs on changes to `apps/cli/**`, `infra/compose/**` or the Dockerfiles, and nightly |
 | `.github/workflows/deploy.yml` | Not this CLI: tag-triggered build and push of the `api`, `web`, `worker` and `stack-agent` images to GHCR, through the reusable `images.yml` (signed, with an SBOM; [runbook](../runbooks/container-images.md)). Its staging/production deploy jobs are `echo` stubs. Kept separate from `deploy-e2e.yml` on purpose |
-| `apps/cli/src/deploy/testing/fake-vps.test.ts` | Pipelines against a simulated server |
-| `apps/cli/src/deploy/install.test.ts`, `install-hardening.test.ts`, `update.test.ts`, `update-publish.test.ts`, `version-step.test.ts` | Step order, resume, adoption, version push rules |
-| `apps/cli/src/deploy/layout.test.ts`, `deployment-evidence.test.ts`, `adopt.test.ts`, `compose-project.test.ts` | Five ranks, the evidence predicate, adoption, recorded project names |
-| `apps/cli/src/deploy/proxy.test.ts`, `proxy-certs.test.ts`, `proxy-bootstrap.test.ts`, `renewal.test.ts`, `checks/tls.test.ts` | Container vs host paths, validate-then-reload, rollback, renewal ownership, the bootstrapped proxy's main config and ulimit |
+| `packages/platform-cli/src/engine/deploy/testing/fake-vps.test.ts` | Pipelines against a simulated server |
+| `packages/platform-cli/src/engine/deploy/install.test.ts`, `install-hardening.test.ts`, `update.test.ts`, `update-publish.test.ts`, `version-step.test.ts` | Step order, resume, adoption, version push rules |
+| `packages/platform-cli/src/engine/deploy/layout.test.ts`, `deployment-evidence.test.ts`, `adopt.test.ts`, `compose-project.test.ts` | Five ranks, the evidence predicate, adoption, recorded project names |
+| `packages/platform-cli/src/engine/deploy/proxy.test.ts`, `proxy-certs.test.ts`, `proxy-bootstrap.test.ts`, `renewal.test.ts`, `checks/tls.test.ts` | Container vs host paths, validate-then-reload, rollback, renewal ownership, the bootstrapped proxy's main config and ulimit |
 | `apps/api/test/nginx-connection-limits.spec.ts` | The application nginx's `worker_connections`, `worker_rlimit_nofile` and the `nofile` ulimits on `nginx` and `api` move together |
-| `apps/cli/src/deploy/env-spec.test.ts`, `env-wizard.test.ts`, `journal.test.ts`, `journal-hook.test.ts` | `.env.example` parsing, wizard behaviour, redaction |
-| `apps/cli/src/deploy/database.test.ts`, `oauth-check.test.ts`, `uninstall.test.ts`, `state.test.ts`, `deploy-info.test.ts` | Database creation rules, OAuth classification, uninstall confirmations, state upgrade, document shape |
+| `packages/platform-cli/src/engine/deploy/env-spec.test.ts`, `env-wizard.test.ts`, `journal.test.ts`, `journal-hook.test.ts` | `.env.example` parsing, wizard behaviour, redaction |
+| `packages/platform-cli/src/engine/deploy/database.test.ts`, `oauth-check.test.ts`, `uninstall.test.ts`, `state.test.ts`, `deploy-info.test.ts` | Database creation rules, OAuth classification, uninstall confirmations, state upgrade, document shape |
 | `apps/api/src/about/deploy-info.spec.ts`, `apps/api/test/about/deploy-info-contract.spec.ts`, `apps/api/test/about/about.integration.spec.ts` | Lenient reader, CLI/API contract, the endpoint and its permission |
 | `apps/web/src/__tests__/pages/Admin/AboutPage.test.tsx`, `apps/web/src/__tests__/hooks/useAbout.test.ts` | The About page's states |
 

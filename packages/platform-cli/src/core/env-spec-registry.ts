@@ -105,6 +105,7 @@ export interface EnvSpecFragment {
 const fragments: EnvSpecFragment[] = [];
 /** Maps each key to the id of the fragment that owns it. */
 const owners = new Map<string, string>();
+let frozenBy: string | undefined;
 
 /**
  * Registers a fragment of env-key metadata.
@@ -124,6 +125,9 @@ const owners = new Map<string, string>();
 export function registerEnvSpecFragment(fragment: EnvSpecFragment): void {
   if (typeof fragment.id !== 'string' || fragment.id.trim() === '') {
     throw new Error('An env-spec fragment needs a non-empty id.');
+  }
+  if (frozenBy !== undefined) {
+    throw new Error(`Env-spec fragment "${fragment.id}" was registered after ${frozenBy}; register it before (or pass it to createCli).`);
   }
   if (fragments.some((existing) => existing.id === fragment.id)) {
     throw new Error(`Env-spec fragment "${fragment.id}" is already registered.`);
@@ -173,4 +177,16 @@ export function listEnvSpecFragments(): readonly EnvSpecFragment[] {
 export function resetEnvSpecRegistryForTests(): void {
   fragments.length = 0;
   owners.clear();
+  frozenBy = undefined;
+}
+
+/**
+ * Refuses every later registration; `createCli` calls it once the CLI is built.
+ *
+ * @param by - Who froze it, named in the error a late registration gets.
+ * @internal
+ * @stability experimental
+ */
+export function freezeEnvSpecRegistry(by: string): void {
+  frozenBy = by;
 }

@@ -31,6 +31,7 @@ export type CliCommandRegistration = (program: Command) => void;
 const RESERVED_NAMES: readonly string[] = ['help'];
 
 const registrations: CliCommandRegistration[] = [];
+let frozenBy: string | undefined;
 
 /**
  * Registers a function that adds commands to the host CLI.
@@ -49,6 +50,9 @@ const registrations: CliCommandRegistration[] = [];
 export function registerCliCommand(register: CliCommandRegistration): void {
   if (typeof register !== 'function') {
     throw new TypeError('registerCliCommand expects a function (program) => void.');
+  }
+  if (frozenBy !== undefined) {
+    throw new Error(`registerCliCommand was called after ${frozenBy}; register app commands before it (or pass them to createCli).`);
   }
   registrations.push(register);
 }
@@ -128,4 +132,18 @@ export function listRegisteredCommands(): readonly CliCommandRegistration[] {
  */
 export function resetCommandRegistryForTests(): void {
   registrations.length = 0;
+  frozenBy = undefined;
+}
+
+/**
+ * Refuses every later registration. `createCli` calls it once the CLI is
+ * built, so a command registered too late fails loudly instead of silently
+ * missing from `--help`.
+ *
+ * @param by - Who froze it, named in the error a late registration gets.
+ * @internal
+ * @stability experimental
+ */
+export function freezeCommandRegistry(by: string): void {
+  frozenBy = by;
 }

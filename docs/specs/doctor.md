@@ -269,7 +269,7 @@ The five checks form one chain: `export`, `connection`, `reachable`, `tables`, `
 
 ### 2.9 Relation to `appctl deploy doctor`
 
-The contract deliberately mirrors the CLI's pre-install doctor (`apps/cli/src/deploy/checks/types.ts`): the same four statuses, the same one-line `detail`, the same `remedy`, the same read-only rule and the same "never throws". An operator who has read one report can read the other.
+The contract deliberately mirrors the CLI's pre-install doctor (`packages/platform-cli/src/engine/deploy/checks/types.ts`): the same four statuses, the same one-line `detail`, the same `remedy`, the same read-only rule and the same "never throws". An operator who has read one report can read the other.
 
 | | `appctl deploy doctor` | Admin Doctor |
 |---|---|---|

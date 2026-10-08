@@ -9,10 +9,10 @@ every `appctl node` flag is in
 
 Source of truth for every claim below:
 
-- `apps/cli/src/commands/node.ts` — the `appctl node` subcommands and flags.
-- `apps/cli/src/node/` — the engine, `capabilities.ts` (the startup self-test),
+- `packages/platform-cli/src/engine/commands/node.ts` — the `appctl node` subcommands and flags.
+- `packages/platform-cli/src/engine/node/` — the engine, `capabilities.ts` (the startup self-test),
   `install-deps.ts`, `worker-env.ts` (every `APPCTL_*` variable).
-- `apps/cli/src/tui/screens/node.tsx` — the interactive dashboard.
+- `packages/platform-cli/src/engine/tui/screens/node.tsx` — the interactive dashboard.
 - `infra/compose/worker.compose.yml`, `worker.build.compose.yml`,
   `.env.worker.example` — the container fleet.
 - `apps/api/src/nodes/` — registration, claim, lease and the per-job secret
@@ -155,7 +155,7 @@ from `@marinoscar/platform-infra` by `npm run platform:infra:sync`, with every
 variable rendered from the app's CLI name: `appctl` gives the `APPCTL_*` names
 used in this runbook, a fork whose CLI is `evopathcli` gets `EVOPATHCLI_*`.
 The names always match what the worker reads (`ENV_PREFIX` in
-`apps/cli/src/branding.ts`; `apps/cli/src/node/worker-env.test.ts` checks
+`apps/cli/src/branding.ts`; `packages/platform-cli/src/engine/node/worker-env.test.ts` checks
 both files). After renaming the CLI, run the sync and commit the result; never
 edit either file by hand (CI's `platform:infra:sync -- --check` fails).
 
@@ -241,7 +241,7 @@ this on needs to know, none of them a code change:
    password in its config file or its state directory. When it holds a
    `db.backup.run` job it calls `POST /api/nodes/{id}/jobs/{jobId}/secret`, gets one
    short-lived credential back, holds it in memory for the life of that job,
-   and drops it. `apps/cli/src/node/executors/db-backup-run.test.ts` asserts
+   and drops it. `packages/platform-cli/src/engine/node/executors/db-backup-run.test.ts` asserts
    this statically — the executor imports no config writer at all.
 2. **Two independent switches, both off by default, must both be on** before
    any node is ever offered the job type: `nodes.jobSecretBrokerEnabled` ("may
@@ -266,7 +266,7 @@ about turning this on is required to take backups at all.
 
 ### 5.2 Declare a requirement in a fork
 
-In `apps/cli/src/node/capabilities.ts`:
+In `packages/platform-cli/src/engine/node/capabilities.ts`:
 
 ```ts
 export const PROBED_BINARIES = ['ffmpeg'];
@@ -291,7 +291,7 @@ has no native dependencies to install, and inventing some would mean a fork had
 to work out which of the steps were real. What you get is the structure —
 ordered steps, per-step `skipped | installed | failed | unsupported`, distro
 detection, an explicit sudo announcement before anything runs, and a working
-`--dry-run`. Add your own steps in `apps/cli/src/node/install-deps.ts` beside
+`--dry-run`. Add your own steps in `packages/platform-cli/src/engine/node/install-deps.ts` beside
 the two generic ones.
 
 ## 7. Memory

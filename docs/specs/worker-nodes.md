@@ -1,6 +1,6 @@
 # Worker Nodes
 
-> **Status:** shipped · **Code:** `apps/api/src/nodes/`, `apps/api/src/jobs/contracts/`, `apps/api/src/storage/storage-job-input.ts`, `apps/cli/src/node/` · **API:** `/api/nodes/*`, `/api/node-credentials`, `/api/admin/nodes/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/workers` · **Runbooks:** [Running worker nodes](../runbooks/run-worker-nodes.md), [Node job secrets](../runbooks/node-job-secrets.md) · **Recipes:** [Job handlers](../../apps/api/src/jobs/handlers/README.md), [Node executors](../../apps/cli/src/node/executors/README.md)
+> **Status:** shipped · **Code:** `apps/api/src/nodes/`, `apps/api/src/jobs/contracts/`, `apps/api/src/storage/storage-job-input.ts`, `packages/platform-cli/src/engine/node/` · **API:** `/api/nodes/*`, `/api/node-credentials`, `/api/admin/nodes/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/workers` · **Runbooks:** [Running worker nodes](../runbooks/run-worker-nodes.md), [Node job secrets](../runbooks/node-job-secrets.md) · **Recipes:** [Job handlers](../../apps/api/src/jobs/handlers/README.md), [Node executors](../../packages/platform-cli/src/engine/node/executors/README.md)
 
 A worker node is a process, usually `appctl node start` on a machine the deployment may not own, that pulls node-eligible jobs off this API's queue, runs them, and reports results back. It authenticates with a `nod_` credential confined to `/api/nodes/*`, holds no durable database or storage access, reads and writes object bytes through presigned URLs, and receives any per-job secret in memory only, for the life of one lease. The server keeps every decision that matters: which types a node may claim, how long it may hold them, whether a result is valid, and when a silent node is declared offline.
 
@@ -95,7 +95,7 @@ A node id belonging to another owner answers `403`, not `404`. Node ids are prin
 - A `disabled` node gets `403`: its answer will not change by polling.
 - A `draining` node gets an empty list: it is in a normal state and must keep heartbeating and renewing while it finishes.
 
-The claim response carries, per assignment, `{ job, params, renewIntervalMs, claimToken, traceparent }`. `claimToken` sits beside the job DTO, not inside it (`dto/node-response.dto.ts`). `traceparent` (#607) is the W3C trace context of the span that enqueued the job (`jobs.trace_context`, see [job-queue.md, Trace context](job-queue.md#trace-context)), re-validated by `toNodeJobAssignment` and `null` when nothing was traced; it is correlation data, not a credential. It is optional for a node: an older CLI ignores the unknown key, and the CLI mirror (`NodeJobAssignment` in `apps/cli/src/node/node-api.ts`) declares it but does not read it: the node relays its phase spans to the server, which parents them on the stored context itself ([Span relay](#span-relay)). `params` is a separate bag so a server-minted value is never mistaken for a column. The lease length is derived by `resolveJobLeaseMs` in `job.worker.ts`, the single derivation both executors read.
+The claim response carries, per assignment, `{ job, params, renewIntervalMs, claimToken, traceparent }`. `claimToken` sits beside the job DTO, not inside it (`dto/node-response.dto.ts`). `traceparent` (#607) is the W3C trace context of the span that enqueued the job (`jobs.trace_context`, see [job-queue.md, Trace context](job-queue.md#trace-context)), re-validated by `toNodeJobAssignment` and `null` when nothing was traced; it is correlation data, not a credential. It is optional for a node: an older CLI ignores the unknown key, and the CLI mirror (`NodeJobAssignment` in `packages/platform-cli/src/engine/node/node-api.ts`) declares it but does not read it: the node relays its phase spans to the server, which parents them on the stored context itself ([Span relay](#span-relay)). `params` is a separate bag so a server-minted value is never mistaken for a column. The lease length is derived by `resolveJobLeaseMs` in `job.worker.ts`, the single derivation both executors read.
 
 ### Lease and claim token
 
@@ -182,7 +182,7 @@ The node's own `nod_` token is the one credential a node persists; it is an iden
 
 ### Capability probing
 
-The worst node failure is starting cleanly and then failing every job it claims, charging each an attempt. At startup the CLI probes what the machine can do (`apps/cli/src/node/capabilities.ts`) and compares it with what its eligible types need (`JOB_TYPE_REQUIREMENTS`):
+The worst node failure is starting cleanly and then failing every job it claims, charging each an attempt. At startup the CLI probes what the machine can do (`packages/platform-cli/src/engine/node/capabilities.ts`) and compares it with what its eligible types need (`JOB_TYPE_REQUIREMENTS`):
 
 - A missing **required** capability → hard exit (code `70`), naming the capability and the type.
 - A missing **degradable** capability → warn and continue.
@@ -246,7 +246,7 @@ The body is untrusted input and is `.strict()` at every level:
 
 The body never carries a node id, trace id, span id or parent. Anything outside this contract is `400` for the whole request. The response is `{ accepted, dropped }`.
 
-The CLI side is `NodeSpanRelay` and `JobSpanRecorder` in `@marinoscar/platform-cli/telemetry` (`packages/platform-cli/src/telemetry/node-span-relay.ts`, moved there from `apps/cli/src/node/` by #706), which `apps/cli/src/node/node-engine.ts` uses. `NodeEngine` records download, execute (with `attempt`), and submit (the result or the failure report). It records `job.secret` around the executor's `api.jobSecret`, and `job.upload` where an executor calls `context.phase` (the backup executor times its streamed PUT, with `bytes`). An errored phase's `errorType` is the error's class name, plus an HTTP status (`ApiError.409`) or a string `code` (`Error.ECONNREFUSED`). The engine queues a job's spans after the job settles and never awaits the send. The relay sends one request at a time in batches of at most 50, and keeps at most 500 queued spans, dropping the oldest first. `stop()` flushes the queue. On a `404` (an older server) the relay turns itself off for the rest of the process and logs `telemetry-disabled` once. On `400`, `403`, `429` or a network error it drops the batch silently. No environment variable controls it; `NodeEngine`'s `relaySpans: false` is the programmatic switch.
+The CLI side is `NodeSpanRelay` and `JobSpanRecorder` in `@marinoscar/platform-cli/telemetry` (`packages/platform-cli/src/telemetry/node-span-relay.ts`, moved there from `packages/platform-cli/src/engine/node/` by #706), which `packages/platform-cli/src/engine/node/node-engine.ts` uses. `NodeEngine` records download, execute (with `attempt`), and submit (the result or the failure report). It records `job.secret` around the executor's `api.jobSecret`, and `job.upload` where an executor calls `context.phase` (the backup executor times its streamed PUT, with `bytes`). An errored phase's `errorType` is the error's class name, plus an HTTP status (`ApiError.409`) or a string `code` (`Error.ECONNREFUSED`). The engine queues a job's spans after the job settles and never awaits the send. The relay sends one request at a time in batches of at most 50, and keeps at most 500 queued spans, dropping the oldest first. `stop()` flushes the queue. On a `404` (an older server) the relay turns itself off for the rest of the process and logs `telemetry-disabled` once. On `400`, `403`, `429` or a network error it drops the batch silently. No environment variable controls it; `NodeEngine`'s `relaySpans: false` is the programmatic switch.
 
 ### Fleet sweep and prune
 
@@ -358,11 +358,11 @@ The `credentials` literals are declared before `:id`; Nest matches in declaratio
 Making a job type runnable on a node takes two halves:
 
 1. **Server handler** — give it `nodeResultSchema` and `persistNodeResult` (both, never one), and put the schema in `apps/api/src/jobs/contracts/`. Route `process` and `persistNodeResult` through one write method, as `example-checksum.handler.ts` does. Full recipe: [apps/api/src/jobs/handlers/README.md](../../apps/api/src/jobs/handlers/README.md).
-2. **CLI executor** — implement `JobExecutor` and register it in `defaultExecutors()`. `execute` returns the result and throws to fail. Recipe: [apps/cli/src/node/executors/README.md](../../apps/cli/src/node/executors/README.md).
+2. **CLI executor** — implement `JobExecutor` and register it in `defaultExecutors()`. `execute` returns the result and throws to fail. Recipe: [packages/platform-cli/src/engine/node/executors/README.md](../../packages/platform-cli/src/engine/node/executors/README.md).
 
 Optional, only when the default is wrong:
 
-- Declare native dependencies in `JOB_TYPE_REQUIREMENTS` (and `PROBED_BINARIES`) in `apps/cli/src/node/capabilities.ts`, with required and degradable tiers.
+- Declare native dependencies in `JOB_TYPE_REQUIREMENTS` (and `PROBED_BINARIES`) in `packages/platform-cli/src/engine/node/capabilities.ts`, with required and degradable tiers.
 - `deriveOutputKey(job)` when the output location is part of the artifact's contract. It must be idempotent per job.
 - `nodeSecretBroker` when the executor needs a credential no presigned URL can provide. It must mint per job, bounded by the lease, and store only a handle.
 - `nodeOffloadEnabled()` when a deployment should be able to keep a structurally eligible type on the server.
@@ -389,14 +389,14 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 | `apps/api/src/jobs/handlers/example-checksum.handler.spec.ts` | Both executors leave the same row |
 | `apps/api/src/storage/storage-job-input.spec.ts` | Three input failures, each naming the job |
 | `apps/api/src/nodes/node-secret-broker.service.spec.ts`, `apps/api/test/nodes/node-job-secret.integration.spec.ts` | Secret route outcomes (`403`/`404`/`503`), lease-bounded grants |
-| `apps/cli/src/node/executors/db-backup-run.test.ts` | The backup executor imports no config writer (secret never persisted) |
-| `apps/cli/src/node/capabilities.test.ts` | Required vs. degradable capability outcomes |
+| `packages/platform-cli/src/engine/node/executors/db-backup-run.test.ts` | The backup executor imports no config writer (secret never persisted) |
+| `packages/platform-cli/src/engine/node/capabilities.test.ts` | Required vs. degradable capability outcomes |
 | `apps/api/src/nodes/dto/node-telemetry.dto.spec.ts` | Span relay body: strict at every level, phase-name enum, integer-only attribute allowlist, identifier-only `errorType`, batch cap, time window |
 | `apps/api/src/nodes/node-telemetry.service.spec.ts` | Held job accepted; foreign, missing and expired-grace jobs dropped and never emitted; ownership before any job read; one query per batch; `429` before any job read; parent is the stored `traceparent`; `node.id` from the path; attribute renaming; emission never throws |
 | `apps/api/src/nodes/node-telemetry-rate-limiter.spec.ts` | Request and span buckets, refill, per-node isolation; settlement ledger grace window and bound |
 | `apps/api/src/nodes/nodes.service.spec.ts` (settlement ledger) | A settle records the node, including the persist-failure path; a refused or lost settle records nothing |
 | `apps/api/test/nodes/node-telemetry.integration.spec.ts` | `nod_` admitted with no guard change; `401`/`403` RBAC; another owner's node `403`; missing node `404`; eight `400` bodies; `429` with `TOO_MANY_REQUESTS` |
-| `packages/platform-cli/src/telemetry/node-span-relay.test.ts`, `apps/cli/src/node/node-span-relay.test.ts` (the same cases with the CLI's real `ApiError`), `node-engine.test.ts` (span relay) | `errorType` never carries a message; batches of 50; oldest dropped first; `404` disables once; `400`/`403`/`429`/`500` drop the batch; a hanging relay never holds a job slot |
+| `packages/platform-cli/src/telemetry/node-span-relay.test.ts`, `packages/platform-cli/src/engine/node/node-span-relay.test.ts` (the same cases with the CLI's real `ApiError`), `node-engine.test.ts` (span relay) | `errorType` never carries a message; batches of 50; oldest dropped first; `404` disables once; `400`/`403`/`429`/`500` drop the batch; a hanging relay never holds a job slot |
 | `apps/api/test/nodes/node-fleet-lifecycle.spec.ts` | Sweep then prune in sequence: crashed node, never-heartbeated node, `disabled` untouched, busy node deferred |
 | `apps/api/test/nodes/node-fleet-lifecycle.db.spec.ts` | Real Postgres: `NULL < cutoff` is not true, `SetNull`, reaper requeues a deleted node's job |
 | `apps/api/src/nodes/handlers/node-fleet-sweep.handler.spec.ts`, `node-fleet-prune.handler.spec.ts` | The statements each handler sends |

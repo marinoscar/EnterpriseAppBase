@@ -7,5 +7,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     globals: false,
+    // The reference app's CLI identity, set before every test file (#715).
+    setupFiles: ['test/setup.ts'],
   },
 });

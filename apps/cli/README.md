@@ -9,6 +9,11 @@ per resource goes stale the day it ships. `appctl` has exactly one command
 that talks to the API (`api <method> <path>`), so it stays correct against
 endpoints that don't exist yet.
 
+The commands, the menu, the deploy pipeline and the worker engine are
+provided by [`@marinoscar/platform-cli`](../../packages/platform-cli/README.md);
+this app composes them with its own identity in one `createCli` call, and adds
+its own the same way (see [Extending the CLI from an app](#extending-the-cli-from-an-app)).
+
 Run with no arguments in an interactive terminal and it opens a full-screen
 menu (login, call an endpoint, status, worker node, deploy this server,
 logout) built with [ink](https://github.com/vadimdemedes/ink). Everything that menu can do
@@ -207,7 +212,7 @@ stay logged in for days between commands. It's stored, along with the server
 URL, in `~/.appctl/config.json`. That file is created with `0600`
 permissions (owner read/write only) even across restarts and partial
 rewrites — see the extensive comment on `writeConfigFile` in
-`apps/cli/src/config.ts` if you want the mechanics of how that's guaranteed
+`packages/platform-cli/src/engine/config.ts` if you want the mechanics of how that's guaranteed
 under a hostile umask. The token itself is never printed by any command; if
 you need to see what's stored, `appctl config` prints the server URL and a
 masked hint (`pat_abcd••••••••` — the first eight characters, then a
@@ -543,7 +548,7 @@ previous revision and the exact command to redeploy it —
 
 `--app-version <version>` overrides the suggested patch-bump version for this
 release; it's rejected if it doesn't sort above the deployment's current
-version (`assertMovesForward` in `apps/cli/src/deploy/app-version.ts`). The
+version (`assertMovesForward` in `packages/platform-cli/src/engine/deploy/app-version.ts`). The
 interactive TUI's Update screen asks for this too, as a second question right
 after `ref`: it's prefilled with the suggested next patch version, and
 pressing Enter keeps the suggestion while typing a value overrides it,
@@ -1117,11 +1122,12 @@ is how a container runs with no interactive setup at all. Environment values
 win over the file, **per field** — override one without restating the rest.
 
 ⚠️ **Generated — do not edit the table below by hand.** It is built from
-`WORKER_ENV` (`src/node/worker-env.ts`) and the JSDoc comment already written
-above each of its entries, so it cannot drift the way a hand-typed copy would.
-Run `npm run docs:worker-env --workspace=cli` to regenerate it after changing
-`WORKER_ENV`; `worker-env-table.test.ts` fails the build if this block and
-`WORKER_ENV` disagree.
+`workerEnv()` (`node/worker-env.ts` in `@marinoscar/platform-cli`, with this
+app's `APPCTL_` prefix) and the JSDoc comment already written above each of
+its entries, so it cannot drift the way a hand-typed copy would. Run
+`npm run docs:worker-env --workspace=cli` to regenerate it after changing
+`workerEnv()`; `worker-env-table.test.ts` fails the build if this block and
+`workerEnv()` disagree.
 
 <!-- GENERATED:WORKER_ENV_TABLE:START -->
 | Variable | Description |
@@ -1214,7 +1220,11 @@ Change that one line (see the comment above it in `branding.ts` for the
 naming constraints — lowercase ASCII letters, digits and hyphens only, since
 it becomes both a filesystem path and part of an environment variable name)
 and the config directory, the env var prefix, and every place the CLI refers
-to itself by name follow automatically. The one place it can't reach is the
+to itself by name follow automatically: `branding.ts` hands it to
+`@marinoscar/platform-cli` as `CLI_IDENTITY` through `createCli`, and the
+platform reads it at call time. Two strings never follow it, because live
+servers already have them: the deploy state file `.appctl-deploy.json` and the
+`# Managed by appctl deploy` sentinel of a proxy vhost. The one place it can't reach is the
 `bin` key in `apps/cli/package.json` — npm reads that before any of this
 code runs, so it has to be updated by hand to match, and a test in
 `apps/cli/src/branding.test.ts` asserts the two stay in sync.
@@ -1236,46 +1246,55 @@ under its own "Defaults" comment block and has to be changed there directly.
 
 ## Extending the CLI from an app
 
-The CLI has two extension points, both registries in
-[`@marinoscar/platform-cli/core`](../../packages/platform-cli/src/core/README.md).
-Register into them from one place,
-[`src/platform-host/register.ts`](src/platform-host/register.ts), so what the
-CLI can do stays grep-able. That file runs lazily, from `buildProgram()` and
-`metadataFor()`, never on import.
+Every command above, the menu, the deploy pipeline and the worker engine come
+from [`@marinoscar/platform-cli`](../../packages/platform-cli/README.md); its
+README is the reference for the platform commands' API. This app is the
+composition: [`src/cli.ts`](src/cli.ts) calls `createCli(APP_CLI_OPTIONS)`,
+and [`src/app.ts`](src/app.ts) holds the options: the identity
+([`src/branding.ts`](src/branding.ts): `appctl`, `${APP_NAME} CLI`), the
+version (this package's), and whatever the app adds. An app adds through the
+same five registries the platform's own pieces use; passing an addition in
+the options or calling the matching `register*` function before `createCli`
+builds the same CLI, and a duplicate id throws at startup.
 
-**Add a command** with `registerCliCommand`. The function receives the CLI's
-own `program`, so the command inherits its error handling and exit codes; it
-is listed in `--help` after every built-in, in registration order. A name that
-collides with a built-in (`deploy`, `login`, ...) or with `help` throws.
-
-```ts
-import { registerCliCommand } from '@marinoscar/platform-cli/core';
-
-registerCliCommand((program) =>
-  program.command('coach-seed').description('Seed coach data').action(seedCoachData),
-);
-```
-
-**Annotate environment keys** with `registerEnvSpecFragment`. The deploy
-wizard's questions still come from `infra/compose/.env.example`; a fragment
-adds the metadata for keys the template declares (secret, generate, validate,
-group, ...). A key has exactly one owner: a key in `ENV_METADATA` and in a
-fragment, or in two fragments, throws at registration, naming both. A
-fragment's `group` must be one of `ENV_GROUPS` in
-`src/deploy/env-metadata.ts`.
+| Add | Option (or function) | Worked example, compiled and tested but not wired |
+|---|---|---|
+| A command after the built-ins | `extraCommands` (`registerCliCommand`, `/core`) | [`examples/hello.command.ts`](src/examples/hello.command.ts) |
+| A screen in the menu | `tuiScreens` (`registerTuiScreen`, `/tui`) | [`examples/about.tui.ts`](src/examples/about.tui.ts), [`about.screen.tsx`](src/examples/about.screen.tsx) |
+| A step in `deploy install` / `update` | `deploySteps` (`registerDeployStep`, `/deploy`) | [`examples/announce.deploy-step.ts`](src/examples/announce.deploy-step.ts) |
+| A node-eligible job type | `nodeExecutors` (`registerNodeExecutor`, `/node`) | [`examples/echo.executor.ts`](src/examples/echo.executor.ts) |
+| Metadata for `app.env.example` keys | `envSpecFragments` (`registerEnvSpecFragment`, `/core`) | the platform's `telemetry` fragment |
 
 ```ts
-import { registerEnvSpecFragment } from '@marinoscar/platform-cli/core';
-
-registerEnvSpecFragment({
-  id: 'coach',
-  metadata: { COACH_API_TOKEN: { secret: true, generate: 'hex-32', autoGenerate: true } },
-});
+// src/app.ts
+export const APP_CLI_OPTIONS: CreateCliOptions = {
+  identity: CLI_IDENTITY,
+  version: CLI_VERSION,
+  extraCommands: [helloCommand],
+  tuiScreens: [aboutScreen],
+  deploySteps: [announceInstall],
+  nodeExecutors: [new EchoExecutor()],
+};
 ```
 
-The telemetry keys are the worked example: `telemetryEnvSpecFragment` from
-[`@marinoscar/platform-cli/telemetry`](../../packages/platform-cli/src/telemetry/README.md),
-registered in `register.ts`.
+**Annotate environment keys** with an env-spec fragment. The deploy wizard's
+questions come from `infra/compose/.env.example`, which `platform-infra sync`
+composes from the platform's variables and then this app's
+`infra/compose/app.env.example`; a fragment adds the metadata (secret,
+generate, validate, group, ...) for keys the template declares. A key has
+exactly one owner: a key the platform annotates and a fragment annotates, or
+two fragments, throws naming both.
+
+```ts
+envSpecFragments: [
+  { id: 'coach', metadata: { COACH_API_TOKEN: { secret: true, generate: 'hex-32', autoGenerate: true } } },
+],
+```
+
+[`src/conformance.test.ts`](src/conformance.test.ts) runs the package's
+`cli` conformance suite over this app: no env fragment carries a commented
+`# KEY=value` line, and every executor the worker would run (the platform's
+and the app's) leaves no job-scoped credential behind.
 
 ## How the installer works
 

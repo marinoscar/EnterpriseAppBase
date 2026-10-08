@@ -1,6 +1,6 @@
 # Database Backup
 
-> **Status:** shipped · **Code:** `apps/api/src/db-backup/`, `apps/web/src/pages/Admin/DbBackupPage.tsx`, `apps/cli/src/node/executors/db-backup-run.ts` · **API:** `/api/admin/db-backup/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/db-backup` · **Runbooks:** [postgres-client-version.md](../runbooks/postgres-client-version.md), [node-job-secrets.md](../runbooks/node-job-secrets.md) · **Related spec:** [database-restore.md](database-restore.md)
+> **Status:** shipped · **Code:** `apps/api/src/db-backup/`, `apps/web/src/pages/Admin/DbBackupPage.tsx`, `packages/platform-cli/src/engine/node/executors/db-backup-run.ts` · **API:** `/api/admin/db-backup/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/db-backup` · **Runbooks:** [postgres-client-version.md](../runbooks/postgres-client-version.md), [node-job-secrets.md](../runbooks/node-job-secrets.md) · **Related spec:** [database-restore.md](database-restore.md)
 
 The application takes logical backups of its own PostgreSQL database with
 `pg_dump`, streams each archive straight into the deployment's object storage,
@@ -142,7 +142,7 @@ bypass option exits 0 and writes a valid archive with the schema and no rows.
   and sets exactly this one, and the option never appears in argv). The option without the flag
   is refused by `pg_dump`. The same pair is in `buildPgRestoreArgs` /
   `spawnPgRestore` and in the CLI's node-side dump
-  (`apps/cli/src/node/pg-dump.ts`).
+  (`packages/platform-cli/src/engine/node/pg-dump.ts`).
 - **The minted role stays SELECT-only.** The role the broker mints for a node
   is `NOBYPASSRLS` and gains no privilege: it sets the same custom
   `app.rls_bypass` option, which any role may set. The archive is the same
@@ -484,7 +484,7 @@ All three are seeded Admin-only, and every route also requires the Admin role.
 | `apps/api/test/db-backup/db-backup-rls.db.spec.ts` | With row-level security forced and an ordinary role: the dump restores with every row of every organization (exact per-organization counts), the restored database still enforces isolation, the minted role and the CLI's node-side dump carry every row too, and both negative controls (flag without option: empty tables; option without flag: refused) |
 | `apps/api/test/db-backup/db-backup-admin.integration.spec.ts` | Every route through the real router and `HttpExceptionFilter`: `409` details, BigInt as decimal strings, permission split, route order |
 | `apps/api/test/db-backup/db-backup-node-offload.integration.spec.ts` | The three gates and the node result path |
-| `apps/cli/src/node/executors/db-backup-run.test.ts` | The node never persists or logs its credential |
+| `packages/platform-cli/src/engine/node/executors/db-backup-run.test.ts` | The node never persists or logs its credential |
 | `apps/api/test/jobs/cron-enqueue-only.spec.ts` | The scheduler only enqueues |
 
 The runner's unit suite uses the engine seam; `test/integration/db-backup-round-trip.db.spec.ts`,
