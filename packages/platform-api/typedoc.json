@@ -25,6 +25,7 @@
     "src/email/index.ts",
     "src/email/testing/index.ts",
     "src/jobs/index.ts",
+    "src/jobs/testing/index.ts",
     "src/nodes/index.ts",
     "src/storage/index.ts",
     "src/storage/testing/index.ts",
