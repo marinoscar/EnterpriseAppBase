@@ -21,7 +21,7 @@
 # same rule to the collector and GreptimeDB. Their hardening lives there, not
 # here: a service block in this file would be a service with no image on every
 # deployment without telemetry. `appctl deploy` builds the list
-# (apps/cli/src/deploy/compose-files.ts).
+# (packages/platform-cli/src/engine/deploy/compose-files.ts).
 #
 # It also adds `stack-agent` (issue #567), the one service here that holds the
 # Docker socket. See its own block below for the security trade-off; in short:

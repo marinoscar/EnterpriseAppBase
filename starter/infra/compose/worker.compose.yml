@@ -29,8 +29,8 @@
 # -----------------------------------------------------------------------------
 # The service key is `worker`, which is unambiguous inside this bundle and
 # needs no rename. The environment-variable names are the second unavoidable
-# copy of apps/cli/src/node/worker-env.ts, guarded bidirectionally by
-# apps/cli/src/node/worker-env.test.ts.
+# copy of packages/platform-cli/src/engine/node/worker-env.ts, guarded
+# bidirectionally by packages/platform-cli/src/engine/node/worker-env.test.ts.
 # =============================================================================
 
 services:

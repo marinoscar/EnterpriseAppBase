@@ -15,10 +15,10 @@
         "infra/compose/dev.compose.yml": "5c289ee8d21b816550c677b3dc35de37c7a8a7033bbd3a2b0c7c2b477825d07c",
         "infra/compose/devdb.compose.yml": "3eb626711e6a4cd68178fe09ed8449c10c9c862782f1797891ad2a61bf9f6441",
         "infra/compose/prod.compose.yml": "027ca7b6c38af5c056a465d849af205528f78a3c2ebc6a57b7a8534877125e6a",
-        "infra/compose/vps.compose.yml": "bbf434f023f1c60f166722ad248e14ddd5e5f8976c1f2b51baed43d8617876fc",
-        "infra/compose/worker.compose.yml": "313ba4bc510d35b388463a6d61533116e751f8a4f1780391bf190a372b9f6a9a",
+        "infra/compose/vps.compose.yml": "e09db906af528c82543d04fb8e459f7b12803a36d38df838a822c1e29a1e8384",
+        "infra/compose/worker.compose.yml": "2a3483d2c514d6278db0b75dbb436ae82ff91d53549883a81a14d88dc131cf59",
         "infra/compose/worker.build.compose.yml": "8675ce8b0dfb5e8de057d9fed224bea918abfebf6c856d8c643156baf28c27d8",
-        "infra/compose/test.compose.yml": "d3b6bc39da7cfc3c1bb00b6526a595dc2bf7b4e7d8242c955bb2449f9d44f6c0"
+        "infra/compose/test.compose.yml": "e8df56728d963be370b94d013239f765aea8f339e0d85ec71549c9059d03d369"
       }
     },
     "nginx": {
@@ -39,7 +39,7 @@
     "telemetry": {
       "files": {
         "infra/compose/telemetry.compose.yml": "4b24874db3bc359cad2e0dc0176400a46842f0b21faee7190e1c83a7f11c8f31",
-        "infra/compose/vps.telemetry.compose.yml": "4e35f520f4e99c17162ae53b39a45949693ba9cb9b5d3fa006c1db1bee6e66d9",
+        "infra/compose/vps.telemetry.compose.yml": "e02c3447feec8a4e7fed7ea0ec4dfb4c44947eeafd0baa5d895894e5b48e32f1",
         "infra/otel/otel-collector-config.yaml": "4f7f560b7787a8cea8152bd6e22664ae5e262f135f8944287d779647cdca3832"
       }
     }
