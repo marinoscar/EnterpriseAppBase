@@ -34,21 +34,11 @@ import { promisify } from 'node:util';
 
 import { Client } from 'pg';
 
-import {
-  PG_DUMP_COMMAND,
-  RLS_BYPASS_PGOPTIONS,
-  buildPgDumpArgs,
-  pgClientEnv,
-  spawnPgDump,
-  spawnPgProcess,
-  type PgConnection,
-} from '../../src/db-backup/pg-dump.util';
-import {
-  resolveAdminConnection,
-  withAdminConnection,
-} from '../../src/db-backup/admin-connection.util';
-import { PgJobRoleBroker, type PgJobRoleSeam } from '../../src/db-backup/pg-job-role.broker';
-import { spawnPgRestore } from '../../src/db-backup/pg-restore.util';
+import { RLS_BYPASS_PGOPTIONS } from '@marinoscar/platform-api/db-backup';
+import { PG_DUMP_COMMAND, buildPgDumpArgs, pgClientEnv, spawnPgDump, spawnPgProcess, type PgConnection } from '@marinoscar/platform-api/db-backup/testing';
+import { resolveAdminConnection, withAdminConnection } from '@marinoscar/platform-api/db-backup/testing';
+import { PgJobRoleBroker, type PgJobRoleSeam } from '@marinoscar/platform-api/db-backup/testing';
+import { spawnPgRestore } from '@marinoscar/platform-api/db-backup/testing';
 import { createRlsDatabase, seedTwoOrgs, ORG_A, ORG_B, type RlsDatabase, type TwoOrgFixture } from '../helpers/rls-database.helper';
 import { envFor } from '../helpers/scratch-database.helper';
 import { resolveDbSuite } from '../jobs/db-test-support';

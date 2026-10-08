@@ -41,7 +41,7 @@ import {
   APP_NOTIFICATION_CHANNELS,
 } from '../../app-registrations/notifications';
 import { AUTH_NOTIFICATIONS } from '../../identity-extensions/notifications/auth.notifications';
-import { DB_BACKUP_NOTIFICATIONS } from '../../db-backup/db-backup.notifications';
+import { DB_BACKUP_NOTIFICATIONS } from '../db-backup/db-backup.notifications';
 import {
   configureEmailRendering,
   registerEmailTemplates,

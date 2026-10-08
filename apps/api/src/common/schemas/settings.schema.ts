@@ -151,97 +151,16 @@ export const systemNodesSchema = z.object({
 
 export type SystemNodesValue = z.infer<typeof systemNodesSchema>;
 
-/**
- * `databaseBackup.timeOfDay`: 24-hour `HH:MM`, zero-padded.
- *
- * A string rather than two numbers because it is one field on one form and one
- * value in one cron-ish schedule; the regex is what stops `"2:00"`, `"25:00"`
- * and `"02:60"` from reaching a scheduler that would have to guess.
- */
-export const BACKUP_TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-/**
- * Database backup and restore policy (`databaseBackup`).
- *
- * `dayOfWeek` and `dayOfMonth` are BOTH always present and both always valid,
- * whatever `frequency` says. The alternative — a discriminated union keyed on
- * `frequency` — would mean switching a schedule from weekly to monthly and
- * back loses the day the operator had chosen, and would make a PATCH that
- * changes only `frequency` invalid unless it also carried the other field.
- * Storing an inert-but-remembered value is the cheaper mistake.
- *
- * `dayOfMonth` stops at 28 rather than 31 so that "monthly" means every month:
- * a schedule pinned to the 30th silently skips February.
- *
- * `restoreRollbackMode` decides what happens to the database a restore
- * displaced — `retain_database` keeps it (renamed, reachable, deleted later by
- * `oldDatabaseRetentionHours`), `drop_database` does not. The default is to
- * retain, because the failure mode of retaining is disk and the failure mode
- * of dropping is a restore from the wrong dump with nothing to go back to.
- *
- * `nodeOffloadEnabled` (#352, epic #345) decides whether `db.backup.run` may be
- * claimed by a WORKER NODE at all. DEFAULT FALSE, and it is deliberately a
- * SECOND switch rather than a reuse of `nodes.jobSecretBrokerEnabled`, because
- * the two answer different questions and a deployment can genuinely want one
- * without the other:
- *
- *   - `nodes.jobSecretBrokerEnabled` — MAY THE BROKER ISSUE ANYTHING AT ALL?
- *     A statement about the fleet: are these machines inside the trust
- *     boundary for short-lived credentials of any kind?
- *   - `databaseBackup.nodeOffloadEnabled` — MAY *THIS* TYPE LEAVE THE SERVER?
- *     A statement about one workload: is dumping the whole database on a
- *     machine that is not the API server what this deployment wants, given
- *     that the node needs a network route to PostgreSQL and the archive's
- *     bytes will cross whatever network sits between them?
- *
- * Collapsing them would mean enabling brokering for any future type — a
- * fork's own `nodeSecretBroker` — silently enables shipping the database
- * dump off-box too, which is not a decision anybody made. Both must be true,
- * AND the broker must report itself usable, before the type is offered to a
- * node; see `NodesService.nodeEligibleTypes`. Off (either one) means the type
- * is withheld from the claim and the in-process worker takes the backup, which
- * is exactly what happened before node offload existed.
- *
- * `storageProvider` CARRIES NO `.min(1)`, AND ITS DEFAULT IS THE EMPTY STRING
- * (#373, epic #372). Empty is the one spelling of "unset" — the same decision
- * the `storage` namespace below makes and for the same reason; it is not
- * nullable and not optional-in-storage, so no consumer ever has to ask "absent,
- * or empty?" and get two answers. Empty means "whatever provider is active",
- * which is the only default a template repository can ship honestly: a literal
- * would have to be a guess at somebody else's deployment, and `isUsableStorage
- * Provider` (`db-backup/db-backup-storage.ts`) turns a disagreement with the
- * live `storage.provider` into a loud 400. Shipping `'s3'` here meant every
- * deployment that selected R2 failed EVERY backup on a value nobody chose —
- * a default the operator never typed must not be able to redirect or block
- * their backups. What did NOT change is the check: a value an operator DID
- * type must still equal the active provider exactly, because a backup landing
- * somewhere other than where the settings page says it lands is only ever
- * discovered during a restore. The bound stays 64 — a provider id, not prose —
- * and the comparison trims, so stored whitespace is still "unset".
- */
-export const systemDatabaseBackupSchema = z.object({
-  enabled: z.boolean(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']),
-  dayOfWeek: z.number().int().min(0).max(6),
-  dayOfMonth: z.number().int().min(1).max(28),
-  timeOfDay: z
-    .string()
-    .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time'),
-  timezone: z.string().min(1).max(64),
-  retentionCount: z.number().int().min(1).max(365),
-  // NO `.min(1)`: the empty string is the one spelling of "unset", and it is
-  // the SHIPPED DEFAULT. See the block comment above.
-  storageProvider: z.string().max(64),
-  runStaleMinutes: z.number().int().min(1).max(10080),
-  compressionLevel: z.number().int().min(0).max(9),
-  restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
-  oldDatabaseRetentionHours: z.number().int().min(1).max(8760),
-  nodeOffloadEnabled: z.boolean(),
-});
-
-export type SystemDatabaseBackupValue = z.infer<
-  typeof systemDatabaseBackupSchema
->;
+// `databaseBackup` (#256, epic #254): moved to
+// `@marinoscar/platform-contract/db-backup` (#740) with the rest of the
+// db-backup slice's wire shapes, design comments included; re-exported here
+// unchanged.
+export {
+  BACKUP_TIME_OF_DAY_PATTERN,
+  systemDatabaseBackupPatchSchema,
+  systemDatabaseBackupSchema,
+} from '@marinoscar/platform-contract/db-backup';
+export type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
 
 /**
  * The maintenance banner's default text.
@@ -374,31 +293,7 @@ export const systemNodesPatchSchema = z.object({
   jobSecretBrokerEnabled: z.boolean().optional(),
 });
 
-export const systemDatabaseBackupPatchSchema = z.object({
-  enabled: z.boolean().optional(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']).optional(),
-  dayOfWeek: z.number().int().min(0).max(6).optional(),
-  dayOfMonth: z.number().int().min(1).max(28).optional(),
-  timeOfDay: z
-    .string()
-    .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time')
-    .optional(),
-  timezone: z.string().min(1).max(64).optional(),
-  retentionCount: z.number().int().min(1).max(365).optional(),
-  // No `.min(1)`, matching `systemDatabaseBackupSchema`: `""` CLEARS the pin
-  // back to "whatever provider is active" (absent is how a caller says "leave
-  // it alone"), which is the only way an operator can un-pin through the API.
-  // Rejecting `""` here would make the shipped default unreachable by the very
-  // endpoint that edits it.
-  storageProvider: z.string().max(64).optional(),
-  runStaleMinutes: z.number().int().min(1).max(10080).optional(),
-  compressionLevel: z.number().int().min(0).max(9).optional(),
-  restoreRollbackMode: z
-    .enum(['retain_database', 'drop_database'])
-    .optional(),
-  oldDatabaseRetentionHours: z.number().int().min(1).max(8760).optional(),
-  nodeOffloadEnabled: z.boolean().optional(),
-});
+// `systemDatabaseBackupPatchSchema`: re-exported above from the contract (#740).
 
 
 export const systemMaintenancePatchSchema = z.object({

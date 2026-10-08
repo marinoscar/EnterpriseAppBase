@@ -30,52 +30,12 @@
 // by src/common/database-url.spec.ts, which requires that file directly and
 // asserts both produce identical output over a table of awkward inputs. If you
 // change the rules here, that test fails until you change them there too.
+//
+// PACKAGED (#740): the builder lives in `@marinoscar/platform-api/core`, where
+// the db-backup slice's dump, restore and admin connections reach it; this file
+// re-exports it so every app import and `database-url.spec.ts` stay as they
+// were.
 // =============================================================================
 
-/** The subset of the environment this builder reads. */
-export interface DatabaseEnv {
-  DATABASE_URL?: string | undefined;
-  POSTGRES_HOST?: string | undefined;
-  POSTGRES_PORT?: string | undefined;
-  POSTGRES_USER?: string | undefined;
-  POSTGRES_PASSWORD?: string | undefined;
-  POSTGRES_DB?: string | undefined;
-  POSTGRES_SSL?: string | undefined;
-}
-
-/**
- * Builds the PostgreSQL connection string.
- *
- * Two rules, both of which every caller now shares:
- *
- *  1. An already-set DATABASE_URL WINS and is returned untouched. It is the
- *     escape hatch for a connection this formula cannot express — a socket
- *     path, a pgbouncer URL, extra query parameters — and re-deriving over the
- *     top of it would silently discard the operator's intent.
- *  2. The user and the password are BOTH percent-encoded. The password is the
- *     one that bites in practice, but a username can contain `@` too, and
- *     encoding only one of them is how this class of bug comes back.
- */
-export function buildDatabaseUrl(env: DatabaseEnv = process.env): string {
-  const existing = env.DATABASE_URL;
-  if (existing !== undefined && existing !== '') {
-    return existing;
-  }
-
-  const host = env.POSTGRES_HOST || 'localhost';
-  const port = env.POSTGRES_PORT || '5432';
-  const user = env.POSTGRES_USER || 'postgres';
-  const password = env.POSTGRES_PASSWORD || 'postgres';
-  const database = env.POSTGRES_DB || 'appdb';
-
-  // Exact string comparison, deliberately: 'TRUE', '1' and 'yes' are NOT true
-  // here, because that is the rule the other two builders already used and
-  // widening it would change the meaning of existing .env files.
-  const ssl = env.POSTGRES_SSL === 'true';
-  const sslParam = ssl ? '?sslmode=require' : '';
-
-  const encodedUser = encodeURIComponent(user);
-  const encodedPassword = encodeURIComponent(password);
-
-  return `postgresql://${encodedUser}:${encodedPassword}@${host}:${port}/${database}${sslParam}`;
-}
+export { buildDatabaseUrl } from '@marinoscar/platform-api/core';
+export type { DatabaseEnv } from '@marinoscar/platform-api/core';

@@ -1,6 +1,6 @@
 # Database Restore
 
-> **Status:** shipped · **Code:** `apps/api/src/db-backup/` (`restore-preflight.service.ts`, `database-restore.service.ts`, `admin-connection.util.ts`, `migration-state.util.ts`, `handlers/db-restore-run.handler.ts`, `handlers/db-restore-old-db-drop.handler.ts`), `apps/web/src/components/admin/DbBackupRestoreDialog.tsx`, `apps/web/src/pages/Admin/DbBackupPage.tsx` · **API:** `POST /api/admin/db-backup/runs/{id}/restore`, `/rollback` (see `/api/docs`) · **Admin UI:** `/admin/settings/db-backup` · **Runbook:** [database-restore.md](../runbooks/database-restore.md) · **Related spec:** [database-backup.md](database-backup.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/db-backup/` (`restore-preflight.service.ts`, `database-restore.service.ts`, `admin-connection.util.ts`, `migration-state.util.ts`, `handlers/db-restore-run.handler.ts`, `handlers/db-restore-old-db-drop.handler.ts`), `packages/platform-web/src/db-backup/ui/DbBackupRestoreDialog.tsx`, `packages/platform-web/src/db-backup/ui/DbBackupPage.tsx` · **API:** `POST /api/admin/db-backup/runs/{id}/restore`, `/rollback` (see `/api/docs`) · **Admin UI:** `/admin/settings/db-backup` · **Runbook:** [database-restore.md](../runbooks/database-restore.md) · **Related spec:** [database-backup.md](database-backup.md)
 
 An administrator can replace the live database with the contents of a
 completed backup, and undo that replacement. A side-effect-free pre-flight
@@ -92,7 +92,7 @@ against `CREATE DATABASE|DROP DATABASE|ALTER DATABASE|pg_terminate_backend`.
 
 ### The gates
 
-Seven gates, evaluated in one session and **all reported**, passes included.
+Eight gates, evaluated in one session and **all reported**, passes included.
 Each verdict is `pass`, `warning` or `block` with its own `action` item.
 
 | Gate | Kind | On failure |
@@ -101,6 +101,7 @@ Each verdict is `pass`, `warning` or `block` with its own `action` item.
 | `admin_connection` (maintenance database reachable) | capability | `guided` |
 | `createdb_privilege` (probed, never assumed) | capability | `guided` |
 | `extensions` (every installed extension is available) | capability | `guided` |
+| `rls_bypass` (the restore can write every organization's rows) | capability | `guided` |
 | `disk_space` (free ≥ ~1× database, +1× when retaining) | disk | **downgrades** the rollback mode, never refuses |
 | `replicas` (distinct client addresses) | replicas | warning only |
 | `schema_compatibility` (archive vs live migration) | overridable | blocks unless overridden |
@@ -115,6 +116,15 @@ Each verdict is `pass`, `warning` or `block` with its own `action` item.
 - **`extensions`** compares `pg_extension` in the live database (via Prisma)
   with `pg_available_extensions` on the cluster. It matters when restoring onto
   a new server.
+- **`rls_bypass`** (#740): the cluster probe session opens with the restore's
+  own startup option (`PGOPTIONS=-c app.rls_bypass=on`) and reads back whether
+  it reached the server, plus `rolsuper`/`rolbypassrls` for the connecting
+  role. It passes when the role bypasses row-level security outright or the
+  option took effect; otherwise (a transaction-mode pooler drops startup
+  options) it fails to `guided`, naming a direct connection or a dedicated
+  restore role with `BYPASSRLS`. The API role itself stays `NOBYPASSRLS`
+  (#725). The probe is a session option and a catalogue read: it creates,
+  drops and renames nothing.
 - **`disk_space`**: under `retain_database`, a short disk downgrades the
   *effective* rollback mode to `pre_restore_dump` and reports that the recovery
   guarantee changes from seconds to hours. An unreadable data directory
@@ -293,6 +303,19 @@ the live name:
    already exist with stale contents.
 4. **`pre_restore_backup_id` is a second pass**, after every referent exists.
 
+The four built-in carries are the runs' `jobs` rows, the
+`database_backup_runs` rows, the `pre_restore_backup_id` second pass and this
+restore's `audit_events` row. Every column is carried, `org_id` included (a
+job's organization goes through the same subselect, on `organizations`; the
+audit row's is `NULL`, a system-scope action).
+**Further tables** are registered as `RestoreCarryOver` entries
+(`carry-over.registry.ts`, `registerRestoreCarryOver`, or the `extraCarryOver`
+option of `DbBackupModule.forRoot()`): an `exportSql` read under
+`app.rls_bypass` on the live database before the swap, and a `reinsertSql`
+that takes each exported row as `$1` (JSON) and upserts it after. Each extra
+carry runs in its own transaction, in `order`, and logs CRITICAL on failure
+instead of throwing, like the built-in ones.
+
 `reinsertCatalog` **never throws**: by then the swap is irreversible, and a
 throw would reach a failure handler that assumes it was not. A failed carry
 logs CRITICAL and names the manual fix.
@@ -419,8 +442,10 @@ POST /api/admin/db-backup/runs/{id}/rollback   { "confirmation": "ROLLBACK" }
 ### Deployment mode
 
 `DEPLOYMENT_MODE` (`self-hosted`, the default, or `saas`) is a deployment-level
-environment variable, parsed once at startup by
-`apps/api/src/common/deployment/deployment-mode.ts`. An invalid value stops the
+environment variable, parsed once at startup by the reference app's
+`apps/api/src/common/deployment/deployment-mode.ts`. The packaged slice reads
+it through the `DB_BACKUP_DEPLOYMENT_MODE` host port, unless the app passes
+`deploymentMode` or `restoreEnabled` to `DbBackupModule.forRoot()` (#740). An invalid value stops the
 API before it connects to anything, with a message naming the variable and the
 allowed values. `saas` disables in-app restore and rollback; it changes nothing
 else on this page and nothing about backups.
@@ -434,7 +459,8 @@ swap also cannot recover to an arbitrary second, which PITR can. See
 [platform-packages.md](platform-packages.md), "Deployment modes" and red flag 7.
 
 **Three layers, each refusing first**, through
-`DeploymentModeService.assertInAppRestoreEnabled()`, which throws
+`DbBackupRestoreGate.assertInAppRestoreEnabled()` (`restore-gate.ts`, decided
+once at boot), which throws
 `DatabaseRestoreDisabledError` (`reason: 'deployment_mode_saas'`):
 
 1. **Domain.** `DatabaseBackupAdminService.startRestore` and `rollbackRestore`
@@ -474,9 +500,10 @@ seed and per role; the mode is a property of the deployment.
 
 ### Operator UI
 
-`DbBackupPage.tsx` (row actions), `DbBackupRestoreDialog.tsx`,
-`DbBackupConfigPanel.tsx`, `dbBackupTable.tsx`, `hooks/useDbBackup.ts` and
-`services/dbBackup.ts`:
+`@marinoscar/platform-web/db-backup` (#740): `ui/DbBackupPage.tsx` (row
+actions), `ui/DbBackupRestoreDialog.tsx`, `ui/DbBackupConfigPanel.tsx`,
+`ui/dbBackupTable.tsx`, `headless/use-db-backup.ts` and
+`headless/db-backup-client.ts`:
 
 - **One dialog, `intent: 'restore' | 'rollback'`**, so the acknowledgement and
   typed-literal machinery exists once.
@@ -554,6 +581,12 @@ refuses both routes for every caller ([Deployment mode](#deployment-mode)).
 
 ## 4. Extending it in a fork
 
+- **Tables that must survive a restore** in an app built on the packages are
+  a `RestoreCarryOver` (`@marinoscar/platform-api/db-backup`): register it
+  with `registerRestoreCarryOver` or pass it as `extraCarryOver` to
+  `DbBackupModule.forRoot()`. `apps/api/src/examples/db-backup/release-artifacts.carry-over.ts`
+  is a worked example (not registered). The slice's conformance suite
+  (`dbBackup`) checks every registered carry's `reinsertSql` takes `$1`.
 - **Additional pre-flight gates** go in `restore-preflight.service.ts`. A gate
   must only read, must report on pass as well as failure, and must decide which
   outcome it feeds (`guided` for capabilities, `blocked` for correctness,
@@ -561,9 +594,8 @@ refuses both routes for every caller ([Deployment mode](#deployment-mode)).
 - **Anything that mutates the cluster** goes through the existing helpers in
   `admin-connection.util.ts`, so it inherits the identifier allowlist and the
   connection contract.
-- **Tables that must survive a restore** (like `database_backup_runs`) need the
-  same carry-over treatment in `exportCatalog`/`reinsertCatalog`. Otherwise a
-  restore returns them to backup time.
+- **Without a carry**, a table returns to backup time on restore, which is
+  right for most data and wrong for bookkeeping about the deployment itself.
 - **More than one API replica.** Stop the other replicas before restoring;
   nothing here coordinates them.
 - The operator procedure lives in the
@@ -573,15 +605,15 @@ refuses both routes for every caller ([Deployment mode](#deployment-mode)).
 
 | Test | Enforces |
 |---|---|
-| `apps/api/src/db-backup/admin-connection.util.spec.ts` | Connection always closed; `statement_timeout` 0; `template1` fallback; identifier allowlist; long names keep their suffix |
-| `apps/api/src/db-backup/restore-preflight.service.spec.ts` | Each gate's outcome; guided block asserted by string; override scope; disk downgrade; **no pre-flight path creates, drops or renames** |
-| `apps/api/src/db-backup/database-restore.service.spec.ts` | Failure at each phase leaves live untouched; inner recovery; carry-over rules; `allowAdmins: false`; re-verification; rollback modes; row-driven drop |
-| `apps/api/src/db-backup/database-restore.db.spec.ts` | Against real PostgreSQL: rename refused onto a taken name, inner recovery, no leaked session, subselect FK yields `NULL`, self-FK second pass |
-| `apps/api/src/db-backup/handlers/db-restore-run.handler.spec.ts` | `db.restore.run` has no node members and is in `serverOnlyTypes()` |
-| `apps/api/src/db-backup/dto/db-backup-restore.dto.spec.ts` | Result → `mode` mapping; `guidance`/`block` hoisted; override field name tied to `RESTORE_SCHEMA_OVERRIDE_FIELD` |
-| `apps/api/src/db-backup/db-backup-admin.service.spec.ts` | Refuses non-`completed` and never-restored runs without reaching the engine |
+| `packages/platform-api/test/db-backup/admin-connection.util.spec.ts` | Connection always closed; `statement_timeout` 0; `template1` fallback; identifier allowlist; long names keep their suffix |
+| `packages/platform-api/test/db-backup/restore-preflight.service.spec.ts` | Each gate's outcome; guided block asserted by string; override scope; disk downgrade; **no pre-flight path creates, drops or renames** |
+| `packages/platform-api/test/db-backup/database-restore.service.spec.ts` | Failure at each phase leaves live untouched; inner recovery; carry-over rules; `allowAdmins: false`; re-verification; rollback modes; row-driven drop |
+| `apps/api/test/db-backup/database-restore.db.spec.ts` | Against real PostgreSQL: rename refused onto a taken name, inner recovery, no leaked session, subselect FK yields `NULL`, self-FK second pass |
+| `packages/platform-api/test/db-backup/handlers/db-restore-run.handler.spec.ts` | `db.restore.run` has no node members and is in `serverOnlyTypes()` |
+| `packages/platform-api/test/db-backup/dto/db-backup-restore.dto.spec.ts` | Result → `mode` mapping; `guidance`/`block` hoisted; override field name tied to `RESTORE_SCHEMA_OVERRIDE_FIELD` |
+| `packages/platform-api/test/db-backup/db-backup-admin.service.spec.ts` | Refuses non-`completed` and never-restored runs without reaching the engine |
 | `apps/api/test/db-backup/db-backup-restore.integration.spec.ts` | Confirmation literal (never reaches the service); all modes; guided is `200`; `409` `details.activeRunId`; `db_backup:restore` required and `db_backup:write` alone gets `403` |
-| `apps/web/src/__tests__/pages/Admin/DbBackupPage.test.tsx`, `pages/Admin/dbBackupTable.test.ts`, `hooks/useDbBackup.test.ts` | Disabled (not hidden) actions, expected-outage rendering, string byte fields |
+| `apps/web/src/__tests__/pages/Admin/DbBackupPage.test.tsx`, `packages/platform-web/test/db-backup/db-backup-table.test.ts`, `use-db-backup.test.ts` | Disabled (not hidden) actions, expected-outage rendering, string byte fields |
 
 No test runs an end-to-end restore of a real archive into a real database;
 that needs `pg_dump`, `pg_restore` and a spare cluster, and is what a staging
@@ -678,3 +710,8 @@ rehearsal is for.
 - #725 (platform-packages PP-6.5): `pg_restore` runs with `--enable-row-security`
   and the `app.rls_bypass` startup option so the restored tenant tables keep
   every row and their forced policies.
+- #740 (platform-packages PP-8.7): the slice moved into
+  `@marinoscar/platform-api/db-backup`, `@marinoscar/platform-web/db-backup`
+  and `@marinoscar/platform-contract/db-backup`; the `rls_bypass` gate; the
+  `RestoreCarryOver` registry; the carry-over takes every column through
+  `org_id`.

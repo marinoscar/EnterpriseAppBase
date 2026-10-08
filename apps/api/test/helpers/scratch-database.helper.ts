@@ -22,13 +22,10 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 import { buildDatabaseUrl, type DatabaseEnv } from '../../src/common/database-url';
-import { resolvePgConnection, spawnPgDump, type PgConnection } from '../../src/db-backup/pg-dump.util';
-import {
-  checkPgClientVersion,
-  readServerVersionNumWithPgClient,
-} from '../../src/db-backup/pg-version.util';
-import { readTocEntryCount } from '../../src/db-backup/pg-restore.util';
-import type { DatabaseBackupEngine } from '../../src/db-backup/db-backup-runner.service';
+import { resolvePgConnection, spawnPgDump, type PgConnection } from '@marinoscar/platform-api/db-backup/testing';
+import { checkPgClientVersion, readServerVersionNumWithPgClient } from '@marinoscar/platform-api/db-backup/testing';
+import { readTocEntryCount } from '@marinoscar/platform-api/db-backup/testing';
+import type { DatabaseBackupEngine } from '@marinoscar/platform-api/db-backup/testing';
 
 /** `apps/api`, resolved from this file's location — `prisma-env.js` lives there. */
 const API_ROOT = join(__dirname, '..', '..');

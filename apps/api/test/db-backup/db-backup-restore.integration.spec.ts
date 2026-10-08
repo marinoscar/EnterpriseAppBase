@@ -62,11 +62,11 @@
 import request from 'supertest';
 
 import { PERMISSIONS_KEY, ROLES_KEY } from '@marinoscar/platform-api/identity';
-import { DatabaseRestoreService } from '../../src/db-backup/database-restore.service';
-import { DatabaseBackupController } from '../../src/db-backup/db-backup.controller';
-import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
-import { RESTORE_SCHEMA_OVERRIDE_FIELD } from '../../src/db-backup/restore-preflight.service';
-import { startRestoreRequestSchema } from '../../src/db-backup/dto/db-backup-restore.dto';
+import { DatabaseRestoreService } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupController } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';
+import { RESTORE_SCHEMA_OVERRIDE_FIELD } from '@marinoscar/platform-api/db-backup/testing';
+import { startRestoreRequestSchema } from '@marinoscar/platform-api/db-backup/testing';
 import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';

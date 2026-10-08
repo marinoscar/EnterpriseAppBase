@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough, Readable } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
 
-import type { PgSpawnFn } from '../../src/db-backup/pg-dump.util';
+import type { PgSpawnFn } from '@marinoscar/platform-api/db-backup/testing';
 
 // =============================================================================
 // A fake `pg_*` child process (issue #280, epic #254)

@@ -35,7 +35,9 @@
     "src/exports/headless/index.ts",
     "src/exports/ui/index.ts",
     "src/ai/headless/index.ts",
-    "src/ai/ui/index.ts"
+    "src/ai/ui/index.ts",
+    "src/db-backup/headless/index.ts",
+    "src/db-backup/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

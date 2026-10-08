@@ -22,7 +22,7 @@ import { BroadcastsModule } from './platform/notifications/notifications.config'
 import { NotificationsModule } from './platform/notifications/notifications.config';
 import { JobsModule } from './platform/jobs/jobs.config';
 import { ExamplesModule } from './examples/examples.module';
-import { DbBackupModule } from './db-backup/db-backup.module';
+import { DbBackupModule } from './platform/db-backup/db-backup.config';
 import { LoggerModule } from './common/logger/logger.module';
 import { AppMetricsModule } from './common/otel/app-metrics.module';
 import { MaintenanceModule } from './common/maintenance/maintenance.module';

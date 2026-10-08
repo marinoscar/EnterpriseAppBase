@@ -1447,7 +1447,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | Allowlist | `packages/platform-api/src/identity/allowlist/` |
 | PATs | `packages/platform-api/src/identity/pat/` |
 | Device flow | `packages/platform-api/src/identity/device-auth/` |
-| Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |
+| Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `packages/platform-api/src/db-backup/pg-job-role.broker.ts` |
 | Encrypted stores | `packages/platform-api/src/core/crypto/secret-cipher.ts`, `encryption-key-startup-check.ts` (`@marinoscar/platform-api/core`), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `packages/platform-api/src/ai/keys/` |
 | Test auth | `packages/platform-api/src/identity/testing/`, `apps/web/src/pages/TestLoginPage.tsx` |
 | Edge | `infra/nginx/nginx.conf`, `infra/nginx/csp.conf`, `infra/nginx/csp.dev.conf` |

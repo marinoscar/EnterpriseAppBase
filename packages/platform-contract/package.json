@@ -170,6 +170,16 @@
         "default": "./dist/cjs/ai/index.js"
       }
     },
+    "./db-backup": {
+      "import": {
+        "types": "./dist/esm/db-backup/index.d.ts",
+        "default": "./dist/esm/db-backup/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/db-backup/index.d.ts",
+        "default": "./dist/cjs/db-backup/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

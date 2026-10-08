@@ -40,21 +40,8 @@ export const nodesResponseSchema = z.object({
   jobSecretBrokerEnabled: z.boolean(),
 });
 
-export const databaseBackupResponseSchema = z.object({
-  enabled: z.boolean(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']),
-  dayOfWeek: z.number(),
-  dayOfMonth: z.number(),
-  timeOfDay: z.string(),
-  timezone: z.string(),
-  retentionCount: z.number(),
-  storageProvider: z.string(),
-  runStaleMinutes: z.number(),
-  compressionLevel: z.number(),
-  restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
-  oldDatabaseRetentionHours: z.number(),
-  nodeOffloadEnabled: z.boolean(),
-});
+// `databaseBackup` (#740): `@marinoscar/platform-contract/db-backup`, re-exported unchanged.
+export { databaseBackupResponseSchema } from '@marinoscar/platform-contract/db-backup';
 
 export const maintenanceResponseSchema = z.object({
   enabled: z.boolean(),

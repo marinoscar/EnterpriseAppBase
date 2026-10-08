@@ -26,7 +26,7 @@ import { join } from 'node:path';
 
 import type { PrismaClient } from '@prisma/client';
 
-import { createDatabase, databaseExists, dropDatabase, resolveAdminConnection, withAdminConnection, type AdminConnection } from '../../src/db-backup/admin-connection.util';
+import { createDatabase, databaseExists, dropDatabase, resolveAdminConnection, withAdminConnection, type AdminConnection } from '@marinoscar/platform-api/db-backup/testing';
 import { envFor, migrateDeploy, prismaClientFor } from '../helpers/scratch-database.helper';
 import { resolveDbSuite } from '../jobs/db-test-support';
 

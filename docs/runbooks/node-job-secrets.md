@@ -19,12 +19,12 @@ A `pg_dump` client/server mismatch: [`postgres-client-version.md`](postgres-clie
 
 Source of truth for every claim below:
 
-- `apps/api/src/db-backup/pg-job-role.broker.ts` — the `postgres.readonly`
+- `packages/platform-api/src/db-backup/pg-job-role.broker.ts` — the `postgres.readonly`
   broker: role name, privileges, attributes, lifetime.
 - `apps/api/src/nodes/node-secret-broker.service.ts` — issue, revoke, and every
   refusal reason in the troubleshooting table.
 - `apps/api/src/nodes/tasks/node-secret-sweep.task.ts` — the sweeper.
-- `apps/api/src/db-backup/db-backup.controller.ts` —
+- `packages/platform-api/src/db-backup/db-backup.controller.ts` —
   `GET /api/admin/db-backup/node-credential-preflight`.
 
 ---

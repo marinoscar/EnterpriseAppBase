@@ -38,6 +38,8 @@ import { join } from 'node:path';
 // =============================================================================
 
 const API_ROOT = join(__dirname, '..', '..');
+// The db-backup slice's restore carry-over moved into the package (#740).
+const PLATFORM_API_SRC = join(API_ROOT, '..', '..', 'packages', 'platform-api', 'src');
 const MIGRATION_SQL = join(
   API_ROOT,
   'prisma',
@@ -91,7 +93,7 @@ interface RawInsert {
 function rawInserts(tables: string[]): RawInsert[] {
   const found: RawInsert[] = [];
 
-  for (const file of [...sourceFiles(join(API_ROOT, 'src')), join(API_ROOT, 'prisma', 'seed.ts')]) {
+  for (const file of [...sourceFiles(join(API_ROOT, 'src')), ...sourceFiles(PLATFORM_API_SRC), join(API_ROOT, 'prisma', 'seed.ts')]) {
     const text = stripComments(readFileSync(file, 'utf8'));
     const pattern = /insert\s+into\s+"?([a-z_][a-z0-9_]*)"?\s*/gi;
 
@@ -108,7 +110,11 @@ function rawInserts(tables: string[]): RawInsert[] {
               .map((column) => column.trim().replace(/"/g, ''))
           : null;
 
-      found.push({ file: file.slice(API_ROOT.length + 1), table: match[1], columns });
+      found.push({
+        file: file.startsWith(PLATFORM_API_SRC) ? `platform-api/${file.slice(PLATFORM_API_SRC.length + 1)}` : file.slice(API_ROOT.length + 1),
+        table: match[1],
+        columns,
+      });
     }
   }
 
@@ -133,8 +139,8 @@ describe('raw-SQL INSERTs supply the id Prisma would have generated (#337)', () 
 
     expect(hits.map((hit) => `${hit.file}: ${hit.table}`)).toEqual(
       expect.arrayContaining([
-        'src/db-backup/database-restore.service.ts: database_backup_runs',
-        'src/db-backup/database-restore.service.ts: audit_events',
+        'platform-api/db-backup/database-restore.service.ts: database_backup_runs',
+        'platform-api/db-backup/database-restore.service.ts: audit_events',
       ])
     );
   });

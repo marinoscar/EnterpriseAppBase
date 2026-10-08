@@ -10,11 +10,11 @@ Source of truth for every claim below:
 
 - `apps/api/Dockerfile` — the `postgresql<N>-client` package installed in the
   `base` stage.
-- `apps/api/src/db-backup/pg-version.util.ts` — `MIN_PG_CLIENT_MAJOR`, the
+- `packages/platform-api/src/db-backup/pg-version.util.ts` — `MIN_PG_CLIENT_MAJOR`, the
   version parsers, and the block/warn decision.
 - `apps/api/test/pg-client-version.spec.ts` — the test that fails when those
   two disagree.
-- `apps/api/src/db-backup/pg-dump.util.ts` — how the client is invoked, and how
+- `packages/platform-api/src/db-backup/pg-dump.util.ts` — how the client is invoked, and how
   the connection is derived from the `POSTGRES_*` environment.
 - `infra/compose/base.compose.yml` — note what is *not* there: no `db` service.
 
@@ -94,7 +94,7 @@ both numbers printed side by side.
    RUN apk add --no-cache openssl postgresql18-client
    ```
 
-2. **`apps/api/src/db-backup/pg-version.util.ts`**:
+2. **`packages/platform-api/src/db-backup/pg-version.util.ts`**:
 
    ```ts
    export const MIN_PG_CLIENT_MAJOR = 18;
@@ -173,7 +173,7 @@ anywhere.
 
 - **A restore that fails part way through.** That is a different failure with a
   different guard (`--exit-on-error`, in
-  `apps/api/src/db-backup/pg-restore.util.ts`).
+  `packages/platform-api/src/db-backup/pg-restore.util.ts`).
 - **Dumping a server much older than the client** — supported, and not a
   version problem.
 - **Extension or locale mismatches between two servers.** A dump taken from one
@@ -200,7 +200,7 @@ anywhere.
 - [ ] Confirmed the client major is genuinely **lower** than the server major
 - [ ] `postgresql<N>-client` bumped in `apps/api/Dockerfile` (`base` stage)
 - [ ] `MIN_PG_CLIENT_MAJOR` bumped in
-      `apps/api/src/db-backup/pg-version.util.ts` to the same number
+      `packages/platform-api/src/db-backup/pg-version.util.ts` to the same number
 - [ ] `npm test --workspace=api` passes (the two are compared by a test)
 - [ ] Image rebuilt **and** redeployed, then `pg_dump --version` re-checked
       inside the running container

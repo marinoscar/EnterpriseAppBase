@@ -53,6 +53,8 @@ import { appTelemetryAdapters } from './platform/telemetryAdapters';
 // app's table, spinner and client through these adapters.
 import { JobsWebAdaptersProvider } from '@marinoscar/platform-web/jobs/headless';
 import { appJobsAdapters } from './platform/jobsAdapters';
+import { DbBackupWebAdaptersProvider } from '@marinoscar/platform-web/db-backup/headless';
+import { appDbBackupAdapters } from './platform/dbBackupAdapters';
 
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
@@ -124,7 +126,7 @@ const WorkersPage = lazy(() =>
 // Issue #287, epic #254 — the backup policy, the run history and the restore
 // dialog. Lazy for the same reason: a DataTable, a policy form and the restore
 // dialog that nobody who never opens the Console will ever mount.
-const DbBackupPage = lazy(() => import('./pages/Admin/DbBackupPage'));
+const DbBackupPage = lazy(() => import('@marinoscar/platform-web/db-backup/ui'));
 // Issue #325, epic #319 — the admin broadcast list and its composer. Lazy for
 // the same reason: a DataTable, a composer dialog and a detail dialog that
 // nobody who never opens the Console will ever mount.
@@ -279,7 +281,10 @@ function AppRoutes() {
                     telemetry pages the app's AI hooks and spinner
                     (`platform/telemetryAdapters.ts`); `JobsWebAdaptersProvider`
                     (#854) hands the packaged jobs pages the app's table,
-                    spinner and client (`platform/jobsAdapters.ts`). */}
+                    spinner and client (`platform/jobsAdapters.ts`);
+                    `DbBackupWebAdaptersProvider` (#740) hands the packaged
+                    Database Backup page the app's table
+                    (`platform/dbBackupAdapters.ts`). */}
                 {/* `AppPlatformHostProvider` (#696) is the platform host every
                     packaged page reads (`@marinoscar/platform-web`): the app's
                     transport, the viewer's permissions and the feature map.
@@ -294,11 +299,13 @@ function AppRoutes() {
                         <TelemetryConfigProvider api={appPlatformApi}>
                           <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
                             <JobsWebAdaptersProvider adapters={appJobsAdapters}>
-                              <AppPlatformHostProvider>
-                                <OnboardingProvider appName={APP_NAME}>
-                                  <Layout />
-                                </OnboardingProvider>
-                              </AppPlatformHostProvider>
+                              <DbBackupWebAdaptersProvider adapters={appDbBackupAdapters}>
+                                <AppPlatformHostProvider>
+                                  <OnboardingProvider appName={APP_NAME}>
+                                    <Layout />
+                                  </OnboardingProvider>
+                                </AppPlatformHostProvider>
+                              </DbBackupWebAdaptersProvider>
                             </JobsWebAdaptersProvider>
                           </TelemetryWebAdaptersProvider>
                         </TelemetryConfigProvider>

@@ -33,7 +33,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { Client } from 'pg';
 
 import { buildDatabaseUrl, type DatabaseEnv } from '../../src/common/database-url';
-import type { PgConnection } from '../../src/db-backup/pg-dump.util';
+import type { PgConnection } from '@marinoscar/platform-api/db-backup/testing';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { PrismaSystemService } from '../../src/prisma/prisma-system.service';
 

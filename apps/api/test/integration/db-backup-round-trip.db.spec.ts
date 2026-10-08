@@ -64,24 +64,21 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job, PrismaClient } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import {
-  BACKUP_JOB_TYPE,
-  DatabaseBackupRunnerService,
-  type DatabaseBackupEngine,
-} from '../../src/db-backup/db-backup-runner.service';
+import { BACKUP_JOB_TYPE, DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';
+import { type DatabaseBackupEngine } from '@marinoscar/platform-api/db-backup/testing';
 import type { StorageConfigService } from '@marinoscar/platform-api/storage';
-import { DatabaseBackupAlreadyRunningError } from '../../src/db-backup/db-backup.errors';
-import { DatabaseBackupRunHandler } from '../../src/db-backup/handlers/db-backup-run.handler';
+import { DatabaseBackupAlreadyRunningError } from '@marinoscar/platform-api/db-backup';
+import { DatabaseBackupRunHandler } from '@marinoscar/platform-api/db-backup/testing';
 import { buildClaimLeases } from '@marinoscar/platform-api/jobs';
 import { JobClaimService } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { JobTerminalService } from '@marinoscar/platform-api/jobs';
 import { JobsService } from '@marinoscar/platform-api/jobs';
 import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
-import { spawnPgDump } from '../../src/db-backup/pg-dump.util';
-import { readTocEntryCount } from '../../src/db-backup/pg-restore.util';
-import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
-import { checkPgClientVersion, readServerVersionNumWithPgClient } from '../../src/db-backup/pg-version.util';
+import { spawnPgDump } from '@marinoscar/platform-api/db-backup/testing';
+import { readTocEntryCount } from '@marinoscar/platform-api/db-backup/testing';
+import { PgJobRoleBroker } from '@marinoscar/platform-api/db-backup/testing';
+import { checkPgClientVersion, readServerVersionNumWithPgClient } from '@marinoscar/platform-api/db-backup/testing';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { NotificationsService } from '../notifications/support/notifications';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';

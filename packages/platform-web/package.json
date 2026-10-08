@@ -147,6 +147,14 @@
       "types": "./dist/ai/ui/index.d.ts",
       "default": "./dist/ai/ui/index.js"
     },
+    "./db-backup/headless": {
+      "types": "./dist/db-backup/headless/index.d.ts",
+      "default": "./dist/db-backup/headless/index.js"
+    },
+    "./db-backup/ui": {
+      "types": "./dist/db-backup/ui/index.d.ts",
+      "default": "./dist/db-backup/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

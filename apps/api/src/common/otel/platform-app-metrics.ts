@@ -1,4 +1,5 @@
 import type { AppMetricAttribute, AppMetricDef } from '@marinoscar/platform-api/otel-core';
+import { DB_BACKUP_APP_METRICS } from '@marinoscar/platform-api/db-backup';
 import { NODES_APP_METRICS } from '@marinoscar/platform-api/nodes';
 
 // =============================================================================
@@ -20,8 +21,6 @@ import { NODES_APP_METRICS } from '@marinoscar/platform-api/nodes';
 // ---- Histogram buckets, in the instrument's unit -----------------------------
 
 export const JOB_DURATION_BUCKETS_S = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800, 3600] as const;
-export const BACKUP_DURATION_BUCKETS_S = [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 14400] as const;
-export const BACKUP_SIZE_BUCKETS_BY = [1e6, 1e7, 5e7, 1e8, 5e8, 1e9, 5e9, 1e10, 5e10, 1e11] as const;
 export const AI_DURATION_BUCKETS_S = [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300] as const;
 
 // ---- Enumerated attribute values (the typed methods check against these) ----
@@ -67,7 +66,6 @@ const JOB_SETTLED_ATTRIBUTES = {
   // `unknown` when the executor is not recorded.
   executor: oneOf(...JOB_EXECUTOR_VALUES, 'unknown'),
 };
-const BACKUP_ATTRIBUTES = { outcome: oneOf(...BACKUP_OUTCOME_VALUES) };
 const AI_REQUEST_ATTRIBUTES = {
   provider: free,
   model: free,
@@ -139,47 +137,8 @@ export const PLATFORM_APP_METRICS = [
     attributes: { job_type: free },
   },
 
-  // ---- Database backup ----
-  {
-    key: 'backupRuns',
-    name: 'app.backup.runs',
-    kind: 'counter',
-    unit: '{run}',
-    description: 'Database backup runs settled, by outcome.',
-    attributes: BACKUP_ATTRIBUTES,
-  },
-  {
-    key: 'backupDuration',
-    name: 'app.backup.duration',
-    kind: 'histogram',
-    unit: 's',
-    description: 'Wall time of a settled database backup run.',
-    buckets: BACKUP_DURATION_BUCKETS_S,
-    attributes: BACKUP_ATTRIBUTES,
-  },
-  {
-    key: 'backupSize',
-    name: 'app.backup.size',
-    kind: 'histogram',
-    unit: 'By',
-    description: 'Size of a completed, verified database backup archive.',
-    buckets: BACKUP_SIZE_BUCKETS_BY,
-    attributes: BACKUP_ATTRIBUTES,
-  },
-  {
-    key: 'backupLastSuccessTimestamp',
-    name: 'app.backup.last_success.timestamp',
-    kind: 'gauge',
-    unit: 's',
-    description: 'When the most recent completed database backup finished (unix seconds).',
-  },
-  {
-    key: 'backupLastSuccessSize',
-    name: 'app.backup.last_success.size',
-    kind: 'gauge',
-    unit: 'By',
-    description: 'Size of the most recent completed database backup archive.',
-  },
+  // ---- Database backup (declared by the db-backup slice since #740) ----
+  ...DB_BACKUP_APP_METRICS,
 
   // ---- Auth ----
   {

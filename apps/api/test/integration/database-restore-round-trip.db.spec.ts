@@ -58,31 +58,16 @@ import { ConfigService } from '@nestjs/config';
 import { DatabaseBackupRun, PrismaClient } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import {
-  createDatabase,
-  databaseExists,
-  dropDatabase,
-  buildScratchDatabaseName,
-  resolveAdminConnection,
-  withAdminConnection,
-  type AdminConnection,
-} from '../../src/db-backup/admin-connection.util';
-import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import { createDatabase, databaseExists, dropDatabase, buildScratchDatabaseName, resolveAdminConnection, withAdminConnection, type AdminConnection } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';
 import type { StorageConfigService } from '@marinoscar/platform-api/storage';
 import { JobsService } from '@marinoscar/platform-api/jobs';
-import { DB_RESTORE_RUN_TYPE } from '../../src/db-backup/database-restore.service';
-import { BACKUP_ARCHIVE_FORMAT } from '../../src/db-backup/db-backup-storage';
-import {
-  DatabaseRestoreService,
-  defaultDatabaseRestoreSeam,
-  type DatabaseRestoreSeam,
-} from '../../src/db-backup/database-restore.service';
-import { spawnPgDump } from '../../src/db-backup/pg-dump.util';
-import { readTocEntryCount } from '../../src/db-backup/pg-restore.util';
-import {
-  DatabaseRestorePreflightService,
-  defaultRestorePreflightSeam,
-} from '../../src/db-backup/restore-preflight.service';
+import { DB_RESTORE_RUN_TYPE } from '@marinoscar/platform-api/db-backup';
+import { BACKUP_ARCHIVE_FORMAT } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseRestoreService, defaultDatabaseRestoreSeam, type DatabaseRestoreSeam } from '@marinoscar/platform-api/db-backup/testing';
+import { spawnPgDump } from '@marinoscar/platform-api/db-backup/testing';
+import { readTocEntryCount } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseRestorePreflightService, defaultRestorePreflightSeam } from '@marinoscar/platform-api/db-backup/testing';
 import { MaintenanceModeService } from '../../src/common/maintenance/maintenance-mode.service';
 import type { NotificationsService } from '../notifications/support/notifications';
 import type { PrismaService } from '../../src/prisma/prisma.service';
@@ -698,7 +683,17 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         },
       });
 
-      await restoreService.executeRestoreJob(claimed);
+      // #740: the wave-4 columns of the restore's own job row are set on the
+      // LIVE row only, AFTER the snapshot, so the archive's copy has them NULL
+      // and only the carry can put them into the promoted database.
+      const defaultOrg = await env.prisma.organization.findFirstOrThrow({ where: { isDefault: true } });
+      const traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+      const carried = await env.prisma.job.update({
+        where: { id: claimed.id },
+        data: { orgId: defaultOrg.id, providerKey: 'carry-probe', traceContext: traceparent },
+      });
+
+      await restoreService.executeRestoreJob(carried);
 
       const outcome = await pollRestoreOutcome(env.adminConnection, dbName, target.id);
       expect(outcome.restore_status).toBe('completed');
@@ -706,11 +701,21 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
 
       const rows = await withAdminConnection({ ...env.adminConnection, database: dbName }, (client) =>
         client.query(
-          'SELECT id, status::text, claim_token, lease_expires_at, claimed_by_node_id ' +
+          'SELECT id, status::text, claim_token, lease_expires_at, claimed_by_node_id, ' +
+            'org_id, provider_key, trace_context ' +
             'FROM jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
           [[claimed.id, sentinel.id]]
         )
       );
+
+      const audit = await withAdminConnection({ ...env.adminConnection, database: dbName }, (client) =>
+        client.query(
+          "SELECT org_id FROM audit_events WHERE action = 'db_restore:complete' AND target_id = $1",
+          [target.id]
+        )
+      );
+      // A restore is a deployment event: its completion row belongs to no organization.
+      expect(audit.rows).toEqual([{ org_id: null }]);
 
       const byId = new Map(rows.rows.map((row) => [row.id as string, row]));
 
@@ -724,6 +729,10 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         claim_token: null,
         lease_expires_at: null,
         claimed_by_node_id: null,
+        // #740: carried, not dropped.
+        org_id: defaultOrg.id,
+        provider_key: 'carry-probe',
+        trace_context: traceparent,
       });
     }, 120_000);
   });

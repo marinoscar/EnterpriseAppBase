@@ -33,13 +33,7 @@ import type { PrismaClient } from '@prisma/client';
 import { platformSeedInputFrom, seedPlatform } from '@marinoscar/platform-db/seed';
 
 import { buildDatabaseUrl } from '../../src/common/database-url';
-import {
-  createDatabase,
-  dropDatabase,
-  resolveAdminConnection,
-  withAdminConnection,
-  type AdminConnection,
-} from '../../src/db-backup/admin-connection.util';
+import { createDatabase, dropDatabase, resolveAdminConnection, withAdminConnection, type AdminConnection } from '@marinoscar/platform-api/db-backup/testing';
 import { PRINCIPAL_USER_INCLUDE, resolveEffectiveAccess } from '@marinoscar/platform-api/identity';
 import { SEED_SNAPSHOT } from '../../prisma/seed-data';
 import { resolveDbSuite } from '../jobs/db-test-support';

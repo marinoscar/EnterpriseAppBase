@@ -22,6 +22,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-web/storage/headless` and `@marinoscar/platform-web/storage/ui`: the storage config hook `useStorageConfig`, the storage-config and objects clients, and the `/admin/settings/storage` page `StorageConfigPage` with its switch dialog (#736). [README](src/storage/README.md).
 - `@marinoscar/platform-web/exports/headless` and `@marinoscar/platform-web/exports/ui`: the exports client and hooks (`useExportSources`, `useExports`, `useCreateExport`, `useExport` with polling), `ExportDialog` (fields from the source's descriptor, `slots.form`), `ExportsList`, `DataExportPage` and the "Download your data" card descriptor (#744). [README](src/exports/README.md).
 - `@marinoscar/platform-web/ai/headless` and `@marinoscar/platform-web/ai/ui`: the organization's own AI keys and effective AI policy hooks (`useOrgAiKeys`, `useOrgAiPolicy`) and the Organization AI keys page `OrgAiKeysPage` (#739). [README](src/ai/README.md).
+- `@marinoscar/platform-web/db-backup/headless` and `@marinoscar/platform-web/db-backup/ui`: the db-backup client `createDbBackupApi`, the hooks `useDbBackupConfig` / `useDbBackupRuns` / `useDbBackupActions`, and the `/admin/settings/db-backup` page `DbBackupPage` with its admin card `dbBackupAdminSections` (#740). [README](src/db-backup/README.md).
 
 ## Install and peer dependencies
 

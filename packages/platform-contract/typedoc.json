@@ -18,7 +18,8 @@
     "src/storage/index.ts",
     "src/notifications/index.ts",
     "src/exports/index.ts",
-    "src/ai/index.ts"
+    "src/ai/index.ts",
+    "src/db-backup/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

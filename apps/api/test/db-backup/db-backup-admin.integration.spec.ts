@@ -63,14 +63,11 @@
 import request from 'supertest';
 
 import { PERMISSIONS_KEY, ROLES_KEY } from '@marinoscar/platform-api/identity';
-import { DatabaseBackupController } from '../../src/db-backup/db-backup.controller';
-import { BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../../src/db-backup/db-backup-admin.service';
-import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
-import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
-import {
-  DatabaseBackupAlreadyRunningError,
-  DatabaseBackupStorageProviderError,
-} from '../../src/db-backup/db-backup.errors';
+import { DatabaseBackupController } from '@marinoscar/platform-api/db-backup/testing';
+import { BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';
+import { PgJobRoleBroker } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupAlreadyRunningError, DatabaseBackupStorageProviderError } from '@marinoscar/platform-api/db-backup';
 import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import {
   TestContext,
@@ -82,6 +79,7 @@ import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {
   authHeader,
   createMockAdminUser,
+  createMockTestUser,
   createMockViewerUser,
 } from '../helpers/auth-mock.helper';
 
@@ -909,6 +907,39 @@ describe('Admin database-backup API (Integration)', () => {
 
     it('refuses an unauthenticated caller', async () => {
       await request(server()).get('/api/admin/db-backup/config').expect(401);
+    });
+
+    // #740: a restore rolls back EVERY organization, so the db_backup:*
+    // permissions are system scope and an organization's administrator holds
+    // none of them. Every route, restore and rollback included.
+    it.each([
+      ['get', '/api/admin/db-backup/config'],
+      ['put', '/api/admin/db-backup/config'],
+      ['get', '/api/admin/db-backup/runs'],
+      ['post', '/api/admin/db-backup/runs'],
+      ['get', '/api/admin/db-backup/node-credential-preflight'],
+      ['get', `/api/admin/db-backup/runs/${RUN_ID}`],
+      ['get', `/api/admin/db-backup/runs/${RUN_ID}/download`],
+      ['post', `/api/admin/db-backup/runs/${RUN_ID}/cancel`],
+      ['post', `/api/admin/db-backup/runs/${RUN_ID}/restore`],
+      ['post', `/api/admin/db-backup/runs/${RUN_ID}/rollback`],
+      ['delete', `/api/admin/db-backup/runs/${RUN_ID}`],
+    ] as const)('refuses an org-only org_admin on %s %s', async (method, path) => {
+      const orgAdmin = await createMockTestUser(context, { systemRoles: [], orgRoleName: 'org_admin' });
+
+      await (request(server()) as any)
+        [method](path)
+        .set(authHeader(orgAdmin.accessToken))
+        .send({})
+        .expect(403);
+    });
+
+    it('admits the system admin, who holds the system admin role whatever their membership', async () => {
+      const admin = await createMockTestUser(context, { systemRoles: ['admin'], orgRoleName: 'org_admin' });
+
+      const res = await request(server()).get('/api/admin/db-backup/runs').set(authHeader(admin.accessToken));
+
+      expect(res.status).not.toBe(403);
     });
   });
 });

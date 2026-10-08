@@ -21,18 +21,12 @@
 import request from 'supertest';
 
 import { DeploymentModeService } from '../../src/common/deployment/deployment-mode.service';
-import {
-  DatabaseRestoreService,
-  DB_RESTORE_RUN_TYPE,
-  defaultDatabaseRestoreSeam,
-} from '../../src/db-backup/database-restore.service';
-import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
-import { DatabaseRestoreDisabledError } from '../../src/db-backup/db-backup.errors';
-import { DatabaseRestoreRunHandler } from '../../src/db-backup/handlers/db-restore-run.handler';
-import {
-  DatabaseRestorePreflightService,
-  defaultRestorePreflightSeam,
-} from '../../src/db-backup/restore-preflight.service';
+import { DB_RESTORE_RUN_TYPE } from '@marinoscar/platform-api/db-backup';
+import { DatabaseRestoreService, defaultDatabaseRestoreSeam } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';
+import { DatabaseRestoreDisabledError } from '@marinoscar/platform-api/db-backup';
+import { DatabaseRestoreRunHandler } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseRestorePreflightService, defaultRestorePreflightSeam } from '@marinoscar/platform-api/db-backup/testing';
 import { JobsService } from '@marinoscar/platform-api/jobs';
 import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

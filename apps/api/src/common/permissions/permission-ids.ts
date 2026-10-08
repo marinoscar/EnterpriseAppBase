@@ -5,8 +5,7 @@
 // A pure function in a file that imports nothing, so `roles.constants.ts` can
 // derive `ROLES` and `PERMISSIONS` from the declaration files without importing
 // the registries (and their manifest) or creating an import cycle.
-// `emitDecoratorMetadata` makes cycles painful; see `storage/storage-key-prefixes.ts`
-// for the same "no-import leaf" rule.
+// `emitDecoratorMetadata` makes cycles painful, hence the "no-import leaf" rule.
 // =============================================================================
 
 /**

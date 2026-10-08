@@ -123,3 +123,8 @@ export type {
 export { ALLOW_DURING_MAINTENANCE_KEY, AllowDuringMaintenance } from './maintenance/allow-during-maintenance.decorator';
 export { ApiDataResponse } from './openapi/api-data-response.decorator';
 export type { ApiDataResponseOptions, DataResponsePagination } from './openapi/api-data-response.decorator';
+
+// The PostgreSQL connection string from `POSTGRES_*` (issue #172; packaged by
+// #740 for the db-backup slice's dump, restore and admin connections).
+export { buildDatabaseUrl } from './database-url';
+export type { DatabaseEnv } from './database-url';

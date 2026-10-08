@@ -107,7 +107,6 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
   it.each([
     '../../platform/jobs/jobs.system-settings',
     '../../platform/jobs/nodes.system-settings',
-    '../../db-backup/db-backup.system-settings',
     '../../common/maintenance/maintenance.system-settings',
     '../../platform/storage/storage.system-settings',
     '../../platform/telemetry/telemetry.system-settings',
