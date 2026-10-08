@@ -215,6 +215,7 @@ const JOB_LIST_SELECT = {
   claimedByNodeId: true,
   leaseExpiresAt: true,
   executor: true,
+  orgId: true,
 } as const satisfies Record<keyof Omit<Job, 'payload' | 'claimToken' | 'traceContext'>, true>;
 
 /**
@@ -442,6 +443,9 @@ export class JobAdminService {
     if (query.type) where.type = query.type;
     if (query.subjectType) where.subjectType = query.subjectType;
     if (query.subjectId) where.subjectId = query.subjectId;
+    // One organization's jobs (#734). Additive: omitted, every job is listed,
+    // system jobs (`org_id` null) included. Served by `jobs_org_id_status_idx`.
+    if (query.orgId) where.orgId = query.orgId;
 
     if (query.scheduled === true) {
       // `scheduled=true` OVERRIDES `status`, it does not intersect with it —

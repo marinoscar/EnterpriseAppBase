@@ -88,6 +88,11 @@ export const jobListQuerySchema = z.object({
   type: z.string().min(1).max(200).optional(),
   subjectType: z.string().min(1).max(200).optional(),
   subjectId: z.string().min(1).max(200).optional(),
+  /**
+   * Only this organization's jobs (#734). Omitted, every job is listed,
+   * deployment-wide system jobs (`orgId: null`) included.
+   */
+  orgId: z.uuid().optional(),
 
   /**
    * `z.enum(['true','false']).transform(...)` and NOT `z.coerce.boolean()`.

@@ -135,6 +135,12 @@ export const jobSchema = z.object({
   claimedByNodeId: z.uuid().nullable(),
   leaseExpiresAt: z.iso.datetime().nullable(),
   executor: z.string().nullable(),
+
+  /**
+   * The organization the work belongs to (#734), or `null` for a
+   * deployment-wide (system) job such as housekeeping.
+   */
+  orgId: z.uuid().nullable(),
 });
 
 export class JobDto extends createZodDto(jobSchema) {}

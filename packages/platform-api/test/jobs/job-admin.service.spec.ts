@@ -146,6 +146,7 @@ function row(overrides: Record<string, unknown> = {}) {
     claimedByNodeId: null,
     leaseExpiresAt: null,
     executor: null,
+    orgId: null,
     ...overrides,
   };
 }
@@ -418,6 +419,22 @@ describe('JobAdminService.list', () => {
     await service.list(query({ subjectId: 'inv_42' }));
 
     expect(whereOf(job.findMany)).toEqual({ subjectId: 'inv_42' });
+  });
+
+  it("filters by orgId alone: one organization's jobs (#734)", async () => {
+    const { service, job } = makeService();
+
+    await service.list(query({ orgId: '22222222-2222-4222-8222-bbbbbbbbbbbb' }));
+
+    expect(whereOf(job.findMany)).toEqual({ orgId: '22222222-2222-4222-8222-bbbbbbbbbbbb' });
+  });
+
+  it('projects orgId, so the list says whose work each job is (#734)', async () => {
+    const { service, job } = makeService();
+
+    await service.list(query({}));
+
+    expect(job.findMany.mock.calls[0][0].select).toMatchObject({ orgId: true });
   });
 
   it('filters by scheduled alone, as pending plus a future scheduledFor', async () => {

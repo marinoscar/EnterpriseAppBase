@@ -249,6 +249,13 @@ export class JobAdminController {
     description: 'true selects pending jobs in backoff and overrides `status`.',
   })
   @ApiQuery({ name: 'processedWithin', required: false, enum: PROCESSED_WITHIN_VALUES })
+  @ApiQuery({
+    name: 'orgId',
+    required: false,
+    type: String,
+    format: 'uuid',
+    description: "Only this organization's jobs. Omitted, every job is listed, system jobs (`orgId: null`) included.",
+  })
   @ApiDataResponse(JobDto, { pagination: 'flat', description: 'Paginated job list' })
   async list(@Query() query: JobListQueryDto): Promise<unknown> {
     return this.jobs.list(query);
