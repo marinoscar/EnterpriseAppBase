@@ -110,7 +110,7 @@ Three models of the `credentials` fragment of `@marinoscar/platform-db` (`schema
 | `UserCredential` (`user_credentials`) | unique `(user_id, purpose, name)` | `user` | `user:<userId>:<purpose>` | Cascade with the user |
 | `OrgCredential` (`org_credentials`) | unique `(org_id, purpose, name)` | `org`, FORCEd row-level security (`org_credentials_org_isolation`) | `org:<orgId>:<purpose>` | Cascade with the organization; `updated_by_user_id` SetNull |
 
-Migrations: `0003_add_credentials`, `0018_add_user_credentials` and `0028_add_org_credentials` (the table and its policy). All three unique keys are plain composite constraints (every column is NOT NULL), so no raw-SQL index is involved.
+Migrations: `0003_add_credentials`, `0018_add_user_credentials` and `0029_add_org_credentials` (the table and its policy). All three unique keys are plain composite constraints (every column is NOT NULL), so no raw-SQL index is involved.
 
 Public columns (an app may read them, through the `*Info` types): `purpose`, `name`, `hint`, `label`, `updated_by_user_id`, `created_at`, `updated_at`. Private: `id` (never published; the address is the only way to a row), `secret` (the ciphertext; read only by `getSecret`), and the owner columns as presentation (every read is already scoped by them). **Apps never add columns to these tables; a new kind of secret is a new purpose.**
 

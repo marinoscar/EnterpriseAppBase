@@ -279,7 +279,7 @@ into it, instead of each inventing its own org key table.
 - A plain composite `@@unique`: `org_id` is NOT NULL, so no raw-SQL index.
 - **Tenant data.** `org_credentials` is an `org` table under FORCEd row-level
   security (`org_credentials_org_isolation`, migration
-  `0028_add_org_credentials`, listed in `RLS_POLICIES`). `OrgCredentialsService`
+  `0029_add_org_credentials`, listed in `RLS_POLICIES`). `OrgCredentialsService`
   reaches it only through core's `forOrg(prisma, orgId)`, so another
   organization's rows are invisible whatever a query's `where` says, and the
   database refuses a row for another organization (`WITH CHECK`).
