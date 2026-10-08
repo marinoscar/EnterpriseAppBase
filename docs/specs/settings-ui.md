@@ -31,7 +31,7 @@ Each registry is an ordered list of groups, each group an ordered list of cards.
 - `alwaysShow` — an escape hatch that shows the card even when `permission` is not held. Reserved; no current card relies on it.
 - `disabled` — together with no `path`, declares an inert "Coming soon" card for a page that is planned but not built.
 
-`ADMIN_SECTIONS` has six groups, appended in this order: **General**, **Access**, **Operations**, **AI**, **Observability**, **Organizations**. The last (#726) holds two cards, both `feature: 'orgs'`, so a single-org deployment never shows it: **Organization** (`/admin/settings/organization`, `org_members:read`, the current organization's members and invitations as two parallel tabs, the Invites tab gated on `org_invites:read`) and **Organizations** (`/admin/settings/organizations`, `organizations:read`, the deployment's list of organizations). Groups and cards are append-only because the hub, the rail and the drill-down list render the array in declaration order; inserting a card moves every existing card for a reader who has learnt where they are. A packaged slice contributes its cards as data (`doctorSettingsPage.card`, `telemetryAdminCards`), and the app places them in its own registry where they belong; the append-only rule applies to that placement unchanged. The full inventory of pages and their permissions lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
+`ADMIN_SECTIONS` has six groups, appended in this order: **General**, **Access**, **Operations**, **AI**, **Observability**, **Organizations**. The last (#726) holds two cards, both `feature: 'orgs'`, so a single-org deployment never shows it: **Organization** (`/admin/settings/organization`, `org_members:read`, the current organization's members and invitations as two parallel tabs, the Invites tab gated on `org_invites:read`) and **Organizations** (`/admin/settings/organizations`, `organizations:read`, the deployment's list of organizations). Groups and cards are append-only because the hub, the rail and the drill-down list render the array in declaration order; inserting a card moves every existing card for a reader who has learnt where they are. A packaged slice contributes its cards as data (`doctorSettingsPage.card`, `telemetryAdminCards`, `identityAdminSections`, `identityUserSettingsSections`), and the app places them in its own registry where they belong; the append-only rule applies to that placement unchanged. The full inventory of pages and their permissions lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 `USER_SETTINGS_SECTIONS` cards (profile, appearance, notifications, tokens) declare no `permission`: they are the caller's own settings, and the API grants `user_settings:read`/`user_settings:write` to every org role (org admin, contributor, viewer), which every member holds through their membership. The exception is the `AI Keys` card (`/settings/ai`), which declares `permission: 'ai:use'` and `feature: 'ai'`, because `ai:use` is a real, withholdable grant (org admin and Contributor, not Viewer; a system administrator holds it through their `org_admin` membership). The `Groups` card (`/settings/groups`, #731) is the second: the packaged groups page of `@marinoscar/platform-web/sharing/ui`, built from its descriptor (`groupsSettingsPage.card`) and appended as the only card of a last `Sharing` section, declares `permission: 'groups:read'`, the org permission the `/api/groups` controller enforces. Its detail page (`/settings/groups/:id`) sits under the card's path, so the title resolver names it `Groups`; a `groups:admin` holder gets an in-page "All groups" switch, never a second (admin) card.
 
@@ -57,7 +57,7 @@ Tabs remain legitimate **inside** one destination, but only for genuinely parall
 - A **destination gate** (which registry card exists, which route it points at) is about **reachability**: can this user get to this page at all.
 - A **tab gate** (inside one already-reached page) is about **content**: given that the user is here, which parts can they use.
 
-The live example is `apps/web/src/pages/Admin/UsersPage.tsx` at `/admin/settings/users`, which keeps two tabs, Users and Allowlist. They are two views of one question ("who may use this application"), backed by two controllers:
+The live example is the Users & Allowlist page (`UsersPage` of `@marinoscar/platform-web/identity/ui`, `packages/platform-web/src/identity/ui/users/UsersPage.tsx`) at `/admin/settings/users`, which keeps two tabs, Users and Allowlist. They are two views of one question ("who may use this application"), backed by two controllers:
 
 - The card (destination) gate is `users:read`, enforced by `users.controller.ts`.
 - The Allowlist tab wraps `<AllowlistTable />` in `<RequirePermission permission="allowlist:read">`, because that data comes from `allowlist.controller.ts`.
@@ -72,9 +72,9 @@ A card's `permission` is the literal string the API controller enforces. The hub
 
 | Card permission | Enforced by |
 |---|---|
-| `system_settings:read` | `apps/api/src/settings/system-settings/system-settings.controller.ts` (Notifications card); `apps/api/src/email/email-settings.controller.ts`, `apps/api/src/common/maintenance/maintenance.controller.ts`, `apps/api/src/about/about.controller.ts` (Email, Maintenance, About) |
-| `users:read` | `apps/api/src/users/users.controller.ts` |
-| `allowlist:read` | `apps/api/src/allowlist/allowlist.controller.ts` (gates the Allowlist **tab**, not the route) |
+| `system_settings:read` | `packages/platform-api/src/settings/system-settings/system-settings.controller.ts` (Notifications card); `apps/api/src/email/email-settings.controller.ts`, `apps/api/src/common/maintenance/maintenance.controller.ts`, `apps/api/src/about/about.controller.ts` (Email, Maintenance, About) |
+| `users:read` | `packages/platform-api/src/identity/users/users.controller.ts` |
+| `allowlist:read` | `packages/platform-api/src/identity/allowlist/allowlist.controller.ts` (gates the Allowlist **tab**, not the route) |
 | `push:read` | `apps/api/src/notifications/push-config.controller.ts` |
 | `storage_config:read` | `apps/api/src/storage/config/storage-config.controller.ts` |
 | `jobs:read` | `apps/api/src/jobs/job-admin.controller.ts` |
@@ -84,8 +84,8 @@ A card's `permission` is the literal string the API controller enforces. The hub
 | `ai_config:read` | `apps/api/src/ai/config/ai-admin.controller.ts` (AI, AI Models, AI Usage) |
 | `ai:use` | `apps/api/src/ai/keys/user-ai-keys.controller.ts` (user `AI Keys` card) |
 | `groups:read` | `packages/platform-api/src/sharing/groups/groups.controller.ts` (user `Groups` card; an ORG permission, `SHARING_PERMISSIONS.GROUPS_READ`) |
-| `org_members:read` | `apps/api/src/organizations/org-members.controller.ts` (Organization card; an ORG permission, held through `org_admin`). `org_invites:read` (`org-invites.controller.ts`) gates the Invites **tab** |
-| `organizations:read` | `apps/api/src/organizations/organizations-admin.controller.ts` (Organizations card; a SYSTEM permission) |
+| `org_members:read` | `packages/platform-api/src/identity/organizations/org-members.controller.ts` (Organization card; an ORG permission, held through `org_admin`). `org_invites:read` (`org-invites.controller.ts`) gates the Invites **tab** |
+| `organizations:read` | `packages/platform-api/src/identity/organizations/organizations-admin.controller.ts` (Organizations card; a SYSTEM permission) |
 
 Two consequences:
 

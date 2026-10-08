@@ -755,7 +755,7 @@ The release side: [release runbook, Consumption smoke](runbooks/release-platform
 
 No test talks to Google.
 
-- **Unit**: `apps/api/src/auth/auth.service.spec.ts` drives
+- **Unit**: `packages/platform-api/test/identity/auth/auth.service.spec.ts` drives
   `handleGoogleLogin` with plain profile objects and a mocked Prisma:
   allowlist denial, identity linking, the transactional user creation and the
   admin bootstrap. `auth.controller.spec.ts` and

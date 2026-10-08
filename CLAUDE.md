@@ -14,7 +14,9 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 /
   apps/
     api/                      # NestJS API: src/, test/, prisma/ (fragments/ hand-edited, schema/ GENERATED, migrations/, seed), Dockerfile
+                              # src/platform/<slice>/ binds each packaged slice (identity: IdentityModule.forRoot + host ports); src/identity-extensions/: identity seam examples
     web/                      # React app: src/, src/__tests__/, Dockerfile
+                              # identity (auth context, guards, login/users/tokens/org pages) is @marinoscar/platform-web/identity; src/identity/: its slots and provider examples
     cli/                      # `appctl`: createCli() over @marinoscar/platform-cli (commands, TUI, deploy, node engine)
       src/                    # cli.ts, app.ts (the createCli options), branding.ts (identity), examples/ (one per registry)
     stack-agent/              # VPS-only sidecar: holds the Docker socket, starts the telemetry stack
@@ -97,6 +99,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
 | Package: telemetry (extension points: metric groups, verdict, host ports, conformance, in five packages) | [packages/platform-api/src/telemetry/README.md](packages/platform-api/src/telemetry/README.md) |
+| Package: identity (sign-in, sessions, users, allowlist, PATs, device flow, organizations; `IdentityModule.forRoot`, `registerAuthProvider`, `IDENTITY_NOTIFIER`, `USER_DEFAULTS`, identity events, conformance; web `AuthProvider`, guards, `LoginPage` slots; contract `AUTH_ERROR_CODES`) | [packages/platform-api/src/identity/README.md](packages/platform-api/src/identity/README.md), [packages/platform-web/src/identity/README.md](packages/platform-web/src/identity/README.md), [packages/platform-contract/src/identity/README.md](packages/platform-contract/src/identity/README.md) |
 | Package: sharing (groups, members, invites, group-owned resources, `Scope.groupIds`, grants, `AccessPolicy`, "resources I can see", link shares and the public-route pattern) | [packages/platform-api/src/sharing/README.md](packages/platform-api/src/sharing/README.md) |
 | Package: settings (namespace registries, system then org then user resolution, `/api/org-settings`, the row store; web: `SettingsHub`, the open feature registry, the settings hooks) | [packages/platform-api/src/settings/README.md](packages/platform-api/src/settings/README.md), [packages/platform-web/src/settings/README.md](packages/platform-web/src/settings/README.md) |
 
@@ -166,14 +169,15 @@ Create clean, frequent commits while implementing the requested work.
 Every settings surface, admin or per-user, is a **registry-driven hub**. Rationale, rejected alternatives and accessibility requirements: [docs/specs/settings-ui.md](docs/specs/settings-ui.md).
 
 1. **Every new settings page is declared in a section registry.** Admin cards go in `apps/web/src/config/adminSections.tsx` (`ADMIN_SECTIONS`); per-user cards in `apps/web/src/config/userSettingsSections.tsx` (`USER_SETTINGS_SECTIONS`). A route without a registry entry is unacceptable: the hub, the Console rail and the AppBar title resolver cannot know it exists. Append new cards; do not insert them between existing ones.
-2. **A settings page is never added as a new tab on an existing settings page.** Tabs are legitimate only inside one destination, for genuinely **parallel** content (two views of one question). The example is `apps/web/src/pages/Admin/UsersPage.tsx` (Users, Allowlist: "who may use this application"). A **destination** gate (which card, which route) is about **reachability**; a **tab** gate (inside one page) is about **content**. Hierarchical content wearing a tab strip is the mistake this rule prevents.
+2. **A settings page is never added as a new tab on an existing settings page.** Tabs are legitimate only inside one destination, for genuinely **parallel** content (two views of one question). The example is the packaged Users & Allowlist page, `packages/platform-web/src/identity/ui/users/UsersPage.tsx` (Users, Allowlist: "who may use this application"). A **destination** gate (which card, which route) is about **reachability**; a **tab** gate (inside one page) is about **content**. Hierarchical content wearing a tab strip is the mistake this rule prevents.
 3. **The card's `permission` is the exact string the API controller enforces**, never invented or approximated:
-   - `system_settings:read` / `system_settings:write` → `system-settings.controller.ts`
-   - `users:read` → `users.controller.ts`
-   - `allowlist:read` → `allowlist.controller.ts` (gates content **inside** the Users page, not the route)
-   - `org_members:read` → `org-members.controller.ts` (an **org** permission, held through the `org_admin` membership role; the `Organization` card, `feature: 'orgs'`); `org_invites:read` → `org-invites.controller.ts` gates the Invites **tab** inside it
-   - `organizations:read` → `organizations-admin.controller.ts` (a **system** permission; the `Organizations` card, `feature: 'orgs'`)
+   - `system_settings:read` / `system_settings:write` → `system-settings.controller.ts` (`packages/platform-api/src/settings/system-settings/`)
+   - `users:read` → `users.controller.ts` (`packages/platform-api/src/identity/users/`)
+   - `allowlist:read` → `allowlist.controller.ts` (`packages/platform-api/src/identity/allowlist/`; gates content **inside** the Users page, not the route)
+   - `org_members:read` → `org-members.controller.ts` (`packages/platform-api/src/identity/organizations/`; an **org** permission, held through the `org_admin` membership role; the `Organization` card, `feature: 'orgs'`); `org_invites:read` → `org-invites.controller.ts` (same directory) gates the Invites **tab** inside it
+   - `organizations:read` → `organizations-admin.controller.ts` (`packages/platform-api/src/identity/organizations/`; a **system** permission; the `Organizations` card, `feature: 'orgs'`)
    - `org_settings:read` → `org-settings.controller.ts` of `@marinoscar/platform-api/settings` (an **org** permission; the `Organization settings` card, `feature: 'orgs'`); `org_settings:write` gates the page's controls
+   The identity cards ship as data (`identityAdminSections`, `identityUserSettingsSections` of `@marinoscar/platform-web/identity/ui`); the app's registries still declare every card by spreading them where they belong.
    Writes are gated inside the page (disabled controls), not by a second card permission.
 4. **Reuse `SettingsHub` from `@marinoscar/platform-web/settings/ui` (`packages/platform-web/src/settings/ui/SettingsHub.tsx`).** Do not fork or copy it. `/settings` (`apps/web/src/pages/UserSettingsHubPage.tsx`) is a binding (`sections`, `hubKey`, `title`, `subtitle`, `features`) over the same component `/admin/settings` uses, nothing more.
 5. **The five coupled breakpoint gates move together or not at all** ([breakpoint gates](docs/specs/settings-ui.md#breakpoint-gates)):

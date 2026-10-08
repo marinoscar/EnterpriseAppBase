@@ -13,7 +13,7 @@
  * `sortable` and `filterable` are declared ONLY where the endpoint can serve
  * them. Both default to `false` in the contract precisely because a control the
  * page cannot answer looks live and does nothing. Read off
- * `apps/api/src/users/dto/user-list-query.dto.ts`:
+ * `packages/platform-api/src/identity/users/dto/user-list-query.dto.ts`:
  *
  *   | query param | accepts                              | column here          |
  *   | ----------- | ------------------------------------ | -------------------- |

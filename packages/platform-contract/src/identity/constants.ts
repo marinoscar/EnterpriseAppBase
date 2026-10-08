@@ -4,7 +4,7 @@
 //
 // Every list here is the one the schemas validate with: the schemas import
 // them, so a value cannot drift between what the API enforces and what the web
-// app offers. Moved verbatim from the API (`apps/api/src/auth/auth-error-codes.ts`
+// app offers. Moved verbatim from the API (`packages/platform-api/src/identity/auth/auth-error-codes.ts`
 // and the DTO files of auth, pat, device-auth and organizations); no value
 // changed.
 

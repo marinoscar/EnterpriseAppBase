@@ -184,6 +184,18 @@ resulting token. You can also pass an existing token with
 - A daily `auth.token.cleanup` job deletes expired tokens and tokens revoked
   more than 30 days ago.
 
+## Code locations
+
+Personal access tokens are part of the identity slice (#727), shipped in the
+platform packages:
+
+| Part | Where |
+|---|---|
+| Endpoints and service (`/api/pat`), the `pat_` check in the JWT guard | `packages/platform-api/src/identity/pat/`, `packages/platform-api/src/identity/auth/guards/jwt-auth.guard.ts` (`@marinoscar/platform-api/identity`) |
+| Wire shapes (`createPatSchema`, `PAT_DURATION_UNITS`, `PAT_LIMITS`) | `packages/platform-contract/src/identity/` (`@marinoscar/platform-contract/identity`) |
+| The Access Tokens page (`/settings/tokens`) and its dialogs | `packages/platform-web/src/identity/ui/tokens/` (`@marinoscar/platform-web/identity/ui`) |
+| Tests | `packages/platform-api/test/identity/pat/`, `apps/api/test/pat.integration.spec.ts`, `apps/api/test/auth/pat-universality.integration.spec.ts`, `packages/platform-web/test/identity/` (token suites) |
+
 ## Handling Tokens Safely
 
 - Store tokens in a secrets manager or CI secret, never in source control or

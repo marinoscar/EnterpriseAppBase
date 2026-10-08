@@ -145,21 +145,22 @@ carries the authorization code). Expected outcomes (`access_denied`,
 never the email, and counts it as the `no_organization` outcome of the
 `app.auth.logins` metric.
 
-**Adding a code** touches three places:
+**Adding a code** touches three places. The list is defined once (#727), so
+the API and the web cannot drift:
 
-1. `AUTH_ERROR_CODES` in `apps/api/src/auth/auth-error-codes.ts`, plus the branch in `resolveAuthErrorCode` that produces it.
-2. `SIGN_IN_ERROR_CODES` and `SIGN_IN_ERROR_CONTENT` in `apps/web/src/components/auth/signInErrorContent.ts`. The web app cannot import from the API, so the list is mirrored by hand.
-3. The parity test `apps/web/src/__tests__/components/auth/signInErrorContent.test.ts`, which reads the API file and fails when the two lists differ. It needs no edit unless the code changes severity rules.
+1. `AUTH_ERROR_CODES` in `packages/platform-contract/src/identity/constants.ts` (`@marinoscar/platform-contract/identity`), plus the branch in `resolveAuthErrorCode` (`packages/platform-api/src/identity/auth/auth-error-codes.ts`) that produces it.
+2. The copy for it in `createSignInErrorContent` (`packages/platform-web/src/identity/ui/sign-in-error-content.ts`). Its table is keyed by the contract's codes, so a code without copy is a type error.
+3. `packages/platform-web/test/identity/sign-in-error-content.test.ts`, which checks that the web's codes are the contract's list and that every code has copy. It needs no edit unless the code changes severity rules.
 
 Also update the `error` description on the callback route's `@ApiResponse` in
 `auth.controller.ts`.
 
-Guardrails: `apps/api/src/auth/auth.controller.spec.ts` (no exception message
-in the redirect), `apps/api/src/auth/filters/google-oauth-exception.filter.spec.ts`,
-`apps/api/src/auth/guards/google-oauth.guard.spec.ts` (account chooser,
+Guardrails: `packages/platform-api/test/identity/auth/auth.controller.spec.ts` (no exception message
+in the redirect), `packages/platform-api/test/identity/auth/filters/google-oauth-exception.filter.spec.ts`,
+`packages/platform-api/test/identity/auth/guards/google-oauth.guard.spec.ts` (account chooser,
 `access_denied`), `apps/api/test/auth/oauth.integration.spec.ts` (guard failures
-redirect with a code), `apps/web/src/__tests__/pages/AuthCallbackPage.test.tsx`,
-`apps/web/src/__tests__/contexts/AuthContext.test.tsx` and the parity test above.
+redirect with a code), `packages/platform-web/test/identity/auth-callback-page.test.tsx`,
+`apps/web/src/__tests__/contexts/AuthContext.test.tsx` and the copy test above.
 
 ### User provisioning
 
@@ -188,7 +189,7 @@ redirect with a code), `apps/web/src/__tests__/pages/AuthCallbackPage.test.tsx`,
 `multi`) is a deployment-level environment variable, read once at startup; an
 invalid value stops the API from starting. It is deliberately not an admin
 setting: switching it at runtime would change who can see what in the middle of
-a session. `TenancyService` (`apps/api/src/organizations/tenancy.service.ts`)
+a session. `TenancyService` (`packages/platform-api/src/identity/organizations/tenancy.service.ts`)
 exposes it, and `GET /api/auth/me` reports it as `tenancyMode`.
 
 | Mode | New user | Returning user |
@@ -219,7 +220,13 @@ allowlist.
 }
 ```
 
-- Signed HS256 with `JWT_SECRET` (at least 32 characters).
+- Signed HS256 with `JWT_SECRET` (at least 32 characters). **There is no
+  fallback secret**: a missing or blank `JWT_SECRET` stops the API at boot
+  with a message naming the variable (`requireJwtSecret`,
+  `packages/platform-api/src/identity/identity.configuration.ts`, #727). The
+  strategy used to fall back to a hard-coded string, which a public package
+  must not ship. The `auth.jwt-secret` doctor check still warns about a
+  short value.
 - **`org` is the active organization** (#724): the one org this token acts
   in. Every token the API issues carries it (sign-in, refresh, switch-org,
   the device flow's session path). At sign-in it is the default organization
@@ -246,7 +253,7 @@ allowlist.
   roles and permissions (the *principal*) and rejects an inactive user. Roles
   in the token are informational; the database is authoritative.
 - The principal is read through a short-TTL, in-process cache
-  (`PrincipalCache`, `apps/api/src/auth/principal-cache/`), keyed by
+  (`PrincipalCache`, `packages/platform-api/src/identity/auth/principal-cache/`), keyed by
   `(userId, orgId, tokenKind)` (#724), for at most
   `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` (default 30; `0` turns it off and every
   request reads the database). Every write that changes what a principal
@@ -646,7 +653,7 @@ seeded onto an org role.
 **Effective permissions.** A request's permissions are the union of the
 user's system roles' grants and the grants of the role on the user's
 **active-org membership**, computed in one place, `PrincipalFactory`
-(`apps/api/src/auth/principal.factory.ts`), for the guards, `/api/auth/me`
+(`packages/platform-api/src/identity/auth/principal.factory.ts`), for the guards, `/api/auth/me`
 and the users list. The active organization is the one the request's
 credential is bound to (#724): the access token's `org` claim, the PAT's or
 device session's `org_id`; a node credential has none and gets its owner's
@@ -1418,7 +1425,7 @@ applies. Use a recognizable domain such as `@test.local`. See
 ## 14. Fastify and Passport
 
 The API runs on Fastify, but Passport expects raw Node request and response
-objects. `GoogleOAuthGuard` (`apps/api/src/auth/guards/google-oauth.guard.ts`)
+objects. `GoogleOAuthGuard` (`packages/platform-api/src/identity/auth/guards/google-oauth.guard.ts`)
 returns `request.raw` and `response.raw` to Passport and copies the
 authenticated profile back onto the Fastify request in `handleRequest`.
 Reuse that pattern for any additional Passport strategy. Controllers reply
@@ -1432,19 +1439,19 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 
 | Area | Files |
 |---|---|
-| OAuth and sessions | `apps/api/src/auth/auth.controller.ts`, `auth.service.ts`, `strategies/google.strategy.ts`, `strategies/jwt.strategy.ts` |
-| Guards and decorators | `apps/api/src/auth/guards/` (`jwt-auth.guard.ts`, `roles.guard.ts`, `permissions.guard.ts`, `google-oauth.guard.ts`), `apps/api/src/auth/decorators/` |
-| Token cleanup | `apps/api/src/auth/tasks/token-cleanup.task.ts`, `auth/handlers/token-cleanup.handler.ts` |
-| Admin bootstrap | `apps/api/src/common/services/admin-bootstrap.service.ts` |
+| OAuth and sessions | `packages/platform-api/src/identity/auth/auth.controller.ts`, `auth.service.ts`, `strategies/google.strategy.ts`, `strategies/jwt.strategy.ts` |
+| Guards and decorators | `packages/platform-api/src/identity/auth/guards/` (`jwt-auth.guard.ts`, `roles.guard.ts`, `permissions.guard.ts`, `google-oauth.guard.ts`), `packages/platform-api/src/identity/auth/decorators/` |
+| Token cleanup | `packages/platform-api/src/identity/auth/tasks/token-cleanup.task.ts`, `auth/handlers/token-cleanup.handler.ts` |
+| Admin bootstrap | `packages/platform-api/src/identity/auth/admin-bootstrap.service.ts` |
 | Roles and permissions | `apps/api/src/common/permissions/` (registries, manifest, recipe), `apps/api/src/*/*.permissions.ts` (declarations), `apps/api/src/common/constants/roles.constants.ts` (derived constants), `apps/api/prisma/catalog/permissions.json` (generated seed catalog), `apps/api/prisma/seed-data.ts` |
-| Allowlist | `apps/api/src/allowlist/` |
-| PATs | `apps/api/src/pat/` |
-| Device flow | `apps/api/src/device-auth/` |
+| Allowlist | `packages/platform-api/src/identity/allowlist/` |
+| PATs | `packages/platform-api/src/identity/pat/` |
+| Device flow | `packages/platform-api/src/identity/device-auth/` |
 | Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |
 | Encrypted stores | `packages/platform-api/src/core/crypto/secret-cipher.ts`, `encryption-key-startup-check.ts` (`@marinoscar/platform-api/core`), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
-| Test auth | `apps/api/src/test-auth/`, `apps/web/src/pages/TestLoginPage.tsx` |
+| Test auth | `packages/platform-api/src/identity/testing/`, `apps/web/src/pages/TestLoginPage.tsx` |
 | Edge | `infra/nginx/nginx.conf`, `infra/nginx/csp.conf`, `infra/nginx/csp.dev.conf` |
-| Web session | `apps/web/src/contexts/AuthContext.tsx`, `apps/web/src/services/api.ts` |
+| Web session | `packages/platform-web/src/identity/headless/auth-context.tsx` (`AuthProvider`, `@marinoscar/platform-web/identity/headless`), `packages/platform-web/src/core/http/client.ts` (`PlatformHttpClient`: token holder, refresh), `apps/web/src/services/api.ts` (the app's binding) |
 | Compose | `infra/compose/base.compose.yml` (api, web, nginx; no database service), `infra/compose/.env.example` |
 
 ---

@@ -38,7 +38,7 @@ Per-column reasoning lives in the block comments of `packages/platform-db/schema
 
 ### Node credentials
 
-A `nod_` token is a separate token family, not a personal access token. It mirrors `PersonalAccessToken` on purpose: 32 bytes of `randomBytes`, sha256 at rest, a short display prefix, the raw value shown exactly once, and a fire-and-forget `lastUsedAt`. `apps/api/src/nodes/node-credential.service.ts` beside `apps/api/src/pat/pat.service.ts` shows every divergence, and there is exactly one:
+A `nod_` token is a separate token family, not a personal access token. It mirrors `PersonalAccessToken` on purpose: 32 bytes of `randomBytes`, sha256 at rest, a short display prefix, the raw value shown exactly once, and a fire-and-forget `lastUsedAt`. `apps/api/src/nodes/node-credential.service.ts` beside `packages/platform-api/src/identity/pat/pat.service.ts` shows every divergence, and there is exactly one:
 
 - **`expiresAt` is nullable.** `null` means "never expires; authenticate until revoked". A PAT's forced expiry nudges a human to rotate. On an unattended node it produces a whole fleet going dark when a timer nobody scheduled fires. The route allowlist already bounds a leak, so a mandatory expiry buys nothing. An operator can still set `expiresInDays`.
 - **Revocation is the control, and it is immediate.** `revokedAt` is re-read from the row on every authentication; there is no cache and no TTL.
@@ -50,7 +50,7 @@ Ownership on revoke is folded into the lookup (`findFirst({ where: { id, userId 
 
 ### Route allowlist
 
-A `nod_` token reaches `/api/nodes` and paths beneath it. Everything else is `403`. The check lives in `apps/api/src/auth/guards/jwt-auth.guard.ts`, next to the `pat_` branch, not in the credential service.
+A `nod_` token reaches `/api/nodes` and paths beneath it. Everything else is `403`. The check lives in `packages/platform-api/src/identity/auth/guards/jwt-auth.guard.ts`, next to the `pat_` branch, not in the credential service.
 
 - **Prefix boundary, not `startsWith`.** The path (query string stripped) must be exactly `/api/nodes` or begin with `/api/nodes/`. `/api/nodesX`, `/api/nodes-other` and `/api/nodescrape` are refused.
 - **The URL is read as `originalUrl ?? url`**, covering both Fastify and Express. A request with no resolvable URL is refused: an allowlist that cannot classify a request fails closed.
@@ -373,7 +373,7 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 
 | Test | Enforces |
 |---|---|
-| `apps/api/src/auth/guards/jwt-auth.guard.spec.ts` | Allowlist, prefix-boundary paths, route check before `validateToken` (spy), untouched `pat_`/JWT branches |
+| `packages/platform-api/test/identity/auth/guards/jwt-auth.guard.spec.ts` | Allowlist, prefix-boundary paths, route check before `validateToken` (spy), untouched `pat_`/JWT branches |
 | `apps/api/test/nodes/node-credential.integration.spec.ts` | `403` for a `nod_` token on `/api/users`, `/api/admin/jobs`, `/api/node-credentials` with an admin owner; RBAC; show-once; `lastUsedAt` stamped on allowed routes |
 | `apps/api/src/nodes/node-credential.service.spec.ts` | Four rejection paths; `expiresAt: null` group |
 | `apps/api/src/common/maintenance/maintenance.guard.spec.ts` | `OPAQUE_BEARER_PREFIXES` contains `NODE_TOKEN_PREFIX` |

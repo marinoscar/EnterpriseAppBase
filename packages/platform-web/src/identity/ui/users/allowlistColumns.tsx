@@ -3,7 +3,7 @@
  *
  * ## What `GET /api/allowlist` actually honours
  *
- * Read off `apps/api/src/allowlist/dto/allowlist-query.dto.ts` and
+ * Read off `packages/platform-api/src/identity/allowlist/dto/allowlist-query.dto.ts` and
  * `allowlist.service.ts`:
  *
  *   | query param | accepts                               | column here |

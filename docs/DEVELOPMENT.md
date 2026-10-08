@@ -151,7 +151,7 @@ must unwrap them.
 
 #### The Solution
 
-`apps/api/src/auth/guards/google-oauth.guard.ts`:
+`packages/platform-api/src/identity/auth/guards/google-oauth.guard.ts`:
 
 ```typescript
 import { ExecutionContext, Injectable } from '@nestjs/common';
@@ -402,7 +402,7 @@ text of their choosing.
 
 **Solution:** redirect with a code from the closed set, never a message. Use
 `buildAuthErrorRedirectUrl` and `resolveAuthErrorCode` from
-`apps/api/src/auth/auth-error-codes.ts`, as the OAuth callback does. See
+`packages/platform-api/src/identity/auth/auth-error-codes.ts`, as the OAuth callback does. See
 [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract).
 
 ### 6. Calling `npx prisma` Directly
@@ -650,7 +650,7 @@ Anything that outlives the request must be a queue job; see
 
 ### Adding New Guards
 
-1. Create the guard in `apps/api/src/auth/guards/`.
+1. Create the guard in `packages/platform-api/src/identity/auth/guards/`.
 2. Implement `canActivate()`.
 3. Register it in its module, or apply it with `@UseGuards()`.
 4. Add tests for the guard logic.
