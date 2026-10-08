@@ -39,6 +39,7 @@ import { STORAGE_CONFIG_PERMISSIONS } from '@marinoscar/platform-api/storage';
 import { STORAGE_PERMISSIONS } from '@marinoscar/platform-api/storage';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
 import { SHARING_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/sharing';
+import { USER_DATA_PERMISSIONS } from '@marinoscar/platform-api/user-data';
 import { permissionIds, roleIds } from '../permissions/permission-ids';
 import type { AppPermissionIds, AppRoleIds } from '../permissions/permission.types';
 import { PLATFORM_ROLES } from '../permissions/platform-roles';
@@ -81,6 +82,7 @@ export const PERMISSIONS = {
   ...permissionIds(SHARING_PERMISSION_DECLARATIONS),
   ...permissionIds(ORG_SETTINGS_PERMISSIONS),
   ...permissionIds(ORG_BROADCASTS_PERMISSIONS),
+  ...permissionIds(USER_DATA_PERMISSIONS),
 } as const;
 
 /** A platform permission id, or an app permission id added to `AppPermissionIds` by augmentation. */

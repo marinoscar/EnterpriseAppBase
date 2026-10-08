@@ -100,6 +100,9 @@ const BASELINE_PERMISSIONS = [
   // Org-targeted broadcasts (#738, PP-8.5).
   { name: 'org_broadcasts:read', description: "View the active organization's notification broadcasts", scope: 'org' },
   { name: 'org_broadcasts:write', description: 'Compose, schedule, cancel and send notification broadcasts to the active organization', scope: 'org' },
+  // The user-data slice (#743, PP-9.1): Admin-only system permissions.
+  { name: 'system:factory_reset', description: 'Factory reset: delete every other user and all application data, keeping configuration and backups', scope: 'system' },
+  { name: 'orgs:offboard', description: 'Offboard an organization: delete it with all its data, members and invitations', scope: 'system' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -132,6 +135,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'telemetry:query',
     'organizations:read',
     'organizations:write',
+    'system:factory_reset',
+    'orgs:offboard',
   ],
   contributor: [
     'user_settings:read',

@@ -41,6 +41,8 @@ const ALLOWLIST: Record<string, string> = {
     'export and purge: the exports slice\'s EXPORTS_SYSTEM_DATA port (#744): the user-data and org-data sources read one user\'s or one organization\'s rows with an explicit filter (export), the status and download routes find the file\'s row (export), and export.purge deletes expired export files (purge)',
   'platform/db-backup/db-backup-host.module.ts':
     'doctor: the db-backup slice\'s DB_BACKUP_SYSTEM_DATA port (#740): the backup.rls-bypass check\'s read-only row counts',
+  'platform/user-data/user-data-db.adapter.ts':
+    'purge and admin-aggregate: the user-data slice\'s USER_DATA_DB port (#743): a user\'s purge across every organization, the factory reset, offboarding, and their read-only summaries',
   'platform/sharing/sharing-data.adapter.ts':
     'purge and doctor: the sharing slice\'s user purge (GroupMembershipPurge) and its read-only orphaned-groups check',
 };

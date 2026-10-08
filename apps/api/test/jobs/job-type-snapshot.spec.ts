@@ -62,6 +62,10 @@ const REGISTERED_JOB_TYPES: Readonly<Record<string, string>> = {
   'ai.runs.purge': 'AI run purge',
   'export.run': 'Data export',
   'export.purge': 'Export expiry',
+  // The user-data slice (#743).
+  'user.data.purge': 'User data deletion',
+  'admin.factory_reset': 'Factory reset',
+  'org.offboard': 'Organization offboarding',
 };
 
 /**
