@@ -177,6 +177,7 @@ New subpath in this version. From the reference app's local `src/email/` (#737):
 | Test send: `wrong version number`, a greeting timeout, or `Must issue a STARTTLS command first` | Port and TLS mismatch: **465 is implicit TLS**, every other port uses STARTTLS, which is REQUIRED when "Require TLS" is on | Use 465 for implicit TLS or 587 for STARTTLS; turn "Require TLS" off only for a relay that cannot upgrade, on a trusted network |
 | Test send: `535 Authentication failed` | Wrong SMTP username or password | Re-enter the password (blank keeps the stored one) |
 | A broken-image box where the logo should be | A message built by hand without the rendered `attachments` | Send what `renderEmailTemplate` returns, `attachments` included |
+| The brand mark is missing from notification emails (but present in the test email) | The reference app's notification email channel builds its message from `subject`, `html`, `text` and `headers` only, until the notifications slice (#738) forwards `attachments` | Configure a brand mark after #738, or forward `rendered.attachments` in the channel |
 | `GET /api/email-settings` shows `settingsError` | The stored row no longer validates | Correct the named fields and save; the page renders defaults until then |
 
 ## Links
