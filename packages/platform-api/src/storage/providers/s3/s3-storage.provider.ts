@@ -148,7 +148,7 @@ export interface S3StorageProviderConfig {
  * default) or an absent key is what lets this row apply. See the field's own
  * note.
  *
- * `apps/api/src/storage/providers/s3/s3-storage.provider.spec.ts` asserts the
+ * `packages/platform-api/test/storage/providers/s3/s3-storage.provider.spec.ts` asserts the
  * whole row end to end, from a settings literal to the arguments
  * `new S3Client(...)` was actually called with, rather than each half alone.
  *
