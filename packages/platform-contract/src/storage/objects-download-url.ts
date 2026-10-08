@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * downloadUrlResponseSchema.
+ * The `GET /api/storage/objects/:id/download` payload: a signed URL and its lifetime.
  *
  * @stability experimental
  */

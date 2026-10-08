@@ -25,6 +25,13 @@ import { decideStorageConfig } from '../config/doctor/storage-config.doctor-chec
 import { StorageConfigService } from '../config/storage-config.service';
 import { StorageStatusResponse, StorageStatusResponseDto } from './dto/storage-status.dto';
 
+/**
+ * `GET /api/storage/status` (`storage:read`): whether object storage is configured.
+ *
+ * @internal
+ *
+ * @stability experimental
+ */
 @ApiTags('Storage')
 @Controller('storage/status')
 export class StorageStatusController {

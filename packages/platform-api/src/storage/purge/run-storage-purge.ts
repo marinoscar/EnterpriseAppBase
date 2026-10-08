@@ -1,6 +1,6 @@
 /**
- * `runStoragePurge`: what `npm run storage:purge` (`appctl deploy uninstall
- * --purge-storage`) runs INSIDE the api image (issue #404; packaged in #736).
+ * `runStoragePurge`: what `npm run storage:purge`
+ * (`appctl deploy uninstall --purge-storage`) runs INSIDE the api image (issue #404; packaged in #736).
  *
  * =============================================================================
  * ⚠ WHY THIS LIVES HERE AND NOT IN THE CLI
@@ -100,7 +100,12 @@ export interface StoragePurgeReport {
   /** One entry per registered prefix, in registry order. */
   prefixes: StoragePurgePrefixReport[];
   /** Sums over {@link StoragePurgeReport.prefixes}. */
-  totals: { objects: number; bytes: number };
+  totals: {
+    /** Objects (or versions) under every prefix. */
+    objects: number;
+    /** Their bytes. */
+    bytes: number;
+  };
   /** Objects, versions and delete markers deleted (0 on a dry run). */
   deleted: number;
   /** Whether nothing was deleted. */

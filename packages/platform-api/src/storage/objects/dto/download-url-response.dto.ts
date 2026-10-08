@@ -9,9 +9,7 @@ import { downloadUrlResponseSchema } from '@marinoscar/platform-contract/storage
 export { downloadUrlResponseSchema };
 
 /**
- * `downloadUrlResponseSchema` as a Nest DTO.
- *
- * @internal
+ * `downloadUrlResponseSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */

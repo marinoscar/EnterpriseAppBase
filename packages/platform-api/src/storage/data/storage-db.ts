@@ -89,6 +89,16 @@ export type StorageInputJsonObject = { readonly [Key in string]?: StorageInputJs
  */
 export interface StorageInputJsonArray extends ReadonlyArray<StorageInputJsonValue | null> {}
 
+/**
+ * What a batch write returns.
+ *
+ * @stability experimental
+ */
+export interface StorageBatchPayload {
+  /** How many rows it changed. */
+  count: number;
+}
+
 // ---- enums --------------------------------------------------------------------------
 
 /**
@@ -207,9 +217,9 @@ export interface StorageDelegate<Row> {
   /** `delete`. */
   delete(args: StorageQueryArgs): Promise<Row>;
   /** `updateMany`. */
-  updateMany(args: StorageQueryArgs): Promise<{ count: number }>;
+  updateMany(args: StorageQueryArgs): Promise<StorageBatchPayload>;
   /** `deleteMany`. */
-  deleteMany(args?: StorageQueryArgs): Promise<{ count: number }>;
+  deleteMany(args?: StorageQueryArgs): Promise<StorageBatchPayload>;
   /** `count`. */
   count(args?: StorageQueryArgs): Promise<number>;
 }
@@ -257,17 +267,35 @@ export interface StorageRunInOrgOptions {
  */
 export interface StoragePrisma extends StorageTx {
   /** `audit_events`; only `create` is called. */
-  auditEvent: { create(args: StorageQueryArgs): Promise<unknown> };
+  auditEvent: {
+    /** Inserts one audit row. */
+    create(args: StorageQueryArgs): Promise<unknown>;
+  };
   /** `users`; only `findUnique` is called. */
-  user: { findUnique(args: StorageQueryArgs): Promise<any> };
+  user: {
+    /** One user by id. */
+    findUnique(args: StorageQueryArgs): Promise<any>;
+  };
   /** `user_settings`; only `findUnique` is called. */
-  userSettings: { findUnique(args: StorageQueryArgs): Promise<any> };
+  userSettings: {
+    /** One user's settings row. */
+    findUnique(args: StorageQueryArgs): Promise<any>;
+  };
   /** `system_settings`; only `findUnique` is called. */
-  systemSettings: { findUnique(args: StorageQueryArgs): Promise<any> };
+  systemSettings: {
+    /** One settings row by key. */
+    findUnique(args: StorageQueryArgs): Promise<any>;
+  };
   /** `organizations`; only `findFirst` (the default organization) is called. */
-  organization: { findFirst(args: StorageQueryArgs): Promise<any> };
+  organization: {
+    /** The default organization. */
+    findFirst(args: StorageQueryArgs): Promise<any>;
+  };
   /** `database_backup_runs`; only `count` is called. */
-  databaseBackupRun: { count(args?: StorageQueryArgs): Promise<number> };
+  databaseBackupRun: {
+    /** Backup runs matching `args`. */
+    count(args?: StorageQueryArgs): Promise<number>;
+  };
   /** A tagged-template raw statement. */
   $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
   /** An interactive transaction. */

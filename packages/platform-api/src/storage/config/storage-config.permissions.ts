@@ -27,7 +27,12 @@ import type { StoragePermissionDeclaration } from '../storage.permissions';
  *
  * @stability stable
  */
-export const STORAGE_CONFIG_PERMISSIONS = {
+export const STORAGE_CONFIG_PERMISSIONS: {
+  /** `storage_config:read`: view the configuration and the secret's masked status. */
+  readonly STORAGE_CONFIG_READ: StoragePermissionDeclaration<'storage_config:read'>;
+  /** `storage_config:write`: change it, test it and provision a bucket. */
+  readonly STORAGE_CONFIG_WRITE: StoragePermissionDeclaration<'storage_config:write'>;
+} = {
   // Object-storage CONFIGURATION — the bucket, the endpoint and the credential
   // this deployment writes every byte through (#375, epic #372).
   //
@@ -67,4 +72,4 @@ export const STORAGE_CONFIG_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies Record<string, StoragePermissionDeclaration>;
+};

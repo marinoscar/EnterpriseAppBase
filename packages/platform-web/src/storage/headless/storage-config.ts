@@ -62,6 +62,11 @@ import type { PlatformApiClient } from '../../core/index.js';
  * union and the list a form iterates are one declaration rather than two.
  */
 export { STORAGE_PROVIDER_KINDS };
+/**
+ * Which object store this deployment talks to.
+ *
+ * @stability experimental
+ */
 export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
 
 /**
@@ -73,30 +78,48 @@ export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
  * `MISSING_STORAGE_CONFIG_FIELDS`.
  */
 export { MISSING_STORAGE_CONFIG_FIELDS };
+/**
+ * A field the configuration needs and does not have.
+ *
+ * @stability experimental
+ */
 export type MissingStorageConfigField = (typeof MISSING_STORAGE_CONFIG_FIELDS)[number];
 
 /**
  * What the UI may know about the stored secret access key. Mirrors
  * `SmtpPasswordStatus` / `PrivateKeyStatus` field for field: never the
  * plaintext, only enough to say WHICH credential is live and when it was set.
+ *
+ * @stability experimental
  */
 export interface StorageSecretStatus {
+  /** Whether a secret is stored. */
   configured: boolean;
   /** A masked hint (e.g. `"••••ab12"`), or `null`. NEVER the real key. */
   hint: string | null;
+  /** When it was last written (ISO), or `null`. */
   updatedAt: string | null;
+  /** Who last wrote the secret, or `null`. */
   updatedByUserId: string | null;
 }
 
-/** `GET /api/admin/storage-config`, and the body `PUT` returns. */
+/**
+ * `GET /api/admin/storage-config`, and the body `PUT` returns.
+ *
+ * @stability experimental
+ */
 export interface StorageConfigView {
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
   provider: StorageProviderKind;
+  /** The bucket name. */
   bucket: string;
+  /** The region (`auto` for R2). */
   region: string;
   /** The operator's endpoint override, verbatim. `''` when there is none. */
   endpoint: string;
   /** Cloudflare account id — only meaningful for `r2`. */
   accountId: string;
+  /** The access key id: an identifier, never the secret. */
   accessKeyId: string;
   /** TRI-STATE: `null` is "use this vendor's convention", not `false`. */
   forcePathStyle: boolean | null;
@@ -110,11 +133,19 @@ export interface StorageConfigView {
   configured: boolean;
   /** Every field standing in the way of `configured`. */
   missing: MissingStorageConfigField[];
+  /** The masked status of the stored secret access key. */
   secretStatus: StorageSecretStatus;
   /** Bumped on every write. Pass back as `If-Match` on the next `PUT`. */
   version: number;
+  /** When it was last written (ISO), or `null`. */
   updatedAt: string | null;
-  updatedBy: { id: string; email: string } | null;
+  /** Who last saved it, or `null`. */
+  updatedBy: {
+    /** Their user id. */
+    id: string;
+    /** Their address. */
+    email: string;
+  } | null;
 }
 
 /**
@@ -124,13 +155,21 @@ export interface StorageConfigView {
  *
  * `secretAccessKey` is optional and write-only: omit it (or send it blank) to
  * keep the stored one. There is no way to erase a stored secret here.
+ *
+ * @stability experimental
  */
 export interface StorageConfigInput {
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
   provider: StorageProviderKind;
+  /** The bucket name. */
   bucket: string;
+  /** The region (`auto` for R2). */
   region: string;
+  /** The endpoint; empty or `null` means the SDK's own host. */
   endpoint: string;
+  /** The Cloudflare account id (R2 only). */
   accountId: string;
+  /** The access key id: an identifier, never the secret. */
   accessKeyId: string;
   /** TRI-STATE — `null` means "vendor convention", and is a real saved value. */
   forcePathStyle: boolean | null;
@@ -147,17 +186,45 @@ export interface StorageConfigInput {
  */
 export { STORAGE_SWITCH_CONFIRMATION };
 
-/** The `details` a `409 STORAGE_LOCATION_IN_USE` carries — what is about to be stranded. */
+/**
+ * One storage location: a provider, a bucket and its endpoint.
+ *
+ * @stability experimental
+ */
+export interface StorageLocation {
+  /** Which provider. */
+  provider: StorageProviderKind;
+  /** The bucket. */
+  bucket: string;
+  /** The endpoint, or `null` for the SDK's own host. */
+  endpoint: string | null;
+}
+
+/**
+ * The `details` a `409 STORAGE_LOCATION_IN_USE` carries — what is about to be stranded.
+ *
+ * @stability experimental
+ */
 export interface StorageLocationInUseDetails {
+  /** The literal to type (`SWITCH`). */
   confirmation: string;
-  from: { provider: StorageProviderKind; bucket: string; endpoint: string | null };
-  to: { provider: StorageProviderKind; bucket: string; endpoint: string | null };
+  /** Where the objects are now. */
+  from: StorageLocation;
+  /** Where the save would point the deployment. */
+  to: StorageLocation;
+  /** Stored objects still in the old location. */
   storageObjects: number;
+  /** Backup archives still in the old location. */
   databaseBackupRuns: number;
+  /** Both counts together. */
   total: number;
 }
 
-/** The API's code for "this save relocates storage and you have not said SWITCH". */
+/**
+ * The API's code for "this save relocates storage and you have not said SWITCH".
+ *
+ * @stability experimental
+ */
 export const STORAGE_LOCATION_IN_USE_CODE = 'STORAGE_LOCATION_IN_USE';
 
 // ---------------------------------------------------------------------------
@@ -166,9 +233,19 @@ export const STORAGE_LOCATION_IN_USE_CODE = 'STORAGE_LOCATION_IN_USE';
 
 /** The four checks, in the order the API reports them. */
 export { STORAGE_TEST_CHECK_IDS };
+/**
+ * One connection-test check id.
+ *
+ * @stability experimental
+ */
 export type StorageTestCheckId = (typeof STORAGE_TEST_CHECK_IDS)[number];
 
 export { STORAGE_TEST_CHECK_STATUSES };
+/**
+ * How one check went: `passed`, `failed` or `skipped`.
+ *
+ * @stability experimental
+ */
 export type StorageTestCheckStatus = (typeof STORAGE_TEST_CHECK_STATUSES)[number];
 
 /**
@@ -181,12 +258,26 @@ export type StorageTestCheckStatus = (typeof STORAGE_TEST_CHECK_STATUSES)[number
  * second would ask an admin to create a bucket that already exists.
  */
 export { STORAGE_TEST_CHECK_CODES };
+/**
+ * One check's machine-readable cause.
+ *
+ * @stability experimental
+ */
 export type StorageTestCheckCode = (typeof STORAGE_TEST_CHECK_CODES)[number];
 
+/**
+ * One check of the connection test.
+ *
+ * @stability experimental
+ */
 export interface StorageConnectionCheck {
+  /** The id. */
   id: StorageTestCheckId;
+  /** A human label. */
   label: string;
+  /** How it went. */
   status: StorageTestCheckStatus;
+  /** The machine-readable cause. */
   code: StorageTestCheckCode;
   /** Actionable prose, written by the API for a human. */
   detail: string;
@@ -194,15 +285,27 @@ export interface StorageConnectionCheck {
   error: string | null;
 }
 
+/**
+ * What `POST /test` returns, always HTTP 200: read `success`.
+ *
+ * @stability experimental
+ */
 export interface StorageConnectionTestResult {
+  /** Whether every check passed. */
   success: boolean;
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
   provider: StorageProviderKind;
+  /** The bucket name. */
   bucket: string;
+  /** The region (`auto` for R2). */
   region: string;
+  /** The endpoint the client actually used, or `null` for the SDK default. */
   effectiveEndpoint: string | null;
   /** True when the submitted body left `secretAccessKey` blank. */
   usedStoredSecret: boolean;
+  /** One entry per check, in order. */
   checks: StorageConnectionCheck[];
+  /** When it ran (ISO). */
   attemptedAt: string;
 }
 
@@ -211,6 +314,8 @@ export interface StorageConnectionTestResult {
  *
  * The one condition under which offering "Create bucket" is honest. Exported
  * so the page and its tests agree on it rather than each re-deriving the rule.
+ *
+ * @stability experimental
  */
 export function reportsBucketMissing(result: StorageConnectionTestResult | null): boolean {
   return !!result?.checks.some((check) => check.code === 'bucket_missing');
@@ -221,9 +326,19 @@ export function reportsBucketMissing(result: StorageConnectionTestResult | null)
 // ---------------------------------------------------------------------------
 
 export { STORAGE_BUCKET_STEP_IDS };
+/**
+ * One bucket-provisioning step id.
+ *
+ * @stability experimental
+ */
 export type StorageBucketStepId = (typeof STORAGE_BUCKET_STEP_IDS)[number];
 
 export { STORAGE_BUCKET_STEP_STATUSES };
+/**
+ * How one step went: `passed`, `failed` or `skipped`.
+ *
+ * @stability experimental
+ */
 export type StorageBucketStepStatus = (typeof STORAGE_BUCKET_STEP_STATUSES)[number];
 
 /**
@@ -235,34 +350,68 @@ export type StorageBucketStepStatus = (typeof STORAGE_BUCKET_STEP_STATUSES)[numb
  * administrator their correct setup is broken.
  */
 export { STORAGE_BUCKET_OUTCOMES };
+/**
+ * How bucket provisioning ended.
+ *
+ * @stability experimental
+ */
 export type StorageBucketOutcome = (typeof STORAGE_BUCKET_OUTCOMES)[number];
 
+/**
+ * One step of bucket provisioning.
+ *
+ * @stability experimental
+ */
 export interface StorageBucketStep {
+  /** The id. */
   id: StorageBucketStepId;
+  /** A human label. */
   label: string;
+  /** How it went. */
   status: StorageBucketStepStatus;
+  /** What happened, in one sentence. */
   detail: string;
+  /** The provider's error, redacted and capped, or `null`. */
   error: string | null;
 }
 
+/**
+ * The commands to run by hand when the key cannot create buckets.
+ *
+ * @stability experimental
+ */
 export interface GuidedBucketInstructions {
   /** Why the credential could not do it — prose, for the alert's body. */
   reason: string;
   /** A ready-to-paste command block, real names already substituted. */
   commands: string;
+  /** A runbook link, or `null`. */
   runbook: string | null;
 }
 
+/**
+ * What `POST /bucket` returns, always HTTP 200: read `outcome`.
+ *
+ * @stability experimental
+ */
 export interface StorageBucketProvisionResult {
+  /** The outcome; `guided` is not an error. */
   outcome: StorageBucketOutcome;
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
   provider: StorageProviderKind;
+  /** The bucket name. */
   bucket: string;
+  /** The region (`auto` for R2). */
   region: string;
+  /** The endpoint the client actually used, or `null` for the SDK default. */
   effectiveEndpoint: string | null;
+  /** One entry per step, in order. */
   steps: StorageBucketStep[];
   /** Non-null exactly when `outcome === 'guided'`. */
   guidance: GuidedBucketInstructions | null;
+  /** The browser origin the CORS rule names, or `null`. */
   corsOrigin: string | null;
+  /** When it ran (ISO). */
   attemptedAt: string;
 }
 
@@ -306,14 +455,18 @@ export interface StorageConfigClient {
  */
 export function createStorageConfigClient(api: PlatformApiClient): StorageConfigClient {
   return {
+    /** The `get` field. */
     get: () => api.get<StorageConfigView>(BASE),
+    /** The `update` field. */
     update: (input, expectedVersion, options = {}) =>
       api.put<StorageConfigView>(
         BASE,
         options.confirmSwitch ? { ...input, confirmation: STORAGE_SWITCH_CONFIRMATION } : input,
         expectedVersion === undefined ? undefined : { ifMatch: String(expectedVersion) },
       ),
+    /** The `test` field. */
     test: (input) => api.post<StorageConnectionTestResult>(`${BASE}/test`, input),
+    /** The `provisionBucket` field. */
     provisionBucket: (input) => api.post<StorageBucketProvisionResult>(`${BASE}/bucket`, input),
   };
 }

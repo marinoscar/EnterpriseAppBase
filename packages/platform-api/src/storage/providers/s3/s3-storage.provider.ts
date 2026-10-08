@@ -34,6 +34,8 @@ import {
  * here when the constructor stopped injecting `ConfigService` (#373 part 2) so
  * the default is stated once rather than re-typed at whichever call site
  * happens to need it. The value is unchanged.
+ *
+ * @stability experimental
  */
 export const DEFAULT_S3_PART_SIZE = 10_485_760;
 
@@ -56,6 +58,8 @@ export const DEFAULT_S3_PART_SIZE = 10_485_760;
  *
  * ⚠ `secretAccessKey` is plaintext, necessarily — an S3 client cannot sign
  * without it. Nothing in this class logs it, and nothing should.
+ *
+ * @stability experimental
  */
 export interface S3StorageProviderConfig {
   /**
@@ -163,6 +167,8 @@ export interface S3StorageProviderConfig {
  * makes a MinIO connection test pass and every upload fail. Exporting the
  * function is additive: no signature changed, no caller changed, and there is
  * still exactly one place that knows what each vendor's SDK flavour wants.
+ *
+ * @stability experimental
  */
 export function buildS3ClientConfig(config: S3StorageProviderConfig): S3ClientConfig {
   const { provider, region, endpoint, accessKeyId, secretAccessKey } = config;
@@ -245,6 +251,8 @@ function encodeCopySource(bucket: string, key: string): string {
  * Nest — see that type. One instance is bound to one configuration for its
  * whole life; a configuration change produces a new instance and
  * {@link S3StorageProvider.destroy}s the old one.
+ *
+ * @stability experimental
  */
 export class S3StorageProvider implements StorageProvider {
   private readonly logger = new Logger(S3StorageProvider.name);
@@ -683,7 +691,7 @@ export class S3StorageProvider implements StorageProvider {
    * Uses CopyObject with REPLACE metadata directive
    *
    * ⚠ `CopySource` IS PERCENT-ENCODED AND `Key` IS NOT. That asymmetry is the
-   * S3 API's, not a slip — see {@link encodeCopySource} for what sending the
+   * S3 API's, not a slip — see `encodeCopySource` for what sending the
    * raw key here did to any key containing a space, a `+` or a `%`.
    */
   async setMetadata(

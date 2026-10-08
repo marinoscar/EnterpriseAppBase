@@ -53,10 +53,16 @@ import type { StorageProviderKind } from '@marinoscar/platform-contract/storage'
  * without a destination is a support ticket. Kept as a constant so the settings
  * page can move without leaving a wrong path in an error body that is the only
  * instruction some operators will ever see.
+ *
+ * @stability experimental
  */
 export const STORAGE_SETTINGS_PATH = '/admin/settings/storage';
 
-/** Why storage could not be used. Reported verbatim; never inferred. */
+/**
+ * Why storage could not be used. Reported verbatim; never inferred.
+ *
+ * @stability experimental
+ */
 export type StorageNotConfiguredReason =
   /** The configuration is incomplete — `details.missing` says which fields. */
   | 'storage_not_configured'
@@ -75,6 +81,8 @@ export type StorageNotConfiguredReason =
  *
  * Constructed through the two named factories rather than directly, so the
  * `reason` and the `remedy` cannot be paired up wrongly at a call site.
+ *
+ * @stability experimental
  */
 export class StorageNotConfiguredError extends ServiceUnavailableException {
   constructor(

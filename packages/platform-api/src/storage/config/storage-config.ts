@@ -50,6 +50,8 @@ import {
  * future reader (a docs string, an admin page's placeholder) cannot drift by a
  * character — and a wrong character here does not fail as "wrong host", it
  * fails as a DNS error in a job log an hour later.
+ *
+ * @stability experimental
  */
 export const R2_ENDPOINT_HOST_SUFFIX = 'r2.cloudflarestorage.com';
 
@@ -62,6 +64,8 @@ export const R2_ENDPOINT_HOST_SUFFIX = 'r2.cloudflarestorage.com';
  * wins, because R2's jurisdiction-restricted buckets (`eu`, `fedramp`) are
  * addressed with a real region and inventing `auto` over the top of one would
  * break exactly the deployment that was most careful.
+ *
+ * @stability experimental
  */
 export const R2_DEFAULT_REGION = 'auto';
 
@@ -82,6 +86,8 @@ export const R2_DEFAULT_REGION = 'auto';
  * regions) answers a mismatch with a signature or endpoint error — which is why
  * a region an operator typed always wins over this, and why `region` remains an
  * editable field for `s3compatible` rather than being hidden.
+ *
+ * @stability experimental
  */
 export const S3_COMPATIBLE_DEFAULT_REGION = 'us-east-1';
 
@@ -105,6 +111,8 @@ export const S3_COMPATIBLE_DEFAULT_REGION = 'us-east-1';
  *
  * @param accountId - The Cloudflare account id, already trimmed by the schema.
  * @returns The `https://` origin to point the S3 client at.
+ *
+ * @stability experimental
  */
 export function deriveR2Endpoint(accountId: string): string {
   return `https://${accountId}.${R2_ENDPOINT_HOST_SUFFIX}`;
@@ -121,12 +129,14 @@ export function deriveR2Endpoint(accountId: string): string {
  * it wrong.
  *
  * ⚠ `secretAccessKey` IS PLAINTEXT. It is here because an S3 client cannot be
- * built without it. Treat a value of this type the way `CredentialsService
- * .getSecret` tells you to treat its return: use it, then let it go out of
+ * built without it. Treat a value of this type the way
+ * `CredentialsService.getSecret` tells you to treat its return: use it, then let it go out of
  * scope. Do not store one on an instance field, do not put one in a DTO, do not
  * log one, and do not hand one to an error constructor. `StorageConfigService`
  * holds to that rule itself — it caches the settings half and re-reads the
  * secret every time.
+ *
+ * @stability experimental
  */
 export interface ResolvedStorageConfig {
   /** Which vendor's flavour of the S3 protocol this points at. */
@@ -172,6 +182,8 @@ export interface ResolvedStorageConfig {
  * credential-store row and an empty bucket are the same kind of problem, and an
  * administrator told only about the six settings fields would stare at a
  * complete-looking form. It names the field, never its value.
+ *
+ * @stability experimental
  */
 export const MISSING_STORAGE_CONFIG_FIELDS: typeof CONTRACT_MISSING_STORAGE_CONFIG_FIELDS = CONTRACT_MISSING_STORAGE_CONFIG_FIELDS;
 
@@ -184,6 +196,8 @@ export const MISSING_STORAGE_CONFIG_FIELDS: typeof CONTRACT_MISSING_STORAGE_CONF
  * (`z.enum(...)` needs values, not a type), and a hand-maintained second copy in
  * a DTO is a list that silently stops matching the day a seventh field is added
  * here.
+ *
+ * @stability experimental
  */
 export type MissingStorageConfigField =
   (typeof MISSING_STORAGE_CONFIG_FIELDS)[number];
@@ -199,13 +213,18 @@ export type MissingStorageConfigField =
  * the raw settings — which is the second copy of the rules this file exists to
  * prevent. `StorageConfigService.resolveActiveConfig` still offers the `null`
  * shape for callers that genuinely only need "usable or not".
+ *
+ * @stability experimental
  */
 export type StorageConfigResolution =
   | {
+      /** Usable. */
       configured: true;
+      /** The resolved configuration a client is built from. */
       config: ResolvedStorageConfig;
     }
   | {
+      /** Not usable. */
       configured: false;
       /** Which provider's requirements were checked. */
       provider: StorageProviderKind;
@@ -275,6 +294,8 @@ export type StorageConfigResolution =
  * @param policy - The `storage` settings namespace, as stored.
  * @param secretAccessKey - The credential store's plaintext, or `null` when no
  *   row exists at `(storage, default)`.
+ *
+ * @stability experimental
  */
 export function resolveStorageConfig(
   policy: SystemStorageValue,
@@ -432,6 +453,8 @@ function fallbackRegionFor(provider: StorageProviderKind): string {
  * Every field that changes the bytes on the wire is an input, and nothing else
  * is: two configurations with the same fingerprint are two configurations the
  * same client can serve.
+ *
+ * @stability experimental
  */
 export function fingerprintStorageConfig(config: ResolvedStorageConfig): string {
   return createHash('sha256')
@@ -464,6 +487,8 @@ export function fingerprintStorageConfig(config: ResolvedStorageConfig): string 
  * the clear in every SigV4 `Authorization` header, and it is the one field that
  * distinguishes "the key was rotated" from "the key was mistyped" when both
  * look the same from the outside. See `storage-credential.constants.ts`.
+ *
+ * @stability experimental
  */
 export function describeStorageConfig(config: ResolvedStorageConfig): string {
   const where = config.endpoint ?? `${config.region} (AWS)`;

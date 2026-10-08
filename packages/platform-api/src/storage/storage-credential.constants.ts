@@ -46,6 +46,8 @@ import type { CredentialPurposeDef } from '../credentials/index';
  * `purpose` is also the AES-GCM sub-key domain (see `CredentialsService`), so
  * changing this string orphans every already-stored secret access key — they
  * remain in the table and become permanently unreadable. It is not a rename.
+ *
+ * @stability experimental
  */
 export const STORAGE_CREDENTIAL_PURPOSE = 'storage';
 
@@ -53,6 +55,8 @@ export const STORAGE_CREDENTIAL_PURPOSE = 'storage';
  * Discriminator within the purpose. 'default' because this app talks to one
  * object store; a future multi-bucket or multi-provider setup keys additional
  * rows by provider id without touching anything above.
+ *
+ * @stability experimental
  */
 export const STORAGE_CREDENTIAL_NAME = 'default';
 
@@ -63,16 +67,24 @@ export const STORAGE_CREDENTIAL_NAME = 'default';
  * compile-time proof that it has no secret-bearing field, and this string is
  * shown verbatim in any credential listing. It exists so a row in that listing
  * says what it is for rather than only `storage/default`.
+ *
+ * @stability experimental
  */
 export const STORAGE_CREDENTIAL_LABEL = 'Storage secret access key';
 
 /**
  * The `storage` purpose's declaration for the credential purpose registry
  * (#735), registered by `platform/credentials/credential-purposes.manifest.ts`.
+ *
+ * @stability experimental
  */
 export const STORAGE_CREDENTIAL_PURPOSE_DEF = {
+  /** The purpose (and cipher sub-key domain). */
   purpose: STORAGE_CREDENTIAL_PURPOSE,
+  /** The owning slice. */
   owner: 'storage',
+  /** The admin label. */
   label: 'Storage secret access key',
+  /** Deployment-wide only. */
   tiers: ['system'],
 } as const satisfies CredentialPurposeDef;

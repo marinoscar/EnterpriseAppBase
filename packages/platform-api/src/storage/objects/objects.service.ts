@@ -60,9 +60,17 @@ import type {
 import { storageForOrg, storageRunInOrg } from '../data/storage-db';
 import { DEFAULT_STORAGE_PART_SIZE_BYTES, STORAGE_OPTIONS, type ResolvedStorageModuleOptions } from '../storage.options';
 
+/**
+ * One file part of the simple upload, as the controller hands it to the service.
+ *
+ * @stability experimental
+ */
 export interface MultipartFile {
+  /** The client's filename. */
   filename: string;
+  /** The declared media type. */
   mimetype: string;
+  /** The bytes, as a stream. */
   file: Readable;
 }
 
@@ -84,6 +92,11 @@ function tagSpanWithOrg(orgId: string): void {
 /** Default for `storage.maxFileSize` when the config carries no usable value (10 GiB). */
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024;
 
+/**
+ * The objects API's logic, in the caller's organization: simple and resumable uploads (org-aware keys), list, metadata, download URL, delete, each audited.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class ObjectsService {
   private readonly logger = new Logger(ObjectsService.name);

@@ -15,8 +15,6 @@ import { composeUserSettingsResponseSchema } from '../../../settings/index';
  *
  * @returns the zod schema.
  *
- * @internal
- *
  * @stability experimental
  */
 export function profileImageResponseSchema() {
@@ -31,8 +29,6 @@ export function profileImageResponseSchema() {
  * {@link profileImageResponseSchema} as a Nest DTO named `ProfileImageResponseDto`.
  *
  * @returns the DTO class.
- *
- * @internal
  *
  * @stability experimental
  */

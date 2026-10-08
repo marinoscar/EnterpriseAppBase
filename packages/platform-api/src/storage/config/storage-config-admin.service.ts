@@ -106,7 +106,11 @@ import type { StorageInputJsonValue, StoragePrisma } from '../data/storage-db';
  */
 const CREDENTIAL_PRESENCE_PROBE = '[credential present]';
 
-/** What the switch gate counts, and reports in its 409. */
+/**
+ * What the switch gate counts, and reports in its 409.
+ *
+ * @stability experimental
+ */
 export interface StorageLocationUsage {
   /** Rows in `storage_objects` that still name the old location. */
   storageObjects: number;
@@ -116,6 +120,11 @@ export interface StorageLocationUsage {
   total: number;
 }
 
+/**
+ * The admin view and the save of the storage configuration (the masked secret status, never the secret), with the provider-switch gate's stranded-object count.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageConfigAdminService {
   private readonly logger = new Logger(StorageConfigAdminService.name);
@@ -142,8 +151,8 @@ export class StorageConfigAdminService {
   /**
    * Everything `GET /api/admin/storage-config` renders.
    *
-   * DOES NOT THROW ON A DAMAGED ROW, matching `PushConfigService
-   * .describeForAdmin` and for the same reason: this is the repair path, and a
+   * DOES NOT THROW ON A DAMAGED ROW, matching
+   * `PushConfigService.describeForAdmin` and for the same reason: this is the repair path, and a
    * 500 here would take down the one screen capable of fixing the row.
    * `getStoragePolicy` already degrades field by field to
    * `DEFAULT_SYSTEM_SETTINGS.storage` — the unconfigured state — so a corrupt

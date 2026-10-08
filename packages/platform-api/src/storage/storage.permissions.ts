@@ -48,7 +48,14 @@ export interface StoragePermissionDeclaration<Id extends string = string> {
  *
  * @stability stable
  */
-export const STORAGE_PERMISSIONS = {
+export const STORAGE_PERMISSIONS: {
+  /** `storage:read`: read object metadata and get download URLs (org scope). */
+  readonly STORAGE_READ: StoragePermissionDeclaration<'storage:read'>;
+  /** `storage:write`: upload and update metadata (org scope). */
+  readonly STORAGE_WRITE: StoragePermissionDeclaration<'storage:write'>;
+  /** `storage:delete_any`: delete any user's object, never another user's avatar (system scope). */
+  readonly STORAGE_DELETE_ANY: StoragePermissionDeclaration<'storage:delete_any'>;
+} = {
   // Storage
   STORAGE_READ: {
     id: 'storage:read',
@@ -68,4 +75,4 @@ export const STORAGE_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies Record<string, StoragePermissionDeclaration>;
+};

@@ -11,7 +11,7 @@ export {
   STORAGE_PROVIDER_KINDS,
   STORAGE_SECRET_FIELD_NAMES,
 } from './constants.js';
-export type { StorageObjectStatusName, StorageProviderKind } from './constants.js';
+export type { StorageEnum, StorageObjectStatusName, StorageProviderKind } from './constants.js';
 
 // ---- the `storage` system-settings namespace --------------------------------------------
 export {

@@ -59,6 +59,13 @@ import {
 } from './dto/download-url-response.dto';
 import { asMultipart } from '../multipart';
 
+/**
+ * The `/api/storage/objects` routes (`storage:read|write`, `storage:delete_any`).
+ *
+ * @internal
+ *
+ * @stability experimental
+ */
 @ApiTags('Storage')
 @Controller('storage/objects')
 export class ObjectsController {
@@ -324,7 +331,7 @@ export class ObjectsController {
   }
 
   /**
-   * Simple upload for smaller files (< 100MB)
+   * Simple upload for smaller files (under 100MB)
    */
   @Post()
   @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })

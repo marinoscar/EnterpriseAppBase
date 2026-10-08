@@ -50,7 +50,7 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS } from './constants.js';
+import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
 import { testStorageConfigSchema } from './storage-connection-test.js';
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ import { testStorageConfigSchema } from './storage-connection-test.js';
 export const provisionStorageBucketSchema = testStorageConfigSchema;
 
 /**
- * ProvisionStorageBucketInput.
+ * The bucket-provisioning body, parsed.
  *
  * @stability experimental
  */
@@ -106,7 +106,7 @@ export const STORAGE_BUCKET_STEP_IDS = [
 ] as const;
 
 /**
- * StorageBucketStepId.
+ * One bucket-provisioning step id.
  *
  * @stability experimental
  */
@@ -147,21 +147,24 @@ export const STORAGE_BUCKET_OUTCOMES = [
 ] as const;
 
 /**
- * StorageBucketOutcome.
+ * One bucket-provisioning outcome.
  *
  * @stability experimental
  */
 export type StorageBucketOutcome = (typeof STORAGE_BUCKET_OUTCOMES)[number];
 
 /**
- * storageBucketStepSchema.
+ * One step of bucket provisioning and how it went.
  *
  * @stability experimental
  */
 export const storageBucketStepSchema = z.object({
-  id: z.enum(STORAGE_BUCKET_STEP_IDS),
+  /** The id. */
+  id: (z.enum(STORAGE_BUCKET_STEP_IDS) as z.ZodEnum<StorageEnum<typeof STORAGE_BUCKET_STEP_IDS>>),
+  /** A human label. */
   label: z.string(),
-  status: z.enum(STORAGE_BUCKET_STEP_STATUSES),
+  /** The status. */
+  status: (z.enum(STORAGE_BUCKET_STEP_STATUSES) as z.ZodEnum<StorageEnum<typeof STORAGE_BUCKET_STEP_STATUSES>>),
   /** Authored here: what this step did, or why it did not. */
   detail: z.string(),
   /** The provider's own message, verbatim, with any secret redacted. Null on success. */
@@ -205,17 +208,21 @@ export const guidedBucketInstructionsSchema = z.object({
 });
 
 /**
- * storageBucketProvisionResultSchema.
+ * The `POST /api/admin/storage-config/bucket` payload, always HTTP 200: read `outcome`.
  *
  * @stability experimental
  */
 export const storageBucketProvisionResultSchema = z.object({
   /** ⚠ THE ANSWER. Never inferred from the status code, which is always 200. */
-  outcome: z.enum(STORAGE_BUCKET_OUTCOMES),
+  outcome: (z.enum(STORAGE_BUCKET_OUTCOMES) as z.ZodEnum<StorageEnum<typeof STORAGE_BUCKET_OUTCOMES>>),
 
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
+  /** The bucket name; empty means not configured. */
   bucket: z.string(),
+  /** The region (`auto` for R2); empty means not configured. */
   region: z.string(),
+  /** The endpoint the client actually uses, or `null` for the SDK default. */
   effectiveEndpoint: z.string().nullable(),
 
   /** Always all four, in attempt order, whatever the outcome. */
@@ -234,17 +241,18 @@ export const storageBucketProvisionResultSchema = z.object({
    */
   corsOrigin: z.string().nullable(),
 
+  /** When it ran (ISO). */
   attemptedAt: z.iso.datetime(),
 });
 
 /**
- * StorageBucketStep.
+ * One provisioning step, inferred.
  *
  * @stability experimental
  */
 export type StorageBucketStep = z.infer<typeof storageBucketStepSchema>;
 /**
- * StorageBucketProvisionResult.
+ * The provisioning payload, inferred.
  *
  * @stability experimental
  */

@@ -29,7 +29,7 @@ describe('createStorageObjectsClient', () => {
 
     expect(ready.status).toBe('ready');
     expect(postFormData).toHaveBeenCalledWith('/storage/objects', expect.any(FormData));
-    expect((postFormData.mock.calls[0][1] as FormData).get('file')).toBeInstanceOf(Blob);
+    expect((postFormData.mock.calls[0]![1] as FormData).get('file')).toBeInstanceOf(Blob);
     expect(get).toHaveBeenCalledWith('/storage/objects/obj%201');
   });
 

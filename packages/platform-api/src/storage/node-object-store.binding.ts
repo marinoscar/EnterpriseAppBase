@@ -15,16 +15,17 @@ import type { ExistingProvider } from '@nestjs/common';
 import { NODE_OBJECT_STORE, type NodeObjectStore } from '../nodes/index';
 import { STORAGE_PROVIDER, type StorageProvider } from './providers/storage-provider.interface';
 
-/** Compile-time proof that the storage provider satisfies the nodes slice's port. */
-type AssertAssignable<_From extends _To, _To> = true;
-
 /**
  * `true` while {@link StorageProvider} is assignable to the nodes slice's
- * `NodeObjectStore`; a compile error otherwise.
+ * `NodeObjectStore`, `never` otherwise (and the proof below stops compiling).
  *
  * @stability experimental
  */
-export type StorageProviderIsNodeObjectStore = AssertAssignable<StorageProvider, NodeObjectStore>;
+export type StorageProviderIsNodeObjectStore = StorageProvider extends NodeObjectStore ? true : never;
+
+/** The compile-time proof. */
+const STORAGE_PROVIDER_IS_NODE_OBJECT_STORE: StorageProviderIsNodeObjectStore = true;
+void STORAGE_PROVIDER_IS_NODE_OBJECT_STORE;
 
 /**
  * `{ provide: NODE_OBJECT_STORE, useExisting: STORAGE_PROVIDER }`: the nodes

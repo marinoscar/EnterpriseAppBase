@@ -19,7 +19,7 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS, STORAGE_SECRET_FIELD_NAMES } from './constants.js';
+import { STORAGE_PROVIDER_KINDS, STORAGE_SECRET_FIELD_NAMES, type StorageEnum } from './constants.js';
 
 /**
  * Object-storage provider configuration (`storage`).
@@ -85,25 +85,36 @@ import { STORAGE_PROVIDER_KINDS, STORAGE_SECRET_FIELD_NAMES } from './constants.
  * @stability experimental
  */
 export const systemStorageSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
-  // No `.min(1)`: empty is "not configured yet". See the block comment above.
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
+  /**
+   * No `.min(1)`: empty is "not configured yet". See the block comment above.
+   */
   bucket: z.string().trim().max(255),
+  /** The region (`auto` for R2); empty means not configured. */
   region: z.string().trim().max(255),
-  // Longer bound than the rest: an endpoint is a URL, and a self-hosted one
-  // behind a path prefix is routinely longer than a bucket name.
+  /**
+   * Longer bound than the rest: an endpoint is a URL, and a self-hosted one
+   * behind a path prefix is routinely longer than a bucket name.
+   */
   endpoint: z.string().trim().max(512),
+  /** The Cloudflare account id (R2 only); the endpoint is derived from it. */
   accountId: z.string().trim().max(255),
-  // An IDENTIFIER, not a secret — see the block comment above, and the
-  // compile-time proof at the bottom of this file.
+  /**
+   * An IDENTIFIER, not a secret — see the block comment above, and the
+   * compile-time proof at the bottom of this file.
+   */
   accessKeyId: z.string().trim().max(255),
-  // TRI-STATE. `null` is "use this vendor's convention", and is the default in
-  // `DEFAULT_SYSTEM_SETTINGS`; `true`/`false` are an operator overriding it.
-  // See the block comment above for why a plain boolean cannot say "unset".
+  /**
+   * TRI-STATE. `null` is "use this vendor's convention", and is the default in
+   * `DEFAULT_SYSTEM_SETTINGS`; `true`/`false` are an operator overriding it.
+   * See the block comment above for why a plain boolean cannot say "unset".
+   */
   forcePathStyle: z.boolean().nullable(),
 });
 
 /**
- * SystemStorageValue.
+ * The stored `storage` namespace value, inferred.
  *
  * @stability experimental
  */
@@ -124,15 +135,23 @@ export type SystemStorageValue = z.infer<typeof systemStorageSchema>;
  * @stability experimental
  */
 export const systemStoragePatchSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS).optional(),
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>).optional(),
+  /** The bucket name; empty means not configured. */
   bucket: z.string().trim().max(255).optional(),
+  /** The region (`auto` for R2); empty means not configured. */
   region: z.string().trim().max(255).optional(),
+  /** The endpoint override; empty means derive it (R2) or use the SDK's host. */
   endpoint: z.string().trim().max(512).optional(),
+  /** The Cloudflare account id (R2 only); the endpoint is derived from it. */
   accountId: z.string().trim().max(255).optional(),
+  /** The access key id: an identifier, never the secret. */
   accessKeyId: z.string().trim().max(255).optional(),
-  // `.nullable().optional()` means two different things here, and both are
-  // wanted: absent is "leave it alone", explicit `null` is "go back to this
-  // vendor's convention". See the block comment on `systemStorageSchema`.
+  /**
+   * `.nullable().optional()` means two different things here, and both are
+   * wanted: absent is "leave it alone", explicit `null` is "go back to this
+   * vendor's convention". See the block comment on `systemStorageSchema`.
+   */
   forcePathStyle: z.boolean().nullable().optional(),
 });
 
@@ -161,19 +180,27 @@ export const systemStoragePatchSchema = z.object({
 // deployment is in.
 
 /**
- * storageSettingsSchema.
+ * The `storage` branch of the `PUT /api/system-settings` body (no secret, ever).
  *
  * @stability experimental
  */
 export const storageSettingsSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
+  /** The bucket name; empty means not configured. */
   bucket: z.string().trim().max(255),
+  /** The region (`auto` for R2); empty means not configured. */
   region: z.string().trim().max(255),
+  /** The endpoint override; empty means derive it (R2) or use the SDK's host. */
   endpoint: z.string().trim().max(512),
+  /** The Cloudflare account id (R2 only); the endpoint is derived from it. */
   accountId: z.string().trim().max(255),
+  /** The access key id: an identifier, never the secret. */
   accessKeyId: z.string().trim().max(255),
-  // Tri-state, mirroring `systemStorageSchema`: `null` is "use this vendor's
-  // convention" and is what a fresh deployment holds.
+  /**
+   * Tri-state, mirroring `systemStorageSchema`: `null` is "use this vendor's
+   * convention" and is what a fresh deployment holds.
+   */
   forcePathStyle: z.boolean().nullable(),
 });
 
@@ -189,19 +216,28 @@ export const storageSettingsSchema = z.object({
 // nullable field, `forcePathStyle`, says the same thing with an explicit
 // `null` — see `systemStorageSchema` for why a boolean needs a third state.
 /**
- * storageSettingsPatchSchema.
+ * The `storage` branch of the `PATCH /api/system-settings` body; `''` clears a field, absent leaves it.
  *
  * @stability experimental
  */
 export const storageSettingsPatchSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS).optional(),
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>).optional(),
+  /** The bucket name; empty means not configured. */
   bucket: z.string().trim().max(255).optional(),
+  /** The region (`auto` for R2); empty means not configured. */
   region: z.string().trim().max(255).optional(),
+  /** The endpoint override; empty means derive it (R2) or use the SDK's host. */
   endpoint: z.string().trim().max(512).optional(),
+  /** The Cloudflare account id (R2 only); the endpoint is derived from it. */
   accountId: z.string().trim().max(255).optional(),
-  // Identifier, never the secret half — see the section header above.
+  /**
+   * Identifier, never the secret half — see the section header above.
+   */
   accessKeyId: z.string().trim().max(255).optional(),
-  // Absent leaves it alone; explicit `null` restores the vendor default.
+  /**
+   * Absent leaves it alone; explicit `null` restores the vendor default.
+   */
   forcePathStyle: z.boolean().nullable().optional(),
 });
 
@@ -218,20 +254,28 @@ export const storageSettingsPatchSchema = z.object({
 // See `common/schemas/settings.schema.ts` for the full argument and its
 // compile-time proof.
 /**
- * storageResponseSchema.
+ * The `storage` branch of the `GET /api/system-settings` response (no secret, ever).
  *
  * @stability experimental
  */
 export const storageResponseSchema = z.object({
-  provider: z.enum(['s3', 'r2', 's3compatible']),
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  provider: (z.enum(['s3', 'r2', 's3compatible']) as z.ZodEnum<StorageEnum<['s3', 'r2', 's3compatible']>>),
+  /** The bucket name; empty means not configured. */
   bucket: z.string(),
+  /** The region (`auto` for R2); empty means not configured. */
   region: z.string(),
+  /** The endpoint override; empty means derive it (R2) or use the SDK's host. */
   endpoint: z.string(),
+  /** The Cloudflare account id (R2 only); the endpoint is derived from it. */
   accountId: z.string(),
+  /** The access key id: an identifier, never the secret. */
   accessKeyId: z.string(),
-  // Tri-state, and `null` is published as `null` rather than coerced to
-  // `false`: an administrator reading this must be able to tell "I have not
-  // chosen" from "I chose virtual-host style". See `systemStorageSchema`.
+  /**
+   * Tri-state, and `null` is published as `null` rather than coerced to
+   * `false`: an administrator reading this must be able to tell "I have not
+   * chosen" from "I chose virtual-host style". See `systemStorageSchema`.
+   */
   forcePathStyle: z.boolean().nullable(),
 });
 

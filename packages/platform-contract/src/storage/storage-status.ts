@@ -11,7 +11,7 @@ import { z } from 'zod';
 // =============================================================================
 
 /**
- * storageStatusResponseSchema.
+ * The `GET /api/storage/status` payload: whether object storage is configured.
  *
  * @stability experimental
  */
@@ -21,7 +21,7 @@ export const storageStatusResponseSchema = z.object({
 });
 
 /**
- * StorageStatusResponse.
+ * The status payload, inferred.
  *
  * @stability experimental
  */

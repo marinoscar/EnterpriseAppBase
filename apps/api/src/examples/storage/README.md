@@ -1,6 +1,6 @@
 # Storage Object Processors
 
-This directory contains processor implementations for the storage object processing pipeline.
+The reference example of the storage slice's object-processor registry (`ObjectProcessorRegistry` of `@marinoscar/platform-api/storage`, issue #736): `example-metadata.processor.ts`, registered by `examples/examples.module.ts`, and its spec. The recipe below is how an app adds its own; the slice's [README](../../../../../packages/platform-api/src/storage/README.md) documents the contract.
 
 ## Overview
 
@@ -17,20 +17,28 @@ Processors are pluggable components that run asynchronously after a file is uplo
 ### 1. Implement the `ObjectProcessor` Interface
 
 ```typescript
-import { Injectable, Logger } from '@nestjs/common';
-import { StorageObject } from '@prisma/client';
-import { Readable } from 'stream';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Readable } from 'node:stream';
 import {
-  ObjectProcessor,
-  ObjectProcessorResult,
-} from '../object-processor.interface';
+  ObjectProcessorRegistry,
+  type ObjectProcessor,
+  type ObjectProcessorResult,
+  type StorageObject,
+} from '@marinoscar/platform-api/storage';
 
 @Injectable()
-export class MyCustomProcessor implements ObjectProcessor {
+export class MyCustomProcessor implements ObjectProcessor, OnModuleInit {
   private readonly logger = new Logger(MyCustomProcessor.name);
 
   readonly name = 'my-custom-processor';
   readonly priority = 100; // Lower = runs earlier
+
+  constructor(private readonly registry: ObjectProcessorRegistry) {}
+
+  /** Self-registration: the only wiring a processor needs. */
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
 
   canProcess(object: StorageObject): boolean {
     // Return true if this processor should handle this object
@@ -64,58 +72,34 @@ export class MyCustomProcessor implements ObjectProcessor {
 }
 ```
 
-### 2. Register the Processor
+### 2. Provide it next to the registry
 
-Add your processor to the module where it should be used:
+Provide the processor in a module that imports `ObjectProcessingModule` (a static module: every importer shares the one registry `StorageModule.forRoot()` uses):
 
 ```typescript
 import { Module } from '@nestjs/common';
-import { OBJECT_PROCESSOR } from './processing/object-processor.interface';
-import { MyCustomProcessor } from './processing/processors/my-custom.processor';
+import { ObjectProcessingModule } from '@marinoscar/platform-api/storage';
+import { MyCustomProcessor } from './my-custom.processor';
 
 @Module({
-  providers: [
-    {
-      provide: OBJECT_PROCESSOR,
-      useClass: MyCustomProcessor,
-    },
-  ],
+  imports: [ObjectProcessingModule],
+  providers: [MyCustomProcessor],
 })
-export class MyModule {}
+export class MyProcessorsModule {}
 ```
 
-### 3. Register Multiple Processors
+### 3. Several processors
 
-Nest has no `multi: true` provider option (that is Angular). `ObjectProcessingService`
-accepts either a single processor or an array from `OBJECT_PROCESSOR`
-(`processors?: ObjectProcessor | ObjectProcessor[]` in its constructor), so
-registering several processors means one factory provider that returns the
-array, injecting each processor class as an ordinary provider:
+Provide each one; each registers itself. Lower `priority` runs first (ties in registration order); a second processor with the same `name` replaces the first, with a warning. The optional `OBJECT_PROCESSOR` token of #520 is gone (#736).
 
-```typescript
-@Module({
-  providers: [
-    ImageMetadataProcessor,
-    ThumbnailGenerator,
-    VirusScanner,
-    {
-      provide: OBJECT_PROCESSOR,
-      useFactory: (
-        imageMetadata: ImageMetadataProcessor,
-        thumbnail: ThumbnailGenerator,
-        virusScanner: VirusScanner,
-      ) => [imageMetadata, thumbnail, virusScanner],
-      inject: [ImageMetadataProcessor, ThumbnailGenerator, VirusScanner],
-    },
-  ],
-})
-export class StorageProcessorsModule {}
-```
+### 4. Keep `canProcess` narrow
+
+`canProcess(object)` is a synchronous, I/O-free predicate over the row, asked when an upload completes. Every upload a processor accepts becomes a queued job instead of an instantly `ready` object, which is why the example opts in to one media type only (`application/x-example-metadata`).
 
 ## Processor Lifecycle
 
 Post-upload processing is the server-only queue job `storage.object.process`
-(`apps/api/src/storage/handlers/storage-object-process.handler.ts`), not an
+(`packages/platform-api/src/storage/handlers/storage-object-process.handler.ts`), not an
 event listener:
 
 1. **Upload completes**: inside the same transaction that closes it,
@@ -127,7 +111,7 @@ event listener:
    (`enqueueWithin`), deduplicated per object.
 4. **The job runs**: `StorageObjectProcessHandler.process` resolves the object
    and calls `ObjectProcessingService.run(object)` on a worker slot.
-5. **Processor Selection**: `canProcess()` called on all registered processors.
+5. **Processor Selection**: `canProcess()` called on every processor in the registry.
 6. **Priority Sorting**: applicable processors sorted by priority (lower first).
 7. **Sequential Execution**: each processor runs in order.
 8. **Metadata Aggregation**: results merged into object metadata.
@@ -191,7 +175,7 @@ Each processor's results are stored in the object's metadata field:
 
 ## Example Processors
 
-See `example-metadata.processor.ts` for a basic implementation example.
+See `example-metadata.processor.ts` for a basic implementation, and `example-metadata.processor.spec.ts` for it registered and run through the registry.
 
 Common processor types:
 - **Metadata Extraction**: Extract file properties (dimensions, duration, etc.)

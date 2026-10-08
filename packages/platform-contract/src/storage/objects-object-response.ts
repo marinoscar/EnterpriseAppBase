@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { STORAGE_OBJECT_STATUSES } from './constants.js';
+import { STORAGE_OBJECT_STATUSES, type StorageEnum } from './constants.js';
 
 /**
  * Storage object metadata as returned to a caller.
@@ -13,29 +13,41 @@ import { STORAGE_OBJECT_STATUSES } from './constants.js';
  * @stability experimental
  */
 export const objectResponseSchema = z.object({
+  /** The id. */
   id: z.uuid(),
+  /** The original filename. */
   name: z.string(),
   /** BigInt serialized as a string — 64-bit values lose precision as JSON numbers. */
   size: z.string(),
+  /** The declared media type. */
   mimeType: z.string(),
-  status: z.enum(STORAGE_OBJECT_STATUSES),
+  /** The status. */
+  status: (z.enum(STORAGE_OBJECT_STATUSES) as z.ZodEnum<StorageEnum<typeof STORAGE_OBJECT_STATUSES>>),
+  /** Free-form metadata, or `null`. */
   metadata: z.record(z.string(), z.unknown()).nullable(),
+  /** When it was created (ISO). */
   createdAt: z.string(),
+  /** When it was last written (ISO), or `null`. */
   updatedAt: z.string(),
 });
 
 /**
- * uploadStatusResponseSchema.
+ * The `GET /api/storage/objects/:id/upload/status` payload: the parts uploaded so far.
  *
  * @stability experimental
  */
 export const uploadStatusResponseSchema = z.object({
+  /** The object id (UUID). */
   objectId: z.uuid(),
-  status: z.enum(STORAGE_OBJECT_STATUSES),
+  /** The status. */
+  status: (z.enum(STORAGE_OBJECT_STATUSES) as z.ZodEnum<StorageEnum<typeof STORAGE_OBJECT_STATUSES>>),
   /** Part numbers already uploaded, so a resuming client knows what to skip. */
   uploadedParts: z.array(z.number().int()),
+  /** How many parts the upload has. */
   totalParts: z.number().int(),
+  /** Bytes uploaded so far, as a string. */
   uploadedBytes: z.string(),
+  /** The total size, as a string. */
   totalBytes: z.string(),
 });
 

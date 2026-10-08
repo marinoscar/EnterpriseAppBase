@@ -33,6 +33,7 @@ export type {
   StorageConfigView,
   StorageConnectionCheck,
   StorageConnectionTestResult,
+  StorageLocation,
   StorageLocationInUseDetails,
   StorageProviderKind,
   StorageSecretStatus,

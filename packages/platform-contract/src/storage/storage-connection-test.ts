@@ -57,7 +57,7 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS } from './constants.js';
+import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
 import { updateStorageConfigSchema } from './storage-config-update.js';
 
 // ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ export const testStorageConfigSchema = updateStorageConfigSchema.omit({
 });
 
 /**
- * TestStorageConfigInput.
+ * The connection-test body, parsed.
  *
  * @stability experimental
  */
@@ -115,7 +115,7 @@ export const STORAGE_TEST_CHECK_IDS = [
 ] as const;
 
 /**
- * StorageTestCheckId.
+ * One connection-test check id.
  *
  * @stability experimental
  */
@@ -181,20 +181,22 @@ export const STORAGE_TEST_CHECK_CODES = [
 ] as const;
 
 /**
- * storageConnectionCheckSchema.
+ * One connection-test check: id, label, status, code, detail and the redacted provider error.
  *
  * @stability experimental
  */
 export const storageConnectionCheckSchema = z.object({
-  id: z.enum(STORAGE_TEST_CHECK_IDS),
+  /** The id. */
+  id: (z.enum(STORAGE_TEST_CHECK_IDS) as z.ZodEnum<StorageEnum<typeof STORAGE_TEST_CHECK_IDS>>),
 
   /** Short human label, so a client need not carry its own copy of the four. */
   label: z.string(),
 
-  status: z.enum(STORAGE_TEST_CHECK_STATUSES),
+  /** The status. */
+  status: (z.enum(STORAGE_TEST_CHECK_STATUSES) as z.ZodEnum<StorageEnum<typeof STORAGE_TEST_CHECK_STATUSES>>),
 
   /** The machine-readable cause. See {@link STORAGE_TEST_CHECK_CODES}. */
-  code: z.enum(STORAGE_TEST_CHECK_CODES),
+  code: (z.enum(STORAGE_TEST_CHECK_CODES) as z.ZodEnum<StorageEnum<typeof STORAGE_TEST_CHECK_CODES>>),
 
   /**
    * One or two sentences an operator can act on, authored here — never the
@@ -221,7 +223,7 @@ export const storageConnectionCheckSchema = z.object({
 });
 
 /**
- * storageConnectionTestResultSchema.
+ * The `POST /api/admin/storage-config/test` payload, always HTTP 200: read `success`.
  *
  * @stability experimental
  */
@@ -235,7 +237,7 @@ export const storageConnectionTestResultSchema = z.object({
   success: z.boolean(),
 
   /** Which vendor was tested — the SUBMITTED one, not necessarily the saved one. */
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
 
   /** The bucket that was tested. */
   bucket: z.string(),
@@ -258,17 +260,18 @@ export const storageConnectionTestResultSchema = z.object({
   /** The four checks, always all four, in attempt order. */
   checks: z.array(storageConnectionCheckSchema),
 
+  /** When it ran (ISO). */
   attemptedAt: z.iso.datetime(),
 });
 
 /**
- * StorageConnectionCheck.
+ * One connection-test check, inferred.
  *
  * @stability experimental
  */
 export type StorageConnectionCheck = z.infer<typeof storageConnectionCheckSchema>;
 /**
- * StorageConnectionTestResult.
+ * The connection-test payload, inferred.
  *
  * @stability experimental
  */

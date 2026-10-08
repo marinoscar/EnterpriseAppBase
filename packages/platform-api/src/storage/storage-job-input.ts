@@ -82,9 +82,13 @@ import type { StorageObject } from './data/storage-db';
  * delegate. Pass an ORGANIZATION-SCOPED client (`prisma.forOrg(orgId)`):
  * `storage_objects` is under row-level security (issue #725), so an unscoped
  * client finds nothing.
+ *
+ * @stability experimental
  */
 export interface StorageObjectReader {
+  /** `storage_objects`, org-scoped. */
   storageObject: {
+    /** One row by id. */
     findUnique(args: { where: { id: string } }): PromiseLike<StorageObject | null>;
   };
 }
@@ -95,10 +99,16 @@ export interface StorageObjectReader {
  * Exported so the handler, the resolver and the tests all name it once. It
  * matches what `ObjectsService` and the storage processors already use, so a
  * job enqueued against an upload is describable without a new vocabulary.
+ *
+ * @stability experimental
  */
 export const STORAGE_OBJECT_SUBJECT_TYPE = 'storage_object';
 
-/** Which of the three ways input resolution can fail. */
+/**
+ * Which of the three ways input resolution can fail.
+ *
+ * @stability experimental
+ */
 export type JobInputFailureReason =
   | 'missing_subject_id'
   | 'input_object_not_found'
@@ -113,12 +123,23 @@ export type JobInputFailureReason =
  * message says which one it is and names the job, so the admin job list shows
  * a `lastError` an operator can act on rather than one they have to
  * investigate.
+ *
+ * @stability experimental
  */
 export class JobInputResolutionError extends Error {
+  /**
+   * @param reason - why the input could not be resolved.
+   * @param message - the job's `lastError`.
+   * @param jobId - the job.
+   * @param subjectId - the object it named, or `null`.
+   */
   constructor(
+    /** Why the input could not be resolved. */
     readonly reason: JobInputFailureReason,
     message: string,
+    /** The job. */
     readonly jobId: string,
+    /** The object it named, or `null`. */
     readonly subjectId: string | null
   ) {
     super(message);
@@ -141,6 +162,8 @@ export class JobInputResolutionError extends Error {
  * row in this table — and a resolver that insisted on
  * `'storage_object'` would refuse work it can perform perfectly well, for a
  * label. What it checks is what it actually needs: an id, a row, and a key.
+ *
+ * @stability experimental
  */
 export async function resolveStorageObjectInput(
   prisma: StorageObjectReader,

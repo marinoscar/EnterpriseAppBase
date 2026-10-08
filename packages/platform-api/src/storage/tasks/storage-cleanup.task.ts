@@ -18,6 +18,13 @@ import { JobsService } from '../../jobs/index';
 import { STORAGE_CLEANUP_TYPE } from '../handlers/storage-cleanup.handler';
 import { PLATFORM_PRISMA } from '../../core/index';
 
+/**
+ * The daily `@Cron` that enqueues the `storage.cleanup.stale-uploads` job (enqueue only).
+ *
+ * @internal
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageCleanupTask {
   private readonly logger = new Logger(StorageCleanupTask.name);

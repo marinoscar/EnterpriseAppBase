@@ -58,15 +58,19 @@ export {
 export type { MissingStorageConfigField, ResolvedStorageConfig, StorageConfigResolution } from './config/storage-config';
 export { STORAGE_SETTINGS_PATH, StorageNotConfiguredError } from './config/storage-not-configured.error';
 export type { StorageNotConfiguredReason } from './config/storage-not-configured.error';
-export { STORAGE_SYSTEM_SETTINGS } from './config/storage.system-settings';
+export { STORAGE_SYSTEM_SETTINGS, mergeStorageSettings } from './config/storage.system-settings';
 export {
   STORAGE_CREDENTIAL_LABEL,
   STORAGE_CREDENTIAL_NAME,
   STORAGE_CREDENTIAL_PURPOSE,
   STORAGE_CREDENTIAL_PURPOSE_DEF,
 } from './storage-credential.constants';
-export { STORAGE_SWITCH_CONFIRMATION } from './config/dto/update-storage-config.dto';
+export { STORAGE_SWITCH_CONFIRMATION, UpdateStorageConfigDto } from './config/dto/update-storage-config.dto';
+export { StorageConfigResponseDto } from './config/dto/storage-config-response.dto';
+export { StorageConnectionTestResultDto, TestStorageConfigDto } from './config/dto/storage-connection-test.dto';
+export { ProvisionStorageBucketDto, StorageBucketProvisionResultDto } from './config/dto/storage-bucket-provision.dto';
 export { StorageConfigAdminService } from './config/storage-config-admin.service';
+export type { StorageLocationUsage } from './config/storage-config-admin.service';
 export { StorageConnectionTestService, STORAGE_PROBE_KEY_PREFIX } from './config/storage-connection-test.service';
 export { StorageBucketProvisionService } from './config/storage-bucket-provision.service';
 export { StorageConfigController } from './config/storage-config.controller';
@@ -76,6 +80,12 @@ export { StorageEgressContributor } from './config/doctor/egress/storage.egress.
 
 // ---- the objects API, its jobs and its processors (rung 2: the processor registry) --------
 export { ObjectsService } from './objects/objects.service';
+export { CompleteUploadBodyDto } from './objects/dto/complete-upload.dto';
+export { DownloadUrlResponseDto } from './objects/dto/download-url-response.dto';
+export { InitUploadBodyDto, InitUploadResponseDto } from './objects/dto/init-upload.dto';
+export { ObjectResponseDto, UploadStatusResponseDto } from './objects/dto/object-response.dto';
+export { UpdateMetadataBodyDto } from './objects/dto/update-metadata.dto';
+export { StorageStatusResponseDto } from './status/dto/storage-status.dto';
 export type { MultipartFile } from './objects/objects.service';
 export { ObjectsController } from './objects/objects.controller';
 export { StorageStatusController } from './status/storage-status.controller';
@@ -161,8 +171,13 @@ export { STORAGE_SYSTEM_DATA } from './ports';
 export type { StorageSystemData } from './ports';
 export { StorageObjectStatus, storageForOrg, storageRunInOrg } from './data/storage-db';
 export type {
+  StorageBatchPayload,
   StorageDelegate,
+  StorageInputJsonArray,
+  StorageInputJsonObject,
   StorageInputJsonValue,
+  StorageJsonArray,
+  StorageJsonObject,
   StorageJsonValue,
   StorageObject,
   StorageObjectChunk,

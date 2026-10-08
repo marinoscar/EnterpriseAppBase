@@ -10,18 +10,14 @@ export { STORAGE_BUCKET_OUTCOMES, STORAGE_BUCKET_STEP_IDS, STORAGE_BUCKET_STEP_S
 export type { ProvisionStorageBucketInput, StorageBucketOutcome, StorageBucketProvisionResult, StorageBucketStep, StorageBucketStepId } from '@marinoscar/platform-contract/storage';
 
 /**
- * `provisionStorageBucketSchema` as a Nest DTO.
- *
- * @internal
+ * `provisionStorageBucketSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */
 export class ProvisionStorageBucketDto extends createZodDto(provisionStorageBucketSchema) {}
 
 /**
- * `storageBucketProvisionResultSchema` as a Nest DTO.
- *
- * @internal
+ * `storageBucketProvisionResultSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */

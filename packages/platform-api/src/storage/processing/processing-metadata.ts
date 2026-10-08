@@ -10,6 +10,8 @@ import type { StorageInputJsonValue, StorageJsonValue } from '../data/storage-db
  * `ObjectProcessingService` after the processors ran, and the processing job's
  * give-up path. Three hand-rolled copies of this shape would be three places
  * for a row's metadata to disagree depending on which path settled it.
+ *
+ * @stability experimental
  */
 export function buildProcessedMetadata(
   existing: StorageJsonValue | null | undefined,

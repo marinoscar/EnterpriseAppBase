@@ -56,6 +56,8 @@ import { DEFAULT_STALE_UPLOAD_HOURS, STORAGE_OPTIONS, type ResolvedStorageModule
  * The handler key, and therefore the `Job.type` every stale-upload sweep row
  * carries. PERMANENT — rows outlive handlers. Exported so the scheduling task
  * asks about the same string it queues.
+ *
+ * @stability experimental
  */
 export const STORAGE_CLEANUP_TYPE = 'storage.cleanup.stale-uploads';
 
@@ -70,7 +72,11 @@ export const STORAGE_CLEANUP_TYPE = 'storage.cleanup.stale-uploads';
  */
 const CLEANUP_AGE_HOURS = DEFAULT_STALE_UPLOAD_HOURS;
 
-/** What one sweep did. Returned so a test can assert the split directly. */
+/**
+ * What one sweep did. Returned so a test can assert the split directly.
+ *
+ * @stability experimental
+ */
 export interface StaleUploadCleanupResult {
   /** Rows removed, with any multipart upload aborted first. */
   removed: number;
@@ -78,6 +84,11 @@ export interface StaleUploadCleanupResult {
   failed: number;
 }
 
+/**
+ * The server-only `storage.cleanup.stale-uploads` job: aborts and deletes every upload unfinished for longer than the stale-upload threshold, across organizations (bypass client, reason `purge`).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageCleanupHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(StorageCleanupHandler.name);
@@ -107,7 +118,7 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
 
   /**
    * Aborts and deletes every upload that has been unfinished for longer than
-   * {@link CLEANUP_AGE_HOURS}.
+   * `CLEANUP_AGE_HOURS` (or `StorageModule.forRoot({ staleUploadHours })`).
    *
    * Throws only when EVERY candidate failed — see the file header for why that
    * is the line between "one wedged upload" and "the bucket is unreachable".

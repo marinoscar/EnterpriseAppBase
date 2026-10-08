@@ -43,8 +43,8 @@ export interface ObjectProcessor {
 
   /**
    * Process the object asynchronously
-   * @param object The storage object metadata
-   * @param getStream Function to get a fresh stream of the object content
+   * @param object - The storage object metadata
+   * @param getStream - Function to get a fresh stream of the object content
    * @returns Processing result with optional metadata
    */
   process(

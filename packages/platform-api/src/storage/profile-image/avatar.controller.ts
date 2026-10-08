@@ -22,6 +22,10 @@ import { AvatarService } from './avatar.service';
  *
  * No `@Auth()`, so no bearer security is published for it. The global
  * MaintenanceGuard still applies, exactly as it does to other public routes.
+ *
+ * @internal
+ *
+ * @stability experimental
  */
 @ApiTags('Users')
 @Controller('users')

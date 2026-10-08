@@ -10,6 +10,8 @@ import { STORAGE_SETTINGS_PATH } from '../storage-not-configured.error';
  * Pure: judges a resolution. Reports the provider, bucket and region (the
  * settings page shows all three to the same audience) and the NAMES of missing
  * fields — never the access key id or the secret.
+ *
+ * @stability experimental
  */
 export function decideStorageConfig(resolution: StorageConfigResolution): DoctorCheckOutcome {
   if (!resolution.configured) {
@@ -30,7 +32,11 @@ export function decideStorageConfig(resolution: StorageConfigResolution): Doctor
   };
 }
 
-/** `storage` / `storage.config` — the active object-storage configuration is complete. */
+/**
+ * `storage` / `storage.config` — the active object-storage configuration is complete.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageConfigDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'storage.config';
@@ -43,6 +49,7 @@ export class StorageConfigDoctorCheck implements DoctorCheck, OnModuleInit {
     private readonly storageConfig: StorageConfigService,
   ) {}
 
+  /** Self-registration with the Doctor's registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }

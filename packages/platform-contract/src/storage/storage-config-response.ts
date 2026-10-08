@@ -25,7 +25,7 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS } from './constants.js';
+import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
 import { MISSING_STORAGE_CONFIG_FIELDS } from './constants.js';
 
 /**
@@ -68,7 +68,8 @@ export const storageSecretStatusSchema = z.object({
 });
 
 /**
- * storageConfigResponseSchema.
+ * The `GET` / `PUT /api/admin/storage-config` view: the seven settings
+ * fields, the resolution verdict, the masked secret status and provenance.
  *
  * @stability experimental
  */
@@ -77,10 +78,15 @@ export const storageConfigResponseSchema = z.object({
   // The `storage` settings namespace, verbatim
   // ---------------------------------------------------------------------------
 
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
+  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
+  /** The bucket name; empty means not configured. */
   bucket: z.string(),
+  /** The region (`auto` for R2); empty means not configured. */
   region: z.string(),
+  /** The endpoint override; empty means derive it (R2) or use the SDK's host. */
   endpoint: z.string(),
+  /** The Cloudflare account id (R2 only); the endpoint is derived from it. */
   accountId: z.string(),
   /** An identifier, not a credential. See this file's header. */
   accessKeyId: z.string(),
@@ -125,7 +131,7 @@ export const storageConfigResponseSchema = z.object({
    * an empty bucket are the same kind of problem. It names the field, never its
    * value.
    */
-  missing: z.array(z.enum(MISSING_STORAGE_CONFIG_FIELDS)),
+  missing: z.array((z.enum(MISSING_STORAGE_CONFIG_FIELDS) as z.ZodEnum<StorageEnum<typeof MISSING_STORAGE_CONFIG_FIELDS>>)),
 
   /** The masked status of the stored secret. See the header. */
   secretStatus: storageSecretStatusSchema,
@@ -147,13 +153,19 @@ export const storageConfigResponseSchema = z.object({
   /** ISO 8601. See the note on `secretStatus.updatedAt` for why not `z.date()`. */
   updatedAt: z.iso.datetime().nullable(),
 
+  /** Who last saved the settings row, or `null`. */
   updatedBy: z
-    .object({ id: z.string(), email: z.string() })
+    .object({
+      /** Their user id. */
+      id: z.string(),
+      /** Their address. */
+      email: z.string(),
+    })
     .nullable(),
 });
 
 /**
- * StorageConfigResponse.
+ * The admin view, inferred.
  *
  * @stability experimental
  */

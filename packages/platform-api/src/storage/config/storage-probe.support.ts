@@ -34,6 +34,8 @@ import {
  * name: the DTOs are what the wire actually carries, and tying this signature to
  * the settings type would make a future settings-only field look like something
  * a probe accepts.
+ *
+ * @stability experimental
  */
 export type SubmittedStoragePolicy = SystemStorageValue;
 
@@ -47,6 +49,8 @@ export type SubmittedStoragePolicy = SystemStorageValue;
  * settings page reporting a green tick for a configuration every upload path
  * refuses. There is one definition, it is in `storage-config.ts`, and this
  * function's only job is to hand it the right shape.
+ *
+ * @stability experimental
  */
 export function submittedStoragePolicy(input: {
   provider: StorageProviderKind;
@@ -75,6 +79,8 @@ export function submittedStoragePolicy(input: {
  * probe endpoints read as testing a SUBMITTED configuration rather than the
  * saved one. There is exactly one definition of "configured" — see this file's
  * header.
+ *
+ * @stability experimental
  */
 export function resolveSubmittedStorageConfig(
   policy: SubmittedStoragePolicy,
@@ -96,6 +102,8 @@ export function resolveSubmittedStorageConfig(
  * inventing anything for the two cases that genuinely have no answer yet
  * (`s3` uses the SDK's own regional host; `s3compatible` has no endpoint until
  * one is typed).
+ *
+ * @stability experimental
  */
 export function displayEndpoint(policy: SubmittedStoragePolicy): string | null {
   if (policy.endpoint) return policy.endpoint;
@@ -138,6 +146,8 @@ const MIN_REDACTABLE_SECRET_LENGTH = 4;
  * A secret too short to replace safely costs the caller the whole message
  * instead. An unreadable error is a bad outcome; a leaked credential is a worse
  * one, and the choice is not close.
+ *
+ * @stability experimental
  */
 export function redactStorageSecret(text: string, secret: string | null): string {
   if (!secret || !text.includes(secret)) return text;
@@ -149,7 +159,11 @@ export function redactStorageSecret(text: string, secret: string | null): string
   return text.split(secret).join('[redacted]');
 }
 
-/** What an object store said, reduced to the three facts a verdict needs. */
+/**
+ * What an object store said, reduced to the three facts a verdict needs.
+ *
+ * @stability experimental
+ */
 export interface DescribedStorageError {
   /**
    * The provider's own message, redacted. Never a category and never a
@@ -225,6 +239,8 @@ const TIMEOUT_ERROR_NAMES = new Set([
  * this repository does not own, including plain strings and objects that are not
  * `Error`s at all. A diagnostic endpoint that crashed while describing a failure
  * would be the one failure mode it must not have.
+ *
+ * @stability experimental
  */
 export function describeStorageError(
   error: unknown,
@@ -287,6 +303,8 @@ export function describeStorageError(
  * `InvalidAccessKeyId` are both `403`, and they are the difference between
  * "widen this key's policy" and "this key does not exist" — two fixes with
  * nothing in common, on a page whose entire job is to tell them apart.
+ *
+ * @stability experimental
  */
 export const CREDENTIAL_REJECTION_CODES = new Set([
   'InvalidAccessKeyId',
@@ -300,10 +318,18 @@ export const CREDENTIAL_REJECTION_CODES = new Set([
   'AccountProblem',
 ]);
 
-/** Codes meaning "this bucket does not exist at this endpoint". */
+/**
+ * Codes meaning "this bucket does not exist at this endpoint".
+ *
+ * @stability experimental
+ */
 export const BUCKET_MISSING_CODES = new Set(['NoSuchBucket', 'NotFound']);
 
-/** Codes meaning "a bucket by that name exists; this key may not inspect it". */
+/**
+ * Codes meaning "a bucket by that name exists; this key may not inspect it".
+ *
+ * @stability experimental
+ */
 export const BUCKET_FORBIDDEN_CODES = new Set([
   'Forbidden',
   'AccessDenied',
@@ -318,6 +344,8 @@ export const BUCKET_FORBIDDEN_CODES = new Set([
  * one-word edit to the `region` field, and because S3 answers this with a `301`
  * that reads as a redirect rather than as an error to anyone skimming a status
  * code.
+ *
+ * @stability experimental
  */
 export const BUCKET_REGION_CODES = new Set([
   'PermanentRedirect',
@@ -331,8 +359,16 @@ export const BUCKET_REGION_CODES = new Set([
   'AuthorizationHeaderMalformed',
 ]);
 
-/** Codes meaning "a bucket with this name already exists, and it is yours". */
+/**
+ * Codes meaning "a bucket with this name already exists, and it is yours".
+ *
+ * @stability experimental
+ */
 export const BUCKET_ALREADY_OWNED_CODES = new Set(['BucketAlreadyOwnedByYou']);
 
-/** Codes meaning "a bucket with this name exists and belongs to somebody else". */
+/**
+ * Codes meaning "a bucket with this name exists and belongs to somebody else".
+ *
+ * @stability experimental
+ */
 export const BUCKET_NAME_TAKEN_CODES = new Set(['BucketAlreadyExists']);

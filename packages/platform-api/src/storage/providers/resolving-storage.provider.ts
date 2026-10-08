@@ -95,6 +95,11 @@ interface CachedDelegate {
   label: string;
 }
 
+/**
+ * The default `STORAGE_PROVIDER`: resolves the active configuration per call (the `storage` settings namespace and the credential store) and delegates to an S3 client built for it, so a configuration change takes effect without a restart; refuses with `StorageNotConfiguredError` (503) while storage is not configured.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class ResolvingStorageProvider implements StorageProvider {
   private readonly logger = new Logger(ResolvingStorageProvider.name);

@@ -14,10 +14,18 @@ import {
 // should have to import a module (and its providers) to answer "which URL
 // represents this user?".
 
-/** `storage_objects.metadata.purpose` stamped on every uploaded avatar. */
+/**
+ * `storage_objects.metadata.purpose` stamped on every uploaded avatar.
+ *
+ * @stability experimental
+ */
 export const AVATAR_PURPOSE = 'avatar';
 
-/** Hard ceiling on an uploaded avatar, in bytes. */
+/**
+ * Hard ceiling on an uploaded avatar, in bytes.
+ *
+ * @stability experimental
+ */
 export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
@@ -25,12 +33,18 @@ export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
  * endpoint writes under it, so a key outside this prefix is never treated as
  * an avatar — even if its metadata was edited to say `purpose: 'avatar'`
  * through the generic storage metadata endpoint.
+ *
+ * @stability experimental
  */
 export function avatarKeyPrefix(userId: string): string {
   return `${AVATARS_KEY_PREFIX}${userId}/`;
 }
 
-/** Same-origin URL at which an uploaded avatar is served publicly. */
+/**
+ * Same-origin URL at which an uploaded avatar is served publicly.
+ *
+ * @stability experimental
+ */
 export function avatarUrl(userId: string, objectId: string): string {
   return `/api/users/${userId}/avatar/${objectId}`;
 }
@@ -38,16 +52,30 @@ export function avatarUrl(userId: string, objectId: string): string {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Whether `value` is a canonical UUID string.
+ *
+ * @stability experimental
+ */
 export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_PATTERN.test(value);
 }
 
-/** The subset of a `storage_objects` row needed to judge an avatar. */
+/**
+ * The subset of a `storage_objects` row needed to judge an avatar.
+ *
+ * @stability experimental
+ */
 export interface AvatarCandidate {
+  /** The uploader. */
   uploadedById: string | null;
+  /** The stored key. */
   storageKey: string;
+  /** The upload status. */
   status: string;
+  /** The media type. */
   mimeType: string;
+  /** Object metadata to store with it. */
   metadata: unknown;
 }
 
@@ -55,6 +83,8 @@ export interface AvatarCandidate {
  * Whether `object` is a usable avatar belonging to `userId`: owned by them,
  * written by the avatar upload path (key prefix + purpose), `ready`, and of a
  * validated image type.
+ *
+ * @stability experimental
  */
 export function isAvatarObjectFor(
   object: AvatarCandidate | null | undefined,
@@ -80,8 +110,11 @@ export function isAvatarObjectFor(
 
 /**
  * Normalised `profile` — `imageObjectId` is always present (`null` when none).
+ *
+ * @stability experimental
  */
 export type NormalizedProfileSettings = UserProfileSettingsValue & {
+  /** The uploaded avatar object, or `null` (always present after normalisation). */
   imageObjectId: string | null;
 };
 
@@ -93,6 +126,8 @@ export type NormalizedProfileSettings = UserProfileSettingsValue & {
  * read, rather than by a data migration: `useProviderImage === false` becomes
  * `none`, anything else `provider`. The legacy keys are dropped, so the first
  * write after this ships stores the new shape.
+ *
+ * @stability experimental
  */
 export function normalizeProfileSettings(raw: unknown): NormalizedProfileSettings {
   const profile =
@@ -122,8 +157,15 @@ export function normalizeProfileSettings(raw: unknown): NormalizedProfileSetting
 // Resolution
 // -----------------------------------------------------------------------------
 
+/**
+ * The user fields the profile picture URL is resolved from.
+ *
+ * @stability experimental
+ */
 export interface ProfileImageUser {
+  /** The user id. */
   id: string;
+  /** The identity provider's picture URL, or `null`. */
   providerProfileImageUrl: string | null;
 }
 
@@ -137,6 +179,8 @@ export interface ProfileImageUser {
  * `users.profile_image_url` is deliberately NOT consulted: nothing writes it.
  * Accepts a raw stored `profile` (or nothing, for a user without a settings
  * row) and normalises it first.
+ *
+ * @stability experimental
  */
 export function resolveProfileImageUrl(
   user: ProfileImageUser,
@@ -160,6 +204,11 @@ export function resolveProfileImageUrl(
 // Image type detection (magic bytes)
 // -----------------------------------------------------------------------------
 
+/**
+ * The image types a profile picture may be (by magic bytes, never the declared type).
+ *
+ * @stability experimental
+ */
 export const AVATAR_MIME_TYPES = [
   'image/jpeg',
   'image/png',
@@ -167,10 +216,22 @@ export const AVATAR_MIME_TYPES = [
   'image/webp',
 ] as const;
 
+/**
+ * One of {@link AVATAR_MIME_TYPES}.
+ *
+ * @stability experimental
+ */
 export type AvatarMimeType = (typeof AVATAR_MIME_TYPES)[number];
 
+/**
+ * What `detectImageType` recognised from the leading bytes.
+ *
+ * @stability experimental
+ */
 export interface DetectedImageType {
+  /** The media type. */
   mimeType: AvatarMimeType;
+  /** The file extension, with its dot. */
   extension: 'jpg' | 'png' | 'gif' | 'webp';
 }
 
@@ -184,6 +245,8 @@ function startsWith(buffer: Buffer, bytes: number[], offset = 0): boolean {
  * filename are never consulted — they are whatever the uploader says they are.
  * Returns `null` for anything that is not JPEG, PNG, GIF or WebP (SVG, which is
  * text and can carry script, is rejected by construction).
+ *
+ * @stability experimental
  */
 export function detectImageType(buffer: Buffer): DetectedImageType | null {
   // JPEG: FF D8 FF

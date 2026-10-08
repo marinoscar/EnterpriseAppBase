@@ -8,7 +8,11 @@
  * Comparison is case-insensitive and ignores parameters (`; charset=...`).
  */
 
-/** Lower-cases `mimeType` and drops any parameters (`text/plain; charset=utf-8` → `text/plain`). */
+/**
+ * Lower-cases `mimeType` and drops any parameters (`text/plain; charset=utf-8` → `text/plain`).
+ *
+ * @stability experimental
+ */
 export function normaliseMimeType(mimeType: string): string {
   return mimeType.split(';')[0].trim().toLowerCase();
 }
@@ -19,6 +23,8 @@ export function normaliseMimeType(mimeType: string): string {
  * `mimeType` is expected to be normalised already (see `normaliseMimeType`);
  * every entry of `allowed` is normalised here. An empty `allowed` matches
  * nothing: callers that treat an empty list as "allow all" say so themselves.
+ *
+ * @stability experimental
  */
 export function mimeTypeMatches(mimeType: string, allowed: readonly string[]): boolean {
   return allowed.map(normaliseMimeType).some((entry) =>

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * updateMetadataSchema.
+ * The `PATCH /api/storage/objects/:id/metadata` body: keys merged into the existing metadata.
  *
  * @stability experimental
  */
@@ -11,7 +11,7 @@ export const updateMetadataSchema = z.object({
 });
 
 /**
- * UpdateMetadataDto.
+ * The metadata patch, inferred.
  *
  * @stability experimental
  */

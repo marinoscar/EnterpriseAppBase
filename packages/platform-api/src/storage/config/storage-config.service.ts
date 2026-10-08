@@ -103,9 +103,16 @@ import {
  *
  * ⚠ THIS BOUNDS THE SETTINGS HALF ONLY. The secret access key is never cached,
  * so a rotation is never delayed by this constant. See the file header.
+ *
+ * @stability experimental
  */
 export const STORAGE_POLICY_CACHE_MS = 5_000;
 
+/**
+ * Where the active storage configuration comes from: the `storage` settings namespace and the credential store, read per call (settings cached `STORAGE_POLICY_CACHE_MS`). `resolveActiveConfig` for a client, `activeProvider` for the provider a row records.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageConfigService implements OnModuleInit {
   private readonly logger = new Logger(StorageConfigService.name);
@@ -113,8 +120,8 @@ export class StorageConfigService implements OnModuleInit {
   /**
    * Last successful settings read, with the time it was taken.
    *
-   * Same shape as `MaintenanceModeService.cache`, deliberately: `{ value,
-   * readAt }` with a module-level TTL is the pattern this repository already
+   * Same shape as `MaintenanceModeService.cache`, deliberately: `{ value, readAt }`
+   * with a module-level TTL is the pattern this repository already
    * uses for "a settings namespace read on a hot path", and a second shape for
    * the same job is a second thing to reason about at 3am.
    *
@@ -309,7 +316,7 @@ export class StorageConfigService implements OnModuleInit {
    * available to every one of them and {@link lastKnownBucket}'s snapshot
    * machinery is not needed a second time.
    *
-   * It goes through the SAME cached {@link readPolicy} the snapshot is filled
+   * It goes through the SAME cached `readPolicy` the snapshot is filled
    * from, deliberately: a row whose `bucket` came from `getBucket()` and whose
    * provider came from here then names one configuration rather than two, and a
    * change an administrator saves reaches both within the same five seconds.
@@ -333,8 +340,8 @@ export class StorageConfigService implements OnModuleInit {
   /**
    * The configured bucket as of the last successful settings read, or `null`.
    *
-   * SYNCHRONOUS, and that is its entire reason for existing: `StorageProvider
-   * .getBucket()` is synchronous by interface. This method reads nothing, waits
+   * SYNCHRONOUS, and that is its entire reason for existing: 
+   * `StorageProvider.getBucket()` is synchronous by interface. This method reads nothing, waits
    * for nothing, falls back to no default and guesses at nothing — `null` means
    * "this process does not know", which the caller must surface rather than
    * paper over with an empty string.

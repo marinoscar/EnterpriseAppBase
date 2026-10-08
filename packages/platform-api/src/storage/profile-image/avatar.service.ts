@@ -12,9 +12,17 @@ import { PLATFORM_PRISMA } from '../../core/index';
 import { STORAGE_SYSTEM_DATA, type StorageSystemData } from '../ports';
 import type { StoragePrisma } from '../data/storage-db';
 
+/**
+ * A stored avatar, opened for streaming.
+ *
+ * @stability experimental
+ */
 export interface OpenedAvatar {
+  /** The bytes. */
   stream: Readable;
+  /** The media type. */
   mimeType: string;
+  /** The size in bytes, or `null` when unknown. */
   size: bigint;
 }
 
@@ -30,6 +38,8 @@ export interface OpenedAvatar {
  * is not served, and every miss — malformed id, unknown user, wrong source,
  * wrong object, missing bytes — is the same 404 so the endpoint is not an
  * oracle for which users or objects exist.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class AvatarService {

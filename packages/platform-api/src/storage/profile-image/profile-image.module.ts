@@ -7,8 +7,8 @@ import { createProfileImageController } from './profile-image.controller';
 import { ProfileImageService } from './profile-image.service';
 
 /**
- * Uploaded profile pictures (#367): `GET`/`POST`/`DELETE
- * /api/user-settings/profile-image` (`user_settings:read|write`) and the
+ * Uploaded profile pictures (#367): `GET`/`POST`/`DELETE` on
+ * `/api/user-settings/profile-image` (`user_settings:read|write`) and the
  * public `GET /api/users/:userId/avatar/:objectId`.
  *
  * Separate from the settings slice because it needs the storage provider, and

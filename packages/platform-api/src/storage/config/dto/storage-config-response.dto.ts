@@ -10,9 +10,7 @@ export { storageConfigResponseSchema, storageSecretStatusSchema };
 export type { StorageConfigResponse } from '@marinoscar/platform-contract/storage';
 
 /**
- * `storageConfigResponseSchema` as a Nest DTO.
- *
- * @internal
+ * `storageConfigResponseSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */

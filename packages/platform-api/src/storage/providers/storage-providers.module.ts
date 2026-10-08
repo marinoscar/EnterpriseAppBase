@@ -26,7 +26,7 @@ import { STORAGE_PROVIDER } from './storage-provider.interface';
  *   * `SettingsModule` for `SystemSettingsService.getStoragePolicy()`. It is
  *     safe because `SettingsModule` is a LEAF — it imports nothing — which is
  *     the property `profile-image.module.ts` already documents and relies on
- *     ("`StorageModule` -> `JobsModule` -> `SettingsModule` already exists, so
+ *     ("`StorageModule` to `JobsModule` to `SettingsModule` already exists, so
  *     settings importing storage would be a cycle"). Nothing here makes
  *     settings depend on storage, and nothing may: if a future change needs
  *     `SettingsModule` to read storage, the fix is a third module, never a

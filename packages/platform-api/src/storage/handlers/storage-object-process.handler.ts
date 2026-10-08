@@ -69,6 +69,8 @@ import { storageForOrg } from '../data/storage-db';
  * The handler key, and therefore the `Job.type` every object-processing row
  * carries. PERMANENT — rows outlive handlers. Exported so `ObjectsService`
  * enqueues the same string this handler registers.
+ *
+ * @stability experimental
  */
 export const STORAGE_OBJECT_PROCESS_TYPE = 'storage.object.process';
 
@@ -78,6 +80,11 @@ export const STORAGE_OBJECT_PROCESS_TYPE = 'storage.object.process';
  */
 const MAX_QUOTED_ERROR_LENGTH = 500;
 
+/**
+ * The server-only `storage.object.process` job: runs the registered processors for one uploaded object, in its organization, and marks it `ready` or `failed`; a job that gives up marks a still-`processing` object `failed`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageObjectProcessHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(StorageObjectProcessHandler.name);

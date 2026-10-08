@@ -131,9 +131,16 @@ const CORS_MAX_AGE_SECONDS = 3600;
  * `null`, on purpose: a link to a runbook that is not there is worse than no
  * link, and `test/docs-links.spec.ts` would not have caught a stale path
  * pointing at prose rather than a real endpoint response.
+ *
+ * @stability experimental
  */
 export const STORAGE_RUNBOOK_PATH = 'docs/runbooks/storage-configuration.md';
 
+/**
+ * Creates and hardens the bucket a configuration names (public-access block, encryption, CORS), or returns guided commands when the key cannot.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageBucketProvisionService {
   private readonly logger = new Logger(StorageBucketProvisionService.name);
@@ -710,6 +717,8 @@ function providerSkipReason(provider: StorageProviderKind, because: string): str
  * Exported for the spec, which asserts the ETag exposure survives into the
  * guided path too: an operator who takes this route must not end up with the
  * one misconfiguration this whole endpoint exists to prevent.
+ *
+ * @stability experimental
  */
 export function buildGuidedBucketCommands(
   config: ResolvedStorageConfig,

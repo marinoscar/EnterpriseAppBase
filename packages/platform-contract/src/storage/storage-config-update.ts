@@ -47,7 +47,7 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS } from './constants.js';
+import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
 
 /**
  * The word `PUT /api/admin/storage-config` requires when the save would point
@@ -71,13 +71,13 @@ import { STORAGE_PROVIDER_KINDS } from './constants.js';
 export const STORAGE_SWITCH_CONFIRMATION = 'SWITCH';
 
 /**
- * updateStorageConfigSchema.
+ * The `PUT /api/admin/storage-config` body: the seven settings fields, the write-only secret, the optional confirmation.
  *
  * @stability experimental
  */
 export const updateStorageConfigSchema = z.object({
   /** Which vendor's flavour of the S3 protocol to talk to. */
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
+  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
 
   /**
    * The bucket every object is written to and read from.
@@ -114,8 +114,8 @@ export const updateStorageConfigSchema = z.object({
    * ⚠ WRITE-ONLY, AND BLANK PRESERVES.
    *
    * Omitted, `null` or `''` means "the admin did not retype the secret", and
-   * the stored one is left exactly as it is. That is `CredentialsService
-   * .setSecret`'s own contract and this endpoint does not reinterpret it: the
+   * the stored one is left exactly as it is. That is
+   * `CredentialsService.setSecret`'s own contract and this endpoint does not reinterpret it: the
    * form always renders this field empty, so getting it backwards would destroy
    * a working configuration the first time somebody corrects a typo in the
    * region.

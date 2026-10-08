@@ -11,8 +11,8 @@
 /**
  * S3-compatible providers this app can be pointed at.
  *
- * A closed enum rather than a free string (unlike `databaseBackup
- * .storageProvider`, which names a provider REGISTRATION and is deliberately
+ * A closed enum rather than a free string (unlike
+ * `databaseBackup.storageProvider`, which names a provider REGISTRATION and is deliberately
  * open for forks) because this value selects which set of the configuration
  * fields is meaningful and how an endpoint is derived.
  *
@@ -94,3 +94,14 @@ export const STORAGE_SECRET_FIELD_NAMES = [
   'token',
   'privateKey',
 ] as const;
+
+/**
+ * The entries of a zod enum built from a value list (`{ s3: 's3', ... }`):
+ * the schemas cast `z.enum(list)` to `z.ZodEnum<StorageEnum<typeof list>>`
+ * so the declarations name the list instead of spelling every entry.
+ *
+ * @typeParam T - the value list.
+ *
+ * @stability experimental
+ */
+export type StorageEnum<T extends readonly string[]> = { [K in T[number]]: K };

@@ -23,9 +23,19 @@ import { STORAGE_SETTINGS_PATH } from '../storage-not-configured.error';
  * `404` whether or not the BUCKET exists, so a pass here means "the store
  * answered without refusing us", not "uploads will work". The remedy on every
  * failure points at the full test for exactly that reason.
+ *
+ * @stability experimental
  */
 export const STORAGE_DOCTOR_PROBE_KEY = '.doctor/read-only-probe-never-written';
 
+/**
+ * The `storage.bucket` check's verdict for a probe error.
+ *
+ * @param error - what the read-only probe threw.
+ * @returns the check outcome (a missing key is a pass; access and network failures are not).
+ *
+ * @stability experimental
+ */
 export function decideStorageProbeError(error: unknown): DoctorCheckOutcome {
   // No secret is passed for redaction: the probe never holds one — the SDK
   // error message carries the request, not the credential.
@@ -86,7 +96,11 @@ export function decideStorageProbeError(error: unknown): DoctorCheckOutcome {
   };
 }
 
-/** `storage` / `storage.bucket` — the configured store answers a read. */
+/**
+ * `storage` / `storage.bucket` — the configured store answers a read.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageBucketDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'storage.bucket';
@@ -100,6 +114,7 @@ export class StorageBucketDoctorCheck implements DoctorCheck, OnModuleInit {
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
+  /** Self-registration with the Doctor's registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }

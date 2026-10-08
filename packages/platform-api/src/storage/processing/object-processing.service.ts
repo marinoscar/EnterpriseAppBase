@@ -7,7 +7,11 @@ import { PLATFORM_PRISMA } from '../../core/index';
 import type { StorageObject, StoragePrisma } from '../data/storage-db';
 import { storageForOrg } from '../data/storage-db';
 
-/** How one processing run ended, as written to the object's row. */
+/**
+ * How one processing run ended, as written to the object's row.
+ *
+ * @stability experimental
+ */
 export type ObjectProcessingOutcome = 'ready' | 'failed';
 
 // =============================================================================

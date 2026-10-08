@@ -2,27 +2,26 @@
 // System settings namespace `storage` (issue #677; namespace #373, epic #372)
 // =============================================================================
 //
-// A declaration file: pure data, imports only leaf modules. Registered by
-// `settings/registry/system-settings.manifest.ts`. Recipe:
-// `settings/registry/README.md`.
+// A declaration file: pure data, imports only leaf modules (the schemas are
+// `@marinoscar/platform-contract/storage`'s since #736). Registered by the
+// app's system-settings manifest. Recipe: packages/platform-api/src/settings/README.md.
 //
 // NO SECRET ACCESS KEY HERE, AND THERE NEVER MAY BE ONE: it lives in the
 // encrypted credential store at `(purpose 'storage', name 'default')`. Proved
-// at compile time in `common/schemas/settings.schema.ts`
-// (`STORAGE_SETTINGS_CARRIES_NO_SECRET`) and at import time by the registry.
+// at compile time in `@marinoscar/platform-contract/storage`
+// (`StorageSettingsCarriesNoSecret`) and at import time by the registry
+// (`SETTINGS_SECRET_FIELD_NAMES`).
 // =============================================================================
 
-import type { z } from 'zod';
 import {
-  systemStoragePatchSchema,
-  systemStorageSchema,
-  type SystemStorageValue,
-} from '@marinoscar/platform-contract/storage';
-import {
+  storageResponseSchema,
   storageSettingsPatchSchema,
   storageSettingsSchema,
+  systemStoragePatchSchema,
+  systemStorageSchema,
+  type StorageSettingsPatchInput,
+  type SystemStorageValue,
 } from '@marinoscar/platform-contract/storage';
-import { storageResponseSchema } from '@marinoscar/platform-contract/storage';
 import type { SystemSettingsNamespace } from '../../settings/index';
 
 // UNCONFIGURED: `provider: 's3'` names the shape the empty fields would be
@@ -59,21 +58,24 @@ const STORAGE_SYSTEM_DEFAULTS: SystemStorageValue = {
   forcePathStyle: null,
 };
 
-export const STORAGE_SYSTEM_SETTINGS = {
-  key: 'storage',
-  description: 'Object-storage provider configuration: provider, bucket, region, endpoint and the non-secret access key id.',
-  storedSchema: systemStorageSchema,
-  patchSchema: systemStoragePatchSchema,
-  putSchema: storageSettingsSchema,
-  wirePatchSchema: storageSettingsPatchSchema,
-  responseSchema: storageResponseSchema,
-  defaults: STORAGE_SYSTEM_DEFAULTS,
-  requiredOnPut: false,
-  // Field-by-field salvage (the default `read`) matters more here than
-  // anywhere else: "not configured" is already spelled as an empty string, so
-  // a damaged `region` that dragged the whole namespace back to the defaults
-  // would also blank the bucket an operator typed.
-  merge(current, patch) {
+/**
+ * The `storage` namespace's PATCH merge: a field the patch names replaces the
+ * stored one (an empty string included: `''` un-configures a field), an
+ * absent field is kept; `forcePathStyle` is replaced on any value but
+ * `undefined` (`null` restores the vendor convention).
+ *
+ * Field-by-field salvage (the default `read`) matters more here than
+ * anywhere else: "not configured" is already spelled as an empty string, so a
+ * damaged `region` that dragged the whole namespace back to the defaults would
+ * also blank the bucket an operator typed.
+ *
+ * @param current - the stored value.
+ * @param patch - the PATCH body's `storage` branch, when present.
+ * @returns the merged value.
+ *
+ * @stability experimental
+ */
+export function mergeStorageSettings(current: SystemStorageValue, patch?: StorageSettingsPatchInput): SystemStorageValue {
     // `??` is the RIGHT operator for every STRING field here even though it is
     // the wrong one for `maintenance.startedAt`: none of them is nullable, so a
     // caller can never send `null`, and `??` passes an empty string through
@@ -101,10 +103,41 @@ export const STORAGE_SYSTEM_SETTINGS = {
       accessKeyId: patch?.accessKeyId ?? current.accessKeyId,
       forcePathStyle: patch?.forcePathStyle !== undefined ? patch.forcePathStyle : current.forcePathStyle,
     };
-  },
-} satisfies SystemSettingsNamespace<'storage', SystemStorageValue, z.infer<typeof storageSettingsPatchSchema>>;
+}
 
-declare module '../../settings/index' {
+/**
+ * The `storage` system-settings namespace (#373, epic #372): the
+ * object-storage provider configuration. Registered by the app's system
+ * settings manifest, after the operations namespaces. No secret, ever: the
+ * secret access key is the credential store's
+ * (`(purpose 'storage', name 'default')`).
+ *
+ * @stability experimental
+ */
+export const STORAGE_SYSTEM_SETTINGS = {
+  /** The namespace key (permanent). */
+  key: 'storage',
+  /** What it holds. */
+  description: 'Object-storage provider configuration: provider, bucket, region, endpoint and the non-secret access key id.',
+  /** The stored shape. */
+  storedSchema: systemStorageSchema,
+  /** The stored partial. */
+  patchSchema: systemStoragePatchSchema,
+  /** The PUT body's branch. */
+  putSchema: storageSettingsSchema,
+  /** The PATCH body's branch. */
+  wirePatchSchema: storageSettingsPatchSchema,
+  /** The GET response's branch. */
+  responseSchema: storageResponseSchema,
+  /** Unconfigured: every field that would send a request somewhere is empty. */
+  defaults: STORAGE_SYSTEM_DEFAULTS,
+  /** Optional in a PUT body. */
+  requiredOnPut: false,
+  /** The PATCH merge (`mergeStorageSettings`). */
+  merge: mergeStorageSettings,
+} satisfies SystemSettingsNamespace<'storage', SystemStorageValue, StorageSettingsPatchInput>;
+
+declare module '../../settings/registry/system-settings-namespace' {
   interface SystemSettingsNamespaces {
     /**
      * Object-storage provider configuration (#373, epic #372): which provider,
@@ -115,6 +148,7 @@ declare module '../../settings/index' {
     storage: SystemStorageValue;
   }
   interface SystemSettingsNamespaceDeclarations {
+    /** The `storage` declaration. */
     storage: typeof STORAGE_SYSTEM_SETTINGS;
   }
 }

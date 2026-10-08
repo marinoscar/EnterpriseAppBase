@@ -10,9 +10,7 @@ export { STORAGE_SWITCH_CONFIRMATION, updateStorageConfigSchema };
 export type { UpdateStorageConfigInput } from '@marinoscar/platform-contract/storage';
 
 /**
- * `updateStorageConfigSchema` as a Nest DTO.
- *
- * @internal
+ * `updateStorageConfigSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */

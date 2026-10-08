@@ -10,18 +10,14 @@ export { initUploadResponseSchema, initUploadSchema };
 export type { InitUploadDto } from '@marinoscar/platform-contract/storage';
 
 /**
- * `initUploadSchema` as a Nest DTO.
- *
- * @internal
+ * `initUploadSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */
 export class InitUploadBodyDto extends createZodDto(initUploadSchema) {}
 
 /**
- * `initUploadResponseSchema` as a Nest DTO.
- *
- * @internal
+ * `initUploadResponseSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */

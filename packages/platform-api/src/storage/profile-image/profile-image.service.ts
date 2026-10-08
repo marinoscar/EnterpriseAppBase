@@ -28,8 +28,15 @@ type UserSettingsResponse = Awaited<
   ReturnType<UserSettingsService['getSettings']>
 >;
 
+/**
+ * What an upload or a removal of the profile picture returns.
+ *
+ * @stability experimental
+ */
 export interface ProfileImageResult {
+  /** The user's settings, after the change. */
   settings: UserSettingsResponse;
+  /** The picture that now represents the user, or `null`. */
   profileImageUrl: string | null;
 }
 
@@ -40,12 +47,14 @@ export interface ProfileImageResult {
  * storage path accepts any bytes under any client-declared MIME type and leaves
  * the row in `processing`; an avatar must be validated by content, stored under
  * a controlled key and be `ready` immediately. And `SettingsModule` cannot
- * import `StorageModule` (StorageModule -> JobsModule -> SettingsModule is a
+ * import `StorageModule` (StorageModule, then JobsModule, then SettingsModule is a
  * cycle), so this lives in its own module that depends on both
  * `SettingsModule` and `StorageProvidersModule` — the same "provider module,
  * not StorageModule" choice `JobsModule` and `NodesModule` make.
  *
  * Request-scoped work bounded at 5 MB — not a queue job.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class ProfileImageService {

@@ -10,18 +10,14 @@ export { STORAGE_TEST_CHECK_CODES, STORAGE_TEST_CHECK_IDS, STORAGE_TEST_CHECK_ST
 export type { StorageConnectionCheck, StorageConnectionTestResult, StorageTestCheckId, TestStorageConfigInput } from '@marinoscar/platform-contract/storage';
 
 /**
- * `testStorageConfigSchema` as a Nest DTO.
- *
- * @internal
+ * `testStorageConfigSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */
 export class TestStorageConfigDto extends createZodDto(testStorageConfigSchema) {}
 
 /**
- * `storageConnectionTestResultSchema` as a Nest DTO.
- *
- * @internal
+ * `storageConnectionTestResultSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */

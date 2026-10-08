@@ -89,6 +89,13 @@ import { UpdateStorageConfigDto } from './dto/update-storage-config.dto';
 // reference — aligned with the settings page it backs.
 // =============================================================================
 
+/**
+ * The `/api/admin/storage-config` routes (`storage_config:read|write`): read, save, connection test, bucket provisioning.
+ *
+ * @internal
+ *
+ * @stability experimental
+ */
 @ApiTags('Storage Configuration')
 @Controller('admin/storage-config')
 export class StorageConfigController {

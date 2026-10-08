@@ -96,6 +96,8 @@ export type KeyPrefixDef = StorageKeyPrefixDef;
  * The shape every registered prefix must have: lowercase segments of letters,
  * digits and `-`, separated by single `/`, ending with exactly one `/`, never
  * starting with one.
+ *
+ * @stability experimental
  */
 export const STORAGE_KEY_PREFIX_PATTERN = /^[a-z0-9][a-z0-9-]*(?:\/[a-z0-9][a-z0-9-]*)*\/$/;
 

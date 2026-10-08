@@ -100,6 +100,11 @@ import type { StorageInputJsonValue, StoragePrisma } from '../data/storage-db';
 // BEST-EFFORT basis, so they genuinely linger after a failed round trip -- which
 // is exactly why the prefix must be one the purge knows about rather than a
 // literal only this file has ever seen.
+/**
+ * Where the connection test writes its probe object (`storage-config-test/`, a registered prefix).
+ *
+ * @stability experimental
+ */
 export const STORAGE_PROBE_KEY_PREFIX = STORAGE_TEST_KEY_PREFIX;
 
 /** How long the probe's presigned URL is valid. Seconds. */
@@ -122,6 +127,11 @@ const CHECK_LABELS: Record<StorageTestCheckId, string> = {
   presignedUrl: 'Presigned URL is valid and serves the object',
 };
 
+/**
+ * The four-check connection test of a configuration, saved or not (credentials, bucket, round trip, presigned URL); never throws on a bad answer.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageConnectionTestService {
   private readonly logger = new Logger(StorageConnectionTestService.name);
@@ -435,7 +445,7 @@ export class StorageConnectionTestService {
    * ⚠ WHY THE DELETE HAPPENS LAST, AFTER THE PRESIGNED CHECK, AND IS STILL
    * REPORTED UNDER `roundTrip`. The two checks share ONE probe object: creating a
    * second one would double the writes into an administrator's bucket and prove
-   * nothing extra. So the ordering is put -> get -> presign -> delete, while the
+   * nothing extra. So the ordering is put, get, presign, delete, while the
    * delete's outcome belongs to the check it is part of. The alternative
    * orderings are both worse: deleting before the presign leaves that check with
    * nothing to fetch, and reporting the delete under `presignedUrl` would tell an

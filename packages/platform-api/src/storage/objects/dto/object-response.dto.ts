@@ -9,18 +9,14 @@ import { objectResponseSchema, uploadStatusResponseSchema } from '@marinoscar/pl
 export { objectResponseSchema, uploadStatusResponseSchema };
 
 /**
- * `objectResponseSchema` as a Nest DTO.
- *
- * @internal
+ * `objectResponseSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */
 export class ObjectResponseDto extends createZodDto(objectResponseSchema) {}
 
 /**
- * `uploadStatusResponseSchema` as a Nest DTO.
- *
- * @internal
+ * `uploadStatusResponseSchema` (`@marinoscar/platform-contract/storage`) as a Nest DTO: the OpenAPI component and the validated body or response.
  *
  * @stability experimental
  */

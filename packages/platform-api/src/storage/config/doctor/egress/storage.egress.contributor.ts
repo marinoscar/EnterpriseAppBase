@@ -27,6 +27,8 @@ const PROVIDER_LABEL: Readonly<Record<string, string>> = {
  * `StorageConfigService.resolveActiveConfig()`, which decrypts the secret
  * access key. With no endpoint the client uses AWS's regional host,
  * `s3.<region>.amazonaws.com`.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class StorageEgressContributor implements EgressContributor, OnModuleInit {
@@ -37,6 +39,7 @@ export class StorageEgressContributor implements EgressContributor, OnModuleInit
     private readonly storageAdmin: StorageConfigAdminService,
   ) {}
 
+  /** Self-registration with the Doctor's registry. */
   onModuleInit(): void {
     this.egress.register(this);
   }
