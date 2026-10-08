@@ -40,8 +40,12 @@ const SCHEMA_PATH = join(__dirname, '..', '..', 'prisma', 'schema');
 // lock in organizations/org-admin.common.ts) left this app with it.
 const IDENTITY_SLICE_SOURCE_ROOT = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'identity');
 
+// The db-backup slice's source too (#740): its raw SQL (the server version, the
+// migration state, the pre-flight's catalogue reads) left this app with it.
+const DB_BACKUP_SLICE_SOURCE_ROOT = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'db-backup');
+
 runPlatformConformance({
-  sourceRoots: [join(__dirname, '..', '..', 'src'), IDENTITY_SLICE_SOURCE_ROOT],
+  sourceRoots: [join(__dirname, '..', '..', 'src'), IDENTITY_SLICE_SOURCE_ROOT, DB_BACKUP_SLICE_SOURCE_ROOT],
   suites: {
     userOwnedData: {
       schemaPath: SCHEMA_PATH,

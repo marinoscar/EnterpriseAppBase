@@ -13,7 +13,9 @@
 // request-derived id without scoping it to the caller itself. Prefer the
 // Prisma query API; reach for raw SQL only for what it cannot express.
 //
-// Files are paths relative to apps/api/src, with forward slashes.
+// Files are paths relative to the scanned root (apps/api/src, or a packaged
+// slice's src/<slice> folder: identity since #727, db-backup since #740), with
+// forward slashes.
 // =============================================================================
 
 export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
@@ -34,11 +36,11 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: 'Health probe: SELECT 1.',
   },
   {
-    file: 'db-backup/restore-preflight.service.ts',
+    file: 'restore-preflight.service.ts',
     why: 'Restore pre-flight: reads pg_extension. Read-only by invariant (no restore pre-flight may create, drop or rename anything).',
   },
   {
-    file: 'db-backup/db-backup-runner.service.ts',
+    file: 'db-backup-runner.service.ts',
     why: "Backup run: reads current_setting('server_version') to record the dump's server version.",
   },
   {
@@ -46,9 +48,10 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: 'Doctor check: reads pg_roles and pg_class (the API role and the FORCEd tables). Read-only catalogue reads, no user ids.',
   },
   {
-    file: 'db-backup/migration-state.util.ts',
+    file: 'migration-state.util.ts',
     why: 'Backup and restore: reads the newest applied migration from _prisma_migrations, which has no Prisma model.',
-  },  {
+  },
+  {
     file: 'organizations/org-admin.common.ts',
     why: "Org administration (#726): SELECT ... FOR UPDATE on the caller's ACTIVE organization row, to serialize the last-admin check; Prisma has no row lock. The org id comes from the principal, never from the request.",
   },
@@ -59,5 +62,13 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
   {
     file: 'data/identity-db.ts',
     why: "The identity slice's structural client (#727): DECLARES the `$queryRaw` / `$executeRaw` signatures the slice may call on the app's client; issues no statement itself.",
+  },
+  {
+    file: 'doctor/backup-rls.doctor-check.ts',
+    why: "The db-backup slice's Doctor check (#740): read-only COUNT(*) per tenant table through the system client (the `doctor` reason), compared with the same counts over a connection carrying the dump's startup option. No user ids, no writes.",
+  },
+  {
+    file: 'ports.ts',
+    why: "The db-backup slice's host ports (#740): DECLARES the `$queryRawUnsafe` signature of the system-data port the Doctor check calls; issues no statement itself.",
   },
 ];
