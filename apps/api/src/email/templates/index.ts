@@ -243,3 +243,5 @@ export type {
 export type { RestoreCompletedEmailData } from './restore-completed.email';
 export type { OrgInvitationEmailData } from './org-invitation.email';
 export type { GroupInvitationEmailData } from './group-invitation.email';
+export { sharedWithYouEmail } from './shared-with-you.email';
+export type { SharedWithYouEmailData } from './shared-with-you.email';

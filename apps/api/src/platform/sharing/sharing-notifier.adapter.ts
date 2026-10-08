@@ -25,7 +25,12 @@ export class SharingNotifierAdapter implements SharingNotifier {
   private withSignInUrl(data: unknown): unknown {
     const appUrl = this.config.get<string>('appUrl');
     if (!appUrl || data === null || typeof data !== 'object') return data;
-    return { ...(data as Record<string, unknown>), signInUrl: `${appUrl.replace(/\/+$/, '')}/login` };
+    const base = appUrl.replace(/\/+$/, '');
+    const fields = data as Record<string, unknown>;
+    // A share notification (#729) links to the record when its type gives a
+    // root-relative path, otherwise to the sign-in page.
+    const path = typeof fields.path === 'string' && fields.path.startsWith('/') && !fields.path.startsWith('//') ? fields.path : null;
+    return { ...fields, signInUrl: `${base}/login`, ...(path ? { openUrl: `${base}${path}` } : {}) };
   }
 
   notify(eventKey: string, userId: string, data: unknown): Promise<void> {

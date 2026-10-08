@@ -45,12 +45,12 @@ function rejection(fn: () => void): RegistryError {
 }
 
 describe('app-metric registry', () => {
-  it('holds the 31 platform metrics, then the three event bus metrics, the two organization metrics and the sharing metric, in declaration order', () => {
+  it('holds the 31 platform metrics, then the three event bus metrics, the two organization metrics and the two sharing metrics, in declaration order', () => {
     expect(appMetricRegistry.ids()).toEqual(
       [...PLATFORM_APP_METRICS, ...EVENT_BUS_APP_METRICS, ...ORGANIZATIONS_APP_METRICS, ...SHARING_APP_METRICS].map((d) => d.key),
     );
     expect(PLATFORM_APP_METRICS).toHaveLength(31);
-    expect(appMetricRegistry.size).toBe(37);
+    expect(appMetricRegistry.size).toBe(38);
   });
 
   it('derives APP_METRIC_NAMES from the registry', () => {

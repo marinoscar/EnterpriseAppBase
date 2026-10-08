@@ -90,8 +90,10 @@ export interface SharedWithYouNotificationData {
   sharedBy?: string;
   /** When the share expires (ISO 8601), when it does. */
   expiresAt?: string;
-  /** Absolute URL of the record (or the app), added by the app; the layout omits the button without it. */
+  /** Absolute URL of the record, added by the app when the type gives a `path`. */
   openUrl?: string;
+  /** Absolute URL of the app's sign-in page, added by the app; the button's fallback. The layout omits the button without either. */
+  signInUrl?: string;
 }
 
 /**
@@ -189,11 +191,16 @@ export function renderSharedWithYouEmail(data: SharedWithYouNotificationData, ki
     </p>
   `;
 
+  const cta = data.openUrl
+    ? { ctaLabel: 'Open', ctaUrl: data.openUrl }
+    : data.signInUrl
+      ? { ctaLabel: 'Sign in', ctaUrl: data.signInUrl }
+      : {};
   const html = kit.renderLayout({
     title: heading,
     previewText: changed ? 'Your role on a shared item changed.' : 'An item was shared with you.',
     bodyHtml,
-    ...(data.openUrl ? { ctaLabel: 'Open', ctaUrl: data.openUrl } : {}),
+    ...cta,
   });
 
   const name = data.title ?? 'An item';
@@ -203,7 +210,7 @@ export function renderSharedWithYouEmail(data: SharedWithYouNotificationData, ki
   ];
   if (data.expiresAt) lines.push('', `Your access ends on ${data.expiresAt.slice(0, 10)}.`);
   lines.push('', `You can find everything shared with you under "Shared with me" in ${kit.appName}.`);
-  const text = kit.plainText({ title: heading, lines, ...(data.openUrl ? { ctaLabel: 'Open', ctaUrl: data.openUrl } : {}) });
+  const text = kit.plainText({ title: heading, lines, ...cta });
 
   return { subject, html, text, headers: { ...kit.headers } };
 }

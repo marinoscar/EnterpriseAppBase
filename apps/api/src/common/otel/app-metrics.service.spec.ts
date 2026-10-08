@@ -541,6 +541,8 @@ describe('AppMetricsService baseline (#680)', () => {
       orgMembersRemoved: 'app.org.members_removed',
       // The sharing slice's mutation counter (#728, PP-7.1).
       sharingGroupMutations: 'app.sharing.group_mutations',
+      // The AccessPolicy decision counter (#729, PP-7.2).
+      sharingAccessDecisions: 'app.sharing.access_decisions',
     });
     expect(Object.keys(APP_METRIC_NAMES).slice(0, 31)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });
@@ -627,6 +629,12 @@ describe('AppMetricsService baseline (#680)', () => {
       { kind: 'counter', name: 'app.org.members_removed', options: { description: 'Members removed from an organization by an organization administrator.', unit: '{member}' } },
       // Added by the sharing slice (#728).
       { kind: 'counter', name: 'app.sharing.group_mutations', options: { description: 'Committed changes to groups, their members and their invites, by operation.', unit: '{mutation}' } },
+      // Added by the grants slice (#729).
+      {
+        kind: 'counter',
+        name: 'app.sharing.access_decisions',
+        options: { description: 'AccessPolicy decisions on shareable records, by resource type, outcome and what decided them.', unit: '{decision}' },
+      },
       { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
       { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },
       { kind: 'gauge', name: 'app.backup.last_success.timestamp', options: { description: 'When the most recent completed database backup finished (unix seconds).', unit: 's' } },

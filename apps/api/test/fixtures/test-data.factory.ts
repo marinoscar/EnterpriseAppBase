@@ -269,6 +269,22 @@ export const mockPermissions = {
     name: 'groups:admin',
     description: 'View and administer every group of the organization, including groups you do not belong to',
   },
+  // Grants (#729, PP-7.2). ORG scope, the same matrix as groups.
+  sharingRead: {
+    id: randomUUID(),
+    name: 'sharing:read',
+    description: 'View what is shared with you and who a record you can share is shared with, and remove your own access',
+  },
+  sharingWrite: {
+    id: randomUUID(),
+    name: 'sharing:write',
+    description: 'Share records you are allowed to share with people and groups of the organization, and change or revoke those shares',
+  },
+  sharingAdmin: {
+    id: randomUUID(),
+    name: 'sharing:admin',
+    description: 'Manage the shares of every record of the organization, including records you do not own',
+  },
 };
 
 // `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
@@ -626,6 +642,9 @@ export const rolePermissionsMap = {
     mockPermissions.groupsRead,
     mockPermissions.groupsWrite,
     mockPermissions.groupsAdmin,
+    mockPermissions.sharingRead,
+    mockPermissions.sharingWrite,
+    mockPermissions.sharingAdmin,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -636,6 +655,8 @@ export const rolePermissionsMap = {
     mockPermissions.storageWrite,
     mockPermissions.groupsRead,
     mockPermissions.groupsWrite,
+    mockPermissions.sharingRead,
+    mockPermissions.sharingWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -652,6 +673,7 @@ export const rolePermissionsMap = {
     mockPermissions.userSettingsWrite,
     mockPermissions.storageRead,
     mockPermissions.groupsRead,
+    mockPermissions.sharingRead,
   ],
 };
 
@@ -669,6 +691,9 @@ const ORG_SCOPED_PERMISSIONS = new Set([
   'groups:read',
   'groups:write',
   'groups:admin',
+  'sharing:read',
+  'sharing:write',
+  'sharing:admin',
 ]);
 
 /**

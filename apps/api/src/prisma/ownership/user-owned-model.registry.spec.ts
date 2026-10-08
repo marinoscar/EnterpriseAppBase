@@ -23,12 +23,12 @@ describe('the app fills userOwnedModelRegistry', () => {
     expect(userOwnedModelRegistry.ids()).toEqual([...PLATFORM_USER_OWNED_MODELS, ...SHARING_USER_OWNED_MODELS].map((def) => def.model));
   });
 
-  it('holds 29 models and 34 User foreign keys (the sharing slice adds 3 and 5, #728)', () => {
+  it('holds 30 models and 37 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729)', () => {
     const fields = userOwnedModelRegistry
       .list()
       .flatMap((def) => [...(def.ownerField ? [def.ownerField] : []), ...(def.actorFields ?? [])]);
-    expect(userOwnedModelRegistry.size).toBe(29);
-    expect(fields).toHaveLength(34);
+    expect(userOwnedModelRegistry.size).toBe(30);
+    expect(fields).toHaveLength(37);
   });
 
   it('gives every entry a non-empty rationale', () => {
