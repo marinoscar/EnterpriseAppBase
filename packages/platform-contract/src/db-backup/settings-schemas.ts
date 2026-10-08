@@ -65,8 +65,8 @@ import { BACKUP_TIME_OF_DAY_PATTERN, type DbBackupEnum } from './constants.js';
  * nullable and not optional-in-storage, so no consumer ever has to ask "absent,
  * or empty?" and get two answers. Empty means "whatever provider is active",
  * which is the only default a template repository can ship honestly: a literal
- * would have to be a guess at somebody else's deployment, and `isUsableStorage
- * Provider` (`db-backup/db-backup-storage.ts`) turns a disagreement with the
+ * would have to be a guess at somebody else's deployment, and
+ * `isUsableStorage Provider` (`db-backup/db-backup-storage.ts`) turns a disagreement with the
  * live `storage.provider` into a loud 400. Shipping `'s3'` here meant every
  * deployment that selected R2 failed EVERY backup on a value nobody chose —
  * a default the operator never typed must not be able to redirect or block

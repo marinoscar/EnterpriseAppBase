@@ -202,9 +202,9 @@ export function compactTimestamp(at: Date): string {
 /**
  * The storage key for one backup run. Server-chosen, collision-free, sortable.
  *
- * @param at the run's start time — the caller's clock, so the key and the row
+ * @param at - the run's start time — the caller's clock, so the key and the row
  * cannot disagree about when the backup happened.
- * @param runId the run's own id, generated before the insert precisely so the
+ * @param runId - the run's own id, generated before the insert precisely so the
  * key can contain it.
  *
  * @stability experimental
@@ -229,8 +229,8 @@ export function buildBackupStorageKey(at: Date, runId: string): string {
  * trimmed because the value is typed by a human into a settings form.
  *
  * SINCE #373 EMPTY IS ALSO THE SHIPPED DEFAULT, and is representable: the
- * schemas dropped `.min(1)` and `DEFAULT_SYSTEM_SETTINGS.databaseBackup
- * .storageProvider` is `''`. Before that, this branch was unreachable for a
+ * schemas dropped `.min(1)` and
+ * `DEFAULT_SYSTEM_SETTINGS.databaseBackup .storageProvider` is `''`. Before that, this branch was unreachable for a
  * fresh deployment — the default was the literal `'s3'`, so selecting R2 in the
  * `storage` namespace made this function return FALSE and failed every backup
  * on a value nobody had chosen. Nothing about the comparison below changed; a
@@ -268,7 +268,7 @@ export function isUsableStorageProvider(
  * which is what supplies `active` — one place that reads the live provider, so
  * the two sites cannot be handed different answers.
  *
- * @throws {DatabaseBackupStorageProviderError} which #283 maps to a 400.
+ * @throws {@link DatabaseBackupStorageProviderError} which #283 maps to a 400.
  *
  * @stability experimental
  */

@@ -69,3 +69,19 @@ export type {
   UseDbBackupOptions,
   UseDbBackupRunsResult,
 } from './use-db-backup.js';
+export { DbBackupWebAdaptersProvider, useDbBackupWebAdapters } from './adapters.js';
+/** @stability experimental */
+export type { DbBackupWebAdapters } from './adapters.js';
+/** @stability experimental */
+export type {
+  DbBackupDataTableComponent,
+  DbBackupDataTableProps,
+  DbBackupTableColumn,
+  DbBackupTableColumnPriority,
+  DbBackupTableEnumValue,
+  DbBackupTableFilter,
+  DbBackupTableFilterModelOperator,
+  DbBackupTableFilterOperator,
+  DbBackupTableRowAction,
+  DbBackupTableSortState,
+} from './table.js';

@@ -36,8 +36,8 @@ export interface DbBackupPermissionDeclaration<Id extends string = string> {
 // and the backup history are operational surfaces).
 /**
  * The db-backup permissions (`db_backup:read`, `db_backup:write`,
- * `db_backup:restore`): system scope, `admin` only. The admin `Database
- * backups` card declares `db_backup:read`, the exact string
+ * `db_backup:restore`): system scope, `admin` only. The admin
+ * `Database backups` card declares `db_backup:read`, the exact string
  * `DatabaseBackupController` enforces.
  *
  * @example

@@ -58,8 +58,8 @@ export class DatabaseBackupAlreadyRunningError extends Error {
      *
      * ⚠ #351 ADDED A SECOND, DIFFERENT REASON FOR `null`, and it is not a
      * race: a backup job can legitimately be in flight with no run row to
-     * point at, because an administrator deleted the row or `job.history
-     * .purge` released the `job_id` link. "A backup is already queued, and
+     * point at, because an administrator deleted the row or
+     * `job.history .purge` released the `job_id` link. "A backup is already queued, and
      * here is no id" is still true and useful; a 500 because an audit link was
      * missing would not be.
      */

@@ -388,7 +388,7 @@ export async function checkPgClientVersion(
         `${serverMajor}. pg_dump refuses to dump a server newer than itself, so no backup can ` +
         `succeed until the image is rebuilt with a postgresql${serverMajor}-client (or newer) ` +
         'package: update the apk pin in apps/api/Dockerfile and MIN_PG_CLIENT_MAJOR in ' +
-        'apps/api/src/db-backup/pg-version.util.ts together, then redeploy. See ' +
+        'packages/platform-api/src/db-backup/pg-version.util.ts together, then redeploy. See ' +
         'docs/runbooks/postgres-client-version.md.',
     };
   }

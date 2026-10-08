@@ -64,8 +64,8 @@ export interface DbBackupModuleOptions {
   restoreEnabled?: boolean;
   /**
    * The process-level scheduler switch. Default: the app's
-   * `dbBackup.scheduleEnabled` config key (`DB_BACKUP_SCHEDULE_ENABLED !==
-   * 'false'`), else on.
+   * `dbBackup.scheduleEnabled` config key (
+   * `DB_BACKUP_SCHEDULE_ENABLED !== 'false'`), else on.
    */
   scheduleEnabled?: boolean;
   /**

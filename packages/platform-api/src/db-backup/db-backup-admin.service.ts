@@ -289,7 +289,7 @@ export class DatabaseBackupAdminService {
    * The stored policy, plus the two things it does not contain: when the
    * schedule will next fire, and whether a backup is happening right now.
    *
-   * @param now injected so a test can pin the projection without moving the
+   * @param now - injected so a test can pin the projection without moving the
    * wall clock — the same reason `DatabaseBackupRetentionService.prune` takes
    * one.
    */
@@ -535,8 +535,8 @@ export class DatabaseBackupAdminService {
   /**
    * One page of runs, newest first.
    *
-   * `orderBy: { createdAt: 'desc' }` is served by the `[status, createdAt
-   * DESC]` index the retention sweep already walks, and `createdAt` rather than
+   * `orderBy: { createdAt: 'desc' }` is served by the
+   * `[status, createdAt DESC]` index the retention sweep already walks, and `createdAt` rather than
    * `startedAt` because it is never null — a run that failed before it started
    * still has to appear, and it is precisely the run an operator is looking for.
    */
@@ -762,8 +762,8 @@ export class DatabaseBackupAdminService {
    * pre-flight itself, deliberately, so that no caller can reach a restore with
    * no gates by forgetting to.
    *
-   * @throws {DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
-   * @throws {DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
+   * @throws {@link DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
+   * @throws {@link DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
    */
   async startRestore(
     id: string,
@@ -806,8 +806,8 @@ export class DatabaseBackupAdminService {
    * backup nobody ever restored would be a different sentence wearing the same
    * word.
    *
-   * @throws {DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
-   * @throws {DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
+   * @throws {@link DatabaseRestoreRunNotFoundError} mapped to 404 by the controller.
+   * @throws {@link DatabaseRestoreNotAllowedError} mapped to 400 by the controller.
    */
   async rollbackRestore(id: string, actorUserId: string): Promise<RestoreRollbackResult> {
     // #685. See `startRestore`.
@@ -982,7 +982,7 @@ export class DatabaseBackupAdminService {
    * timezone check a no-op on a deployment that has not switched backups on
    * yet — which is the state a schedule is normally configured in.
    *
-   * @throws {InvalidTimezoneError} which the read path swallows. See
+   * @throws {@link InvalidTimezoneError} which the read path swallows. See
    * {@link projectNextRunAt}.
    */
   private computeNextRunAt(policy: SystemDatabaseBackupValue, now: Date): Date | null {

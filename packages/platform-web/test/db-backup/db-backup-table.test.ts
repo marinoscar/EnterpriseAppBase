@@ -43,7 +43,7 @@ import {
   RESTORE_STATUSES,
 } from '../../src/db-backup/headless/index.js';
 import type { DbBackupRun } from '../../src/db-backup/headless/index.js';
-import type { JobsTableColumn as DataTableColumn } from '../../src/jobs/headless/index.js';
+import type { DbBackupTableColumn as DataTableColumn } from '../../src/db-backup/headless/index.js';
 
 const NOW = new Date('2026-01-01T12:00:00.000Z');
 

@@ -834,8 +834,8 @@ interface CarriedAudit {
  * the carry means it is written IF AND ONLY IF both renames have succeeded, into
  * the database that survives, immediately before the exit.
  *
- * Everything else about this row is the shape `JobTerminalService
- * .completeSucceeded` would have written: `succeeded`, `finished_at` stamped,
+ * Everything else about this row is the shape
+ * `JobTerminalService .completeSucceeded` would have written: `succeeded`, `finished_at` stamped,
  * `scheduled_for`, `lease_expires_at` and `claimed_by_node_id` all cleared,
  * `executor` and `last_error` preserved. Nothing that reads a job row after the
  * restart can tell the difference, which is the point.
@@ -983,8 +983,8 @@ ON CONFLICT (id) DO UPDATE SET
  * promoted database's `users` table is the ARCHIVE's — so an administrator who
  * was created after the backup was taken does not exist in it. A plain value
  * would raise a foreign-key violation and abort the WHOLE carry-over, losing
- * every backup record to preserve one attribution. `(SELECT id FROM users WHERE
- * id = $n)` yields NULL instead, which is exactly what the column already means
+ * every backup record to preserve one attribution.
+ * `(SELECT id FROM users WHERE id = $n)` yields NULL instead, which is exactly what the column already means
  * for a scheduled run, and which `onDelete: SetNull` already declares as the
  * behaviour when an actor goes away.
  *
@@ -1232,7 +1232,7 @@ export class DatabaseRestoreService {
    * this file's own rollback path — away from a restore with no gates at all.
    * The cost is a handful of catalog reads.
    *
-   * @param run the archive to replay. Looked up, permission-checked and
+   * @param run - the archive to replay. Looked up, permission-checked and
    * `completed`-filtered by #286, exactly as pre-flight's own contract says.
    */
   async startRestore(
@@ -1575,7 +1575,7 @@ export class DatabaseRestoreService {
    *     is something in there to restore. It cannot tell you they are the RIGHT
    *     bytes.
    *
-   * @throws {DatabaseRestoreArchiveError} before anything has been created.
+   * @throws {@link DatabaseRestoreArchiveError} before anything has been created.
    */
   private async downloadAndVerifyArchive(run: DatabaseBackupRun, path: string): Promise<void> {
     const source = await this.storage.download(run.storageKey);

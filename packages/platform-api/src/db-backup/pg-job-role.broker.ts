@@ -954,8 +954,8 @@ export class PgJobRoleBroker implements JobSecretBroker {
    * The three grants that make a `pg_dump` possible and nothing else possible.
    *
    * ⚠ ON A SESSION ATTACHED TO THE LIVE DATABASE, because there is no other
-   * way: schema and table ACLs live in per-database catalogs, and `GRANT ...
-   * IN SCHEMA public` has no cross-database form. This is the second of the two
+   * way: schema and table ACLs live in per-database catalogs, and
+   * `GRANT ... IN SCHEMA public` has no cross-database form. This is the second of the two
    * connections the file header describes.
    *
    * `ON ALL TABLES` is a SNAPSHOT — it grants on the tables that exist right
@@ -1053,7 +1053,7 @@ export class PgJobRoleBroker implements JobSecretBroker {
    * with a reason, not to turn an infrastructure problem into a stack trace on
    * a node's request.
    *
-   * @param fresh bypasses the cache. Only {@link preflight} passes it — see
+   * @param fresh - bypasses the cache. Only {@link preflight} passes it — see
    * there for why an operator must not be shown a stale "no".
    */
   private async probe(fresh = false): Promise<ProbeOutcome> {

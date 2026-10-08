@@ -126,7 +126,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import RestoreIcon from '@mui/icons-material/Restore';
 import UndoIcon from '@mui/icons-material/Undo';
 import { Navigate } from 'react-router-dom';
-import type { JobsTableFilter, JobsTableRowAction as DataTableRowAction } from '../../jobs/headless/index.js';
+import type { DbBackupTableFilter as JobsTableFilter, DbBackupTableRowAction as DataTableRowAction } from '../headless/index.js';
 import { usePlatformViewer } from '../../core/index.js';
 import { DB_BACKUP_PAGE_DESCRIPTION, DB_BACKUP_PAGE_TITLE } from './copy.js';
 import { DbBackupConfigPanel } from './DbBackupConfigPanel.js';
@@ -134,7 +134,7 @@ import { DbBackupRestoreDialog } from './DbBackupRestoreDialog.js';
 import type { RestoreDialogIntent } from './DbBackupRestoreDialog.js';
 import { DbBackupTable as DataTable } from './table.js';
 
-/** The table's filter model: the jobs slice's (#854). */
+/** The table's filter model. */
 type DataTableFilterModel = JobsTableFilter[];
 import {
   DB_BACKUP_POLL_INTERVAL_MS,
@@ -178,8 +178,8 @@ const PAGE_DESCRIPTION = DB_BACKUP_PAGE_DESCRIPTION;
  * are DISABLED with the reason rather than hidden.
  *
  * Needs `PlatformHostProvider` (the transport and the viewer's permissions)
- * and, for the responsive table, the jobs slice's `JobsWebAdaptersProvider`
- * with a `DataTable` (a plain table otherwise).
+ * and, for the responsive table, `DbBackupWebAdaptersProvider` with a
+ * `DataTable` (a plain table otherwise).
  *
  * @returns the page.
  *

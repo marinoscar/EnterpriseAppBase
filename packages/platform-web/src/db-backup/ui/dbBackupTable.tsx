@@ -60,10 +60,10 @@ import SyncIcon from '@mui/icons-material/Sync';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Box, Chip, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
 import type { ChipProps } from '@mui/material';
-import type { JobsTableColumn as DataTableColumn, JobsTableFilter } from '../../jobs/headless/index.js';
+import type { DbBackupTableColumn as DataTableColumn, DbBackupTableFilter } from '../headless/index.js';
 
-/** The table's filter model: the jobs slice's (#854). */
-type DataTableFilterModel = JobsTableFilter[];
+/** The table's filter model. */
+type DataTableFilterModel = DbBackupTableFilter[];
 import {
   DB_BACKUP_RUN_STATUSES,
   DB_BACKUP_TRIGGERS,
@@ -76,12 +76,13 @@ import type {
   DbBackupTrigger,
   RestoreStatus,
 } from '../headless/index.js';
-// Imported from the jobs slice's formatters (#854) rather than re-implemented. Both are
+// The jobs slice's formatters (#854), copied into `internal/format.ts` because a
+// slice of this package imports only `core`; kept identical. Both are
 // three-line functions, which is exactly why copying them is tempting and
 // wrong: two formatters drift into one page reading "1500ms" beside another
 // reading "1.5s" for the same number, and an operator who has just come from
 // the jobs page must not have to re-read the timestamp format.
-import { formatDateTime, formatDuration, shortId } from '../../jobs/headless/index.js';
+import { formatDateTime, formatDuration, shortId } from '../internal/format.js';
 
 /**
  * Persistence key for `user_settings.dataTables`. A constant, never derived
@@ -266,7 +267,7 @@ export function formatBytes(value: string | null | undefined): string {
 /**
  * How long a run took, or how long it has been going.
  *
- * @param now the instant an unfinished run is measured against, passed in for
+ * @param now - the instant an unfinished run is measured against, passed in for
  * the same one-render-one-moment reason `buildWorkerNodeColumns` takes it: a
  * page of rows each calling `new Date()` can print two runs that started in the
  * same second as different durations.
@@ -362,7 +363,7 @@ export function asRunTrigger(value: string | undefined): DbBackupTrigger | undef
 // =============================================================================
 
 /**
- * @param now the instant every relative measurement is taken against — see
+ * @param now - the instant every relative measurement is taken against — see
  * `formatRunDuration`.
  *
  * @stability experimental

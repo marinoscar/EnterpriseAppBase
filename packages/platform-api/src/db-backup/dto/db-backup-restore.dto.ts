@@ -175,8 +175,8 @@ export type RestoreOverrideFieldIsReal =
  * Fails to compile if the tie above is broken. No runtime form, so it costs
  * nothing at import time.
  *
- * The false branch is an OBJECT rather than `never` on purpose: `never extends
- * true` is `true`, so a `never` false-branch would make this assertion pass in
+ * The false branch is an OBJECT rather than `never` on purpose:
+ * `never extends true` is `true`, so a `never` false-branch would make this assertion pass in
  * exactly the case it exists to catch.
  */
 type AssertTrue<T extends true> = T;

@@ -31,7 +31,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import type { DbBackupApi, DbBackupConfig, DbBackupRun } from '../../src/db-backup/headless/index.js';
-import { useVisiblePolling as sharedUseVisiblePolling } from '../../src/jobs/headless/index.js';
+import { useVisiblePolling as sharedUseVisiblePolling } from '../../src/db-backup/internal/use-visible-polling.js';
 import {
   useDbBackupActions,
   useDbBackupConfig,
@@ -146,9 +146,10 @@ function setTabHidden(hidden: boolean) {
 }
 
 describe('the backup poll', () => {
-  it('is the jobs slice\'s ONE `useVisiblePolling`, not a copy', () => {
-    // Identity, not behaviour — see the file header. Since #740 the backup
-    // page's poll is the jobs slice's (`@marinoscar/platform-web/jobs/headless`).
+  it('is the slice\'s ONE `useVisiblePolling`', () => {
+    // Identity, not behaviour — see the file header. Since #740 the slice keeps
+    // a copy of the jobs slice's hook (a slice of this package imports only
+    // `core`), and the hooks module re-exports exactly that one.
     expect(useVisiblePolling).toBe(sharedUseVisiblePolling);
   });
 

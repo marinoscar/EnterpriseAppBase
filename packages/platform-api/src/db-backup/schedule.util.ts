@@ -244,7 +244,7 @@ export function parseTimeOfDay(timeOfDay: string | undefined): { hour: number; m
 /**
  * Parses the cron subset this module emits.
  *
- * @throws {InvalidCronExpressionError} for anything outside that subset.
+ * @throws {@link InvalidCronExpressionError} for anything outside that subset.
  *
  * @stability experimental
  */
@@ -286,8 +286,8 @@ export function parseCronExpression(expression: string): ParsedCronExpression {
  * construction.
  *
  * @returns `null` when nothing was due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
- * @throws {InvalidTimezoneError} for a timezone this runtime does not know.
- * @throws {InvalidCronExpressionError} for an unsupported expression.
+ * @throws {@link InvalidTimezoneError} for a timezone this runtime does not know.
+ * @throws {@link InvalidCronExpressionError} for an unsupported expression.
  *
  * @stability experimental
  */
@@ -303,8 +303,8 @@ export function previousFireBoundary(
  * The next instant strictly after `from` at which `expression` is due.
  *
  * @returns `null` when nothing is due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
- * @throws {InvalidTimezoneError} for a timezone this runtime does not know.
- * @throws {InvalidCronExpressionError} for an unsupported expression.
+ * @throws {@link InvalidTimezoneError} for a timezone this runtime does not know.
+ * @throws {@link InvalidCronExpressionError} for an unsupported expression.
  *
  * @stability experimental
  */

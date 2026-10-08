@@ -22,6 +22,7 @@ Slices (each a subpath export with its own README):
 | `@marinoscar/platform-contract/storage` | The `storage` settings namespace (with the no-secret proof), the objects API and status shapes, and the storage-config admin bodies and results (save, connection test, bucket provisioning) (#736) | [src/storage/README.md](src/storage/README.md) |
 | `@marinoscar/platform-contract/exports` | The `/api/exports` request and responses, the cell, column and request-field shapes, and the JSON export file envelope (#744) | [src/exports/README.md](src/exports/README.md) |
 | `@marinoscar/platform-contract/ai` | The `ai` system and user settings namespaces (with the no-secret proof), the org layer and its tighten-only merge, the org-key and feature-list shapes (#739) | [src/ai/README.md](src/ai/README.md) |
+| `@marinoscar/platform-contract/db-backup` | The `databaseBackup` settings namespace, every `/api/admin/db-backup` body and response (config, runs, actions, restore, rollback, node-credential pre-flight) and the `db.backup.run` node result (#740) | [src/db-backup/README.md](src/db-backup/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 

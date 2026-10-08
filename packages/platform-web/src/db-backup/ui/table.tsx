@@ -4,7 +4,7 @@
 // identity slice's fallback is the model). The fallback offers no filter menu:
 // a `filterOnly` column is skipped, and the page's filters still apply through
 // the query. Slice-internal: a copy of the jobs slice's own, which that slice
-// does not export, over the same `JobsWebAdaptersProvider` table.
+// does not export, over `DbBackupWebAdaptersProvider`'s table.
 
 import { useState } from 'react';
 import type { ReactElement } from 'react';
@@ -27,8 +27,8 @@ import {
   Tooltip,
 } from '@mui/material';
 
-import { useJobsWebAdapters } from '../../jobs/headless/index.js';
-import type { JobsDataTableProps, JobsTableRowAction } from '../../jobs/headless/index.js';
+import { useDbBackupWebAdapters } from '../headless/adapters.js';
+import type { DbBackupDataTableProps as JobsDataTableProps, DbBackupTableRowAction as JobsTableRowAction } from '../headless/table.js';
 
 /**
  * The app's table, or the fallback.
@@ -36,7 +36,7 @@ import type { JobsDataTableProps, JobsTableRowAction } from '../../jobs/headless
  * @stability experimental
  */
 export function DbBackupTable<Row>(props: JobsDataTableProps<Row>): ReactElement | null {
-  const { DataTable } = useJobsWebAdapters();
+  const { DataTable } = useDbBackupWebAdapters();
   if (DataTable) return <DataTable<Row> {...props} />;
   return <FallbackTable<Row> {...props} />;
 }

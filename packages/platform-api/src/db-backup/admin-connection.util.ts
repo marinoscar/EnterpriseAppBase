@@ -266,7 +266,7 @@ export interface AdminConnection extends PgConnection {
  * `DATABASE_URL` override, which is the documented escape hatch for a
  * connection the `POSTGRES_*` formula cannot express.
  *
- * @param maintenanceDatabase the database to ATTACH to. A parameter rather
+ * @param maintenanceDatabase - the database to ATTACH to. A parameter rather
  * than a new environment variable, following `PG_DUMP_COMMAND`'s precedent: the
  * deployments that need something other than `postgres` are rare enough that a
  * caller-supplied value is the right seam, and an unused variable in
@@ -542,7 +542,7 @@ export function quoteIdentifier(identifier: string): string {
  * {@link InvalidSqlLiteralError}: the only literal this application
  * interpolates is a live database password.
  *
- * @param what what KIND of literal this is, for the error message only.
+ * @param what - what KIND of literal this is, for the error message only.
  *
  * @stability experimental
  */
@@ -695,8 +695,8 @@ export async function probeCreateDatabasePrivilege(client: AdminQueryClient): Pr
  *
  * `rolsuper OR rolcreaterole`, because a superuser creates roles without the
  * attribute being set — the same shape, and the same reasoning, as the
- * `CREATEDB` probe. `current_user` rather than the configured user name: `SET
- * ROLE`, a pooler, or a `DATABASE_URL` override can all make the session's role
+ * `CREATEDB` probe. `current_user` rather than the configured user name:
+ * `SET ROLE`, a pooler, or a `DATABASE_URL` override can all make the session's role
  * something other than what the environment says.
  *
  * ⚠ A READ. It creates nothing, exactly as `JobSecretBroker.usable()` is

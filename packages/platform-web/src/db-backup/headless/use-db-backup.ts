@@ -53,7 +53,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isPlatformApiError, useOptionalPlatformHost } from '../../core/index.js';
-import { useVisiblePolling } from '../../jobs/headless/index.js';
+import { useVisiblePolling } from '../internal/use-visible-polling.js';
+import { useDbBackupWebAdapters } from './adapters.js';
 import { useIsMounted } from '../internal/use-is-mounted.js';
 import { createDbBackupApi } from './db-backup-client.js';
 import type {
@@ -69,8 +70,8 @@ import type {
   DbBackupApi,
 } from './db-backup-client.js';
 
-// One implementation, the jobs slice's (`@marinoscar/platform-web/jobs/headless`)
-// — see the file header.
+// The jobs slice's implementation, copied (`internal/use-visible-polling.ts`):
+// a slice of this package imports only `core`.
 export { useVisiblePolling };
 
 /**
@@ -94,12 +95,14 @@ export interface UseDbBackupOptions {
  * @stability experimental
  */
 export function useDbBackupApi(explicit?: DbBackupApi): DbBackupApi {
+  const adapters = useDbBackupWebAdapters();
   const hostApi = useOptionalPlatformHost()?.api;
   const fromHost = useMemo(() => (hostApi ? createDbBackupApi(hostApi) : null), [hostApi]);
-  const api = explicit ?? fromHost;
+  const api = explicit ?? adapters.api ?? fromHost;
   if (!api) {
     throw new Error(
-      'useDbBackupApi: no db-backup client. Mount PlatformHostProvider (@marinoscar/platform-web/core) or pass `api`.',
+      'useDbBackupApi: no db-backup client. Mount PlatformHostProvider (@marinoscar/platform-web/core) or ' +
+        'DbBackupWebAdaptersProvider with an `api`, or pass `api`.',
     );
   }
   return api;

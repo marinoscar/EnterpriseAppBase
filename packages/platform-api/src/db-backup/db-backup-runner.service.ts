@@ -749,7 +749,7 @@ export class DatabaseBackupRunnerService {
    * is what keeps the form and the runner from ever judging the same value
    * against two different answers.
    *
-   * @throws {DatabaseBackupStorageProviderError} → a 400.
+   * @throws {@link DatabaseBackupStorageProviderError} → a 400.
    */
   async assertStorageProviderUsable(
     configured: string | null | undefined
@@ -816,11 +816,11 @@ export class DatabaseBackupRunnerService {
    * that its id can be written onto the run row by the insert rather than by
    * an update. See (3).
    *
-   * @throws {DatabaseBackupAlreadyRunningError} when either guard refused —
+   * @throws {@link DatabaseBackupAlreadyRunningError} when either guard refused —
    * the queue's dedup index (a backup job is already in flight) or the run
    * table's single-active index (a `pre_restore` dump, say) — carrying the id
    * of the run that won where one can be identified.
-   * @throws {DatabaseBackupStorageProviderError} when the configured provider
+   * @throws {@link DatabaseBackupStorageProviderError} when the configured provider
    * is not the active one. Raised BEFORE anything is written, so a
    * misconfigured provider is a clean 400 at request time and not a job that
    * fails an hour later.
@@ -976,9 +976,9 @@ export class DatabaseBackupRunnerService {
    * server-chosen `storageKey` set. The dump has not finished — see property 1
    * in this file's header for why it must not have.
    *
-   * @throws {DatabaseBackupAlreadyRunningError} when the index refused the
+   * @throws {@link DatabaseBackupAlreadyRunningError} when the index refused the
    * claim, carrying the id of the run that won.
-   * @throws {DatabaseBackupStorageProviderError} when the configured provider
+   * @throws {@link DatabaseBackupStorageProviderError} when the configured provider
    * is not the active one.
    */
   async startBackup(input: StartBackupInput): Promise<DatabaseBackupRun> {

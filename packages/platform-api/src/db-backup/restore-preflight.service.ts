@@ -260,8 +260,8 @@ export interface RestoreGateResult {
 /**
  * The rollback mode a restore will actually use.
  *
- * `retain_database` and `drop_database` are what `databaseBackup
- * .restoreRollbackMode` stores; `pre_restore_dump` is what `drop_database`
+ * `retain_database` and `drop_database` are what
+ * `databaseBackup .restoreRollbackMode` stores; `pre_restore_dump` is what `drop_database`
  * MEANS once you ask what the way back is — the `pre_restore` archive #285
  * takes immediately before the swap. Naming the effective mode after the thing
  * that actually recovers you (rather than after the thing that is destroyed) is
@@ -528,7 +528,7 @@ export class DatabaseRestorePreflightService {
    * Answers "can this backup be restored, and what will it cost?" without
    * changing anything.
    *
-   * @param run the backup row. Looked up, permission-checked and
+   * @param run - the backup row. Looked up, permission-checked and
    * `completed`-filtered by #286's endpoint — this service answers a question
    * about a row it is given, exactly as `getDownloadUrl` does about one it
    * fetched.

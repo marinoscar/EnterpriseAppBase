@@ -165,7 +165,7 @@ export class DatabaseBackupRetentionService {
    * NEVER THROWS — see the header. Returns what it managed, so a caller that
    * wants to log something has something truthful to log.
    *
-   * @param now pinned by the caller so both rules judge against one instant,
+   * @param now - pinned by the caller so both rules judge against one instant,
    * and so a test does not have to move the wall clock.
    */
   async prune(now: Date = new Date()): Promise<BackupPruneResult> {
