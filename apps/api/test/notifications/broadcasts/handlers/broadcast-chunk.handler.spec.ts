@@ -29,16 +29,16 @@ import {
   BroadcastChunkHandler,
   BROADCAST_CHUNK_TYPE,
   BROADCAST_EMAIL_PROVIDER_KEY,
-} from './broadcast-chunk.handler';
+} from '../../support/notifications';
 import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import type { ConfigService } from '@nestjs/config';
 import type { JobHandler } from '@marinoscar/platform-api/jobs';
 import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
-import type { NotificationsService } from '../../notifications.service';
-import type { PrismaService } from '../../../prisma/prisma.service';
-import { BROADCAST_CHUNK_SIZE, BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';
+import type { NotificationsService } from '../../support/notifications';
+import type { PrismaService } from '../../../../src/prisma/prisma.service';
+import { BROADCAST_CHUNK_SIZE, BROADCAST_SUBJECT_TYPE } from '../../support/notifications';
 
 const BROADCAST_ID = 'bcast-1';
 const CUTOFF = new Date('2026-03-01T12:00:00.000Z');

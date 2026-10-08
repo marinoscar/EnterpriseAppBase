@@ -21,7 +21,7 @@ import { AI_CREDENTIAL_PURPOSE_DEF } from '../../ai/config/ai-credential.constan
 import { APP_CREDENTIAL_PURPOSES, APP_USER_CREDENTIAL_PURPOSES } from '../../app-registrations/credentials';
 import { SES_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';
 import { SMTP_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';
-import { PUSH_VAPID_CREDENTIAL_PURPOSE_DEF } from '../../notifications/push-vapid-credential.constants';
+import { PUSH_VAPID_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/notifications';
 import { STORAGE_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/storage';
 
 registerCredentialPurpose(AI_CREDENTIAL_PURPOSE_DEF);

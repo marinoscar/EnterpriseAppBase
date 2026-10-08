@@ -1,11 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { WebPushError } from 'web-push';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { NOTIFICATION_EVENTS } from './notification-events';
-import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
-import { NotificationPolicyService } from './notification-policy.service';
-import { PUSH_CONFIG_KEY, PushConfigService } from './push-config.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { NOTIFICATION_EVENTS } from './support/notifications';
+import { DEFAULT_NOTIFICATION_POLICY } from './support/notifications';
+import { NotificationPolicyService } from './support/notifications';
+import { PUSH_CONFIG_KEY, PushConfigService } from './support/notifications';
 import {
   PUSH_TEST_EVENT_KEY,
   PushTestService,
@@ -13,8 +13,8 @@ import {
   isValidVapidSubject,
   normalizeBase64Url,
   privateKeyDerivesPublicKey,
-} from './push-test.service';
-import { pushTestResponseSchema } from './dto/push-test.dto';
+} from './support/notifications';
+import { pushTestResponseSchema } from './support/notifications';
 
 // =============================================================================
 // PushTestService — tests (issue #618)

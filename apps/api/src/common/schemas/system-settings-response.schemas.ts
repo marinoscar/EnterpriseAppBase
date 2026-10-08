@@ -14,13 +14,9 @@
 
 import { z } from 'zod';
 
-// #225, epic #215. Part of the represented resource, which is what makes a
-// PUT that omits it meaningful (and rejected) rather than a client simply not
-// knowing the field exists. Nothing enforces these values yet — that is #226.
-export const notificationsResponseSchema = z.object({
-  browserEnabled: z.boolean(),
-  disabledEvents: z.array(z.string()),
-});
+// #225, epic #215: the `notifications` response branch, the notifications
+// slice's wire contract since #738.
+export { notificationsResponseSchema } from '@marinoscar/platform-contract/notifications';
 
 // #256, epic #254 — the operations namespaces. Published from the day they
 // exist rather than the day something reads them: a block the response omits

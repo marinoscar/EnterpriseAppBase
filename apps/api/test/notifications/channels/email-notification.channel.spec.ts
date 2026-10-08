@@ -1,13 +1,13 @@
 import {
   EVENT_EMAIL_TEMPLATES,
   EmailNotificationChannel,
-} from './email-notification.channel';
-import { NOTIFICATION_EVENTS } from '../notification-events';
-import type { NotificationEventDef } from '../notification-events';
+} from '../support/notifications';
+import { NOTIFICATION_EVENTS } from '../support/notifications';
+import type { NotificationEventDef } from '../support/notifications';
 import type {
   NotificationDispatchContext,
   NotificationRecipient,
-} from '../notification.types';
+} from '../support/notifications';
 
 // =============================================================================
 // EmailNotificationChannel — tests (issue #125, epic #109)

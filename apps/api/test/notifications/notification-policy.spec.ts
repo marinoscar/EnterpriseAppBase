@@ -1,11 +1,11 @@
-import { NOTIFICATION_EVENTS, type NotificationEventDef } from './notification-events';
+import { NOTIFICATION_EVENTS, type NotificationEventDef } from './support/notifications';
 import {
   DEFAULT_NOTIFICATION_POLICY,
   isBrowserToastAllowed,
   policyChannels,
   type NotificationPolicy,
-} from './notification-policy';
-import { resolveChannels } from './notification-preferences';
+} from './support/notifications';
+import { resolveChannels } from './support/notifications';
 
 // =============================================================================
 // Admin policy resolution — tests (issue #226, epic #215)

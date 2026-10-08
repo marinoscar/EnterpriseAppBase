@@ -15,7 +15,7 @@ import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schem
 import type { RestoreCompletedEmailData } from '@marinoscar/platform-api/email';
 import { JobsService } from '@marinoscar/platform-api/jobs';
 import { jobTempPath } from '@marinoscar/platform-api/jobs';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '@marinoscar/platform-api/notifications';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import {

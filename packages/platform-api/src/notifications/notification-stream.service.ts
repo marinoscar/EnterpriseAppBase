@@ -8,9 +8,15 @@ import {
 } from '@nestjs/common';
 import { Observable, type Subscriber } from 'rxjs';
 
-import { exceedsEventBusPayloadLimit } from '../common/event-bus/event-bus-core';
-import { EVENT_BUS, type EventBus, type EventBusMeta } from '../common/event-bus/event-bus.interface';
-import { PrismaService } from '../prisma/prisma.service';
+import {
+  NOTIFICATIONS_EVENT_BUS,
+  NOTIFICATION_STREAM_BUS_CHANNEL,
+  NOTIFICATION_STREAM_INLINE_LIMIT_BYTES,
+  type NotificationsEventBus,
+  type NotificationsEventBusMeta,
+} from './ports';
+import { PLATFORM_PRISMA } from '../core/index';
+import type { NotificationsPrisma } from './data/notifications-db';
 
 // =============================================================================
 // NotificationStreamService — the live half of the browser channel (#127, #109)
@@ -124,6 +130,8 @@ import { PrismaService } from '../prisma/prisma.service';
  * Carries no user id. The recipient is implicit in WHICH stream this was
  * written to, and echoing it back would invite a client — or a future refactor
  * — to start filtering on it, which is exactly the design rejected above.
+  *
+  * @stability experimental
  */
 export interface NotificationStreamEvent {
   id: string;
@@ -187,6 +195,8 @@ export interface NotificationStreamEvent {
  * anything else this stream ever carries; an unnamed event would make every
  * future addition a breaking change for a handler that assumed `message` meant
  * "a notification".
+  *
+  * @stability experimental
  */
 export const NOTIFICATION_SSE_EVENT = 'notification';
 
@@ -211,6 +221,8 @@ export const NOTIFICATION_SSE_EVENT = 'notification';
  * and never surface to the page, so a heartbeat cannot be mistaken for a
  * notification by a client that forgot to check the event name — while still
  * being real bytes on the wire, which is all a proxy's idle timer cares about.
+  *
+  * @stability experimental
  */
 export const HEARTBEAT_INTERVAL_MS = 25_000;
 
@@ -226,6 +238,8 @@ const HEARTBEAT_COMMENT = 'heartbeat';
  * Structurally `@nestjs/common`'s `MessageEvent`, redeclared locally so this
  * file — like `notification-events.ts` and `notification-preferences.ts` next
  * door — stays free of framework imports and testable by calling functions.
+  *
+  * @stability experimental
  */
 export interface SseMessage {
   data?: string | object;
@@ -234,12 +248,14 @@ export interface SseMessage {
 }
 
 /** The event bus channel this service fans out on (PP-1.11). */
-export const NOTIFICATION_STREAM_BUS_CHANNEL = 'notifications.stream';
+export { NOTIFICATION_STREAM_BUS_CHANNEL };
 
 /**
  * What crosses the bus: the full event, or — when the full event would not fit
  * in a bus envelope — a reference the receiver resolves against the table.
  * Either way, exactly ONE user.
+  *
+  * @stability experimental
  */
 export type NotificationStreamBusMessage =
   | { userId: string; event: NotificationStreamEvent }
@@ -270,6 +286,8 @@ function isStreamEvent(value: unknown): value is NotificationStreamEvent {
  * The bus is a shared database channel, so a message is DATA to check, not an
  * instruction to follow: anything not exactly one of the two shapes above is
  * dropped rather than partially delivered.
+  *
+  * @stability experimental
  */
 export function parseNotificationStreamBusMessage(raw: unknown): NotificationStreamBusMessage | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -311,8 +329,8 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
    * provide them. Prisma is read ONLY to resolve an oversize event's reference.
    */
   constructor(
-    @Optional() @Inject(EVENT_BUS) private readonly bus?: EventBus,
-    @Optional() private readonly prisma?: PrismaService,
+    @Optional() @Inject(NOTIFICATIONS_EVENT_BUS) private readonly bus?: NotificationsEventBus,
+    @Optional() @Inject(PLATFORM_PRISMA) private readonly prisma?: NotificationsPrisma,
   ) {}
 
   /** Starts receiving other replicas' events. Registers a handler; no I/O. */
@@ -461,7 +479,7 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
    */
   private busMessageFor(userId: string, event: NotificationStreamEvent): NotificationStreamBusMessage {
     const full: NotificationStreamBusMessage = { userId, event };
-    if (!exceedsEventBusPayloadLimit(NOTIFICATION_STREAM_BUS_CHANNEL, full)) return full;
+    if (!this.exceedsInlineLimit(full)) return full;
 
     return { userId, ref: { notificationId: event.id, toast: event.toast, pushed: event.pushed } };
   }
@@ -470,7 +488,20 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
    * Another replica's event. Our own (`meta.local`) was already delivered by
    * `publish`, so it is ignored — delivering it again would double every frame.
    */
-  private async onBusMessage(raw: unknown, meta: EventBusMeta): Promise<void> {
+  /**
+   * Whether the full event is too large to publish inline: the bus's own
+   * answer when it gives one, else a conservative byte estimate.
+   */
+  private exceedsInlineLimit(message: NotificationStreamBusMessage): boolean {
+    if (this.bus?.exceedsPayloadLimit) return this.bus.exceedsPayloadLimit(NOTIFICATION_STREAM_BUS_CHANNEL, message);
+    try {
+      return Buffer.byteLength(JSON.stringify(message), 'utf8') > NOTIFICATION_STREAM_INLINE_LIMIT_BYTES;
+    } catch {
+      return true;
+    }
+  }
+
+  private async onBusMessage(raw: unknown, meta: NotificationsEventBusMeta): Promise<void> {
     if (meta.local) return;
 
     const message = parseNotificationStreamBusMessage(raw);

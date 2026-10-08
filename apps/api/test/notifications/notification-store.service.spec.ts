@@ -3,10 +3,10 @@ import { NotFoundException } from '@nestjs/common';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { PrismaService } from '../prisma/prisma.service';
-import { NotificationStoreService } from './notification-store.service';
-import type { NotificationListQueryDto } from './dto/notification.dto';
+} from '../mocks/prisma.mock';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { NotificationStoreService } from './support/notifications';
+import type { NotificationListQueryDto } from './support/notifications';
 
 // =============================================================================
 // NotificationStoreService — tests (issue #127, epic #109)

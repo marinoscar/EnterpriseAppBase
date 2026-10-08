@@ -39,11 +39,32 @@
 
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 
-import { Registry } from '@marinoscar/platform-api/core';
+import { Registry } from '../../core/index';
 import { NOTIFICATION_CHANNEL_SENDERS, type NotificationChannelSender } from '../notification.types';
-// From the barrel, so the manifest has filled the channel registry first.
-import { notificationChannelRegistry } from '.';
+import { notificationChannelRegistry } from './channel.registry';
 
+/**
+ * The DI-held registry of channel TRANSPORTS: the platform's three senders,
+ * plus any app sender that registers itself from its own `onModuleInit`.
+ * Exported by `NotificationsModule` for `register` only; `get` never hands
+ * out a platform sender.
+ *
+ * @example
+ * ```ts
+ * @Injectable()
+ * export class ExampleWebhookChannel implements NotificationChannelSender, OnModuleInit {
+ *   readonly channel = 'example_webhook';
+ *   constructor(private readonly senders: NotificationChannelSenderRegistry) {}
+ *   onModuleInit(): void {
+ *     this.senders.register(this);
+ *   }
+ *   // resolveTo, deliver ...
+ * }
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability stable
+ */
 @Injectable()
 export class NotificationChannelSenderRegistry implements OnApplicationBootstrap {
   private readonly logger = new Logger(NotificationChannelSenderRegistry.name);
@@ -55,7 +76,7 @@ export class NotificationChannelSenderRegistry implements OnApplicationBootstrap
       if (!notificationChannelRegistry.has(sender.channel)) {
         throw new Error(
           `channel "${sender.channel}" is not a registered notification channel; declare it in ` +
-            'app-registrations/notifications.ts (APP_NOTIFICATION_CHANNELS) first',
+            "the app's notification manifest (registerNotificationChannel) first",
         );
       }
     },

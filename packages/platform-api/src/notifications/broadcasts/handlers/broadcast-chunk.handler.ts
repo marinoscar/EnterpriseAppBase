@@ -234,17 +234,19 @@
 // implementation that makes an already-issued send un-happen.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Job, NotificationBroadcast } from '@prisma/client';
+import type { Job } from '../../../jobs/index';
+import type { NotificationBroadcastRow as NotificationBroadcast } from '../../data/notifications-db';
 
-import type { BroadcastEmailData } from '@marinoscar/platform-api/email';
-import { JobHandler } from '@marinoscar/platform-api/jobs';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { JobsService } from '@marinoscar/platform-api/jobs';
-import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
-import { RateLimitError } from '@marinoscar/platform-api/jobs';
-import { PrismaService } from '../../../prisma/prisma.service';
+import type { BroadcastEmailData } from '../../../email/index';
+import { JobHandler } from '../../../jobs/index';
+import { JobHandlerRegistry } from '../../../jobs/index';
+import { JobsService } from '../../../jobs/index';
+import { ProviderThrottleService } from '../../../jobs/index';
+import { RateLimitError } from '../../../jobs/index';
+import { PLATFORM_PRISMA } from '../../../core/index';
+import type { NotificationsPrisma } from '../../data/notifications-db';
 import type { NotificationChannel } from '../../notification-events';
 import type { NotifyNowResult, NotifyOptions } from '../../notification.types';
 import { NotificationsService } from '../../notifications.service';
@@ -344,7 +346,7 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
   readonly label = 'Broadcast delivery';
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly notifications: NotificationsService,
     private readonly jobs: JobsService,
     private readonly config: ConfigService,

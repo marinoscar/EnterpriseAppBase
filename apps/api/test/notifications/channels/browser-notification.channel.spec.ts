@@ -2,16 +2,16 @@ import {
   BrowserNotificationChannel,
   EVENT_BROWSER_TEMPLATES,
   sanitizeLink,
-} from './browser-notification.channel';
+} from '../support/notifications';
 import { withTemporaryEntries } from '@marinoscar/platform-api/core';
-import { NOTIFICATION_EVENTS, findEvent } from '../notification-events';
-import type { NotificationChannel, NotificationEventDef } from '../notification-events';
-import { eventBrowserTemplateRegistry, notificationEventRegistry } from '../registry';
-import type { BrowserNotificationTemplate } from './browser-templates';
+import { NOTIFICATION_EVENTS, findEvent } from '../support/notifications';
+import type { NotificationChannel, NotificationEventDef } from '../support/notifications';
+import { eventBrowserTemplateRegistry, notificationEventRegistry } from '../support/notifications';
+import type { BrowserNotificationTemplate } from '../support/notifications';
 import type {
   NotificationDispatchContext,
   NotificationRecipient,
-} from '../notification.types';
+} from '../support/notifications';
 
 // =============================================================================
 // BrowserNotificationChannel — tests (issue #127, epic #109)

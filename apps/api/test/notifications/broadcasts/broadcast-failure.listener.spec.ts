@@ -15,12 +15,12 @@
 
 import { Job } from '@prisma/client';
 
-import { BroadcastFailureListener } from './broadcast-failure.listener';
+import { BroadcastFailureListener } from '../support/notifications';
 import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
-import { BROADCAST_SUBJECT_TYPE } from './broadcast-audience';
-import { BROADCAST_CHUNK_TYPE } from './handlers/broadcast-chunk.handler';
-import { BROADCAST_START_TYPE } from './handlers/broadcast-start.handler';
-import type { PrismaService } from '../../prisma/prisma.service';
+import { BROADCAST_SUBJECT_TYPE } from '../support/notifications';
+import { BROADCAST_CHUNK_TYPE } from '../support/notifications';
+import { BROADCAST_START_TYPE } from '../support/notifications';
+import type { PrismaService } from '../../../src/prisma/prisma.service';
 
 const BROADCAST_ID = 'bcast-1';
 

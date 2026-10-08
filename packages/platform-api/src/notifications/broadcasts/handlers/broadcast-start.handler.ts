@@ -90,14 +90,15 @@
 // from the admin Jobs page.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Job } from '@prisma/client';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import type { Job } from '../../../jobs/index';
 
-import { JobHandler } from '@marinoscar/platform-api/jobs';
-import { buildDedupKey } from '@marinoscar/platform-api/jobs';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { JobsService } from '@marinoscar/platform-api/jobs';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { JobHandler } from '../../../jobs/index';
+import { buildDedupKey } from '../../../jobs/index';
+import { JobHandlerRegistry } from '../../../jobs/index';
+import { JobsService } from '../../../jobs/index';
+import { PLATFORM_PRISMA } from '../../../core/index';
+import type { NotificationsPrisma } from '../../data/notifications-db';
 import { BROADCAST_SUBJECT_TYPE, audienceWhere } from '../broadcast-audience';
 import { broadcastJobDeleteRefusal } from '../broadcast-job-delete-guard';
 import { BROADCAST_CHUNK_TYPE } from './broadcast-chunk.handler';
@@ -138,7 +139,7 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
   readonly label = 'Broadcast start';
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly jobs: JobsService,
     private readonly registry: JobHandlerRegistry
   ) {}

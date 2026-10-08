@@ -2,25 +2,60 @@
 // System settings namespace `notifications` (issue #677; namespace #225, epic #215)
 // =============================================================================
 //
-// A declaration file: pure data, imports only leaf modules (the per-namespace
-// zod schemas, the wire and response branches, constants). Registered by
-// `settings/registry/system-settings.manifest.ts`. Recipe:
-// `settings/registry/README.md`.
+// A declaration file: pure data, imports only leaf modules (the contract's
+// zod schemas and constants). The app registers it in its system settings
+// manifest (the reference app: `settings/registry/system-settings.manifest.ts`).
+//
+// THE ORG LAYER (#738, through #733): an organization may TIGHTEN the policy
+// for its own members and never loosen it. Effective `browserEnabled` is the
+// system value AND the org's; effective `disabledEvents` is the union. The
+// one interpreter of the result is `notification-policy.ts`; a `mandatory`
+// event's inbox row survives either layer.
 // =============================================================================
 
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   MAX_DISABLED_NOTIFICATION_EVENTS,
+  notificationEventKeySchema,
+  notificationsResponseSchema,
+  notificationsSettingsPatchSchema,
+  notificationsSettingsSchema,
+  orgNotificationsSchema,
   systemNotificationsPatchSchema,
   systemNotificationsSchema,
   type SystemNotificationsValue,
-} from '../common/schemas/settings.schema';
-import {
-  notificationsSettingsPatchSchema,
-  notificationsSettingsSchema,
-} from '../common/schemas/system-settings-wire.schemas';
-import { notificationsResponseSchema } from '../common/schemas/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
+} from '@marinoscar/platform-contract/notifications';
+import type { SystemSettingsNamespace } from '../settings/index';
+
+/**
+ * The EFFECTIVE value's schema: the system value with an organization's
+ * tightening applied. The same fields as the stored system value, with room
+ * for both layers' `disabledEvents` (the union of two bounded lists); the wire
+ * bodies keep the single-layer bound.
+ */
+const effectiveNotificationsSchema = systemNotificationsSchema.extend({
+  disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS * 2),
+});
+
+/**
+ * Tighten only: an organization can turn the browser channel off and disable
+ * more events, never turn either back on for its members.
+ *
+ * @param system - the deployment's (salvaged) value.
+ * @param org - the organization's stored overrides.
+ * @returns the effective value for that organization's members.
+ *
+ * @stability experimental
+ */
+export function tightenNotificationsPolicy(
+  system: SystemNotificationsValue,
+  org: Partial<SystemNotificationsValue>,
+): SystemNotificationsValue {
+  return {
+    browserEnabled: system.browserEnabled && (org.browserEnabled ?? true),
+    disabledEvents: [...new Set([...system.disabledEvents, ...(org.disabledEvents ?? [])])],
+  };
+}
 
 /**
  * ON by default, suppressing nothing. The opposite default would mean a fresh
@@ -33,10 +68,19 @@ const NOTIFICATIONS_SYSTEM_DEFAULTS: SystemNotificationsValue = {
   disabledEvents: [],
 };
 
+/**
+ * The `notifications` system settings namespace: the deployment-wide
+ * browser-notification policy (`browserEnabled`, `disabledEvents`), with an
+ * org layer that may only tighten it (#738). Register it with
+ * `registerSystemSettingsNamespaces` in the app's system settings manifest.
+ *
+ * @extensionPoint schema
+ * @stability stable
+ */
 export const NOTIFICATIONS_SYSTEM_SETTINGS = {
   key: 'notifications',
   description: 'Deployment-wide browser-notification policy: whether the browser channel is on, and which events are suppressed for everyone.',
-  storedSchema: systemNotificationsSchema,
+  storedSchema: effectiveNotificationsSchema,
   patchSchema: systemNotificationsPatchSchema,
   putSchema: notificationsSettingsSchema,
   wirePatchSchema: notificationsSettingsPatchSchema,
@@ -64,6 +108,14 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
       ),
     };
   },
+  org: {
+    schema: orgNotificationsSchema,
+    merge: tightenNotificationsPolicy,
+    // The org-settings permissions of #733: an org administrator manages the
+    // org's overrides from the Organization settings page.
+    readPermission: 'org_settings:read',
+    writePermission: 'org_settings:write',
+  },
   merge(current, patch) {
     // Field by field, NOT by spread — and `disabledEvents` is therefore REPLACED wholesale when the caller sends
     // one. That is RFC 7396's rule for arrays and the only usable semantics
@@ -80,7 +132,7 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
   z.infer<typeof notificationsSettingsPatchSchema>
 >;
 
-declare module '@marinoscar/platform-api/settings' {
+declare module '../settings/registry/system-settings-namespace' {
   interface SystemSettingsNamespaces {
     /**
      * Deployment-wide browser-notification policy (#225, epic #215).

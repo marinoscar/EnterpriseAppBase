@@ -1,20 +1,21 @@
+import { PLATFORM_PRISMA } from '@marinoscar/platform-api/core';
 import { Test, TestingModule } from '@nestjs/testing';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { NotificationDeliveryService } from './notification-delivery.service';
-import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
-import { NotificationPolicyService } from './notification-policy.service';
-import { NotificationsService } from './notifications.service';
+} from '../mocks/prisma.mock';
+import { NotificationDeliveryService } from './support/notifications';
+import { DEFAULT_NOTIFICATION_POLICY } from './support/notifications';
+import { NotificationPolicyService } from './support/notifications';
+import { NotificationsService } from './support/notifications';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
   type ChannelDeliveryResult,
   type NotificationChannelSender,
   type NotificationRecipient,
-} from './notification.types';
+} from './support/notifications';
 
 // =============================================================================
 // notifyPermissionHolders / notifyPermissionHoldersNow — tests (#288, epic #254)
@@ -97,6 +98,8 @@ describe('NotificationsService.notifyPermissionHolders', () => {
         NotificationsService,
         NotificationDeliveryService,
         { provide: PrismaService, useValue: prisma },
+        // The notifications slice injects the core port since #738.
+        { provide: PLATFORM_PRISMA, useValue: prisma },
         {
           provide: NotificationPolicyService,
           useValue: {

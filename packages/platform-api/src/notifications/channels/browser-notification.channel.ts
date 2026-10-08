@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 
-import { PrismaService } from '../../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { NotificationsPrisma } from '../data/notifications-db';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { isBrowserToastAllowed } from '../notification-policy';
@@ -73,36 +74,10 @@ export type {
   BrowserNotificationTemplate,
 } from './browser-templates';
 
-/**
- * Notification event key -> its browser renderer, as a READ-ONLY VIEW of
- * `eventBrowserTemplateRegistry`.
- *
- * -----------------------------------------------------------------------------
- * SINCE #678 THE MAP IS A REGISTRY; THIS IS ITS SNAPSHOT
- * -----------------------------------------------------------------------------
- *
- * #128 filled this map by hand. It is now built from the bindings each module
- * declares with its events (`registerNotification({ event, browserTemplate })`),
- * and the registry only accepts a renderer for an event that declares `browser`
- * or `push`. A frozen snapshot taken at module load; `render` below and the
- * push channel read the registry itself.
- *
- * The absences are deliberate rather than unfinished work, and each is
- * explained next to its event: `user.welcome` (auth/auth.notifications.ts),
- * `allowlist.invitation` (allowlist/allowlist.notifications.ts) and
- * `jobs.job_failed` (notifications/ops/ops.notifications.ts). The registry's
- * per-event `channels` list is the source of truth; the bindings follow it.
- *
- * The difference from the email channel is what happens on a MISS, and it is
- * deliberate — see {@link BrowserNotificationChannel.render}.
- */
-export const EVENT_BROWSER_TEMPLATES: Readonly<
-  Partial<Record<string, BrowserNotificationTemplate>>
-> = Object.freeze(
-  Object.fromEntries(
-    eventBrowserTemplateRegistry.list().map((binding) => [binding.eventKey, binding.render]),
-  ),
-);
+// `EVENT_BROWSER_TEMPLATES` (a frozen snapshot of the binding registry) is gone from the
+// package since #738: taken at package load, before the app's manifest ran,
+// it would be empty. The channel reads the registry live; the reference app
+// keeps the snapshot in `apps/api/src/platform/notifications/index.ts`.
 
 
 /** Length caps applied before the row is written. See {@link truncate}. */
@@ -116,7 +91,7 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
   private readonly logger = new Logger(BrowserNotificationChannel.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly stream: NotificationStreamService,
   ) {}
 

@@ -1,10 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, type DynamicModule } from '@nestjs/common';
 
-import { CredentialsModule } from '@marinoscar/platform-api/credentials';
-import { JobsModule } from '../platform/jobs/jobs.config';
-import { EmailModule } from '../platform/email/email.config';
-import { PrismaModule } from '../prisma/prisma.module';
-import { SettingsModule } from '../platform/settings/settings.config';
+import { CredentialsModule } from '../credentials/index';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { PushNotificationChannel } from './channels/push-notification.channel';
@@ -26,9 +22,8 @@ import {
 } from './notification.types';
 import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
 import { WebPushEgressContributor } from './doctor/egress/web-push.egress.contributor';
-import { NotificationDeliveriesPurgeHandler } from './retention/notification-deliveries-purge.handler';
-import { NotificationInboxPurgeHandler } from './retention/notification-inbox-purge.handler';
 import { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
+import { NOTIFICATIONS_OPTIONS, resolveNotificationsModuleOptions, type NotificationsModuleOptions } from './notifications.options';
 
 // =============================================================================
 // NotificationsModule (issues #121/#124/#125, epic #109)
@@ -135,38 +130,23 @@ import { NotificationChannelSenderRegistry } from './registry/channel-sender.reg
 // import away from any module that wanted one.
 // =============================================================================
 
-@Module({
-  imports: [
-    // The dispatcher reads `users` (for the recipient address) and
-    // `user_settings` (for preferences), and the delivery service writes
-    // `notification_deliveries`.
-    PrismaModule,
-    // Transports and email configuration for the one implemented channel.
-    // Imported explicitly because EmailModule is deliberately not @Global —
-    // it can reach a plaintext-returning credential service, so every consumer
-    // shows up in a diff.
-    EmailModule,
-    // The deployment-wide browser-notification policy (#226), read through
-    // `SystemSettingsService`. The dependency runs one way only —
-    // notifications depend on settings, settings depend on nothing here — so
-    // there is no cycle to forward-ref around, and reusing that service means
-    // the dispatcher degrades a malformed `system_settings` row exactly as the
-    // admin API does instead of re-deriving those rules.
-    SettingsModule,
-    // The VAPID private key's only home (#355). Imported explicitly, exactly
-    // like `EmailModule` above and for the identical reason: `CredentialsModule`
-    // is deliberately not `@Global()` because it can reach a plaintext-returning
-    // service (`CredentialsService.getSecret`), so every consumer of it shows
-    // up in a diff. `PushConfigService` is the consumer here.
-    CredentialsModule,
-    // The two retention purge handlers (#681) register with
-    // `JobHandlerRegistry`. One-way: `JobsModule` imports nothing from
-    // notifications (the job-failure listener reaches it through the global
-    // event emitter), so this adds no cycle.
-    JobsModule,
-  ],
-  controllers: [NotificationsController, PushConfigController],
-  providers: [
+// -----------------------------------------------------------------------------
+// THE PACKAGE (#738)
+// -----------------------------------------------------------------------------
+//
+// `NotificationsModule.forRoot({ imports })` is this module as
+// `@marinoscar/platform-api/notifications` ships it: GLOBAL (one dispatcher per
+// application; every feature module may inject `NotificationsService` without
+// importing the module, and an explicit `imports: [NotificationsModule]` keeps
+// working because the app binds one dynamic-module object). `imports` carries
+// the app's email module (`EmailModule.forRoot(...)`, deliberately not global)
+// and the module binding the host ports (`NOTIFICATIONS_METRICS`,
+// `NOTIFICATIONS_EVENT_BUS`). The database is the core `PLATFORM_PRISMA` port;
+// the jobs, settings and doctor modules are global. The retention purges of
+// the inbox and delivery log (#681) are the app's retention module's.
+// =============================================================================
+
+const PROVIDERS = [
     NotificationsService,
     NotificationDeliveryService,
     // NOT EXPORTED, like the store and the stream. It is a read-only view of an
@@ -213,10 +193,6 @@ import { NotificationChannelSenderRegistry } from './registry/channel-sender.reg
     PushVapidDoctorCheck,
     // Egress inventory (#773): the push services subscribers registered with.
     WebPushEgressContributor,
-    // Retention (#681): server-only, batched purges of the inbox and the
-    // delivery log, enqueued nightly by `RetentionPurgeTask`. Not exported.
-    NotificationInboxPurgeHandler,
-    NotificationDeliveriesPurgeHandler,
     // #678: every channel's sender, platform (from the factory below) and app
     // (self-registered). Exported so an app's module can register into it.
     NotificationChannelSenderRegistry,
@@ -233,7 +209,8 @@ import { NotificationChannelSenderRegistry } from './registry/channel-sender.reg
         PushNotificationChannel,
       ],
     },
-  ],
+];
+
   // `NotificationsService` and `PushConfigService` are exported.
   // `NotificationDeliveryService`, the store, the stream and the channels stay
   // internal: a feature that wants to notify someone calls `notify`, and must
@@ -248,6 +225,60 @@ import { NotificationChannelSenderRegistry } from './registry/channel-sender.reg
   // app's own sender registers itself into it. It never hands out a platform
   // sender (its `get` answers only for app-registered channels), so exporting
   // it opens no way around the dispatcher's gate.
-  exports: [NotificationsService, PushConfigService, NotificationChannelSenderRegistry],
-})
-export class NotificationsModule {}
+const EXPORTED = [NotificationsService, PushConfigService, NotificationChannelSenderRegistry];
+
+/**
+ * The notifications slice: the dispatcher (`NotificationsService`), the three
+ * platform channels (email, the in-app inbox and its SSE stream, Web Push),
+ * `/api/notifications`, the runtime Web Push configuration
+ * (`/api/admin/push-config`), the VAPID doctor check, and the `job.settled`
+ * and `nodes.node.offline` notifiers. Admin broadcasts are the sibling
+ * {@link BroadcastsModule}.
+ *
+ * @stability experimental
+ */
+@Module({})
+export class NotificationsModule {
+  /**
+   * The slice, configured for one app: a GLOBAL module providing the
+   * dispatcher, the channels, the stream, the push configuration and their
+   * controllers. Requires the core `PlatformHostModule` (`PLATFORM_PRISMA`),
+   * the global jobs, settings and doctor modules, and `EventEmitterModule`;
+   * the app's email module and host-port module arrive through `imports`. The
+   * registries (channels, events, templates) are filled by the app's manifest
+   * BEFORE this composes.
+   *
+   * @param options - see {@link NotificationsModuleOptions}.
+   * @returns the dynamic module (global). It exports `NotificationsService`,
+   *   `PushConfigService`, `NotificationChannelSenderRegistry` and
+   *   `NOTIFICATIONS_OPTIONS`.
+   * @throws Error when an option is invalid.
+   *
+   * @example
+   * ```ts
+   * export const NotificationsModule = PlatformNotificationsModule.forRoot({
+   *   imports: [EmailModule, NotificationsHostModule],
+   * });
+   * ```
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  static forRoot(options: NotificationsModuleOptions = {}): DynamicModule {
+    const resolved = resolveNotificationsModuleOptions(options);
+    return {
+      module: NotificationsModule,
+      global: true,
+      imports: [
+        // The VAPID private key's only home (#355). Imported explicitly:
+        // `CredentialsModule` is deliberately not global because it can reach a
+        // plaintext-returning service, so every consumer shows up in a diff.
+        CredentialsModule,
+        ...resolved.imports,
+      ],
+      controllers: [NotificationsController, PushConfigController],
+      providers: [{ provide: NOTIFICATIONS_OPTIONS, useValue: resolved }, ...PROVIDERS],
+      exports: [NOTIFICATIONS_OPTIONS, ...EXPORTED],
+    };
+  }
+}

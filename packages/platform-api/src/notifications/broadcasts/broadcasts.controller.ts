@@ -62,9 +62,9 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth, CurrentUser } from '@marinoscar/platform-api/identity';
-import { PERMISSIONS, ROLES } from '../../common/constants/roles.constants';
-import { ApiDataResponse } from '../../common/decorators/api-data-response.decorator';
+import { Auth, CurrentUser } from '../../identity/index';
+import { PERMISSIONS, ROLES } from '../notifications.constants';
+import { ApiDataResponse } from '../../core/index';
 import { BROADCAST_CHUNK_SIZE } from './broadcast-audience';
 import { BroadcastsService } from './broadcasts.service';
 import { BroadcastListQueryDto } from './dto/broadcast-list-query.dto';

@@ -24,9 +24,14 @@
 // registration order and the preferences matrix renders them so. Adding a
 // platform notification is one appended import and one appended line.
 //
-// Imported only by `./index.ts`. Never register from `onModuleInit`: several
-// Nest applications share one module graph in a Jest worker, and the second
-// would hit a frozen registry (packages/platform-api/src/core/registry/README.md).
+// The registries and the platform's own declarations are
+// `@marinoscar/platform-api/notifications` (#738); THIS FILE is the app's
+// decision of what is registered and in which order, which is why it stays in
+// the app. Imported only by `./index.ts`, which `notifications.config.ts`
+// imports before it composes `NotificationsModule.forRoot()`. Never register
+// from `onModuleInit`: several Nest applications share one module graph in a
+// Jest worker, and the second would hit a frozen registry
+// (packages/platform-api/src/core/registry/README.md).
 // =============================================================================
 
 import { ALLOWLIST_NOTIFICATIONS } from '../../identity-extensions/notifications/allowlist.notifications';
@@ -42,20 +47,22 @@ import {
   registerEmailTemplates,
   registerPlatformEmailTemplates,
 } from '@marinoscar/platform-api/email';
-import { EMAIL_MODULE_OPTIONS } from '../../platform/email/email.options';
-import { SLICE_EMAIL_TEMPLATES } from '../../platform/email/templates';
-import { NODES_NOTIFICATIONS } from '../ops/nodes.notifications';
+import { EMAIL_MODULE_OPTIONS } from '../email/email.options';
+import { SLICE_EMAIL_TEMPLATES } from '../email/templates';
 import { USERS_NOTIFICATIONS } from '../../identity-extensions/notifications/users.notifications';
 import { ORGANIZATIONS_NOTIFICATIONS } from '../../identity-extensions/notifications/organizations.notifications';
-import { SHARING_NOTIFICATIONS } from '../../platform/sharing/sharing.notifications';
-import { BROADCASTS_NOTIFICATIONS } from '../broadcasts/broadcasts.notifications';
-import { OPS_NOTIFICATIONS } from '../ops/ops.notifications';
-import { registerNotifications } from './bindings.registry';
-import { registerNotificationChannels } from './channel.registry';
-import { PLATFORM_NOTIFICATION_CHANNELS } from './platform-channels';
+import { SHARING_NOTIFICATIONS } from '../sharing/sharing.notifications';
+import {
+  BROADCASTS_NOTIFICATIONS,
+  NODES_NOTIFICATIONS,
+  OPS_NOTIFICATIONS,
+  registerNotificationChannels,
+  registerNotifications,
+  registerPlatformNotificationChannels,
+} from '@marinoscar/platform-api/notifications';
 
 // 1-2. Channels.
-registerNotificationChannels(PLATFORM_NOTIFICATION_CHANNELS);
+registerPlatformNotificationChannels();
 registerNotificationChannels(APP_NOTIFICATION_CHANNELS);
 
 // 3-4. Email templates (the registry lives in @marinoscar/platform-api/email

@@ -84,7 +84,7 @@ import {
   defaultRestorePreflightSeam,
 } from '../../src/db-backup/restore-preflight.service';
 import { MaintenanceModeService } from '../../src/common/maintenance/maintenance-mode.service';
-import type { NotificationsService } from '../../src/notifications/notifications.service';
+import type { NotificationsService } from '../notifications/support/notifications';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { cleanupTmpDir, TmpDirStorageProvider } from '../helpers/tmp-storage-provider.helper';

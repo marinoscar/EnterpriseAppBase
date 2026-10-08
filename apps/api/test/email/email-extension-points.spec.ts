@@ -11,7 +11,7 @@ import {
 import { APP_NAME } from '@app/shared';
 
 // The notification manifest: configures rendering and registers every template.
-import '../../src/notifications/registry';
+import '../notifications/support/notifications';
 import { BRANDED_EMAIL_LAYOUT } from '../../src/platform-extensions/email/examples/branded-layout.example';
 import {
   EXAMPLE_DIGEST_EMAIL_TEMPLATE,

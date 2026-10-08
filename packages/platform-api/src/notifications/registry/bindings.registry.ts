@@ -26,9 +26,9 @@
 // FRAMEWORK-FREE: registries, a type, nothing else.
 // =============================================================================
 
-import { RegistryError, defineRegistry } from '@marinoscar/platform-api/core';
+import { RegistryError, defineRegistry } from '../../core/index';
 import type { BrowserNotificationTemplate } from '../channels/browser-templates';
-import { emailTemplateRegistry } from '@marinoscar/platform-api/email';
+import { emailTemplateRegistry } from '../../email/index';
 import {
   NOTIFICATION_EVENT_KEY_PATTERN,
   assertValidNotificationEvent,
@@ -36,7 +36,11 @@ import {
   type NotificationEventDef,
 } from './event.registry';
 
-/** Event key -> the name of the email template that renders it. */
+/**
+ * Event key -> the name of the email template that renders it.
+ *
+ * @stability stable
+ */
 export interface EventEmailTemplateBinding {
   /** A registered event that declares the `email` channel. */
   readonly eventKey: string;
@@ -44,7 +48,11 @@ export interface EventEmailTemplateBinding {
   readonly template: string;
 }
 
-/** Event key -> the renderer for its bell row and OS toast (browser and push). */
+/**
+ * Event key -> the renderer for its bell row and OS toast (browser and push).
+ *
+ * @stability stable
+ */
 export interface EventBrowserTemplateBinding {
   /** A registered event that declares `browser` or `push`. */
   readonly eventKey: string;
@@ -95,6 +103,8 @@ function assertBrowserBinding(
  * Event key -> email template name. Filled by `notification.manifest.ts`
  * through {@link registerNotification}; frozen once the application has
  * bootstrapped.
+  *
+  * @stability stable
  */
 export const eventEmailTemplateRegistry = defineRegistry<EventEmailTemplateBinding>({
   name: 'notification-event-email-templates',
@@ -109,6 +119,8 @@ export const eventEmailTemplateRegistry = defineRegistry<EventEmailTemplateBindi
  * Event key -> browser/push renderer. Filled by `notification.manifest.ts`
  * through {@link registerNotification}; frozen once the application has
  * bootstrapped.
+  *
+  * @stability stable
  */
 export const eventBrowserTemplateRegistry = defineRegistry<EventBrowserTemplateBinding>({
   name: 'notification-event-browser-templates',
@@ -119,7 +131,11 @@ export const eventBrowserTemplateRegistry = defineRegistry<EventBrowserTemplateB
   describeDuplicate: (existing) => `Event "${existing.eventKey}" already has a browser template.`,
 });
 
-/** One notification, as a module declares it: the event and what renders it. */
+/**
+ * One notification, as a module declares it: the event and what renders it.
+ *
+ * @stability stable
+ */
 export interface NotificationRegistration {
   /** The event. Pure data, served as is by `GET /api/notifications/events`. */
   readonly event: NotificationEventDef;
@@ -146,6 +162,8 @@ export interface NotificationRegistration {
  * });
  *
  * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY`, `DUPLICATE_ID` or `FROZEN`.
+  *
+  * @stability stable
  */
 export function registerNotification(input: NotificationRegistration): void {
   const { event, emailTemplate, browserTemplate } = input;
@@ -209,7 +227,11 @@ export function registerNotification(input: NotificationRegistration): void {
   }
 }
 
-/** Registers several notifications in order. Each one is atomic; see {@link registerNotification}. */
+/**
+ * Registers several notifications in order. Each one is atomic; see {@link registerNotification}.
+ *
+ * @stability stable
+ */
 export function registerNotifications(inputs: readonly NotificationRegistration[]): void {
   for (const input of inputs) registerNotification(input);
 }
@@ -233,4 +255,48 @@ function preflight(registry: { name: string; has(id: string): boolean }, key: st
       cause: err,
     });
   }
+}
+
+/**
+ * Binds the bell-row and OS-toast renderer of an already registered event
+ * (the push channel uses the same renderer). The event must declare `browser`
+ * or `push`. Prefer `registerNotification` to register an event and its
+ * renderers atomically; this is for binding a renderer to an event another
+ * module registered.
+ *
+ * @param eventKey - a registered event key.
+ * @param render - the pure renderer: `(data) => { title, body, link? }`.
+ * @throws RegistryError `INVALID_ENTRY` (unregistered event, no browser or
+ *   push channel), `DUPLICATE_ID` or `FROZEN`.
+ *
+ * @example
+ * ```ts
+ * registerBrowserNotificationTemplate('billing.invoice_ready', (data) => ({
+ *   title: 'Your invoice is ready',
+ *   body: `Invoice ${(data as { number: string }).number} is ready to download.`,
+ *   link: '/billing',
+ * }));
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability stable
+ */
+export function registerBrowserNotificationTemplate(eventKey: string, render: BrowserNotificationTemplate): void {
+  eventBrowserTemplateRegistry.register({ eventKey, render });
+}
+
+/**
+ * Binds the email template (a name in the email slice's template registry)
+ * of an already registered event that declares `email`.
+ *
+ * @param eventKey - a registered event key.
+ * @param template - a registered email template name.
+ * @throws RegistryError `INVALID_ENTRY` (unregistered event or template, no
+ *   email channel), `DUPLICATE_ID` or `FROZEN`.
+ *
+ * @extensionPoint registry
+ * @stability stable
+ */
+export function registerEmailNotificationTemplate(eventKey: string, template: string): void {
+  eventEmailTemplateRegistry.register({ eventKey, template });
 }

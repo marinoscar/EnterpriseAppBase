@@ -38,6 +38,8 @@ import type { NotificationPreferences } from './notification-preferences';
  *
  * #125 deliberately ships no public method for it: an unused entry point is
  * speculative surface. The seam is here so #128 adds one without a rewrite.
+  *
+  * @stability stable
  */
 export interface NotificationRecipient {
   /** The account, or `null` for a recipient with no account (#128). */
@@ -64,6 +66,15 @@ export interface NotificationRecipient {
    * saved a preference mid-dispatch.
    */
   preferences: NotificationPreferences;
+
+  /**
+   * The recipient's organization (#738): the active membership they were most
+   * recently active in, or `null` (no account, no active membership). The
+   * policy's org layer is resolved for it unless the caller names one
+   * ({@link NotifyOptions.orgId}). Optional so a hand-built recipient needs no
+   * opinion.
+   */
+  orgId?: string | null;
 }
 
 /**
@@ -103,6 +114,8 @@ export interface NotificationRecipient {
  * OMITTING IT REPRODUCES TODAY'S BEHAVIOUR EXACTLY. That is why the existing
  * `notify()` call sites (`auth.service.ts`, `users.service.ts`,
  * `allowlist.service.ts`) are untouched by #321.
+  *
+  * @stability stable
  */
 export interface NotifyOptions {
   /**
@@ -118,6 +131,15 @@ export interface NotifyOptions {
    * an opinion.
    */
   channels?: readonly NotificationChannel[];
+
+  /**
+   * The organization whose policy applies to this dispatch (#738), for an
+   * event that belongs to one (a broadcast to one org's members). Absent: the
+   * recipient's own organization. `null`: the deployment-wide policy only.
+   * Like `channels`, it can only narrow: an org layer tightens the system
+   * policy, never loosens it.
+   */
+  orgId?: string | null;
 }
 
 /**
@@ -138,6 +160,8 @@ export interface NotifyOptions {
  * event — and de-duplicating after the fact is not possible once the dispatches
  * have been detached. Unioning before the fan-out is the only place the
  * de-duplication can happen at all.
+  *
+  * @stability stable
  */
 export interface NotifyPermissionHoldersOptions extends NotifyOptions {
   /**
@@ -153,6 +177,8 @@ export interface NotifyPermissionHoldersOptions extends NotifyOptions {
 
 /**
  * Everything a channel needs to render and deliver one notification.
+  *
+  * @stability stable
  */
 export interface NotificationDispatchContext {
   /** The resolved registry entry. Never a bare string — the lookup already happened. */
@@ -216,6 +242,8 @@ export interface NotificationDispatchContext {
  * map one-to-one onto the `NotificationDelivery` columns
  * (`providerMessageId`, `error`) so nothing has to be reinterpreted on the way
  * to the row.
+  *
+  * @stability stable
  */
 export interface ChannelDeliveryResult {
   success: boolean;
@@ -280,6 +308,8 @@ export interface ChannelDeliveryResult {
  * `notifyNow` still NEVER REJECTS; a dispatch that threw internally, found no
  * user, or resolved no channel reports `{ rateLimited: false, retryAfterMs:
  * null }` — the same "nothing to back off from" as a clean send.
+  *
+  * @stability stable
  */
 export interface NotifyNowResult {
   /** Whether ANY channel of this dispatch was refused by a throttling provider. */
@@ -307,6 +337,8 @@ export interface NotifyNowResult {
  * that resolves as enabled, records a delivery row and delivers nothing —
  * worse than the honest current state, where an unregistered channel is
  * skipped and says so in a debug log.
+  *
+  * @stability stable
  */
 export interface NotificationChannelSender {
   /**
@@ -361,5 +393,7 @@ export interface NotificationChannelSender {
  * constructor parameter would. The array is assembled in
  * `notifications.module.ts`, which is the one file where "what transports
  * exist" is a legitimate question.
+  *
+  * @stability stable
  */
 export const NOTIFICATION_CHANNEL_SENDERS = 'NOTIFICATION_CHANNEL_SENDERS';

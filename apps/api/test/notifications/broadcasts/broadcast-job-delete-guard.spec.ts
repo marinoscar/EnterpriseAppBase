@@ -12,9 +12,9 @@
 // delete's hot path.
 // =============================================================================
 
-import { broadcastJobDeleteRefusal } from './broadcast-job-delete-guard';
-import { BROADCAST_SUBJECT_TYPE } from './broadcast-audience';
-import type { PrismaService } from '../../prisma/prisma.service';
+import { broadcastJobDeleteRefusal } from '../support/notifications';
+import { BROADCAST_SUBJECT_TYPE } from '../support/notifications';
+import type { PrismaService } from '../../../src/prisma/prisma.service';
 
 /** A `PrismaService` stand-in whose only method this guard ever calls is spied on. */
 function prismaStub(broadcast: { id: string; status: string } | null = null) {

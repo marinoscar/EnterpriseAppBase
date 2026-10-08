@@ -34,15 +34,15 @@ import {
   BroadcastChunkHandler,
   BROADCAST_CHUNK_TYPE,
   BROADCAST_EMAIL_PROVIDER_KEY,
-} from './broadcast-chunk.handler';
-import { BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';
+} from '../../support/notifications';
+import { BROADCAST_SUBJECT_TYPE } from '../../support/notifications';
 import { JobClock } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { JobsService } from '@marinoscar/platform-api/jobs';
 import { JobTerminalService } from '@marinoscar/platform-api/jobs';
 import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
-import type { NotificationsService } from '../../notifications.service';
-import type { PrismaService } from '../../../prisma/prisma.service';
+import type { NotificationsService } from '../../support/notifications';
+import type { PrismaService } from '../../../../src/prisma/prisma.service';
 
 const NOW = 1_700_000_000_000;
 const BROADCAST_ID = 'bcast-integration-1';

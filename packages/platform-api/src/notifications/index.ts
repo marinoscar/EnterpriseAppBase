@@ -1,169 +1,163 @@
 // =============================================================================
-// Notifications — public surface (issues #121/#124/#125, epic #109)
+// `@marinoscar/platform-api/notifications` (issue #738, PP-8.5)
 // =============================================================================
 //
-// #121 shipped the event registry and its helpers. #124 added the endpoint
-// that serves that registry to the web app. #125 added the dispatcher, the
-// channel abstraction, the preference resolver and the delivery records. #127
-// adds the browser channel: the durable `notifications` store, the SSE
-// transport, and the notification centre's endpoints.
+// The notifications slice: the event, channel and template registries, the
+// dispatcher, the channels (email, the in-app inbox and its SSE stream, Web
+// Push), the runtime Web Push configuration, the org-aware policy, admin
+// broadcasts (org-targeted), and the `job.settled` and `nodes.node.offline`
+// notifiers. Documented in ./README.md; the internals an app's own unit tests
+// construct are `@marinoscar/platform-api/notifications/testing`.
 //
-// FOR A FEATURE THAT WANTS TO SEND A NOTIFICATION, THE WHOLE API IS:
-//
-//     imports: [NotificationsModule]          // in your module
-//     constructor(private readonly notifications: NotificationsService) {}
-//     await this.notifications.notify('security.role_changed', userId, data);
-//
-// That call cannot throw, cannot join your transaction, and returns before
-// anything is sent. Nothing else here is needed at a call site.
-//
-// FOR A RECIPIENT WITH NO ACCOUNT (#128's `allowlist.invitation`), the entry
-// point is `notifyAddress(eventKey, email, data)`. It is not a bypass: it
-// resolves the address to an account when there is one — so a real user's
-// preferences are never skipped — and otherwise dispatches through the same
-// gate with empty preferences, which the sparse absent-key contract already
-// defines as "use the event's default".
-//
-// WHAT IS DELIBERATELY NOT EXPORTED: `NotificationDeliveryService`, the two
-// channel classes, `NotificationStoreService` and `NotificationStreamService`.
-// The preference gate and the `mandatory` override live in
-// `NotificationsService.dispatch`; a caller able to invoke a channel directly,
-// to write a delivery record for a send that never happened, or to push
-// straight into a user's open tabs with no durable row behind it, would be a
-// route around the one gate this epic has. `NotificationStoreService` is
-// withheld for a second reason — it is the per-user read path, and an
-// unscoped consumer of it is an IDOR. The module does not export any of them
-// either; this barrel and the module agree on purpose.
-//
-// #128 filled `EVENT_EMAIL_TEMPLATES` and `EVENT_BROWSER_TEMPLATES` and wired
-// the three real triggers — user creation in `AuthService.handleGoogleLogin`,
-// `AllowlistService.addEmail`, and `UsersService.updateUserRoles` — which
-// closes epic #109.
-//
-// #678 (PP-1.6) turned those closed maps, the event list and the channel list
-// into registries (./registry). Adding a notification is now one
-// `registerNotification` entry next to the module that raises it, or in
-// `app-registrations/notifications.ts` for an app; see ./README.md, "Adding a
-// notification", and ./registry/README.md.
+// Explicit named exports only.
 // =============================================================================
 
-export {
-  NOTIFICATION_CHANNELS,
-  NOTIFICATION_EVENTS,
-  listNotificationEvents,
-  findEvent,
-  channelsFor,
-  supportsChannel,
-  isMandatory,
-} from './notification-events';
-
-export { NotificationsController } from './notifications.controller';
+// ---- modules ---------------------------------------------------------------------------
 export { NotificationsModule } from './notifications.module';
+export { BroadcastsModule } from './broadcasts/broadcasts.module';
+export { NOTIFICATIONS_OPTIONS, resolveNotificationsModuleOptions } from './notifications.options';
+export type {
+  NotificationsImport,
+  NotificationsModuleOptions,
+  ResolvedNotificationsModuleOptions,
+} from './notifications.options';
+
+// ---- host ports ------------------------------------------------------------------------
+export {
+  NOOP_NOTIFICATIONS_METRICS,
+  NOTIFICATIONS_EVENT_BUS,
+  NOTIFICATIONS_METRICS,
+  NOTIFICATION_STREAM_BUS_CHANNEL,
+  NOTIFICATION_STREAM_INLINE_LIMIT_BYTES,
+} from './ports';
+export type {
+  NotificationDeliveryOutcome,
+  NotificationsEventBus,
+  NotificationsEventBusMeta,
+  NotificationsMetrics,
+} from './ports';
+
+// ---- the dispatcher ----------------------------------------------------------------------
 export { NotificationsService } from './notifications.service';
-export { notificationEventSchema } from './dto/notification-event.dto';
-
-// Notification centre wire schemas (#127). Exported for the same reason the
-// event schema is: a test, or a later consumer, should assert against the
-// schema the endpoint actually validates and documents rather than a
-// hand-written copy of its shape.
-export {
-  notificationListQuerySchema,
-  notificationSchema,
-  unreadCountSchema,
-} from './dto/notification.dto';
-
-// Preference resolution (#125). Pure functions, exported because #126's
-// preferences page needs to render the SAME answer the dispatcher will act on
-// — a page that computed "enabled" its own way would show a user a state the
-// dispatcher disagrees with, and `mandatory` is one of the things it would get
-// to disagree about.
-export {
-  NOTIFICATION_PREFERENCES_NAMESPACE,
-  isChannelEnabled,
-  readNotificationPreferences,
-  resolveChannels,
-} from './notification-preferences';
-
-// Admin policy resolution (#226, epic #215). Pure functions, exported for the
-// same reason the preference ones are — and one more: `policyChannels` is the
-// single definition of "capability ∩ policy", called by both the dispatcher and
-// `GET /api/notifications/events`. A second implementation of that intersection
-// anywhere is a matrix and a delivery path that can disagree.
-export {
-  DEFAULT_NOTIFICATION_POLICY,
-  isBrowserToastAllowed,
-  policyChannels,
-} from './notification-policy';
-export type { NotificationPolicy } from './notification-policy';
-export { notificationConfigSchema } from './dto/notification-config.dto';
-export type { NotificationConfigResponse } from './dto/notification-config.dto';
-
-// The DI token, exported so a channel added later (#127) can be registered
-// from its own module if it ever needs to live in one.
-export { NOTIFICATION_CHANNEL_SENDERS } from './notification.types';
-
-// The registries (#678). Framework-free; see ./registry/README.md.
-export {
-  emailTemplateRegistry,
-  eventBrowserTemplateRegistry,
-  eventEmailTemplateRegistry,
-  notificationChannelRegistry,
-  notificationEventRegistry,
-  registerEmailTemplates,
-  registerNotification,
-  registerNotificationChannels,
-  registerNotifications,
-} from './registry';
-export type {
-  EmailTemplateEntry,
-  EventBrowserTemplateBinding,
-  EventEmailTemplateBinding,
-  NotificationChannelDef,
-  NotificationChannelIds,
-  NotificationRegistration,
-} from './registry';
-
-// Where an app's own channel sender registers itself (#678).
-export { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
-
-export type {
-  NotificationChannel,
-  NotificationEventDef,
-} from './notification-events';
-export type { NotificationEventResponse } from './dto/notification-event.dto';
-export type {
-  ChannelPreferences,
-  NotificationPreferences,
-} from './notification-preferences';
 export type {
   ChannelDeliveryResult,
   NotificationChannelSender,
   NotificationDispatchContext,
   NotificationRecipient,
   NotifyNowResult,
+  NotifyOptions,
+  NotifyPermissionHoldersOptions,
 } from './notification.types';
 
-export type {
-  NotificationListResponse,
-  NotificationResponse,
-  UnreadCountResponse,
-} from './dto/notification.dto';
-
-// The browser channel's template contract (#127). Exported as TYPES ONLY —
-// a module needs these to write the renderer it binds with
-// `registerNotification({ browserTemplate })`, and nothing outside the channel
-// needs the class itself.
-export type {
-  BrowserNotificationContent,
-  BrowserNotificationTemplate,
-} from './channels/browser-templates';
-
-// The live-stream payload and its SSE event name (#127). The web client needs
-// both — the shape it parses, and the string it passes to
-// `addEventListener` — and a duplicated event-name literal on the client is a
-// stream that silently delivers nothing after a server-side rename.
+// ---- registries --------------------------------------------------------------------------
 export {
-  HEARTBEAT_INTERVAL_MS,
-  NOTIFICATION_SSE_EVENT,
-} from './notification-stream.service';
-export type { NotificationStreamEvent } from './notification-stream.service';
+  EMAIL_TEMPLATE_NAME_PATTERN,
+  NOTIFICATION_CHANNEL_ID_PATTERN,
+  NOTIFICATION_EVENT_KEY_MAX_LENGTH,
+  NOTIFICATION_EVENT_KEY_PATTERN,
+  PLATFORM_NOTIFICATION_CHANNELS,
+  emailTemplateRegistry,
+  eventBrowserTemplateRegistry,
+  eventEmailTemplateRegistry,
+  isRegisteredNotificationChannel,
+  listNotificationChannels,
+  notificationChannelRegistry,
+  notificationEventRegistry,
+  registerBrowserNotificationTemplate,
+  registerEmailNotificationTemplate,
+  registerEmailTemplates,
+  registerNotification,
+  registerNotificationChannel,
+  registerNotificationChannels,
+  registerNotificationEvent,
+  registerNotifications,
+  registerPlatformNotificationChannels,
+} from './registry/index';
+export type {
+  EmailTemplateEntry,
+  EventBrowserTemplateBinding,
+  EventEmailTemplateBinding,
+  NotificationChannel,
+  NotificationChannelDef,
+  NotificationChannelIds,
+  NotificationEventDef,
+  NotificationRegistration,
+} from './registry/index';
+export { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
+export { channelsFor, findEvent, isMandatory, listNotificationEvents, supportsChannel } from './notification-events';
+
+// The platform's own notifications, for the app's manifest to register in its
+// chosen order.
+export { BROADCASTS_NOTIFICATIONS } from './broadcasts/broadcasts.notifications';
+export { NODES_NOTIFICATIONS } from './ops/nodes.notifications';
+export { OPS_NOTIFICATIONS } from './ops/ops.notifications';
+
+// ---- browser and push rendering ----------------------------------------------------------
+export {
+  backupFailedBrowserTemplate,
+  broadcastBrowserTemplate,
+  nodeOfflineBrowserTemplate,
+  restoreCompletedBrowserTemplate,
+  roleChangedBrowserTemplate,
+} from './channels/browser-templates';
+export type { BrowserNotificationContent, BrowserNotificationTemplate } from './channels/browser-templates';
+export { sanitizeLink } from './channels/browser-notification.channel';
+
+// ---- preferences, policy, settings namespaces ------------------------------------------
+export {
+  NOTIFICATION_PREFERENCES_NAMESPACE,
+  isChannelEnabled,
+  readNotificationPreferences,
+  resolveChannels,
+} from './notification-preferences';
+export type { ChannelPreferences, NotificationPreferences } from './notification-preferences';
+export { DEFAULT_NOTIFICATION_POLICY, isBrowserToastAllowed, policyChannels } from './notification-policy';
+export type { NotificationPolicy } from './notification-policy';
+export { NOTIFICATIONS_SYSTEM_SETTINGS, tightenNotificationsPolicy } from './notifications.system-settings';
+export { NOTIFICATIONS_USER_SETTINGS, notificationsPatchSchema } from './notifications.user-settings';
+
+// ---- the stream --------------------------------------------------------------------------
+export { HEARTBEAT_INTERVAL_MS, NOTIFICATION_SSE_EVENT, parseNotificationStreamBusMessage } from './notification-stream.service';
+export type { NotificationStreamBusMessage, NotificationStreamEvent, SseMessage } from './notification-stream.service';
+
+// ---- Web Push configuration ----------------------------------------------------------------
+export { PUSH_CONFIG_KEY, PushConfigService } from './push-config.service';
+export type { ActiveVapidConfig, PrivateKeyStatus, PushConfigAdminView } from './push-config.service';
+export { DEFAULT_PUSH_CONFIG } from './push-config.schema';
+export {
+  PUSH_VAPID_CREDENTIAL_LABEL,
+  PUSH_VAPID_CREDENTIAL_NAME,
+  PUSH_VAPID_CREDENTIAL_PURPOSE,
+  PUSH_VAPID_CREDENTIAL_PURPOSE_DEF,
+} from './push-vapid-credential.constants';
+export { PUSH_SETTINGS_PATH } from './doctor/push-vapid.doctor-check';
+
+// ---- broadcasts ----------------------------------------------------------------------------
+export {
+  BROADCAST_CHUNK_SIZE,
+  BROADCAST_SEND_CONCURRENCY,
+  BROADCAST_SUBJECT_TYPE,
+  audienceWhere,
+} from './broadcasts/broadcast-audience';
+export { BROADCAST_CRITICAL_EVENT_KEY, BROADCAST_EVENT_KEY } from './broadcasts/broadcasts.service';
+export { BROADCAST_START_TYPE } from './broadcasts/handlers/broadcast-start.handler';
+export { BROADCAST_CHUNK_TYPE } from './broadcasts/handlers/broadcast-chunk.handler';
+
+// ---- permissions ---------------------------------------------------------------------------
+export {
+  BROADCASTS_PERMISSIONS,
+  ORG_BROADCASTS_PERMISSIONS,
+  PUSH_PERMISSIONS,
+} from './notifications.permissions';
+export type { NotificationsPermissionDeclaration } from './notifications.permissions';
+
+// ---- data --------------------------------------------------------------------------------
+export { NotificationBroadcastStatus, NotificationDeliveryStatus } from './data/notifications-db';
+export type {
+  NotificationBroadcastRow,
+  NotificationDeliveryRow,
+  NotificationRow,
+  NotificationsPrisma,
+  NotificationsTx,
+  PushSubscriptionRow,
+} from './data/notifications-db';

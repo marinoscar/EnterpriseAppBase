@@ -1,13 +1,13 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { IDENTITY_GUARD_PORTS } from '../../test/helpers/identity-ports.helper';
+import { IDENTITY_GUARD_PORTS } from '../helpers/identity-ports.helper';
 import { Test, TestingModule } from '@nestjs/testing';
 
-import { NOTIFICATION_EVENTS } from './notification-events';
-import { NotificationsController } from './notifications.controller';
-import { NotificationPolicyService } from './notification-policy.service';
-import { NotificationStoreService } from './notification-store.service';
-import { NotificationStreamService } from './notification-stream.service';
-import { PushSubscriptionService } from './push-subscription.service';
+import { NOTIFICATION_EVENTS } from './support/notifications';
+import { NotificationsController } from './support/notifications';
+import { NotificationPolicyService } from './support/notifications';
+import { NotificationStoreService } from './support/notifications';
+import { NotificationStreamService } from './support/notifications';
+import { PushSubscriptionService } from './support/notifications';
 import { PatService } from '@marinoscar/platform-api/identity';
 import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
 

@@ -8,7 +8,7 @@ import type { ConfigService } from '@nestjs/config';
 
 import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract';
 import { ACTIVE_DEDUP_INDEX_NAME, type JobsService } from '@marinoscar/platform-api/jobs';
-import type { NotificationsService } from '../notifications/notifications.service';
+import type { NotificationsService } from '@marinoscar/platform-api/notifications';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { StorageProvider } from '@marinoscar/platform-api/storage';

@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import * as webpush from 'web-push';
 import { WebPushError } from 'web-push';
 
 
-import { PrismaService } from '../../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { NotificationsPrisma } from '../data/notifications-db';
 import { describeThrown } from '../describe-thrown';
 import { PushConfigService } from '../push-config.service';
 import type { NotificationChannel } from '../notification-events';
@@ -134,7 +135,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
   private readonly logger = new Logger(PushNotificationChannel.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly pushConfig: PushConfigService,
   ) {}
 

@@ -1,16 +1,18 @@
 import { EgressRegistry } from '@marinoscar/platform-api/doctor';
 
-import { ScopedPrismaService } from '../../../prisma/ownership/scoped-prisma.service';
-import { PushConfigService } from '../../push-config.service';
+import type { NotificationsPrisma } from '../../support/notifications';
+import { PushConfigService } from '../../support/notifications';
 import {
   KNOWN_PUSH_SERVICE_HOSTS,
   PUSH_ENDPOINT_SCAN_LIMIT,
   WebPushEgressContributor,
-} from './web-push.egress.contributor';
+} from '../../support/notifications';
 
 function setup(view: { enabled: boolean; configured: boolean; settingsError?: string | null }, endpoints: string[] = []) {
   const findMany = jest.fn().mockResolvedValue(endpoints.map((endpoint) => ({ endpoint })));
-  const asSystem = jest.fn().mockReturnValue({ pushSubscription: { findMany } });
+  // The contributor reads through the core `asSystem(client, actor)` marker
+  // since #738 (it returns the client unchanged), not `ScopedPrismaService`.
+  const prisma = { pushSubscription: { findMany } };
   const pushConfig = {
     describeForAdmin: jest.fn().mockResolvedValue({ settingsError: null, ...view }),
     resolveActiveVapidConfig: jest.fn(),
@@ -18,9 +20,9 @@ function setup(view: { enabled: boolean; configured: boolean; settingsError?: st
   const subject = new WebPushEgressContributor(
     new EgressRegistry(),
     pushConfig as unknown as PushConfigService,
-    { asSystem } as unknown as ScopedPrismaService,
+    prisma as unknown as NotificationsPrisma,
   );
-  return { subject, findMany, asSystem, pushConfig };
+  return { subject, findMany, pushConfig };
 }
 
 describe('WebPushEgressContributor (#773)', () => {
@@ -41,7 +43,7 @@ describe('WebPushEgressContributor (#773)', () => {
   });
 
   it('groups subscription endpoints by host, ordered by count, with a bounded endpoint-only system read', async () => {
-    const { subject, findMany, asSystem } = setup({ enabled: true, configured: true }, [
+    const { subject, findMany } = setup({ enabled: true, configured: true }, [
       'https://fcm.googleapis.com/fcm/send/secret-token-1',
       'https://updates.push.services.mozilla.com/wpush/v2/secret-token-2',
       'https://fcm.googleapis.com/fcm/send/secret-token-3',
@@ -49,7 +51,6 @@ describe('WebPushEgressContributor (#773)', () => {
     ]);
     const [dep] = await subject.describe();
 
-    expect(asSystem).toHaveBeenCalledWith({ kind: 'system', reason: expect.stringContaining('doctor') });
     expect(findMany).toHaveBeenCalledWith({ select: { endpoint: true }, take: PUSH_ENDPOINT_SCAN_LIMIT });
     expect(PUSH_ENDPOINT_SCAN_LIMIT).toBe(10_000);
     expect(dep).toMatchObject({

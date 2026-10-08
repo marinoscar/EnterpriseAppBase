@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { NotificationDeliveryStatus } from '@prisma/client';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import { NotificationDeliveryStatus } from './data/notifications-db';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../core/index';
+import type { NotificationsPrisma } from './data/notifications-db';
 import { describeThrown } from './describe-thrown';
 import type { NotificationChannel } from './notification-events';
 
@@ -96,7 +97,7 @@ export interface QueuedDeliveryInput {
 export class NotificationDeliveryService {
   private readonly logger = new Logger(NotificationDeliveryService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma) {}
 
   /**
    * Open a delivery record, before the attempt.

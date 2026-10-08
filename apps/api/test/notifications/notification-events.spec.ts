@@ -6,7 +6,7 @@ import {
   findEvent,
   isMandatory,
   supportsChannel,
-} from './notification-events';
+} from './support/notifications';
 
 // =============================================================================
 // Notification event registry — tests (issue #121, epic #109)

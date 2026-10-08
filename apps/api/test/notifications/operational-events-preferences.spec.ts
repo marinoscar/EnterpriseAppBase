@@ -1,10 +1,10 @@
-import { userSettingsSchema } from '../settings/registry/composed';
-import { findEvent, isMandatory } from './notification-events';
+import { userSettingsSchema } from '../../src/settings/registry/composed';
+import { findEvent, isMandatory } from './support/notifications';
 import {
   readNotificationPreferences,
   resolveChannels,
-} from './notification-preferences';
-import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
+} from './support/notifications';
+import { DEFAULT_NOTIFICATION_POLICY } from './support/notifications';
 
 // =============================================================================
 // The four operational events, round-tripped through the preferences matrix

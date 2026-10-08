@@ -24,7 +24,7 @@
 // address.
 // =============================================================================
 
-import type { CredentialPurposeDef } from '@marinoscar/platform-api/credentials';
+import type { CredentialPurposeDef } from '../credentials/index';
 
 /**
  * Credential store address for the VAPID private key: the sub-key domain.

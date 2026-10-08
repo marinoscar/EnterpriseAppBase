@@ -3,14 +3,14 @@ import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import type { Job } from '@prisma/client';
 
-import { JobFailureNotifier } from './job-failure-notifier';
-import { NotificationsService } from '../notifications.service';
+import { JobFailureNotifier } from '../support/notifications';
+import { NotificationsService } from '../support/notifications';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { JobTerminalService } from '@marinoscar/platform-api/jobs';
 import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
 import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import type { JobClock } from '@marinoscar/platform-api/jobs';
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../src/prisma/prisma.service';
 
 // =============================================================================
 // JobFailureNotifier — tests (issue #288, epic #254)

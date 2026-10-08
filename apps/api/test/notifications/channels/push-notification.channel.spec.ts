@@ -1,12 +1,12 @@
 import { WebPushError } from 'web-push';
 
-import { NOTIFICATION_EVENTS } from '../notification-events';
+import { NOTIFICATION_EVENTS } from '../support/notifications';
 import type {
   NotificationDispatchContext,
   NotificationRecipient,
-} from '../notification.types';
-import type { PushConfigService } from '../push-config.service';
-import { PushNotificationChannel } from './push-notification.channel';
+} from '../support/notifications';
+import type { PushConfigService } from '../support/notifications';
+import { PushNotificationChannel } from '../support/notifications';
 
 // =============================================================================
 // PushNotificationChannel — tests (issue #230, epic #215; #355 swapped the

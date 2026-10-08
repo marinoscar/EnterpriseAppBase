@@ -1,11 +1,12 @@
 import { createECDH, randomUUID } from 'node:crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma, PushSubscription } from '@prisma/client';
+import { Injectable, Logger, Inject } from '@nestjs/common';
+import type { NotificationsJsonValue, NotificationsInputJsonValue, NotificationsWhere, PushSubscriptionRow as PushSubscription } from './data/notifications-db';
 import * as webpush from 'web-push';
 import { WebPushError } from 'web-push';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../core/index';
+import type { NotificationsPrisma } from './data/notifications-db';
 import { describeThrown } from './describe-thrown';
 import { listNotificationEvents } from './notification-events';
 import { policyChannels } from './notification-policy';
@@ -121,7 +122,7 @@ export class PushTestService {
   private readonly logger = new Logger(PushTestService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly pushConfig: PushConfigService,
     private readonly policy: NotificationPolicyService,
   ) {}
@@ -239,7 +240,7 @@ export class PushTestService {
 
   private diagnoseConfig(
     active: ActiveVapidConfig | null,
-    settingsRow: { value: Prisma.JsonValue } | null,
+    settingsRow: { value: NotificationsJsonValue } | null,
   ): PushTestConfigDiagnostics {
     const problems: string[] = [];
 
@@ -367,7 +368,7 @@ export class PushTestService {
    * the dispatcher, so this cannot disagree with what a real `notify()` does.
    */
   private diagnoseEvents(
-    settingsValue: Prisma.JsonValue | undefined,
+    settingsValue: NotificationsJsonValue | undefined,
     policy: Awaited<ReturnType<NotificationPolicyService['getPolicy']>>,
   ): PushTestEventDiagnostics[] {
     const preferences = readNotificationPreferences(settingsValue);
@@ -506,7 +507,7 @@ export class PushTestService {
           action: 'push_config:test',
           targetType: 'system_settings',
           targetId: PUSH_CONFIG_KEY,
-          meta: { testId, overall, counts, hosts } as Prisma.InputJsonValue,
+          meta: { testId, overall, counts, hosts } as NotificationsInputJsonValue,
         },
       });
     } catch (err) {

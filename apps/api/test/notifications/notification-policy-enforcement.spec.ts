@@ -1,20 +1,21 @@
+import { PLATFORM_PRISMA } from '@marinoscar/platform-api/core';
 import { Test, TestingModule } from '@nestjs/testing';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { BrowserNotificationChannel } from './channels/browser-notification.channel';
-import { NotificationDeliveryService } from './notification-delivery.service';
-import { DEFAULT_NOTIFICATION_POLICY, type NotificationPolicy } from './notification-policy';
-import { NotificationPolicyService } from './notification-policy.service';
-import { NotificationStreamService } from './notification-stream.service';
-import { NotificationsService } from './notifications.service';
+} from '../mocks/prisma.mock';
+import { BrowserNotificationChannel } from './support/notifications';
+import { NotificationDeliveryService } from './support/notifications';
+import { DEFAULT_NOTIFICATION_POLICY, type NotificationPolicy } from './support/notifications';
+import { NotificationPolicyService } from './support/notifications';
+import { NotificationStreamService } from './support/notifications';
+import { NotificationsService } from './support/notifications';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
-} from './notification.types';
+} from './support/notifications';
 
 // =============================================================================
 // The admin toggle mutes the TOAST, never the ROW (issue #226, epic #215)
@@ -111,6 +112,8 @@ describe('#226: the browser toggle suppresses the toast and never the notificati
         NotificationDeliveryService,
         BrowserNotificationChannel,
         { provide: PrismaService, useValue: prisma },
+        // The notifications slice injects the core port since #738.
+        { provide: PLATFORM_PRISMA, useValue: prisma },
         { provide: NotificationStreamService, useValue: stream },
         { provide: NotificationPolicyService, useValue: { getPolicy } },
         {

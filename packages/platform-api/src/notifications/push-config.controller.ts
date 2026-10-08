@@ -11,9 +11,9 @@ import {
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth, CurrentUser } from '@marinoscar/platform-api/identity';
-import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { PERMISSIONS } from '../common/constants/roles.constants';
+import { Auth, CurrentUser } from '../identity/index';
+import { ApiDataResponse } from '../core/index';
+import { PERMISSIONS } from './notifications.constants';
 import { PushConfigService } from './push-config.service';
 import { PushTestService } from './push-test.service';
 import { GeneratePushConfigDto } from './dto/generate-push-config.dto';

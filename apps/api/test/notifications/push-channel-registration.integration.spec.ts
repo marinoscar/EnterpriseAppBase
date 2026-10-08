@@ -8,7 +8,7 @@ import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
-} from '../../src/notifications/notification.types';
+} from './support/notifications';
 
 // =============================================================================
 // Unconditional registration of PushNotificationChannel (issue #355)

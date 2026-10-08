@@ -3,11 +3,11 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { PrismaService } from '../prisma/prisma.service';
-import { PushConfigService, ActiveVapidConfig } from './push-config.service';
-import { PushSubscriptionService } from './push-subscription.service';
-import type { PushSubscribeRequest } from './dto/push-subscription.dto';
+} from '../mocks/prisma.mock';
+import { PrismaService } from '../../src/prisma/prisma.service';
+import { PushConfigService, ActiveVapidConfig } from './support/notifications';
+import { PushSubscriptionService } from './support/notifications';
+import type { PushSubscribeRequest } from './support/notifications';
 
 // =============================================================================
 // PushSubscriptionService — tests (issue #229, epic #215; #355 made it async)

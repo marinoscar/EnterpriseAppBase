@@ -1,8 +1,8 @@
 import { createECDH } from 'node:crypto';
 
 import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { PushConfigService } from '../push-config.service';
-import { PushVapidDoctorCheck, decidePushVapid } from './push-vapid.doctor-check';
+import { PushConfigService } from '../support/notifications';
+import { PushVapidDoctorCheck, decidePushVapid } from '../support/notifications';
 
 function keyPair(): { publicKey: string; privateKey: string } {
   const ecdh = createECDH('prime256v1');

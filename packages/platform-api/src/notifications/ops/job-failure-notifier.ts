@@ -2,12 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
-import { PERMISSIONS } from '../../common/constants/roles.constants';
-import type { JobFailedEmailData } from '@marinoscar/platform-api/email';
+import { PERMISSIONS } from '../notifications.constants';
+import type { JobFailedEmailData } from '../../email/index';
 import {
   JOB_SETTLED_EVENT,
   type JobSettledEvent,
-} from '@marinoscar/platform-api/jobs';
+} from '../../jobs/index';
 import { describeThrown } from '../describe-thrown';
 import { NotificationsService } from '../notifications.service';
 

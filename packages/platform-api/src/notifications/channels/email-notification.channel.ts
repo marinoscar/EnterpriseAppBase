@@ -6,7 +6,7 @@ import {
   SmtpEmailProvider,
   findEmailTemplate,
   formatFromHeader,
-} from '@marinoscar/platform-api/email';
+} from '../../email/index';
 import type {
   EmailMessage,
   EmailProvider,
@@ -14,7 +14,7 @@ import type {
   EmailSettings,
   EmailTemplateName,
   RenderedEmail,
-} from '@marinoscar/platform-api/email';
+} from '../../email/index';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { eventEmailTemplateRegistry } from '../registry';
@@ -77,45 +77,10 @@ import type {
 // knows how to handle (a deferral), and nowhere else.
 // =============================================================================
 
-/**
- * Notification event key -> the email template that renders it, as a
- * READ-ONLY VIEW of `eventEmailTemplateRegistry`.
- *
- * -----------------------------------------------------------------------------
- * SINCE #678 THE MAP IS A REGISTRY; THIS IS ITS SNAPSHOT
- * -----------------------------------------------------------------------------
- *
- * #128 filled this map by hand, one line per event. It is now built from the
- * bindings each module declares with its events (`registerNotification({
- * event, emailTemplate })`, e.g. `users/users.notifications.ts`), so an app adds
- * an email template for its own event without editing this file. A frozen
- * snapshot taken at module load; `deliver` reads the registry itself.
- *
- * EVERY EVENT DECLARING THE `email` CHANNEL MUST HAVE A BINDING. A missing one
- * is not a silent skip: `deliver` below records a FAILED delivery saying no
- * template is registered, so "declared but unsendable" shows up in
- * `notification_deliveries` rather than being invisible.
- *
- * A MAP AND NOT A NAMING CONVENTION. Event keys are dotted (`user.welcome`);
- * template names are kebab-case and match their file (`user-welcome` ->
- * `user-welcome.email.ts`). Deriving one from the other would couple two
- * independently-owned naming schemes and turn a rename into a silent
- * "template not found" at send time. The registry refuses a binding to an
- * unregistered template, or for an event that does not declare `email`, at
- * import time.
- *
- * ONE TEMPLATE MAY SERVE SEVERAL KEYS (#322, epic #319): `admin.broadcast` and
- * `admin.broadcast_critical` both bind `broadcast`, because they differ in
- * whether a recipient may MUTE them, not in how the message reads.
- */
-export const EVENT_EMAIL_TEMPLATES: Readonly<Partial<Record<string, EmailTemplateName>>> =
-  Object.freeze(
-    Object.fromEntries(
-      eventEmailTemplateRegistry
-        .list()
-        .map((binding) => [binding.eventKey, binding.template as EmailTemplateName]),
-    ),
-  );
+// `EVENT_EMAIL_TEMPLATES` (a frozen snapshot of the binding registry) is gone from the
+// package since #738: taken at package load, before the app's manifest ran,
+// it would be empty. The channel reads the registry live; the reference app
+// keeps the snapshot in `apps/api/src/platform/notifications/index.ts`.
 
 @Injectable()
 export class EmailNotificationChannel implements NotificationChannelSender {

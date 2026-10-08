@@ -23,8 +23,8 @@ import {
 } from '@nestjs/swagger';
 import type { Observable } from 'rxjs';
 
-import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
-import { Auth, CurrentUser } from '@marinoscar/platform-api/identity';
+import { ApiDataResponse } from '../core/index';
+import { Auth, CurrentUser } from '../identity/index';
 import { listNotificationEvents } from './notification-events';
 import { policyChannels } from './notification-policy';
 import { NotificationPolicyService } from './notification-policy.service';

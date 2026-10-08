@@ -77,6 +77,8 @@ import type {
  *
  * `disabledEvents` is `readonly` here because nothing in this file may reorder
  * or splice a caller's array.
+  *
+  * @stability stable
  */
 export interface NotificationPolicy {
   /**
@@ -115,6 +117,8 @@ export interface NotificationPolicy {
  * Identical to `DEFAULT_SYSTEM_SETTINGS.notifications`, and identical for the
  * same reason stated there: an operator opts OUT of browser notifications,
  * never into them.
+  *
+  * @stability stable
  */
 export const DEFAULT_NOTIFICATION_POLICY: NotificationPolicy = {
   browserEnabled: true,
@@ -135,6 +139,8 @@ export const DEFAULT_NOTIFICATION_POLICY: NotificationPolicy = {
  * not that their operating system pops a bubble. Exempting mandatory events
  * here would make the kill switch a lie for the one event most likely to be the
  * reason an operator reached for it.
+  *
+  * @stability stable
  */
 export function isBrowserToastAllowed(
   eventKey: string,
@@ -182,6 +188,8 @@ export function isBrowserToastAllowed(
  * this function.
  *
  * Returns a fresh array; nothing here hands out a reference into the registry.
+  *
+  * @stability stable
  */
 export function policyChannels(
   event: NotificationEventDef,

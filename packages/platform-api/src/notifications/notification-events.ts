@@ -100,76 +100,31 @@
 //   - `./registry/notification.manifest.ts` registers all of it, platform
 //     first, at import time.
 //
-// Every export below keeps its name and meaning, so no call site, DTO or test
-// changed: `NOTIFICATION_CHANNELS` and `NOTIFICATION_EVENTS` are frozen
-// snapshots of the registries (complete, because the manifest runs before this
-// module finishes loading), and the lookup functions read the registry live.
+// The lookup functions read the registry live. Since #738 the frozen
+// snapshots that used to live here (`NOTIFICATION_CHANNELS`,
+// `NOTIFICATION_EVENTS`) are gone from the package: a package module loads
+// before the app's manifest registers anything, so a snapshot taken here would
+// be empty. The reference app keeps both names, taken after its manifest ran,
+// in `apps/api/src/platform/notifications/index.ts`.
 // The registry, not this file, now enforces what the old spec checked after the
 // fact (non-empty channels, registered channels, mandatory implies
 // defaultEnabled); see ./registry/README.md.
 // =============================================================================
 
-import {
-  notificationChannelRegistry,
-  notificationEventRegistry,
-  type NotificationChannel,
-  type NotificationEventDef,
-} from './registry';
+import { notificationEventRegistry } from './registry/event.registry';
+import type { NotificationChannel } from './registry/channel.registry';
+import type { NotificationEventDef } from './registry/event.registry';
 
-export type {
-  NotificationChannel,
-  NotificationChannelIds,
-  NotificationEventDef,
-} from './registry';
-
-/**
- * Every registered channel, as a value, in registration order (the platform's
- * `email`, `browser`, `push`, then the app's).
- *
- * A NON-EMPTY TUPLE so `z.enum(NOTIFICATION_CHANNELS)` keeps working in the
- * DTOs that validate channels. A SNAPSHOT taken when this module loads, which is
- * after the manifest has registered every channel; the registry is frozen once
- * the application bootstraps, so the snapshot cannot go stale in production.
- *
- * CHANNEL IS AN ENUM FROM THE START, even though #122 delivered only email.
- * Preferences are persisted per event AND per channel from day one. Storing a
- * bare boolean now and growing a channel axis later is a data migration over
- * live user preferences, which is the one shape of change this registry
- * exists to avoid.
- */
-export const NOTIFICATION_CHANNELS: readonly [NotificationChannel, ...NotificationChannel[]] = (() => {
-  const ids = notificationChannelRegistry.ids() as NotificationChannel[];
-  if (ids.length === 0) {
-    // Unreachable while platform-channels.ts registers anything; a loud failure
-    // beats a `z.enum([])` that rejects every channel.
-    throw new Error('No notification channel is registered; see notifications/registry/platform-channels.ts.');
-  }
-  return Object.freeze(ids) as unknown as readonly [NotificationChannel, ...NotificationChannel[]];
-})();
-
-/**
- * The events this application can raise, in registration order (platform
- * events in the order the preferences matrix renders them, then the app's).
- *
- * A FROZEN SNAPSHOT taken when this module loads, after the manifest has
- * registered everything. Code that must also see entries a test adds with
- * `withTemporaryEntries` reads {@link listNotificationEvents} instead; the
- * events endpoint and the dispatcher do.
- *
- * KEYS ARE NAMESPACED `<area>.<event>` so the list stays readable as it grows
- * and so `security.*` is greppable — the class of event that tends to be
- * mandatory is the class most worth auditing as a group. The registry enforces
- * the shape.
- */
-export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = Object.freeze(
-  notificationEventRegistry.list(),
-);
+export type { NotificationChannel, NotificationChannelIds } from './registry/channel.registry';
+export type { NotificationEventDef } from './registry/event.registry';
 
 /**
  * Every registered event, read from the registry now, in registration order.
  *
  * A fresh array each call; the entries are the registry's own objects, so do
  * not mutate them.
+  *
+  * @stability stable
  */
 export function listNotificationEvents(): NotificationEventDef[] {
   return notificationEventRegistry.list();
@@ -186,6 +141,8 @@ export function listNotificationEvents(): NotificationEventDef[] {
  *
  * A keyed lookup in the registry, so the dispatcher's per-delivery lookups are
  * not a linear scan.
+  *
+  * @stability stable
  */
 export function findEvent(key: string): NotificationEventDef | undefined {
   return notificationEventRegistry.get(key);
@@ -206,6 +163,8 @@ export function findEvent(key: string): NotificationEventDef | undefined {
  * registry's own state, and a caller that sorted or spliced the result in
  * place would silently reconfigure delivery for every later dispatch in the
  * process.
+  *
+  * @stability stable
  */
 export function channelsFor(key: string): NotificationChannel[] {
   return [...(notificationEventRegistry.get(key)?.channels ?? [])];
@@ -217,6 +176,8 @@ export function channelsFor(key: string): NotificationChannel[] {
  * The membership test the dispatcher (#125) needs on every delivery, kept here
  * so the answer is not re-derived — and re-derived subtly differently — at
  * each call site. Unknown key is `false`, consistent with `channelsFor`.
+  *
+  * @stability stable
  */
 export function supportsChannel(key: string, channel: NotificationChannel): boolean {
   return notificationEventRegistry.get(key)?.channels.includes(channel) ?? false;
@@ -232,6 +193,8 @@ export function supportsChannel(key: string, channel: NotificationChannel): bool
  *
  * Unknown key is `false`: an event that is not registered cannot be dispatched
  * at all, so nothing is being weakened by the default.
+  *
+  * @stability stable
  */
 export function isMandatory(key: string): boolean {
   return notificationEventRegistry.get(key)?.mandatory === true;

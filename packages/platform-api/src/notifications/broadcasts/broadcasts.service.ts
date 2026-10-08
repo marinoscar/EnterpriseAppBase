@@ -45,14 +45,16 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NotificationBroadcast, Prisma } from '@prisma/client';
+import type { NotificationBroadcastRow as NotificationBroadcast, NotificationsJsonValue, NotificationsInputJsonValue, NotificationsWhere } from '../data/notifications-db';
 
-import { JobsService } from '@marinoscar/platform-api/jobs';
-import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { BroadcastEmailData } from '@marinoscar/platform-api/email';
+import { JobsService } from '../../jobs/index';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { NotificationsPrisma } from '../data/notifications-db';
+import { SystemSettingsService } from '../../settings/index';
+import type { BroadcastEmailData } from '../../email/index';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { NotificationsService } from '../notifications.service';
@@ -118,7 +120,7 @@ export class BroadcastsService {
   private readonly logger = new Logger(BroadcastsService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly jobs: JobsService,
     private readonly notifications: NotificationsService,
     private readonly systemSettings: SystemSettingsService,
@@ -154,7 +156,7 @@ export class BroadcastsService {
   /** Newest first, paginated, optionally filtered by status. */
   async list(query: BroadcastListQuery): Promise<BroadcastListResult> {
     const { page, pageSize, status } = query;
-    const where: Prisma.NotificationBroadcastWhereInput = status ? { status } : {};
+    const where: NotificationsWhere = status ? { status } : {};
 
     const [items, total] = await Promise.all([
       this.prisma.notificationBroadcast.findMany({
@@ -717,7 +719,7 @@ export class BroadcastsService {
         action,
         targetType: AUDIT_TARGET_TYPE,
         targetId,
-        meta: meta as Prisma.InputJsonValue,
+        meta: meta as NotificationsInputJsonValue,
       },
     });
   }

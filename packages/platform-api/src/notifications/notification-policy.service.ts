@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { SettingsResolver, SystemSettingsService } from '../settings/index';
 import { describeThrown } from './describe-thrown';
 import {
   DEFAULT_NOTIFICATION_POLICY,
@@ -42,13 +42,35 @@ import {
 // effect, and a control that applies "soon" is not a control. If this ever
 // shows up in a profile, the fix is a cache with explicit invalidation on the
 // settings write path, not a timer.
+//
+// -----------------------------------------------------------------------------
+// THE ORG LAYER (#738)
+// -----------------------------------------------------------------------------
+//
+// `getPolicy(orgId)` resolves the policy for one organization's members through
+// the settings slice's `SettingsResolver`: the system value with the org's
+// overrides applied by the namespace's own `org.merge`, which only tightens
+// (notifications.system-settings.ts). Without an org (an address-only
+// recipient, a user with no active membership, a deployment with the org layer
+// off) it is the system policy, exactly as before. A failure reading the org
+// layer falls back to the SYSTEM policy, never to "everything on": the org can
+// only ever have tightened it.
 // =============================================================================
 
+/**
+ * Reads the browser-notification policy in force: the deployment's, or one
+ * organization's (the deployment's, tightened by the org). Never throws.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NotificationPolicyService {
   private readonly logger = new Logger(NotificationPolicyService.name);
 
-  constructor(private readonly systemSettings: SystemSettingsService) {}
+  constructor(
+    private readonly systemSettings: SystemSettingsService,
+    @Optional() private readonly resolver?: SettingsResolver,
+  ) {}
 
   /**
    * The current deployment-wide browser-notification policy.
@@ -59,8 +81,23 @@ export class NotificationPolicyService {
    * silenced a mandatory security alert's toast would leave no trace anywhere,
    * whereas a blip that briefly ignores an operator's mute costs one toast and
    * says so in the log.
+   *
+   * @param orgId - the recipient's organization, when the dispatch has one;
+   *   absent or `null` reads the deployment-wide policy.
+   * @returns the policy in force.
    */
-  async getPolicy(): Promise<NotificationPolicy> {
+  async getPolicy(orgId?: string | null): Promise<NotificationPolicy> {
+    if (orgId && this.resolver) {
+      try {
+        return await this.resolver.resolveSystem<NotificationPolicy>('notifications', { orgId });
+      } catch (err) {
+        this.logger.warn(
+          `Could not read organization ${orgId}'s notification policy; using the ` +
+            `deployment's: ${describeThrown(err)}`,
+        );
+      }
+    }
+
     try {
       return await this.systemSettings.getNotificationsPolicy();
     } catch (err) {

@@ -17,7 +17,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { runRetentionPolicyPurge } from '../../common/retention/batched-purge';
+import { runRetentionPolicyPurge } from './batched-purge';
 import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
 import { JobHandler } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';

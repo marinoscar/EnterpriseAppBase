@@ -25,12 +25,12 @@
 // REJECTED: a `BroadcastAudienceService` with a `count()` and a `page()`. It
 // would be a class holding no state whose two methods each take a Prisma
 // client — a namespace with extra ceremony. The thing that must be shared is
-// the PREDICATE, not the queries around it, and a `Prisma.UserWhereInput` is
+// the PREDICATE, not the queries around it, and a `NotificationsWhere` is
 // composable (the chunk handler spreads a cursor into it) in a way that a
 // wrapped query is not.
 // =============================================================================
 
-import { Prisma } from '@prisma/client';
+import type { NotificationsJsonValue, NotificationsInputJsonValue, NotificationsWhere } from '../data/notifications-db';
 
 /**
  * `Job.subjectType` for BOTH broadcast job types.
@@ -128,7 +128,7 @@ export const BROADCAST_SEND_CONCURRENCY = 5;
  * clauses HERE — one edit, and the count and the paging move together by
  * construction.
  */
-export function audienceWhere(cutoff: Date): Prisma.UserWhereInput {
+export function audienceWhere(cutoff: Date): NotificationsWhere {
   return {
     isActive: true,
     createdAt: { lte: cutoff },

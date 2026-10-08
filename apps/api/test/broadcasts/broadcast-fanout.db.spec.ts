@@ -59,22 +59,22 @@ import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { JOB_SETTLED_EVENT, JobSettledEvent } from '@marinoscar/platform-api/jobs';
 import { JobStuckService } from '@marinoscar/platform-api/jobs';
-import { BroadcastFailureListener } from '../../src/notifications/broadcasts/broadcast-failure.listener';
-import { BroadcastsService } from '../../src/notifications/broadcasts/broadcasts.service';
-import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-chunk.handler';
+import { BroadcastFailureListener } from '../notifications/support/notifications';
+import { BroadcastsService } from '../notifications/support/notifications';
+import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from '../notifications/support/notifications';
 import {
   BroadcastStartHandler,
   BROADCAST_START_TYPE,
   broadcastFirstChunkDedupKey,
-} from '../../src/notifications/broadcasts/handlers/broadcast-start.handler';
+} from '../notifications/support/notifications';
 import {
   BROADCAST_CHUNK_SIZE,
   BROADCAST_SEND_CONCURRENCY,
   BROADCAST_SUBJECT_TYPE,
-} from '../../src/notifications/broadcasts/broadcast-audience';
+} from '../notifications/support/notifications';
 import { JobsService } from '@marinoscar/platform-api/jobs';
-import type { NotificationsService } from '../../src/notifications/notifications.service';
-import type { NotifyOptions } from '../../src/notifications/notification.types';
+import type { NotificationsService } from '../notifications/support/notifications';
+import type { NotifyOptions } from '../notifications/support/notifications';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';

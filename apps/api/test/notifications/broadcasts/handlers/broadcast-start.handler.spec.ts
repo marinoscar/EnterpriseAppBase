@@ -23,14 +23,14 @@ import {
   BroadcastStartHandler,
   BROADCAST_START_TYPE,
   broadcastFirstChunkDedupKey,
-} from './broadcast-start.handler';
+} from '../../support/notifications';
 import { buildDedupKey } from '@marinoscar/platform-api/jobs';
 import type { JobHandler } from '@marinoscar/platform-api/jobs';
 import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import type { PrismaService } from '../../../prisma/prisma.service';
-import { BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';
-import { BROADCAST_CHUNK_TYPE } from './broadcast-chunk.handler';
+import type { PrismaService } from '../../../../src/prisma/prisma.service';
+import { BROADCAST_SUBJECT_TYPE } from '../../support/notifications';
+import { BROADCAST_CHUNK_TYPE } from '../../support/notifications';
 
 const BROADCAST_ID = 'bcast-1';
 

@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../core/index';
+import type { NotificationsBatchTransaction, NotificationsPrisma } from './data/notifications-db';
 import type {
   NotificationListQueryDto,
   NotificationListResponse,
@@ -63,7 +64,7 @@ const NOTIFICATION_FIELDS = {
 
 @Injectable()
 export class NotificationStoreService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma) {}
 
   /**
    * One page of a user's notifications, newest first.
@@ -92,7 +93,7 @@ export class NotificationStoreService {
       ...(unreadOnly ? { readAt: null } : {}),
     };
 
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await (this.prisma as unknown as NotificationsBatchTransaction).$transaction([
       this.prisma.notification.findMany({
         where,
         select: NOTIFICATION_FIELDS,

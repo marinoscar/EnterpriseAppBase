@@ -22,7 +22,7 @@ import {
   NotificationStreamEvent,
   NotificationStreamService,
   SseMessage,
-} from '../../src/notifications/notification-stream.service';
+} from './support/notifications';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { FakeEventBusNetwork, flushEventBus } from '../helpers/fake-network-event-bus.helper';
 

@@ -3,8 +3,8 @@ import {
   readNotificationPreferences,
   resolveChannels,
   type NotificationPreferences,
-} from './notification-preferences';
-import type { NotificationEventDef } from './notification-events';
+} from './support/notifications';
+import type { NotificationEventDef } from './support/notifications';
 
 // =============================================================================
 // Preference resolution — tests (issue #125, epic #109)

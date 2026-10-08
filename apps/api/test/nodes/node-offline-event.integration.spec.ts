@@ -16,7 +16,7 @@
 
 import { NODE_OFFLINE_EVENT, NodeFleetSweepHandler } from '@marinoscar/platform-api/nodes';
 
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { NotificationsService } from '../notifications/support/notifications';
 import { createTestApp, closeTestApp, type TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

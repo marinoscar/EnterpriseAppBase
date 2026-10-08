@@ -1,12 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { Job } from '@prisma/client';
+import type { Job } from '../../jobs/index';
 
 import {
   JOB_SETTLED_EVENT,
   type JobSettledEvent,
-} from '@marinoscar/platform-api/jobs';
-import { PrismaService } from '../../prisma/prisma.service';
+} from '../../jobs/index';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { NotificationsPrisma } from '../data/notifications-db';
 import { describeThrown } from '../describe-thrown';
 import { BROADCAST_SUBJECT_TYPE } from './broadcast-audience';
 import { BROADCAST_CHUNK_TYPE } from './handlers/broadcast-chunk.handler';
@@ -113,7 +114,7 @@ const MAX_QUOTED_ERROR_LENGTH = 500;
 export class BroadcastFailureListener {
   private readonly logger = new Logger(BroadcastFailureListener.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma) {}
 
   /**
    * A job settled. If it was a broadcast fan-out job that gave up, fail the

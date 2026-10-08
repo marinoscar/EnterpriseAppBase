@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { NOTIFICATION_EVENTS } from './notification-events';
+import { NOTIFICATION_EVENTS } from './support/notifications';
 
 // =============================================================================
 // The four operational events add NO SCHEMA (issue #288, epic #254)
@@ -101,6 +101,9 @@ const MIGRATIONS_AT_288 = [
   // tenancy, not the operational notification events.
   '20261008052119_add_jobs_org_id',
   '20261008052120_add_jobs_org_id_status_index',
+  // #738: broadcasts gain a target organization (a column on
+  // notification_broadcasts; the four operational events still need nothing).
+  '20261008080749_add_broadcast_target_org',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

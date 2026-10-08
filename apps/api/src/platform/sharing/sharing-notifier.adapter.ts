@@ -13,7 +13,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { SharingNotifier } from '@marinoscar/platform-api/sharing';
 
-import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationsService } from '@marinoscar/platform-api/notifications';
 
 @Injectable()
 export class SharingNotifierAdapter implements SharingNotifier {

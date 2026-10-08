@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 
-import type { EventBus, EventBusHandler, EventBusMeta } from '../common/event-bus/event-bus.interface';
-import type { PrismaService } from '../prisma/prisma.service';
+import type { EventBus, EventBusHandler, EventBusMeta } from '../../src/common/event-bus/event-bus.interface';
+import type { PrismaService } from '../../src/prisma/prisma.service';
 import {
   HEARTBEAT_INTERVAL_MS,
   NOTIFICATION_SSE_EVENT,
@@ -10,7 +10,7 @@ import {
   NotificationStreamService,
   SseMessage,
   parseNotificationStreamBusMessage,
-} from './notification-stream.service';
+} from './support/notifications';
 
 // =============================================================================
 // NotificationStreamService — tests (issue #127, epic #109)

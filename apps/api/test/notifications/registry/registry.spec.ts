@@ -1,6 +1,6 @@
 import { groupInvitationBrowserTemplate, sharedWithYouBrowserTemplate } from '@marinoscar/platform-api/sharing';
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
-import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../common/schemas/user-settings-namespaces.schema';
+import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../../src/common/schemas/user-settings-namespaces.schema';
 import {
   PLATFORM_EMAIL_TEMPLATES,
   findEmailTemplate,
@@ -14,9 +14,9 @@ import {
   nodeOfflineBrowserTemplate,
   restoreCompletedBrowserTemplate,
   roleChangedBrowserTemplate,
-} from '../channels/browser-templates';
-import { EVENT_BROWSER_TEMPLATES } from '../channels/browser-notification.channel';
-import { EVENT_EMAIL_TEMPLATES } from '../channels/email-notification.channel';
+} from '../support/notifications';
+import { EVENT_BROWSER_TEMPLATES } from '../support/notifications';
+import { EVENT_EMAIL_TEMPLATES } from '../support/notifications';
 import {
   NOTIFICATION_CHANNELS,
   NOTIFICATION_EVENTS,
@@ -27,7 +27,7 @@ import {
   supportsChannel,
   type NotificationChannel,
   type NotificationEventDef,
-} from '../notification-events';
+} from '../support/notifications';
 import {
   NOTIFICATION_EVENT_KEY_MAX_LENGTH,
   emailTemplateRegistry,
@@ -37,7 +37,7 @@ import {
   notificationEventRegistry,
   registerNotification,
   type NotificationRegistration,
-} from '.';
+} from '../support/notifications';
 
 // =============================================================================
 // Notification registries (issue #678, PP-1.6)
@@ -405,20 +405,20 @@ describe('notification registries (#678)', () => {
 
   describe('an invalid app registration fails when the registry is imported', () => {
     afterEach(() => {
-      jest.dontMock('../../app-registrations/notifications');
+      jest.dontMock('../../../src/app-registrations/notifications');
     });
 
     function importWithApp(app: Record<string, unknown>): unknown {
       let failure: unknown;
       jest.isolateModules(() => {
-        jest.doMock('../../app-registrations/notifications', () => ({
+        jest.doMock('../../../src/app-registrations/notifications', () => ({
           APP_NOTIFICATION_CHANNELS: [],
           APP_EMAIL_TEMPLATES: [],
           APP_NOTIFICATIONS: [],
           ...app,
         }));
         try {
-          require('.');
+          require('../support/notifications');
         } catch (err) {
           failure = err;
         }
@@ -429,7 +429,7 @@ describe('notification registries (#678)', () => {
     it('loads cleanly with a valid app channel, template and notification (listed after the platform)', () => {
       let keys: string[] = [];
       jest.isolateModules(() => {
-        jest.doMock('../../app-registrations/notifications', () => ({
+        jest.doMock('../../../src/app-registrations/notifications', () => ({
           APP_NOTIFICATION_CHANNELS: [{ id: 'android_app', label: 'Android app', description: 'The paired app.' }],
           APP_EMAIL_TEMPLATES: [{ name: 'coach-weekly-review', render: appEmail }],
           APP_NOTIFICATIONS: [
@@ -440,7 +440,7 @@ describe('notification registries (#678)', () => {
           ],
         }));
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const fresh = require('.') as typeof import('.');
+        const fresh = require('../support/notifications') as typeof import('../support/notifications');
         keys = fresh.notificationEventRegistry.ids();
       });
       expect(keys).toEqual([...PLATFORM_EVENT_KEYS, APP_EVENT.key]);

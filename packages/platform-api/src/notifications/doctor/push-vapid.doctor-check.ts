@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/index';
+import { DoctorCheckRegistry } from '../../doctor/index';
 import { ActiveVapidConfig, PushConfigService } from '../push-config.service';
 import {
   isValidVapidPublicKey,

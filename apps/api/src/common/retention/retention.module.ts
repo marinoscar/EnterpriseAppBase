@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { JobsModule } from '../../platform/jobs/jobs.config';
 import { SettingsModule } from '../../platform/settings/settings.config';
 import { AuditEventsPurgeHandler } from './audit-events-purge.handler';
+import { NotificationDeliveriesPurgeHandler } from './notification-deliveries-purge.handler';
+import { NotificationInboxPurgeHandler } from './notification-inbox-purge.handler';
 import { RetentionPurgeTask } from './retention-purge.task';
 
 // =============================================================================
@@ -23,6 +25,14 @@ import { RetentionPurgeTask } from './retention-purge.task';
 
 @Module({
   imports: [JobsModule, SettingsModule],
-  providers: [AuditEventsPurgeHandler, RetentionPurgeTask],
+  providers: [
+    AuditEventsPurgeHandler,
+    // The notification inbox and delivery-log purges (#681). Owned here since
+    // the notifications slice moved into @marinoscar/platform-api (#738): they
+    // run on this module's retention policy and batched-purge helper.
+    NotificationInboxPurgeHandler,
+    NotificationDeliveriesPurgeHandler,
+    RetentionPurgeTask,
+  ],
 })
 export class RetentionModule {}

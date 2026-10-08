@@ -2,25 +2,64 @@
 // User settings namespace `notifications` (issue #677; namespace #126, epic #109)
 // =============================================================================
 //
-// Declaration file: pure data, imports only leaf modules (the per-namespace
-// zod schemas and constants, and Nest's exception type). Registered by
-// `settings/registry/user-settings.manifest.ts`. Recipe:
-// `settings/registry/README.md`. The merge and cap bodies moved verbatim from
-// `UserSettingsService` (`mergeNotifications`, `assertNotificationLimit`).
+// Declaration file: pure data, imports only leaf modules (the contract's zod
+// schemas and constants, the channel registry, and Nest's exception type). The
+// app registers it in its user settings manifest (the reference app:
+// `settings/registry/user-settings.manifest.ts`). The merge and cap bodies
+// moved verbatim from `UserSettingsService` (`mergeNotifications`,
+// `assertNotificationLimit`).
+//
+// OPEN CHANNEL KEYS (#738). The stored schema accepts any well-formed channel
+// id, so a preference stored for a channel that is later unregistered is KEPT
+// across every later write (a row outlives the registry that produced it;
+// `settings.schema.ts`'s rule). Only the PATCH body is checked against the
+// registry: writing a NEW preference for an unknown channel is a 400, while
+// deleting one (`{ gone: null }`) is always allowed.
 // =============================================================================
 
 import { BadRequestException } from '@nestjs/common';
 import {
+  NOTIFICATION_MAX_CHANNELS,
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
-  notificationsPatchSchema,
+  notificationsPatchSchema as wireNotificationsPatchSchema,
   notificationsSchema,
   type NotificationChannelPreferencesValue,
   type NotificationsPatchValue,
   type NotificationsValue,
-} from '../common/schemas/user-settings-namespaces.schema';
+} from '@marinoscar/platform-contract/notifications';
 import type { NotificationChannel } from './notification-events';
-import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
+import { notificationChannelRegistry } from './registry/channel.registry';
 
+/**
+ * The PATCH body of the `notifications` namespace, its open channel keys
+ * checked against the channel registry at run time: a non-null branch must
+ * name a registered channel users may configure. A `null` branch (delete) is
+ * always allowed, so a stale channel's preferences can still be cleared.
+ *
+ * @stability stable
+ */
+export const notificationsPatchSchema = wireNotificationsPatchSchema.superRefine((patch, ctx) => {
+  for (const [channel, branch] of Object.entries(patch)) {
+    if (branch === null || branch === undefined) continue;
+    const def = notificationChannelRegistry.get(channel);
+    if (!def) {
+      ctx.addIssue({ code: 'custom', path: [channel], message: `"${channel}" is not a registered notification channel` });
+    } else if (def.userConfigurable === false) {
+      ctx.addIssue({ code: 'custom', path: [channel], message: `"${channel}" is not a channel users can configure` });
+    }
+  }
+});
+import type { UserSettingsNamespace } from '../settings/index';
+
+/**
+ * The `notifications` user settings namespace: per-channel, per-event
+ * preferences, channel-outer, sparse at every level, keyed by OPEN channel ids
+ * (#738). Register it with `registerUserSettingsNamespaces` in the app's user
+ * settings manifest.
+ *
+ * @extensionPoint schema
+ * @stability stable
+ */
 export const NOTIFICATIONS_USER_SETTINGS = {
   key: 'notifications',
   description: 'Per-channel, per-event notification preferences, channel-outer; sparse at every level.',
@@ -153,6 +192,13 @@ export const NOTIFICATIONS_USER_SETTINGS = {
       return;
     }
 
+    const channels = Object.keys(notifications).length;
+    if (channels > NOTIFICATION_MAX_CHANNELS) {
+      throw new BadRequestException(
+        `Too many notification channels: ${channels} exceeds the maximum of ${NOTIFICATION_MAX_CHANNELS}. Remove channels you no longer need (send them as null) before adding new ones.`,
+      );
+    }
+
     for (const [channel, events] of Object.entries(notifications)) {
       const count = Object.keys(events ?? {}).length;
       if (count > NOTIFICATION_MAX_EVENTS_PER_CHANNEL) {
@@ -164,7 +210,7 @@ export const NOTIFICATIONS_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'notifications', NotificationsValue, NotificationsPatchValue>;
 
-declare module '@marinoscar/platform-api/settings' {
+declare module '../settings/registry/user-settings-namespace' {
   interface UserSettingsNamespaces {
     /**
      * Per-channel, per-event notification preferences (#126), channel-outer:

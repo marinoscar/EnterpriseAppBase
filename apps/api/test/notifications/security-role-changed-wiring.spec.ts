@@ -1,5 +1,6 @@
+import { PLATFORM_PRISMA } from '@marinoscar/platform-api/core';
 import { Test, TestingModule } from '@nestjs/testing';
-import { IDENTITY_APP_PORTS } from '../../test/helpers/identity-ports.helper';
+import { IDENTITY_APP_PORTS } from '../helpers/identity-ports.helper';
 import { ConfigService } from '@nestjs/config';
 import { NotificationDeliveryStatus } from '@prisma/client';
 
@@ -9,21 +10,21 @@ import {
   SmtpEmailProvider,
   type EmailSettings,
 } from '@marinoscar/platform-api/email';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
+} from '../mocks/prisma.mock';
 import { UsersService, PrincipalCache } from '@marinoscar/platform-api/identity';
-import { EmailNotificationChannel } from './channels/email-notification.channel';
-import { NotificationDeliveryService } from './notification-delivery.service';
-import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
-import { NotificationPolicyService } from './notification-policy.service';
-import { NotificationsService } from './notifications.service';
+import { EmailNotificationChannel } from './support/notifications';
+import { NotificationDeliveryService } from './support/notifications';
+import { DEFAULT_NOTIFICATION_POLICY } from './support/notifications';
+import { NotificationPolicyService } from './support/notifications';
+import { NotificationsService } from './support/notifications';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
-} from './notification.types';
+} from './support/notifications';
 
 const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
@@ -168,6 +169,8 @@ describe('security.role_changed: mandatory, both channels, and the before/after 
         NotificationDeliveryService,
         EmailNotificationChannel,
         { provide: PrismaService, useValue: prisma },
+        // The notifications slice injects the core port since #738.
+        { provide: PLATFORM_PRISMA, useValue: prisma },
         // #226. The dispatcher now reads the deployment-wide notification
         // policy; this suite is not about that policy, so it gets the
         // permissive default every untouched deployment has.

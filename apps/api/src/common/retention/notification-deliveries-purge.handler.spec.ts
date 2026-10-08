@@ -1,7 +1,7 @@
 import type { Job } from '@prisma/client';
 
-import { DEFAULT_SYSTEM_SETTINGS } from '../../common/types/settings.types';
-import { RETENTION_PURGE_BATCH_SIZE } from '../../common/retention/batched-purge';
+import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
+import { RETENTION_PURGE_BATCH_SIZE } from './batched-purge';
 import { NOTIFICATION_DELIVERIES_PURGE_TYPE, NotificationDeliveriesPurgeHandler } from './notification-deliveries-purge.handler';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

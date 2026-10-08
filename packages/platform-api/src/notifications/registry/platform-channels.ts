@@ -10,12 +10,18 @@
 // day one still applies: preferences are persisted per event AND per channel,
 // so storing a bare boolean and growing a channel axis later would be a data
 // migration over live user preferences. Order matters for the same reason it
-// did there: `NOTIFICATION_CHANNELS` (and every `z.enum` built from it, and so
-// the OpenAPI document) lists channels in registration order.
+// did there: `listNotificationChannels()` and the preferences matrix list
+// channels in registration order.
 // =============================================================================
 
-import type { NotificationChannelDef } from './channel.registry';
+import { notificationChannelRegistry, type NotificationChannelDef } from './channel.registry';
 
+/**
+ * The platform's three channels, in registration order: `email`, `browser`
+ * (the in-app inbox and its stream), `push` (Web Push).
+ *
+ * @stability stable
+ */
 export const PLATFORM_NOTIFICATION_CHANNELS: readonly NotificationChannelDef[] = [
   {
     id: 'email',
@@ -34,3 +40,20 @@ export const PLATFORM_NOTIFICATION_CHANNELS: readonly NotificationChannelDef[] =
     description: 'An operating-system notification delivered through Web Push to every browser the user subscribed.',
   },
 ];
+
+/**
+ * Registers the platform's three channels (`email`, `browser`, `push`), in
+ * that order, unless they already are: idempotent, like the email slice's
+ * `registerPlatformEmailTemplates()`, so an app's manifest and a test can both
+ * call it. Call it first: an event may only declare a registered channel, and
+ * an app channel registered before it would list ahead of the platform's.
+ *
+ * @throws RegistryError `FROZEN` after bootstrap, or `DUPLICATE_ID` when an
+ *   app registered a channel under a platform id first.
+ *
+ * @stability stable
+ */
+export function registerPlatformNotificationChannels(): void {
+  if (PLATFORM_NOTIFICATION_CHANNELS.every((channel) => notificationChannelRegistry.has(channel.id))) return;
+  notificationChannelRegistry.registerAll(PLATFORM_NOTIFICATION_CHANNELS);
+}

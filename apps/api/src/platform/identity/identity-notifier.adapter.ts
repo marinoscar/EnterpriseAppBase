@@ -14,7 +14,7 @@ import type {
 } from '@marinoscar/platform-api/email';
 
 import type { OrgInvitationEmailData } from '../email/templates';
-import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationsService } from '@marinoscar/platform-api/notifications';
 
 // =============================================================================
 // IDENTITY_NOTIFIER -> the app's notification dispatcher (issue #727)

@@ -27,9 +27,10 @@
 // operator one different click; under-refusing costs a stranded broadcast.
 // =============================================================================
 
-import { Job } from '@prisma/client';
+import type { Job } from '../../jobs/index';
 
-import { PrismaService } from '../../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { NotificationsPrisma } from '../data/notifications-db';
 import { BROADCAST_SUBJECT_TYPE } from './broadcast-audience';
 
 /** Broadcast statuses a still-runnable job of either broadcast type is load-bearing for. */
@@ -50,7 +51,7 @@ const TERMINAL_JOB_STATUSES: ReadonlySet<string> = new Set(['succeeded', 'failed
  * database error propagates; the admin service turns it into a refusal.
  */
 export async function broadcastJobDeleteRefusal(
-  prisma: PrismaService,
+  prisma: NotificationsPrisma,
   job: Pick<Job, 'status' | 'subjectType' | 'subjectId'>
 ): Promise<string | null> {
   if (TERMINAL_JOB_STATUSES.has(job.status)) return null;

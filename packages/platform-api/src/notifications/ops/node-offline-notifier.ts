@@ -26,10 +26,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
-import { NODE_OFFLINE_EVENT, type NodeOfflineEvent } from '@marinoscar/platform-api/nodes';
+import { NODE_OFFLINE_EVENT, type NodeOfflineEvent } from '../../nodes/index';
 
-import { PERMISSIONS } from '../../common/constants/roles.constants';
-import type { NodeOfflineEmailData } from '@marinoscar/platform-api/email';
+import { PERMISSIONS } from '../notifications.constants';
+import type { NodeOfflineEmailData } from '../../email/index';
 import { describeThrown } from '../describe-thrown';
 import { NotificationsService } from '../notifications.service';
 

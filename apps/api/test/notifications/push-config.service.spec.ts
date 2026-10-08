@@ -3,16 +3,16 @@ import { BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../test/mocks/prisma.mock';
-import { PrismaService } from '../prisma/prisma.service';
+} from '../mocks/prisma.mock';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { PUSH_CONFIG_KEY, PushConfigService } from './push-config.service';
-import { DEFAULT_VAPID_SUBJECT } from './push-config.schema';
+import { PUSH_CONFIG_KEY, PushConfigService } from './support/notifications';
+import { DEFAULT_VAPID_SUBJECT } from './support/notifications';
 import {
   PUSH_VAPID_CREDENTIAL_LABEL,
   PUSH_VAPID_CREDENTIAL_NAME,
   PUSH_VAPID_CREDENTIAL_PURPOSE,
-} from './push-vapid-credential.constants';
+} from './support/notifications';
 
 // =============================================================================
 // PushConfigService — tests (issue #355)

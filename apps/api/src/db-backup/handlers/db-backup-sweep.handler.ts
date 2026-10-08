@@ -97,7 +97,7 @@ import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.sc
 import type { BackupFailedEmailData } from '@marinoscar/platform-api/email';
 import { JobHandler } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationsService } from '@marinoscar/platform-api/notifications';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import {

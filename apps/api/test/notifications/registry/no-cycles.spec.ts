@@ -13,6 +13,11 @@
 // its exports must be fully defined. A declaration file that imports the
 // browser channel class (instead of the leaf browser-templates.ts), or a
 // template file that imports email/templates/index.ts, fails here.
+//
+// Since #738 the registries are `@marinoscar/platform-api/notifications` and
+// the manifest is the app's (`src/platform/notifications/`): the package loads
+// first on its own (empty registries), and the app's barrel loads first and
+// fills them.
 // =============================================================================
 
 describe('notification registry: no import cycles', () => {
@@ -25,19 +30,25 @@ describe('notification registry: no import cycles', () => {
     return loaded as T;
   }
 
-  it('notification-events.ts loads first with every export defined', () => {
-    const mod = loadFirst<typeof import('../notification-events')>('../notification-events');
+  it('the app barrel (src/platform/notifications) loads first with every export defined', () => {
+    const mod = loadFirst<typeof import('../../../src/platform/notifications')>('../../../src/platform/notifications');
 
     expect(mod.NOTIFICATION_CHANNELS).toEqual(['email', 'browser', 'push']);
     expect(mod.NOTIFICATION_EVENTS.length).toBe(12);
+    expect(mod.NOTIFICATION_EVENTS.find((event) => event.key === 'user.welcome')?.label).toBe('Welcome');
+  });
+
+  it('the package loads first on its own, with every lookup defined and nothing registered', () => {
+    const mod = loadFirst<typeof import('@marinoscar/platform-api/notifications')>('@marinoscar/platform-api/notifications');
+
     for (const name of ['findEvent', 'channelsFor', 'supportsChannel', 'isMandatory', 'listNotificationEvents'] as const) {
       expect(typeof mod[name]).toBe('function');
     }
-    expect(mod.findEvent('user.welcome')?.label).toBe('Welcome');
+    expect(mod.notificationEventRegistry.size).toBe(0);
   });
 
   it('platform/email/templates (the slice-owned templates) loads first with every export defined', () => {
-    const mod = loadFirst<typeof import('../../platform/email/templates')>('../../platform/email/templates');
+    const mod = loadFirst<typeof import('../../../src/platform/email/templates')>('../../../src/platform/email/templates');
 
     expect(mod.SLICE_EMAIL_TEMPLATES.map((entry) => entry.name)).toEqual(['org-invitation', 'group-invitation', 'shared-with-you']);
     expect(typeof mod.orgInvitationEmail).toBe('function');
@@ -46,7 +57,7 @@ describe('notification registry: no import cycles', () => {
   });
 
   it('common/schemas/user-settings-namespaces.schema.ts loads first with every export defined', () => {
-    const mod = loadFirst<Record<string, unknown>>('../../common/schemas/user-settings-namespaces.schema');
+    const mod = loadFirst<Record<string, unknown>>('../../../src/common/schemas/user-settings-namespaces.schema');
 
     expect(Object.keys(mod).length).toBeGreaterThan(0);
     for (const [name, value] of Object.entries(mod)) {
@@ -56,7 +67,7 @@ describe('notification registry: no import cycles', () => {
   });
 
   it('the registry barrel loads first and is filled', () => {
-    const mod = loadFirst<typeof import('.')>('.');
+    const mod = loadFirst<typeof import('../support/notifications')>('../support/notifications');
 
     expect(mod.notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
     expect(mod.notificationEventRegistry.size).toBe(12);
@@ -66,9 +77,7 @@ describe('notification registry: no import cycles', () => {
   });
 
   it('the browser channel loads first with its exports defined', () => {
-    const mod = loadFirst<typeof import('../channels/browser-notification.channel')>(
-      '../channels/browser-notification.channel',
-    );
+    const mod = loadFirst<typeof import('../support/notifications')>('../support/notifications');
 
     expect(Object.keys(mod.EVENT_BROWSER_TEMPLATES)).toHaveLength(8);
     expect(typeof mod.sanitizeLink).toBe('function');

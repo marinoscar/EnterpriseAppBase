@@ -3,9 +3,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Inject,
 } from '@nestjs/common';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../core/index';
+import type { NotificationsPrisma } from './data/notifications-db';
 import { PushConfigService } from './push-config.service';
 import type { PushSubscribeRequest } from './dto/push-subscription.dto';
 
@@ -59,7 +61,7 @@ export class PushSubscriptionService {
   private readonly logger = new Logger(PushSubscriptionService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly pushConfig: PushConfigService,
   ) {}
 

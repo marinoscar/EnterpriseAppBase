@@ -74,18 +74,31 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { JobsModule } from '../../platform/jobs/jobs.config';
-import { PrismaModule } from '../../prisma/prisma.module';
-import { SettingsModule } from '../../platform/settings/settings.config';
-import { NotificationsModule } from '../notifications.module';
 import { BroadcastsController } from './broadcasts.controller';
 import { BroadcastFailureListener } from './broadcast-failure.listener';
 import { BroadcastsService } from './broadcasts.service';
 import { BroadcastChunkHandler } from './handlers/broadcast-chunk.handler';
 import { BroadcastStartHandler } from './handlers/broadcast-start.handler';
 
+/**
+ * Admin broadcasts (#366, #738): `/api/admin/broadcasts`, the audience, the
+ * two fan-out job handlers (`admin.broadcast.start`, `admin.broadcast.chunk`;
+ * permanent type strings) and the failure listener. A static module: it needs
+ * the global `NotificationsModule.forRoot()`, `JobsModule.forRoot()` and
+ * `SettingsModule.forRoot()`, and the core `PLATFORM_PRISMA` port. A broadcast
+ * targets every active user, or (`targetOrgId`) one organization's active
+ * members.
+ *
+ * @example
+ * ```ts
+ * @Module({ imports: [NotificationsModule, BroadcastsModule] })
+ * export class AppModule {}
+ * ```
+ *
+ * @stability experimental
+ */
 @Module({
-  imports: [PrismaModule, JobsModule, NotificationsModule, SettingsModule, ConfigModule],
+  imports: [ConfigModule],
   controllers: [BroadcastsController],
   providers: [
     BroadcastStartHandler,

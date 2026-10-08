@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-ports.helper';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { NotificationsService } from '../notifications/support/notifications';
 import {
   AuthService,
   AllowlistService,

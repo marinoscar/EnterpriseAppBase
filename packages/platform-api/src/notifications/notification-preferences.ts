@@ -1,8 +1,5 @@
-import {
-  NOTIFICATION_CHANNELS,
-  type NotificationChannel,
-  type NotificationEventDef,
-} from './notification-events';
+import type { NotificationChannel, NotificationEventDef } from './notification-events';
+import { notificationChannelRegistry } from './registry/channel.registry';
 import {
   DEFAULT_NOTIFICATION_POLICY,
   policyChannels,
@@ -82,6 +79,8 @@ import {
  * Exported so #126's write path and any test fixture address the same
  * namespace by the same constant rather than by a repeated string literal —
  * a typo in one of two literals is a preference that silently never resolves.
+  *
+  * @stability stable
  */
 export const NOTIFICATION_PREFERENCES_NAMESPACE = 'notifications';
 
@@ -90,6 +89,8 @@ export const NOTIFICATION_PREFERENCES_NAMESPACE = 'notifications';
  *
  * SPARSE: a key is present only where the user deliberately chose. An absent
  * key is not `false`, and must never be normalised into one.
+  *
+  * @stability stable
  */
 export type ChannelPreferences = Record<string, boolean>;
 
@@ -99,13 +100,22 @@ export type ChannelPreferences = Record<string, boolean>;
  * Every level optional, all the way down. This type is the sparse contract
  * expressed in the type system: there is no shape of this value that asserts
  * "the user has an opinion about every event".
+  *
+  * @stability stable
  */
 export type NotificationPreferences = Partial<
   Record<NotificationChannel, ChannelPreferences>
 >;
 
-/** `NOTIFICATION_CHANNELS` as a set, for O(1) membership during parsing. */
-const KNOWN_CHANNELS: ReadonlySet<string> = new Set(NOTIFICATION_CHANNELS);
+/**
+ * Whether a stored channel key takes part in dispatch: a registered channel,
+ * read LIVE (#738; the closed `NOTIFICATION_CHANNELS` set it replaces was a
+ * snapshot). A preference stored for an unregistered channel is ignored here
+ * and kept in storage: the settings namespace never drops it.
+ */
+function isKnownChannel(channel: string): boolean {
+  return notificationChannelRegistry.has(channel);
+}
 
 /**
  * Is `value` a plain object we can safely enumerate?
@@ -172,6 +182,8 @@ function ownProperty(
  *                      `undefined` when the user has no settings row at all —
  *                      the single most common case, and the one the sparse
  *                      contract is built around.
+  *
+  * @stability stable
  */
 export function readNotificationPreferences(
   settingsValue: unknown,
@@ -187,7 +199,7 @@ export function readNotificationPreferences(
   const prefs: NotificationPreferences = {};
 
   for (const [channel, stored] of Object.entries(namespace)) {
-    if (!KNOWN_CHANNELS.has(channel)) continue;
+    if (!isKnownChannel(channel)) continue;
     if (!isPlainObject(stored)) continue;
 
     const events: ChannelPreferences = {};
@@ -230,6 +242,8 @@ export function readNotificationPreferences(
  * {@link resolveChannels}' job, and callers should use that. Asking this
  * function about an undeclared channel answers the question it was asked
  * ("would preferences permit it?") rather than a different one.
+  *
+  * @stability stable
  */
 export function isChannelEnabled(
   event: NotificationEventDef,
@@ -237,6 +251,10 @@ export function isChannelEnabled(
   preferences: NotificationPreferences,
 ): boolean {
   if (event.mandatory === true) return true;
+
+  // A channel users may not toggle (#738, `userConfigurable: false`) follows
+  // the event's default whatever is stored for it.
+  if (notificationChannelRegistry.get(channel)?.userConfigurable === false) return event.defaultEnabled;
 
   // The three-level fallback, written out rather than collapsed into a chain
   // of `??`, so each level is visible and each returns the SAME answer. The
@@ -316,6 +334,8 @@ export function isChannelEnabled(
  *        setting silence notifications with nothing to show for it.
  *
  * Returns a fresh array; nothing here hands out a reference into the registry.
+  *
+  * @stability stable
  */
 export function resolveChannels(
   event: NotificationEventDef,

@@ -1,10 +1,13 @@
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy } from '@nestjs/common';
+import { trace } from '@opentelemetry/api';
 
-import { PrismaService } from '../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../core/index';
+import type { NotificationsPrisma } from './data/notifications-db';
 import {
-  AppMetricsService,
-  fallbackAppMetrics,
-} from '../common/otel/app-metrics.service';
+  NOOP_NOTIFICATIONS_METRICS,
+  NOTIFICATIONS_METRICS,
+  type NotificationsMetrics,
+} from './ports';
 import { describeThrown } from './describe-thrown';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import {
@@ -127,6 +130,8 @@ import {
  */
 const SHUTDOWN_DRAIN_MS = 5_000;
 
+const tracer = trace.getTracer('@marinoscar/platform-api/notifications');
+
 /**
  * The {@link NotifyNowResult} for every dispatch that met no throttle —
  * including the ones that sent nothing at all (unknown event, missing user,
@@ -196,16 +201,17 @@ export class NotificationsService implements OnModuleDestroy {
   private readonly inFlight = new Set<Promise<void>>();
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly deliveries: NotificationDeliveryService,
     // The deployment-wide gate (#226). Injected rather than read inline so the
     // never-throw guarantee lives in one place; see the service's own header.
     private readonly policy: NotificationPolicyService,
     @Inject(NOTIFICATION_CHANNEL_SENDERS)
     senders: NotificationChannelSender[],
-    // #600. Optional: see `fallbackAppMetrics`.
+    // #600. Optional: the host port `NOTIFICATIONS_METRICS` (#738).
     @Optional()
-    private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Inject(NOTIFICATIONS_METRICS)
+    private readonly metrics: NotificationsMetrics = NOOP_NOTIFICATIONS_METRICS,
     // #678. Where an app's own sender lands: it self-registers from its own
     // module's `onModuleInit`, after this constructor ran, so it is looked up
     // at dispatch time (see `senderFor`). Optional so the unit specs that
@@ -1028,6 +1034,14 @@ export class NotificationsService implements OnModuleDestroy {
         id: true,
         email: true,
         userSettings: { select: { value: true } },
+        // The recipient's organization for the policy's org layer (#738): the
+        // active membership they were most recently active in.
+        memberships: {
+          where: { status: 'active' },
+          orderBy: [{ lastActiveAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'asc' }],
+          take: 1,
+          select: { orgId: true },
+        },
       },
     });
 
@@ -1046,6 +1060,7 @@ export class NotificationsService implements OnModuleDestroy {
       userId: user.id,
       email: user.email,
       preferences: readNotificationPreferences(user.userSettings?.value),
+      orgId: user.memberships?.[0]?.orgId ?? null,
     };
   }
 
@@ -1073,7 +1088,12 @@ export class NotificationsService implements OnModuleDestroy {
     // `getPolicy` never throws and degrades to the permissive default; see its
     // own comment for why that direction, on a path whose whole purpose is to
     // make sure a privilege change is not silent.
-    const policy = await this.policy.getPolicy();
+    //
+    // PER ORGANIZATION (#738): the caller's `orgId` when it names one (a
+    // broadcast to one org), else the recipient's own; `null` reads the
+    // deployment-wide policy. The org layer may only tighten it.
+    const orgId = options?.orgId !== undefined ? options.orgId : (recipient.orgId ?? null);
+    const policy = await this.policy.getPolicy(orgId);
 
     // THE GATE. `resolveChannels` applies the admin policy, then the sparse
     // absent-key contract and the `mandatory` override; nothing else in this
@@ -1160,13 +1180,33 @@ export class NotificationsService implements OnModuleDestroy {
     // provider refusing us says nothing about the in-app row, which is a
     // local database write; skipping it would make a mail outage erase the
     // durable record too. The verdict is only accumulated and reported.
-    let throttle = NOT_THROTTLED;
+    // One span per fan-out (#738): the event, the channels attempted and the
+    // organization whose policy applied (`org.id`, a span attribute and never
+    // a metric label). No recipient address or payload is recorded.
+    return tracer.startActiveSpan(
+      'notifications.dispatch',
+      {
+        attributes: {
+          'notification.event_key': event.key,
+          'notification.channels': channels.join(','),
+          ...(orgId ? { 'org.id': orgId } : {}),
+        },
+      },
+      async (span) => {
+        try {
+          let throttle = NOT_THROTTLED;
 
-    for (const channel of channels) {
-      throttle = mergeThrottle(throttle, await this.deliverOne(context, channel));
-    }
+          for (const channel of channels) {
+            throttle = mergeThrottle(throttle, await this.deliverOne(context, channel));
+          }
 
-    return throttle;
+          if (throttle.rateLimited) span.setAttribute('notification.rate_limited', true);
+          return throttle;
+        } finally {
+          span.end();
+        }
+      },
+    );
   }
 
   /**

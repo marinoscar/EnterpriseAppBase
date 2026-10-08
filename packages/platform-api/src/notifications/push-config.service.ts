@@ -3,13 +3,15 @@ import {
   ConflictException,
   Injectable,
   Logger,
+  Inject,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { NotificationsJsonValue, NotificationsInputJsonValue, NotificationsWhere } from './data/notifications-db';
 import * as webpush from 'web-push';
 import type { z } from 'zod';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { CredentialsService } from '@marinoscar/platform-api/credentials';
+import { PLATFORM_PRISMA } from '../core/index';
+import type { NotificationsPrisma } from './data/notifications-db';
+import { CredentialsService } from '../credentials/index';
 import {
   DEFAULT_PUSH_CONFIG,
   DEFAULT_VAPID_SUBJECT,
@@ -162,7 +164,7 @@ export class PushConfigService {
   private readonly logger = new Logger(PushConfigService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     // The VAPID private key's only home. See push-vapid-credential.constants.ts.
     // Only ever used through `setSecret` (write), `describe` (masked read) and
     // `deleteSecret` (remove). `getSecret` — the plaintext one — is called
@@ -573,13 +575,13 @@ export class PushConfigService {
   // Internals
   // ---------------------------------------------------------------------------
 
-  private storedPublicKey(row: { value: Prisma.JsonValue } | null): boolean {
+  private storedPublicKey(row: { value: NotificationsJsonValue } | null): boolean {
     return Boolean(this.parseStoredSettings(row)?.publicKey);
   }
 
   /** Best-effort parse; `null` on a missing or invalid row. Never throws. */
   private parseStoredSettings(
-    row: { value: Prisma.JsonValue } | null,
+    row: { value: NotificationsJsonValue } | null,
   ): PushConfig | null {
     if (!row) return null;
     const parsed = pushConfigSchema.safeParse(row.value);
@@ -590,13 +592,13 @@ export class PushConfigService {
     return this.prisma.systemSettings.upsert({
       where: { key: PUSH_CONFIG_KEY },
       update: {
-        value: settings as unknown as Prisma.InputJsonValue,
+        value: settings as unknown as NotificationsInputJsonValue,
         updatedByUserId: userId,
         version: { increment: 1 },
       },
       create: {
         key: PUSH_CONFIG_KEY,
-        value: settings as unknown as Prisma.InputJsonValue,
+        value: settings as unknown as NotificationsInputJsonValue,
         updatedByUserId: userId,
       },
       include: { updatedByUser: { select: { id: true, email: true } } },
@@ -619,7 +621,7 @@ export class PushConfigService {
         // of `pushConfigSchema`'s validated shape, which carries a
         // compile-time proof it has no secret-bearing field. The private key
         // is never in this object.
-        meta: meta as unknown as Prisma.InputJsonValue,
+        meta: meta as unknown as NotificationsInputJsonValue,
       },
     });
   }

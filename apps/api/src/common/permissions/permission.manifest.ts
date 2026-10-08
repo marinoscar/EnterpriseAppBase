@@ -24,8 +24,8 @@ import {
 import { DB_BACKUP_PERMISSIONS } from '../../db-backup/db-backup.permissions';
 import { JOBS_PERMISSIONS } from '@marinoscar/platform-api/jobs';
 import { NODES_PERMISSIONS } from '@marinoscar/platform-api/nodes';
-import { BROADCASTS_PERMISSIONS } from '../../notifications/broadcasts/broadcasts.permissions';
-import { PUSH_PERMISSIONS } from '../../notifications/push.permissions';
+import { BROADCASTS_PERMISSIONS } from '@marinoscar/platform-api/notifications';
+import { PUSH_PERMISSIONS } from '@marinoscar/platform-api/notifications';
 import { ORG_SETTINGS_PERMISSIONS, SETTINGS_PERMISSIONS } from '@marinoscar/platform-api/settings';
 import { STORAGE_CONFIG_PERMISSIONS } from '@marinoscar/platform-api/storage';
 import { STORAGE_PERMISSIONS } from '@marinoscar/platform-api/storage';

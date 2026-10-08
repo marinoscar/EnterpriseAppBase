@@ -14,7 +14,7 @@ import {
 
 import { DEFAULT_USER_SETTINGS } from '../../src/common/types/settings.types';
 import { IdentityUserCreatedListener } from '../../src/identity-extensions/identity-user-created.listener';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { NotificationsService } from '../notifications/support/notifications';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

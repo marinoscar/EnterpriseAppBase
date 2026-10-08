@@ -24,7 +24,7 @@
 // FRAMEWORK-FREE: imports only the registry primitive and the channel registry.
 // =============================================================================
 
-import { defineRegistry } from '@marinoscar/platform-api/core';
+import { defineRegistry } from '../../core/index';
 import { notificationChannelRegistry, type NotificationChannel } from './channel.registry';
 
 /**
@@ -34,16 +34,24 @@ import { notificationChannelRegistry, type NotificationChannel } from './channel
  * user may store in preferences (`common/schemas/user-settings-namespaces.schema.ts`).
  * Restated rather than imported because that schema imports this folder;
  * `registry.spec.ts` asserts the two agree.
+  *
+  * @stability stable
  */
 export const NOTIFICATION_EVENT_KEY_MAX_LENGTH = 64;
 
-/** What every event key must look like: `<area>.<event>`, lower snake case. */
+/**
+ * What every event key must look like: `<area>.<event>`, lower snake case.
+ *
+ * @stability stable
+ */
 export const NOTIFICATION_EVENT_KEY_PATTERN = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
 
 
 /**
  * One notification event, fully described for every surface that dispatches,
  * renders, or documents it.
+  *
+  * @stability stable
  */
 export interface NotificationEventDef {
   /**
@@ -144,6 +152,8 @@ export interface NotificationEventDef {
  * anything (it is atomic across the event and its template bindings).
  *
  * @throws Error naming the problem; the registry wraps it as `INVALID_ENTRY`.
+  *
+  * @stability stable
  */
 export function assertValidNotificationEvent(event: NotificationEventDef): void {
   if (event.key.length > NOTIFICATION_EVENT_KEY_MAX_LENGTH) {
@@ -180,6 +190,8 @@ export function assertValidNotificationEvent(event: NotificationEventDef): void 
 /**
  * Every notification event, in registration order. Filled by
  * `notification.manifest.ts`; frozen once the application has bootstrapped.
+  *
+  * @stability stable
  */
 export const notificationEventRegistry = defineRegistry<NotificationEventDef>({
   name: 'notification-events',
@@ -190,3 +202,31 @@ export const notificationEventRegistry = defineRegistry<NotificationEventDef>({
     `Duplicate notification event "${existing.key}". An event key is persisted in ` +
     'preferences and delivery rows: never rename or reuse one, add a new key.',
 });
+
+/**
+ * Registers ONE event with no template binding: the event's `label` and
+ * `description` render its bell row and push toast, and an event that
+ * declares `email` needs {@link registerEmailNotificationTemplate} (or the
+ * combined `registerNotification`) before it can be emailed. Call it from the
+ * app's manifest, before `NotificationsModule.forRoot()` composes.
+ *
+ * @param event - the event.
+ * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY`, `DUPLICATE_ID` or `FROZEN`.
+ *
+ * @example
+ * ```ts
+ * registerNotificationEvent({
+ *   key: 'billing.invoice_ready',
+ *   label: 'Invoice ready',
+ *   description: 'Sent when a new invoice is available to download.',
+ *   channels: ['browser'],
+ *   defaultEnabled: true,
+ * });
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability stable
+ */
+export function registerNotificationEvent(event: NotificationEventDef): void {
+  notificationEventRegistry.register(event);
+}

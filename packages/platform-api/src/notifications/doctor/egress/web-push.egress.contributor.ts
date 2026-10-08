@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 
 import {
   EgressContributor,
@@ -6,9 +6,10 @@ import {
   EgressRegistry,
   egressDependency,
   hostnameOf,
-} from '@marinoscar/platform-api/doctor';
+} from '../../../doctor/index';
 
-import { ScopedPrismaService } from '../../../prisma/ownership/scoped-prisma.service';
+import { PLATFORM_PRISMA, asSystem } from '../../../core/index';
+import type { NotificationsPrisma } from '../../data/notifications-db';
 import { PushConfigService } from '../../push-config.service';
 import { PUSH_SETTINGS_PATH } from '../push-vapid.doctor-check';
 
@@ -46,7 +47,7 @@ export class WebPushEgressContributor implements EgressContributor, OnModuleInit
   constructor(
     private readonly egress: EgressRegistry,
     private readonly pushConfig: PushConfigService,
-    private readonly prisma: ScopedPrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
   ) {}
 
   onModuleInit(): void {
@@ -61,9 +62,10 @@ export class WebPushEgressContributor implements EgressContributor, OnModuleInit
     let count: number | undefined;
 
     if (enabled) {
-      const rows = await this.prisma
-        .asSystem({ kind: 'system', reason: 'doctor.network-egress: push service hosts' })
-        .pushSubscription.findMany({ select: { endpoint: true }, take: PUSH_ENDPOINT_SCAN_LIMIT });
+      const rows: Array<{ endpoint: string }> = await asSystem(this.prisma, {
+        kind: 'system',
+        reason: 'doctor.network-egress: push service hosts',
+      }).pushSubscription.findMany({ select: { endpoint: true }, take: PUSH_ENDPOINT_SCAN_LIMIT });
 
       const perHost = new Map<string, number>();
       for (const { endpoint } of rows) {
