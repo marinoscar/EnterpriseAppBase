@@ -1,7 +1,7 @@
 {
   "extends": ["../../typedoc.base.json"],
   "tsconfig": "tsconfig.build.json",
-  "entryPoints": ["src/index.ts", "src/core/index.ts", "src/testing/index.ts", "src/doctor/headless/index.ts", "src/doctor/ui/index.ts", "src/telemetry/headless/index.ts", "src/telemetry/ui/index.ts", "src/telemetry/ui/settings-page.ts", "src/telemetry/ui/explorer-page.ts", "src/telemetry/ui/dashboard-page.ts", "src/identity/headless/index.ts", "src/identity/ui/index.ts", "src/settings/headless/index.ts", "src/settings/ui/index.ts", "src/sharing/headless/index.ts", "src/sharing/ui/index.ts", "src/credentials/headless/index.ts", "src/credentials/ui/index.ts"],
+  "entryPoints": ["src/index.ts", "src/core/index.ts", "src/testing/index.ts", "src/doctor/headless/index.ts", "src/doctor/ui/index.ts", "src/telemetry/headless/index.ts", "src/telemetry/ui/index.ts", "src/telemetry/ui/settings-page.ts", "src/telemetry/ui/explorer-page.ts", "src/telemetry/ui/dashboard-page.ts", "src/identity/headless/index.ts", "src/identity/ui/index.ts", "src/settings/headless/index.ts", "src/settings/ui/index.ts", "src/sharing/headless/index.ts", "src/sharing/ui/index.ts", "src/credentials/headless/index.ts", "src/credentials/ui/index.ts", "src/onboarding/headless/index.ts", "src/onboarding/ui/index.ts"],
   "out": "docs-api",
   "json": "docs-api/api.json"
 }
