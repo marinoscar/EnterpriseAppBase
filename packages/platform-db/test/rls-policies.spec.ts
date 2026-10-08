@@ -47,6 +47,7 @@ describe('the shipped package', () => {
       'group_invites',
       'group_members',
       'groups',
+      'org_settings',
       'storage_object_chunks',
       'storage_objects',
     ]);
@@ -59,7 +60,7 @@ describe('the shipped package', () => {
 
   it('flags the migrations that create them with rls: true in the manifest', () => {
     const flagged = manifest.filter((e) => e.rls === true).map((e) => e.id);
-    expect(flagged).toEqual(['0025_org_scoped_rls', '0026_add_groups', '0027_add_grants']);
+    expect(flagged).toEqual(['0025_org_scoped_rls', '0026_add_groups', '0027_add_grants', '0028_add_org_settings']);
     expect(new Set(RLS_POLICIES.map((p) => p.createdIn))).toEqual(new Set(flagged));
   });
 

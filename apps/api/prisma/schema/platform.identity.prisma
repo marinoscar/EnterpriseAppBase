@@ -81,6 +81,7 @@ model User {
   // composed from package:settings.prisma
   userSettings           UserSettings?
   settingsUpdates        SystemSettings[]        @relation("SettingsUpdater")
+  orgSettingsUpdates     OrgSettings[]           @relation("OrgSettingsUpdater")
 
   // composed from package:sharing.prisma
   groupsCreated       Group[]       @relation("GroupCreatedBy")
@@ -430,6 +431,9 @@ model Organization {
   // for why one is `Restrict` and the other `SetNull`.
   aiRuns        AiRun[]
   aiUsageEvents AiUsageEvent[]
+
+  // composed from package:settings.prisma
+  settings OrgSettings?
 
   // composed from package:sharing.prisma
   groups       Group[]
