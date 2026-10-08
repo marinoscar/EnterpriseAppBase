@@ -1,8 +1,8 @@
 // =============================================================================
-// Sharing permissions (issue #728, PP-7.1)
+// Sharing permissions (issues #728 and #729)
 // =============================================================================
 //
-// Pure data: the slice's three permissions and their default role grants. The
+// Pure data: the slice's six permissions and their default role grants. The
 // app registers the declarations with its own permission registry (the
 // reference app: `common/permissions/permission.manifest.ts`, which also
 // derives `PERMISSIONS` from them), and the seed derives the rows from it. The
@@ -17,6 +17,12 @@
 //                 leave a group
 //   groups:write  create groups; administer the ones you are an admin of
 //   groups:admin  read and administer EVERY group of the organization
+//
+//   sharing:read  list a record's grants (with the `share` action on it), list
+//                 what is shared with you, remove your own access (#729)
+//   sharing:write share records you may share, change and revoke their grants
+//   sharing:admin the `share` action on EVERY record of every type, so an org
+//                 admin can revoke a leak
 // =============================================================================
 
 /**
@@ -58,6 +64,12 @@ export const SHARING_PERMISSION_DECLARATIONS: {
   readonly GROUPS_WRITE: SharingPermissionDeclaration<'groups:write'>;
   /** `groups:admin`: `org_admin` only. */
   readonly GROUPS_ADMIN: SharingPermissionDeclaration<'groups:admin'>;
+  /** `sharing:read`: every org role. */
+  readonly SHARING_READ: SharingPermissionDeclaration<'sharing:read'>;
+  /** `sharing:write`: `org_admin` and `contributor`. */
+  readonly SHARING_WRITE: SharingPermissionDeclaration<'sharing:write'>;
+  /** `sharing:admin`: `org_admin` only. */
+  readonly SHARING_ADMIN: SharingPermissionDeclaration<'sharing:admin'>;
 } = {
   GROUPS_READ: {
     id: 'groups:read',
@@ -77,6 +89,24 @@ export const SHARING_PERMISSION_DECLARATIONS: {
     scope: 'org',
     defaultGrants: ['org_admin'],
   },
+  SHARING_READ: {
+    id: 'sharing:read',
+    description: 'View what is shared with you and who a record you can share is shared with, and remove your own access',
+    scope: 'org',
+    defaultGrants: ['org_admin', 'contributor', 'viewer'],
+  },
+  SHARING_WRITE: {
+    id: 'sharing:write',
+    description: 'Share records you are allowed to share with people and groups of the organization, and change or revoke those shares',
+    scope: 'org',
+    defaultGrants: ['org_admin', 'contributor'],
+  },
+  SHARING_ADMIN: {
+    id: 'sharing:admin',
+    description: 'Manage the shares of every record of the organization, including records you do not own',
+    scope: 'org',
+    defaultGrants: ['org_admin'],
+  },
 };
 
 /**
@@ -91,8 +121,17 @@ export const SHARING_PERMISSIONS: {
   readonly GROUPS_WRITE: 'groups:write';
   /** `groups:admin`. */
   readonly GROUPS_ADMIN: 'groups:admin';
+  /** `sharing:read`. */
+  readonly SHARING_READ: 'sharing:read';
+  /** `sharing:write`. */
+  readonly SHARING_WRITE: 'sharing:write';
+  /** `sharing:admin`. */
+  readonly SHARING_ADMIN: 'sharing:admin';
 } = {
   GROUPS_READ: SHARING_PERMISSION_DECLARATIONS.GROUPS_READ.id,
   GROUPS_WRITE: SHARING_PERMISSION_DECLARATIONS.GROUPS_WRITE.id,
   GROUPS_ADMIN: SHARING_PERMISSION_DECLARATIONS.GROUPS_ADMIN.id,
+  SHARING_READ: SHARING_PERMISSION_DECLARATIONS.SHARING_READ.id,
+  SHARING_WRITE: SHARING_PERMISSION_DECLARATIONS.SHARING_WRITE.id,
+  SHARING_ADMIN: SHARING_PERMISSION_DECLARATIONS.SHARING_ADMIN.id,
 };
