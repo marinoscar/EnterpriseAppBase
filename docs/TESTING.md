@@ -456,6 +456,7 @@ A tripwire that stays in the platform repository stops checking an app the momen
 | `ai-jobs-server-only` | `@marinoscar/platform-api/ai/testing` | No `ai.*` job type is node-eligible (AI rule 3) |
 | `ai-no-sdk-leak` | `@marinoscar/platform-api/ai/testing` | No provider SDK import outside its adapter directory, none in the app, the web or the contract (AI rule 1) |
 | `ai-orchestration-boundary` | `@marinoscar/platform-api/ai/testing` | An orchestration library only under the roots an app allows (the base allows none; a fork that adopts one passes its allowed roots) |
+| `host` | `@marinoscar/platform-api/host/testing` | Exactly one `APP_GUARD` in the app's module graph, and it is `MaintenanceGuard` (no global JWT guard); `PlatformHostCoreModule.forRoot()` imported once; the `{ data }` envelope and the exception filter global, once each. Run by `apps/api/test/platform/host-conformance.spec.ts` |
 | `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes`, `settings-route-ownership` | `@marinoscar/platform-web/settings/testing` | The settings registries' shared gate, card shape and permission parity with the API's catalog, AI cards (AI rule 5), card-to-route parity, route ownership (Settings UI Pattern rules 1 and 3) |
 
 A slice's own suites (`identity`, `settings`, `storage`, ...) are listed in the same README table. To add the harness to an app:
