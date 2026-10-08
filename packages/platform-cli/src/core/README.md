@@ -1,6 +1,6 @@
 # `@marinoscar/platform-cli/core`
 
-Stub (PP-4.5, #706): the two registries an app's CLI extends, and the pure helpers behind env-key metadata. #715 completes this README and moves the built-in commands here.
+The two registries an app's CLI extends that need no part of the CLI itself (commands and env-spec fragments, PP-4.5 #706), and the pure helpers behind env-key metadata. `createCli` ([package README](../../README.md)) feeds both and freezes them once the CLI is built (#715); the built-in commands are in [`/commands`](../commands/README.md).
 
 ## Purpose and scope
 
@@ -10,7 +10,7 @@ The CLI's rung-2 registries ([Extension Contract](../../../../docs/specs/platfor
 - **Env-spec fragments.** `registerEnvSpecFragment(fragment)` contributes metadata (secret, essential, generate, autoGenerate, validate, derive, fixed, group, never, allowBlank) for environment keys; `resolveEnvMetadata(key)` and `listEnvSpecFragments()` read it back.
 - The `EnvVarMetadata` types and the pure value helpers (`generateValue`, `isPlaceholderValue`, `needsAutoGenerate`, `validateBase64Key32`, `validateEmail`, `validatePort`).
 
-Not in scope: the built-in commands themselves (`init`, `login`, `api`, `config`, `node`, `deploy`) and the TUI, which are still in the reference CLI (#715). A fragment never adds a key: the question list comes from the app's `.env.example`.
+Not in scope: the built-in commands themselves (`init`, `login`, `api`, `config`, `node`, `deploy`, in [`/commands`](../commands/README.md)) and the TUI, deploy-step and node-executor registries ([`/tui`](../tui/README.md), [`/deploy`](../deploy/README.md), [`/node`](../node/README.md)). A fragment never adds a key: the question list comes from the app's `.env.example`.
 
 ## Install and peer dependencies
 
@@ -36,8 +36,8 @@ None. The registries take no options; behaviour is fixed and documented in the c
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `registerCliCommand` | registry | `registerCliCommand(register: (program: Command) => void): void` | Add an app command to the host CLI; listed after the built-ins, in registration order. A name or alias taken by a built-in, an earlier app command or `help` throws when applied. | experimental | [example](../../../../apps/cli/src/platform-host/examples/hello.command.ts) |
-| `registerEnvSpecFragment` | registry | `registerEnvSpecFragment(fragment: EnvSpecFragment): void` | Annotate a set of environment keys the template declares. A duplicate fragment id, or a key another fragment owns, throws naming both owners; nothing is registered. | experimental | [example](../../../../apps/cli/src/platform-host/register.ts) |
+| `registerCliCommand` | registry | `registerCliCommand(register: (program: Command) => void): void` | Add an app command to the host CLI; listed after the built-ins, in registration order. A name or alias taken by a built-in, an earlier app command or `help` throws when applied. | experimental | [example](../../../../apps/cli/src/examples/hello.command.ts) |
+| `registerEnvSpecFragment` | registry | `registerEnvSpecFragment(fragment: EnvSpecFragment): void` | Annotate a set of environment keys the template declares. A duplicate fragment id, or a key another fragment owns, throws naming both owners; nothing is registered. | experimental | [example](../../../../apps/cli/src/app.ts) |
 
 Readers and test helpers: `applyRegisteredCommands(program)`, `listRegisteredCommands()`, `resolveEnvMetadata(key)`, `listEnvSpecFragments()`; `resetCommandRegistryForTests()` and `resetEnvSpecRegistryForTests()` are for tests only.
 
@@ -68,7 +68,7 @@ None. The registries emit nothing.
 
 ## Conformance suite
 
-None yet. The registry tests (`command-registry.test.ts`, `env-spec-registry.test.ts`) cover ordering, collisions and reset; #715 ships them as a suite an app runs.
+None of its own. The registry tests (`command-registry.test.ts`, `env-spec-registry.test.ts`) cover ordering, collisions, freezing and reset; the env-fragment rule an app can break runs in the `cli` suite of `runPlatformConformance` ([`/testing`](../testing/README.md#conformance-suite)).
 
 ## Upgrade notes
 
@@ -78,6 +78,7 @@ None. First release of the slice.
 
 - `An app command cannot be named "<name>"`: pick another name; built-ins and `help` are reserved.
 - `Env key "<KEY>" is defined by env-spec fragment "<a>" and again by "<b>"`: remove the key from one of the two.
+- `registerCliCommand was called after createCli built the CLI`: register before `createCli`, or pass the command in `createCli({ extraCommands })`.
 
 ## Links
 

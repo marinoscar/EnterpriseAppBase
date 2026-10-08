@@ -29,9 +29,11 @@ import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-regi
 // =============================================================================
 
 /**
- * Options of {@link createCli}.
+ * Options of {@link createCli}: the app's identity and version, and what it
+ * adds through the CLI's registries.
  *
  * @stability experimental
+ * @extensionPoint option
  */
 export interface CreateCliOptions {
   /** The product identity: executable name, display name, repository. */

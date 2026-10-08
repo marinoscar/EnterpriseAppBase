@@ -34,7 +34,7 @@ npx platform-infra sync            # this repository: npm run platform:infra:syn
 npx platform-infra sync --check    # in CI: fails on a hand edit, naming the file and the fix
 ```
 
-The reference app's CLI reads the compose file order from the manifest (`apps/cli/src/deploy/compose-files.ts`):
+The reference app's CLI reads the compose file order from the manifest (`packages/platform-cli/src/engine/deploy/compose-files.ts`):
 
 ```ts
 const after = (slot: ComposeSlot) =>
@@ -57,7 +57,7 @@ One exported seam, and two seams that are files and a command rather than export
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `telemetryInfraFragment` | overlay | `InfraFragment` | Locate the generated files, the compose slots and the app-owned collector overlay (`collectorConfigs.app`) instead of hard-coding them | experimental | [example](../../../../apps/cli/src/deploy/compose-files.ts), [overlay](../../../../infra/otel/app-collector.yaml) |
+| `telemetryInfraFragment` | overlay | `InfraFragment` | Locate the generated files, the compose slots and the app-owned collector overlay (`collectorConfigs.app`) instead of hard-coding them | experimental | [overlay](../../../../infra/otel/app-collector.yaml) (read by `@marinoscar/platform-cli`'s `deploy`) |
 
 ### The collector overlay
 

@@ -21,7 +21,7 @@ None beyond the package's own ([package README](../../README.md)): the slice imp
 
 ## Quick start
 
-The reference CLI uses both halves. The relay is built where the node engine starts ([`node-engine.ts`](../../../../apps/cli/src/node/node-engine.ts)):
+The platform CLI uses both halves. The relay is built where the node engine starts (`node-engine.ts` of this package's engine; the reference app's worker runs it through [`cli.ts`](../../../../apps/cli/src/cli.ts)):
 
 ```ts
 import { JobSpanRecorder, NodeSpanRelay, type NodeSpanSink } from '@marinoscar/platform-cli/telemetry';
@@ -32,7 +32,7 @@ await spans.phase('job.execute', () => run(job));
 relay.enqueue(spans.drain()); // after the job settled; never awaited on its path
 ```
 
-The fragment is registered in the CLI's one registration file ([`register.ts`](../../../../apps/cli/src/platform-host/register.ts)):
+The fragment is one of the platform's built-in registrations (`createCli` registers it after the platform base, before the app's own fragments from [`app.ts`](../../../../apps/cli/src/app.ts)):
 
 ```ts
 registerEnvSpecFragment(telemetryEnvSpecFragment);
@@ -57,8 +57,8 @@ Two seams of this slice. Every row links a working use in the reference CLI. The
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `NodeSpanRelay` | hook | `new NodeSpanRelay(options: NodeSpanRelayOptions)`: `enqueue(spans: NodeSpan[]): void`, `enabled`, `queued` | Relay a long-running job's phase spans from a worker to the API without delaying or failing the job | experimental | [example](../../../../apps/cli/src/node/node-engine.ts) |
-| `telemetryEnvSpecFragment` | option | `TelemetryEnvSpecFragment` (`{ id: 'telemetry'; metadata }`) | Annotate the telemetry stack's environment keys (group, secret, generated) for the deploy wizard | experimental | [example](../../../../apps/cli/src/platform-host/register.ts) |
+| `NodeSpanRelay` | hook | `new NodeSpanRelay(options: NodeSpanRelayOptions)`: `enqueue(spans: NodeSpan[]): void`, `enabled`, `queued` | Relay a long-running job's phase spans from a worker to the API without delaying or failing the job | experimental | [example](../../../../apps/cli/src/cli.ts) |
+| `telemetryEnvSpecFragment` | option | `TelemetryEnvSpecFragment` (`{ id: 'telemetry'; metadata }`) | Annotate the telemetry stack's environment keys (group, secret, generated) for the deploy wizard | experimental | [example](../../../../apps/cli/src/app.ts) |
 
 Supporting exports: `JobSpanRecorder`, `NodeSpanRelayOptions`, `NodeSpan`, `NodeSpanAttributes`, `NodeSpanName`, `NodeSpanSink`, `errorTypeOf`, `MAX_SPANS_PER_BATCH`, `DEFAULT_MAX_QUEUED_SPANS`, `TelemetryEnvGroup`, `TelemetryEnvSpecFragment`, `TelemetryEnvVarMetadata`.
 
@@ -68,8 +68,8 @@ An app plugs the fragment in with `registerEnvSpecFragment` (an id registered tw
 
 | Registry | Reference example |
 |---|---|
-| `registerEnvSpecFragment` | [`register.ts`](../../../../apps/cli/src/platform-host/register.ts) registers this slice's fragment |
-| `registerCliCommand` | [`hello.command.ts`](../../../../apps/cli/src/platform-host/examples/hello.command.ts): compiled and tested ([`hello.command.test.ts`](../../../../apps/cli/src/platform-host/examples/hello.command.test.ts)) but not registered, so `appctl --help` is unchanged |
+| `registerEnvSpecFragment` | `createCli` registers this slice's fragment; an app passes its own in [`app.ts`](../../../../apps/cli/src/app.ts) (`envSpecFragments`) |
+| `registerCliCommand` | [`hello.command.ts`](../../../../apps/cli/src/examples/hello.command.ts): compiled and tested ([`hello.command.test.ts`](../../../../apps/cli/src/examples/hello.command.test.ts)) but not registered, so `appctl --help` is unchanged |
 
 ```ts
 registerCliCommand((program) => program.command('coach-seed').description('Seed coach data').action(seedCoachData));
@@ -104,7 +104,7 @@ The relay is the node's only span source: it never talks to a collector. The ser
 
 ## Conformance suite
 
-None: this slice has no invariant that a consuming app can break. The relay's contract is pinned by tests in the package (`node-span-relay.test.ts`: `errorType` never carries a message, batches of 50, oldest dropped first, `404` disables once, `400`/`403`/`429`/`500` drop the batch, a hanging relay never holds a job slot) and in the reference CLI (`apps/cli/src/node/node-span-relay.test.ts`, the same cases with the CLI's real `ApiError`; `deploy/env-metadata-equivalence.test.ts` for the fragment). The slice's invariants on the API side run through `runPlatformConformance({ suites: { telemetry } })` ([API README](../../../platform-api/src/telemetry/README.md#conformance-suite)).
+None: this slice has no invariant that a consuming app can break. The relay's contract is pinned by tests in the package (`node-span-relay.test.ts`: `errorType` never carries a message, batches of 50, oldest dropped first, `404` disables once, `400`/`403`/`429`/`500` drop the batch, a hanging relay never holds a job slot) and in the engine (`engine/node/node-span-relay.test.ts`, the same cases with the CLI's real `ApiError`; `engine/deploy/env-metadata-equivalence.test.ts` for the fragment). The slice's invariants on the API side run through `runPlatformConformance({ suites: { telemetry } })` ([API README](../../../platform-api/src/telemetry/README.md#conformance-suite)).
 
 ## Upgrade notes
 
