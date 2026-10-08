@@ -4,10 +4,11 @@
 //
 // Pure data: the notifications the db-backup slice raises
 // (`@marinoscar/platform-api/db-backup`, #740), registered by
-// `notifications/registry/notification.manifest.ts`. The slice owns the event
+// `platform/notifications/notification.manifest.ts`. The slice owns the event
 // keys and template names (`DB_BACKUP_NOTIFICATION_EVENTS`,
-// `DB_BACKUP_EMAIL_TEMPLATES`); the definitions and browser templates stay in
-// the app until the notification registry is packaged (#738). No side effect on import,
+// `DB_BACKUP_EMAIL_TEMPLATES`); the definitions stay in the app, registered
+// through the packaged notification registry (#738), and the browser templates
+// come from `@marinoscar/platform-api/notifications`. No side effect on import,
 // no Nest, no settings: the manifest is the one place that registers, so
 // "which notifications exist?" stays answerable from one file.
 //

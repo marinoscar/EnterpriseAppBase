@@ -31,8 +31,8 @@ import { DeploymentModeService } from '../../common/deployment/deployment-mode.s
 import { MaintenanceModeService } from '../../common/maintenance/maintenance-mode.service';
 import { MaintenanceModule } from '../../common/maintenance/maintenance.module';
 import { AppMetricsService } from '../../common/otel/app-metrics.service';
-import { NotificationsModule } from '../../notifications/notifications.module';
-import { NotificationsService } from '../../notifications/notifications.service';
+import { NotificationsModule } from '../notifications/notifications.config';
+import { NotificationsService } from '@marinoscar/platform-api/notifications';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 
 const BINDINGS = [
