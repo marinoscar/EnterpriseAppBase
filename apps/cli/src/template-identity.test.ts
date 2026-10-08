@@ -11,6 +11,13 @@ import { APP_SLUG } from '@app/shared';
 // directly here (see its own `isDirectExecution` guard — importing it runs no
 // CLI code, it just exposes `buildPlan`/`derive`).
 import { EXAMPLE_DOC_FILES, EXAMPLE_IDENTITY, buildPlan, derive } from '../../../scripts/rename.mjs';
+import {
+  STARTER_DIR,
+  findIdentityLiterals,
+  listFiles,
+  readIdentity as readStarterIdentity,
+  starterExemption,
+} from '../../../scripts/starter-identity.mjs';
 
 // =============================================================================
 // The template-renameability guard (issue #343, epic #341)
@@ -164,6 +171,14 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // values and GitHub settings URLs of the platform repository that publishes
   // the packages. A fork never publishes them, so these are not rebrand targets.
   'docs/runbooks/release-platform-packages.md',
+  // The starter (issue #741) is a separate project with an identity of its own
+  // (`starter/packages/shared/identity.json`, guarded by the starter block at
+  // the end of this file). Its README and CLAUDE.md link to the platform
+  // repository's package READMEs and seam-request template: cross-repository
+  // references every app keeps, not rebrand targets of this checkout.
+  'starter/packages/shared/identity.json',
+  'starter/README.md',
+  'starter/CLAUDE.md',
 ]);
 
 // Deliberately NOT allowlisted, on purpose, spelled out so nobody "fixes" this
@@ -532,4 +547,38 @@ describe('the hand-written brand SVGs carry the current THEME_COLOR', () => {
       expect(content).toContain(`fill="${identity.themeColor}"`);
     },
   );
+});
+
+// =============================================================================
+// The starter's own identity (issue #741)
+// =============================================================================
+//
+// starter/ is what `new-project.mjs create` copies. Its identity is a
+// placeholder every runtime read derives from, so a literal of it anywhere
+// else in starter/ is a value the rename would miss in every new product.
+// Allowed: the definition, the lines that ARE the starter rename plan's output
+// (derived from its buildStarterPlan, never hand-listed), and the infra files
+// platform-infra sync renders from the identity. Same derive-don't-list rule
+// as the guard above. scripts/starter-identity.mjs holds the scan; the
+// created-project half is in new-project-script.test.ts.
+describe('no starter identity literal outside its plan (issue #741)', () => {
+  const identity = readStarterIdentity(STARTER_DIR);
+  const files = listFiles(STARTER_DIR);
+
+  it('scans the whole starter (the guard is not vacuously green)', () => {
+    expect(files.length).toBeGreaterThan(50);
+    expect(files).toContain('apps/api/src/app.module.ts');
+  });
+
+  it('keeps every value of the starter identity in identity.json, the rename plan or rendered infra', () => {
+    const offenders = findIdentityLiterals(STARTER_DIR, files, identity, starterExemption());
+    expect(
+      offenders.map((o: { file: string; line: number; value: string; text: string }) => `starter/${o.file}:${o.line} [${o.value}] ${o.text}`),
+    ).toEqual([]);
+  });
+
+  it('carries a distinct placeholder identity, never this checkout\'s', () => {
+    expect(identity.repoSlug).not.toBe(readManifest().repoSlug);
+    expect(identity.cliName).toMatch(/^[a-z][a-z0-9-]*$/);
+  });
 });

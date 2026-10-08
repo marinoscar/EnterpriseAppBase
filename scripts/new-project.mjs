@@ -59,7 +59,7 @@ Start a new product from the starter (published platform packages):
   scripts/rename.mjs with the new identity, writes LICENSE when asked, resets the
   CHANGELOG and the versions to 0.1.0 and runs git init. It never commits.
 
-Or prepare a fresh FORK of this template (legacy forks) as a new product:
+For existing forks (the legacy flow): Prepare a fresh fork of this template as a new product.
 
   node scripts/new-project.mjs [options]
 

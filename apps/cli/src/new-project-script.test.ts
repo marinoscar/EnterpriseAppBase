@@ -1,15 +1,18 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // `scripts/new-project.mjs` is real ESM with no build step and runs no CLI code
 // on import (see its `isDirectExecution` guard), so the pure licence helpers can
 // be imported directly.
-import { UPSTREAM_LICENSE_HOLDER, isUpstreamLicense } from '../../../scripts/new-project.mjs';
+import { UPSTREAM_LICENSE_HOLDER, isUpstreamLicense, starterFiles } from '../../../scripts/new-project.mjs';
+import { EXAMPLE_IDENTITY } from '../../../scripts/rename.mjs';
+import { STARTER_DIR, findIdentityLiterals, listFiles, readIdentity as readStarterIdentity } from '../../../scripts/starter-identity.mjs';
+import { caretSatisfies, checkRanges, platformVersion, starterPlatformRanges } from '../../../scripts/sync-starter-versions.mjs';
 
 // =============================================================================
 // Guards scripts/new-project.mjs's safety check and its non-destructive paths
@@ -423,3 +426,190 @@ describe('scripts/new-project.mjs upstream licence', () => {
     });
   });
 });
+
+// =============================================================================
+// create: a new product from starter/ (issue #741)
+// =============================================================================
+//
+// Every write below goes to a fresh temporary directory OUTSIDE this checkout;
+// nothing touches the working tree. The real create copies ~80 files and runs
+// the copy's own rename (plus platform-infra sync when the packages are
+// built), so the block gets a longer timeout than the suite default.
+
+const CREATE_TIMEOUT_MS = 60_000;
+const INFRA_BUILT = existsSync(join(REPO_ROOT, 'packages', 'platform-infra', 'dist', 'cli.js'));
+
+function runCreate(args: string[]): RunResult {
+  return runIn(REPO_ROOT, ['create', ...args]);
+}
+
+function runIn(cwd: string, args: string[], script = SCRIPT): RunResult {
+  try {
+    const stdout = execFileSync('node', [script, ...args], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    return { status: 0, stdout, stderr: '' };
+  } catch (err) {
+    const e = err as { status?: number; stdout?: string; stderr?: string };
+    return { status: typeof e.status === 'number' ? e.status : 1, stdout: e.stdout ?? '', stderr: e.stderr ?? '' };
+  }
+}
+
+/** Every file of a directory with its content, for byte-identity checks. */
+function snapshot(root: string): Map<string, string> {
+  return new Map(listFiles(root).map((file: string) => [file, readFileSync(join(root, file), 'utf8')]));
+}
+
+describe('starter/ depends on published platform versions only (issue #741)', () => {
+  it('has no workspace:, file: or path dependency on a platform package, and its ranges include the current version', () => {
+    const ranges = starterPlatformRanges(REPO_ROOT);
+    expect(ranges.length).toBeGreaterThanOrEqual(5);
+    for (const { range } of ranges) expect(range).not.toMatch(/^(workspace:|file:|link:|\.|\/)/);
+    expect(checkRanges(ranges, platformVersion(REPO_ROOT))).toEqual([]);
+  });
+
+  it('flags a workspace spec and a range that excludes the version', () => {
+    const ranges = [
+      { manifest: 'm', field: 'dependencies', name: '@marinoscar/platform-api', range: 'workspace:*' },
+      { manifest: 'm', field: 'dependencies', name: '@marinoscar/platform-web', range: '^0.0.9' },
+    ];
+    expect(checkRanges(ranges, '0.1.0')).toHaveLength(2);
+    expect(caretSatisfies('^0.1.0-next.3', '0.1.0-next.4')).toBe(true);
+    expect(caretSatisfies('^0.1.0-next.3', '0.1.5')).toBe(true);
+    expect(caretSatisfies('^0.1.0-next.3', '0.2.0')).toBe(false);
+    expect(caretSatisfies('^0.1.0', '0.1.1-next.0')).toBe(false);
+  });
+
+  it('is not one of the root workspaces (it has its own install)', () => {
+    const root = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as { workspaces: string[] };
+    expect(root.workspaces.some((glob) => glob.startsWith('starter'))).toBe(false);
+  });
+});
+
+describe('scripts/new-project.mjs create refusals (issue #741)', () => {
+  it('--dry-run writes nothing, not even the target directory', () => {
+    const parent = mkdtempSync(join(tmpdir(), 'new-project-create-'));
+    const dir = join(parent, 'acme');
+    const statusBefore = gitPorcelainStatus();
+    try {
+      const result = runCreate(['--dir', dir, '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--cli', 'acmectl', '--dry-run']);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toMatch(/Planned edits/);
+      expect(result.stdout).toMatch(/nothing was written/);
+      expect(existsSync(dir)).toBe(false);
+      expect(gitPorcelainStatus()).toBe(statusBefore);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  }, CREATE_TIMEOUT_MS);
+
+  it('refuses a non-empty --dir and leaves it alone', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'new-project-create-'));
+    writeFileSync(join(dir, 'keep.txt'), 'mine');
+    try {
+      const result = runCreate(['--dir', dir, '--name', 'Acme Hub', '--repo', 'acme/acme-hub']);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/not empty/);
+      expect(readdirSync(dir)).toEqual(['keep.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a --dir inside this repository', () => {
+    const result = runCreate(['--dir', join(REPO_ROOT, 'worktrees', 'never-created'), '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--dry-run']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/inside this repository/);
+  });
+
+  it('requires --dir, --name and --repo, and validates the identity', () => {
+    expect(runCreate(['--name', 'Acme Hub', '--repo', 'acme/acme-hub']).stderr).toMatch(/--dir/);
+    expect(runCreate(['--dir', '/tmp/x', '--repo', 'acme/acme-hub']).stderr).toMatch(/--name/);
+    const parent = mkdtempSync(join(tmpdir(), 'new-project-create-'));
+    try {
+      const bad = runCreate(['--dir', join(parent, 'a'), '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--theme', '#fff', '--dry-run']);
+      expect(bad.status).not.toBe(0);
+      expect(bad.stderr).toMatch(/6-digit hex/);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('scripts/new-project.mjs create (issue #741)', () => {
+  let parent = '';
+  let dir = '';
+  let result: RunResult = { status: -1, stdout: '', stderr: '' };
+
+  beforeAll(() => {
+    parent = mkdtempSync(join(tmpdir(), 'new-project-create-'));
+    dir = join(parent, 'acme-hub');
+    result = runCreate(['--dir', dir, '--name', EXAMPLE_IDENTITY.name, '--repo', 'acme/acme-hub', '--cli', 'acmectl', '--license', 'mit', '--holder', 'Acme Inc']);
+  }, CREATE_TIMEOUT_MS);
+
+  afterAll(() => {
+    if (parent) rmSync(parent, { recursive: true, force: true });
+  });
+
+  it('succeeds and prints the next steps and the three values nothing can generate', () => {
+    expect(result.status, result.stderr).toBe(0);
+    for (const value of ['npm install', 'npm run setup', 'INITIAL_ADMIN_EMAIL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET']) {
+      expect(result.stdout).toContain(value);
+    }
+  });
+
+  it('copies the starter without installs, build output or a lockfile', () => {
+    expect(existsSync(join(dir, 'apps', 'api', 'src', 'app.module.ts'))).toBe(true);
+    expect(listFiles(dir).filter((f: string) => /(^|\/)(node_modules|dist)\//.test(f) || f === 'package-lock.json')).toEqual([]);
+    expect(listFiles(dir).length).toBe(starterFiles().length + 1); // + LICENSE
+  });
+
+  it('writes the new identity, CLI name included', () => {
+    const identity = JSON.parse(readFileSync(join(dir, 'packages', 'shared', 'identity.json'), 'utf8'));
+    expect(identity).toMatchObject({ productName: EXAMPLE_IDENTITY.name, repoSlug: 'acme/acme-hub', cliName: 'acmectl' });
+    const cli = JSON.parse(readFileSync(join(dir, 'apps', 'cli', 'package.json'), 'utf8')) as { bin: Record<string, string> };
+    expect(Object.keys(cli.bin)).toEqual(['acmectl']);
+    const root = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name: string };
+    expect(root.name).toBe('acme-hub');
+  });
+
+  it.skipIf(!INFRA_BUILT)('renders the worker fragment with ACMECTL_* (needs `npm run build:packages`)', () => {
+    const worker = readFileSync(join(dir, 'infra', 'compose', 'worker.compose.yml'), 'utf8');
+    expect(worker).toMatch(/ACMECTL_TOKEN/);
+    expect(worker).not.toMatch(/APPCTL_/);
+    const base = readFileSync(join(dir, 'infra', 'compose', 'base.compose.yml'), 'utf8');
+    expect(base).toContain('acme-hub-api');
+  });
+
+  it.skipIf(!INFRA_BUILT)('leaves no value of the starter identity anywhere in the project', () => {
+    const findings = findIdentityLiterals(dir, listFiles(dir), readStarterIdentity(STARTER_DIR));
+    expect(findings.map((f: { file: string; line: number; value: string }) => `${f.file}:${f.line} [${f.value}]`)).toEqual([]);
+  });
+
+  it('resets the release state, writes the LICENSE, and runs git init without committing', () => {
+    const changelog = readFileSync(join(dir, 'CHANGELOG.md'), 'utf8');
+    expect(changelog).toMatch(/## \[Unreleased\]\n\n## \[0\.1\.0\] - \d{4}-\d{2}-\d{2}/);
+    for (const manifest of ['package.json', 'apps/api/package.json', 'apps/web/package.json', 'apps/cli/package.json']) {
+      expect(JSON.parse(readFileSync(join(dir, manifest), 'utf8')).version).toBe('0.1.0');
+    }
+    expect(readFileSync(join(dir, 'LICENSE'), 'utf8')).toMatch(/^MIT License\n\nCopyright \(c\) \d{4} Acme Inc/);
+    expect(readFileSync(join(dir, 'README.md'), 'utf8')).toContain('MIT — see [LICENSE](LICENSE).');
+    expect(existsSync(join(dir, '.git'))).toBe(true);
+    const commits = runGit(dir, ['rev-list', '--all', '--count']);
+    expect(commits.trim()).toBe('0');
+  });
+
+  it('is idempotent: the copy\'s own rename.mjs with the same arguments changes nothing', () => {
+    const before = snapshot(dir);
+    const again = runIn(dir, ['--name', EXAMPLE_IDENTITY.name, '--repo', 'acme/acme-hub', '--cli-name', 'acmectl', '--force'], join(dir, 'scripts', 'rename.mjs'));
+    expect(again.status, again.stderr).toBe(0);
+    expect(again.stdout).toMatch(/every target already carries the new values/);
+    expect(snapshot(dir)).toEqual(before);
+  });
+});
+
+function runGit(cwd: string, args: string[]): string {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    return '0';
+  }
+}
