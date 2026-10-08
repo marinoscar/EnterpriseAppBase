@@ -21,7 +21,7 @@ export {
   storageSettingsSchema,
   systemStoragePatchSchema,
   systemStorageSchema,
-} from './settings-schemas.js';
+} from './schemas.js';
 export type {
   StorageSettingsCarriesNoSecret,
   StorageSettingsInput,
@@ -29,29 +29,29 @@ export type {
   StorageSettingsResponse,
   SystemStoragePatchValue,
   SystemStorageValue,
-} from './settings-schemas.js';
+} from './schemas.js';
 
 // ---- the objects API (`/api/storage/objects`) and `/api/storage/status` ------------------
-export { completeUploadSchema } from './objects-complete-upload.js';
-export type { CompleteUploadDto } from './objects-complete-upload.js';
-export { downloadUrlResponseSchema } from './objects-download-url.js';
-export type { DownloadUrlResponse } from './objects-download-url.js';
-export { initUploadResponseSchema, initUploadSchema } from './objects-init-upload.js';
-export type { InitUploadDto, InitUploadResponse } from './objects-init-upload.js';
-export { objectListQuerySchema } from './objects-list-query.js';
-export type { ObjectListQueryDto, ObjectListResponse } from './objects-list-query.js';
-export { objectResponseSchema, uploadStatusResponseSchema } from './objects-object-response.js';
-export type { ObjectResponse, UploadStatusResponse } from './objects-object-response.js';
-export { updateMetadataSchema } from './objects-update-metadata.js';
-export type { UpdateMetadataDto } from './objects-update-metadata.js';
-export { storageStatusResponseSchema } from './storage-status.js';
-export type { StorageStatusResponse } from './storage-status.js';
+export { completeUploadSchema } from './schemas.js';
+export type { CompleteUploadDto } from './schemas.js';
+export { downloadUrlResponseSchema } from './schemas.js';
+export type { DownloadUrlResponse } from './schemas.js';
+export { initUploadResponseSchema, initUploadSchema } from './schemas.js';
+export type { InitUploadDto, InitUploadResponse } from './schemas.js';
+export { objectListQuerySchema } from './schemas.js';
+export type { ObjectListQueryDto, ObjectListResponse } from './schemas.js';
+export { objectResponseSchema, uploadStatusResponseSchema } from './schemas.js';
+export type { ObjectResponse, UploadStatusResponse } from './schemas.js';
+export { updateMetadataSchema } from './schemas.js';
+export type { UpdateMetadataDto } from './schemas.js';
+export { storageStatusResponseSchema } from './schemas.js';
+export type { StorageStatusResponse } from './schemas.js';
 
 // ---- the storage-config admin routes (`/api/admin/storage-config`) -----------------------
-export { STORAGE_SWITCH_CONFIRMATION, updateStorageConfigSchema } from './storage-config-update.js';
-export type { UpdateStorageConfigInput } from './storage-config-update.js';
-export { storageConfigResponseSchema, storageSecretStatusSchema } from './storage-config-response.js';
-export type { StorageConfigResponse } from './storage-config-response.js';
+export { STORAGE_SWITCH_CONFIRMATION, updateStorageConfigSchema } from './schemas.js';
+export type { UpdateStorageConfigInput } from './schemas.js';
+export { storageConfigResponseSchema, storageSecretStatusSchema } from './schemas.js';
+export type { StorageConfigResponse } from './schemas.js';
 export {
   STORAGE_TEST_CHECK_CODES,
   STORAGE_TEST_CHECK_IDS,
@@ -59,13 +59,13 @@ export {
   storageConnectionCheckSchema,
   storageConnectionTestResultSchema,
   testStorageConfigSchema,
-} from './storage-connection-test.js';
+} from './schemas.js';
 export type {
   StorageConnectionCheck,
   StorageConnectionTestResult,
   StorageTestCheckId,
   TestStorageConfigInput,
-} from './storage-connection-test.js';
+} from './schemas.js';
 export {
   STORAGE_BUCKET_OUTCOMES,
   STORAGE_BUCKET_STEP_IDS,
@@ -74,11 +74,11 @@ export {
   provisionStorageBucketSchema,
   storageBucketProvisionResultSchema,
   storageBucketStepSchema,
-} from './storage-bucket-provision.js';
+} from './schemas.js';
 export type {
   ProvisionStorageBucketInput,
   StorageBucketOutcome,
   StorageBucketProvisionResult,
   StorageBucketStep,
   StorageBucketStepId,
-} from './storage-bucket-provision.js';
+} from './schemas.js';
