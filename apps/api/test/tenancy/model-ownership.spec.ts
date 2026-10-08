@@ -23,7 +23,7 @@ describe('model ownership vs prisma/schema/', () => {
     expect(modelNames.filter((m) => !registered.includes(m))).toEqual([]);
   });
 
-  it('lists exactly the ten org models, the org-optional AuditEvent, and the user and system rest', () => {
+  it('lists exactly the ten org models, the org-optional AuditEvent and Job, and the user and system rest', () => {
     expect(modelsOfKind('org').map((d) => d.model).sort()).toEqual([
       'AiRun',
       'AiUsageEvent',
@@ -36,7 +36,7 @@ describe('model ownership vs prisma/schema/', () => {
       'StorageObject',
       'StorageObjectChunk',
     ]);
-    expect(modelsOfKind('org-optional').map((d) => d.model)).toEqual(['AuditEvent']);
+    expect(modelsOfKind('org-optional').map((d) => d.model)).toEqual(['AuditEvent', 'Job']);
     expect(modelsOfKind('user').map((d) => d.model).sort()).toEqual([
       'DeviceCode',
       'Notification',
@@ -50,7 +50,7 @@ describe('model ownership vs prisma/schema/', () => {
       'UserSettings',
     ]);
     expect(modelsOfKind('system').map((d) => d.model)).toEqual(
-      expect.arrayContaining(['Job', 'Organization', 'Membership', 'Invite', 'SystemSettings', 'DatabaseBackupRun', 'User']),
+      expect.arrayContaining(['Organization', 'Membership', 'Invite', 'SystemSettings', 'DatabaseBackupRun', 'User']),
     );
   });
 
@@ -67,11 +67,11 @@ describe('model ownership vs prisma/schema/', () => {
     }
   });
 
-  it('declares the org field required on the three NOT NULL tables and optional on usage events and audit', () => {
+  it('declares the org field required on the three NOT NULL tables and optional on usage events, audit and jobs', () => {
     const optional = (name: string): boolean => datamodel.find((m) => m.name === name)!.fields.find((f) => f.name === 'orgId')!.isOptional;
 
     expect(['StorageObject', 'StorageObjectChunk', 'AiRun'].map(optional)).toEqual([false, false, false]);
-    expect(['AiUsageEvent', 'AuditEvent'].map(optional)).toEqual([true, true]);
+    expect(['AiUsageEvent', 'AuditEvent', 'Job'].map(optional)).toEqual([true, true, true]);
   });
 
   it('keeps the org-owned models together: a reference between two of them is a composite key', () => {

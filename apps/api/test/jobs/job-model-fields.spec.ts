@@ -52,6 +52,8 @@ describe('Prisma.JobScalarFieldEnum', () => {
       'executor',
       // #607: the enqueuing span's W3C traceparent.
       'traceContext',
+      // #734: the organization the work belongs to (null for a system job).
+      'orgId',
     ].sort();
 
     const actual = Object.keys(Prisma.JobScalarFieldEnum).sort();
