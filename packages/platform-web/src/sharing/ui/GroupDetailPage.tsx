@@ -118,13 +118,13 @@ function DefaultHeader({ group, backPath }: { group: GroupDto; backPath: string 
   );
 }
 
-/** "3 records (2 transcripts, 1 album)" from `details.counts` of `GROUP_OWNS_RESOURCES`. */
+/** "3 records (transcript: 2, album: 1)" from `details.counts` of `GROUP_OWNS_RESOURCES`. */
 function ownedResourcesMessage(error: SharingError): string {
   const counts = (error.details as { counts?: Record<string, number> } | undefined)?.counts ?? {};
   const entries = Object.entries(counts).filter(([, n]) => typeof n === 'number' && n > 0);
   const total = entries.reduce((sum, [, n]) => sum + n, 0);
   if (total === 0) return 'This group still owns records. Move them to another owner or delete them, then try again.';
-  const parts = entries.map(([type, n]) => `${n} ${humanizeType(type).toLowerCase()}`).join(', ');
+  const parts = entries.map(([type, n]) => `${humanizeType(type).toLowerCase()}: ${n}`).join(', ');
   return `This group still owns ${total} ${total === 1 ? 'record' : 'records'} (${parts}). Move them to another owner or delete them, then try again.`;
 }
 

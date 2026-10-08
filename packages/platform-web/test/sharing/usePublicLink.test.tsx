@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { parseLinkTokenFromHash, usePublicLink } from '../../src/sharing/headless/index.js';
 import { createTestApiError, createTestPlatformHost } from '../../src/testing/index.js';
+import type { TestApiRequest } from '../../src/testing/index.js';
 import { RESOLUTION, TOKEN } from './fixtures.js';
 
 function setUrl(url: string) {
@@ -126,7 +127,7 @@ describe('usePublicLink (#731)', () => {
   it('resolves a second link pasted into the same tab', async () => {
     const other = 'lnk_ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210_-zyxwv';
     const host = createTestPlatformHost({
-      responses: { 'GET /public/links/current': (request) => ({ ...RESOLUTION, title: request.headers?.['x-link-token'] === other ? 'Second' : 'First' }) },
+      responses: { 'GET /public/links/current': (request: TestApiRequest) => ({ ...RESOLUTION, title: request.headers?.['x-link-token'] === other ? 'Second' : 'First' }) },
     });
     const { result } = renderHook(() => usePublicLink({ apiClient: host.api }));
     await waitFor(() => expect(result.current.resolution?.title).toBe('First'));
