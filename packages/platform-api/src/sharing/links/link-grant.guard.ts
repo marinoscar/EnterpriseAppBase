@@ -51,7 +51,11 @@ import { ANY_LINK_RESOURCE_TYPE, LinkGrantsService, linkFailureOutcome, type Lin
 import { LinkMissThrottle } from './link-miss-throttle';
 import { setPublicLinkHeaders } from './public-link.interceptor';
 
-/** The span attribute set on a successful resolution. */
+/**
+ * The span attribute set on a successful resolution (the grant id; nothing else of the link).
+ *
+ * @stability experimental
+ */
 export const LINK_GRANT_SPAN_ATTRIBUTE = 'sharing.link.grant_id';
 
 /** The per-process key of the address tags in log lines: tags correlate within a process, and reveal nothing. */
@@ -62,6 +66,8 @@ const ADDRESS_TAG_KEY = randomBytes(32);
  *
  * @param address - the client address.
  * @returns 12 hex characters.
+ *
+ * @stability experimental
  */
 export function addressTag(address: string): string {
   return createHmac('sha256', ADDRESS_TAG_KEY).update(address).digest('hex').slice(0, 12);

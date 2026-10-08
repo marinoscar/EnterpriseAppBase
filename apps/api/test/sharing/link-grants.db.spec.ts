@@ -16,7 +16,9 @@
 //   - a guarded app route that FORGETS its own `where` still reads only the
 //     link's organization through `withLinkScope` (two organizations);
 //   - a link of another type on that route, an unknown, a revoked and an
-//     expired token are the identical 404.
+//     expired token are the identical 404;
+//   - `importLegacyToken` turns an app's old clear token into a link grant
+//     that resolves as `lnk_<old token>` (the #765 migration recipe).
 // =============================================================================
 
 import { createHash } from 'node:crypto';
@@ -25,7 +27,7 @@ import { createHash } from 'node:crypto';
 const ORIGINAL_KEY = process.env.SECRETS_ENCRYPTION_KEY;
 process.env.SECRETS_ENCRYPTION_KEY = Buffer.alloc(32, 3).toString('base64');
 
-import { Controller, Get, Inject, UseGuards } from '@nestjs/common';
+import { Controller, Get, Inject, UseGuards, UseInterceptors } from '@nestjs/common';
 import request from 'supertest';
 import { Prisma } from '@prisma/client';
 import type { Principal } from '@marinoscar/platform-api/core';
@@ -34,6 +36,8 @@ import {
   LinkGrantGuard,
   LinkGrantResource,
   LinkGrantsService,
+  PublicLinkInterceptor,
+  importLegacyToken,
   registerResourceType,
   resourceTypeRegistry,
   type ResolvedLinkGrant,
@@ -84,6 +88,7 @@ function recordSystem(inner: SharingDataPort): SharingDataPort {
 
 @Controller('public/test-docs')
 @UseGuards(LinkGrantGuard)
+@UseInterceptors(PublicLinkInterceptor)
 class PublicTestDocsController {
   constructor(@Inject(LinkGrantsService) private readonly links: LinkGrantsService) {}
 
@@ -202,6 +207,21 @@ describeWithDb('link grants (real Postgres)', () => {
     for (const body of bodies) expect(body).toEqual(bodies[0]);
     // The same note link resolves on a route of its own type.
     expect(await sharing.links.resolve(note.token, { resourceType: NOTE_TYPE, action: 'read' })).toMatchObject({ ok: true });
+  });
+
+  it('imports a legacy clear token (MemoriaHub /s/<token>) as a link that resolves as lnk_<token>', async () => {
+    const legacy = 'L'.repeat(43); // randomBytes(32).toString('base64url') shape
+    const imported = await asSystem(db, (tx) =>
+      importLegacyToken(tx, { orgId: ORG_A, resourceType: TEST_DOC_TYPE, resourceId: docs.a1, role: 'viewer', token: legacy, grantedById: u.alice }),
+    );
+    expect(imported.token).toBe(`lnk_${legacy}`);
+    const [row] = await asSystem(db, (tx) => tx.$queryRaw<Array<Record<string, unknown>>>`SELECT * FROM grants WHERE id = ${imported.grantId}::uuid`);
+    for (const value of Object.values(row!)) expect(String(value)).not.toContain(legacy);
+    const res = await http().get('/public/test-docs/forgetful').set('X-Link-Token', imported.token).expect(200);
+    expect(res.body.link).toBe(docs.a1);
+    // The sharer sees it in the list, with its URL.
+    const list = await sharing.links.list(alice(), { resourceType: TEST_DOC_TYPE, resourceId: docs.a1, page: 1, pageSize: 50 });
+    expect(list.items.find((item) => item.id === imported.grantId)?.url).toBe(`https://links.example.test/s#lnk_${legacy}`);
   });
 
   it('reuses the active link with reuseActive and re-derives its URL in the list', async () => {

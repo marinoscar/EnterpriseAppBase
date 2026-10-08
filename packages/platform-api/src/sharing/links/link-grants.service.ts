@@ -148,9 +148,16 @@ export function linkFailureOutcome(failure: LinkResolutionFailure): SharingLinkR
  * @stability experimental
  */
 export type LinkResolution =
-  | { readonly ok: true; readonly link: ResolvedLinkGrant }
   | {
+      /** Resolved. */
+      readonly ok: true;
+      /** The link. */
+      readonly link: ResolvedLinkGrant;
+    }
+  | {
+      /** Refused. */
       readonly ok: false;
+      /** Why (logs and the counter only; the response is the one 404). */
       readonly failure: LinkResolutionFailure;
       /** The grant's resource type when a grant was found, else `null`. */
       readonly resourceType: string | null;
@@ -293,6 +300,18 @@ export interface LegacyLinkImport {
 }
 
 /**
+ * What {@link importLegacyToken} created.
+ *
+ * @stability experimental
+ */
+export interface ImportedLegacyLink {
+  /** The new link grant. */
+  grantId: string;
+  /** The token as it is now stored and resolved: `lnk_` and the old 43 characters. */
+  token: string;
+}
+
+/**
  * Imports an existing clear-text share token as a link grant: hashes and
  * encrypts it exactly as a minted one, inside the caller's transaction. FOR
  * DATA MIGRATIONS ONLY (never a request path), and it needs
@@ -318,6 +337,7 @@ export interface LegacyLinkImport {
  * @throws Error when the token is not 43 base64url characters (or a well-formed `lnk_` token),
  *   or when `SECRETS_ENCRYPTION_KEY` is not configured.
  *
+ * @extensionPoint hook
  * @example
  * ```ts
  * await prisma.runAsSystem('migration-tooling', async (tx) => {
@@ -327,7 +347,7 @@ export interface LegacyLinkImport {
  *
  * @stability experimental
  */
-export async function importLegacyToken(tx: unknown, input: LegacyLinkImport): Promise<{ grantId: string; token: string }> {
+export async function importLegacyToken(tx: unknown, input: LegacyLinkImport): Promise<ImportedLegacyLink> {
   const token = input.token.startsWith(LINK_TOKEN_PREFIX) ? input.token : `${LINK_TOKEN_PREFIX}${input.token}`;
   if (!isLinkToken(token)) throw new Error('importLegacyToken: the token must be 43 base64url characters (32 random bytes), optionally prefixed with lnk_.');
   assertEncryptionKeyConfigured();
@@ -606,7 +626,7 @@ export class LinkGrantsService {
    * @param input - the record, the role and the old token.
    * @returns the new grant's id and its stored token.
    */
-  importLegacyToken(tx: unknown, input: LegacyLinkImport): Promise<{ grantId: string; token: string }> {
+  importLegacyToken(tx: unknown, input: LegacyLinkImport): Promise<ImportedLegacyLink> {
     return importLegacyToken(tx, input);
   }
 }

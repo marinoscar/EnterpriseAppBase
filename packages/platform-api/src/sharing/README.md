@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/sharing
 
-The platform's sharing primitives (epic #666): **groups** inside an organization, their **members** (roles `admin`, `editor`, `viewer`) and their **invites**, the **ownership contract** that lets an app table's row be owned by a user or by a group, and the **principal enrichment** that fills `Scope.groupIds` (#728); **grants** (one record shared with a user or a group, with a role and an optional expiry), the **resource-type registry**, **`AccessPolicy`** (`can(principal, action, resource)`), the **"resources I can see"** query helpers and the grant hygiene job (#729). Link shares (#730), the UI (#731) and the full README, reference examples and conformance suite (#732) follow.
+The platform's sharing primitives (epic #666): **groups** inside an organization, their **members** (roles `admin`, `editor`, `viewer`) and their **invites**, the **ownership contract** that lets an app table's row be owned by a user or by a group, and the **principal enrichment** that fills `Scope.groupIds` (#728); **grants** (one record shared with a user or a group, with a role and an optional expiry), the **resource-type registry**, **`AccessPolicy`** (`can(principal, action, resource)`), the **"resources I can see"** query helpers and the grant hygiene job (#729); **link shares** (a grant to anyone holding a token, with an expiry and revocation) and the **public-route pattern** that serves them (#730). The UI (#731) and the full README, reference examples and conformance suite (#732) follow.
 
 ## Purpose and scope
 
@@ -16,6 +16,8 @@ What ships:
 - `AccessPolicy`: the one decision point (`can`, `decide`, `require`, `roleFor`, `decideMany`), batched and memoised per request.
 - `accessibleWhere` / `accessibleSql` / `sharedResourceIds`: "which records may I see", in one query.
 - `/api/grants` (`GrantsService`): share, change, revoke, "shared with me"; `deleteForResources` for an app's delete transaction; the server-only `sharing.grants.prune` job.
+- Link shares (#730, `LinkGrantsService`): `/api/grants/links` mints (`lnk_` tokens, returned once; stored as a SHA-256 hash and a ciphertext) and lists links; `PATCH` / `DELETE /api/grants/:id` change and revoke them; the DELIBERATELY PUBLIC `GET /api/public/links/current` resolves the `X-Link-Token` header.
+- The public-route pattern for an app's own link routes: `LinkGrantGuard`, `@LinkGrantResource(type, { action })`, `@CurrentLinkGrant()`, `LinkGrantsService.withLinkScope()` and `PublicLinkInterceptor`; `importLegacyToken` for data migrations.
 
 The slice depends on `core`, `doctor` (the Doctor check) and `otel-core` only (`packages/platform-slices.json`), and never on the app or the identity slice: every app capability is a host port.
 
@@ -23,7 +25,7 @@ Out of scope here: nested groups, groups of groups and rule-based membership; cr
 
 ## Install and peer dependencies
 
-Ships inside `@marinoscar/platform-api`; import it by its subpath. The wire shapes are `@marinoscar/platform-contract/sharing`. The database tables come from the `sharing` fragment and migrations `0026_add_groups` and `0027_add_grants` of `@marinoscar/platform-db` (`npm run db:sync`). Peers: the package's own (`@nestjs/*`, `@prisma/client`, `nestjs-zod`, `zod`, `@opentelemetry/api`).
+Ships inside `@marinoscar/platform-api`; import it by its subpath. The wire shapes are `@marinoscar/platform-contract/sharing`. The database tables come from the `sharing` fragment and migrations `0026_add_groups` and `0027_add_grants` of `@marinoscar/platform-db` (`npm run db:sync`); link shares need no migration of their own. Link creation needs `SECRETS_ENCRYPTION_KEY` (503 without it). Peers: the package's own (`@nestjs/*`, `@prisma/client`, `nestjs-zod`, `zod`, `@opentelemetry/api`).
 
 ## Quick start
 
@@ -58,6 +60,26 @@ const visible = await accessibleWhere(me, 'transcript', { tx, sqlKit: Prisma, sc
 await grants.deleteForResources(tx, 'transcript', [id]);  // in the transaction that deletes it
 ```
 
+Share a record by link (`grantable: { link: ['viewer'] }` on its type) and serve it on a public route of the app (the real-database version is [`link-grants.db.spec.ts`](../../../../apps/api/test/sharing/link-grants.db.spec.ts)):
+
+```ts
+const { url, token } = await links.create(principal, { resourceType: 'media_item', resourceId: id }); // url: <APP_URL>/s#lnk_...
+
+@Controller('public/media')
+@Public()                                    // the app's marker: deliberately public, the guard authenticates
+@UseGuards(LinkGrantGuard)
+export class PublicMediaController {
+  constructor(private readonly links: LinkGrantsService, private readonly media: MediaService) {}
+
+  @Get()
+  @LinkGrantResource('media_item', { action: 'read' })
+  get(@CurrentLinkGrant() link: ResolvedLinkGrant) {
+    // In the link's organization, no user: RLS applies; return presigned URLs, never the bytes.
+    return this.links.withLinkScope(link, (tx) => this.media.publicView(tx, link.resourceId));
+  }
+}
+```
+
 ## Configuration
 
 `SharingModule.forRoot(options)` merges `options.groups` over the defaults and freezes the result; an invalid value throws at boot naming the option. No environment variable.
@@ -72,13 +94,18 @@ await grants.deleteForResources(tx, 'transcript', [id]);  // in the transaction 
 | `groups.autoAcceptInvitesOnSignup` | boolean | `false` | Experimental and a no-op (with a startup warning) until the identity slice emits a user-created event |
 | `groups.membershipCacheTtlSeconds` | non-negative integer | `30` | How long a principal's memberships are cached; `0` turns the cache off. The reference app passes `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` |
 | `grants.retentionDays` | positive integer | `90` | Days a revoked or expired grant is kept before `sharing.grants.prune` deletes it |
+| `links.appUrl` | `() => string \| undefined` | none (root-relative `/s#...`) | The public origin a link URL is built on; the reference app passes its `APP_URL` |
+| `links.maxTtlDays` | positive integer or `null` | `365` | Longest lifetime of a link; a later or absent expiry is brought back to it. `null`: unlimited |
+| `links.defaultTtlDays` | positive integer or `null` | `30` | Lifetime when the caller sends no `expiresAt`; `null`: no expiry (only with `maxTtlDays: null`) |
+| `links.maxActivePerResource` | positive integer | `20` | Active links per record (409 `LINK_LIMIT_REACHED`), on top of the type's `maxGrantsPerResource` |
+| `links.maxMissesPerIp` | positive integer | `30` | Failed public resolutions per client address per 10 minutes before 429 `LINK_RESOLUTION_THROTTLED` |
 | `principal` | `(request) => Principal \| undefined` | `request.principal` | Where the routes read the caller |
 
 Host ports (bind with Nest providers in `imports`):
 
 | Token | Required | Reference binding |
 |---|---|---|
-| `SHARING_DATA` | yes | `runInOrg` = `PrismaService.runInOrg`; `runAsSystem` = `PrismaSystemService.runAsSystem` (reasons `purge`, `doctor`, `retention`) |
+| `SHARING_DATA` | yes | `runInOrg` = `PrismaService.runInOrg`; `runAsSystem` = `PrismaSystemService.runAsSystem` (reasons `purge`, `doctor`, `retention`, `link-resolution`) |
 | `SHARING_EVENT_BUS` | no (process-local invalidation without it) | the app's `EVENT_BUS` |
 | `SHARING_EVENT_EMITTER` | no (no events without it) | `EventEmitter2` |
 | `SHARING_NOTIFIER` | no (no invitation notification without it) | `NotificationsService.notify` / `notifyAddress`, plus the sign-in URL |
@@ -93,7 +120,7 @@ Resource types (`registerResourceType`, rung 2) are validated at registration wi
 |---|---|---|---|---|---|
 | `SharingModule.forRoot` | option | `forRoot(options: SharingModuleOptions): DynamicModule` | Mount the slice once in the app's root module | experimental | [example](../../../../apps/api/src/platform/sharing/sharing.config.ts) |
 | `SHARING_PERMISSION_DECLARATIONS` | registry | `{ GROUPS_READ; GROUPS_WRITE; GROUPS_ADMIN; SHARING_READ; SHARING_WRITE; SHARING_ADMIN }`, each `{ id; description; scope: 'org'; defaultGrants }` | Register the six permissions with the app's permission registry | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
-| `SHARING_APP_METRICS` | registry | `readonly AppMetricDef[]` (`app.sharing.group_mutations`, label `op`; `app.sharing.access_decisions`, labels `resource_type`, `outcome`, `via`) | Register the counters with the app's metric-name registry | experimental | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |
+| `SHARING_APP_METRICS` | registry | `readonly AppMetricDef[]` (`app.sharing.group_mutations`, label `op`; `app.sharing.access_decisions`, labels `resource_type`, `outcome`, `via`; `app.sharing.link_resolutions`, labels `outcome`, `resource_type`) | Register the counters with the app's metric-name registry | experimental | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |
 | `registerGroupOwnedResource` | registry | `registerGroupOwnedResource(def: GroupOwnedResourceDef): void` | Declare an app table whose rows a group can own, so group deletion is refused while it owns any | experimental | [example](../../../../apps/api/test/sharing/group-ownership.db.spec.ts) |
 | `GROUPS_INVITATION_EVENT` | registry | `{ key: 'groups.invitation'; label; description; channels: ['email', 'browser']; defaultEnabled }` | Register the invitation with the app's notification registry | experimental | [example](../../../../apps/api/src/platform/sharing/sharing.notifications.ts) |
 | `SHARING_USER_OWNED_MODELS` | registry | `readonly UserOwnedModelDef[]` (`GroupMember`, `GroupInvite`, `Group`, `Grant`) | Register the slice's user foreign keys with the user-owned data registry | experimental | [example](../../../../apps/api/src/prisma/ownership/user-owned-model.manifest.ts) |
@@ -116,8 +143,14 @@ Resource types (`registerResourceType`, rung 2) are validated at registration wi
 | `SHARED_WITH_YOU_EVENT` | registry | `{ key: 'sharing.shared_with_you'; label; description; channels: ['email', 'browser']; defaultEnabled }` | Register the share notification with the app's notification registry | experimental | [example](../../../../apps/api/src/platform/sharing/sharing.notifications.ts) |
 | `sharedWithYouBrowserTemplate` | hook | `(data: SharedWithYouNotificationData) => { title; body; link }` | Bind the bell row and toast of `sharing.shared_with_you` | experimental | [example](../../../../apps/api/src/platform/sharing/sharing.notifications.ts) |
 | `renderSharedWithYouEmail` | hook | `(data, kit: GroupInvitationEmailKit) => RenderedSharedWithYouEmail` | Render the share e-mail with the app's layout and escaping helpers | experimental | [example](../../../../apps/api/src/email/templates/shared-with-you.email.ts) |
+| `LinkGrantGuard` | hook | `CanActivate`: `X-Link-Token` header -> `request.linkGrant`, else the one 404 (429 past the miss budget) | Guard an app's public link route (with the app's `@Public()`) | experimental | [example](../../../../apps/api/test/sharing/link-grants.db.spec.ts) |
+| `LinkGrantResource` | hook | `@LinkGrantResource(resourceType, { action? = 'read' })` | Declare which links a guarded route accepts: the type, and the action whose minimum role the link must reach | experimental | [example](../../../../apps/api/test/sharing/link-grants.db.spec.ts) |
+| `CurrentLinkGrant` | hook | `@CurrentLinkGrant(): ResolvedLinkGrant` (`grantId`, `orgId`, `resourceType`, `resourceId`, `role`, `expiresAt`) | Read the resolved link in the handler | experimental | [example](../../../../apps/api/test/sharing/link-grants.db.spec.ts) |
+| `LinkGrantsService.withLinkScope` | hook | `withLinkScope<R>(link, fn: (tx) => Promise<R>): Promise<R>` | Run the route's reads in ONE transaction scoped to the link's organization with no user, so RLS still applies; return presigned download URLs, never stream bytes | experimental | [example](../../../../apps/api/test/sharing/link-grants.db.spec.ts) |
+| `PublicLinkInterceptor` | hook | `NestInterceptor`: `Cache-Control: no-store`, `Referrer-Policy: no-referrer` | Put the public-response headers on a public route the guard does not cover | experimental | [example](../../../../apps/api/test/sharing/link-grants.db.spec.ts) |
+| `importLegacyToken` | hook | `importLegacyToken(tx, { orgId, resourceType, resourceId, role, token, ... }): Promise<{ grantId; token }>` | In a DATA MIGRATION only: import an app's existing clear share token (`lnk_` + the old 43 characters), hashed and encrypted | experimental | [example](../../../../apps/api/test/sharing/link-grants.db.spec.ts) |
 
-Supporting exports: the services the module exports (`GroupsService`, `GroupMembershipService`, `GroupInvitesService`, `PrincipalGroupsProvider`, `GroupMembershipPurge`), the ownership helpers (`ResourceOwner`, `ownedByMeOrMyGroups`, `ownerWhere`, `activeGroupsOf`, `groupRoleRank`, `groupRoleAtLeast`, `groupOwnedResourceRegistry`), `SHARING_PERMISSIONS`, `SHARING_ERROR_REASONS`, the event payload types, `MemberLookupThrottle`, the bus channel names and the Doctor check; for grants `GrantsService` (also exported by the module), `deleteGrantsForResources`, `toGrantDto`, `resourceTypeRegistry`, `resourceKey`, `accessDenial`, `SHARED_IDS_INLINE_LIMIT`, `GrantsPruneHandler`, `GrantsPruneTask` and `GRANTS_PRUNE_JOB_TYPE` (`sharing.grants.prune`, permanent). Completed with minimal examples in #732.
+Supporting exports: the services the module exports (`GroupsService`, `GroupMembershipService`, `GroupInvitesService`, `PrincipalGroupsProvider`, `GroupMembershipPurge`), the ownership helpers (`ResourceOwner`, `ownedByMeOrMyGroups`, `ownerWhere`, `activeGroupsOf`, `groupRoleRank`, `groupRoleAtLeast`, `groupOwnedResourceRegistry`), `SHARING_PERMISSIONS`, `SHARING_ERROR_REASONS`, the event payload types, `MemberLookupThrottle`, the bus channel names and the Doctor check; for grants `GrantsService` (also exported by the module), `deleteGrantsForResources`, `toGrantDto`, `resourceTypeRegistry`, `resourceKey`, `accessDenial`, `SHARED_IDS_INLINE_LIMIT`, `GrantsPruneHandler`, `GrantsPruneTask` and `GRANTS_PRUNE_JOB_TYPE` (`sharing.grants.prune`, permanent); for links `LinkGrantsService` (also exported by the module: `create`, `list`, `resolve`, `titleOf`), `LinkMissThrottle`, `ANY_LINK_RESOURCE_TYPE`, `resolveLinkExpiry`, `toLinkGrantView`, `setPublicLinkHeaders`, `PUBLIC_LINK_RESPONSE_HEADERS`, `LINK_GRANT_RESOURCE_KEY`, `LINK_GRANT_REQUEST_KEY`, `LINK_GRANT_SPAN_ATTRIBUTE` and `SHARING_LINK_DEFAULTS`. Completed with minimal examples in #732.
 
 ## Data
 
@@ -177,9 +210,12 @@ Routes, with the group rule the services apply inside the request's org-scoped t
 | `GET`/`POST /api/groups/:id/invites`, `DELETE .../:inviteId` | `groups:read` / `groups:write` | group `admin` |
 | `GET /api/grants?resourceType&resourceId` | `sharing:read` | `share` on the record (else 404) |
 | `POST /api/grants` | `sharing:write` | `share` on the record; the role grantable to the grantee kind (422 `ROLE_NOT_GRANTABLE`); a user an active member of the organization (422 `NOT_AN_ORG_MEMBER`), a group of it (422 `GROUP_NOT_IN_ORG`); no self-grant (400 `SELF_GRANT`); the cap (409 `GRANT_LIMIT_REACHED`); upsert: one role per grantee |
-| `PATCH /api/grants/:id` | `sharing:write` | `share` on the grant's record (else 404) |
+| `PATCH /api/grants/:id` | `sharing:write` | `share` on the grant's record (a link: `share_link` when the type declares it), else 404; a link's `label`, its expiry capped by `links.maxTtlDays`; `label` on another kind: 422 `NOT_A_LINK_GRANT` |
 | `DELETE /api/grants/:id` | `sharing:read` | your own access; anyone else needs `sharing:write` and `share` on the record (else 404); soft revoke |
 | `GET /api/grants/shared-with-me` | `sharing:read` | active, unexpired grants to you or your groups, newest first, with `describe()` labels |
+| `POST /api/grants/links` | `sharing:write` | `share_link` (else `share`) on the record, else 404; the role in `grantable.link` (absent: the weakest; none listed: 422 `ROLE_NOT_GRANTABLE`); the caps (409 `LINK_LIMIT_REACHED`, `GRANT_LIMIT_REACHED`); `reuseActive` returns your active link with the same role; 503 `LINKS_UNAVAILABLE` without `SECRETS_ENCRYPTION_KEY`; the token in the response body only |
+| `GET /api/grants/links?resourceType&resourceId` | `sharing:read` | the same action, else 404; not-revoked links, newest first, each `url` re-derived from its ciphertext |
+| `GET /api/public/links/current` | none: **deliberately public** (the app's `@Public()` through `host.access.allowPublic`) | the `X-Link-Token` header is the credential; every failure the same 404; 429 past the per-address miss budget; `Cache-Control: no-store`, `Referrer-Policy: no-referrer` |
 
 **The decision order** of `AccessPolicy`: an unknown type or action is a programming error (500); a missing record or one of another organization is denied; a required `actionPermissions[action]` the caller lacks is denied, even for the owner, and `require` answers 403 naming it; a held `bypassPermissions[action]` (or `sharing:admin` for `share`) is allowed (`via: 'bypass'`); otherwise the effective role is the maximum of owner, the owning group's mapped role, the strongest active unexpired user or group grant and the `org` default role, compared with `actions[action]`. A denial of a `denyAs: 'not_found'` type is the same 404 as a missing record.
 
@@ -191,15 +227,27 @@ Completed in #731 (the sharing UI in `@marinoscar/platform-web`).
 
 ## Infra
 
-None beyond one enqueue-only cron. No environment variable, no container. Invite expiry is judged at read time; `GrantsPruneTask` enqueues `sharing.grants.prune` daily at 03:00 through `SHARING_JOBS` (and does nothing without it).
+None beyond one enqueue-only cron. No environment variable (link URLs are built on the app's existing `APP_URL`, passed as `links.appUrl`), no container. Invite expiry is judged at read time; `GrantsPruneTask` enqueues `sharing.grants.prune` daily at 03:00 through `SHARING_JOBS` (and does nothing without it).
 
 ## Observability
 
-Completed in #732. In short: a span per service operation (`sharing.group.*`, `sharing.grant.*`, and `sharing.access.decide_many` with `sharing.batch_size`) with `org.id` as a span attribute, the counters `app.sharing.group_mutations` (label `op`) and `app.sharing.access_decisions` (labels `resource_type`, `outcome`, `via`), never an organization or record id on a label, audit rows `group:*` and `grant:create|update|revoke` (`meta`: resource type and id, grantee kind and id, role, previous role) with `org_id`, and log lines without addresses.
+Completed in #732. In short: a span per service operation (`sharing.group.*`, `sharing.grant.*`, `sharing.link.create`, `sharing.link.list`, and `sharing.access.decide_many` with `sharing.batch_size`) with `org.id` as a span attribute, the counters `app.sharing.group_mutations` (label `op`), `app.sharing.access_decisions` (labels `resource_type`, `outcome`, `via`) and `app.sharing.link_resolutions` (labels `outcome`: `ok`, `not_found`, `expired`, `revoked`, `throttled`, `wrong_type`; `resource_type`), never an organization or record id on a label, audit rows `group:*`, `grant:create|update|revoke` and `grant:link:create|update|revoke` (`meta`: resource type and id, grantee kind and id, role, previous role; a link's expiry, never its token, hash or label) with `org_id`, and log lines without addresses. A successful link resolution puts `sharing.link.grant_id` on the request span; a failed one logs `reason=<enum> address=<keyed 12-hex tag>` at debug.
+
+**Link resolutions are counted, never audited.** One public link can be opened thousands of times a day; the audit trail records who changed access (creating, changing and revoking a link are audited), and the counter answers "how often, and how did it end".
 
 ## Security notes
 
 Completed in #732. In short: 404 for a group the caller may not see; row-level security plus composite keys keep organizations apart; the member lookup by e-mail is throttled per account (10 misses per 10 minutes, approximate across replicas) to blunt address enumeration; memberships never travel in the JWT; audit meta, events and bus messages carry no e-mail address. Grants: a record the caller may not share is the same 404 as a missing one; a grantee is always of the record's organization (composite key for groups, an active-membership check for users); grant lookups by e-mail share the member-lookup throttle; decisions are never cached across requests, so a revoked grant stops working on the next request; `accessibleSql` interpolates only validated identifiers and binds every value, through the app's own `Prisma.sql` (`sqlKit`): the package imports no Prisma module.
+
+Link shares (#730):
+
+- **The token rides in the URL fragment** (`<APP_URL>/s#lnk_...`). A browser never sends a fragment, so the token never reaches nginx's access log (`$request`), the API's request log or the server span's `url.path`, and never leaks in a `Referer`. The SPA sends it in the `X-Link-Token` header; a token in a path or a query string is never read (a client that puts one there leaks it into those logs itself).
+- **Stored as a hash plus a ciphertext.** `link_token_hash` (SHA-256, unique) is the lookup key; `link_token_ciphertext` is `encryptSecret(token, 'sharing.link:' + grantId)`, the grant id chosen before the insert so the cipher domain binds the row, which lets the sharer copy the link again. A database dump is useless without `SECRETS_ENCRYPTION_KEY`; without the key, creation fails closed (503) rather than store a token in clear. The token is returned once, in the create response; never logged, never on a span, an audit row, an event or an error body.
+- **One cross-organization read.** A public request has no organization: resolution reads ONE `grants` row by its hash on the system bypass client (`link-resolution`); the record check (`loadOwners`) and every app read (`withLinkScope`) run in the grant's organization with no user id, so row-level security still applies.
+- **One 404 for every failure** (unknown, malformed, revoked, expired, wrong type, a role too weak for the route, a type that no longer grants the role to links, a deleted record): `Link not found`, never a hint. Failures count against the client address (`request.ip`, honouring the proxy settings): past `links.maxMissesPerIp` (default 30) in 10 minutes, 429 with `Retry-After`, even for a valid token. Approximate across replicas, like the AI limits.
+- **Revocation is immediate**: nothing caches a resolution, so the next request after `DELETE /api/grants/:id` is a 404. Expiry is capped (`links.maxTtlDays`, default 365) and defaulted (`links.defaultTtlDays`, default 30).
+- **Public responses** carry `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; `MaintenanceGuard` still applies. File bytes are never streamed with the token: a public route returns presigned download URLs (an `<img src>` cannot send a header).
+- **Deliberately public routes**: `GET /api/public/links/current`, and any app route behind `LinkGrantGuard`. They carry the app's `@Public()` marker (the platform's route through `host.access.allowPublic`; without one the module does not mount it) so the route inventory sees them as public on purpose.
 
 ## Conformance suite
 
@@ -207,7 +255,7 @@ Completed in #732.
 
 ## Upgrade notes
 
-New in this version: run `npm run db:sync` and `npm run prisma:migrate` for `0026_add_groups` and `0027_add_grants`, register the declarations (permissions, metrics, notifications, user-owned and ownership data), bind `SHARING_JOBS`, and regenerate the permission catalog.
+New in this version: run `npm run db:sync` and `npm run prisma:migrate` for `0026_add_groups` and `0027_add_grants` (link shares, #730, add no migration; give the host `access.allowPublic` and pass `links.appUrl`), register the declarations (permissions, metrics, notifications, user-owned and ownership data), bind `SHARING_JOBS`, and regenerate the permission catalog.
 
 ## Troubleshooting
 

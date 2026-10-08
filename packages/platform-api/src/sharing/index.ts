@@ -160,6 +160,7 @@ export {
   toLinkGrantView,
 } from './links/link-grants.service';
 export type {
+  ImportedLegacyLink,
   LegacyLinkImport,
   LinkResolution,
   LinkResolutionExpectation,
