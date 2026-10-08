@@ -11,6 +11,7 @@ import {
   SHARING_SLICE_SOURCE_ROOT,
   STORAGE_SLICE_SOURCE_ROOT,
   TELEMETRY_SLICE_SOURCE_ROOT,
+  USER_DATA_SLICE_SOURCE_ROOT,
 } from './cron-source-roots';
 
 // =============================================================================
@@ -76,6 +77,17 @@ describe('cron-enqueue-only source roots', () => {
     const report = cronEnqueueOnlySuite.check({ sourceRoots: [STORAGE_SLICE_SOURCE_ROOT] }, OPTIONS);
 
     expect(report.scannedFiles.cronFiles).toContain('tasks/storage-cleanup.task.ts');
+    expect(report.findings).toEqual([]);
+  });
+
+  it('include the packaged user-data slice, which adds no cron (#743)', () => {
+    expect(CRON_SOURCE_ROOTS).toContain(USER_DATA_SLICE_SOURCE_ROOT);
+
+    // The suite refuses a scan with no cron (it would pass vacuously), so scan
+    // the slice's root together with the storage slice's, which has crons.
+    const report = cronEnqueueOnlySuite.check({ sourceRoots: [USER_DATA_SLICE_SOURCE_ROOT, STORAGE_SLICE_SOURCE_ROOT] }, OPTIONS);
+
+    expect(report.scannedFiles.cronFiles).toEqual(['tasks/storage-cleanup.task.ts']);
     expect(report.findings).toEqual([]);
   });
 

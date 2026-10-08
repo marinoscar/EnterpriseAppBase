@@ -578,6 +578,10 @@ describe('AppMetricsService baseline (#680)', () => {
       exportsRuns: 'app.exports',
       exportDuration: 'app.export.duration',
       exportSize: 'app.export.size',
+      // The user-data slice's three counters (#743, PP-9.1).
+      userDataPurges: 'app.user_data.purges',
+      factoryResetRuns: 'app.factory_reset.runs',
+      orgOffboardings: 'app.org.offboardings',
     });
     expect(Object.keys(APP_METRIC_NAMES).slice(0, 31)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });
@@ -696,6 +700,10 @@ describe('AppMetricsService baseline (#680)', () => {
           advice: { explicitBucketBoundaries: [1_024, 16_384, 131_072, 1_048_576, 8_388_608, 67_108_864, 536_870_912] },
         },
       },
+      // The user-data slice's counters (#743, PP-9.1).
+      { kind: 'counter', name: 'app.user_data.purges', options: { description: 'Finished per-user data deletions, by scope and outcome.', unit: '{purge}' } },
+      { kind: 'counter', name: 'app.factory_reset.runs', options: { description: 'Finished factory resets, by outcome.', unit: '{run}' } },
+      { kind: 'counter', name: 'app.org.offboardings', options: { description: 'Finished organization offboardings, by outcome and user disposition.', unit: '{offboarding}' } },
       { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
       { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },
       { kind: 'gauge', name: 'app.backup.last_success.timestamp', options: { description: 'When the most recent completed database backup finished (unix seconds).', unit: 's' } },
