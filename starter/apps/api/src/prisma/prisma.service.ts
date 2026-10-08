@@ -4,8 +4,8 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { buildDatabaseUrl, runInOrg, userScopeExtension, type Scope } from '@marinoscar/platform-api/core';
 
 // The registry of user-owned models fills BEFORE the first scoped client is
-// built (src/notes/notes.ownership.ts is the app's half).
-import '../notes/notes.ownership';
+// built (src/platform/registrations.ts: the platform's models, then the app's).
+import '../platform/registrations';
 
 /**
  * The app's one Prisma client, generated from the composed schema

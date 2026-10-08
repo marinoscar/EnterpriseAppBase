@@ -1,6 +1,6 @@
 /**
- * The notes module's permissions, as data (seeded by `prisma/seed.ts` through
- * `src/platform/permissions.ts`). The exact strings the controller enforces
+ * The notes module's permissions, as data (the app's part of
+ * `src/platform/permissions.ts`: registered and seeded after the platform's). The exact strings the controller enforces
  * and the web card declares.
  */
 export const NOTES_PERMISSIONS = {
