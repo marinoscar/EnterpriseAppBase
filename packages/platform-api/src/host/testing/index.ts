@@ -5,3 +5,6 @@
 
 export { checkHostModuleGraph, discoverHostModuleGraph, hostConformanceSuite } from './conformance';
 export type { HostConformanceOptions, HostGlobalEnhancer, HostModuleGraph } from './conformance';
+
+// A multi-replica event bus double for an app's own tests (no database).
+export { FakeEventBusNetwork, flushEventBus } from './fake-event-bus-network';
