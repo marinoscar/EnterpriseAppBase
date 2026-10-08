@@ -181,7 +181,7 @@ export type SystemSettingsNamespaceValue<K extends string> = K extends keyof Sys
  *
  * @stability experimental
  */
-export type SystemSettingsNamespaceOf<D extends { readonly storedSchema: z.ZodType }> = z.output<D['storedSchema']>;
+export type SystemSettingsNamespaceOf<D extends Pick<SystemSettingsNamespace, 'storedSchema'>> = z.output<D['storedSchema']>;
 
 /**
  * Top-level keys the response or the row reserve for core fields.
