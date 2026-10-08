@@ -19,8 +19,16 @@ export type { AiMetrics, AiObjectStore, AiUsageMetricEvent } from './ports';
 
 // ---- the data, structurally ------------------------------------------------------------------
 export type {
+  AiAuditEventRow,
+  AiBatchResult,
   AiDb,
   AiDelegate,
+  AiMembershipRow,
+  AiOrganizationRow,
+  AiSystemSettingsRow,
+  AiUserRoleRow,
+  AiUserRow,
+  AiUserSettingsRow,
   AiInputJsonValue,
   AiJsonArray,
   AiJsonObject,
@@ -29,6 +37,7 @@ export type {
   AiPrisma,
   AiQueryArgs,
   AiRunRow,
+  AiScopeOptions,
   AiStorageObjectRow,
   AiSystemPrisma,
   AiSystemReason,
@@ -55,6 +64,7 @@ export { AiKeyResolver } from './keys/ai-key-resolver.service';
 export type { AiKeyScope, AiKeySource, AiKeyTier, ResolvedAiKey } from './keys/ai-key-resolver.service';
 export { UsableModelsService } from './keys/usable-models.service';
 export { UserAiKeysService } from './keys/user-ai-keys.service';
+export type { UserAiKeyRecheckCounts, UserAiKeyRecheckOutcome } from './keys/user-ai-keys.service';
 export { AiOrgKeyService, ORG_AI_KEY_AUDIT_ACTIONS } from './keys/org-key.service';
 export { AiOrgKeysController } from './keys/org-keys.controller';
 export { AiConfigWriterLookup } from './keys/ai-config-writer.lookup';
@@ -69,7 +79,7 @@ export {
 } from './features/ai-feature.registry';
 export type { AiFeatureDefinition } from './features/ai-feature.registry';
 export { AiFeaturesModule } from './features/ai-features.module';
-export { AiFeaturesService, modelFitsFeature } from './features/ai-features.service';
+export { AiFeaturesService } from './features/ai-features.service';
 export { AiFeaturesController } from './features/ai-features.controller';
 export { AI_TARGET_RESOLVER, DefaultAiTargetResolver } from './runtime/target-resolver';
 export type { AiTarget, AiTargetContext, AiTargetResolver } from './runtime/target-resolver';
@@ -80,7 +90,6 @@ export { AiRunsPurgeHandler, AI_RUNS_PURGE_TYPE } from './runtime/ai-runs-purge.
 export { AiLimitsService, AI_LIMITS_CLOCK } from './runtime/ai-limits.service';
 export type { AiLimitCall, AiLimitName, AiLimitsClock } from './runtime/ai-limits.service';
 export { AiUsageRecorder } from './runtime/ai-usage.recorder';
-export type { AiUsageOperation, AiUsageRecord, AiUsageStatus, AiUsageUnits } from './runtime/ai-usage.recorder';
 
 // ---- object storage in and out ----------------------------------------------------------------
 export * from './storage/index';

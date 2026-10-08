@@ -29,6 +29,12 @@ const PROVIDER_PARAM = {
   example: 'openai',
 } as const;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @ApiTags('AI Administration')
 @Controller('admin/ai/org-keys')
 export class AiOrgKeysController {

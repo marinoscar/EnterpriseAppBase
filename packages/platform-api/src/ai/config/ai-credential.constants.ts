@@ -48,9 +48,9 @@ export function aiCredentialLabel(providerDisplayName: string): string {
  * `org` tier is where an organization's own provider key goes (its policy is
  * the AI slice's, #739).
  */
-export const AI_CREDENTIAL_PURPOSE_DEF = {
+export const AI_CREDENTIAL_PURPOSE_DEF: CredentialPurposeDef = Object.freeze({
   purpose: AI_CREDENTIAL_PURPOSE,
   owner: 'ai',
   label: 'AI provider keys',
-  tiers: ['system', 'org'],
-} as const satisfies CredentialPurposeDef;
+  tiers: Object.freeze(['system', 'org'] as const),
+});

@@ -27,7 +27,9 @@ import type { AiPrisma } from '../data/ai-db';
 
 /** The audit actions of the org-key routes. */
 export const ORG_AI_KEY_AUDIT_ACTIONS = Object.freeze({
+  /** An organization key was stored or replaced. */
   set: 'org_ai_config:set_key',
+  /** An organization key was removed. */
   delete: 'org_ai_config:delete_key',
 } as const);
 

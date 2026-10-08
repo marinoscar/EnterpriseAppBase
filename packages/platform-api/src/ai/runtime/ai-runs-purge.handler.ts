@@ -41,6 +41,12 @@ export const AI_RUNS_PURGE_TYPE = 'ai.runs.purge';
 /** The statuses this purge may delete. `pending` and `running` are deliberately absent. */
 export const PURGEABLE_AI_RUN_STATUSES: readonly AiRunStatus[] = ['succeeded', 'failed', 'cancelled'];
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiRunsPurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(AiRunsPurgeHandler.name);

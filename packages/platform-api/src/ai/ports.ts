@@ -75,7 +75,14 @@ export interface AiObjectStore {
    * @param opts - MIME type and exact length.
    * @returns the bucket the object landed in.
    */
-  upload(key: string, body: Readable, opts: { mimeType: string; contentLength: number }): Promise<{ bucket: string }>;
+  upload(
+    key: string,
+    body: Readable,
+    opts: { mimeType: string; contentLength: number },
+  ): Promise<{
+    /** The bucket the object landed in. */
+    bucket: string;
+  }>;
   /**
    * Deletes one object. A missing object is not an error.
    *

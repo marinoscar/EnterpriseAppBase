@@ -30,8 +30,11 @@ import type { AiObjectStore } from '../ports';
  * The in-memory store's "storage not configured" error: the shape the
  * reference app's `StorageNotConfiguredError` has (a 503 whose body carries
  * `details.reason` and `details.remedy`).
+ *
+ * @stability experimental
  */
 export class InMemoryStorageNotConfiguredError extends ServiceUnavailableException {
+  /** A 503 naming `storage_not_configured`. */
   constructor() {
     super({
       message: 'Object storage is not configured',
@@ -40,19 +43,102 @@ export class InMemoryStorageNotConfiguredError extends ServiceUnavailableExcepti
   }
 }
 
+/**
+ * A `storage_objects` row in the in-memory store.
+ *
+ * @stability experimental
+ */
 export interface InMemoryStorageObject {
+  /** Row id. */
   id: string;
+  /** Display name. */
   name: string;
+  /** Size in bytes. */
   size: bigint;
+  /** MIME type. */
   mimeType: string;
+  /** Object key. */
   storageKey: string;
+  /** Provider id (`s3`). */
   storageProvider: string;
+  /** Bucket, once uploaded. */
   bucket: string | null;
+  /** `pending`, `ready`, ... */
   status: string;
+  /** Free-form metadata. */
   metadata: unknown;
+  /** Owner. */
   uploadedById: string | null;
+  /** Created. */
   createdAt: Date;
+  /** Last change. */
   updatedAt: Date;
+}
+
+/**
+ * The in-memory {@link AiObjectStore}, each provider call a `jest.fn`.
+ *
+ * @stability experimental
+ */
+export interface InMemoryAiObjectStore extends AiObjectStore {
+  /** `upload`, recording the bytes. */
+  upload: jest.Mock;
+  /** `download`. */
+  download: jest.Mock;
+  /** `delete`. */
+  delete: jest.Mock;
+  /** `getSignedDownloadUrl`, minting a URL carrying `IN_MEMORY_PRESIGNED_SIGNATURE`. */
+  getSignedDownloadUrl: jest.Mock;
+  /** `assertWritable`; throws while unconfigured. */
+  assertWritable: jest.Mock;
+  /** `activeProvider` (`s3`). */
+  activeProvider: jest.Mock;
+}
+
+/**
+ * What {@link createInMemoryAiStorage} returns.
+ *
+ * @stability experimental
+ */
+export interface InMemoryAiStorage {
+  /** Every stored row (mutable). */
+  objects: InMemoryStorageObject[];
+  /** Every object's bytes, by key. */
+  blobs: Map<string, Buffer>;
+  /** The `AI_OBJECT_STORE` binding. */
+  store: AiObjectStore;
+  /** The same object, with its jest mocks typed (`provider.upload.mock.calls`). */
+  provider: InMemoryAiObjectStore;
+  /** A client with `storageObject` and `forOrg`, for `PLATFORM_PRISMA`. */
+  prisma: any;
+  /**
+   * Adds a `ready` object (with bytes) owned by `uploadedById`.
+   *
+   * @param input - the owner and, optionally, the bytes, MIME type, name, status and recorded size.
+   * @returns its row.
+   */
+  addObject(input: {
+    /** The owner. */
+    uploadedById: string;
+    /** The bytes (a small PNG-ish placeholder by default). */
+    bytes?: Buffer;
+    /** MIME type (`image/png` by default). */
+    mimeType?: string;
+    /** Display name (`upload.png` by default). */
+    name?: string;
+    /** Status (`ready` by default). */
+    status?: string;
+    /** The row's recorded size; defaults to the byte count. */
+    size?: number;
+  }): InMemoryStorageObject;
+  /**
+   * Switches the deployment between configured and unconfigured storage.
+   *
+   * @param value - `false` makes every call throw `InMemoryStorageNotConfiguredError`.
+   */
+  setConfigured(value: boolean): void;
+  /** Forgets every object and blob; configured again. */
+  reset(): void;
 }
 
 const BUCKET = 'in-memory-bucket';
@@ -60,10 +146,16 @@ const BUCKET = 'in-memory-bucket';
 /**
  * Every presigned URL this storage mints carries this signature — a sentinel
  * that must never appear in a response, log line or persisted row (#441).
+ *
+ * @stability experimental
  */
 export const IN_MEMORY_PRESIGNED_SIGNATURE = 'presigned-sentinel-5f3a9c';
 
-/** The origin of every presigned URL this storage mints. */
+/**
+ * The origin of every presigned URL this storage mints.
+ *
+ * @stability experimental
+ */
 export const IN_MEMORY_PRESIGNED_ORIGIN = 'https://in-memory-storage.test';
 
 function pick(row: object, select?: Record<string, boolean>): Record<string, unknown> {
@@ -74,7 +166,16 @@ function pick(row: object, select?: Record<string, boolean>): Record<string, unk
   return Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, source[k]]));
 }
 
-export function createInMemoryAiStorage() {
+/**
+ * In-memory object storage for AI tests: the rows (`prisma`) and the store
+ * (`store`) the real `AiStorageInputResolver` and `AiOutputWriter` run
+ * against.
+ *
+ * @returns the store, its rows and its switches.
+ *
+ * @stability experimental
+ */
+export function createInMemoryAiStorage(): InMemoryAiStorage {
   const objects: InMemoryStorageObject[] = [];
   const blobs = new Map<string, Buffer>();
   let configured = true;
@@ -83,7 +184,7 @@ export function createInMemoryAiStorage() {
     if (!configured) throw new InMemoryStorageNotConfiguredError();
   };
 
-  const provider = {
+  const provider: InMemoryAiObjectStore = {
     upload: jest.fn(async (key: string, stream: Readable) => {
       assertConfigured();
 
@@ -125,7 +226,7 @@ export function createInMemoryAiStorage() {
     notConfiguredReason: (err: unknown): string | null =>
       err instanceof InMemoryStorageNotConfiguredError ? 'storage_not_configured' : null,
     settingsPath: '/admin/settings/storage',
-  } satisfies AiObjectStore;
+  };
 
   const prisma: any = {
     // Organization scope (#725): no row-level security in memory, so a scoped client is the client.
@@ -220,4 +321,3 @@ export function createInMemoryAiStorage() {
   };
 }
 
-export type InMemoryAiStorage = ReturnType<typeof createInMemoryAiStorage>;

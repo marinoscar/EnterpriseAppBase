@@ -29,6 +29,12 @@ import {
 // must keep working (docs/specs/ai-platform.md §2.19).
 // =============================================================================
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @ApiTags('AI Administration')
 @Controller('admin/ai')
 export class AiUsageAdminController {

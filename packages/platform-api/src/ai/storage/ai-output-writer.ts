@@ -115,6 +115,12 @@ export interface AiStoredOutput {
   size: number;
 }
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiOutputWriter {
   private readonly logger = new Logger(AiOutputWriter.name);

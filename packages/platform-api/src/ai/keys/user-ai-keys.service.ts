@@ -76,12 +76,27 @@ export interface UserAiKeyProbe {
   error: AiError | null;
 }
 
-/** Outcome of re-checking one stored key (`recheckReachable`). */
+/**
+ * Outcome of re-checking one stored key (`recheckReachable`).
+ *
+ * @stability experimental
+ */
 export type UserAiKeyRecheckOutcome = 'ok' | 'invalid' | 'missing' | 'failed';
 
-/** What one `recheckStale` sweep did, per outcome. */
+/**
+ * What one `recheckStale` sweep did, per outcome.
+ *
+ * @stability experimental
+ */
 export type UserAiKeyRecheckCounts = Record<UserAiKeyRecheckOutcome, number>;
 
+/**
+ * "Bring your own key": each user's own provider keys (`user_ai_keys`,
+ * encrypted under the `ai_user_key` purpose). The HTTP surface is
+ * `/api/ai/keys`; `importKey` lets a fork migrate keys it already holds.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class UserAiKeysService {
   private readonly logger = new Logger(UserAiKeysService.name);

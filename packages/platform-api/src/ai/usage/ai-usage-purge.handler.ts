@@ -45,6 +45,12 @@ export const AI_USAGE_PURGE_MAX_BATCHES = 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiUsagePurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(AiUsagePurgeHandler.name);

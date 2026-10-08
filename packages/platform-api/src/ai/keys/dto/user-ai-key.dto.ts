@@ -22,6 +22,7 @@ import { aiProviderTestCheckSchema } from '../../config/dto/ai-provider-test.dto
 
 /** `PUT /api/ai/keys/:provider`. Same bounds as the admin key. */
 export const setUserAiKeySchema = z.object({
+  /** The key. Write-only: never returned. */
   apiKey: z.string().trim().min(AI_API_KEY_MIN).max(AI_API_KEY_MAX),
 });
 
@@ -34,14 +35,20 @@ export type SetUserAiKeyInput = z.output<typeof setUserAiKeySchema>;
  * reachable models. A submitted key is used for this call only.
  */
 export const testUserAiKeySchema = z.object({
+  /** A key to probe instead of the stored one; blank means the stored key. */
   apiKey: z.string().trim().max(AI_API_KEY_MAX).nullish(),
 });
 
 export class TestUserAiKeyDto extends createZodDto(testUserAiKeySchema) {}
 export type TestUserAiKeyInput = z.output<typeof testUserAiKeySchema>;
 
-/** The caller's key for one provider, masked. One per ENABLED provider, configured or not. */
+/**
+ * The caller's key for one provider, masked. One per ENABLED provider, configured or not.
+ *
+ * @internal
+ */
 export const userAiKeyViewSchema = z.object({
+  /** Provider id. */
   provider: z.string(),
   /** Whether a key is stored for this provider. */
   configured: z.boolean(),
@@ -66,10 +73,13 @@ export type UserAiKeyView = z.infer<typeof userAiKeyViewSchema>;
  * Two checks, not the admin probe's three: `credentials` (verifyKey) and
  * `list_models` (which catalog models the key can reach). There is no smoke
  * response — it would bill the USER's provider account for a diagnostic.
+ *
+ * @internal
  */
 export const userAiKeyTestResultSchema = z.object({
   /** True when the key was accepted and the model list was read. */
   success: z.boolean(),
+  /** Provider id. */
   provider: z.string(),
   /** Whether the stored key was probed (because `apiKey` was blank). */
   usedStoredKey: z.boolean(),
@@ -77,6 +87,7 @@ export const userAiKeyTestResultSchema = z.object({
   reachableModelCount: z.number().int().nullable(),
   /** `credentials`, then `list_models`. */
   checks: z.array(aiProviderTestCheckSchema),
+  /** When the probe ran. */
   attemptedAt: z.iso.datetime(),
 });
 

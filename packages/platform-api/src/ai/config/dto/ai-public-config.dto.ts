@@ -20,7 +20,9 @@ import { AI_KEY_POLICIES } from '@marinoscar/platform-contract/ai';
 // =============================================================================
 
 export const aiPublicProviderSchema = z.object({
+  /** Provider id (`openai`). */
   id: z.string(),
+  /** The name the UI shows. */
   displayName: z.string(),
   /** Enabled in settings AND an adapter is registered in this deployment. */
   enabled: z.boolean(),
@@ -50,9 +52,16 @@ export const aiPublicProviderSchema = z.object({
   requiresKey: z.boolean(),
 });
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiPublicConfigSchema = z.object({
   /** The platform kill switch. When false, hide every AI surface. */
   enabled: z.boolean(),
+  /** Whose key pays for a call: the caller's own only, or the organization's as a fallback. */
   keyPolicy: z.enum(AI_KEY_POLICIES),
   /**
    * `ai.defaults.allowBackgroundRuns` — whether `POST /api/ai/runs` accepts a
@@ -78,10 +87,15 @@ export const aiPublicConfigSchema = z.object({
    * false. Booleans only: the MCP host allowlist is not published.
    */
   hostedTools: z.object({
+    /** Hosted web search is on. */
     web_search: z.boolean(),
+    /** Hosted file search is on. */
     file_search: z.boolean(),
+    /** Hosted code execution is on. */
     code_interpreter: z.boolean(),
+    /** Hosted image generation is on. */
     image_generation: z.boolean(),
+    /** Remote MCP servers are on. */
     mcp: z.boolean(),
   }),
   /** Every registered provider; empty while `enabled` is false. */

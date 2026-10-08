@@ -73,6 +73,12 @@ export interface AiUsageRecord {
   feature?: string;
 }
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiUsageRecorder {
   private readonly logger = new Logger(AiUsageRecorder.name);

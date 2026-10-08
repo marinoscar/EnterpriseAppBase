@@ -18,6 +18,12 @@ import { AiFeatureViewDto } from './dto/ai-feature.dto';
 // `/api/ai/*` route but `GET /api/ai/config` (CLAUDE.md AI rule 4).
 // =============================================================================
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @ApiTags('AI')
 @Controller('ai')
 @UseGuards(AiEnabledGuard)

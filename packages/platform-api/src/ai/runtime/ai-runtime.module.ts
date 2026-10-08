@@ -33,6 +33,13 @@ import { AiUsageRecorder } from './ai-usage.recorder';
 // by `RetentionPurgeTask` and not gated on the kill switch.
 // =============================================================================
 
+/**
+ * The AI runtime: `AiService`, background runs, limits and usage recording.
+ * Re-exported by `AiModule.forRoot`, so a feature module imports the configured
+ * `AiModule` and injects `AiService`.
+ *
+ * @stability experimental
+ */
 @Module({
   // `AiStorageModule` (#437): an image edit's inputs, and a transcription's
   // recording (#438), are storage objects.

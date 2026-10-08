@@ -42,6 +42,12 @@ export const aiEmbeddingsRequestSchema = z
 export class AiEmbeddingsRequestDto extends createZodDto(aiEmbeddingsRequestSchema) {}
 export type AiEmbeddingsRequestInput = z.output<typeof aiEmbeddingsRequestSchema>;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiEmbeddingsResponseSchema = z.object({
   provider: z.string(),
   /** The model that produced the vectors — store it beside them. */

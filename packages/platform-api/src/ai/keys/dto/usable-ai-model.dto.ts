@@ -19,10 +19,18 @@ import { aiModelCapabilitiesSchema } from '../../core/capabilities';
 
 export const AI_KEY_SOURCES = ['user', 'org', 'none'] as const;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const usableAiModelSchema = z.object({
+  /** Provider id. */
   provider: z.string(),
   /** The provider's own model id — what a request's `model` names. */
   modelId: z.string(),
+  /** The display name, when the provider or an administrator gave one. */
   displayName: z.string().nullable(),
   /** What the model can do. An unclassified model reports empty lists. */
   capabilities: aiModelCapabilitiesSchema,

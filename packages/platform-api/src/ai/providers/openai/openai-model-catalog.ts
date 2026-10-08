@@ -126,7 +126,11 @@ export const OPENAI_SPEECH_VOICES = [
   'cedar',
 ] as const;
 
-/** The voices `tts-1` and `tts-1-hd` speak. */
+/**
+ * The voices `tts-1` and `tts-1-hd` speak.
+ *
+ * @internal
+ */
 export const OPENAI_TTS1_VOICES = OPENAI_SPEECH_VOICES.slice(0, 9);
 
 function speech(voices: readonly string[]): AiModelCapabilities {
@@ -216,6 +220,8 @@ export const OPENAI_CLASSIFIER_RULES: readonly OpenAiClassifierRule[] = [
  * The capabilities OpenAI model `modelId` is believed to have, or `null` when
  * this table does not recognise it. Returns a fresh copy each call, so a
  * caller mutating the result cannot corrupt the table.
+ *
+ * @internal
  */
 export function classifyOpenAiModel(
   modelId: string,

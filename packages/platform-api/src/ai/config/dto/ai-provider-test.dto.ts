@@ -19,7 +19,9 @@ import { AI_API_KEY_MAX } from './ai-provider-key.dto';
  * Nothing is saved.
  */
 export const testAiProviderSchema = z.object({
+  /** A key to probe instead of the stored one; blank means the stored key. */
   apiKey: z.string().trim().max(AI_API_KEY_MAX).nullish(),
+  /** An endpoint to probe instead of the stored override; blank means the stored one. */
   baseUrl: z.union([z.url().max(2048), z.literal('')]).nullish(),
 });
 
@@ -55,9 +57,13 @@ export const AI_TEST_CHECK_CODES = [
 export type AiTestCheckCode = (typeof AI_TEST_CHECK_CODES)[number];
 
 export const aiProviderTestCheckSchema = z.object({
+  /** The check (`credentials`, `list_models`, `responses_smoke`). */
   id: z.enum(AI_TEST_CHECK_IDS),
+  /** What the check is, in words. */
   label: z.string(),
+  /** `passed`, `failed` or `skipped`. */
   status: z.enum(AI_TEST_CHECK_STATUSES),
+  /** The outcome's code (`OK` or an `AiErrorCode`). */
   code: z.enum(AI_TEST_CHECK_CODES),
   /** One or two sentences an operator can act on, authored by this API. */
   detail: z.string(),
@@ -65,6 +71,12 @@ export const aiProviderTestCheckSchema = z.object({
   error: z.string().nullable(),
 });
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiProviderTestResultSchema = z.object({
   /**
    * True when the key was accepted and no check failed. A smoke test SKIPPED
@@ -72,6 +84,7 @@ export const aiProviderTestResultSchema = z.object({
    * state of a deployment that has not enabled a model yet.
    */
   success: z.boolean(),
+  /** Provider id. */
   provider: z.string(),
   /** Whether the stored admin key was used because `apiKey` was blank. */
   usedStoredKey: z.boolean(),
@@ -81,6 +94,7 @@ export const aiProviderTestResultSchema = z.object({
   smokeModelId: z.string().nullable(),
   /** Always all three, in attempt order. */
   checks: z.array(aiProviderTestCheckSchema),
+  /** When the probe ran. */
   attemptedAt: z.iso.datetime(),
 });
 

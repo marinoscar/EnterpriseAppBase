@@ -95,6 +95,12 @@ export interface AiRunExecutionRow {
   request: Prisma.JsonValue;
 }
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiRunsService {
   /** Provider calls this process is executing, by run id — for cancel. */

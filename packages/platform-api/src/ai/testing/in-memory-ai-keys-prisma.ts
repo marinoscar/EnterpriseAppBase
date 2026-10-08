@@ -12,29 +12,133 @@
 
 import { randomUUID } from 'node:crypto';
 
+/**
+ * A `user_ai_keys` row in the in-memory store.
+ *
+ * @stability experimental
+ */
 export interface FakeUserAiKeyRow {
+  /** Row id. */
   id: string;
+  /** The owner. */
   userId: string;
+  /** Provider id. */
   provider: string;
+  /** Ciphertext, as the service wrote it. */
   secret: string;
+  /** The key's last characters. */
   hint: string | null;
+  /** When it last verified. */
   verifiedAt: Date | null;
+  /** The last verification failure's code. */
   lastErrorCode: string | null;
+  /** Models the key reached at the last check. */
   reachableModelIds: string[];
+  /** When `reachableModelIds` was computed. */
   reachableCheckedAt: Date | null;
+  /** Created. */
   createdAt: Date;
+  /** Last change. */
   updatedAt: Date;
 }
 
+/**
+ * An `ai_models` row in the in-memory store.
+ *
+ * @stability experimental
+ */
 export interface FakeAiModelRow {
+  /** Row id. */
   id: string;
+  /** Provider id. */
   provider: string;
+  /** Model id. */
   modelId: string;
+  /** Display name. */
   displayName: string | null;
+  /** The capability set, as JSON. */
   capabilities: unknown;
+  /** Whether an administrator enabled it. */
   enabled: boolean;
+  /** When the provider stopped listing it. */
   deprecatedAt: Date | null;
+  /** First seen. */
   discoveredAt: Date;
+}
+
+/**
+ * The `user_ai_keys` delegate of the in-memory client: each method a
+ * `jest.fn` over the store.
+ *
+ * @stability experimental
+ */
+export interface InMemoryUserAiKeyDelegate {
+  /** `findMany` (`where`, `select`, `orderBy`, `take`). */
+  findMany: jest.Mock;
+  /** `findUnique` (`where`, `select`). */
+  findUnique: jest.Mock;
+  /** `count` (`where`). */
+  count: jest.Mock;
+  /** `upsert` (`where`, `create`, `update`, `select`). */
+  upsert: jest.Mock;
+  /** `updateMany` (`where`, `data`). */
+  updateMany: jest.Mock;
+  /** `deleteMany` (`where`). */
+  deleteMany: jest.Mock;
+}
+
+/**
+ * The `ai_models` delegate of the in-memory client.
+ *
+ * @stability experimental
+ */
+export interface InMemoryAiModelDelegate {
+  /** `findMany` (`where`, `select`). */
+  findMany: jest.Mock;
+  /** `findUnique` (`where`, `select`). */
+  findUnique: jest.Mock;
+  /** `findFirst` (`where`, `select`, `orderBy`). */
+  findFirst: jest.Mock;
+}
+
+/**
+ * The in-memory stand-in for the client the AI key services use.
+ *
+ * @stability experimental
+ */
+export interface InMemoryAiKeysClient {
+  /** `user_ai_keys`. */
+  userAiKey: InMemoryUserAiKeyDelegate;
+  /** `ai_models`. */
+  aiModel: InMemoryAiModelDelegate;
+  /** `audit_events`: `create` records the row's data in `audits`. */
+  auditEvent: {
+    /** `create` (`data`). */
+    create: jest.Mock;
+  };
+}
+
+/**
+ * What {@link createInMemoryAiKeysPrisma} returns: the client and its store.
+ *
+ * @stability experimental
+ */
+export interface InMemoryAiKeysPrisma {
+  /** The client to inject as `PLATFORM_PRISMA`. */
+  prisma: InMemoryAiKeysClient;
+  /** The stored keys (mutable). */
+  keys: FakeUserAiKeyRow[];
+  /** The stored models (mutable). */
+  models: FakeAiModelRow[];
+  /** Every audit row's data, in order. */
+  audits: Array<Record<string, unknown>>;
+  /**
+   * Adds a model (enabled, OpenAI, text responses by default).
+   *
+   * @param overrides - the fields to set; `modelId` is required.
+   * @returns the stored row.
+   */
+  addModel(overrides: Partial<FakeAiModelRow> & { modelId: string }): FakeAiModelRow;
 }
 
 type Where = Record<string, any>;
@@ -100,12 +204,22 @@ function ordered<T extends Record<string, any>>(rows: T[], orderBy?: Record<stri
   });
 }
 
-export function createInMemoryAiKeysPrisma() {
+/**
+ * A tiny in-memory stand-in for the tables the AI key services touch
+ * (`user_ai_keys`, `ai_models`, `audit_events`). It understands exactly the
+ * `where`/`select` shapes those services use and throws on any other, so a
+ * scoping bug returns the wrong row instead of agreeing with a stub.
+ *
+ * @returns the client and its store.
+ *
+ * @stability experimental
+ */
+export function createInMemoryAiKeysPrisma(): InMemoryAiKeysPrisma {
   const keys: FakeUserAiKeyRow[] = [];
   const models: FakeAiModelRow[] = [];
   const audits: Array<Record<string, unknown>> = [];
 
-  const prisma = {
+  const prisma: InMemoryAiKeysClient = {
     userAiKey: {
       findMany: jest.fn(async (args: { where?: Where; select?: any; orderBy?: any; take?: number } = {}) => {
         let rows = ordered(
@@ -206,4 +320,3 @@ export function createInMemoryAiKeysPrisma() {
   };
 }
 
-export type InMemoryAiKeysPrisma = ReturnType<typeof createInMemoryAiKeysPrisma>;

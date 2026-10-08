@@ -71,10 +71,18 @@ export const AI_LIMIT_MINUTE_MS = 60_000;
 /** The shortest `retryAfterMs` a limit answers with. */
 export const AI_LIMIT_MIN_RETRY_MS = 1_000;
 
-/** Injection token for the limiter's clock — tests pass a fake one. */
+/**
+ * Injection token for the limiter's clock — tests pass a fake one.
+ *
+ * @internal
+ */
 export const AI_LIMITS_CLOCK = Symbol('AI_LIMITS_CLOCK');
 
-/** Milliseconds since the epoch, like `Date.now`. */
+/**
+ * Milliseconds since the epoch, like `Date.now`.
+ *
+ * @internal
+ */
 export type AiLimitsClock = () => number;
 
 /** Past this many local keys, every stale entry is swept on the next call. */
@@ -94,7 +102,11 @@ export type AiLimitName =
   | 'perOrg.requestsPerDay'
   | 'perOrg.outputTokensPerDay';
 
-/** One call about to be made, after its key was resolved. */
+/**
+ * One call about to be made, after its key was resolved.
+ *
+ * @internal
+ */
 export interface AiLimitCall {
   userId: string;
   /** The organization whose usage rows are counted (`ai_usage_events` is under row-level security, #725). */
@@ -161,6 +173,12 @@ interface DayWindow {
   wholeOrg?: boolean;
 }
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiLimitsService {
   /** Admission times (ms), oldest first, per local key. */

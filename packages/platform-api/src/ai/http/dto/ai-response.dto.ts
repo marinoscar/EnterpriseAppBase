@@ -117,6 +117,12 @@ export const aiUsageSchema = z.object({
   cachedInputTokens: z.number().int().optional(),
 });
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiResponseSchema = z.object({
   /** The provider's response id — pass it back as `previousResponseId` to chain. */
   id: z.string(),
@@ -134,7 +140,11 @@ export const aiResponseSchema = z.object({
 
 export class AiResponseDto extends createZodDto(aiResponseSchema) {}
 
-/** `POST /api/ai/runs` — 202. */
+/**
+ * `POST /api/ai/runs` — 202.
+ *
+ * @internal
+ */
 export const aiRunStartedSchema = z.object({
   /** Poll `GET /api/ai/runs/{runId}`. */
   runId: z.uuid(),
@@ -149,6 +159,8 @@ export class AiRunStartedDto extends createZodDto(aiRunStartedSchema) {}
  * A succeeded image run's `output` (#437): the storage objects it created,
  * owned by the caller. Download each with
  * `GET /api/storage/objects/{id}/download`; the image bytes are never here.
+ *
+ * @internal
  */
 export const aiImageRunOutputSchema = z.object({
   type: z.literal('images'),
@@ -172,6 +184,8 @@ export const aiImageRunOutputSchema = z.object({
 /**
  * A succeeded transcription run's `output` (#438): the transcript.
  * `storageObjectId` is the recording it was made from.
+ *
+ * @internal
  */
 export const aiTranscriptionRunOutputSchema = z.object({
   type: z.literal('transcription'),
@@ -197,6 +211,8 @@ export const aiTranscriptionRunOutputSchema = z.object({
  * A succeeded speech run's `output` (#439): the audio, a storage object the
  * caller owns (download it with `GET /api/storage/objects/{id}/download`).
  * `aiGenerated` is always `true` — tell listeners the voice is AI-generated.
+ *
+ * @internal
  */
 export const aiSpeechRunOutputSchema = z.object({
   type: z.literal('speech'),
@@ -214,6 +230,12 @@ export const aiSpeechRunOutputSchema = z.object({
   usage: aiUsageSchema,
 });
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiRunSchema = z.object({
   id: z.uuid(),
   status: z.enum(AI_RUN_STATUSES),

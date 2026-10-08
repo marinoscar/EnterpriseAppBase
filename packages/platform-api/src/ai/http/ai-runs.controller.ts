@@ -42,6 +42,12 @@ import { AiRunDto, AiRunStartedDto, type AiRunHttpView } from './dto/ai-response
 
 const RUN_ID_PARAM = { name: 'runId', description: 'The run id returned by `POST /api/ai/runs`.' } as const;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @ApiTags('AI')
 @Controller('ai/runs')
 @UseGuards(AiEnabledGuard)

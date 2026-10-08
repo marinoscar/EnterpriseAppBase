@@ -32,7 +32,7 @@ import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from '../config/ai-credential.constants';
 import { type AiProviderPolicy, providerCallSettings, providerRequiresKey } from '../config/ai-config.service';
 
-/** The job type that runs {@link AiCatalogService.sync} for one provider. PERMANENT. */
+/** The job type that runs the catalogue sync (`AiCatalogService.sync`) for one provider. PERMANENT. */
 export const AI_CATALOG_REFRESH_TYPE = 'ai.catalog.refresh';
 
 /** The `subjectType` every catalog refresh job carries; the subject id is the provider id. */

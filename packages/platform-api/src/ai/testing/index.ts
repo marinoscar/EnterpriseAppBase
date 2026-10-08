@@ -45,6 +45,7 @@ export type {
   AiConformanceFixtures,
   AiConformanceSubject,
   AiConformanceOptions,
+  AiConformanceRequests,
 } from './conformance';
 export {
   FAKE_FILE_INPUT_STRATEGY,
@@ -77,6 +78,9 @@ export type {
   FakeUserAiKeyRow,
   FakeAiModelRow,
   InMemoryAiKeysPrisma,
+  InMemoryAiKeysClient,
+  InMemoryUserAiKeyDelegate,
+  InMemoryAiModelDelegate,
 } from './in-memory-ai-keys-prisma';
 export {
   InMemoryStorageNotConfiguredError,
@@ -87,6 +91,7 @@ export {
 export type {
   InMemoryStorageObject,
   InMemoryAiStorage,
+  InMemoryAiObjectStore,
 } from './in-memory-ai-storage';
 export {
   DEFAULT_BANNED_ORCHESTRATION_PACKAGES,

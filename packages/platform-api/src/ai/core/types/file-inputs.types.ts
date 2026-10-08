@@ -76,7 +76,9 @@ export function storageInputMaxBytes(modality: AiStorageInputModality): number {
  * provider call. Exactly what the adapter's declared strategy needs is set.
  */
 export interface AiResolvedStorageInput {
+  /** The storage object. */
   storageObjectId: string;
+  /** Whether it is an image or a file input. */
   modality: AiStorageInputModality;
   /** Normalised MIME type (lower case, no parameters). */
   mimeType: string;

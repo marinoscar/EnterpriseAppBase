@@ -41,6 +41,12 @@ export const aiRealtimeSessionRequestSchema = z
 export class AiRealtimeSessionRequestDto extends createZodDto(aiRealtimeSessionRequestSchema) {}
 export type AiRealtimeSessionRequestInput = z.output<typeof aiRealtimeSessionRequestSchema>;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiRealtimeSessionResponseSchema = z.object({
   provider: z.string(),
   /** The model the session runs. */

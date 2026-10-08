@@ -19,12 +19,18 @@ export type AiKeySource = 'user' | 'org' | 'none';
  */
 export type AiKeyTier = 'user' | 'org' | 'deployment' | 'none';
 
+/**
+ * One call's key, as `AiKeyResolver.resolve` hands it to the runtime.
+ *
+ * @stability experimental
+ */
 export interface ResolvedAiKey {
   /**
    * ⚠ PLAINTEXT. Hand it straight to an adapter; never log, persist or return
    * it. `AI_KEYLESS_API_KEY` when `keySource` is `'none'`.
    */
   apiKey: string;
+  /** Who pays: `user`, `org` (an administrator-managed key) or `none` (keyless). */
   keySource: AiKeySource;
   /** The tier the key came from (#739). Never persisted. */
   tier: AiKeyTier;
@@ -40,6 +46,12 @@ export interface AiKeyScope {
   holdsOrgAiConfigWrite?: () => Promise<boolean>;
 }
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiKeyResolver {
   constructor(

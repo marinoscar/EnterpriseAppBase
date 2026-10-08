@@ -29,6 +29,13 @@ import { AiRealtimeEgressContributor } from './doctor/egress/ai-realtime.egress.
 // module can read the admin AI key.
 // =============================================================================
 
+/**
+ * The AI policy module: `AiConfigService`, `AiEnabledGuard`,
+ * `AiOrgEnabledInterceptor` and the admin AI configuration routes. Imported by
+ * `AiModule.forRoot`; a feature module imports the configured `AiModule`.
+ *
+ * @stability experimental
+ */
 @Module({
   imports: [CredentialsModule, AiCoreModule, AiCatalogModule],
   controllers: [AiAdminController, AiPublicController],

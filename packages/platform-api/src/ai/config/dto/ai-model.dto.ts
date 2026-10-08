@@ -43,6 +43,12 @@ export const aiModelListQuerySchema = z.object({
 export class AiModelListQueryDto extends createZodDto(aiModelListQuerySchema) {}
 export type AiModelListQuery = z.output<typeof aiModelListQuerySchema>;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiModelSchema = z.object({
   /** Row id — the `:id` of `PATCH /api/admin/ai/models/:id`. */
   id: z.string(),
@@ -100,6 +106,12 @@ export const refreshAiCatalogSchema = z.object({
 
 export class RefreshAiCatalogDto extends createZodDto(refreshAiCatalogSchema) {}
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const refreshAiCatalogResultSchema = z.object({
   /**
    * The queued `ai.catalog.refresh` job. A refresh already pending or running

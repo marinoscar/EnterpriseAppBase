@@ -53,8 +53,11 @@ export function toJsonSchema(schema: z.ZodTypeAny): AiJsonSchema {
 
 /** One validation problem, safe to return to a client (no model output echoed). */
 export interface AiStructuredOutputIssue {
+  /** Where in the output the problem is. */
   path: Array<string | number>;
+  /** Zod's issue code. */
   code: string;
+  /** What is wrong, in words. */
   message: string;
 }
 

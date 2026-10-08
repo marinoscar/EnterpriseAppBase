@@ -43,6 +43,11 @@ import {
 } from '../core/types/media.types';
 import { AiOutputItem, AiResponse, AiResponseRequest, AiStreamEvent } from '../core/types/responses.types';
 
+/**
+ * One scenario of the provider conformance kit; each is skippable by name.
+ *
+ * @stability experimental
+ */
 export type AiConformanceScenario =
   | 'listModels'
   | 'listModels.invalidKey'
@@ -78,11 +83,18 @@ export type AiConformanceScenario =
   | 'audio.speechInvalidKey'
   | 'audio.speechProviderError';
 
+/**
+ * What an adapter's conformance run needs besides the adapter: a bad key,
+ * models per port, and requests that make the provider fail.
+ *
+ * @stability experimental
+ */
 export interface AiConformanceFixtures {
   /** A key the provider rejects. */
   invalidApiKey: string;
   /** Ids `listModels` must include (a subset is fine). */
   expectedModelIds?: string[];
+  /** The ids `classifyModel` must and must not classify. */
   classify: {
     /** Ids `classifyModel` must classify (schema-valid capabilities). */
     known: string[];
@@ -134,13 +146,25 @@ export interface AiConformanceFixtures {
   arrange?(scenario: AiConformanceScenario): void | Promise<void>;
 }
 
+/**
+ * The adapter under test, a valid context and its fixtures.
+ *
+ * @stability experimental
+ */
 export interface AiConformanceSubject {
+  /** The adapter. */
   adapter: AiProviderAdapter;
   /** A context carrying a VALID key. */
   ctx: AiCallContext;
+  /** The fixtures. */
   fixtures: AiConformanceFixtures;
 }
 
+/**
+ * Options of {@link describeAiProviderConformance}.
+ *
+ * @stability experimental
+ */
 export interface AiConformanceOptions {
   /** Scenarios to skip, with the reason in the caller's comment. */
   skip?: AiConformanceScenario[];
@@ -148,10 +172,39 @@ export interface AiConformanceOptions {
 
 // ---- The canonical requests ------------------------------------------------------
 
+/**
+ * The prompt of the text and streaming scenarios.
+ *
+ * @stability experimental
+ */
 export const CONFORMANCE_TEXT_PROMPT = 'Reply with a short friendly greeting.';
+
+/**
+ * The prompt of the structured-output scenario.
+ *
+ * @stability experimental
+ */
 export const CONFORMANCE_STRUCTURED_PROMPT = 'What is the capital of France and roughly how many people live there?';
+
+/**
+ * The prompt of the tool-call scenario.
+ *
+ * @stability experimental
+ */
 export const CONFORMANCE_TOOL_PROMPT = 'What is the weather in Paris right now? Use the tool.';
+
+/**
+ * The inputs of the batch embeddings scenario.
+ *
+ * @stability experimental
+ */
 export const CONFORMANCE_EMBEDDING_INPUTS = ['The quick brown fox.', 'jumps over', 'the lazy dog.'];
+
+/**
+ * The prompt of the image scenarios.
+ *
+ * @stability experimental
+ */
 export const CONFORMANCE_IMAGE_PROMPT = 'A watercolour lighthouse at dusk.';
 
 /** A real 1x1 PNG — the source image the kit's edit scenario sends. */
@@ -193,7 +246,9 @@ async function* conformanceWavStream(): AsyncGenerator<Uint8Array> {
 
 /** The structured-output schema the kit requests. */
 export const conformanceStructuredSchema = z.object({
+  /** The city named. */
   city: z.string(),
+  /** Its rough population. */
   population: z.number().int(),
 });
 
@@ -201,11 +256,52 @@ export const conformanceStructuredSchema = z.object({
 export const conformanceWeatherTool = defineTool({
   name: 'get_weather',
   description: 'Get the current weather for a city.',
-  parameters: z.object({ city: z.string() }),
+  parameters: z.object({
+    /** The city to report on. */
+    city: z.string(),
+  }),
   execute: ({ city }) => ({ city, temperatureC: 21, conditions: 'sunny' }),
 });
 
-export function conformanceRequests(model: string) {
+/**
+ * The canonical requests of the conformance kit, for one model.
+ *
+ * @stability experimental
+ */
+export interface AiConformanceRequests {
+  /** A short text request. */
+  text: AiResponseRequest;
+  /** A structured-output request (`conformanceStructuredSchema`). */
+  structured: AiResponseRequest;
+  /** A request that must make the model call `get_weather`. */
+  toolCall: AiResponseRequest;
+  /**
+   * The follow-up carrying the tool's result, chained by response id.
+   *
+   * @param previousResponseId - the tool-call response.
+   * @param callId - the call answered.
+   * @param output - the tool's output.
+   */
+  toolResult(previousResponseId: string, callId: string, output: string): AiResponseRequest;
+  /**
+   * The same follow-up for a provider that stores no responses: the whole conversation.
+   *
+   * @param firstOutput - the tool-call response's output.
+   * @param callId - the call answered.
+   * @param output - the tool's output.
+   */
+  toolResultFromHistory(firstOutput: AiOutputItem[], callId: string, output: string): AiResponseRequest;
+}
+
+/**
+ * The canonical requests of the conformance kit, for one model.
+ *
+ * @param model - the model id.
+ * @returns the requests.
+ *
+ * @stability experimental
+ */
+export function conformanceRequests(model: string): AiConformanceRequests {
   const toolCall = {
     model,
     input: [{ type: 'message', role: 'user', content: [{ type: 'text', text: CONFORMANCE_TOOL_PROMPT }] }],
@@ -339,6 +435,16 @@ function expectWellFormedTranscription(result: AiTranscriptionResult, adapter: A
 
 // ---- The suite ------------------------------------------------------------------------
 
+/**
+ * Registers the provider-adapter conformance suite (a jest `describe`): the
+ * scenarios every adapter must pass for each port it carries.
+ *
+ * @param name - the suite's name.
+ * @param factory - builds the adapter, a valid context and the fixtures.
+ * @param options - scenarios to skip.
+ *
+ * @stability experimental
+ */
 export function describeAiProviderConformance(
   name: string,
   factory: () => AiConformanceSubject | Promise<AiConformanceSubject>,

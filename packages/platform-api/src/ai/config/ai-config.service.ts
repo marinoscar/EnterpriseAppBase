@@ -51,16 +51,28 @@ export type AiPolicy = SystemAiValue;
  * `undefined` where a provider has no such field.
  */
 export interface AiProviderPolicy {
+  /** Whether an administrator switched the provider on. */
   enabled: boolean;
+  /** The endpoint override. */
   baseUrl?: string;
+  /** Azure OpenAI: the API version. */
   apiVersion?: string;
+  /** Azure OpenAI and OpenAI-compatible: which API shape the server speaks. */
   apiStyle?: AiOpenAiApiStyle;
+  /** Azure OpenAI: model id to deployment name. */
   deployments?: Record<string, string>;
+  /** OpenAI-compatible: whether the server needs a key. */
   requiresKey?: boolean;
 }
 
 /** The provider-specific settings a slot may carry besides `enabled` (#448). */
 export const AI_PROVIDER_SETTINGS_FIELDS = ['baseUrl', 'apiVersion', 'apiStyle', 'deployments', 'requiresKey'] as const;
+
+/**
+ * One of {@link AI_PROVIDER_SETTINGS_FIELDS}.
+ *
+ * @stability experimental
+ */
 export type AiProviderSettingsField = (typeof AI_PROVIDER_SETTINGS_FIELDS)[number];
 
 /** A provider's own slot schema, or `undefined` for an id with no settings slot. */
@@ -105,7 +117,12 @@ export function providerRequiresKey(slot: AiProviderPolicy | undefined): boolean
  */
 export function providerCallSettings(
   slot: AiProviderPolicy | undefined,
-): { baseUrl?: string; providerSettings?: Readonly<Record<string, unknown>> } {
+): {
+  /** The endpoint override, when the slot carries one. */
+  baseUrl?: string;
+  /** Every other non-secret setting, for the adapter's own schema. */
+  providerSettings?: Readonly<Record<string, unknown>>;
+} {
   if (!slot) return {};
 
   const { enabled: _enabled, baseUrl, ...rest } = slot;
@@ -130,6 +147,15 @@ export function providerPolicy(policy: AiPolicy, providerId: string): AiProvider
     : undefined;
 }
 
+/**
+ * The AI policy, as the runtime reads it: the `ai` system settings namespace
+ * (cached for `AI_POLICY_CACHE_MS`), narrowed per organization by the org
+ * layer (#739), plus the deployment's provider keys in the credential store.
+ * `assertEnabled` and `assertProviderEnabled` are the kill-switch gates every
+ * AI path runs.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class AiConfigService implements OnModuleInit {
   private readonly logger = new Logger(AiConfigService.name);

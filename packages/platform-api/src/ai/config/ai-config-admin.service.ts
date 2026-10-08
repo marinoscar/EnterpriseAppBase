@@ -88,6 +88,12 @@ type SettingsRow = {
   updatedByUser: { id: string; email: string } | null;
 } | null;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @Injectable()
 export class AiConfigAdminService {
   private readonly logger = new Logger(AiConfigAdminService.name);

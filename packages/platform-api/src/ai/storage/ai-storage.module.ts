@@ -31,6 +31,13 @@ export class AiStorageFailureClassifierBinding implements OnModuleInit {
   }
 }
 
+/**
+ * Object storage in and out of the AI platform: the storage-input resolver
+ * and the output writer, over the host's `AI_OBJECT_STORE`. Imported by
+ * `AiModule.forRoot`.
+ *
+ * @stability experimental
+ */
 @Module({
   providers: [AiStorageInputResolver, AiOutputWriter, AiStorageFailureClassifierBinding],
   exports: [AiStorageInputResolver, AiOutputWriter],

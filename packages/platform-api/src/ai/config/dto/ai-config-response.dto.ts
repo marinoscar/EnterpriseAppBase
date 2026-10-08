@@ -71,6 +71,12 @@ export const aiAdminProviderSchema = z.object({
   supportedCapabilities: z.array(z.enum(AI_CAPABILITIES)),
 });
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const aiConfigResponseSchema = z.object({
   /** The platform kill switch. */
   enabled: z.boolean(),
@@ -139,6 +145,8 @@ export const AI_KEY_REMOVAL_WARNINGS = ['ORG_FALLBACK_WITHOUT_KEY'] as const;
  * `warnings`. `ORG_FALLBACK_WITHOUT_KEY` means the deployment's key policy is
  * still `byok_with_org_fallback`, so users without their own key now have no
  * key at all for this provider.
+ *
+ * @internal
  */
 export const aiKeyRemovalResponseSchema = aiConfigResponseSchema.extend({
   warnings: z.array(z.enum(AI_KEY_REMOVAL_WARNINGS)),

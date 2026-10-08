@@ -552,6 +552,19 @@ interface CallTracker {
   finish(outcome: CallOutcome): Promise<void>;
 }
 
+/**
+ * The AI runtime facade: the one way a feature calls a model. `forUser(userId)`
+ * returns a client whose every call runs the gate pipeline (kill switch,
+ * provider, model, capability, limits, key resolution) and records usage; the
+ * key is resolved per call and never leaves the server.
+ *
+ * @example
+ * ```ts
+ * const answer = await this.ai.forUser(userId, { orgId, feature: 'example_summary' }).respond({ input });
+ * ```
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
@@ -745,6 +758,8 @@ export class AiService {
    * instead, and a warning is logged (never the bytes). A dedicated image
    * run (`generateImage`) refuses up front instead; a hosted tool cannot,
    * because whether the model draws anything is only known afterwards.
+   *
+   * @internal
    */
   protected async persistHostedImage(
     owner: AiHostedOutputOwner,
@@ -876,6 +891,8 @@ export class AiService {
    * handler's entry point, not a fork's (a fork calls `generateImage`/
    * `editImage`, which queue). Re-runs every gate, reads an edit's input
    * bytes, then makes ONE provider round-trip with one usage row.
+   *
+   * @internal
    */
   async executeImageRun(
     userId: string,
@@ -955,6 +972,8 @@ export class AiService {
    * `ai.audio.transcribe` handler's entry point, not a fork's (a fork calls
    * `transcribe`, which queues). Re-runs every gate, opens the recording,
    * then makes ONE provider round-trip with one usage row.
+   *
+   * @internal
    */
   async executeTranscriptionRun(
     userId: string,
@@ -1059,6 +1078,8 @@ export class AiService {
    * handler's entry point, not a fork's (a fork calls `speak`, which
    * queues). Re-runs every gate, then makes ONE provider round-trip with one
    * usage row (`units: { characters }`).
+   *
+   * @internal
    */
   async executeSpeechRun(
     userId: string,
@@ -1281,6 +1302,8 @@ export class AiService {
   /**
    * Steps 1-5 of the pipeline: everything but the key. Throws the exact
    * `AiError` for the first gate that refuses. Decrypts nothing.
+   *
+   * @internal
    */
   async prepare(userId: string, req: AiRequest, opts: PrepareOptions): Promise<PreparedAiCall> {
     // 1. Kill switch — before anything else is read.
@@ -1371,6 +1394,8 @@ export class AiService {
    * The gate pipeline for `embed`: kill switch, request shape, target,
    * provider, then model/capability/key/reach with `embeddings` as the one
    * capability needed. Decrypts nothing.
+   *
+   * @internal
    */
   async prepareEmbedding(
     userId: string,
@@ -1429,6 +1454,8 @@ export class AiService {
    * AND provider port), then — for an edit — every input storage object,
    * checked for ownership, readiness, type and size from its row alone.
    * Decrypts nothing and reads no bytes.
+   *
+   * @internal
    */
   async prepareImage(
     userId: string,
@@ -1670,6 +1697,8 @@ export class AiService {
    * port), then the recording's storage object — ownership, readiness, an
    * audio (or MP4/WebM video) type, and the port's size limit — from its row
    * alone. Decrypts nothing and reads no bytes.
+   *
+   * @internal
    */
   async prepareTranscription(
     userId: string,
@@ -1746,6 +1775,8 @@ export class AiService {
    * AND provider port), then the voice — the request's, else the model's
    * first — checked against the model's catalog `voices`, else the port's.
    * Decrypts nothing.
+   *
+   * @internal
    */
   async prepareSpeech(
     userId: string,
@@ -1824,6 +1855,8 @@ export class AiService {
    * model's first — checked against the model's catalog `voices`, else the
    * port's. The deployment's output-token cap becomes the session's initial
    * `maxOutputTokens`. Decrypts nothing.
+   *
+   * @internal
    */
   async prepareRealtime(
     userId: string,

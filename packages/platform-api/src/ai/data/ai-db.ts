@@ -60,6 +60,26 @@ export type AiInputJsonValue =
   | ReadonlyArray<AiInputJsonValue | null>;
 
 /**
+ * What a batch write (`createMany`, `updateMany`, `deleteMany`) answers.
+ *
+ * @stability experimental
+ */
+export interface AiBatchResult {
+  /** How many rows it touched. */
+  count: number;
+}
+
+/**
+ * The options of a scoped client or transaction.
+ *
+ * @stability experimental
+ */
+export interface AiScopeOptions {
+  /** The acting user. */
+  userId?: string;
+}
+
+/**
  * One model delegate, as the slice calls it. Results are the model's row.
  *
  * @typeParam Row - the model's row.
@@ -76,17 +96,17 @@ export interface AiDelegate<Row> {
   /** `create`. */
   create(args: AiQueryArgs): Promise<Row>;
   /** `createMany`. */
-  createMany(args: AiQueryArgs): Promise<{ count: number }>;
+  createMany(args: AiQueryArgs): Promise<AiBatchResult>;
   /** `update`. */
   update(args: AiQueryArgs): Promise<Row>;
   /** `updateMany`. */
-  updateMany(args: AiQueryArgs): Promise<{ count: number }>;
+  updateMany(args: AiQueryArgs): Promise<AiBatchResult>;
   /** `upsert`. */
   upsert(args: AiQueryArgs): Promise<Row>;
   /** `delete`. */
   delete(args: AiQueryArgs): Promise<Row>;
   /** `deleteMany`. */
-  deleteMany(args?: AiQueryArgs): Promise<{ count: number }>;
+  deleteMany(args?: AiQueryArgs): Promise<AiBatchResult>;
   /** `count`; a number unless the arguments `select` per-field counts. */
   count(args?: AiQueryArgs): Promise<any>;
   /** `aggregate`; the result's shape follows the arguments. */
@@ -264,6 +284,104 @@ export interface AiStorageObjectRow {
 }
 
 /**
+ * A `users` row, the columns the usage report reads (identity owns the model).
+ *
+ * @stability experimental
+ */
+export interface AiUserRow {
+  /** Row id. */
+  id: string;
+  /** Email address. */
+  email: string;
+  /** Display name. */
+  displayName: string | null;
+}
+
+/**
+ * A `user_roles` row (identity owns the model).
+ *
+ * @stability experimental
+ */
+export interface AiUserRoleRow {
+  /** The user. */
+  userId: string;
+  /** The role. */
+  roleId: string;
+}
+
+/**
+ * A `memberships` row, the columns the org-permission lookup reads (identity owns the model).
+ *
+ * @stability experimental
+ */
+export interface AiMembershipRow {
+  /** Row id. */
+  id: string;
+  /** The organization. */
+  orgId: string;
+  /** The member. */
+  userId: string;
+  /** The membership role. */
+  roleId: string;
+  /** `active`, `invited`, ... */
+  status: string;
+}
+
+/**
+ * An `organizations` row, the columns the slice reads (identity owns the model).
+ *
+ * @stability experimental
+ */
+export interface AiOrganizationRow {
+  /** Row id. */
+  id: string;
+  /** Display name. */
+  name: string;
+  /** Whether it is the single-mode default organization. */
+  isDefault: boolean;
+}
+
+/**
+ * A `user_settings` row (the settings slice owns the model).
+ *
+ * @stability experimental
+ */
+export interface AiUserSettingsRow {
+  /** The user. */
+  userId: string;
+  /** The whole user settings document. */
+  value: AiJsonValue;
+}
+
+/**
+ * An `audit_events` row, as far as the slice reads it back (identity owns the model).
+ *
+ * @stability experimental
+ */
+export interface AiAuditEventRow {
+  /** Row id. */
+  id: string;
+}
+
+/**
+ * A `system_settings` row (the settings slice owns the model).
+ *
+ * @stability experimental
+ */
+export interface AiSystemSettingsRow {
+  /** Row id. */
+  id: string;
+  /** The row's key. */
+  key: string;
+  /** The stored document. */
+  value: AiJsonValue;
+  /** Optimistic-concurrency version. */
+  version: number;
+  /** Last change. */
+  updatedAt: Date;
+}
+
+/**
  * The models the slice reaches in one scope (an organization's, or the
  * bypass client's), plus the raw-query entry points.
  *
@@ -281,19 +399,19 @@ export interface AiDb {
   /** `storage_objects` (owned by the storage slice). */
   storageObject: AiDelegate<AiStorageObjectRow>;
   /** `users` (owned by identity): display names on the usage report. */
-  user: AiDelegate<{ id: string; email: string; displayName: string | null }>;
+  user: AiDelegate<AiUserRow>;
   /** `user_roles` (owned by identity): the system `ai_config:write` lookup. */
-  userRole: AiDelegate<{ userId: string; roleId: string }>;
+  userRole: AiDelegate<AiUserRoleRow>;
   /** `memberships` (owned by identity): the org `org_ai_config:write` lookup. */
-  membership: AiDelegate<{ id: string; orgId: string; userId: string; roleId: string; status: string }>;
+  membership: AiDelegate<AiMembershipRow>;
   /** `organizations` (owned by identity): the single-org default. */
-  organization: AiDelegate<{ id: string; name: string; isDefault: boolean }>;
+  organization: AiDelegate<AiOrganizationRow>;
   /** `user_settings` (owned by settings): the raw `ai.defaultModel` read. */
-  userSettings: AiDelegate<{ userId: string; value: AiJsonValue }>;
+  userSettings: AiDelegate<AiUserSettingsRow>;
   /** `audit_events` (owned by identity): the slice's audit rows, written after their write commits. */
-  auditEvent: AiDelegate<{ id: string }>;
+  auditEvent: AiDelegate<AiAuditEventRow>;
   /** `system_settings` (owned by settings): the `ai` row's version. */
-  systemSettings: AiDelegate<{ id: string; key: string; value: AiJsonValue; version: number; updatedAt: Date }>;
+  systemSettings: AiDelegate<AiSystemSettingsRow>;
   /** A tagged-template raw query. */
   $queryRaw<T = unknown>(query: TemplateStringsArray | unknown, ...values: unknown[]): Promise<T>;
 }
@@ -313,7 +431,7 @@ export interface AiPrisma extends AiDb {
    * @param orgId - the organization; never request input.
    * @param opts - `userId`: the acting user.
    */
-  forOrg(orgId: string, opts?: { userId?: string }): AiDb;
+  forOrg(orgId: string, opts?: AiScopeOptions): AiDb;
   /**
    * One interactive transaction in an organization's scope; `fn` receives
    * the plain transaction client.
@@ -322,9 +440,12 @@ export interface AiPrisma extends AiDb {
    * @param fn - the unit of work.
    * @param opts - `userId`: the acting user.
    */
-  runInOrg<R>(orgId: string, fn: (tx: AiDb) => Promise<R>, opts?: { userId?: string }): Promise<R>;
+  runInOrg<R>(orgId: string, fn: (tx: AiDb) => Promise<R>, opts?: AiScopeOptions): Promise<R>;
   /** An interactive transaction; `tx` is the plain transaction client. */
-  $transaction<T>(fn: (tx: AiDb) => Promise<T>, options?: { timeout?: number }): Promise<T>;
+  $transaction<T>(fn: (tx: AiDb) => Promise<T>, options?: {
+    /** The transaction's timeout in milliseconds. */
+    timeout?: number;
+  }): Promise<T>;
 }
 
 /**

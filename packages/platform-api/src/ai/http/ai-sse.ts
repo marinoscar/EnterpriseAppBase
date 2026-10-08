@@ -36,9 +36,19 @@ import type { FastifyReply } from 'fastify';
 import { AiError } from '../core/ai-error';
 import type { AiStreamEvent } from '../core/types/responses.types';
 
-/** Interval of the `: ping` keep-alive comment. */
+/**
+ * Interval of the `: ping` keep-alive comment.
+ *
+ * @internal
+ */
 export const AI_SSE_HEARTBEAT_MS = 15_000;
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const AI_SSE_HEADERS = {
   'Content-Type': 'text/event-stream; charset=utf-8',
   'Cache-Control': 'no-cache, no-transform',

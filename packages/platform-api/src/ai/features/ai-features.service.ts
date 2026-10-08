@@ -23,6 +23,8 @@ export function modelFitsFeature(feature: AiFeatureDefinition, model: ModelOffer
  * the organization's or the deployment's reaches, and that fits the feature).
  *
  * @stability experimental
+ *
+ * @internal
  */
 @Injectable()
 export class AiFeaturesService {

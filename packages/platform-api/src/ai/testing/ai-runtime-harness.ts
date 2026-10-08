@@ -31,7 +31,7 @@ import { UsableModelsService } from '../keys/usable-models.service';
 import type { AiTargetResolver } from '../runtime/target-resolver';
 import { AiService } from '../runtime/ai.service';
 import { AiLimitsService, type AiLimitsClock } from '../runtime/ai-limits.service';
-import { AiRunsService } from '../runtime/ai-runs.service';
+import { AiRunsService, type AiRunsInOrg } from '../runtime/ai-runs.service';
 import { AiUsageRecorder } from '../runtime/ai-usage.recorder';
 import { AiOutputWriter } from '../storage/ai-output-writer';
 import { AiStorageInputResolver } from '../storage/ai-storage-input.resolver';
@@ -46,46 +46,118 @@ import {
   type FakeAiProviderOptions,
 } from './fake-ai-provider';
 import { createInMemoryAiKeysPrisma } from './in-memory-ai-keys-prisma';
-import { createInMemoryAiStorage } from './in-memory-ai-storage';
+import { createInMemoryAiStorage, type InMemoryAiStorage } from './in-memory-ai-storage';
 
+/**
+ * The harness's user (a canonical UUID); holds `HARNESS_USER_KEY` by default.
+ *
+ * @stability experimental
+ */
 export const HARNESS_USER = '11111111-1111-4111-8111-111111111111';
+/**
+ * A second user, with no key.
+ *
+ * @stability experimental
+ */
 export const HARNESS_OTHER_USER = '22222222-2222-4222-8222-222222222222';
-/** The organization every harness call runs in (the single-mode default). */
+/**
+ * The organization every harness call runs in (the single-mode default).
+ *
+ * @stability experimental
+ */
 export const HARNESS_ORG = '33333333-3333-4333-8333-333333333333';
+/**
+ * `HARNESS_USER`'s own key: a sentinel that must never leave the server.
+ *
+ * @stability experimental
+ */
 export const HARNESS_USER_KEY = 'sk-user-own-key-1111';
+/**
+ * The deployment's key (historically named "org"), stored when `orgKey: true`: a sentinel.
+ *
+ * @stability experimental
+ */
 export const HARNESS_ORG_KEY = 'sk-org-admin-key-9999';
 /**
  * An ORGANIZATION's own key (#739, the org tier), as `setTenantKey` stores
  * it: a sentinel that must never appear in a response, log line or row.
  * (`HARNESS_ORG_KEY` is the deployment's key, historically named "org".)
+ *
+ * @stability experimental
  */
 export const HARNESS_TENANT_KEY = 'sk-org-tenant-key-7777';
+/**
+ * The fake provider's id (the settings slot it uses).
+ *
+ * @stability experimental
+ */
 export const HARNESS_PROVIDER = 'openai';
+/**
+ * The default catalog's fully capable text model.
+ *
+ * @stability experimental
+ */
 export const HARNESS_MODEL = 'fake-model';
-/** The default catalog's embedding model (`FAKE_EMBEDDING_MODEL_CAPABILITIES`). */
+/**
+ * The default catalog's embedding model (`FAKE_EMBEDDING_MODEL_CAPABILITIES`).
+ *
+ * @stability experimental
+ */
 export const HARNESS_EMBEDDING_MODEL = 'fake-embedding-model';
-/** The default catalog's image model (`FAKE_IMAGE_MODEL_CAPABILITIES`: generate + edit). */
+/**
+ * The default catalog's image model (`FAKE_IMAGE_MODEL_CAPABILITIES`: generate + edit).
+ *
+ * @stability experimental
+ */
 export const HARNESS_IMAGE_MODEL = 'fake-image-model';
-/** The default catalog's transcription model (`FAKE_TRANSCRIPTION_MODEL_CAPABILITIES`). */
+/**
+ * The default catalog's transcription model (`FAKE_TRANSCRIPTION_MODEL_CAPABILITIES`).
+ *
+ * @stability experimental
+ */
 export const HARNESS_TRANSCRIPTION_MODEL = 'fake-transcription-model';
-/** The default catalog's speech model (`FAKE_SPEECH_MODEL_CAPABILITIES`: voices alloy, echo). */
+/**
+ * The default catalog's speech model (`FAKE_SPEECH_MODEL_CAPABILITIES`: voices alloy, echo).
+ *
+ * @stability experimental
+ */
 export const HARNESS_SPEECH_MODEL = 'fake-speech-model';
-/** The default catalog's realtime model (`FAKE_REALTIME_MODEL_CAPABILITIES`: voices marin, alloy). */
+/**
+ * The default catalog's realtime model (`FAKE_REALTIME_MODEL_CAPABILITIES`: voices marin, alloy).
+ *
+ * @stability experimental
+ */
 export const HARNESS_REALTIME_MODEL = 'fake-realtime-model';
 
+/**
+ * One catalog row of the harness.
+ *
+ * @stability experimental
+ */
 export interface HarnessModel {
+  /** Model id (of the fake provider). */
   modelId: string;
+  /** Its capabilities (text responses by default). */
   capabilities?: AiModelCapabilities;
+  /** Whether it is enabled (default true). */
   enabled?: boolean;
+  /** When the provider stopped listing it (default never). */
   deprecatedAt?: Date | null;
 }
 
+/**
+ * Options of {@link createAiRuntimeHarness}.
+ *
+ * @stability experimental
+ */
 export interface AiRuntimeHarnessOptions {
   /** Merged over an enabled, byok, openai-on, no-cap policy. */
   policy?: Partial<Omit<AiPolicy, 'providers' | 'defaults' | 'hostedTools'>> & {
     /** Merged over every hosted tool switched off. */
     hostedTools?: Partial<AiPolicy['hostedTools']>;
+    /** Whether the fake's (`openai`) slot is enabled (default true). */
     providerEnabled?: boolean;
+    /** The fake's endpoint override. */
     baseUrl?: string;
     /**
      * Extra settings on the fake's (`openai`) slot — the #448 fields
@@ -93,6 +165,7 @@ export interface AiRuntimeHarnessOptions {
      * off whichever slot a provider has.
      */
     providerSlot?: Omit<AiProviderPolicy, 'enabled' | 'baseUrl'>;
+    /** Merged over background runs on, realtime off. */
     defaults?: Partial<AiPolicy['defaults']>;
   };
   /** Whether `HARNESS_USER` has a key. Default true. */
@@ -107,9 +180,15 @@ export interface AiRuntimeHarnessOptions {
    * `fake-realtime-model`.
    */
   models?: HarnessModel[];
+  /** Options of the `FakeAiProvider` (scripts, ports, ...). */
   fake?: FakeAiProviderOptions;
   /** `HARNESS_USER`'s `ai.defaultModel` setting. Default none. */
-  defaultModel?: { provider: string; modelId: string } | null;
+  defaultModel?: {
+    /** Provider id. */
+    provider: string;
+    /** Model id. */
+    modelId: string;
+  } | null;
   /** Register the fake provider at all. Default true. */
   registerProvider?: boolean;
   /**
@@ -124,20 +203,191 @@ export interface AiRuntimeHarnessOptions {
   targetResolver?: AiTargetResolver;
 }
 
+/**
+ * An `ai_runs` row in the harness's store.
+ *
+ * @stability experimental
+ */
 export interface StoredAiRun {
+  /** Row id. */
   id: string;
+  /** The owner. */
   userId: string | null;
+  /** The queue job. */
   jobId: string | null;
+  /** The run's status. */
   status: string;
+  /** Provider id. */
   provider: string;
+  /** Model id. */
   modelId: string;
+  /** The stored request. */
   request: unknown;
+  /** The stored output. */
   output: unknown;
+  /** The failure's code. */
   errorCode: string | null;
+  /** The failure's message. */
   errorMessage: string | null;
+  /** Created. */
   createdAt: Date;
+  /** Last change. */
   updatedAt: Date;
+  /** When it settled. */
   completedAt: Date | null;
+}
+
+/**
+ * A wired AI runtime for unit tests: the real services over a scripted fake
+ * provider and in-memory tables, storage, settings and queue. Returned by
+ * {@link createAiRuntimeHarness}.
+ *
+ * @stability experimental
+ */
+export interface AiRuntimeHarness {
+  /** The real `AiService`. */
+  ai: AiService;
+  /** The fake provider, registered as `openai`; its `calls` record every call and key. */
+  fake: FakeAiProvider;
+  /** The provider registry. */
+  registry: AiProviderRegistry;
+  /** The real `AiConfigService` over the harness policy. */
+  aiConfig: AiConfigService;
+  /** The real key resolver. */
+  resolver: AiKeyResolver;
+  /** The real usable-models service. */
+  usableModels: UsableModelsService;
+  /** The real usage recorder (rows land in `usageEvents`). */
+  recorder: AiUsageRecorder;
+  /** The real runs service (rows land in `runRows`). */
+  runs: AiRunsService;
+  /**
+   * The run state machine in `HARNESS_ORG`: what the run handlers see.
+   *
+   * @internal
+   */
+  orgRuns: AiRunsInOrg;
+  /** The real storage-input resolver. */
+  inputs: AiStorageInputResolver;
+  /** The real output writer. */
+  outputs: AiOutputWriter;
+  /** The real limits service, on the harness clock. */
+  limits: AiLimitsService;
+  /** The in-memory object storage. */
+  storage: InMemoryAiStorage;
+  /** The in-memory client (`jest.fn` delegates). */
+  prisma: any;
+  /** The stub queue: `enqueueWithin` records into `enqueued`. */
+  jobs: {
+    /** Records the job and returns it. */
+    enqueueWithin: jest.Mock;
+  };
+  /** The live policy object (`setPolicy` changes it). */
+  policy: AiPolicy;
+  /** Every recorded usage row, in order. */
+  usageEvents: Array<Record<string, any>>;
+  /** Every stored run. */
+  runRows: StoredAiRun[];
+  /** Every enqueued job. */
+  enqueued: Array<Record<string, any>>;
+  /** The credential store's `getSecret` stub (answers the deployment key). */
+  getSecret: jest.Mock;
+  /** The user-key store's stub (`getDecrypted`). */
+  userKeys: {
+    /** Answers the user's stored key for the provider. */
+    getDecrypted: jest.Mock;
+  };
+  /**
+   * Stores a key for `userId`.
+   *
+   * @param userId - the owner.
+   * @param secret - the key (stored as-is).
+   * @param reachable - the model ids it reaches.
+   */
+  addUserKey(userId: string, secret: string, reachable: string[]): void;
+  /**
+   * Removes every key `userId` has stored.
+   *
+   * @param userId - the owner.
+   */
+  removeUserKeys(userId: string): void;
+  /**
+   * Changes the policy; the config cache is dropped so the next call sees it.
+   *
+   * @param patch - the fields to change.
+   */
+  setPolicy(patch: Partial<AiPolicy>): void;
+  /**
+   * Stores (or, with `null`, removes) the deployment's key.
+   *
+   * @param value - the key.
+   */
+  setOrgKey(value: string | null): void;
+  /**
+   * Sets (or, with `null`, clears) an organization's own `ai` overrides, its
+   * org layer (#739): `{ enabled: false }` switches AI off for its members.
+   *
+   * @param orgId - the organization.
+   * @param overrides - the overrides.
+   */
+  setOrgPolicy(orgId: string, overrides: Record<string, unknown> | null): void;
+  /** Clears every organization's overrides. */
+  clearOrgPolicies(): void;
+  /** The permission lookups' stubs (`holdsAiConfigWrite`, `holdsOrgAiConfigWrite`). */
+  configWriters: {
+    /** Whether a user holds `ai_config:write`. */
+    holdsAiConfigWrite: jest.Mock;
+    /** Whether a user holds `org_ai_config:write` in an organization. */
+    holdsOrgAiConfigWrite: jest.Mock;
+  };
+  /**
+   * Grants (true) or revokes (false) `ai_config:write` for `userId` (#593).
+   *
+   * @param userId - the user.
+   * @param holds - whether they hold it.
+   */
+  setAiConfigWriter(userId: string, holds: boolean): void;
+  /** Nobody holds `ai_config:write` or `org_ai_config:write` any more (the default). */
+  clearAiConfigWriters(): void;
+  /** The organization-key store's stubs (`getKey`, `hasKey`). */
+  orgKeys: {
+    /** An organization's key for a provider, or null. */
+    getKey: jest.Mock;
+    /** Whether an organization stores a key for a provider. */
+    hasKey: jest.Mock;
+  };
+  /**
+   * Stores (or, with `null`, removes) an organization's own key for the fake provider (#739).
+   *
+   * @param orgId - the organization.
+   * @param value - the key.
+   */
+  setTenantKey(orgId: string, value: string | null): void;
+  /** Removes every organization's own key. */
+  clearTenantKeys(): void;
+  /**
+   * Grants (true) or revokes (false) `org_ai_config:write` for `userId` in `orgId` (#739).
+   *
+   * @param userId - the user.
+   * @param orgId - the organization.
+   * @param holds - whether they hold it.
+   */
+  setOrgAiConfigWriter(userId: string, orgId: string, holds: boolean): void;
+  /**
+   * Sets (or clears) `userId`'s `ai.defaultModel`.
+   *
+   * @param userId - the user.
+   * @param value - the model, or null.
+   */
+  setDefaultModel(
+    userId: string,
+    value: {
+      /** Provider id. */
+      provider: string;
+      /** Model id. */
+      modelId: string;
+    } | null,
+  ): void;
 }
 
 type Where = Record<string, any>;
@@ -191,7 +441,17 @@ function pick(row: object, select?: Record<string, boolean>): Record<string, unk
   return Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, source[k]]));
 }
 
-export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
+/**
+ * Builds the real AI runtime over a scripted fake provider and in-memory
+ * tables, so a gate test exercises the production code path and "the
+ * deployment key was never used" is a fact about the fake's recorded calls.
+ *
+ * @param opts - the policy, keys, catalog and fake's options.
+ * @returns the harness.
+ *
+ * @stability experimental
+ */
+export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRuntimeHarness {
   const db = createInMemoryAiKeysPrisma();
   const usageEvents: Array<Record<string, any>> = [];
   const clock: AiLimitsClock = opts.clock ?? (() => Date.now());
@@ -549,4 +809,3 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   };
 }
 
-export type AiRuntimeHarness = ReturnType<typeof createAiRuntimeHarness>;

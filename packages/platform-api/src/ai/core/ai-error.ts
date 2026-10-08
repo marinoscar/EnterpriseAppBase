@@ -20,23 +20,42 @@ import {
   type SelfClassifyingRateLimit,
 } from '../../jobs/index';
 
+/**
+ * Every AI error code and the HTTP status it answers with. The codes are
+ * permanent API strings: clients switch on `details.reason`.
+ *
+ * @stability experimental
+ */
 export const AI_ERROR_STATUS = {
+  /** AI is switched off (for the deployment, or for the caller's organization). */
   AI_DISABLED: 403,
+  /** The provider is switched off, or not registered. */
   AI_PROVIDER_DISABLED: 403,
+  /** No key may pay for this call (the policy needs the caller's own key). */
   AI_KEY_REQUIRED: 403,
+  /** The provider rejected the key. */
   AI_KEY_INVALID: 400,
+  /** An administrator has not enabled the model. */
   AI_MODEL_NOT_ENABLED: 403,
+  /** The key that would pay cannot reach the model. */
   AI_MODEL_NOT_REACHABLE: 403,
+  /** The request needs a capability the model or provider lacks. */
   AI_CAPABILITY_UNSUPPORTED: 400,
   /** A hosted tool type an administrator has not switched on, or an MCP host outside the allowlist (#442). */
   AI_TOOL_DISABLED: 403,
   /** Realtime voice sessions are switched off (`ai.defaults.allowRealtime`, #449). */
   AI_REALTIME_DISABLED: 403,
+  /** A deployment limit, or the provider's own rate limit, refused the call. */
   AI_RATE_LIMITED: 429,
+  /** The provider failed or could not be reached. */
   AI_PROVIDER_UNAVAILABLE: 503,
+  /** The provider's content filter refused the request or the output. */
   AI_CONTENT_FILTERED: 422,
+  /** The request itself is malformed. */
   AI_INVALID_REQUEST: 400,
+  /** The model's output did not match the requested schema. */
   AI_STRUCTURED_OUTPUT_INVALID: 502,
+  /** Object storage is not configured (or not usable) for this operation. */
   // Object storage is not configured (or not usable) for an operation whose
   // inputs or outputs are storage objects — image generation (#437) and the
   // media stories after it. An administrator fixes it at
@@ -44,6 +63,11 @@ export const AI_ERROR_STATUS = {
   AI_STORAGE_UNAVAILABLE: 503,
 } as const;
 
+/**
+ * One AI error code (a key of {@link AI_ERROR_STATUS}).
+ *
+ * @stability experimental
+ */
 export type AiErrorCode = keyof typeof AI_ERROR_STATUS;
 
 /** Every code, in declaration order. */
@@ -82,6 +106,11 @@ export function isAiErrorCode(value: unknown): value is AiErrorCode {
 // `details` themselves; `ai-error.spec.ts` pins the parts this class controls.
 // =============================================================================
 
+/**
+ * What an {@link AiError} may carry besides its code and message.
+ *
+ * @stability experimental
+ */
 export interface AiErrorOptions {
   /** Provider-requested delay before retrying, when it named one. */
   retryAfterMs?: number;
@@ -91,14 +120,38 @@ export interface AiErrorOptions {
   details?: Record<string, unknown>;
 }
 
+/**
+ * The body an {@link AiError} throws (wrapped by the exception filter in the
+ * standard envelope).
+ *
+ * @stability experimental
+ */
 export interface AiErrorBody {
+  /** The AI error code. */
   code: AiErrorCode;
+  /** A message safe to show. */
   message: string;
-  details: Record<string, unknown> & { reason: AiErrorCode; retryAfterMs?: number };
+  /** Machine-readable context; `reason` is always the code. */
+  details: Record<string, unknown> & {
+    /** The AI error code, where clients read it. */
+    reason: AiErrorCode;
+    /** The provider-requested back-off, when it named one. */
+    retryAfterMs?: number;
+  };
 }
 
+/**
+ * The one error the AI platform throws: an `HttpException` whose status
+ * follows the code ({@link AI_ERROR_STATUS}) and whose body carries the code
+ * in `details.reason`. Never carries key material; `cause` is never
+ * serialised.
+ *
+ * @stability experimental
+ */
 export class AiError extends HttpException implements SelfClassifyingRateLimit {
+  /** The AI error code. */
   readonly code: AiErrorCode;
+  /** The provider-requested back-off, when it named one. */
   readonly retryAfterMs?: number;
   declare readonly cause: unknown;
 
@@ -175,6 +228,12 @@ export class AiError extends HttpException implements SelfClassifyingRateLimit {
       : { rateLimited: false, retryAfterMs: null };
   }
 
+  /**
+   * Type guard.
+   *
+   * @param value - anything caught.
+   * @returns whether it is an `AiError`.
+   */
   static isAiError(value: unknown): value is AiError {
     return value instanceof AiError;
   }

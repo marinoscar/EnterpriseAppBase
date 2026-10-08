@@ -146,6 +146,12 @@ function withAiSlots(stored: unknown, helpers: SettingsReadHelpers): unknown {
   };
 }
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const AI_SYSTEM_SETTINGS = {
   key: 'ai',
   description: 'Deployment-wide AI platform policy: the kill switch, key policy, provider slots, call defaults, hosted tools and limits.',
@@ -274,7 +280,7 @@ export const AI_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'ai', SystemAiValue, z.infer<typeof aiSettingsPatchSchema>>;
 
-declare module '../settings/index' {
+declare module '../settings/registry/system-settings-namespace' {
   interface SystemSettingsNamespaces {
     /**
      * Deployment-wide AI platform policy (#423, epic #419, umbrella #418):
@@ -285,6 +291,12 @@ declare module '../settings/index' {
     ai: SystemAiValue;
   }
   interface SystemSettingsNamespaceDeclarations {
+    /**
+     * The `ai` namespace's declaration (`AI_SYSTEM_SETTINGS`), for the composed
+     * schemas' types. Documented on the constant itself.
+     *
+     * @internal
+     */
     ai: typeof AI_SYSTEM_SETTINGS;
   }
 }

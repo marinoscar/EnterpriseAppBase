@@ -41,6 +41,12 @@ import { AiResponseDto } from './dto/ai-response.dto';
 // adapter; no value returned here, and no SSE frame, has a field for one.
 // =============================================================================
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @ApiTags('AI')
 @Controller('ai')
 @UseGuards(AiEnabledGuard)

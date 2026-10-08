@@ -49,6 +49,14 @@ const MODEL_SELECT = {
 
 type ModelRow = Prisma.AiModelGetPayload<{ select: typeof MODEL_SELECT }>;
 
+/**
+ * The models one user can actually call right now: enabled by an
+ * administrator, on an enabled provider, and reachable with the key that would
+ * pay (the user's own, or an administrator-managed one the policy lets serve
+ * them).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class UsableModelsService {
   constructor(
@@ -145,7 +153,12 @@ export class UsableModelsService {
     modelId: string,
     capability?: AiCapability | readonly AiCapability[],
     scope: { orgId?: string } = {},
-  ): Promise<{ model: UsableAiModel; keySource: AiKeySource }> {
+  ): Promise<{
+    /** The model, as `listForUser` lists it. */
+    model: UsableAiModel;
+    /** Who would pay. */
+    keySource: AiKeySource;
+  }> {
     await this.aiConfig.assertProviderEnabled(provider, scope.orgId);
 
     const row = await this.prisma.aiModel.findUnique({

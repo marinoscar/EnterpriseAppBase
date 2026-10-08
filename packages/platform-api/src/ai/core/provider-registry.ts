@@ -50,6 +50,14 @@ export function adapterCapabilities(adapter: AiProviderAdapter): AiCapability[] 
   return AI_CAPABILITIES.filter((cap) => CAPABILITY_PORT[cap](adapter));
 }
 
+/**
+ * Every provider adapter this process loaded, by id. Each provider module
+ * registers its adapter at module init; `AiService` and the catalogue look
+ * adapters up here, and `supports()` derives a provider's capabilities from
+ * the ports its adapter carries.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class AiProviderRegistry {
   private readonly logger = new Logger(AiProviderRegistry.name);

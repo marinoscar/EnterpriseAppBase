@@ -25,6 +25,15 @@ import { AiConfigService } from './ai-config.service';
 // caller with it is.
 // =============================================================================
 
+/**
+ * The AI kill switch as a route guard: refuses with `403 AI_DISABLED` while the
+ * deployment has AI switched off. Every consumer route under `/api/ai/*` carries
+ * it (with `ai:use`), except `GET /api/ai/config`; no `/api/admin/ai/*` route
+ * does, so an administrator can always switch AI back on. Pair it with
+ * `AiOrgEnabledInterceptor` for the organization layer.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class AiEnabledGuard implements CanActivate {
   constructor(private readonly aiConfig: AiConfigService) {}

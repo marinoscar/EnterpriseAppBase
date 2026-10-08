@@ -19,6 +19,12 @@ import {
 } from '@marinoscar/platform-contract/ai';
 import type { UserSettingsNamespace } from '../settings/index';
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 export const AI_USER_SETTINGS = {
   key: 'ai',
   description: 'Per-user AI preferences: which (provider, model) an AI surface pre-selects.',
@@ -63,7 +69,7 @@ export const AI_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'ai', UserAiSettingsValue, UserAiSettingsPatchValue>;
 
-declare module '../settings/index' {
+declare module '../settings/registry/user-settings-namespace' {
   interface UserSettingsNamespaces {
     /**
      * AI preferences (#423, epic #419, umbrella #418): which (provider, model)
@@ -74,6 +80,12 @@ declare module '../settings/index' {
     ai: UserAiSettingsValue;
   }
   interface UserSettingsNamespaceDeclarations {
+    /**
+     * The `ai` namespace's declaration (`AI_USER_SETTINGS`), for the composed
+     * schemas' types. Documented on the constant itself.
+     *
+     * @internal
+     */
     ai: typeof AI_USER_SETTINGS;
   }
 }

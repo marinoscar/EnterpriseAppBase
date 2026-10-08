@@ -9,6 +9,8 @@ import { AiFeaturesService } from './ai-features.service';
  * `GET /api/ai/features` (#739). `AiConfigModule` is here for `AiEnabledGuard`.
  *
  * @stability experimental
+ *
+ * @internal
  */
 @Module({
   imports: [AiConfigModule, AiKeysModule],

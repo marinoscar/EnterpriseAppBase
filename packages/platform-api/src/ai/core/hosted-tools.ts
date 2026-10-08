@@ -110,7 +110,11 @@ const mcpToolSchema = z
   })
   .strict();
 
-/** One hosted tool, as a request may carry it. */
+/**
+ * One hosted tool, as a request may carry it.
+ *
+ * @internal
+ */
 export const aiHostedToolSchema = z.discriminatedUnion('type', [
   webSearchToolSchema,
   fileSearchToolSchema,
@@ -123,6 +127,8 @@ export const aiHostedToolSchema = z.discriminatedUnion('type', [
  * One hosted tool as STORED with a background run (`ai_runs.request`). The
  * MCP variant has no `headers` member, so the column cannot hold one: a run
  * whose MCP tool needs headers is refused by `startRun` instead.
+ *
+ * @internal
  */
 export const aiStoredHostedToolSchema = z.discriminatedUnion('type', [
   webSearchToolSchema,

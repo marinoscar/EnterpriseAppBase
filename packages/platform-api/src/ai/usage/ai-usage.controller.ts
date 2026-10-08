@@ -29,6 +29,12 @@ import {
 // else.
 // =============================================================================
 
+/**
+ * Exported for the reference app's wiring and tests (route discovery, contract
+ * and egress suites); not part of the slice's documented surface.
+ *
+ * @internal
+ */
 @ApiTags('AI')
 @Controller('ai/usage')
 @UseGuards(AiEnabledGuard)

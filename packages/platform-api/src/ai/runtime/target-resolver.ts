@@ -56,7 +56,12 @@ export interface AiTargetContext {
   /** The registered feature the call is made for (`registerAiFeature`), when the caller named one. */
   readonly feature?: string;
   /** What the request named; either may be absent. */
-  readonly requested: { readonly provider?: string; readonly model?: string };
+  readonly requested: {
+    /** The provider the caller named, if any. */
+    readonly provider?: string;
+    /** The model the caller named, if any. */
+    readonly model?: string;
+  };
 }
 
 /**

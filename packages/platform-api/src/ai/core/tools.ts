@@ -24,23 +24,67 @@ const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 export interface AiToolExecutionContext {
   /** The user on whose behalf the model is acting — scope every data access to it. */
   userId: string;
+  /** Aborted when the request is. */
   signal?: AbortSignal;
+  /** The request id, for logs. */
   requestId?: string;
 }
 
+/**
+ * What {@link defineTool} takes: a function tool and its implementation.
+ *
+ * @typeParam P - the parameters' Zod schema.
+ * @typeParam R - what the implementation returns.
+ *
+ * @stability experimental
+ */
 export interface AiToolDefinition<P extends z.ZodTypeAny, R> {
+  /** The name the model calls it by (`[a-zA-Z0-9_-]`, at most 64). */
   name: string;
+  /** What it does, for the model. */
   description: string;
+  /** The parameters' schema. */
   parameters: P;
   /** Ask the provider to enforce the schema exactly. Defaults to true. */
   strict?: boolean;
+  /**
+   * The implementation.
+   *
+   * @param args - the validated arguments.
+   * @param ctx - the user and the signal.
+   */
   execute(args: z.output<P>, ctx: AiToolExecutionContext): Promise<R> | R;
 }
 
+/**
+ * The outcome of parsing a model's raw arguments.
+ *
+ * @typeParam P - the parameters' Zod schema.
+ *
+ * @stability experimental
+ */
 export type AiToolArgumentsResult<P extends z.ZodTypeAny> =
-  | { success: true; data: z.output<P> }
-  | { success: false; error: string };
+  | {
+      /** Parsed. */
+      success: true;
+      /** The validated arguments. */
+      data: z.output<P>;
+    }
+  | {
+      /** Refused. */
+      success: false;
+      /** Why, suitable for a `function_call_output`. */
+      error: string;
+    };
 
+/**
+ * A defined function tool: the request half and the implementation half.
+ *
+ * @typeParam P - the parameters' Zod schema.
+ * @typeParam R - what the implementation returns.
+ *
+ * @stability experimental
+ */
 export interface AiDefinedTool<P extends z.ZodTypeAny = z.ZodTypeAny, R = unknown> {
   /** Goes into `AiResponseRequest.tools`. */
   tool: AiFunctionTool<P>;
