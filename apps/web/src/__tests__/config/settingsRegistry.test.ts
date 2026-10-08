@@ -10,6 +10,7 @@ import {
 } from '../../config/adminSections';
 import { settingsPageTitle, visibleSettingsSections } from '@marinoscar/platform-web/settings/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
+import { dangerZoneLastViolations } from '@marinoscar/platform-web/user-data/headless';
 import { readApiPermissionConstants } from '../utils/apiPermissions';
 import { ORG_AI_KEYS_DESCRIPTION } from '@marinoscar/platform-web/ai/ui';
 import {
@@ -728,6 +729,8 @@ describe('the Operations group (#266)', () => {
       'AI',
       'Observability',
       'Organizations',
+      // #743: pinned last, the one exception to append-only.
+      'Danger Zone',
     ]);
   });
 
@@ -1121,7 +1124,7 @@ describe('the AI group (#425)', () => {
     // It was the last group until `Observability` (#537), then `Organizations`
     // (#726), were appended after it.
     expect(ADMIN_SECTIONS[3]).toBe(aiSection);
-    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability', 'Organizations']);
+    expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability', 'Organizations', 'Danger Zone']);
     // `AI Usage` (#444) is appended after `AI Models`, never inserted.
     // `Organization AI keys` (#739) is appended after `AI Usage`.
     expect(aiSection?.cards.map((card) => card.title)).toEqual([
@@ -1242,8 +1245,9 @@ describe('the Observability group (#537)', () => {
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, hasPermission, '', features));
 
   it('is APPENDED after AI, followed only by Organizations (#726), with its cards in declaration order', () => {
-    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 2]).toBe(observability);
-    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]?.label).toBe('Organizations');
+    // Danger Zone (#743) is pinned last, after Organizations.
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 3]).toBe(observability);
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 2]?.label).toBe('Organizations');
     // `Telemetry Dashboard` (#578) was appended after the Explorer, and
     // `Doctor` (#634) after the Dashboard.
     expect(observability?.cards.map((card) => card.title)).toEqual([
@@ -1302,7 +1306,7 @@ describe('the Observability group (#537)', () => {
     const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
 
     it('was appended after the Explorer, not inserted — only Doctor (#634) follows it before the Organizations group (#726)', () => {
-      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs');
+      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs' && card.path !== '/admin/settings/factory-reset');
       expect(beforeOrgs[beforeOrgs.length - 2]).toBe(dashboard);
       expect(beforeOrgs[beforeOrgs.length - 1]?.title).toBe('Doctor');
       expect(dashboard?.disabled).toBeUndefined();
@@ -1353,7 +1357,7 @@ describe('the Observability group (#537)', () => {
     });
 
     it('is the LAST card of Observability, the last group before Organizations (#726) — appended, not inserted', () => {
-      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs');
+      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs' && card.path !== '/admin/settings/factory-reset');
       expect(beforeOrgs[beforeOrgs.length - 1]).toBe(doctor);
       const owner = ADMIN_SECTIONS.find((section) => section.cards.includes(doctor!));
       expect(owner?.label).toBe('Observability');
@@ -1480,7 +1484,8 @@ describe('the Organizations group (#726)', () => {
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, (p) => held.includes(p), '', features));
 
   it('is APPENDED as the last group, its cards in declaration order (#733 appended the third)', () => {
-    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(group);
+    // The last APPENDED group: only the pinned Danger Zone (#743) follows it.
+    expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 2]).toBe(group);
     expect(group?.cards.map((card) => card.title)).toEqual(['Organization', 'Organizations', 'Organization settings']);
   });
 
@@ -1552,5 +1557,31 @@ describe('the Organizations group (#726)', () => {
     const title = (path: string) => settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, ORGS_ON);
     expect(title('/admin/settings/organization')).toBe('Organization');
     expect(title('/admin/settings/organizations')).toBe('Organizations');
+  });
+});
+
+describe('the Danger Zone groups (#743)', () => {
+  it('are pinned last in both registries, holding their card', () => {
+    expect(dangerZoneLastViolations(ADMIN_SECTIONS, '/admin/settings/factory-reset')).toEqual([]);
+    expect(dangerZoneLastViolations(USER_SETTINGS_SECTIONS, '/settings/danger-zone')).toEqual([]);
+  });
+
+  it('declare the exact permission the API enforces: system:factory_reset for the admin card, none for the user card', () => {
+    const factory = ADMIN_SECTIONS.at(-1)!.cards[0]!;
+    expect(factory).toMatchObject({ title: 'Factory reset', path: '/admin/settings/factory-reset', permission: 'system:factory_reset' });
+    expect(factory.feature).toBeUndefined();
+    const permissions = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/platform-api/src/user-data/user-data.permissions.ts'), 'utf8');
+    expect(permissions).toContain("id: 'system:factory_reset'");
+    const controller = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/platform-api/src/user-data/user-data.controller.ts'), 'utf8');
+    expect(controller).toContain('@Auth({ permissions: [FACTORY] })');
+    const mine = USER_SETTINGS_SECTIONS.at(-1)!.cards[0]!;
+    expect(mine).toMatchObject({ title: 'Delete my data', path: '/settings/danger-zone' });
+    expect(mine.permission).toBeUndefined();
+    expect(mine.feature).toBeUndefined();
+  });
+
+  it('hides the factory reset from a system_settings:write holder who is not an Admin', () => {
+    const titles = titlesOf(visibleSettingsSections(ADMIN_SECTIONS, (p) => p === 'system_settings:write' || p === 'system_settings:read', ''));
+    expect(titles).not.toContain('Factory reset');
   });
 });
