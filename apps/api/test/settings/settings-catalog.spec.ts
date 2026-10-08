@@ -10,6 +10,9 @@
 // top-level key order of every composed schema (which drives the OpenAPI
 // document).
 //
+// #739 added `ai.deploymentKeyServesOrgs` (default true, today's behaviour),
+// appended at the end of the `ai` namespace.
+//
 // A failure here means a namespace declaration changed a default or the
 // manifest changed the registration order. If the change is deliberate, update
 // the literal in the same commit and say why in the commit body.
@@ -132,7 +135,8 @@ const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
       "mcp": false,
       "mcpAllowedHosts": []
     },
-    "limits": {}
+    "limits": {},
+    "deploymentKeyServesOrgs": true
   },
   "telemetry": {
     "enabled": false,

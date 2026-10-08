@@ -577,6 +577,8 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `ai_config:read` | system | ✓ | | | | View AI configuration, model catalog, usage report |
 | `ai_config:write` | system | ✓ | | | | Change AI configuration, admin keys, models; refresh the catalog |
 | `ai:use` | org | | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
+| `org_ai_config:read` | org | | ✓ | | | View the organization's own AI provider keys (masked, `GET /api/admin/ai/org-keys`), its AI usage (`GET /api/admin/ai/org-usage`) and the `ai` overrides in `/api/org-settings`; the `Organization AI keys` card |
+| `org_ai_config:write` | org | | ✓ | | | Set or remove the organization's own AI provider keys (`PUT`/`DELETE /api/admin/ai/org-keys/:provider`); tighten its `ai` policy in `/api/org-settings` (AI off, `byok`, lower per-org caps, providers off); serves the org key to its holder under `byok` |
 | `telemetry:read` | system | ✓ | | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | system | ✓ | | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | system | ✓ | | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |

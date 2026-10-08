@@ -105,6 +105,10 @@ export const aiConfigResponseSchema = z.object({
     orgKey: z
       .object({ requestsPerDayPerUser: z.number().int().optional(), tokensPerDayPerUser: z.number().int().optional() })
       .optional(),
+    /** #739: the deployment default per organization. */
+    perOrg: z
+      .object({ requestsPerDay: z.number().int().optional(), outputTokensPerDay: z.number().int().optional() })
+      .optional(),
     /** Keyed `<provider>:<modelId>`. */
     perModel: z
       .record(
@@ -113,6 +117,8 @@ export const aiConfigResponseSchema = z.object({
       )
       .optional(),
   }),
+  /** #739: whether the deployment's key serves organizations that have none of their own. */
+  deploymentKeyServesOrgs: z.boolean(),
   /** Registered providers ∪ providers with a settings slot. */
   providers: z.array(aiAdminProviderSchema),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */

@@ -6,6 +6,7 @@ import { AiCoreModule } from '../core/ai-core.module';
 import { AiAdminController } from './ai-admin.controller';
 import { AiConfigAdminService } from './ai-config-admin.service';
 import { AiConfigService } from './ai-config.service';
+import { AiOrgEnabledInterceptor } from './ai-org-enabled.interceptor';
 import { AiEnabledGuard } from './ai-enabled.guard';
 import { AiModelsAdminService } from './ai-models-admin.service';
 import { AiProviderTestService } from './ai-provider-test.service';
@@ -34,6 +35,7 @@ import { AiRealtimeEgressContributor } from './doctor/egress/ai-realtime.egress.
   providers: [
     AiConfigService,
     AiEnabledGuard,
+    AiOrgEnabledInterceptor,
     AiConfigAdminService,
     AiProviderTestService,
     AiModelsAdminService,
@@ -44,6 +46,6 @@ import { AiRealtimeEgressContributor } from './doctor/egress/ai-realtime.egress.
     AiProvidersEgressContributor,
     AiRealtimeEgressContributor,
   ],
-  exports: [AiConfigService, AiEnabledGuard],
+  exports: [AiConfigService, AiEnabledGuard, AiOrgEnabledInterceptor, AiConfigAdminService],
 })
 export class AiConfigModule {}

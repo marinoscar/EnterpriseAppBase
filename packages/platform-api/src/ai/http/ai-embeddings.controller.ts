@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 
@@ -7,6 +7,7 @@ import { PERMISSIONS } from '../ai.constants';
 import { ApiDataResponse } from '../../core/index';
 import { ErrorDto } from '../../core/index';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
 import { AI_EMBEDDINGS_MAX_INPUTS } from '../core/types/media.types';
 import { AiService } from '../runtime/ai.service';
 import type { AiEmbedRequest } from '../runtime/ai-runtime.types';
@@ -37,6 +38,7 @@ import {
 @ApiTags('AI')
 @Controller('ai')
 @UseGuards(AiEnabledGuard)
+@UseInterceptors(AiOrgEnabledInterceptor)
 export class AiEmbeddingsController {
   constructor(private readonly ai: AiService) {}
 

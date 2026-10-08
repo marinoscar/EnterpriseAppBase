@@ -264,6 +264,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
       ...(p.hostedTools ?? {}),
     },
     limits: p.limits ?? {},
+    deploymentKeyServesOrgs: p.deploymentKeyServesOrgs ?? true,
   };
 
   let orgKey: string | null = opts.orgKey ? HARNESS_ORG_KEY : null;

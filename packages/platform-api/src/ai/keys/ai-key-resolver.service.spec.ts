@@ -80,6 +80,7 @@ function build(c: Omit<Case, 'expected'>, compatible: { requiresKey?: boolean } 
       mcpAllowedHosts: [],
     },
     limits: {},
+    deploymentKeyServesOrgs: true,
   };
   const aiConfig = new AiConfigService(
     { getAiPolicy: jest.fn(async () => policy) } as never,
@@ -110,6 +111,8 @@ describe('AiKeyResolver', () => {
         await expect(resolver.resolve('user-1', 'openai')).resolves.toEqual({
           apiKey: c.expected === 'user' ? USER_KEY : ORG_KEY,
           keySource: c.expected,
+          // #739: without an organization the administrator key is the deployment's.
+          tier: c.expected === 'user' ? 'user' : 'deployment',
         });
       }
     });
@@ -212,6 +215,7 @@ describe('AiKeyResolver', () => {
         await expect(resolver.resolve('user-1', 'openai-compatible')).resolves.toEqual({
           apiKey: AI_KEYLESS_API_KEY,
           keySource: 'none',
+          tier: 'none',
         });
         await expect(resolver.sourceFor('user-1', 'openai-compatible', c.userKey)).resolves.toBe('none');
         expect(getDecrypted).not.toHaveBeenCalled();

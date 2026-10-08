@@ -5,6 +5,8 @@
 // shapes. zod only. Documented in ./README.md. Explicit named exports only.
 
 export {
+  orgAiSettingsSchema,
+  tightenAiPolicy,
   AI_AZURE_API_VERSION_PATTERN,
   AI_AZURE_DEPLOYMENT_PATTERN,
   AI_AZURE_DEPLOYMENTS_MAX,
@@ -41,6 +43,7 @@ export {
   userAiSettingsSchema,
 } from './settings.js';
 export type {
+  OrgAiSettingsValue,
   AiKeyPolicy,
   AiOpenAiApiStyle,
   AiProviderId,
@@ -52,3 +55,11 @@ export type {
 } from './settings.js';
 export { aiFeatureViewSchema } from './features.js';
 export type { AiFeatureView } from './features.js';
+export {
+  ORG_AI_KEY_MAX,
+  ORG_AI_KEY_MIN,
+  ORG_AI_KEY_VIEW_CARRIES_NO_SECRET,
+  orgAiKeyViewSchema,
+  setOrgAiKeySchema,
+} from './org-keys.js';
+export type { OrgAiKeyView, OrgAiKeyViewCarriesNoSecret, SetOrgAiKeyInput } from './org-keys.js';

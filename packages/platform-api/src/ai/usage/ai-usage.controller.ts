@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth, CurrentOrg, CurrentUser } from '../../identity/index';
@@ -6,6 +6,7 @@ import { PERMISSIONS } from '../ai.constants';
 import { ApiDataResponse } from '../../core/index';
 import { ErrorDto } from '../../core/index';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
 import { AiUsageService } from './ai-usage.service';
 import {
   AI_USAGE_ME_GROUP_BY,
@@ -31,6 +32,7 @@ import {
 @ApiTags('AI')
 @Controller('ai/usage')
 @UseGuards(AiEnabledGuard)
+@UseInterceptors(AiOrgEnabledInterceptor)
 export class AiUsageController {
   constructor(private readonly usage: AiUsageService) {}
 

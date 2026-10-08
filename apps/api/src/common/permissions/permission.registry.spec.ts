@@ -233,6 +233,9 @@ describe('permission registry', () => {
         'storage:read',
         'storage:write',
         'ai:use',
+        // #739: an organization's own AI configuration.
+        'org_ai_config:read',
+        'org_ai_config:write',
         'org_members:read',
         'org_members:write',
         'org_invites:read',

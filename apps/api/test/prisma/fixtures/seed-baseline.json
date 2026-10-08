@@ -103,6 +103,14 @@
       "description": "Compose, schedule, cancel and send notification broadcasts to the active organization"
     },
     {
+      "name": "org_ai_config:read",
+      "description": "View this organization's AI keys, usage and AI policy overrides"
+    },
+    {
+      "name": "org_ai_config:write",
+      "description": "Set or remove this organization's AI provider keys and tighten its AI policy"
+    },
+    {
       "name": "org_invites:read",
       "description": "View pending and past invitations to the organization"
     },
@@ -264,6 +272,8 @@
       "groups:write",
       "org_broadcasts:read",
       "org_broadcasts:write",
+      "org_ai_config:read",
+      "org_ai_config:write",
       "org_invites:read",
       "org_invites:write",
       "org_members:read",
@@ -323,7 +333,8 @@
           "image_generation": false
         },
         "logPromptContent": false,
-        "usageRetentionDays": 180
+        "usageRetentionDays": 180,
+        "deploymentKeyServesOrgs": true
       },
       "jobs": {
         "history": {

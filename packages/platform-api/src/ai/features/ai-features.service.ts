@@ -32,12 +32,13 @@ export class AiFeaturesService {
    * Every registered feature, in registration order, for `userId`.
    *
    * @param userId - the caller.
+   * @param orgId - the organization the caller acts in (its switches and key apply).
    */
-  async listForUser(userId: string): Promise<AiFeatureView[]> {
+  async listForUser(userId: string, orgId?: string): Promise<AiFeatureView[]> {
     const features = listAiFeatures();
     if (features.length === 0) return [];
 
-    const usable = await this.usableModels.listForUser(userId);
+    const usable = await this.usableModels.listForUser(userId, orgId ? { orgId } : {});
 
     return features.map((feature) => ({
       id: feature.id,

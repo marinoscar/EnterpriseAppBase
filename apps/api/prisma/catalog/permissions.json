@@ -164,6 +164,16 @@
       "scope": "org"
     },
     {
+      "name": "org_ai_config:read",
+      "description": "View this organization's AI keys, usage and AI policy overrides",
+      "scope": "org"
+    },
+    {
+      "name": "org_ai_config:write",
+      "description": "Set or remove this organization's AI provider keys and tighten its AI policy",
+      "scope": "org"
+    },
+    {
       "name": "telemetry:read",
       "description": "View telemetry settings and status",
       "scope": "system"
@@ -314,6 +324,8 @@
       "storage:read",
       "storage:write",
       "ai:use",
+      "org_ai_config:read",
+      "org_ai_config:write",
       "org_members:read",
       "org_members:write",
       "org_invites:read",

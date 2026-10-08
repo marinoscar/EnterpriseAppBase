@@ -9,14 +9,16 @@ import {
   Post,
   Put,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth, CurrentUser } from '../../identity/index';
+import { Auth, CurrentOrg, CurrentUser } from '../../identity/index';
 import { PERMISSIONS } from '../ai.constants';
 import { ApiDataResponse } from '../../core/index';
 import { ErrorDto } from '../../core/index';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
 import { UsableAiModelDto } from './dto/usable-ai-model.dto';
 import {
   SetUserAiKeyDto,
@@ -58,6 +60,7 @@ const PROVIDER_PARAM = {
 @ApiTags('AI')
 @Controller('ai')
 @UseGuards(AiEnabledGuard)
+@UseInterceptors(AiOrgEnabledInterceptor)
 export class UserAiKeysController {
   constructor(
     private readonly keys: UserAiKeysService,
@@ -168,7 +171,7 @@ export class UserAiKeysController {
   })
   @ApiDataResponse(UsableAiModelDto, { isArray: true, description: 'The models you can use' })
   @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
-  async listModels(@CurrentUser('id') userId: string) {
-    return this.usableModels.listForUser(userId);
+  async listModels(@CurrentUser('id') userId: string, @CurrentOrg() orgId: string) {
+    return this.usableModels.listForUser(userId, { orgId });
   }
 }

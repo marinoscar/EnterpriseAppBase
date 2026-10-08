@@ -1,10 +1,11 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { ApiDataResponse, ErrorDto } from '../../core/index';
-import { Auth, CurrentUser } from '../../identity/index';
+import { Auth, CurrentOrg, CurrentUser } from '../../identity/index';
 import { PERMISSIONS } from '../ai.constants';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
 import { AiFeaturesService } from './ai-features.service';
 import { AiFeatureViewDto } from './dto/ai-feature.dto';
 
@@ -20,6 +21,7 @@ import { AiFeatureViewDto } from './dto/ai-feature.dto';
 @ApiTags('AI')
 @Controller('ai')
 @UseGuards(AiEnabledGuard)
+@UseInterceptors(AiOrgEnabledInterceptor)
 export class AiFeaturesController {
   constructor(private readonly features: AiFeaturesService) {}
 
@@ -35,7 +37,7 @@ export class AiFeaturesController {
   })
   @ApiDataResponse(AiFeatureViewDto, { isArray: true, description: 'The registered features' })
   @ApiResponse({ status: 403, description: '`AI_DISABLED`, or missing `ai:use`', type: ErrorDto })
-  async list(@CurrentUser('id') userId: string) {
-    return this.features.listForUser(userId);
+  async list(@CurrentUser('id') userId: string, @CurrentOrg() orgId: string) {
+    return this.features.listForUser(userId, orgId);
   }
 }

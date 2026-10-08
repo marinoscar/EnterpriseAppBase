@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Res, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiProduces, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 
@@ -7,6 +7,7 @@ import { PERMISSIONS } from '../ai.constants';
 import { ApiDataResponse } from '../../core/index';
 import { ErrorDto } from '../../core/index';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
 import type { AiResponse, AiStreamEvent } from '../core/types/responses.types';
 import { AiService } from '../runtime/ai.service';
 import { toAiRequest } from './ai-http-request';
@@ -43,6 +44,7 @@ import { AiResponseDto } from './dto/ai-response.dto';
 @ApiTags('AI')
 @Controller('ai')
 @UseGuards(AiEnabledGuard)
+@UseInterceptors(AiOrgEnabledInterceptor)
 export class AiResponsesController {
   constructor(private readonly ai: AiService) {}
 

@@ -58,9 +58,12 @@ export class UsableModelsService {
     private readonly resolver: AiKeyResolver,
   ) {}
 
-  /** Every model `userId` can call right now, by provider then model id. */
-  async listForUser(userId: string): Promise<UsableAiModel[]> {
-    const policy = await this.aiConfig.resolve();
+  /**
+   * Every model `userId` can call right now, by provider then model id. With
+   * `scope.orgId` (#739) the organization's own switches and key apply too.
+   */
+  async listForUser(userId: string, scope: { orgId?: string } = {}): Promise<UsableAiModel[]> {
+    const policy = await this.aiConfig.resolveForOrg(scope.orgId);
 
     if (!policy.enabled) {
       return [];
@@ -91,6 +94,12 @@ export class UsableModelsService {
     // provider without a user key actually reaches that rule.
     let writer: Promise<boolean> | undefined;
     const holdsAiConfigWrite = () => (writer ??= this.resolver.holdsAiConfigWrite(userId));
+    // And the org tier's (#739), likewise memoised.
+    let orgWriter: Promise<boolean> | undefined;
+    const orgId = scope.orgId;
+    const holdsOrgAiConfigWrite = orgId
+      ? () => (orgWriter ??= this.resolver.holdsOrgAiConfigWrite(userId, orgId))
+      : undefined;
 
     for (const provider of providers) {
       const reachable = reachableByProvider.get(provider);
@@ -99,6 +108,7 @@ export class UsableModelsService {
         provider,
         reachable !== undefined,
         holdsAiConfigWrite,
+        { ...(orgId ? { orgId } : {}), ...(holdsOrgAiConfigWrite ? { holdsOrgAiConfigWrite } : {}) },
       );
 
       if (!keySource) {
@@ -134,8 +144,9 @@ export class UsableModelsService {
     provider: string,
     modelId: string,
     capability?: AiCapability | readonly AiCapability[],
+    scope: { orgId?: string } = {},
   ): Promise<{ model: UsableAiModel; keySource: AiKeySource }> {
-    await this.aiConfig.assertProviderEnabled(provider);
+    await this.aiConfig.assertProviderEnabled(provider, scope.orgId);
 
     const row = await this.prisma.aiModel.findUnique({
       where: { provider_modelId: { provider, modelId } },
@@ -168,7 +179,13 @@ export class UsableModelsService {
       where: { userId_provider: { userId, provider } },
       select: { reachableModelIds: true },
     });
-    const keySource = await this.resolver.sourceFor(userId, provider, keyRow !== null);
+    const keySource = await this.resolver.sourceFor(
+      userId,
+      provider,
+      keyRow !== null,
+      undefined,
+      scope.orgId ? { orgId: scope.orgId } : {},
+    );
 
     if (!keySource) {
       throw keyRequired(provider);

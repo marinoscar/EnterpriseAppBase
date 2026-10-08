@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { OrgCredentialsModule } from '../../credentials/index';
+
 import { AiConfigModule } from '../config/ai-config.module';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiConfigWriterLookup } from './ai-config-writer.lookup';
@@ -8,6 +10,8 @@ import { AiKeysCatalogListener } from './ai-keys-catalog.listener';
 import { AiKeysRecheckHandler } from './ai-keys-recheck.handler';
 import { AiKeysRecheckTask } from './ai-keys-recheck.task';
 import { UsableModelsService } from './usable-models.service';
+import { AiOrgKeysController } from './org-keys.controller';
+import { AiOrgKeyService } from './org-key.service';
 import { UserAiKeysController } from './user-ai-keys.controller';
 import { UserAiKeysService } from './user-ai-keys.service';
 
@@ -25,9 +29,11 @@ import { UserAiKeysService } from './user-ai-keys.service';
 // =============================================================================
 
 @Module({
-  imports: [AiCoreModule, AiConfigModule],
-  controllers: [UserAiKeysController],
+  // `OrgCredentialsModule` (#739): an organization's own keys, the org tier.
+  imports: [AiCoreModule, AiConfigModule, OrgCredentialsModule],
+  controllers: [UserAiKeysController, AiOrgKeysController],
   providers: [
+    AiOrgKeyService,
     UserAiKeysService,
     AiConfigWriterLookup,
     AiKeyResolver,
@@ -36,6 +42,6 @@ import { UserAiKeysService } from './user-ai-keys.service';
     AiKeysRecheckTask,
     AiKeysCatalogListener,
   ],
-  exports: [AiKeyResolver, UsableModelsService],
+  exports: [AiKeyResolver, UsableModelsService, AiOrgKeyService],
 })
 export class AiKeysModule {}

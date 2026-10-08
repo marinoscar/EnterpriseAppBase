@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { tightenAiPolicy } from '@marinoscar/platform-contract/ai';
 
 import type { z } from 'zod';
 
@@ -8,7 +9,7 @@ import {
   type SystemAiValue,
 } from '@marinoscar/platform-contract/ai';
 import { CredentialsService } from '../../credentials/index';
-import { SystemSettingsService } from '../../settings/index';
+import { OrgSettingsService, SystemSettingsService } from '../../settings/index';
 import { AiError } from '../core/ai-error';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
@@ -135,10 +136,16 @@ export class AiConfigService implements OnModuleInit {
   /** Last successful settings read. Carries no secret — `SystemAiValue` has no field able to. */
   private cache: { value: AiPolicy; readAt: number } | null = null;
 
+  /** Last read of each organization's effective policy (#739), on the same window. */
+  private readonly orgCache = new Map<string, { value: AiPolicy; readAt: number }>();
+
   constructor(
     private readonly systemSettings: SystemSettingsService,
     private readonly credentials: CredentialsService,
     private readonly registry: AiProviderRegistry,
+    // #739: the org layer of the `ai` namespace. Optional so a unit test (or
+    // an app that mounts no org layer) gets the deployment policy only.
+    @Optional() private readonly orgSettings?: OrgSettingsService,
   ) {}
 
   /**
@@ -180,15 +187,56 @@ export class AiConfigService implements OnModuleInit {
     return value;
   }
 
+  /**
+   * The effective policy of one organization (#739): the deployment policy
+   * with the organization's `ai` overrides applied, each of which can only
+   * tighten it (`tightenAiPolicy`). Without an organization, or with no org
+   * layer, the deployment policy itself. Cached on the same window as
+   * {@link resolve}.
+   */
+  async resolveForOrg(orgId: string | undefined, opts: { fresh?: boolean } = {}): Promise<AiPolicy> {
+    const system = await this.resolve(opts);
+
+    if (!orgId || !this.orgSettings?.isEnabled()) {
+      return system;
+    }
+
+    const now = Date.now();
+    const cached = this.orgCache.get(orgId);
+
+    if (!opts.fresh && cached && now - cached.readAt < AI_POLICY_CACHE_MS && this.cache?.value === system) {
+      return cached.value;
+    }
+
+    const fields = await this.orgSettings.getNamespace(orgId, 'ai');
+    const value = fields ? tightenAiPolicy(system, fields) : system;
+
+    this.orgCache.set(orgId, { value, readAt: Date.now() });
+
+    return value;
+  }
+
   /** The kill switch (§2.19). */
   async isEnabled(): Promise<boolean> {
     return (await this.resolve()).enabled;
   }
 
-  /** Throws `AiError('AI_DISABLED')` (403) when the kill switch is off. */
-  async assertEnabled(): Promise<void> {
+  /**
+   * Throws `AiError('AI_DISABLED')` (403) when the kill switch is off:
+   * `details.scope` is `'system'` for the deployment's switch and, given an
+   * organization (#739), `'org'` for that organization's own.
+   */
+  async assertEnabled(orgId?: string): Promise<void> {
     if (!(await this.isEnabled())) {
-      throw new AiError('AI_DISABLED', 'AI features are disabled in this deployment.');
+      throw new AiError('AI_DISABLED', 'AI features are disabled in this deployment.', {
+        details: { scope: 'system' },
+      });
+    }
+
+    if (orgId && !(await this.resolveForOrg(orgId)).enabled) {
+      throw new AiError('AI_DISABLED', 'AI features are disabled in this organization.', {
+        details: { scope: 'org' },
+      });
     }
   }
 
@@ -196,15 +244,15 @@ export class AiConfigService implements OnModuleInit {
    * The provider's policy slot, when AI is on, the provider is enabled in
    * settings AND an adapter for it is registered in this process.
    *
-   * @throws AiError('AI_DISABLED') when the kill switch is off.
+   * @param providerId - the provider.
+   * @param orgId - the organization the call runs in (#739): its own switches apply too.
+   * @throws AiError('AI_DISABLED') when the kill switch (the deployment's or the organization's) is off.
    * @throws AiError('AI_PROVIDER_DISABLED') for any other "no".
    */
-  async assertProviderEnabled(providerId: string): Promise<AiProviderPolicy> {
-    const policy = await this.resolve();
-
-    if (!policy.enabled) {
-      throw new AiError('AI_DISABLED', 'AI features are disabled in this deployment.');
-    }
+  async assertProviderEnabled(providerId: string, orgId?: string): Promise<AiProviderPolicy> {
+    // #739: an organization may switch AI, or a provider, off for itself.
+    await this.assertEnabled(orgId);
+    const policy = await this.resolveForOrg(orgId);
 
     const slot = providerPolicy(policy, providerId);
 
@@ -310,5 +358,6 @@ export class AiConfigService implements OnModuleInit {
    */
   invalidateCache(): void {
     this.cache = null;
+    this.orgCache.clear();
   }
 }

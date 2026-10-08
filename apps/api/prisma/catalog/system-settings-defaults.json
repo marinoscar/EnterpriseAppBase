@@ -81,7 +81,8 @@
       "mcp": false,
       "mcpAllowedHosts": []
     },
-    "limits": {}
+    "limits": {},
+    "deploymentKeyServesOrgs": true
   },
   "telemetry": {
     "enabled": false,

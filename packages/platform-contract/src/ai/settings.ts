@@ -173,6 +173,15 @@ export const systemAiLimitsSchema = z.object({
       tokensPerDayPerUser: aiLimitValueSchema.optional(),
     })
     .optional(),
+  // #739: the deployment default PER ORGANIZATION (requests and output tokens
+  // per UTC day, counted over every call made in that organization); absent
+  // means unlimited. An organization may only lower it (its org layer).
+  perOrg: z
+    .object({
+      requestsPerDay: aiLimitValueSchema.optional(),
+      outputTokensPerDay: aiLimitValueSchema.optional(),
+    })
+    .optional(),
   perModel: z
     .record(
       z.string().max(AI_LIMIT_MODEL_KEY_MAX).regex(AI_LIMIT_MODEL_KEY_PATTERN),
@@ -448,6 +457,11 @@ export const systemAiSchema = z.object({
     mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
   limits: systemAiLimitsSchema,
+  // #739: whether the DEPLOYMENT's provider key (the `ai` credential of the
+  // system tier) may serve a call made in an organization that has no key of
+  // its own, under the same rule an organization key does. `true`: today's
+  // behaviour, where the deployment key is the only administrator key.
+  deploymentKeyServesOrgs: z.boolean(),
 });
 
 export type SystemAiValue = z.infer<typeof systemAiSchema>;
@@ -531,6 +545,8 @@ export const systemAiPatchSchema = z.object({
   // per-model entry), and "absent means unlimited" is the one way to lift
   // one; the same reasoning as `mcpAllowedHosts` above.
   limits: systemAiLimitsSchema.optional(),
+  // #739. See `systemAiSchema`.
+  deploymentKeyServesOrgs: z.boolean().optional(),
 });
 
 
@@ -564,6 +580,15 @@ export const aiLimitsSettingsSchema = z.object({
     .object({
       requestsPerDayPerUser: aiLimitValueSchema.optional(),
       tokensPerDayPerUser: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  // #739: the deployment default PER ORGANIZATION (requests and output tokens
+  // per UTC day, counted over every call made in that organization); absent
+  // means unlimited. An organization may only lower it (its org layer).
+  perOrg: z
+    .object({
+      requestsPerDay: aiLimitValueSchema.optional(),
+      outputTokensPerDay: aiLimitValueSchema.optional(),
     })
     .optional(),
   perModel: z
@@ -629,6 +654,9 @@ export const aiSettingsSchema = z.object({
       .max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
   limits: aiLimitsSettingsSchema,
+  // #739: optional on the wire, so a client that predates it still PUTs a
+  // legal body; absent keeps the stored value (default `true`).
+  deploymentKeyServesOrgs: z.boolean().optional(),
 });
 
 // #423, epic #419. Optional at the namespace level and field by field
@@ -707,6 +735,7 @@ export const aiSettingsPatchSchema = z.object({
     .optional(),
   // #450. Replaces wholesale when present — see `systemAiPatchSchema`.
   limits: aiLimitsSettingsSchema.optional(),
+  deploymentKeyServesOrgs: z.boolean().optional(),
 });
 
 // #423, epic #419, umbrella #418 — the AI platform policy, published for
@@ -773,6 +802,9 @@ export const aiResponseSchema = z.object({
         tokensPerDayPerUser: z.number().int().optional(),
       })
       .optional(),
+    perOrg: z
+      .object({ requestsPerDay: z.number().int().optional(), outputTokensPerDay: z.number().int().optional() })
+      .optional(),
     perModel: z
       .record(
         z.string(),
@@ -783,7 +815,102 @@ export const aiResponseSchema = z.object({
       )
       .optional(),
   }),
+  deploymentKeyServesOrgs: z.boolean(),
 });
+
+// =============================================================================
+// The org layer of `ai` (issue #739): what one organization may set
+// =============================================================================
+//
+// An organization can only TIGHTEN the deployment's policy (`/api/org-settings`,
+// `org_ai_config:write`): turn AI off for its members, narrow `keyPolicy` from
+// `byok_with_org_fallback` to `byok` (never the reverse), lower the per-org
+// daily caps, and switch providers off. Every field optional (an org stores
+// only what it overrides), no `.default()`, no secret.
+
+const orgAiProviderSlotSchema = z.object({ enabled: z.boolean().optional() }).optional();
+
+/**
+ * The fields of the `ai` namespace an organization may set for itself.
+ *
+ * @stability experimental
+ */
+export const orgAiSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
+  providers: z
+    .object({
+      openai: orgAiProviderSlotSchema,
+      anthropic: orgAiProviderSlotSchema,
+      gemini: orgAiProviderSlotSchema,
+      'azure-openai': orgAiProviderSlotSchema,
+      'openai-compatible': orgAiProviderSlotSchema,
+    })
+    .optional(),
+  limits: z
+    .object({
+      perOrg: z
+        .object({
+          requestsPerDay: aiLimitValueSchema.optional(),
+          outputTokensPerDay: aiLimitValueSchema.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+/**
+ * One organization's stored `ai` overrides.
+ *
+ * @stability experimental
+ */
+export type OrgAiSettingsValue = z.infer<typeof orgAiSettingsSchema>;
+
+function lower(system: number | undefined, org: number | undefined): number | undefined {
+  if (system === undefined) return org;
+  if (org === undefined) return system;
+  return Math.min(system, org);
+}
+
+/**
+ * The effective `ai` policy of an organization: the deployment's value with
+ * the organization's overrides applied, each of which can only tighten it.
+ *
+ * @param system - the deployment's `ai` value.
+ * @param org - the organization's stored overrides.
+ * @returns the effective value (a new object; `system` is not modified).
+ *
+ * @stability experimental
+ */
+export function tightenAiPolicy(system: SystemAiValue, org: Partial<OrgAiSettingsValue>): SystemAiValue {
+  const keyPolicy: AiKeyPolicy = system.keyPolicy === 'byok' || org.keyPolicy === 'byok' ? 'byok' : system.keyPolicy;
+  const providers = Object.fromEntries(
+    Object.entries(system.providers).map(([id, slot]) => {
+      const override = (org.providers as Record<string, { enabled?: boolean } | undefined> | undefined)?.[id];
+      return [id, { ...slot, enabled: slot.enabled && (override?.enabled ?? true) }];
+    }),
+  ) as SystemAiValue['providers'];
+  const systemPerOrg = system.limits.perOrg;
+  const orgPerOrg = org.limits?.perOrg;
+  const requestsPerDay = lower(systemPerOrg?.requestsPerDay, orgPerOrg?.requestsPerDay);
+  const outputTokensPerDay = lower(systemPerOrg?.outputTokensPerDay, orgPerOrg?.outputTokensPerDay);
+  const perOrg =
+    requestsPerDay !== undefined || outputTokensPerDay !== undefined
+      ? {
+          ...(requestsPerDay !== undefined ? { requestsPerDay } : {}),
+          ...(outputTokensPerDay !== undefined ? { outputTokensPerDay } : {}),
+        }
+      : undefined;
+  const { perOrg: _drop, ...limits } = system.limits;
+
+  return {
+    ...system,
+    enabled: system.enabled && (org.enabled ?? true),
+    keyPolicy,
+    providers,
+    limits: { ...limits, ...(perOrg ? { perOrg } : {}) },
+  };
+}
 
 // -----------------------------------------------------------------------------
 // Compile-time proof that the `ai` namespace carries no secret (#423)

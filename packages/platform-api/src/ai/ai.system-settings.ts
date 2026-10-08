@@ -16,8 +16,11 @@
 import type { z } from 'zod';
 import {
   AI_PROVIDER_IDS,
+  orgAiSettingsSchema,
   systemAiPatchSchema,
   systemAiSchema,
+  tightenAiPolicy,
+  type OrgAiSettingsValue,
   type SystemAiValue,
 } from '@marinoscar/platform-contract/ai';
 import { aiSettingsPatchSchema, aiSettingsSchema } from '@marinoscar/platform-contract/ai';
@@ -89,6 +92,9 @@ const AI_SYSTEM_DEFAULTS: SystemAiValue = {
   // #450: no limits — every field of `ai.limits` is optional and absent
   // means unlimited, so an upgrade never starts refusing calls by itself.
   limits: {},
+  // #739: ON — the deployment key keeps serving every organization that has
+  // no key of its own, exactly as before organizations had keys.
+  deploymentKeyServesOrgs: true,
 };
 
 /**
@@ -249,7 +255,22 @@ export const AI_SYSTEM_SETTINGS = {
       // Cloned either way so the stored value never aliases the caller's
       // object or the module-level default.
       limits: structuredClone(patch?.limits ?? current.limits),
+      deploymentKeyServesOrgs: patch?.deploymentKeyServesOrgs ?? current.deploymentKeyServesOrgs,
     };
+  },
+  // #739: the org layer. An organization may only TIGHTEN the deployment's
+  // policy (`tightenAiPolicy`): AI off for its members, `byok` instead of
+  // `byok_with_org_fallback`, lower per-org daily caps, providers off.
+  org: {
+    schema: orgAiSettingsSchema,
+    // Typed `unknown` in, so the declaration also fits the registry's
+    // `SystemSettingsNamespace<string, unknown>` list (parameters are
+    // contravariant); the registry hands in the salvaged value and the
+    // org's validated fields.
+    merge: (system: unknown, org: unknown) =>
+      tightenAiPolicy(system as SystemAiValue, org as OrgAiSettingsValue),
+    readPermission: 'org_ai_config:read',
+    writePermission: 'org_ai_config:write',
   },
 } satisfies SystemSettingsNamespace<'ai', SystemAiValue, z.infer<typeof aiSettingsPatchSchema>>;
 

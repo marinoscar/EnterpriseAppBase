@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth, CurrentOrg, CurrentUser } from '../../identity/index';
@@ -6,6 +6,7 @@ import { PERMISSIONS } from '../ai.constants';
 import { ApiDataResponse } from '../../core/index';
 import { ErrorDto } from '../../core/index';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
 import { AiService } from '../runtime/ai.service';
 import { AiRunsService } from '../runtime/ai-runs.service';
 import type { AiRunHandle, AiRunView } from '../runtime/ai-runtime.types';
@@ -44,6 +45,7 @@ const RUN_ID_PARAM = { name: 'runId', description: 'The run id returned by `POST
 @ApiTags('AI')
 @Controller('ai/runs')
 @UseGuards(AiEnabledGuard)
+@UseInterceptors(AiOrgEnabledInterceptor)
 export class AiRunsController {
   constructor(
     private readonly ai: AiService,

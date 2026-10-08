@@ -30,6 +30,9 @@ import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 // org-scoped permissions moved from `admin` (now system-only) to `org_admin`.
 // The admin + org_admin union is the old admin set plus the four new ids.
 //
+// Issue #739 (PP-8.6) added `org_ai_config:read` / `org_ai_config:write`
+// (org scope, `org_admin`): one organization's own AI keys and usage.
+//
 // ⚠ This baseline is deliberately NOT derived from anything. When a permission
 // or grant changes on purpose, edit the literal here in the same commit, so the
 // change is visible in review as a change to seeded RBAC data.
@@ -71,6 +74,9 @@ const BASELINE_PERMISSIONS = [
   { name: 'ai_config:read', description: 'View the deployment-wide AI platform policy', scope: 'system' },
   { name: 'ai_config:write', description: 'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults', scope: 'system' },
   { name: 'ai:use', description: 'Call AI models using a saved key', scope: 'org' },
+  // #739: one organization's AI keys, usage and policy overrides.
+  { name: 'org_ai_config:read', description: "View this organization's AI keys, usage and AI policy overrides", scope: 'org' },
+  { name: 'org_ai_config:write', description: "Set or remove this organization's AI provider keys and tighten its AI policy", scope: 'org' },
   { name: 'telemetry:read', description: 'View telemetry settings and status', scope: 'system' },
   { name: 'telemetry:write', description: 'Change telemetry settings', scope: 'system' },
   { name: 'telemetry:query', description: 'Run SQL, export and use the AI assistant against telemetry', scope: 'system' },
@@ -151,6 +157,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'storage:read',
     'storage:write',
     'ai:use',
+    'org_ai_config:read',
+    'org_ai_config:write',
     'org_members:read',
     'org_members:write',
     'org_invites:read',

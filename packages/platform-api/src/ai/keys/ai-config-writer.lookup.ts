@@ -39,4 +39,27 @@ export class AiConfigWriterLookup {
 
     return count > 0;
   }
+
+  /**
+   * Whether `userId` holds `org_ai_config:write` IN `orgId` (#739): through
+   * the role of their ACTIVE membership of that organization. Read from the
+   * database on every resolution, never from a token claim — the same rule as
+   * the system permission above.
+   */
+  async holdsOrgAiConfigWrite(userId: string, orgId: string): Promise<boolean> {
+    const count = await this.prisma.membership.count({
+      where: {
+        userId,
+        orgId,
+        status: 'active',
+        role: {
+          rolePermissions: {
+            some: { permission: { name: PERMISSIONS.ORG_AI_CONFIG_WRITE } },
+          },
+        },
+      },
+    });
+
+    return count > 0;
+  }
 }

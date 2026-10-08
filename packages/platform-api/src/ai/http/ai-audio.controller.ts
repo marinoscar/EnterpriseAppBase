@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth, CurrentOrg, CurrentUser } from '../../identity/index';
@@ -6,6 +6,7 @@ import { PERMISSIONS } from '../ai.constants';
 import { ApiDataResponse } from '../../core/index';
 import { ErrorDto } from '../../core/index';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
+import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
 import { AiService } from '../runtime/ai.service';
 import type { AiRunHandle, AiSpeakRequest, AiTranscribeRequest } from '../runtime/ai-runtime.types';
 import {
@@ -53,6 +54,7 @@ const REFUSALS =
 @ApiTags('AI')
 @Controller('ai/audio')
 @UseGuards(AiEnabledGuard)
+@UseInterceptors(AiOrgEnabledInterceptor)
 export class AiAudioController {
   constructor(private readonly ai: AiService) {}
 

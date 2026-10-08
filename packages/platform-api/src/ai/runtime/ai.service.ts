@@ -192,7 +192,7 @@ import type {
   AiStreamEvent,
   AiUsage,
 } from '../core/types/responses.types';
-import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service';
+import { AiKeyResolver, type AiKeySource, type AiKeyTier } from '../keys/ai-key-resolver.service';
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
 import { AiOutputWriter } from '../storage/ai-output-writer';
@@ -434,6 +434,8 @@ export interface AiCallTarget {
   logPromptContent: boolean;
   /** Hosted tool TYPES the request carries (for the span) — never their options. */
   hostedTools?: string[];
+  /** Which tier's key served the call (#739), set once it is resolved; the `ai.key.tier` span attribute. */
+  keyTier?: AiKeyTier;
 }
 
 /** The facade operations that are traced and recorded, and the usage `operation` each is billed as. */
@@ -652,13 +654,14 @@ export class AiService {
   }
 
   private async startRun(scope: AiClientScope, req: AiRequest): Promise<AiRunHandle> {
-    await this.aiConfig.assertEnabled();
+    const orgId = await this.orgOf(scope);
 
-    if (!(await this.aiConfig.resolve()).defaults.allowBackgroundRuns) {
+    await this.aiConfig.assertEnabled(orgId);
+
+    if (!(await this.aiConfig.resolveForOrg(orgId)).defaults.allowBackgroundRuns) {
       throw new AiError('AI_INVALID_REQUEST', 'Background AI runs are disabled in this deployment.');
     }
 
-    const orgId = await this.orgOf(scope);
     const call = await this.prepare(scope.userId, req, { streaming: false, orgId, feature: scope.feature });
 
     return this.runs.create({
@@ -785,7 +788,7 @@ export class AiService {
     req: AiEmbedRequest,
     opts: AiCallOptions = {},
   ): Promise<AiEmbeddingResult> {
-    const call = await this.prepareEmbedding(scope.userId, req, scope.feature);
+    const call = await this.prepareEmbedding(scope.userId, req, scope.feature, await this.orgOf(scope));
     const { ctx, keySource } = await this.context(scope, call, opts, () => call.request.input);
     const tracker = this.track(scope, call, keySource, 'embeddings.create');
 
@@ -812,7 +815,7 @@ export class AiService {
     req: AiRealtimeRequest,
     opts: AiCallOptions = {},
   ): Promise<AiRealtimeSessionResult> {
-    const call = await this.prepareRealtime(scope.userId, req, scope.feature);
+    const call = await this.prepareRealtime(scope.userId, req, scope.feature, await this.orgOf(scope));
     const { ctx, keySource } = await this.context(scope, call, opts, () => ({
       instructions: call.request.instructions,
     }));
@@ -1037,7 +1040,7 @@ export class AiService {
 
   private async startSpeechRun(scope: AiClientScope, req: AiSpeakRequest): Promise<AiRunHandle> {
     const orgId = await this.orgOf(scope);
-    const call = await this.prepareSpeech(scope.userId, req, scope.feature);
+    const call = await this.prepareSpeech(scope.userId, req, scope.feature, orgId);
 
     return this.runs.create({
       userId: scope.userId,
@@ -1068,7 +1071,7 @@ export class AiService {
       model: stored.model,
       format: stored.format,
       ...speechFields(stored),
-    });
+    }, undefined, opts.orgId);
 
     await opts.beforeCall?.();
 
@@ -1217,6 +1220,7 @@ export class AiService {
         'ai.model': call.modelId,
         'ai.operation': operation,
         'ai.key_source': keySource,
+        ...(call.keyTier ? { 'ai.key.tier': call.keyTier } : {}),
         ...(scope.feature ? { 'ai.feature': scope.feature } : {}),
         ...(call.hostedTools?.length ? { 'ai.hosted_tools': call.hostedTools.join(',') } : {}),
       },
@@ -1278,15 +1282,15 @@ export class AiService {
    */
   async prepare(userId: string, req: AiRequest, opts: PrepareOptions): Promise<PreparedAiCall> {
     // 1. Kill switch — before anything else is read.
-    await this.aiConfig.assertEnabled();
+    await this.aiConfig.assertEnabled(opts.orgId);
 
     const feature = this.featureOf(opts.feature);
     const { provider, model } = await this.resolveTarget(userId, req, { orgId: opts.orgId, feature });
 
     // 2. Provider enabled in settings AND registered in this process.
-    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const slot = await this.aiConfig.assertProviderEnabled(provider, opts.orgId);
     const port = this.registry.get(provider)?.responses;
-    const policy = await this.aiConfig.resolve();
+    const policy = await this.aiConfig.resolveForOrg(opts.orgId);
 
     // 2a. Response chaining (#446): a stateless provider stores no response
     // to chain onto. Refused, not silently dropped — ignoring it would answer
@@ -1306,7 +1310,7 @@ export class AiService {
 
     // 3. Model enabled, capabilities (model AND provider port), key reach.
     const needed = requiredCapabilities(req, opts.streaming);
-    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, needed);
+    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, needed, { orgId: opts.orgId });
     assertFeatureFits(feature, provider, model, usable.capabilities);
 
     if (!port) {
@@ -1366,9 +1370,14 @@ export class AiService {
    * provider, then model/capability/key/reach with `embeddings` as the one
    * capability needed. Decrypts nothing.
    */
-  async prepareEmbedding(userId: string, req: AiEmbedRequest, featureId?: string): Promise<PreparedAiEmbeddingCall> {
+  async prepareEmbedding(
+    userId: string,
+    req: AiEmbedRequest,
+    featureId?: string,
+    orgId?: string,
+  ): Promise<PreparedAiEmbeddingCall> {
     // 1. Kill switch — before anything else is read.
-    await this.aiConfig.assertEnabled();
+    await this.aiConfig.assertEnabled(orgId);
 
     assertEmbeddingShape(req);
 
@@ -1383,11 +1392,11 @@ export class AiService {
     const { provider, model } = await this.resolveTarget(userId, req, { feature });
 
     // 2. Provider enabled in settings AND registered in this process.
-    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
     const port = this.registry.get(provider)?.embeddings;
 
     // 3. Model enabled, `embeddings` declared (model AND provider port), key reach.
-    const { model: usableEmbedding } = await this.usableModels.assertUsable(userId, provider, model, ['embeddings']);
+    const { model: usableEmbedding } = await this.usableModels.assertUsable(userId, provider, model, ['embeddings'], { orgId });
     assertFeatureFits(feature, provider, model, usableEmbedding.capabilities);
 
     if (!port) {
@@ -1395,7 +1404,7 @@ export class AiService {
       throw capabilityUnsupported(provider, model, 'embeddings');
     }
 
-    const policy = await this.aiConfig.resolve();
+    const policy = await this.aiConfig.resolveForOrg(orgId);
     // Named fields only: whatever else the caller's object carried stays here.
     const request: AiEmbeddingRequest = { model, input: req.input };
 
@@ -1427,7 +1436,7 @@ export class AiService {
     featureId?: string,
   ): Promise<PreparedAiImageCall> {
     // 1. Kill switch — before anything else is read.
-    await this.aiConfig.assertEnabled();
+    await this.aiConfig.assertEnabled(orgId);
 
     const edit = operation === 'images.edit';
 
@@ -1441,12 +1450,12 @@ export class AiService {
     const { provider, model } = await this.resolveTarget(userId, req, { orgId, feature });
 
     // 2. Provider enabled in settings AND registered in this process.
-    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
     const port = this.registry.get(provider)?.images;
     const capability: AiCapability = edit ? 'image_edit' : 'image_generation';
 
     // 3. Model enabled, the capability declared (model AND provider port), key reach.
-    const { model: usableImage } = await this.usableModels.assertUsable(userId, provider, model, [capability]);
+    const { model: usableImage } = await this.usableModels.assertUsable(userId, provider, model, [capability], { orgId });
     assertFeatureFits(feature, provider, model, usableImage.capabilities);
 
     if (!port || (edit && !port.edit)) {
@@ -1481,7 +1490,7 @@ export class AiService {
       }
     }
 
-    const policy = await this.aiConfig.resolve();
+    const policy = await this.aiConfig.resolveForOrg(orgId);
     // Named fields only: whatever else the caller's object carried stays here.
     const stored = storedAiImageRunRequestSchema.parse({
       operation,
@@ -1667,23 +1676,27 @@ export class AiService {
     featureId?: string,
   ): Promise<PreparedAiTranscriptionCall> {
     // 1. Kill switch — before anything else is read.
-    await this.aiConfig.assertEnabled();
+    await this.aiConfig.assertEnabled(orgId);
 
     assertTranscriptionShape(req);
 
     const feature = this.featureOf(featureId);
     const { provider, model } = req.model?.trim()
       ? await this.resolveTarget(userId, req, { orgId, feature })
-      : await this.firstUsableModel(userId, 'audio_transcription', req.provider);
+      : await this.firstUsableModel(userId, 'audio_transcription', req.provider, orgId);
 
     // 2. Provider enabled in settings AND registered in this process.
-    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
     const port = this.registry.get(provider)?.audio;
 
     // 3. Model enabled, `audio_transcription` declared (model AND port), key reach.
-    const { model: usableTranscription } = await this.usableModels.assertUsable(userId, provider, model, [
-      'audio_transcription',
-    ]);
+    const { model: usableTranscription } = await this.usableModels.assertUsable(
+      userId,
+      provider,
+      model,
+      ['audio_transcription'],
+      { orgId },
+    );
     assertFeatureFits(feature, provider, model, usableTranscription.capabilities);
 
     const transcribe = port?.transcribe?.bind(port);
@@ -1702,7 +1715,7 @@ export class AiService {
       ...(orgId ? { orgId } : {}),
     });
 
-    const policy = await this.aiConfig.resolve();
+    const policy = await this.aiConfig.resolveForOrg(orgId);
     // Named fields only: whatever else the caller's object carried stays here.
     const stored = storedAiTranscriptionRunRequestSchema.parse({
       operation: AI_TRANSCRIBE_OPERATION,
@@ -1732,23 +1745,28 @@ export class AiService {
    * first — checked against the model's catalog `voices`, else the port's.
    * Decrypts nothing.
    */
-  async prepareSpeech(userId: string, req: AiSpeakRequest, featureId?: string): Promise<PreparedAiSpeechCall> {
+  async prepareSpeech(
+    userId: string,
+    req: AiSpeakRequest,
+    featureId?: string,
+    orgId?: string,
+  ): Promise<PreparedAiSpeechCall> {
     // 1. Kill switch — before anything else is read.
-    await this.aiConfig.assertEnabled();
+    await this.aiConfig.assertEnabled(orgId);
 
     assertSpeechShape(req);
 
     const feature = this.featureOf(featureId);
     const { provider, model } = req.model?.trim()
       ? await this.resolveTarget(userId, req, { feature })
-      : await this.firstUsableModel(userId, 'audio_speech', req.provider);
+      : await this.firstUsableModel(userId, 'audio_speech', req.provider, orgId);
 
     // 2. Provider enabled in settings AND registered in this process.
-    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
     const port = this.registry.get(provider)?.audio;
 
     // 3. Model enabled, `audio_speech` declared (model AND port), key reach.
-    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['audio_speech']);
+    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['audio_speech'], { orgId });
     assertFeatureFits(feature, provider, model, usable.capabilities);
 
     const speech = port?.speech?.bind(port);
@@ -1774,7 +1792,7 @@ export class AiService {
       });
     }
 
-    const policy = await this.aiConfig.resolve();
+    const policy = await this.aiConfig.resolveForOrg(orgId);
     // Named fields only: whatever else the caller's object carried stays here.
     const stored = storedAiSpeechRunRequestSchema.parse({
       operation: AI_SPEECH_OPERATION,
@@ -1805,13 +1823,18 @@ export class AiService {
    * port's. The deployment's output-token cap becomes the session's initial
    * `maxOutputTokens`. Decrypts nothing.
    */
-  async prepareRealtime(userId: string, req: AiRealtimeRequest, featureId?: string): Promise<PreparedAiRealtimeCall> {
+  async prepareRealtime(
+    userId: string,
+    req: AiRealtimeRequest,
+    featureId?: string,
+    orgId?: string,
+  ): Promise<PreparedAiRealtimeCall> {
     // 1. Kill switch — before anything else is read.
-    await this.aiConfig.assertEnabled();
+    await this.aiConfig.assertEnabled(orgId);
 
     // 1b. The realtime switch: minting hands the browser a provider secret
     // and the server stops seeing the call, so it is opt-in (§2.15).
-    const policy = await this.aiConfig.resolve();
+    const policy = await this.aiConfig.resolveForOrg(orgId);
 
     if (!policy.defaults.allowRealtime) {
       throw new AiError('AI_REALTIME_DISABLED', 'Realtime voice sessions are disabled in this deployment.');
@@ -1822,14 +1845,14 @@ export class AiService {
     const feature = this.featureOf(featureId);
     const { provider, model } = req.model?.trim()
       ? await this.resolveTarget(userId, req, { feature })
-      : await this.firstUsableModel(userId, 'realtime', req.provider);
+      : await this.firstUsableModel(userId, 'realtime', req.provider, orgId);
 
     // 2. Provider enabled in settings AND registered in this process.
-    const slot = await this.aiConfig.assertProviderEnabled(provider);
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
     const port = this.registry.get(provider)?.realtime;
 
     // 3. Model enabled, `realtime` declared (model AND port), key reach.
-    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['realtime']);
+    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['realtime'], { orgId });
     assertFeatureFits(feature, provider, model, usable.capabilities);
 
     if (!port) {
@@ -1890,8 +1913,9 @@ export class AiService {
     userId: string,
     capability: AiCapability,
     provider?: string,
+    orgId?: string,
   ): Promise<{ provider: string; model: string }> {
-    const usable = await this.usableModels.listForUser(userId);
+    const usable = await this.usableModels.listForUser(userId, orgId ? { orgId } : {});
     const match = usable.find(
       (m) =>
         (provider === undefined || m.provider === provider) &&
@@ -1926,8 +1950,10 @@ export class AiService {
       throw cancelled(call.provider);
     }
 
-    const { apiKey, keySource } = await this.keyResolver.resolve(scope.userId, call.provider);
     const orgId = await this.orgOf(scope);
+    // #739: the org tier needs the call's organization.
+    const { apiKey, keySource, tier } = await this.keyResolver.resolve(scope.userId, call.provider, { orgId });
+    call.keyTier = tier;
 
     // 6b. Rate limits (#450) — here because the org-key limits need to know
     // whose key pays. A refusal records no usage row: nothing was sent.

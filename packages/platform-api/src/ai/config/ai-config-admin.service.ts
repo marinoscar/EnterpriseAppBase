@@ -130,6 +130,7 @@ export class AiConfigAdminService {
       usageRetentionDays: policy.usageRetentionDays,
       hostedTools: { ...policy.hostedTools, mcpAllowedHosts: [...policy.hostedTools.mcpAllowedHosts] },
       limits: structuredClone(policy.limits),
+      deploymentKeyServesOrgs: policy.deploymentKeyServesOrgs,
       providers: ids.map((id, index) => this.describeProvider(id, policy, keyInfos[index])),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
@@ -217,6 +218,22 @@ export class AiConfigAdminService {
     this.logger.log(`AI provider key for "${provider}" set by user ${userId}`);
 
     return this.describeForAdmin();
+  }
+
+  /**
+   * Verifies `apiKey` for `provider` with the adapter's own test call, exactly
+   * as {@link setKey} does before it stores anything (#739: the organization
+   * key route reuses it). Writes nothing.
+   *
+   * @throws NotFoundException for a provider with no registered adapter.
+   * @throws AiError `AI_KEY_INVALID` (400) for a rejected key, or the
+   *   provider's own error when it cannot be reached.
+   */
+  async verifyProviderKey(provider: string, apiKey: string): Promise<void> {
+    const adapter = this.requireRegistered(provider);
+    const policy = await this.aiConfig.resolve({ fresh: true });
+
+    await this.verifyKey(adapter, apiKey, providerPolicy(policy, provider));
   }
 
   /**
@@ -360,6 +377,8 @@ export class AiConfigAdminService {
       // Optional in the body too (#450). When sent it replaces the stored
       // limits WHOLESALE — leaving a field out is how a limit is lifted.
       limits: structuredClone(input.limits ?? current.limits),
+      // #739. Optional in the body: omitted keeps the stored value.
+      deploymentKeyServesOrgs: input.deploymentKeyServesOrgs ?? current.deploymentKeyServesOrgs,
     };
   }
 
@@ -584,6 +603,9 @@ export function diffFieldNames(before: SystemAiValue, after: SystemAiValue): str
       'limits.perUser.requestsPerDay': value.limits.perUser?.requestsPerDay,
       'limits.orgKey.requestsPerDayPerUser': value.limits.orgKey?.requestsPerDayPerUser,
       'limits.orgKey.tokensPerDayPerUser': value.limits.orgKey?.tokensPerDayPerUser,
+      'limits.perOrg.requestsPerDay': value.limits.perOrg?.requestsPerDay,
+      'limits.perOrg.outputTokensPerDay': value.limits.perOrg?.outputTokensPerDay,
+      deploymentKeyServesOrgs: value.deploymentKeyServesOrgs,
       // Compared as one value, like the host list: the audit row names the map.
       'limits.perModel': stableJson(value.limits.perModel ?? {}),
     };

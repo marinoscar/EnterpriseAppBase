@@ -20,6 +20,7 @@ function policy(overrides: Partial<AiPolicy> = {}): AiPolicy {
       mcpAllowedHosts: [],
     },
     limits: {},
+    deploymentKeyServesOrgs: true,
     ...overrides,
   };
 }

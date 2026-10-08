@@ -36,6 +36,9 @@ export interface AiPermissionDeclaration<Id extends string = string> {
  *   policy, the deployment's provider keys, the model catalogue and the
  *   deployment-wide usage report.
  * - `ai:use` (org): call AI.
+ * - `org_ai_config:read` / `org_ai_config:write` (org, #739): one
+ *   organization's own provider keys (`/api/admin/ai/org-keys`), its usage
+ *   report and its `ai` org-settings layer.
  *
  * @example
  * ```ts
@@ -51,6 +54,10 @@ export const AI_PERMISSIONS: {
   readonly AI_CONFIG_WRITE: AiPermissionDeclaration<'ai_config:write'>;
   /** `ai:use`. */
   readonly AI_USE: AiPermissionDeclaration<'ai:use'>;
+  /** `org_ai_config:read`. */
+  readonly ORG_AI_CONFIG_READ: AiPermissionDeclaration<'org_ai_config:read'>;
+  /** `org_ai_config:write`. */
+  readonly ORG_AI_CONFIG_WRITE: AiPermissionDeclaration<'org_ai_config:write'>;
 } = {
   // AI platform (issue #423, epic #419, umbrella #418).
   //
@@ -131,5 +138,23 @@ export const AI_PERMISSIONS: {
       // `('viewer', 'ai:use')` — or promotes the account to Contributor, which
       // already carries the grant.
     ],
+  },
+  // #739 — ONE ORGANIZATION'S AI configuration: its own provider keys
+  // (`org_credentials`, purpose `ai`), its usage report and the `ai` org layer
+  // of `/api/org-settings` (which can only tighten the deployment's policy).
+  // Org scope, held through the `org_admin` membership role: an organization
+  // administrator manages what their organization pays for, and nothing of
+  // any other organization or of the deployment.
+  ORG_AI_CONFIG_READ: {
+    id: 'org_ai_config:read',
+    description: "View this organization's AI keys, usage and AI policy overrides",
+    scope: 'org',
+    defaultGrants: ['org_admin'],
+  },
+  ORG_AI_CONFIG_WRITE: {
+    id: 'org_ai_config:write',
+    description: "Set or remove this organization's AI provider keys and tighten its AI policy",
+    scope: 'org',
+    defaultGrants: ['org_admin'],
   },
 };

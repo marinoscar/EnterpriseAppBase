@@ -114,6 +114,17 @@ export const aiLimitsSettingsSchema = z.object({
     })
     .optional(),
   /**
+   * Every call made in ONE organization, per UTC day (#739): the deployment
+   * default per organization. An organization may lower it in its own
+   * settings, never raise it.
+   */
+  perOrg: z
+    .object({
+      requestsPerDay: aiLimitValueSchema.optional(),
+      outputTokensPerDay: aiLimitValueSchema.optional(),
+    })
+    .optional(),
+  /**
    * Keyed `<provider>:<modelId>` (`openai:gpt-4.1-mini`). `maxOutputTokens`
    * clamps every call to that model (the smaller of it and
    * `defaults.maxOutputTokensCap` wins); `requestsPerMinutePerUser` limits each
@@ -169,6 +180,12 @@ export const updateAiConfigSchema = z.object({
    * wholesale (`{}` lifts every limit).
    */
   limits: aiLimitsSettingsSchema.optional(),
+  /**
+   * Whether the deployment's provider key may serve a call made in an
+   * organization that has no key of its own (#739). Omit to keep the stored
+   * value (default `true`).
+   */
+  deploymentKeyServesOrgs: z.boolean().optional(),
   /**
    * Per-provider settings keyed by provider id. A provider left out keeps its
    * stored settings.
