@@ -62,6 +62,10 @@
       "types": "./dist/identity/testing/index.d.ts",
       "default": "./dist/identity/testing/index.js"
     },
+    "./settings": {
+      "types": "./dist/settings/index.d.ts",
+      "default": "./dist/settings/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

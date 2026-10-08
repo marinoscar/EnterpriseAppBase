@@ -36,7 +36,7 @@ import { JOB_SETTLED_EVENT } from '../../src/jobs/events/job-settled.event';
 import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 import { RateLimitError } from '../../src/jobs/rate-limit.error';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, resolveDbSuite } from './db-test-support';
 
 const { describeWithDb } = resolveDbSuite('job-terminal-claim-guard.db.spec');

@@ -17,9 +17,9 @@
 // `npm run catalog:settings --workspace=api` and commit the regenerated JSON.
 // =============================================================================
 
-import type { SystemSettingsNamespaceExtension, UserSettingsNamespaceExtension } from '../settings/registry/extend';
-import type { SystemSettingsNamespace } from '../settings/registry/system-settings-namespace';
-import type { UserSettingsNamespace } from '../settings/registry/user-settings-namespace';
+import type { SystemSettingsNamespaceExtension, UserSettingsNamespaceExtension } from '@marinoscar/platform-api/settings';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
+import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 /** This app's own system settings namespaces (`system_settings.value`, the 'global' row). */
 export const APP_SYSTEM_SETTINGS_NAMESPACES: readonly SystemSettingsNamespace[] = [];
@@ -35,12 +35,12 @@ export const APP_USER_SETTINGS_EXTENSIONS: readonly UserSettingsNamespaceExtensi
 
 // A fork types its namespaces by module augmentation, next to its entries:
 //
-// declare module '../settings/registry/system-settings-namespace' {
+// declare module '@marinoscar/platform-api/settings' {
 //   interface SystemSettingsNamespaces {
 //     coach: CoachSettings;
 //   }
 // }
-// declare module '../settings/registry/user-settings-namespace' {
+// declare module '@marinoscar/platform-api/settings' {
 //   interface UserSettingsNamespaces {
 //     onboarding: OnboardingSettings;
 //   }

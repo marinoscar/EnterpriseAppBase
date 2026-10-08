@@ -20,13 +20,13 @@ import {
   systemAiSchema,
   type SystemAiValue,
 } from '../common/schemas/settings.schema';
-import { aiSettingsPatchSchema, aiSettingsSchema } from '../settings/dto/system-settings-wire.schemas';
-import { aiResponseSchema } from '../settings/dto/system-settings-response.schemas';
-import { mergeOptional } from '../settings/registry/merge-helpers';
+import { aiSettingsPatchSchema, aiSettingsSchema } from '../common/schemas/system-settings-wire.schemas';
+import { aiResponseSchema } from '../common/schemas/system-settings-response.schemas';
+import { mergeOptional } from '@marinoscar/platform-api/settings';
 import type {
   SettingsReadHelpers,
   SystemSettingsNamespace,
-} from '../settings/registry/system-settings-namespace';
+} from '@marinoscar/platform-api/settings';
 
 // OFF, and INERT: `enabled: false` is the point, matching every other feature
 // namespace that ships ahead of its own UI (`databaseBackup.enabled`,
@@ -253,7 +253,7 @@ export const AI_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'ai', SystemAiValue, z.infer<typeof aiSettingsPatchSchema>>;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /**
      * Deployment-wide AI platform policy (#423, epic #419, umbrella #418):

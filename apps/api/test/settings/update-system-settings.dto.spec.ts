@@ -1,8 +1,8 @@
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,
-} from './update-system-settings.dto';
-import { MAX_DISABLED_NOTIFICATION_EVENTS } from '../../common/schemas/settings.schema';
+} from '../../src/settings/registry/composed';
+import { MAX_DISABLED_NOTIFICATION_EVENTS } from '../../src/common/schemas/settings.schema';
 
 /**
  * The `notifications` block every PUT body must now carry (#225).

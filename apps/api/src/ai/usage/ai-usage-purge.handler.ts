@@ -27,7 +27,7 @@ import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 /** The job type. PERMANENT once rows of it exist. */
 export const AI_USAGE_PURGE_TYPE = 'ai.usage.purge';

@@ -9,22 +9,17 @@ import {
   composeUserSettingsSchemas,
   currentSystemSettingsSchema,
   currentUserSettingsSchema,
-} from './compose';
-import { DEFAULT_SYSTEM_SETTINGS, systemSettingsSchema } from './composed';
-import {
   extendSystemSettingsNamespace,
   extendUserSettingsNamespace,
+  findDefaultPaths,
+  findSecretFieldPaths,
   foldSettingsExtensions,
-} from './extend';
-import { findDefaultPaths, findSecretFieldPaths } from './schema-walk';
-import {
   systemSettingsNamespaceRegistry,
-  type SystemSettingsNamespace,
-} from './system-settings-namespace';
-import {
   userSettingsNamespaceRegistry,
+  type SystemSettingsNamespace,
   type UserSettingsNamespace,
-} from './user-settings-namespace';
+} from '@marinoscar/platform-api/settings';
+import { DEFAULT_SYSTEM_SETTINGS, systemSettingsSchema } from './composed';
 
 // =============================================================================
 // Settings namespace registries (issue #677)
@@ -386,7 +381,7 @@ describe('settings namespace registries (#677)', () => {
             }),
           ) as T;
         },
-        readDisabledEvents: () => [],
+        readStringArray: () => [],
       };
       const read = ext.read!({ enabled: true, coachEnabled: 'nope' }, helpers) as Record<string, unknown>;
       expect(read.enabled).toBe(true);

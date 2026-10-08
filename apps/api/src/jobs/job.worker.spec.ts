@@ -35,7 +35,7 @@ import { JobTimeoutError, JobWorker, resetUnknownWorkerModeWarning } from './job
 import { ProviderThrottleService } from './provider-throttle.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { NodeOffloadService } from './node-offload.service';
-import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { EventBus } from '../common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
 import { JOBS_ENQUEUED_CHANNEL } from './job-wake';

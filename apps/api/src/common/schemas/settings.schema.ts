@@ -12,45 +12,21 @@ import {
 // =============================================================================
 // User Settings Schema
 // =============================================================================
-
-/**
- * Which picture represents the user (#367).
- *
- *  - `none`     — no picture; clients render initials.
- *  - `provider` — the OAuth provider's picture (`users.provider_profile_image_url`).
- *  - `upload`   — the avatar the user uploaded, `profile.imageObjectId`.
- */
-export const PROFILE_IMAGE_SOURCES = ['none', 'provider', 'upload'] as const;
-
-export const profileImageSourceSchema = z.enum(PROFILE_IMAGE_SOURCES);
-
-export type ProfileImageSource = z.infer<typeof profileImageSourceSchema>;
-
-/**
- * `profile` as stored. `imageObjectId` is nullable (no avatar uploaded, or it
- * was removed) and optional only so a PUT body may omit it — the service then
- * keeps the stored id rather than orphaning the uploaded object. Whether the id
- * names an avatar the caller owns is checked by `UserSettingsService`, not
- * here: it needs the database.
- */
-export const userProfileSettingsSchema = z.object({
-  displayName: z.string().max(100).optional(),
-  imageSource: profileImageSourceSchema,
-  imageObjectId: z.string().uuid().nullable().optional(),
-});
-
-export type UserProfileSettingsValue = z.infer<typeof userProfileSettingsSchema>;
-
-export const userProfileSettingsPatchSchema = z.object({
-  displayName: z.string().max(100).optional(),
-  imageSource: profileImageSourceSchema.optional(),
-  // `null` clears the reference; absent leaves it alone.
-  imageObjectId: z.string().uuid().nullable().optional(),
-});
-
-export type UserProfileSettingsPatchValue = z.infer<
-  typeof userProfileSettingsPatchSchema
->;
+//
+// The core user fields (`theme`, `profile`) are the settings slice's: since
+// #733 their schemas live in `@marinoscar/platform-contract/settings` and are
+// re-exported here, unchanged, for the code that imported them from this file.
+export {
+  PROFILE_IMAGE_SOURCES,
+  profileImageSourceSchema,
+  userProfileSettingsPatchSchema,
+  userProfileSettingsSchema,
+} from '@marinoscar/platform-contract/settings';
+export type {
+  ProfileImageSource,
+  UserProfileSettingsPatchValue,
+  UserProfileSettingsValue,
+} from '@marinoscar/platform-contract/settings';
 
 /**
  * Per-user AI preferences (`ai`) — issue #423, epic #419, umbrella #418.

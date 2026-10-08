@@ -8,7 +8,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { PrismaModule } from './prisma/prisma.module';
 import { EventBusModule } from './common/event-bus/event-bus.module';
 import { CommonModule } from './common/common.module';
-import { SettingsModule } from './settings/settings.module';
+import { SettingsModule } from './platform/settings/settings.config';
 import { ProfileImageModule } from './settings/profile-image/profile-image.module';
 import { AboutModule } from './about/about.module';
 import { HealthModule } from './health/health.module';

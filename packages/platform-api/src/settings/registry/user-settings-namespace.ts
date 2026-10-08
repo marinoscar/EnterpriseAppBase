@@ -14,13 +14,15 @@
 // would freeze a user at today's defaults (see the header of
 // `common/schemas/user-settings-namespaces.schema.ts`).
 //
-// Framework-free: zod and the registry primitive only. Recipe: README.md next
-// to this file.
+// Framework-free: zod and the registry primitive only. Moved from the
+// reference app into `@marinoscar/platform-api/settings` by #733. Recipe: the
+// slice README (../README.md).
 // =============================================================================
 
-import { z } from 'zod';
-import { defineRegistry } from '@marinoscar/platform-api/core';
-import { SETTINGS_SECRET_FIELD_NAMES } from '../../common/schemas/settings.schema';
+import type { z } from 'zod';
+
+import { defineRegistry } from '../../core/index';
+import { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './secret-fields';
 import { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './schema-walk';
 import { SETTINGS_NAMESPACE_KEY_PATTERN } from './system-settings-namespace';
 
@@ -30,6 +32,8 @@ import { SETTINGS_NAMESPACE_KEY_PATTERN } from './system-settings-namespace';
  * @typeParam K - the top-level key, e.g. `'dataTables'`.
  * @typeParam V - the stored value type.
  * @typeParam P - the parsed PATCH body branch `merge` receives (without `null`).
+ *
+ * @stability experimental
  */
 export interface UserSettingsNamespace<K extends string = string, V = unknown, P = unknown> {
   /** Top-level key in `user_settings.value`. Matches `/^[a-z][A-Za-z0-9]*$/`. */
@@ -61,27 +65,53 @@ export interface UserSettingsNamespace<K extends string = string, V = unknown, P
    * before validation, on PUT and PATCH alike.
    */
   assertLimits?(value: V | undefined): void;
+  /**
+   * Field names this namespace refuses on top of the global deny-list
+   * (`SETTINGS_SECRET_FIELD_NAMES`), checked the same way.
+   */
+  readonly forbiddenKeys?: readonly string[];
 }
 
 /**
  * Key → stored value type of every registered user namespace. Platform
  * declaration files add their keys by module augmentation; an app adds its own
  * the same way. Every key is OPTIONAL in `UserSettingsValue`.
+ *
+ * @example
+ * ```ts
+ * declare module '@marinoscar/platform-api/settings' {
+ *   interface UserSettingsNamespaces { coachPrefs: CoachPrefs }
+ * }
+ * ```
+ *
+ * @stability experimental
  */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- an augmentation target
 export interface UserSettingsNamespaces {}
 
 /**
  * Key → `typeof` the declaration, for the precise static types of the composed
  * schemas. Optional for an app (see `SystemSettingsNamespaceDeclarations`).
+ *
+ * @stability experimental
  */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- an augmentation target
 export interface UserSettingsNamespaceDeclarations {}
 
-/** The optional namespaces of a user's settings document. */
+/**
+ * The optional namespaces of a user's settings document.
+ *
+ * @stability experimental
+ */
 export type UserSettingsNamespacesValue = {
   [K in keyof UserSettingsNamespaces]?: UserSettingsNamespaces[K];
 };
 
-/** Top-level keys the stored value or the response reserve for core fields. */
+/**
+ * Top-level keys the stored value or the response reserve for core fields.
+ *
+ * @stability stable
+ */
 export const RESERVED_USER_SETTINGS_KEYS = ['theme', 'profile', 'updatedAt', 'version'] as const;
 
 function validateUserNamespace(ns: UserSettingsNamespace): void {
@@ -105,6 +135,10 @@ function validateUserNamespace(ns: UserSettingsNamespace): void {
     throw new Error(`"${ns.key}" is a core field of user settings, not a namespace`);
   }
 
+  if (ns.forbiddenKeys !== undefined && (!Array.isArray(ns.forbiddenKeys) || ns.forbiddenKeys.some((k) => typeof k !== 'string'))) {
+    throw new Error('forbiddenKeys must be an array of field names');
+  }
+  const denied = [...SETTINGS_SECRET_FIELD_NAMES, ...(ns.forbiddenKeys ?? [])];
   for (const field of ['schema', 'patchSchema', 'putSchema', 'wirePatchSchema', 'responseSchema'] as const) {
     const defaults = findDefaultPaths(ns[field]);
     if (defaults.length > 0) {
@@ -112,19 +146,20 @@ function validateUserNamespace(ns: UserSettingsNamespace): void {
         `${field} carries .default() at ${defaults.join(', ')}; a user namespace must stay absent until the user chooses (see user-settings-namespaces.schema.ts)`,
       );
     }
-    const secrets = findSecretFieldPaths(ns[field], SETTINGS_SECRET_FIELD_NAMES);
-    if (secrets.length > 0) {
-      throw new Error(
-        `${field} declares secret-named field(s) ${secrets.join(', ')}; a user's secrets go in their own encrypted table (see UserAiKey), never in user settings`,
-      );
-    }
+    const secrets = findSecretFieldPaths(ns[field], denied);
+    if (secrets.length > 0) throw new Error(secretFieldMessage(field, secrets, 'user'));
   }
 }
 
 /**
  * The optional user settings namespaces, in registration order: the order of
- * every composed user-settings schema and of the OpenAPI document. Filled at
- * import time by `user-settings.manifest.ts`.
+ * every composed user-settings schema and of the OpenAPI document. Filled by
+ * the app at import time (the reference app's
+ * `settings/registry/user-settings.manifest.ts`), before
+ * `SettingsModule.forRoot()` composes the request bodies from it.
+ *
+ * @extensionPoint registry
+ * @stability experimental
  */
 export const userSettingsNamespaceRegistry = defineRegistry<UserSettingsNamespace>({
   name: 'user-settings-namespaces',
@@ -135,7 +170,22 @@ export const userSettingsNamespaceRegistry = defineRegistry<UserSettingsNamespac
     `User settings namespace "${incoming.key}" is already registered. Extend it with extendUserSettingsNamespace instead of registering it twice.`,
 });
 
-/** Register namespaces, all or nothing (see the registry primitive's rules). */
+/**
+ * Registers user namespaces, all or nothing. Registration order is the
+ * composed schemas' key order and the OpenAPI document's: append, never insert.
+ *
+ * @param namespaces - the declarations, in order.
+ * @throws RegistryError naming the entry when one is invalid (a duplicate or
+ *   reserved key, a `.default()`, a secret-named field).
+ *
+ * @example
+ * ```ts
+ * registerUserSettingsNamespaces([DATA_TABLES_USER_SETTINGS, NAVIGATION_USER_SETTINGS]);
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
 export function registerUserSettingsNamespaces(namespaces: readonly UserSettingsNamespace[]): void {
   userSettingsNamespaceRegistry.registerAll(namespaces);
 }

@@ -116,7 +116,7 @@ import { Prisma } from '@prisma/client';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { resolveLeaseHorizonMs, resolveMaxAttempts } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { emitJobSettled } from './job-settled.emit';

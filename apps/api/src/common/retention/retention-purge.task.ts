@@ -29,7 +29,7 @@ import { JobsService } from '../../jobs/jobs.service';
 import { NOTIFICATION_DELIVERIES_PURGE_TYPE } from '../../notifications/retention/notification-deliveries-purge.handler';
 import { NOTIFICATION_INBOX_PURGE_TYPE } from '../../notifications/retention/notification-inbox-purge.handler';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { RetentionPolicyKey } from '../schemas/settings.schema';
 import { AUDIT_EVENTS_PURGE_TYPE } from './audit-events-purge.handler';
 

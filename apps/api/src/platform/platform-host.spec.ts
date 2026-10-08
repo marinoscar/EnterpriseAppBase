@@ -12,7 +12,7 @@ import {
   RolesGuard,
 } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsModule } from '../settings/settings.module';
+import { SettingsModule } from './settings/settings.config';
 import { PrismaAuditSink } from './audit-sink.adapter';
 import { platformHost } from './platform-host';
 import { platformHostModule } from './platform-host.module';

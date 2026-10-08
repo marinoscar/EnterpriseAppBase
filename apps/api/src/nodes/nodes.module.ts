@@ -161,7 +161,7 @@ import { Module } from '@nestjs/common';
 
 import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { SettingsModule } from '../settings/settings.module';
+import { SettingsModule } from '../platform/settings/settings.config';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodeFleetMetrics } from './node-fleet-metrics.service';

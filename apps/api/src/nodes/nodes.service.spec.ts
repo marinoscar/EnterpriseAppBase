@@ -59,7 +59,7 @@ import {
   RegisterNodeDto,
 } from './dto/node-control-plane.dto';
 import { NodeOffloadService } from '../jobs/node-offload.service';
-import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { NodeSettlementLedger } from './node-settlement-ledger';
 import { NodesService } from './nodes.service';
 

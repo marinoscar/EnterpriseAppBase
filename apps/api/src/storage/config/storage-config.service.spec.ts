@@ -1,5 +1,5 @@
 import type { CredentialsService } from '../../credentials/credentials.service';
-import type { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { SystemStorageValue } from '../../common/schemas/settings.schema';
 import {
   STORAGE_CREDENTIAL_NAME,

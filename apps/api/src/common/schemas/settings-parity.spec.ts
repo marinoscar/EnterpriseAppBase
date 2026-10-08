@@ -7,9 +7,9 @@ import {
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,
-} from '../../settings/dto/update-system-settings.dto';
+} from '../../settings/registry/composed';
 import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
-import { systemSettingsNamespaceRegistry } from '../../settings/registry/system-settings-namespace';
+import { systemSettingsNamespaceRegistry } from '@marinoscar/platform-api/settings';
 
 // =============================================================================
 // System settings parity guard (#256, epic #254)
@@ -29,7 +29,7 @@ import { systemSettingsNamespaceRegistry } from '../../settings/registry/system-
 //   2. `systemSettingsPatchSchema`     same file
 //        The canonical partial. Missing here → the merged value fails to
 //        validate, or the namespace can never be partially updated.
-//   3. `updateSystemSettingsSchema`    settings/dto/update-system-settings.dto.ts
+//   3. `updateSystemSettingsSchema`    settings/registry/composed.ts (SettingsModule.forRoot composes the DTO)
 //        The PUT REQUEST BODY. Missing here → the global ZodValidationPipe
 //        strips the key BEFORE the service is called. A full replacement
 //        silently drops the namespace.

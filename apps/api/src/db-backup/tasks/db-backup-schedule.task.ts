@@ -5,7 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
 import { DB_BACKUP_SWEEP_TYPE } from '../handlers/db-backup-sweep.handler';
 import { DB_RESTORE_OLD_DB_DROP_TYPE } from '../handlers/db-restore-old-db-drop.handler';

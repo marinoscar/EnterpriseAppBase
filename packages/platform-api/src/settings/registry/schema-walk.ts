@@ -36,6 +36,8 @@ function defOf(schema: unknown): WalkedDef | undefined {
  * record values, union options, wrapper inner types, both sides of a pipe),
  * calling `visit(def, path)` for each. Bounded in depth so a self-referencing
  * schema cannot hang the import.
+ *
+ * @stability experimental
  */
 export function walkSchema(
   schema: unknown,
@@ -85,6 +87,8 @@ export function walkSchema(
 /**
  * Every object property path in `schema` whose last segment names a secret
  * (compared case-insensitively against `names`). Empty when there is none.
+ *
+ * @stability experimental
  */
 export function findSecretFieldPaths(schema: unknown, names: readonly string[]): string[] {
   const forbidden = new Set(names.map((name) => name.toLowerCase()));
@@ -100,7 +104,11 @@ export function findSecretFieldPaths(schema: unknown, names: readonly string[]):
   return found;
 }
 
-/** Every path in `schema` that carries a `.default()` or `.prefault()`. */
+/**
+ * Every path in `schema` that carries a `.default()` or `.prefault()`.
+ *
+ * @stability experimental
+ */
 export function findDefaultPaths(schema: unknown): string[] {
   const found: string[] = [];
   walkSchema(schema, (def, path) => {
@@ -109,7 +117,11 @@ export function findDefaultPaths(schema: unknown): string[] {
   return found;
 }
 
-/** Whether `value` is a zod schema. */
+/**
+ * Whether `value` is a zod schema.
+ *
+ * @stability experimental
+ */
 export function isZodSchema(value: unknown): value is z.ZodType {
   return value instanceof z.ZodType;
 }

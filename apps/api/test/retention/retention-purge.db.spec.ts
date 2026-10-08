@@ -28,7 +28,7 @@ import type { SystemRetentionValue } from '../../src/common/schemas/settings.sch
 import { NotificationDeliveriesPurgeHandler } from '../../src/notifications/retention/notification-deliveries-purge.handler';
 import { NotificationInboxPurgeHandler } from '../../src/notifications/retention/notification-inbox-purge.handler';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('retention-purge.db.spec');

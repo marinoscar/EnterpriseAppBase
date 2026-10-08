@@ -1,6 +1,6 @@
 import { EgressRegistry } from '@marinoscar/platform-api/doctor';
 
-import { SystemSettingsService } from '../../../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiCatalogRefreshTask } from '../../../catalog/ai-catalog-refresh.task';
 import { AiCatalogRefreshEgressContributor } from '../../../catalog/doctor/egress/ai-catalog-refresh.egress.contributor';
 import { AiProviderRegistry } from '../../../core/provider-registry';

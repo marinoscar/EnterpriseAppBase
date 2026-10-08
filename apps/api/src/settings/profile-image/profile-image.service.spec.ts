@@ -8,7 +8,7 @@ import { ProfileImageService } from './profile-image.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
-import { UserSettingsService } from '../user-settings/user-settings.service';
+import { UserSettingsService } from '@marinoscar/platform-api/settings';
 import {
   createMockPrismaService,
   MockPrismaService,

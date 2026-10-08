@@ -1,19 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SystemSettingsService } from './system-settings.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { PLATFORM_PRISMA } from '@marinoscar/platform-api/core';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../../test/mocks/prisma.mock';
+} from '../mocks/prisma.mock';
 import {
   DEFAULT_SYSTEM_SETTINGS,
   SystemSettingsValue,
-} from '../../common/types/settings.types';
-import { systemSettingsResponseSchema } from '../dto/system-settings-response.dto';
-import { patchSystemSettingsSchema } from '../dto/update-system-settings.dto';
-import { systemSettingsPatchSchema } from '../registry/composed';
+} from '../../src/common/types/settings.types';
+import {
+  patchSystemSettingsSchema,
+  systemSettingsPatchSchema,
+  systemSettingsResponseSchema,
+} from '../../src/settings/registry/composed';
 
 /**
  * The operations namespaces (#256, epic #254) with their defaults.
@@ -68,7 +70,7 @@ describe('SystemSettingsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SystemSettingsService,
-        { provide: PrismaService, useValue: mockPrisma },
+        { provide: PLATFORM_PRISMA, useValue: mockPrisma },
         { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();

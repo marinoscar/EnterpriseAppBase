@@ -1,7 +1,7 @@
 import {
   updateUserSettingsSchema,
   patchUserSettingsSchema,
-} from './update-user-settings.dto';
+} from '../../src/settings/registry/composed';
 import {
   DATA_TABLE_MAX_ID_LENGTH,
   DATA_TABLE_MAX_VISIBLE_COLUMNS,
@@ -9,7 +9,7 @@ import {
   DATA_TABLE_MAX_TABLES,
   NOTIFICATION_MAX_EVENT_KEY_LENGTH,
   NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
-} from '../../common/schemas/user-settings-namespaces.schema';
+} from '../../src/common/schemas/user-settings-namespaces.schema';
 
 // A valid uuid to stand in for `imageObjectId` throughout — the DTO schema
 // only checks the shape (`z.string().uuid()`); whether it names an avatar the

@@ -11,7 +11,7 @@
 import { PlatformHostModule } from '@marinoscar/platform-api/core';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsModule } from '../settings/settings.module';
+import { SettingsModule } from './settings/settings.config';
 import { PrismaAuditSink } from './audit-sink.adapter';
 import { SystemSettingsStoreAdapter } from './system-settings-store.adapter';
 

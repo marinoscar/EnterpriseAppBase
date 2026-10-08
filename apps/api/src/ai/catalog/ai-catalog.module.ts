@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '../../credentials/credentials.module';
 import { JobsModule } from '../../jobs/jobs.module';
-import { SettingsModule } from '../../settings/settings.module';
+import { SettingsModule } from '../../platform/settings/settings.config';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiCatalogRefreshHandler } from './ai-catalog-refresh.handler';
 import { AiCatalogRefreshTask } from './ai-catalog-refresh.task';

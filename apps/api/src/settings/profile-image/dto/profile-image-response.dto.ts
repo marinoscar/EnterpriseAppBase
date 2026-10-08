@@ -1,6 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { userSettingsResponseSchema } from '../../dto/user-settings-response.dto';
+import { userSettingsResponseSchema } from '../../registry/composed';
 
 /**
  * Body of `POST` and `DELETE /api/user-settings/profile-image` (#367), inside

@@ -5,7 +5,7 @@ import type { DatabaseBackupRun } from '@prisma/client';
 
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import { PrismaService } from '../prisma/prisma.service';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import {
   buildOldDatabaseName,
   buildScratchDatabaseName,

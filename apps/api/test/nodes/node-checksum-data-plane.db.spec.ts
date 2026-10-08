@@ -86,7 +86,7 @@ import type {
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../../src/storage/storage-job-input';
 import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
 import { NodeOffloadService } from '../../src/jobs/node-offload.service';
-import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 const { describeWithDb } = resolveDbSuite('node-checksum-data-plane.db.spec');
 

@@ -15,7 +15,7 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { notificationEventKeySchema } from '../../common/schemas/user-settings-namespaces.schema';
+import { notificationEventKeySchema } from './user-settings-namespaces.schema';
 import {
   MAX_DISABLED_NOTIFICATION_EVENTS,
   BACKUP_TIME_OF_DAY_PATTERN,
@@ -36,7 +36,7 @@ import {
   aiEndpointUrlSchema,
   TELEMETRY_INSTANCE_ID_PATTERN,
   RETENTION_MAX_DAYS,
-} from '../../common/schemas/settings.schema';
+} from './settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
 // rather than importing it: these are the OpenAPI-visible DTOs (`createZodDto`

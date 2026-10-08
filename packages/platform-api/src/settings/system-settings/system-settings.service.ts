@@ -1,39 +1,26 @@
 import { z } from 'zod';
-import { Injectable, Logger, ConflictException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../../prisma/prisma.service';
-import { UpdateSystemSettingsDto } from '../dto/update-system-settings.dto';
-import { PatchSystemSettingsDto } from '../dto/update-system-settings.dto';
-import {
-  DEFAULT_SYSTEM_SETTINGS,
-  SystemSettingsValue,
-} from '../../common/types/settings.types';
+
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { SettingsPrisma, SettingsSystemSettingsRow } from '../data/settings-db';
 import {
   currentSystemSettingsSchema,
   currentUpdateSystemSettingsSchema,
+  composeDefaultSystemSettings,
+  type ComposedPatchBody,
+  type ComposedUpdateBody,
   type SystemSettingsDto,
-} from '../registry';
+} from '../registry/compose';
 import {
   systemSettingsNamespaceRegistry,
   type SettingsReadHelpers,
   type SystemSettingsNamespace,
   type SystemSettingsNamespaces,
+  type SystemSettingsNamespaceValue,
+  type SystemSettingsValue,
 } from '../registry/system-settings-namespace';
-import {
-  systemNotificationsSchema,
-  MAX_DISABLED_NOTIFICATION_EVENTS,
-  type SystemNotificationsValue,
-  type SystemMaintenanceValue,
-  type SystemJobsValue,
-  type SystemNodesValue,
-  type SystemDatabaseBackupValue,
-  type SystemStorageValue,
-  type SystemAiValue,
-  type SystemTelemetryValue,
-  type SystemRetentionValue,
-} from '../../common/schemas/settings.schema';
-
-const SETTINGS_KEY = 'global';
+import { DEFAULT_SETTINGS_OPTIONS, SETTINGS_OPTIONS, type ResolvedSettingsModuleOptions } from '../settings.options';
 
 // =============================================================================
 // SystemSettingsService — the 'global' system_settings row (#130)
@@ -134,6 +121,27 @@ const SETTINGS_KEY = 'global';
 // =============================================================================
 
 /**
+ * What `GET`, `PUT` and `PATCH /api/system-settings` return (inside the
+ * `{ data }` envelope): every registered namespace, the derived session
+ * policy, the audit fields and the row version for `If-Match`.
+ *
+ * @stability stable
+ */
+export type SystemSettingsResponse = SystemSettingsValue & {
+  /** The session policy the token signer uses: derived configuration, never stored. */
+  security: { jwtAccessTtlMinutes: number; refreshTtlDays: number };
+  /** When the row last changed. */
+  updatedAt: Date;
+  /** Who last changed it, or `null`. */
+  updatedBy: { id: string; email: string } | null;
+  /** The row version. */
+  version: number;
+};
+
+/** A `system_settings` row loaded with who last changed it. */
+type RowWithUpdater = SettingsSystemSettingsRow & { updatedByUser: { id: string; email: string } | null };
+
+/**
  * The registered system settings namespaces, as they are NOW (#677).
  *
  * Read from the registry on every call rather than captured at module load:
@@ -215,16 +223,35 @@ function omittableOnPut(): readonly string[] {
     .map(([key]) => key);
 }
 
+/**
+ * The deployment-wide settings document: the one `system_settings` row
+ * (`key = 'global'`, `SettingsModuleOptions.systemRowKey`), validated
+ * namespace by namespace against the system namespace registry. `GET`, `PUT`
+ * and `PATCH /api/system-settings` go through it; every slice reads its own
+ * namespace through {@link SystemSettingsService.getNamespace}.
+ *
+ * Behaviour (moved unchanged from the reference app by #733): request bodies
+ * stay closed, the stored value is never narrowed (unknown keys are carried
+ * forward and reported in the log and the audit meta), a damaged stored value
+ * degrades field by field to the namespace defaults, a stale `If-Match` is a
+ * 409, and every write is audited.
+ *
+ * @stability stable
+ */
 @Injectable()
 export class SystemSettingsService {
   private readonly logger = new Logger(SystemSettingsService.name);
+  private readonly rowKey: string;
 
   constructor(
-    private readonly prisma: PrismaService,
-    // ConfigService needs no module import: ConfigModule is registered with
-    // `isGlobal: true` in app.module.ts, so SettingsModule already has it.
+    @Inject(PLATFORM_PRISMA) private readonly prisma: SettingsPrisma,
+    // ConfigService needs no module import: the app registers ConfigModule
+    // with `isGlobal: true`.
     private readonly configService: ConfigService,
-  ) {}
+    @Optional() @Inject(SETTINGS_OPTIONS) options?: ResolvedSettingsModuleOptions,
+  ) {
+    this.rowKey = (options ?? DEFAULT_SETTINGS_OPTIONS).systemRowKey;
+  }
 
   /**
    * Load the 'global' row, creating it with defaults if it is missing.
@@ -236,8 +263,8 @@ export class SystemSettingsService {
    * namespaces. That is not incidental to the bug, it IS the bug.
    */
   private async loadOrCreateRow() {
-    const existing = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
+    const existing = await this.prisma.systemSettings.findUnique<RowWithUpdater>({
+      where: { key: this.rowKey },
       include: {
         updatedByUser: {
           select: { id: true, email: true },
@@ -250,10 +277,10 @@ export class SystemSettingsService {
     }
 
     // Should have been seeded, but create if missing
-    const created = await this.prisma.systemSettings.create({
+    const created = await this.prisma.systemSettings.create<RowWithUpdater>({
       data: {
-        key: SETTINGS_KEY,
-        value: DEFAULT_SYSTEM_SETTINGS as any,
+        key: this.rowKey,
+        value: composeDefaultSystemSettings() as never,
       },
       include: {
         updatedByUser: {
@@ -355,7 +382,7 @@ export class SystemSettingsService {
   private readonly readHelpers: SettingsReadHelpers = {
     asPlainObject: (value) => this.asPlainObject(value),
     readNamespace: (stored, schema, defaults) => this.readNamespace(stored, schema, defaults),
-    readDisabledEvents: (stored) => this.readDisabledEvents(stored),
+    readStringArray: (stored, element, max) => this.readStringArray(stored, element, max),
   };
 
   /**
@@ -405,35 +432,28 @@ export class SystemSettingsService {
   }
 
   /**
-   * Project a stored `notifications.disabledEvents` down to something
-   * `systemSettingsSchema` will accept (#225).
+   * Project a stored string list down to something its namespace's schema
+   * will accept, entry by entry (#225; generalised by #733 from the
+   * `notifications.disabledEvents` reader, its first user).
    *
-   * Same argument as "INVALID VALUES OF KNOWN KEYS ARE DROPPED" above, one level
-   * deeper. `notifications` is a KNOWN key, so whatever this returns is handed
-   * straight to `systemSettingsSchema.parse` — an entry that fails the event-key
-   * pattern, or an array longer than the cap, would convert a repairable row
-   * into a ZodError and leave the admin unable to save anything at all. Dropping
-   * the unusable entries keeps the row repairable through the API, which is the
-   * whole point of `readKnownSettings`.
+   * Same argument as "INVALID VALUES OF KNOWN KEYS ARE DROPPED" above, one
+   * level deeper: an entry that fails its pattern, or a list longer than the
+   * cap, would convert a repairable row into a ZodError and leave the admin
+   * unable to save anything at all. Dropping the unusable entries keeps the
+   * row repairable through the API.
    *
-   * A fresh array every call, never `DEFAULT_SYSTEM_SETTINGS.notifications
-   * .disabledEvents` itself: that constant is module-level and shared, and
-   * handing out the same array reference to be merged into and persisted is a
-   * mutation bug waiting on the first caller that pushes to it.
+   * A fresh array every call, never a shared default: handing out the same
+   * array reference to be merged into and persisted is a mutation bug waiting
+   * on the first caller that pushes to it.
    */
-  private readDisabledEvents(stored: unknown): string[] {
+  private readStringArray(stored: unknown, element: z.ZodType, max: number): string[] {
     if (!Array.isArray(stored)) {
       return [];
     }
 
     return stored
-      .filter(
-        (entry): entry is string =>
-          typeof entry === 'string' &&
-          systemNotificationsSchema.shape.disabledEvents.element.safeParse(entry)
-            .success,
-      )
-      .slice(0, MAX_DISABLED_NOTIFICATION_EVENTS);
+      .filter((entry): entry is string => typeof entry === 'string' && element.safeParse(entry).success)
+      .slice(0, max);
   }
 
   /**
@@ -598,7 +618,7 @@ export class SystemSettingsService {
     updatedAt: Date;
     updatedByUser: { id: string; email: string } | null;
     version: number;
-  }) {
+  }): SystemSettingsResponse {
     // Guarded, not cast: a row that is `null` or otherwise malformed reads as
     // the defaults instead of throwing, so the settings page still renders and
     // the admin can save a repair through PUT/PATCH (#130).
@@ -637,7 +657,7 @@ export class SystemSettingsService {
    * contract is a different (and worse) decision than not destroying it.
    * Preservation is a safety net, not a read path — see the header.
    */
-  async getSettings() {
+  async getSettings(): Promise<SystemSettingsResponse> {
     const settings = await this.loadOrCreateRow();
 
     return this.toResponse(settings);
@@ -668,14 +688,12 @@ export class SystemSettingsService {
    * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.notifications`
    * through `readKnownSettings`, so a damaged row cannot make notifications
    * undeliverable.
+   *
+   * @deprecated A thin alias of `getNamespace('notifications')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getNotificationsPolicy(): Promise<SystemNotificationsValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).notifications;
+  async getNotificationsPolicy(): Promise<SystemSettingsNamespaceValue<'notifications'>> {
+    return (await this.readNamespaceValue('notifications')) as SystemSettingsNamespaceValue<'notifications'>;
   }
 
   /**
@@ -703,14 +721,12 @@ export class SystemSettingsService {
    * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.maintenance`
    * through `readKnownSettings` — which means a damaged row reads as
    * `enabled: false` and cannot take the application off the air by accident.
+   *
+   * @deprecated A thin alias of `getNamespace('maintenance')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getMaintenancePolicy(): Promise<SystemMaintenanceValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).maintenance;
+  async getMaintenancePolicy(): Promise<SystemSettingsNamespaceValue<'maintenance'>> {
+    return (await this.readNamespaceValue('maintenance')) as SystemSettingsNamespaceValue<'maintenance'>;
   }
 
   /**
@@ -740,14 +756,12 @@ export class SystemSettingsService {
    * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.jobs` through
    * `readKnownSettings`, so a damaged row cannot leave dead leases unreaped
    * or history ungoverned — it falls back to the shipped policy.
+   *
+   * @deprecated A thin alias of `getNamespace('jobs')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getJobsPolicy(): Promise<SystemJobsValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).jobs;
+  async getJobsPolicy(): Promise<SystemSettingsNamespaceValue<'jobs'>> {
+    return (await this.readNamespaceValue('jobs')) as SystemSettingsNamespaceValue<'jobs'>;
   }
 
   /**
@@ -780,14 +794,12 @@ export class SystemSettingsService {
    * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.nodes` through
    * `readKnownSettings`, so a damaged row cannot strand a dead fleet at
    * `online` forever — it falls back to the shipped policy.
+   *
+   * @deprecated A thin alias of `getNamespace('nodes')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getNodesPolicy(): Promise<SystemNodesValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).nodes;
+  async getNodesPolicy(): Promise<SystemSettingsNamespaceValue<'nodes'>> {
+    return (await this.readNamespaceValue('nodes')) as SystemSettingsNamespaceValue<'nodes'>;
   }
 
   /**
@@ -815,14 +827,12 @@ export class SystemSettingsService {
    * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.databaseBackup`
    * through `readKnownSettings`, so a damaged row cannot be the reason a
    * deployment stops taking backups — it falls back to the shipped policy.
+   *
+   * @deprecated A thin alias of `getNamespace('databaseBackup')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getDatabaseBackupPolicy(): Promise<SystemDatabaseBackupValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).databaseBackup;
+  async getDatabaseBackupPolicy(): Promise<SystemSettingsNamespaceValue<'databaseBackup'>> {
+    return (await this.readNamespaceValue('databaseBackup')) as SystemSettingsNamespaceValue<'databaseBackup'>;
   }
 
   /**
@@ -860,14 +870,12 @@ export class SystemSettingsService {
    * bucket. A damaged row therefore reads as "storage is not configured", which
    * is a legible failure, rather than as a half-built client pointed somewhere
    * nobody chose.
+   *
+   * @deprecated A thin alias of `getNamespace('storage')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getStoragePolicy(): Promise<SystemStorageValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).storage;
+  async getStoragePolicy(): Promise<SystemSettingsNamespaceValue<'storage'>> {
+    return (await this.readNamespaceValue('storage')) as SystemSettingsNamespaceValue<'storage'>;
   }
 
   /**
@@ -896,14 +904,12 @@ export class SystemSettingsService {
    * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.ai` through
    * `readKnownSettings` — which is `enabled: false`, the safe direction for a
    * capability nobody has finished wiring up yet.
+   *
+   * @deprecated A thin alias of `getNamespace('ai')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getAiPolicy(): Promise<SystemAiValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).ai;
+  async getAiPolicy(): Promise<SystemSettingsNamespaceValue<'ai'>> {
+    return (await this.readNamespaceValue('ai')) as SystemSettingsNamespaceValue<'ai'>;
   }
 
   /**
@@ -934,14 +940,12 @@ export class SystemSettingsService {
    * through `readKnownSettings` — which is `enabled: false`, the safe
    * direction for a capability a legacy row (written before this namespace
    * existed) never opted into.
+   *
+   * @deprecated A thin alias of `getNamespace('telemetry')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getTelemetryPolicy(): Promise<SystemTelemetryValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).telemetry;
+  async getTelemetryPolicy(): Promise<SystemSettingsNamespaceValue<'telemetry'>> {
+    return (await this.readNamespaceValue('telemetry')) as SystemSettingsNamespaceValue<'telemetry'>;
   }
 
   /**
@@ -957,14 +961,12 @@ export class SystemSettingsService {
    * Degrades exactly as every other read here does: a missing row, a `null`
    * value or a malformed one yields `DEFAULT_SYSTEM_SETTINGS.retention`
    * through `readKnownSettings`.
+   *
+   * @deprecated A thin alias of `getNamespace('retention')`, kept until every slice reads its namespace that way (#733).
+   * @stability stable
    */
-  async getRetentionPolicy(): Promise<SystemRetentionValue> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
-      select: { value: true },
-    });
-
-    return this.readKnownSettings(row?.value).retention;
+  async getRetentionPolicy(): Promise<SystemSettingsNamespaceValue<'retention'>> {
+    return (await this.readNamespaceValue('retention')) as SystemSettingsNamespaceValue<'retention'>;
   }
 
   /**
@@ -975,28 +977,68 @@ export class SystemSettingsService {
    * namespace's defaults through `readKnownSettings`.
    *
    * @param key - a registered namespace key, typed by `SystemSettingsNamespaces`.
+   * @returns the salvaged value of the namespace.
+   *
+   * @example
+   * ```ts
+   * const jobs = await systemSettings.getNamespace('jobs');
+   * ```
+   *
+   * @stability stable
    */
   async getNamespace<K extends keyof SystemSettingsNamespaces>(
     key: K,
   ): Promise<SystemSettingsNamespaces[K]> {
-    const row = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
+    return (await this.readNamespaceValue(key)) as SystemSettingsNamespaces[K];
+  }
+
+  /**
+   * One namespace of the stored settings by key, untyped: the read every typed
+   * accessor shares. Never creates the row; an unregistered key reads as
+   * `undefined`.
+   *
+   * @param key - the namespace key.
+   * @returns the salvaged value.
+   *
+   * @stability experimental
+   */
+  async readNamespaceValue(key: string): Promise<unknown> {
+    const row = await this.prisma.systemSettings.findUnique<{ value: unknown }>({
+      where: { key: this.rowKey },
       select: { value: true },
     });
 
-    return this.readKnownSettings(row?.value)[key];
+    return (this.readKnownSettings(row?.value) as unknown as Record<string, unknown>)[key];
+  }
+
+  /**
+   * The whole stored document, salvaged (every registered namespace, through
+   * the same field-by-field degradation), read only: never creates the row.
+   * `SettingsResolver` reads it once per resolution.
+   *
+   * @returns the salvaged value of every registered namespace.
+   *
+   * @stability experimental
+   */
+  async readKnownValue(): Promise<SystemSettingsValue> {
+    const row = await this.prisma.systemSettings.findUnique<{ value: unknown }>({
+      where: { key: this.rowKey },
+      select: { value: true },
+    });
+
+    return this.readKnownSettings(row?.value);
   }
 
   /**
    * Replace system settings (PUT)
    */
-  async replaceSettings(dto: UpdateSystemSettingsDto, userId: string) {
+  async replaceSettings(dto: ComposedUpdateBody, userId: string): Promise<SystemSettingsResponse> {
     // Read the stored value before overwriting it, purely to recover what the
     // body does not carry. `select` is narrow because nothing else is
     // needed — the upsert below still handles the row not existing yet, so
     // this read deliberately does NOT create anything.
     const current = await this.prisma.systemSettings.findUnique({
-      where: { key: SETTINGS_KEY },
+      where: { key: this.rowKey },
       select: { value: true },
     });
 
@@ -1033,16 +1075,16 @@ export class SystemSettingsService {
       validated,
     );
 
-    const settings = await this.prisma.systemSettings.upsert({
-      where: { key: SETTINGS_KEY },
+    const settings = await this.prisma.systemSettings.upsert<RowWithUpdater>({
+      where: { key: this.rowKey },
       update: {
-        value: value as any,
+        value: value as never,
         updatedByUserId: userId,
         version: { increment: 1 },
       },
       create: {
-        key: SETTINGS_KEY,
-        value: value as any,
+        key: this.rowKey,
+        value: value as never,
         updatedByUserId: userId,
       },
       include: {
@@ -1068,10 +1110,10 @@ export class SystemSettingsService {
    * Partial update system settings (PATCH)
    */
   async patchSettings(
-    dto: PatchSystemSettingsDto,
+    dto: ComposedPatchBody,
     userId: string,
     expectedVersion?: number,
-  ) {
+  ): Promise<SystemSettingsResponse> {
     // Get the current ROW, not the projection: the merge below needs the raw
     // stored value to carry unknown keys forward (#130).
     const row = await this.loadOrCreateRow();
@@ -1129,10 +1171,10 @@ export class SystemSettingsService {
       validated,
     );
 
-    const settings = await this.prisma.systemSettings.update({
-      where: { key: SETTINGS_KEY },
+    const settings = await this.prisma.systemSettings.update<RowWithUpdater>({
+      where: { key: this.rowKey },
       data: {
-        value: value as any,
+        value: value as never,
         updatedByUserId: userId,
         version: { increment: 1 },
       },
@@ -1171,7 +1213,7 @@ export class SystemSettingsService {
         action,
         targetType: 'system_settings',
         targetId,
-        meta: meta as any,
+        meta: meta as never,
       },
     });
   }

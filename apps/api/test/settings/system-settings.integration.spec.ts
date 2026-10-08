@@ -16,7 +16,7 @@ import {
   DEFAULT_SYSTEM_SETTINGS,
   SystemSettingsValue,
 } from '../../src/common/types/settings.types';
-import { systemSettingsResponseSchema } from '../../src/settings/dto/system-settings-response.dto';
+import { systemSettingsResponseSchema } from '../../src/settings/registry/composed';
 
 // .env.test pins JWT_ACCESS_TTL_MINUTES=15 and JWT_REFRESH_TTL_DAYS=14 —
 // the same numbers configuration.ts falls back to when the env vars are
@@ -463,7 +463,7 @@ describe('System Settings Integration', () => {
      * `DEFAULT_SYSTEM_SETTINGS`, pass every unit test written against those,
      * and STILL no-op on every real request — because the global
      * `ZodValidationPipe` parses the body against
-     * `patchSystemSettingsSchema` (settings/dto/update-system-settings.dto.ts)
+     * `patchSystemSettingsSchema` (settings/registry/composed.ts)
      * first and strips whatever that schema does not declare. The service is
      * then handed `{}`, merges nothing, writes the row back unchanged and
      * returns 200 with a body that looks exactly right.

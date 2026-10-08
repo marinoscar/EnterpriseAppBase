@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '../../credentials/credentials.module';
-import { SettingsModule } from '../../settings/settings.module';
+import { SettingsModule } from '../../platform/settings/settings.config';
 import { StorageConfigService } from '../config/storage-config.service';
 import { ResolvingStorageProvider } from './resolving-storage.provider';
 import { STORAGE_PROVIDER } from './storage-provider.interface';

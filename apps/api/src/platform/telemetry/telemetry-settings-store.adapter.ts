@@ -17,7 +17,7 @@ import type { Prisma } from '@prisma/client';
 import type { TelemetrySettings } from '@marinoscar/platform-contract/telemetry';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type {
   TelemetryFeatureFlag,
   TelemetrySettingsProvenance,

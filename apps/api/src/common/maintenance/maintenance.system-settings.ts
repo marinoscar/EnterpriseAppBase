@@ -17,9 +17,9 @@ import {
 import {
   maintenanceSettingsPatchSchema,
   maintenanceSettingsSchema,
-} from '../../settings/dto/system-settings-wire.schemas';
-import { maintenanceResponseSchema } from '../../settings/dto/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '../../settings/registry/system-settings-namespace';
+} from '../schemas/system-settings-wire.schemas';
+import { maintenanceResponseSchema } from '../schemas/system-settings-response.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 // Inert, like every operations namespace: the maintenance window ships off.
 const MAINTENANCE_SYSTEM_DEFAULTS: SystemMaintenanceValue = {
@@ -61,7 +61,7 @@ export const MAINTENANCE_SYSTEM_SETTINGS = {
   z.infer<typeof maintenanceSettingsPatchSchema>
 >;
 
-declare module '../../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /** The maintenance window (#256, epic #254). REQUIRED for the reason `jobs` gives. */
     maintenance: SystemMaintenanceValue;

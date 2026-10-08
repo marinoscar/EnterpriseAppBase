@@ -1,45 +1,73 @@
 import {
   BadRequestException,
+  ConflictException,
+  Inject,
   Injectable,
   Logger,
-  NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { PrincipalCache } from '@marinoscar/platform-api/identity';
-import { UpdateUserSettingsDto } from '../dto/update-user-settings.dto';
-import { PatchUserSettingsDto } from '../dto/update-user-settings.dto';
+import type { ThemePreference, UserProfileSettingsValue } from '@marinoscar/platform-contract/settings';
+
+import { PLATFORM_PRISMA } from '../../core/index';
+import { PrincipalCache } from '../../identity/index';
+import type { SettingsPrisma, SettingsUserSettingsRow } from '../data/settings-db';
+import { SETTINGS_PROFILE_IMAGES, type NormalizedProfileSettings, type SettingsProfileImages } from '../ports';
 import {
-  DEFAULT_USER_SETTINGS,
-  UserSettingsValue,
-} from '../../common/types/settings.types';
-import type {
-  DataTablesPatchValue,
-  DataTablesValue,
-  NavigationPatchValue,
-  NavigationValue,
-  NotificationsPatchValue,
-  NotificationsValue,
-} from '../../common/schemas/user-settings-namespaces.schema';
-import type {
-  UserAiSettingsPatchValue,
-  UserAiSettingsValue,
-} from '../../common/schemas/settings.schema';
-import { currentUserSettingsSchema } from '../registry/compose';
+  currentUserSettingsSchema,
+  type ComposedPatchUserBody,
+  type ComposedUpdateUserBody,
+} from '../registry/compose';
 import {
   userSettingsNamespaceRegistry,
   type UserSettingsNamespace,
   type UserSettingsNamespacesValue,
 } from '../registry/user-settings-namespace';
-import { AI_USER_SETTINGS } from '../../ai/ai.user-settings';
-import { NOTIFICATIONS_USER_SETTINGS } from '../../notifications/notifications.user-settings';
-import { DATA_TABLES_USER_SETTINGS, NAVIGATION_USER_SETTINGS } from './core.user-settings';
-import {
-  isAvatarObjectFor,
-  normalizeProfileSettings,
-  type NormalizedProfileSettings,
-} from '../../common/profile-image/profile-image';
+
+/**
+ * A user's stored settings document: the core fields `theme` and `profile`,
+ * then every optional namespace the user stored something for.
+ *
+ * @stability stable
+ */
+export interface UserSettingsValue extends UserSettingsNamespacesValue {
+  /** The theme preference. */
+  theme: ThemePreference;
+  /** The profile preferences (`imageSource`, `imageObjectId`, `displayName`). */
+  profile: UserProfileSettingsValue;
+}
+
+/**
+ * What `GET`, `PUT` and `PATCH /api/user-settings` return (inside the
+ * `{ data }` envelope): the core fields, every namespace the user stored
+ * something for (an absent one means "apply the built-in defaults"), and the
+ * row version for `If-Match`.
+ *
+ * @stability stable
+ */
+export type UserSettingsResponse = UserSettingsNamespacesValue & {
+  /** The theme preference. */
+  theme: ThemePreference;
+  /** The normalised profile (`imageObjectId` always present). */
+  profile: NormalizedProfileSettings;
+  /** When the row last changed. */
+  updatedAt: Date;
+  /** The row version. */
+  version: number;
+};
+
+/**
+ * The value a user's settings row starts with: the core fields only. The
+ * optional namespaces are deliberately absent (absent means "use the built-in
+ * defaults"; seeding one would freeze a user at today's defaults).
+ *
+ * @stability stable
+ */
+export const DEFAULT_USER_SETTINGS: UserSettingsValue = {
+  theme: 'system',
+  profile: {
+    imageSource: 'provider',
+    imageObjectId: null,
+  },
+};
 
 /**
  * The registered optional user settings namespaces, as they are NOW (#677).
@@ -51,19 +79,28 @@ function namespaces(): readonly UserSettingsNamespace[] {
   return userSettingsNamespaceRegistry.list();
 }
 
+/**
+ * A user's own settings (`user_settings`, one row per user): `GET`, `PUT` and
+ * `PATCH /api/user-settings`. The optional namespaces come from the user
+ * namespace registry; an absent namespace resolves to the client's built-in
+ * defaults. Moved unchanged from the reference app by #733; the profile-image
+ * reference check reaches the app's object storage through
+ * `SETTINGS_PROFILE_IMAGES`.
+ *
+ * @stability stable
+ */
 @Injectable()
 export class UserSettingsService {
   private readonly logger = new Logger(UserSettingsService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: SettingsPrisma,
     // PP-1.12 (#683): `syncDisplayName` writes a column the cached principal carries.
     private readonly principalCache: PrincipalCache,
-    // Validating the selected profile image reads the user's OWN avatar row,
-    // which may belong to an organization other than the active one (a picture
-    // outlives an org switch): one lookup by id through the SYSTEM client,
-    // reason `admin-aggregate`, re-checked against the owner (#725).
-    private readonly system: PrismaSystemService,
+    // Validating the selected profile image reads the user's OWN avatar row
+    // (object storage, the app's): the host port answers, through the app's
+    // system client and re-checked against the owner (#725).
+    @Inject(SETTINGS_PROFILE_IMAGES) private readonly profileImages: SettingsProfileImages,
   ) {}
 
   /**
@@ -77,12 +114,12 @@ export class UserSettingsService {
     value: UserSettingsValue,
     updatedAt: Date,
     version: number,
-  ) {
+  ): UserSettingsResponse {
     return {
       theme: value.theme,
       // Normalised on every read: rows written before #367 carry the legacy
       // `useProviderImage` flag instead of `imageSource`.
-      profile: normalizeProfileSettings(value.profile),
+      profile: this.profileImages.normalize(value.profile),
       // Every registered namespace, in registration order, and only when
       // present (#677).
       ...this.presentNamespaces(value),
@@ -120,17 +157,17 @@ export class UserSettingsService {
    * Get user settings for current user
    * Creates default settings if none exist
    */
-  async getSettings(userId: string) {
-    let settings = await this.prisma.userSettings.findUnique({
+  async getSettings(userId: string): Promise<UserSettingsResponse> {
+    let settings = await this.prisma.userSettings.findUnique<SettingsUserSettingsRow>({
       where: { userId },
     });
 
     // Create default settings if not found
     if (!settings) {
-      settings = await this.prisma.userSettings.create({
+      settings = await this.prisma.userSettings.create<SettingsUserSettingsRow>({
         data: {
           userId,
-          value: DEFAULT_USER_SETTINGS as any,
+          value: DEFAULT_USER_SETTINGS as never,
         },
       });
       this.logger.log(`Created default settings for user: ${userId}`);
@@ -144,7 +181,7 @@ export class UserSettingsService {
   /**
    * Replace user settings (PUT)
    */
-  async replaceSettings(userId: string, dto: UpdateUserSettingsDto) {
+  async replaceSettings(userId: string, dto: ComposedUpdateUserBody): Promise<UserSettingsResponse> {
     // Validate against schema.
     //
     // WARNING: this line silently STRIPS any key the schema does not know
@@ -162,7 +199,7 @@ export class UserSettingsService {
     const stored = await this.prisma.userSettings.findUnique({
       where: { userId },
     });
-    const previousProfile = normalizeProfileSettings(
+    const previousProfile = this.profileImages.normalize(
       (stored?.value as unknown as UserSettingsValue | undefined)?.profile,
     );
     const nextProfile: NormalizedProfileSettings = {
@@ -178,12 +215,12 @@ export class UserSettingsService {
     const settings = await this.prisma.userSettings.upsert({
       where: { userId },
       update: {
-        value: validated as any,
+        value: validated as never,
         version: { increment: 1 },
       },
       create: {
         userId,
-        value: validated as any,
+        value: validated as never,
       },
     });
 
@@ -205,9 +242,9 @@ export class UserSettingsService {
    */
   async patchSettings(
     userId: string,
-    dto: PatchUserSettingsDto,
+    dto: ComposedPatchUserBody,
     expectedVersion?: number,
-  ) {
+  ): Promise<UserSettingsResponse> {
     // Get current settings
     const current = await this.getSettings(userId);
 
@@ -272,7 +309,7 @@ export class UserSettingsService {
     const settings = await this.prisma.userSettings.update({
       where: { userId },
       data: {
-        value: validated as any,
+        value: validated as never,
         version: { increment: 1 },
       },
     });
@@ -299,40 +336,38 @@ export class UserSettingsService {
   // delegates keep the service's long-standing seams (its unit spec drives
   // them directly); the write paths above loop the registry instead.
 
-  private mergeDataTables(
-    current: DataTablesValue | undefined,
-    patch: DataTablesPatchValue | null | undefined,
-  ): DataTablesValue | undefined {
-    return DATA_TABLES_USER_SETTINGS.merge(current, patch);
+  /** One registered namespace's own merge, by key (the per-namespace helpers below). */
+  private mergeNamespace(key: string, current: unknown, patch: unknown): unknown {
+    return userSettingsNamespaceRegistry.require(key).merge(current, patch);
   }
 
-  private mergeNavigation(
-    current: NavigationValue | undefined,
-    patch: NavigationPatchValue | null | undefined,
-  ): NavigationValue | undefined {
-    return NAVIGATION_USER_SETTINGS.merge(current, patch);
+  /** One registered namespace's own cap check, by key. */
+  private assertNamespaceLimit(key: string, value: unknown): void {
+    userSettingsNamespaceRegistry.require(key).assertLimits?.(value);
   }
 
-  private mergeAi(
-    current: UserAiSettingsValue | undefined,
-    patch: UserAiSettingsPatchValue | null | undefined,
-  ): UserAiSettingsValue | undefined {
-    return AI_USER_SETTINGS.merge(current, patch);
+  private mergeDataTables(current: unknown, patch: unknown): unknown {
+    return this.mergeNamespace('dataTables', current, patch);
   }
 
-  private mergeNotifications(
-    current: NotificationsValue | undefined,
-    patch: NotificationsPatchValue | null | undefined,
-  ): NotificationsValue | undefined {
-    return NOTIFICATIONS_USER_SETTINGS.merge(current, patch);
+  private mergeNavigation(current: unknown, patch: unknown): unknown {
+    return this.mergeNamespace('navigation', current, patch);
   }
 
-  private assertNotificationLimit(notifications: NotificationsValue | undefined): void {
-    NOTIFICATIONS_USER_SETTINGS.assertLimits(notifications);
+  private mergeAi(current: unknown, patch: unknown): unknown {
+    return this.mergeNamespace('ai', current, patch);
   }
 
-  private assertDataTableLimit(dataTables: DataTablesValue | undefined): void {
-    DATA_TABLES_USER_SETTINGS.assertLimits(dataTables);
+  private mergeNotifications(current: unknown, patch: unknown): unknown {
+    return this.mergeNamespace('notifications', current, patch);
+  }
+
+  private assertNotificationLimit(notifications: unknown): void {
+    this.assertNamespaceLimit('notifications', notifications);
+  }
+
+  private assertDataTableLimit(dataTables: unknown): void {
+    this.assertNamespaceLimit('dataTables', dataTables);
   }
 
   /**
@@ -379,18 +414,7 @@ export class UserSettingsService {
       return;
     }
 
-    const object = await this.system.asSystem('admin-aggregate').storageObject.findUnique({
-      where: { id: nextObjectId },
-      select: {
-        uploadedById: true,
-        storageKey: true,
-        status: true,
-        mimeType: true,
-        metadata: true,
-      },
-    });
-
-    if (!isAvatarObjectFor(object, userId)) {
+    if (!(await this.profileImages.isUploadedAvatar(userId, nextObjectId))) {
       throw new BadRequestException(
         'profile.imageObjectId must reference a profile image you uploaded with POST /api/user-settings/profile-image.',
       );
@@ -415,7 +439,7 @@ export class UserSettingsService {
   /**
    * Update theme preference
    */
-  async updateTheme(userId: string, theme: 'light' | 'dark' | 'system') {
+  async updateTheme(userId: string, theme: ThemePreference): Promise<UserSettingsResponse> {
     return this.patchSettings(userId, { theme });
   }
 }

@@ -158,8 +158,8 @@ import { DatabaseBackupRun, Prisma } from '@prisma/client';
 
 import { DeploymentModeService } from '../common/deployment/deployment-mode.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
-import type { PatchSystemSettingsDto } from '../settings/dto/update-system-settings.dto';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import type { PatchSystemSettingsDto } from '@marinoscar/platform-api/settings';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import {
   STORAGE_PROVIDER,

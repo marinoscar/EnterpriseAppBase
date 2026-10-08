@@ -16,9 +16,9 @@ import {
 import {
   databaseBackupSettingsPatchSchema,
   databaseBackupSettingsSchema,
-} from '../settings/dto/system-settings-wire.schemas';
-import { databaseBackupResponseSchema } from '../settings/dto/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '../settings/registry/system-settings-namespace';
+} from '../common/schemas/system-settings-wire.schemas';
+import { databaseBackupResponseSchema } from '../common/schemas/system-settings-response.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 // Inert, like every operations namespace: backups ship disabled.
 const DATABASE_BACKUP_SYSTEM_DEFAULTS: SystemDatabaseBackupValue = {
@@ -86,7 +86,7 @@ export const DATABASE_BACKUP_SYSTEM_SETTINGS = {
   z.infer<typeof databaseBackupSettingsPatchSchema>
 >;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /** Database backup/restore policy (#256, epic #254). REQUIRED for the reason `jobs` gives. */
     databaseBackup: SystemDatabaseBackupValue;

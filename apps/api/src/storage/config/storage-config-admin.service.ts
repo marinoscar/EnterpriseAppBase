@@ -4,7 +4,7 @@ import { StorageObjectStatus, type Prisma } from '@prisma/client';
 import { CredentialsService } from '../../credentials/credentials.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { SystemStorageValue } from '../../common/schemas/settings.schema';
 import {
   STORAGE_CREDENTIAL_LABEL,

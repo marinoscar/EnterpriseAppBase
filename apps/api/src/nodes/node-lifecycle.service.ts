@@ -62,7 +62,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { SystemNodesValue } from '../common/schemas/settings.schema';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { readJobSecretBrokerEnabled } from '../jobs/node-offload.service';
 
 /**

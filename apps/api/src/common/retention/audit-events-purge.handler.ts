@@ -26,7 +26,7 @@ import { JobExecutionProfile } from '../../jobs/job-execution-profile';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { runRetentionPolicyPurge } from './batched-purge';
 
 /** The job type. PERMANENT once rows of it exist. */

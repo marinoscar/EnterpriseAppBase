@@ -12,8 +12,11 @@
 // file fails CI with the fix command in the message.
 // =============================================================================
 
+import {
+  checkSystemSettingsCatalog as checkCatalog,
+  renderSystemSettingsCatalog as renderCatalog,
+} from '@marinoscar/platform-api/settings';
 import './system-settings.manifest';
-import { composeDefaultSystemSettings } from './compose';
 
 /** The catalog's path, relative to `apps/api`. */
 export const SYSTEM_SETTINGS_CATALOG_RELATIVE_PATH = 'prisma/catalog/system-settings-defaults.json';
@@ -30,7 +33,7 @@ export const SETTINGS_CATALOG_STALE_MESSAGE =
 export function renderSystemSettingsCatalog(): string {
   // Composed from the registry as it is NOW (not the module-load snapshot), so
   // the staleness check sees a namespace a test adds with `withTemporaryEntries`.
-  return `${JSON.stringify(composeDefaultSystemSettings(), null, 2)}\n`;
+  return renderCatalog();
 }
 
 /**
@@ -40,5 +43,5 @@ export function renderSystemSettingsCatalog(): string {
  * @returns `null` when current, else the message to print ({@link SETTINGS_CATALOG_STALE_MESSAGE}).
  */
 export function checkSystemSettingsCatalog(contents: string | undefined): string | null {
-  return contents === renderSystemSettingsCatalog() ? null : SETTINGS_CATALOG_STALE_MESSAGE;
+  return checkCatalog(contents, SETTINGS_CATALOG_STALE_MESSAGE);
 }

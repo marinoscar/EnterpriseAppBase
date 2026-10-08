@@ -25,7 +25,11 @@ import type { UserSettingsNamespace } from './user-settings-namespace';
 
 type AnyObject = z.ZodObject<z.ZodRawShape>;
 
-/** Fields an app adds inside a registered SYSTEM settings namespace. */
+/**
+ * Fields an app adds inside a registered SYSTEM settings namespace.
+ *
+ * @stability experimental
+ */
 export interface SystemSettingsNamespaceExtension {
   /** The namespace to extend (platform or app). */
   readonly key: string;
@@ -48,7 +52,11 @@ export interface SystemSettingsNamespaceExtension {
   merge?(current: Record<string, unknown>, patch: Record<string, unknown> | undefined, baseMerge: (current: unknown, patch: unknown) => unknown): unknown;
 }
 
-/** Fields an app adds inside a registered USER settings namespace. */
+/**
+ * Fields an app adds inside a registered USER settings namespace.
+ *
+ * @stability experimental
+ */
 export interface UserSettingsNamespaceExtension {
   /** The namespace to extend (platform or app). Its `schema` must be a `z.object`. */
   readonly key: string;
@@ -98,6 +106,8 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
  * schema, its defaults, its merge and (when the base has one) its `read`.
  *
  * @throws Error when a base schema is not a `z.object` or already declares an added field.
+ *
+ * @stability experimental
  */
 export function extendSystemSettingsNamespace(
   base: SystemSettingsNamespace,
@@ -156,6 +166,8 @@ export function extendSystemSettingsNamespace(
  * schema, its merge and its cap check.
  *
  * @throws Error when a base schema is not a `z.object` or already declares an added field.
+ *
+ * @stability experimental
  */
 export function extendUserSettingsNamespace(
   base: UserSettingsNamespace,
@@ -224,6 +236,8 @@ export function extendUserSettingsNamespace(
  * register anything, so the registry only ever holds the final declaration.
  *
  * @throws Error when an extension names a namespace in neither list.
+ *
+ * @stability experimental
  */
 export function foldSettingsExtensions<N extends { readonly key: string }, E extends { readonly key: string }>(
   lists: { platform: readonly N[]; app: readonly N[] },

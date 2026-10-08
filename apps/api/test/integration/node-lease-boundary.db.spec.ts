@@ -48,7 +48,7 @@ import type { PrismaService } from '../../src/prisma/prisma.service';
 import { ClaimJobsDto, NodeJobResultDto } from '../../src/nodes/dto/node-control-plane.dto';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { NodeOffloadService } from '../../src/jobs/node-offload.service';
-import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 const { describeWithDb } = resolveDbSuite('node-lease-boundary.db.spec');
 

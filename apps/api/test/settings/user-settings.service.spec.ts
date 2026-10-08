@@ -1,16 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, BadRequestException } from '@nestjs/common';
-import { UserSettingsService } from './user-settings.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PrismaSystemService } from '../../prisma/prisma-system.service';
+import { SETTINGS_PROFILE_IMAGES, UserSettingsService } from '@marinoscar/platform-api/settings';
+import { PLATFORM_PRISMA } from '@marinoscar/platform-api/core';
+import { PrismaSystemService } from '../../src/prisma/prisma-system.service';
+import { AppSettingsProfileImages } from '../../src/platform/settings/settings-profile-images.adapter';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../../test/mocks/prisma.mock';
+} from '../mocks/prisma.mock';
 import {
   DEFAULT_USER_SETTINGS,
   UserSettingsValue,
-} from '../../common/types/settings.types';
+} from '../../src/common/types/settings.types';
 import { PrincipalCache } from '@marinoscar/platform-api/identity';
 
 const principalCacheStub = { invalidate: jest.fn() };
@@ -37,9 +38,10 @@ describe('UserSettingsService', () => {
         UserSettingsService,
         // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.
         { provide: PrincipalCache, useValue: principalCacheStub },
-        { provide: PrismaService, useValue: mockPrisma },
+        { provide: PLATFORM_PRISMA, useValue: mockPrisma },
         // The profile-image check reads the user's own avatar row through the system client (#725).
         { provide: PrismaSystemService, useValue: { asSystem: () => mockPrisma } },
+        { provide: SETTINGS_PROFILE_IMAGES, useClass: AppSettingsProfileImages },
       ],
     }).compile();
 

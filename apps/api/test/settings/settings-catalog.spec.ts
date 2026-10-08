@@ -25,13 +25,13 @@ import {
 import {
   updateSystemSettingsSchema,
   patchSystemSettingsSchema,
-} from '../../src/settings/dto/update-system-settings.dto';
-import { systemSettingsResponseSchema } from '../../src/settings/dto/system-settings-response.dto';
+} from '../../src/settings/registry/composed';
+import { systemSettingsResponseSchema } from '../../src/settings/registry/composed';
 import {
   updateUserSettingsSchema,
   patchUserSettingsSchema,
-} from '../../src/settings/dto/update-user-settings.dto';
-import { userSettingsResponseSchema } from '../../src/settings/dto/user-settings-response.dto';
+} from '../../src/settings/registry/composed';
+import { userSettingsResponseSchema } from '../../src/settings/registry/composed';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { z } from 'zod';
@@ -44,8 +44,8 @@ import {
 import {
   systemSettingsNamespaceRegistry,
   type SystemSettingsNamespace,
-} from '../../src/settings/registry/system-settings-namespace';
-import type { UserSettingsNamespace } from '../../src/settings/registry/user-settings-namespace';
+} from '@marinoscar/platform-api/settings';
+import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
 import { DEFAULT_SYSTEM_SETTINGS as SEEDED_SYSTEM_SETTINGS } from '../../prisma/seed-data';
 
 /** DEFAULT_SYSTEM_SETTINGS on main before #677 (including #681's `retention`), key order included. */
@@ -404,8 +404,8 @@ describe('an app namespace registered through withTemporaryEntries (#677)', () =
       require('../../src/settings/registry/system-settings.manifest');
       require('../../src/settings/registry/user-settings.manifest');
       const { withTemporaryEntries: withEntries } = require('@marinoscar/platform-api/core');
-      const { systemSettingsNamespaceRegistry: systemRegistry } = require('../../src/settings/registry/system-settings-namespace');
-      const { userSettingsNamespaceRegistry: userRegistry } = require('../../src/settings/registry/user-settings-namespace');
+      const { systemSettingsNamespaceRegistry: systemRegistry } = require('@marinoscar/platform-api/settings');
+      const { userSettingsNamespaceRegistry: userRegistry } = require('@marinoscar/platform-api/settings');
 
       await withEntries(systemRegistry, [coachNamespace(isolatedZod)], () =>
         withEntries(userRegistry, [pinnedNamespace(isolatedZod)], async () => {

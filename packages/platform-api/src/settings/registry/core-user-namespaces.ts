@@ -2,12 +2,11 @@
 // User settings namespaces `dataTables` and `navigation` (issue #677)
 // =============================================================================
 //
-// Declaration file: pure data, imports only leaf modules (the per-namespace
-// zod schemas and constants, and Nest's exception type). Registered by
-// `settings/registry/user-settings.manifest.ts`. Recipe:
-// `settings/registry/README.md`. The merge and cap bodies moved verbatim from
-// `UserSettingsService` (`mergeDataTables`, `mergeNavigation`,
-// `assertDataTableLimit`).
+// Declaration file: pure data, imports only leaf modules (the contract's zod
+// schemas and constants, and Nest's exception type). The platform owns these
+// two UI-preference namespaces; the app registers them (first) in its user
+// manifest. Moved from the reference app by #733; the merge and cap bodies
+// are unchanged.
 // =============================================================================
 
 import { BadRequestException } from '@nestjs/common';
@@ -21,9 +20,19 @@ import {
   type DataTablesValue,
   type NavigationPatchValue,
   type NavigationValue,
-} from '../../common/schemas/user-settings-namespaces.schema';
-import type { UserSettingsNamespace } from '../registry/user-settings-namespace';
+} from '@marinoscar/platform-contract/settings';
 
+import type { UserSettingsNamespace } from './user-settings-namespace';
+
+/**
+ * The user namespace `dataTables`: per-table view preferences (visible
+ * columns, density, page size, sort), keyed by table id. Optional and never
+ * defaulted; at most `DATA_TABLE_MAX_TABLES` entries (a 400 past it).
+ * Register it (with {@link NAVIGATION_USER_SETTINGS}) first in the app's user
+ * manifest: registration order is the composed schemas' key order.
+ *
+ * @stability stable
+ */
 export const DATA_TABLES_USER_SETTINGS = {
   key: 'dataTables',
   description: 'Per-table view preferences (visible columns, density, page size, sort), keyed by table id.',
@@ -100,6 +109,12 @@ export const DATA_TABLES_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'dataTables', DataTablesValue, DataTablesPatchValue>;
 
+/**
+ * The user namespace `navigation`: navigation chrome preferences (whether the
+ * rail is collapsed). Optional and never defaulted.
+ *
+ * @stability stable
+ */
 export const NAVIGATION_USER_SETTINGS = {
   key: 'navigation',
   description: 'Navigation chrome preferences (whether the navigation rail is collapsed).',
@@ -138,14 +153,14 @@ export const NAVIGATION_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'navigation', NavigationValue, NavigationPatchValue>;
 
-declare module '../registry/user-settings-namespace' {
+declare module './user-settings-namespace' {
   interface UserSettingsNamespaces {
     /**
      * Per-table view preferences, keyed by table id.
      *
      * Optional on purpose, and derived from the zod schema so the two can never
      * drift. Absent means "the user has expressed no table preferences yet" —
-     * NOT "empty preferences". See user-settings-namespaces.schema.ts.
+     * NOT "empty preferences".
      */
     dataTables: DataTablesValue;
     /** Navigation chrome preferences. Absent means "use built-in defaults". */

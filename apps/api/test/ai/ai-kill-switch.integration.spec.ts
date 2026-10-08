@@ -39,7 +39,7 @@ import { createOpenApiDocument } from '../../src/openapi/document';
 import { forEachOperation, MutableDocument } from '../../src/openapi/types';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { createMockTestUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
 import { HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';

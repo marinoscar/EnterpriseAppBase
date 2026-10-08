@@ -17,7 +17,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { jobTempPath } from '../jobs/job-temp';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import {
   STORAGE_PROVIDER,
   type StorageProvider,

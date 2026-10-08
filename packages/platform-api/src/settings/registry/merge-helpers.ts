@@ -11,6 +11,8 @@
  * keeps `current`, `null` removes the field, anything else replaces it.
  * Returns `undefined` for "removed", which `systemSettingsSchema.parse` then
  * drops from the stored object.
+ *
+ * @stability experimental
  */
 export function mergeOptional<T>(patch: T | null | undefined, current: T | undefined): T | undefined {
   if (patch === undefined) return current;
