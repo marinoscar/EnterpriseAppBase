@@ -44,11 +44,12 @@ describe('NodeTelemetryService', () => {
   let tracing: TestTracing;
 
   const node = { id: NODE_ID, name: 'prod-worker-1', createdById: USER } as WorkerNode;
+  const JOB_ORG = '11111111-1111-4111-8111-aaaaaaaaaaaa';
 
   const jobRows = [
-    { id: HELD_JOB, type: 'example.checksum', claimedByNodeId: NODE_ID, traceContext: TRACEPARENT },
-    { id: SETTLED_JOB, type: 'db.backup.run', claimedByNodeId: null, traceContext: null },
-    { id: FOREIGN_JOB, type: 'example.checksum', claimedByNodeId: OTHER_NODE, traceContext: TRACEPARENT },
+    { id: HELD_JOB, type: 'example.checksum', claimedByNodeId: NODE_ID, traceContext: TRACEPARENT, orgId: JOB_ORG },
+    { id: SETTLED_JOB, type: 'db.backup.run', claimedByNodeId: null, traceContext: null, orgId: null },
+    { id: FOREIGN_JOB, type: 'example.checksum', claimedByNodeId: OTHER_NODE, traceContext: TRACEPARENT, orgId: null },
   ];
 
   const span = (jobId: string, overrides: Record<string, unknown> = {}) => ({
@@ -201,6 +202,18 @@ describe('NodeTelemetryService', () => {
         'job.type': 'example.checksum',
         'job.executor': 'node',
       });
+    });
+
+    it("carries the job's org.id from the row, and none for a system job (#734)", async () => {
+      await service.relay(USER, NODE_ID, body(span(HELD_JOB)));
+      await service.relay(USER, NODE_ID, body(span(SETTLED_JOB)));
+
+      const spans = tracing.exporter.getFinishedSpans();
+      const held = spans.find((s) => s.attributes['job.id'] === HELD_JOB);
+      expect(held?.attributes['org.id']).toBe(JOB_ORG);
+      for (const other of spans.filter((s) => s.attributes['job.id'] !== HELD_JOB)) {
+        expect(other.attributes).not.toHaveProperty('org.id');
+      }
     });
 
     it('relays only the allowlisted attributes, renamed', async () => {

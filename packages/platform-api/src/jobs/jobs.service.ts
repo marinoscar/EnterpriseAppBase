@@ -69,8 +69,8 @@ import { PLATFORM_PRISMA } from '../core/index';
 
 import { JOBS_METRICS, NOOP_JOBS_METRICS, type JobsMetrics } from './ports';
 import { buildDedupKey } from './job-keys';
-import { captureJobTraceContext } from './job-trace-context';
-import { JOBS_EVENT_BUS, type JobsEventBus } from './ports';
+import { annotateActiveSpanWithJobOrg, captureJobTraceContext } from './job-trace-context';
+import { JOBS_EVENT_BUS, JOBS_ORG_SCOPE, type JobsEventBus, type JobsOrgScope } from './ports';
 import { JOBS_ENQUEUED_CHANNEL, type JobsEnqueuedMessage } from './job-wake';
 
 /**
@@ -149,6 +149,24 @@ export interface EnqueueJobInput {
    * back to back). See the file header for why this costs nothing.
    */
   skipDedup?: boolean;
+
+  /**
+   * The organization the work belongs to (#734), stored on `jobs.org_id`.
+   *
+   * - A string: the job is that organization's work. Its `job.process` spans
+   *   carry `org.id`; a handler that touches tenant tables runs under
+   *   `JobScope.run(job, fn)`.
+   * - `null`: a deployment-wide (system) job. `enqueueHousekeepingJob` always
+   *   passes `null`.
+   * - Omitted: taken from the app's ambient scope (`JOBS_ORG_SCOPE`) when it
+   *   binds one, else `null`.
+   *
+   * ⚠ NOT PART OF THE DEDUP KEY. Two organizations' jobs of the same type and
+   * subject DO collapse onto one another; an org-scoped job with no natural
+   * subject uses `subjectType: 'organization', subjectId: orgId` so they
+   * never meet (`handlers/README.md`, "Organization-scoped jobs").
+   */
+  orgId?: string | null;
 }
 
 /**
@@ -254,9 +272,11 @@ function resolveDedupKey(input: EnqueueJobInput): string | null {
  */
 function buildJobCreateData(
   input: EnqueueJobInput,
-  dedupKey: string | null
+  dedupKey: string | null,
+  orgId: string | null
 ): JobsCreateData {
   return {
+    orgId,
     type: input.type,
     reason: input.reason,
     subjectType: input.subjectType ?? null,
@@ -291,7 +311,19 @@ export class JobsService {
     // `EventBusModule` always provides it in the application. Without it,
     // workers simply find the job on their next poll.
     @Optional() @Inject(JOBS_EVENT_BUS) private readonly bus?: JobsEventBus,
+    @Optional() @Inject(JOBS_ORG_SCOPE) private readonly orgScope?: JobsOrgScope,
   ) {}
+
+  /**
+   * The job's organization: the caller's explicit `orgId` (a `null` included,
+   * never replaced), else the ambient scope's, else `null`. Annotates the
+   * active span with `org.id` (never a metric label).
+   */
+  private resolveOrgId(input: EnqueueJobInput): string | null {
+    const orgId = input.orgId !== undefined ? input.orgId : (this.orgScope?.currentOrgId() ?? null);
+    annotateActiveSpanWithJobOrg(orgId);
+    return orgId;
+  }
 
   /**
    * Queues a job, collapsing it into the one already in flight for the same
@@ -313,7 +345,7 @@ export class JobsService {
    */
   async enqueue(input: EnqueueJobInput): Promise<Job> {
     const dedupKey = resolveDedupKey(input);
-    const data = buildJobCreateData(input, dedupKey);
+    const data = buildJobCreateData(input, dedupKey, this.resolveOrgId(input));
 
     let lastConflict: unknown;
 
@@ -427,7 +459,7 @@ export class JobsService {
    * rather than assuming every failure here is a duplicate.
    */
   async enqueueWithin(tx: JobsTx, input: EnqueueJobInput): Promise<Job> {
-    const created = await tx.job.create({ data: buildJobCreateData(input, resolveDedupKey(input)) });
+    const created = await tx.job.create({ data: buildJobCreateData(input, resolveDedupKey(input), this.resolveOrgId(input)) });
     // Counted when the INSERT succeeds inside the caller's transaction; a
     // later rollback of that transaction is not un-counted (rare, and the
     // counter is a rate, not a ledger).

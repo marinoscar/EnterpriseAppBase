@@ -912,6 +912,19 @@ describe('JobWorker', () => {
       }
     });
 
+    it("carries the job's org.id, and none for a system job (#734)", async () => {
+      const ORG = '11111111-1111-4111-8111-aaaaaaaaaaaa';
+      const { worker, registry } = makeWorker();
+      registry.register(handler('test.echo', async () => undefined));
+
+      await worker.runJob(claimedJob('test.echo', { orgId: ORG }));
+      await worker.runJob(claimedJob('test.echo', { orgId: null }));
+
+      const [orgSpan, systemSpan] = tracing.exporter.getFinishedSpans();
+      expect(orgSpan.attributes['org.id']).toBe(ORG);
+      expect(systemSpan.attributes).not.toHaveProperty('org.id');
+    });
+
     it('does not adopt an ambient span from the slot loop', async () => {
       const { worker, registry } = makeWorker();
       registry.register(handler('test.echo', async () => undefined));

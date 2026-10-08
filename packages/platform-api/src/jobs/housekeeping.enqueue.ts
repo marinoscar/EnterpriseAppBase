@@ -132,6 +132,11 @@ export async function enqueueHousekeepingJob(
       // GLOBAL — no subject. Both nulls are what makes the dedup key constant
       // for the type, which is what makes the index a real single-flight
       // guarantee rather than a hint.
+      //
+      // And no organization (#734): housekeeping is deployment-wide system
+      // work, so it is `null` explicitly, never the ambient scope of whatever
+      // happened to call this.
+      orgId: null,
       priority: HOUSEKEEPING_PRIORITY,
     });
 

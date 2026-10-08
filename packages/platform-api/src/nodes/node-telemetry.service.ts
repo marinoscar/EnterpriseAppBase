@@ -47,7 +47,7 @@ import { HttpException, HttpStatus, Injectable, Logger, Inject } from '@nestjs/c
 import { Attributes, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 import { resolveServiceName } from '../otel-core/index';
-import { jobParentContext } from '../jobs/index';
+import { jobOrgSpanAttributes, jobParentContext } from '../jobs/index';
 import { type JobsPrisma } from '../jobs/index';
 import { PLATFORM_PRISMA } from '../core/index';
 import { NodeSpan, NodeTelemetryDto } from './dto/node-telemetry.dto';
@@ -67,6 +67,7 @@ interface JobAttributionRow {
   type: string;
   claimedByNodeId: string | null;
   traceContext: string | null;
+  orgId: string | null;
 }
 
 /** Wire attribute key → span attribute key. The ONLY attributes relayed. */
@@ -110,7 +111,7 @@ export class NodeTelemetryService {
     const jobIds = [...new Set(dto.spans.map((span) => span.jobId))];
     const rows: JobAttributionRow[] = await this.prisma.job.findMany({
       where: { id: { in: jobIds } },
-      select: { id: true, type: true, claimedByNodeId: true, traceContext: true },
+      select: { id: true, type: true, claimedByNodeId: true, traceContext: true, orgId: true },
     });
     const attributable = new Map<string, JobAttributionRow>();
     for (const row of rows) {
@@ -147,6 +148,8 @@ export class NodeTelemetryService {
         'job.id': job.id,
         'job.type': job.type,
         'job.executor': 'node',
+        // The job's organization, when it has one (#734); never a metric label.
+        ...jobOrgSpanAttributes(job.orgId),
         'node.id': nodeId,
         'node.name': nodeName,
         // Provenance: this span was reported by a node, not observed here.

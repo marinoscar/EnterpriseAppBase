@@ -16,6 +16,7 @@ import { JobTerminalService } from './job-terminal.service';
 import { JobWorker } from './job.worker';
 import { JOBS_OPTIONS, jobsConfigOverlay, resolveJobsModuleOptions, type JobsModuleOptions } from './jobs.options';
 import { JobsService } from './jobs.service';
+import { JobScope } from './job-scope';
 import { NodeOffloadService } from './node-offload.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { JobHistoryPurgeTask } from './tasks/job-history-purge.task';
@@ -182,6 +183,7 @@ const EXPORTED = [
   ProviderThrottleService,
   JobTerminalService,
   JobStuckService,
+  JobScope,
 ] as const;
 
 const INTERNAL = [

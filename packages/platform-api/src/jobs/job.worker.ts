@@ -113,7 +113,7 @@ import { JobHandlerRegistry } from './job-handler.registry';
 import { JobSettleOutcome, JobTerminalService } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { NodeOffloadService } from './node-offload.service';
-import { jobParentContext } from './job-trace-context';
+import { jobOrgSpanAttributes, jobParentContext } from './job-trace-context';
 import { JOBS_ENQUEUED_CHANNEL, isJobsEnqueuedMessage } from './job-wake';
 
 /** The settle outcomes that mark a job's span as an error (#607). */
@@ -796,6 +796,9 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
             'job.type': job.type,
             'job.attempts': job.attempts,
             'job.executor': 'server',
+            // The job's organization, when it has one (#734): a span
+            // attribute, never a metric label.
+            ...jobOrgSpanAttributes(job.orgId),
           },
         },
         parent

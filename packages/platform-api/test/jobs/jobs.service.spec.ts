@@ -267,6 +267,110 @@ describe('JobsService', () => {
     });
   });
 
+  describe('orgId (#734)', () => {
+    const ORG = '11111111-1111-4111-8111-aaaaaaaaaaaa';
+    const AMBIENT = '22222222-2222-4222-8222-bbbbbbbbbbbb';
+
+    beforeEach(() => {
+      create.mockResolvedValue(jobRow());
+    });
+
+    const stored = (mock: jest.Mock = create) => mock.mock.calls[0][0].data.orgId;
+
+    it('stores an explicit orgId', async () => {
+      await service.enqueue({ type: 'example.echo', reason: 'upload', orgId: ORG });
+      expect(stored()).toBe(ORG);
+    });
+
+    it('stores null for an explicit null, even with an ambient scope (a system job stays one)', async () => {
+      const scoped = new JobsService({ job: { create, findFirst, update } } as unknown as JobsPrisma, undefined, undefined, {
+        currentOrgId: () => AMBIENT,
+      });
+      await scoped.enqueue({ type: 'example.echo', reason: 'upload', orgId: null });
+      expect(stored()).toBeNull();
+    });
+
+    it('fills an omitted orgId from the ambient scope when the app binds one', async () => {
+      const currentOrgId = jest.fn(() => AMBIENT);
+      const scoped = new JobsService({ job: { create, findFirst, update } } as unknown as JobsPrisma, undefined, undefined, {
+        currentOrgId,
+      });
+      await scoped.enqueue({ type: 'example.echo', reason: 'upload' });
+      expect(stored()).toBe(AMBIENT);
+      expect(currentOrgId).toHaveBeenCalledTimes(1);
+    });
+
+    it('stores null for an omitted orgId when no ambient scope is bound', async () => {
+      await service.enqueue({ type: 'example.echo', reason: 'upload' });
+      expect(stored()).toBeNull();
+    });
+
+    it('enqueueWithin resolves it the same way', async () => {
+      const txCreate = jest.fn().mockResolvedValue(jobRow());
+      const tx = { job: { create: txCreate } } as unknown as JobsTx;
+      const scoped = new JobsService({ job: { create, findFirst, update } } as unknown as JobsPrisma, undefined, undefined, {
+        currentOrgId: () => AMBIENT,
+      });
+
+      await scoped.enqueueWithin(tx, { type: 'example.echo', reason: 'upload' });
+      await scoped.enqueueWithin(tx, { type: 'example.echo', reason: 'upload', orgId: ORG });
+
+      expect(txCreate.mock.calls.map((call) => call[0].data.orgId)).toEqual([AMBIENT, ORG]);
+    });
+
+    it('leaves the dedup key exactly as before: the organization is not part of it', async () => {
+      await service.enqueue({ type: 'org.report', reason: 'upload', subjectType: 'organization', subjectId: ORG, orgId: ORG });
+      expect(create.mock.calls[0][0].data.dedupKey).toBe(buildDedupKey('org.report', 'organization', ORG));
+      expect(create.mock.calls[0][0].data.dedupKey).toBe(`org.report:organization:${ORG}`);
+    });
+
+    it('records the enqueue metric with the job type only, never the organization', async () => {
+      const jobEnqueued = jest.fn();
+      const metered = new JobsService({ job: { create, findFirst, update } } as unknown as JobsPrisma, {
+        jobEnqueued,
+        jobsClaimedBy: jest.fn(),
+        jobSettled: jest.fn(),
+        leaseReaped: jest.fn(),
+      });
+
+      await metered.enqueue({ type: 'example.echo', reason: 'upload', orgId: ORG });
+
+      expect(jobEnqueued.mock.calls).toEqual([['example.echo']]);
+    });
+
+    describe('the enqueuing span', () => {
+      let tracing: TestTracing;
+
+      beforeEach(() => {
+        tracing = installTestTracing();
+      });
+
+      afterEach(() => {
+        tracing.uninstall();
+      });
+
+      it("carries org.id for an organization's job", async () => {
+        await tracing.tracer.startActiveSpan('POST /api/things', async (span) => {
+          await service.enqueue({ type: 'example.echo', reason: 'upload', orgId: ORG });
+          span.end();
+        });
+
+        const [span] = tracing.exporter.getFinishedSpans();
+        expect(span.attributes['org.id']).toBe(ORG);
+      });
+
+      it('carries no org.id for a system job', async () => {
+        await tracing.tracer.startActiveSpan('cron tick', async (span) => {
+          await service.enqueue({ type: 'example.echo', reason: 'backfill', orgId: null });
+          span.end();
+        });
+
+        const [span] = tracing.exporter.getFinishedSpans();
+        expect(span.attributes).not.toHaveProperty('org.id');
+      });
+    });
+  });
+
   describe('enqueue: what happens on a conflict', () => {
     it('returns the existing ACTIVE job instead of throwing', async () => {
       const existing = jobRow({ id: 'winner', status: 'running' });

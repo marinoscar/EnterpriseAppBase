@@ -28,7 +28,7 @@
 // `null` without any special-casing.
 // =============================================================================
 
-import { Context, ROOT_CONTEXT, context, propagation } from '@opentelemetry/api';
+import { Context, ROOT_CONTEXT, context, propagation, trace } from '@opentelemetry/api';
 
 /** The W3C trace-context header name, and the one key this module keeps. */
 export const TRACEPARENT_HEADER = 'traceparent';
@@ -106,5 +106,46 @@ export function jobParentContext(traceContext: string | null | undefined): Conte
     return propagation.extract(ROOT_CONTEXT, { [TRACEPARENT_HEADER]: traceparent });
   } catch {
     return ROOT_CONTEXT;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// `org.id`: a SPAN attribute of job work, never a metric label (issue #734)
+// -----------------------------------------------------------------------------
+//
+// A job's organization goes on the spans of its life — the span active when it
+// is enqueued, and the `job.process` span of each attempt (server, and node
+// spans relayed through the control plane) — so a trace answers "whose work
+// was this". It is NEVER an attribute of a metric: the `JobsMetrics` port has
+// no parameter that could carry it, because a per-organization label would
+// multiply every queue series by the number of tenants (spec, "Tenancy and
+// access model"). A system job (`orgId` null) carries no `org.id` at all.
+// -----------------------------------------------------------------------------
+
+/** The span attribute naming a job's organization. */
+export const JOB_ORG_SPAN_ATTRIBUTE = 'org.id';
+
+/**
+ * The span attributes for a job's organization: `{ 'org.id': orgId }`, or `{}`
+ * for a system job. Spread into a span's attributes.
+ *
+ * @param orgId - the job's `orgId`.
+ */
+export function jobOrgSpanAttributes(orgId: string | null | undefined): Record<string, string> {
+  return typeof orgId === 'string' && orgId.length > 0 ? { [JOB_ORG_SPAN_ATTRIBUTE]: orgId } : {};
+}
+
+/**
+ * Sets `org.id` on the ACTIVE span (the request or tick enqueuing a job), when
+ * the job has an organization and something is being traced. Never throws.
+ *
+ * @param orgId - the enqueued job's `orgId`.
+ */
+export function annotateActiveSpanWithJobOrg(orgId: string | null | undefined): void {
+  if (typeof orgId !== 'string' || orgId.length === 0) return;
+  try {
+    trace.getActiveSpan()?.setAttribute(JOB_ORG_SPAN_ATTRIBUTE, orgId);
+  } catch {
+    // Tracing is an observer; see the header.
   }
 }

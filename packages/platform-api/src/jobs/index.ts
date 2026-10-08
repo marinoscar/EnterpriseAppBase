@@ -68,6 +68,7 @@ export { buildDedupKey } from './job-keys';
 export { HOUSEKEEPING_PRIORITY, enqueueHousekeepingJob } from './housekeeping.enqueue';
 export type { HousekeepingEnqueueOptions } from './housekeeping.enqueue';
 export { JOBS_ENQUEUED_CHANNEL } from './job-wake';
+export { JobScope } from './job-scope';
 
 // ---- executing: claim, lease, settle, reap -----------------------------------------------
 export { JOB_CLAIM_COLUMNS, JobClaimService } from './job-claim.service';
@@ -117,7 +118,10 @@ export {
   MAX_TRACE_CONTEXT_LENGTH,
   TRACEPARENT_HEADER,
   TRACEPARENT_PATTERN,
+  JOB_ORG_SPAN_ATTRIBUTE,
+  annotateActiveSpanWithJobOrg,
   captureJobTraceContext,
+  jobOrgSpanAttributes,
   jobParentContext,
   normalizeTraceparent,
 } from './job-trace-context';

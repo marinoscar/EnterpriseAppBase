@@ -233,6 +233,8 @@ export interface Job {
   claimToken: string | null;
   /** The W3C trace context captured at enqueue. */
   traceContext: string | null;
+  /** The organization the work belongs to, or `null` for a deployment-wide (system) job (#734). */
+  orgId: string | null;
 }
 
 /**

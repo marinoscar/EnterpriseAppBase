@@ -329,6 +329,10 @@ export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
   // #607. Returned so the node claim can hand the enqueuing trace to the node
   // and the server worker can parent the job's span on it.
   traceContext: 'trace_context',
+  // #734. Returned, never filtered on: the claim stays ONE cross-organization
+  // statement (no per-org fairness yet); the worker reads it for the job
+  // span's `org.id` and `JobScope.run`.
+  orgId: 'org_id',
 };
 
 /**
