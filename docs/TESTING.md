@@ -701,7 +701,7 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$REPO:$REPO" -w "$REPO" \
   tests/visual/node_modules/.bin/playwright test --config=tests/visual/playwright.config.ts --update-snapshots
 ```
 
-- Install dependencies first, for Linux: `npm ci` at the root and
+- Install dependencies first, for Linux: `npm ci` and `npm run build:packages` at the root, and
   `npm ci --prefix tests/visual`. On macOS or Windows the host's native
   binaries (esbuild, Rollup) do not run in the Linux container.
 - `--user` keeps `test-results/` and `playwright-report/` owned by you.
@@ -714,6 +714,12 @@ baselines** workflow (`.github/workflows/visual-baselines.yml`): Actions →
 Run workflow → pick your branch. It runs the same command in the same image
 and commits the result to the branch (or, with `commit: false`, only uploads
 it as an artifact).
+
+- It runs `npm run build:packages` before the suite, as the `visual` job does:
+  the harness imports the `@marinoscar/platform-*` packages through their
+  `dist/`.
+- Its commit is pushed with the workflow's `GITHUB_TOKEN`, which does not start
+  other workflows. CI runs again with the branch's next push.
 
 Open every changed PNG before committing. Regenerating to make a red job
 green without looking is how a real layout regression gets blessed. A
