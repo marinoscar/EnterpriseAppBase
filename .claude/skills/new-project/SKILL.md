@@ -1,24 +1,86 @@
 ---
 name: new-project
-description: Bootstrap a new product from this template — rename it, generate a local environment, get it running against a database, and reset the release state a fork inherits. Use when the user says they are starting a new project from this repository, forking it, setting it up for the first time, or asks to get a fresh clone running.
+description: Start a new product on the platform — create it from the starter (`new-project.mjs create`, published @marinoscar/platform-* packages), rename it, get it running against a database, and hand it over with a green suite; or, for an existing fork of the whole template, reset the release state it inherits. Use when the user says they are starting a new project or product, forking this repository, setting it up for the first time, or asks to get a fresh clone running.
 ---
 
-# Starting a new product from this template
+# Starting a new product
 
-This repository is a foundation that gets forked. Your job is to take a fresh
-clone from "somebody else's template" to "this person's project, running
-locally, with a green test suite".
+A new product starts from **`starter/`**: a small app that depends on the
+**published** `@marinoscar/platform-*` packages and keeps only its composition,
+its domain code and its appearance. `scripts/new-project.mjs create` makes one.
+Forking the whole repository is the legacy flow, kept below for the forks that
+already exist; never recommend it for a new product.
 
-Two scripts do the mechanical work — `scripts/rename.mjs` and
-`scripts/new-project.mjs`. **Your value is in the order, the checkpoints, and
-refusing to automate the things that should not be automated.** Several steps
-here are one-way; `git checkout .` does not undo a squashed migration history.
-
-The human-facing guide is [`docs/RENAMING.md`](../../../docs/RENAMING.md).
+**Your value is in the order, the checkpoints, and refusing to automate the
+things that should not be automated.** The human-facing guide is
+[`docs/RENAMING.md`](../../../docs/RENAMING.md) ("Starting a whole new project").
 
 ---
 
 ## Step 0 — establish where you are
+
+Run this from a clone of the platform repository (it is where `starter/` and
+the script live). The new product goes in a NEW directory beside it, never
+inside this checkout; `create` refuses a non-empty or in-repository `--dir`.
+
+Ask the user for the values that make it their product, and do not guess them:
+the product name, the GitHub `owner/name`, optionally the CLI binary name
+(lowercase, it becomes `~/.<name>/` and the `<NAME>_` environment prefix), the
+brand colour, and the licence (`mit` or `proprietary` and the holder, or none).
+
+## Step 1 — dry run, then create
+
+```bash
+npm run build:packages     # so create can render infra/ with platform-infra
+node scripts/new-project.mjs create --dir ../acme-hub --name "Acme Hub" --repo acme/acme-hub --cli acmectl --theme "#c62828" --license mit --holder "Acme Inc" --dry-run
+```
+
+Show the user the planned edits. Then the same command without `--dry-run`.
+It copies `starter/`, runs the copy's own `scripts/rename.mjs` (identity.json,
+the literal targets, `platform-infra sync`), writes `LICENSE`, resets
+`CHANGELOG.md` and the versions to `0.1.0`, and runs `git init`.
+**It never commits**: the first commit is the user's.
+
+## Step 2 — get it running
+
+```bash
+cd ../acme-hub
+npm install                 # the published packages
+npm run setup               # builds the CLI, writes infra/compose/.env
+```
+
+The three values nothing can generate (`INITIAL_ADMIN_EMAIL`,
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) and the database are exactly as in
+the legacy "Step 2" below; so are `docker network create devnet`, the compose
+`up`, `prisma:migrate` and `prisma:seed`. Confirm the user can log in at
+http://localhost:3535.
+
+## Step 3 — verify and hand over
+
+```bash
+npm run platform:check      # installed migrations, schema and infra equal the packages'
+npm run typecheck
+npm test                    # API (with runPlatformConformance), web, CLI
+npm run build
+```
+
+Point the user at the app's `README.md` ("Add your first feature" walks a
+model, a permission, a settings card, a job and a Doctor check) and its
+`CLAUDE.md` (**never edit platform code in the app; change it upstream with a
+seam request**). Report what is running and what is still theirs to do: the
+first commit and push, the GitHub repository, the OAuth redirect URIs.
+
+Never `git init` over an existing history, never commit for them, and never
+copy platform source into the app to "fix" something: that is a seam request.
+
+---
+
+## For existing forks (legacy flow)
+
+A fork of the whole template (the platform's source included) still uses the
+steps below until it adopts the packages.
+
+### Step 0 — establish where you are
 
 **Check whether this is the template or a fork** before touching anything:
 
@@ -36,14 +98,14 @@ Then follow this repo's rules from `CLAUDE.md`: a tracking issue, and a worktree
 rather than the main checkout (unless the environment already put you on a
 designated branch).
 
-## Step 1 — rename it
+### Step 1 — rename it
 
 Use the **`rename-app`** skill. Do not reimplement it here; it handles the
 identity codemod, the do-not-rename list, and the visual-baseline consequence.
 
 Come back when the rename is committed and its tests pass.
 
-## Step 2 — get it running
+### Step 2 — get it running
 
 This is the part that has historically eaten the first hour.
 
@@ -86,7 +148,7 @@ rather than a missing step.
 Confirm the user can actually log in at http://localhost:3535 before moving on.
 That round trip working is the real acceptance test for this whole step.
 
-## Step 3 — reset what a fork inherits
+### Step 3 — reset what a fork inherits
 
 ```bash
 node scripts/new-project.mjs --reset-release --license mit --holder "<name>"
@@ -104,7 +166,7 @@ upstream notice to stay with the code) and the user's licence is written as
 This also resets `CHANGELOG.md` to `[Unreleased]` + `[0.1.0]` and sets all four
 workspace versions to `0.1.0`.
 
-## Step 4 — walk the audit
+### Step 4 — walk the audit
 
 ```bash
 node scripts/new-project.mjs --audit
@@ -124,7 +186,7 @@ The others — the stub deploy jobs, `docs/specs/` carrying the template's issue
 numbers, the inherited migrations — are all "fine to leave" defaults. Say so
 rather than manufacturing work.
 
-## Step 5 — the one-way steps, only if asked
+### Step 5 — the one-way steps, only if asked
 
 Never do these on your own initiative. Each needs an explicit yes, and each
 should be its own commit.
@@ -135,7 +197,7 @@ should be its own commit.
 | `rm -rf .git && git init` | Discards all history including the work you just did. Confirm the rename and setup are pushed or genuinely disposable. |
 | Fill in or delete `deploy.yml`'s staging/production jobs | They currently target a placeholder domain via `echo`, and expect GitHub Environments that may not exist. |
 
-## Step 6 — verify and hand over
+### Step 6 — verify and hand over
 
 ```bash
 npm run test:run --workspace=cli    # includes the identity guard
@@ -149,7 +211,7 @@ baselines if the rename has not had them regenerated yet).
 
 ---
 
-## The general rule
+### The general rule
 
 If a step needs a judgement about *this product* rather than about *the
 template*, put it to the user. The scripts exist to remove the mechanical cost

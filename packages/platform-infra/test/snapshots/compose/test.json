@@ -65,7 +65,7 @@
         "--postgres-addr=0.0.0.0:4003",
         "--user-provider=static_user_provider:cmd:admin=test-admin,writer=test-writer,reader:readonly=test-reader"
       ],
-      "container_name": "my-app-greptime-test",
+      "container_name": "greptime-my-app-db-test",
       "entrypoint": null,
       "environment": {
         "GREPTIMEDB_STANDALONE__ENABLE_TELEMETRY": "false"

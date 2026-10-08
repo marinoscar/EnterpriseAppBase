@@ -40,10 +40,34 @@ interactive API reference (Scalar) at `/api/docs`. On top of that stack:
 | Doctor | Read-only configuration and health checks for every capability, each with a remedy and the page that fixes it | [Spec](docs/specs/doctor.md), [runbook](docs/runbooks/doctor.md) | `/admin/settings/doctor` |
 | Encrypted credentials | Secrets (SMTP, VAPID, storage, AI keys) encrypted at rest under `SECRETS_ENCRYPTION_KEY`, plus per-user credentials | [Spec](docs/specs/user-credentials.md), [key rotation](docs/runbooks/rotate-secrets-encryption-key.md) | none |
 | Observability | OpenTelemetry traces, metrics and logs, Pino JSON logs, optional GreptimeDB-backed telemetry stack with a health dashboard, a SQL explorer and an AI assistant | [Spec](docs/specs/telemetry.md), [runbook](docs/runbooks/telemetry.md) | `/admin/settings/telemetry` |
-| Template tooling | `scripts/rename.mjs`, `scripts/new-project.mjs`, the `/rename-app` and `/new-project` agent skills | [Renaming guide](docs/RENAMING.md) | none |
+| Template tooling | `starter/` and `scripts/new-project.mjs create` (a new app on the published packages), `scripts/rename.mjs`, the `/rename-app` and `/new-project` agent skills | [Renaming guide](docs/RENAMING.md) | none |
 | Testing | Jest + Supertest (API), real-Postgres suites, Vitest + RTL (web and CLI), Playwright e2e with visual baselines | [Testing guide](docs/TESTING.md) | none |
 
 ## Start a new app from this template
+
+**A new product starts from the starter**, not from a fork. `starter/` is a
+small app that depends on the published `@marinoscar/platform-*` packages and
+keeps only its composition, its domain code and its appearance:
+
+```bash
+npm ci && npm run build:packages
+node scripts/new-project.mjs create --dir ../your-product --name "Your Product" --repo you/your-product \
+  [--cli yourctl] [--theme '#7c3aed'] [--license mit --holder "Your Name"] [--dry-run]
+cd ../your-product && npm install && npm run setup
+```
+
+`create` copies the starter, sets its identity (`packages/shared/identity.json`
+plus the few literal targets) with the copy's own `scripts/rename.mjs`, renders
+`infra/`, writes the licence, resets the changelog and versions, and runs
+`git init` without committing. The new app's README walks through running it
+and adding a first feature from the package documentation. Full guide:
+[docs/RENAMING.md](docs/RENAMING.md#starting-a-whole-new-project); in Claude
+Code, the `/new-project` skill.
+
+### For an existing fork of this template
+
+The steps below bootstrap a fork of the whole repository (the platform's source
+included). Existing forks keep using them until they adopt the packages.
 
 1. **Fork and clone** your copy:
 
@@ -182,7 +206,9 @@ EnterpriseAppBase/
 │   ├── web/                  # React + MUI frontend (Vite)
 │   └── cli/                  # appctl: login, api, deploy, node
 ├── packages/
-│   └── shared/               # Product identity (name, repo, colours) shared by all apps
+│   ├── shared/               # Product identity (name, repo, colours) shared by all apps
+│   └── platform-*/           # The published @marinoscar/platform-* packages
+├── starter/                  # What `new-project.mjs create` copies; depends on published package versions
 ├── docs/
 │   ├── specs/                # Design and rationale, one file per feature
 │   └── runbooks/             # Operator procedures, including VPS deploy and worker nodes
@@ -190,7 +216,7 @@ EnterpriseAppBase/
 │   ├── compose/              # base, dev, devdb, telemetry, prod, vps, vps.telemetry, test, worker, worker.build (*.compose.yml)
 │   ├── nginx/                # Same-origin routing and CSP
 │   └── otel/                 # OpenTelemetry Collector and GreptimeDB config
-├── scripts/                  # rename.mjs, new-project.mjs, dev.ps1, worktree.ps1
+├── scripts/                  # rename.mjs, new-project.mjs, starter-smoke.mjs, dev.ps1, worktree.ps1
 ├── tests/e2e/                # Playwright end-to-end and visual tests
 ├── .claude/                  # Agent definitions (agents/) and skills (skills/)
 └── CLAUDE.md                 # Rules for AI coding agents

@@ -405,6 +405,30 @@ describe('real changes', () => {
   });
 });
 
+describe('the packaged CLI (#715, #741)', () => {
+  it("compares an app's apps/cli/src with the base's packages/platform-cli/src/engine, file for file", () => {
+    const report = drift(
+      {
+        'packages/platform-cli/src/engine/deploy/state.ts': 'export const STATE = 1;\n',
+        'apps/cli/src/cli.ts': 'createCli();\n',
+      },
+      { 'apps/cli/src/deploy/state.ts': 'export const STATE = 1;\n' },
+      { args: ['--areas', 'cli'] }
+    );
+    expect(fileEntry(report, 'apps/cli/src/deploy/state.ts').status).toBe('identical');
+    expect(report.files.some((f) => f.path === 'apps/cli/src/cli.ts')).toBe(false);
+  });
+
+  it('reads apps/cli/src on a side without the packaged CLI', () => {
+    const report = drift(
+      { 'apps/cli/src/app.ts': 'export {};\n' },
+      { 'apps/cli/src/app.ts': 'export {};\n' },
+      { args: ['--areas', 'cli'] }
+    );
+    expect(fileEntry(report, 'apps/cli/src/app.ts').status).toBe('identical');
+  });
+});
+
 describe('aggregation', () => {
   it('computes module and area summaries with the base as the denominator', () => {
     const report = drift(

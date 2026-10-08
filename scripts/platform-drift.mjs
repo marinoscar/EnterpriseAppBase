@@ -68,7 +68,11 @@ export const AREAS = [
   { id: 'api', root: 'apps/api/src', module: firstSegment },
   { id: 'api-test', root: 'apps/api/test', module: firstSegment },
   { id: 'web', root: 'apps/web/src', module: webModule },
-  { id: 'cli', root: 'apps/cli/src', module: firstSegment },
+  // The platform CLI moved into @marinoscar/platform-cli (#715) with its file
+  // layout intact, under src/engine/. A side that has that directory (this
+  // platform repository) is read there, so an app's apps/cli/src still pairs
+  // file for file; a side without it (an app) is read at `root`.
+  { id: 'cli', root: 'apps/cli/src', platformRoot: 'packages/platform-cli/src/engine', module: firstSegment },
   { id: 'prisma', root: 'apps/api/prisma', module: prismaModule },
   { id: 'infra', root: 'infra', module: firstSegment },
   { id: 'stack-agent', root: 'apps/stack-agent/src', module: firstSegment },
@@ -81,6 +85,11 @@ export const AREAS = [
 export const AREA_IDS = AREAS.map((a) => a.id);
 
 const ROOT_MODULE = '(root)';
+
+/** Where `area` lives in the repository at `repoRoot`: its `platformRoot` when that exists there, else its `root`. */
+export function areaRootIn(repoRoot, area) {
+  return area.platformRoot && isDirectory(join(repoRoot, area.platformRoot)) ? area.platformRoot : area.root;
+}
 
 /** First path segment; a file directly under the area root is module `(root)`. */
 function firstSegment(rel) {
@@ -206,7 +215,7 @@ export function deriveIdentity({ productName, repoSlug, cliName }) {
     repoSlug: hasRepo ? repoSlug : null,
     repoName: hasRepo ? d.repoName : null,
     cliName: hasCli ? cliName.toLowerCase() : null,
-    // Same rule as toEnvPrefix() in apps/cli/src/branding.ts, without the `_`.
+    // Same rule as toEnvPrefix() in packages/platform-cli/src/engine/identity.ts, without the `_`.
     cliUpper: hasCli ? cliName.toUpperCase().replace(/[^A-Z0-9]/g, '_') : null,
     cliTitle: hasCli ? cliName.charAt(0).toUpperCase() + cliName.slice(1).toLowerCase() : null,
   };
@@ -880,8 +889,8 @@ export function buildReport(opts) {
   const areaPresence = {};
   for (const area of AREAS) {
     if (!wanted.includes(area.id)) continue;
-    const baseDir = join(baseRoot, area.root);
-    const appDir = join(appRoot, area.root);
+    const baseDir = join(baseRoot, areaRootIn(baseRoot, area));
+    const appDir = join(appRoot, areaRootIn(appRoot, area));
     const inBase = isDirectory(baseDir);
     const inApp = isDirectory(appDir);
     if (!inBase && !inApp) continue; // absent on both sides: not part of this report

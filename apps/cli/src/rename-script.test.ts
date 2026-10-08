@@ -1,9 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { buildPlan, derive, detectLayout } from '../../../scripts/rename.mjs';
+import { buildStarterPlan, derive as deriveStarter } from '../../../starter/scripts/rename.mjs';
 
 // =============================================================================
 // Guards scripts/rename.mjs against decaying into a no-op (issue #343, epic #341)
@@ -194,5 +198,107 @@ describe('scripts/rename.mjs input validation', () => {
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/owner\/name/);
+  });
+});
+
+// =============================================================================
+// Layouts: a template fork keeps today's plan, a starter-based app gets the
+// starter plan (issue #741)
+// =============================================================================
+//
+// The starter case runs against a throwaway COPY of starter/ in a temporary
+// directory (git-initialised, so the clean-tree check is real), never against
+// this checkout.
+
+describe('scripts/rename.mjs layout detection (issue #741)', () => {
+  it('sees this repository as a template fork and starter/ as a starter-based app', () => {
+    expect(detectLayout(REPO_ROOT)).toBe('template');
+    expect(detectLayout(join(REPO_ROOT, 'starter'))).toBe('starter');
+    expect(detectLayout(tmpdir())).toBe(null);
+  });
+
+  it('keeps the template plan free of starter files and the starter plan free of template-only targets', () => {
+    const current = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
+    const old = derive(current, 'appctl');
+    const next = derive({ ...current, productName: 'Rename Guard Sample', repoSlug: 'sample-owner/sample-repo' }, 'samplectl');
+    expect(buildPlan(old, next).some((edit: { file: string }) => edit.file.startsWith('starter/'))).toBe(false);
+
+    const starterIdentity = JSON.parse(readFileSync(join(REPO_ROOT, 'starter', 'packages', 'shared', 'identity.json'), 'utf8'));
+    const starterPlan = buildStarterPlan(
+      deriveStarter(starterIdentity),
+      deriveStarter({ ...starterIdentity, productName: 'Rename Guard Sample', repoSlug: 'sample-owner/sample-repo', cliName: 'samplectl', themeColor: '#123456' }),
+    );
+    const files = new Set(starterPlan.map((edit: { file: string }) => edit.file));
+    for (const templateOnly of ['apps/api/.env.test', 'scripts/dev.ps1', 'apps/cli/src/branding.ts', 'infra/compose/.env.example']) {
+      expect(files.has(templateOnly)).toBe(false);
+    }
+    expect([...files].sort()).toEqual(
+      ['.github/workflows/ci.yml', 'README.md', 'apps/cli/package.json', 'apps/web/public/favicon.svg', 'apps/web/public/icons/source.svg', 'install.sh', 'package.json'],
+    );
+  });
+});
+
+describe('scripts/rename.mjs on a starter-based app (issue #741)', () => {
+  let app = '';
+
+  beforeAll(() => {
+    app = mkdtempSync(join(tmpdir(), 'rename-starter-'));
+    cpSync(join(REPO_ROOT, 'starter'), app, {
+      recursive: true,
+      filter: (src) => !/[\\/](node_modules|dist|coverage)([\\/]|$)/.test(src.slice(REPO_ROOT.length)),
+    });
+    const git = (args: string[]) => execFileSync('git', args, { cwd: app, stdio: 'ignore' });
+    git(['init', '-q']);
+    git(['add', '-A']);
+    git(['-c', 'user.email=guard@example.test', '-c', 'user.name=guard', 'commit', '-q', '-m', 'starter']);
+  });
+
+  afterAll(() => {
+    if (app) rmSync(app, { recursive: true, force: true });
+  });
+
+  const args = () => ['--root', app, '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--cli-name', 'acmectl', '--theme', '#c62828'];
+
+  it('applies only the starter plan, each edit with its declared hit count', () => {
+    const result = run(args());
+    expect(result.status, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toMatch(/starter-based app; applying the starter plan/);
+    const edited = result.stdout
+      .split('\n')
+      .map((line) => /^\s*\* (\S+)\s+(\d+)x/.exec(line))
+      .filter((m): m is RegExpExecArray => m !== null);
+    expect(edited.length).toBeGreaterThan(5);
+    expect(edited.every((m) => Number(m[2]) >= 1)).toBe(true);
+    const changed = execFileSync('git', ['diff', '--name-only'], { cwd: app, encoding: 'utf8' }).trim().split('\n').sort();
+    expect(changed).toEqual([
+      '.github/workflows/ci.yml',
+      'README.md',
+      'apps/cli/package.json',
+      'apps/web/public/favicon.svg',
+      'apps/web/public/icons/source.svg',
+      'install.sh',
+      'package.json',
+      'packages/shared/identity.json',
+    ]);
+    expect(JSON.parse(readFileSync(join(app, 'packages', 'shared', 'identity.json'), 'utf8'))).toMatchObject({
+      productName: 'Acme Hub',
+      repoSlug: 'acme/acme-hub',
+      themeColor: '#c62828',
+      cliName: 'acmectl',
+    });
+  });
+
+  it('is idempotent: a second run with the same arguments changes nothing', () => {
+    const before = execFileSync('git', ['diff'], { cwd: app, encoding: 'utf8' });
+    const again = run([...args(), '--force']);
+    expect(again.status, again.stderr).toBe(0);
+    expect(again.stdout).toMatch(/every target already carries the new values/);
+    expect(execFileSync('git', ['diff'], { cwd: app, encoding: 'utf8' })).toBe(before);
+  });
+
+  it('refuses a dirty tree without --force', () => {
+    const result = run(['--root', app, '--name', 'Other Name']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/uncommitted changes/);
   });
 });

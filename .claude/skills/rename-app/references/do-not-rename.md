@@ -67,7 +67,7 @@ This file is on the identity guard's allowlist for exactly this reason.
 
 ## 3. The nginx vhost sentinel — breaks live servers
 
-**`apps/cli/src/deploy/proxy.ts`**
+**`packages/platform-cli/src/engine/deploy/proxy.ts`** (the CLI moved into `@marinoscar/platform-cli`, #715)
 
 ```
 # Managed by appctl deploy
@@ -82,7 +82,7 @@ by hand to recover.
 
 ## 4. The deploy state filename — orphans deployments
 
-**`apps/cli/src/deploy/state.ts`**
+**`packages/platform-cli/src/engine/deploy/state.ts`**
 
 ```
 DEPLOY_STATE_FILENAME = '.appctl-deploy.json'
@@ -94,6 +94,16 @@ nothing, and `deploy update` behaves as though it were a first install.
 
 If the binary is genuinely being renamed, this still stays put unless you also
 plan a migration for machines already running it.
+
+---
+
+## In an app started from the starter
+
+None of the four is in the app: the HKDF label and the `Symbol.for()` key live
+in `@marinoscar/platform-api`, the sentinel and the state file in
+`@marinoscar/platform-cli`, all inside `node_modules`. An app's
+`scripts/rename.mjs` (the starter plan) cannot reach them, and nothing in the
+app should copy them. They still matter: never patch the installed packages.
 
 ---
 

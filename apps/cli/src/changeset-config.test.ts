@@ -122,7 +122,8 @@ describe('root release scripts', () => {
 
   it('declares changeset, version-packages and release', () => {
     expect(scripts.changeset).toBe('changeset');
-    expect(scripts['version-packages']).toBe('changeset version && npm install --package-lock-only');
+    // Between the two: the starter's platform ranges follow the version being released (#741).
+    expect(scripts['version-packages']).toBe('changeset version && node scripts/sync-starter-versions.mjs && npm install --package-lock-only');
     expect(scripts.release).toBe('npm run build:packages && changeset publish');
   });
 

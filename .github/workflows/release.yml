@@ -59,6 +59,11 @@ jobs:
 
       - run: npm ci
 
+      # `version-packages` is `changeset version`, then
+      # scripts/sync-starter-versions.mjs (the starter's @marinoscar/platform-*
+      # ranges move to the version being released, issue #741), then the
+      # lockfile refresh.
+      #
       # Opens or updates the version PR when changesets are pending; with none
       # pending it only reports hasChangesets=false. A failure to open the PR
       # (most often the repository setting "Allow GitHub Actions to create and
