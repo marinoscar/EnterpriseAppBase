@@ -98,7 +98,7 @@ export interface ExportBrowserContent {
 export function exportReadyBrowserTemplate(data: ExportNotificationData): ExportBrowserContent {
   return {
     title: 'Your export is ready',
-    body: `${data.sourceLabel} (${data.format.toUpperCase()}) is ready to download for a limited time.`,
+    body: `${describe(data)} is ready to download for a limited time.`,
     link: DATA_EXPORT_PAGE_PATH,
   };
 }
@@ -115,7 +115,13 @@ export function exportReadyBrowserTemplate(data: ExportNotificationData): Export
 export function exportFailedBrowserTemplate(data: ExportNotificationData): ExportBrowserContent {
   return {
     title: 'Your export failed',
-    body: `${data.sourceLabel} (${data.format.toUpperCase()}) could not be created. Please try again.`,
+    body: `${describe(data)} could not be created. Please try again.`,
     link: DATA_EXPORT_PAGE_PATH,
   };
+}
+
+/** "Your data (CSV)", tolerant of partial data (a test send, an older payload). */
+function describe(data: Partial<ExportNotificationData> | null | undefined): string {
+  const label = typeof data?.sourceLabel === 'string' && data.sourceLabel !== '' ? data.sourceLabel : 'Your export';
+  return typeof data?.format === 'string' && data.format !== '' ? `${label} (${data.format.toUpperCase()})` : label;
 }

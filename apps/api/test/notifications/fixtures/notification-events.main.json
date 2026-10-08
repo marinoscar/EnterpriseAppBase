@@ -174,5 +174,35 @@
     ],
     "defaultEnabled": true,
     "mandatory": false
+  },
+  {
+    "key": "export.ready",
+    "label": "Export ready",
+    "description": "Sent when a data export you asked for is ready to download.",
+    "channels": [
+      "browser",
+      "push"
+    ],
+    "declaredChannels": [
+      "browser",
+      "push"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
+  },
+  {
+    "key": "export.failed",
+    "label": "Export failed",
+    "description": "Sent when a data export you asked for could not be created.",
+    "channels": [
+      "browser",
+      "push"
+    ],
+    "declaredChannels": [
+      "browser",
+      "push"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
   }
 ]
