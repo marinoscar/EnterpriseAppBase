@@ -683,7 +683,17 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         },
       });
 
-      await restoreService.executeRestoreJob(claimed);
+      // #740: the wave-4 columns of the restore's own job row are set on the
+      // LIVE row only, AFTER the snapshot, so the archive's copy has them NULL
+      // and only the carry can put them into the promoted database.
+      const defaultOrg = await env.prisma.organization.findFirstOrThrow({ where: { isDefault: true } });
+      const traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+      const carried = await env.prisma.job.update({
+        where: { id: claimed.id },
+        data: { orgId: defaultOrg.id, providerKey: 'carry-probe', traceContext: traceparent },
+      });
+
+      await restoreService.executeRestoreJob(carried);
 
       const outcome = await pollRestoreOutcome(env.adminConnection, dbName, target.id);
       expect(outcome.restore_status).toBe('completed');
@@ -691,11 +701,21 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
 
       const rows = await withAdminConnection({ ...env.adminConnection, database: dbName }, (client) =>
         client.query(
-          'SELECT id, status::text, claim_token, lease_expires_at, claimed_by_node_id ' +
+          'SELECT id, status::text, claim_token, lease_expires_at, claimed_by_node_id, ' +
+            'org_id, provider_key, trace_context ' +
             'FROM jobs WHERE id = ANY($1::uuid[]) ORDER BY id',
           [[claimed.id, sentinel.id]]
         )
       );
+
+      const audit = await withAdminConnection({ ...env.adminConnection, database: dbName }, (client) =>
+        client.query(
+          "SELECT org_id FROM audit_events WHERE action = 'db_restore:complete' AND target_id = $1",
+          [target.id]
+        )
+      );
+      // A restore is a deployment event: its completion row belongs to no organization.
+      expect(audit.rows).toEqual([{ org_id: null }]);
 
       const byId = new Map(rows.rows.map((row) => [row.id as string, row]));
 
@@ -709,6 +729,10 @@ describeWithDb('Database restore orchestration against real Postgres', () => {
         claim_token: null,
         lease_expires_at: null,
         claimed_by_node_id: null,
+        // #740: carried, not dropped.
+        org_id: defaultOrg.id,
+        provider_key: 'carry-probe',
+        trace_context: traceparent,
       });
     }, 120_000);
   });

@@ -646,6 +646,14 @@ interface CarriedRun {
   swappedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The `jobs` row that ran the dump (#353), bound through a subselect like the
+   * user FKs: a job purged since, or newer than the archive, yields NULL
+   * rather than a foreign-key violation that would abort the whole carry.
+   */
+  jobId: string | null;
+  /** The `pg_dump` client version (#352). */
+  pgDumpVersion: string | null;
 }
 
 /** One row's self-FK, applied in a SECOND PASS. See {@link exportCatalog}. */
@@ -737,6 +745,15 @@ interface CarriedJob {
   startedAt: string | null;
   finishedAt: string;
   executor: string | null;
+  /**
+   * The columns #734 and wave 4 added to `jobs` (#740): carried so a restore
+   * never silently drops them. `orgId` goes through a subselect on
+   * `organizations`, for the reason the user FKs do.
+   */
+  providerKey: string | null;
+  modelVersion: string | null;
+  traceContext: string | null;
+  orgId: string | null;
 }
 
 /** Everything that has to survive the rename, gathered before it. */
@@ -813,12 +830,14 @@ INSERT INTO jobs (
   id, type, subject_type, subject_id, dedup_key, status, reason, priority,
   payload, attempts, last_error, created_at, started_at, finished_at,
   scheduled_for, rate_limited_at, rate_limit_hits, claimed_by_node_id,
-  claim_token, lease_expires_at, executor
+  claim_token, lease_expires_at, executor,
+  provider_key, model_version, trace_context, org_id
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, 'succeeded'::"JobStatus", $6::"JobReason", $7::int,
   $8::jsonb, $9::int, $10, $11::timestamptz, $12::timestamptz, $13::timestamptz,
   NULL, NULL, 0, NULL,
-  NULL, NULL, $14
+  NULL, NULL, $14,
+  $15, $16, $17, (SELECT id FROM organizations WHERE id = $18::uuid)
 )
 ON CONFLICT (id) DO UPDATE SET
   type = EXCLUDED.type,
@@ -839,7 +858,11 @@ ON CONFLICT (id) DO UPDATE SET
   claimed_by_node_id = NULL,
   claim_token = NULL,
   lease_expires_at = NULL,
-  executor = EXCLUDED.executor
+  executor = EXCLUDED.executor,
+  provider_key = EXCLUDED.provider_key,
+  model_version = EXCLUDED.model_version,
+  trace_context = EXCLUDED.trace_context,
+  org_id = EXCLUDED.org_id
 `.trim();
 
 /**
@@ -867,7 +890,8 @@ INSERT INTO database_backup_runs (
   bytes_written, size_bytes, storage_provider, storage_key, bucket, format,
   checksum_sha256, db_version, app_version, migration_name, verified_at, last_error,
   created_by_id, restore_status, restore_error, restored_at, restored_by_id,
-  restore_scratch_db, restore_old_db, swapped_at, created_at, updated_at
+  restore_scratch_db, restore_old_db, swapped_at, created_at, updated_at,
+  job_id, pg_dump_version
 ) VALUES (
   $1::uuid, $2::"DatabaseBackupStatus", $3::"DatabaseBackupTrigger",
   $4::timestamptz, $5::timestamptz, $6::timestamptz,
@@ -876,7 +900,8 @@ INSERT INTO database_backup_runs (
   (SELECT id FROM users WHERE id = $19::uuid),
   $20, $21, $22::timestamptz,
   (SELECT id FROM users WHERE id = $23::uuid),
-  $24, $25, $26::timestamptz, $27::timestamptz, $28::timestamptz
+  $24, $25, $26::timestamptz, $27::timestamptz, $28::timestamptz,
+  (SELECT id FROM jobs WHERE id = $29::uuid), $30
 )
 ON CONFLICT (id) DO UPDATE SET
   status = EXCLUDED.status,
@@ -905,7 +930,9 @@ ON CONFLICT (id) DO UPDATE SET
   restore_old_db = EXCLUDED.restore_old_db,
   swapped_at = EXCLUDED.swapped_at,
   created_at = EXCLUDED.created_at,
-  updated_at = EXCLUDED.updated_at
+  updated_at = EXCLUDED.updated_at,
+  job_id = EXCLUDED.job_id,
+  pg_dump_version = EXCLUDED.pg_dump_version
 `.trim();
 
 /**
@@ -938,14 +965,17 @@ WHERE id = $1::uuid
  * never throws, so the only trace was a `CRITICAL` log line and the record of
  * the restore was missing from the one database anybody would look in (#337).
  *
+ * `org_id` IS NULL, SPELLED OUT (#740): a restore is a deployment event that
+ * rolls back every organization, never one organization's.
+ *
  * The actor goes through the same subselect as {@link CARRY_RUN_SQL}'s two user
  * FKs, and for the same reason: the promoted database's `users` is the
  * ARCHIVE's, so an administrator created after the backup was taken is not in
  * it, and a plain value would raise a foreign-key violation.
  */
 const CARRY_AUDIT_SQL = `
-INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id, meta)
-VALUES ($1::uuid, (SELECT id FROM users WHERE id = $2::uuid), $3, $4, $5, $6::jsonb)
+INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id, meta, org_id)
+VALUES ($1::uuid, (SELECT id FROM users WHERE id = $2::uuid), $3, $4, $5, $6::jsonb, NULL)
 `.trim();
 
 /** Tables in a non-system schema — the "did anything actually arrive" check. */
@@ -996,6 +1026,10 @@ function carryJob(job: Job | null, finishedAt: Date): CarriedJob | null {
     startedAt: iso(job.startedAt),
     finishedAt: finishedAt.toISOString(),
     executor: job.executor,
+    providerKey: job.providerKey,
+    modelVersion: job.modelVersion,
+    traceContext: job.traceContext ?? null,
+    orgId: job.orgId ?? null,
   };
 }
 
@@ -2070,6 +2104,8 @@ export class DatabaseRestoreService {
         // Bumped for the row this restore changed, so the promoted database's
         // `updated_at` is not older than the change it describes.
         updatedAt: (isThisRestore ? this.seam.now() : row.updatedAt).toISOString(),
+        jobId: row.jobId ?? null,
+        pgDumpVersion: row.pgDumpVersion ?? null,
       });
 
       const link = isThisRestore ? postSwap.preRestoreBackupId : row.preRestoreBackupId;
@@ -2169,6 +2205,10 @@ export class DatabaseRestoreService {
               catalog.job.startedAt,
               catalog.job.finishedAt,
               catalog.job.executor,
+              catalog.job.providerKey,
+              catalog.job.modelVersion,
+              catalog.job.traceContext,
+              catalog.job.orgId,
             ]);
           }
 
@@ -2202,6 +2242,8 @@ export class DatabaseRestoreService {
               row.swappedAt,
               row.createdAt,
               row.updatedAt,
+              row.jobId,
+              row.pgDumpVersion,
             ]);
           }
 

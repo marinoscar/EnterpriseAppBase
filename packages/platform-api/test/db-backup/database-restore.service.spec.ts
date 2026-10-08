@@ -1354,8 +1354,10 @@ describe('the restore settles its own job row', () => {
     expect(insert).toMatch(/claimed_by_node_id = NULL/);
     // `claimed_by_node_id` is not even a parameter — see `CARRY_JOB_SQL`: the
     // promoted database's `worker_nodes` is the ARCHIVE's, so binding a node id
-    // could raise a foreign-key violation and abort the whole carry.
-    expect(carriedJob(h)).toHaveLength(14);
+    // could raise a foreign-key violation and abort the whole carry. Eighteen
+    // since #740: the four wave-4 columns (provider_key, model_version,
+    // trace_context, org_id) are carried too.
+    expect(carriedJob(h)).toHaveLength(18);
   });
 
   it('clears the claim token on BOTH paths — the insert and the upsert', async () => {
@@ -1374,8 +1376,47 @@ describe('the restore settles its own job row', () => {
     expect(inserted).toContain('claim_token');
     expect(upserted).toMatch(/claim_token = NULL/);
     // A literal, not a bound parameter — exactly like `claimed_by_node_id`
-    // above, which is why the argument list is still fourteen long.
-    expect(carriedJob(h)).toHaveLength(14);
+    // above, which is why the argument list is eighteen long, not nineteen.
+    expect(carriedJob(h)).toHaveLength(18);
+  });
+
+  it('carries the wave-4 columns of the job row, org_id included (#740)', async () => {
+    const h = makeHarness();
+    const origEnqueue = h.enqueue as jest.Mock;
+    const impl = origEnqueue.getMockImplementation() as (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    origEnqueue.mockImplementation(async (input: Record<string, unknown>) => {
+      const job = await impl(input);
+      Object.assign(job, {
+        providerKey: 'openai',
+        modelVersion: 'm-1',
+        traceContext: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+        orgId: '22222222-0000-4000-8000-000000000002',
+      });
+      return job;
+    });
+
+    await runRestore(h);
+
+    const insert = h.statements().find((text) => text.startsWith('INSERT INTO jobs')) ?? '';
+    expect(insert).toContain('provider_key, model_version, trace_context, org_id');
+    expect(insert).toMatch(/org_id = EXCLUDED\.org_id/);
+    expect(insert).toContain('(SELECT id FROM organizations WHERE id = $18::uuid)');
+    expect(carriedJob(h).slice(14)).toEqual([
+      'openai',
+      'm-1',
+      '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+      '22222222-0000-4000-8000-000000000002',
+    ]);
+  });
+
+  it('writes the completion audit row as a deployment event: org_id NULL (#740)', async () => {
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    const audit = h.statements().find((text) => text.startsWith('INSERT INTO audit_events')) ?? '';
+    expect(audit).toContain('org_id');
+    expect(audit).toMatch(/\$6::jsonb, NULL\)/);
   });
 
   it('stamps finished_at with the SWAP instant, so the run and the job agree', async () => {
