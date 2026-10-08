@@ -295,7 +295,9 @@ export interface StoragePrisma extends StorageTx {
  * @stability experimental
  */
 export function storageForOrg(prisma: StoragePrisma, orgId: string, opts: { userId?: string } = {}): StorageTx {
-  if (typeof prisma.forOrg === 'function') return prisma.forOrg(orgId, opts) as StorageTx;
+  if (typeof prisma.forOrg === 'function') {
+    return (opts.userId !== undefined ? prisma.forOrg(orgId, opts) : prisma.forOrg(orgId)) as StorageTx;
+  }
   return forOrg(prisma as never, orgId, opts) as unknown as StorageTx;
 }
 

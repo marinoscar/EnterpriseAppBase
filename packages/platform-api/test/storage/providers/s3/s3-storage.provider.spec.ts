@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { Readable } from 'node:stream';
 
-import type { SystemStorageValue } from '../../../common/schemas/settings.schema';
-import { resolveStorageConfig } from '../../config/storage-config';
+import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
+import { resolveStorageConfig } from '../../../../src/storage/config/storage-config';
 
 // =============================================================================
 // S3StorageProvider — tests (issue #374, epic #372)
@@ -110,7 +110,7 @@ import {
   DEFAULT_S3_PART_SIZE,
   S3StorageProvider,
   type S3StorageProviderConfig,
-} from './s3-storage.provider';
+} from '../../../../src/storage/providers/s3/s3-storage.provider';
 
 const SECRET = 'super-secret-access-key-value';
 

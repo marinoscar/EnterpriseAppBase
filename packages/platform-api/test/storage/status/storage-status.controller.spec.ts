@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
 
-import type { StorageConfigResolution } from '../config/storage-config';
-import { StorageConfigService } from '../config/storage-config.service';
-import { StorageStatusController } from './storage-status.controller';
+import type { StorageConfigResolution } from '../../../src/storage/config/storage-config';
+import { StorageConfigService } from '../../../src/storage/config/storage-config.service';
+import { StorageStatusController } from '../../../src/storage/status/storage-status.controller';
 
 // =============================================================================
 // StorageStatusController: one boolean, never provider fields

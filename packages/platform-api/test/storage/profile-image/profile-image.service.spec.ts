@@ -4,18 +4,18 @@ import {
   PayloadTooLargeException,
 } from '@nestjs/common';
 
-import { ProfileImageService } from './profile-image.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
-import { UserSettingsService } from '@marinoscar/platform-api/settings';
+import { ProfileImageService } from '../../../src/storage/profile-image/profile-image.service';
+import { PrismaService } from '../support/app-doubles';
+import { PrismaSystemService } from '../support/app-doubles';
+import { STORAGE_PROVIDER } from '../../../src/storage/providers/storage-provider.interface';
+import { UserSettingsService } from '../../../src/settings/index';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../../test/mocks/prisma.mock';
-import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
-import { StorageConfigService } from '../../storage/config/storage-config.service';
-import { AVATAR_MAX_BYTES } from '../../common/profile-image/profile-image';
+} from '../support/prisma.mock';
+import { createMockStorageProvider } from '../support/storage-provider.mock';
+import { StorageConfigService } from '../../../src/storage/config/storage-config.service';
+import { AVATAR_MAX_BYTES } from '../../../src/storage/profile-image/profile-image';
 
 // Real magic bytes so `detectImageType` (exercised for real, not mocked)
 // classifies these as valid avatars.

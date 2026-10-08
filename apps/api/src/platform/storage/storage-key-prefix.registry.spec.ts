@@ -1,5 +1,7 @@
-// The storage key-prefix registry (issue #679): validation, overlap, the frozen
-// view, and the app extension seam.
+// The storage key-prefix registry (issue #679) as the reference app composes
+// it: validation, overlap, the frozen view, and the app extension seam. The
+// registry itself is the storage slice's (#736); its scopes and key builder
+// are covered in packages/platform-api/test/storage/key-prefix-registry.spec.ts.
 
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
@@ -8,7 +10,8 @@ import {
   registerStorageKeyPrefixes,
   storageKeyPrefixRegistry,
   type StorageKeyPrefixDef,
-} from './storage-key-prefix.registry';
+} from '@marinoscar/platform-api/storage';
+
 import { STORAGE_KEY_PREFIXES } from './storage-key-prefix.view';
 
 const def = (id: string, prefix: string, owner = 'test-app'): StorageKeyPrefixDef => ({
@@ -66,7 +69,7 @@ describe('storageKeyPrefixRegistry', () => {
       ['ends in a segment without its slash', 'exports/daily'],
       ['has upper case', 'Exports/'],
       ['has a space', 'my exports/'],
-      ['has a dot segment', './exports/'],
+      ['has a dot segment', '../../src/storage/exports'],
     ])('rejects a prefix that %s with INVALID_ENTRY', async (_why, prefix) => {
       const err = await attempt([def('exports', prefix)]);
 
@@ -183,10 +186,10 @@ describe('STORAGE_KEY_PREFIXES (the view)', () => {
     function loadViewWith(appEntries: StorageKeyPrefixDef[]): readonly string[] {
       let view: readonly string[] = [];
       jest.isolateModules(() => {
-        jest.doMock('../app-registrations/storage-prefixes', () => ({ APP_STORAGE_KEY_PREFIXES: appEntries }));
+        jest.doMock('../../app-registrations/storage-prefixes', () => ({ APP_STORAGE_KEY_PREFIXES: appEntries }));
         view = (require('./storage-key-prefix.view') as typeof import('./storage-key-prefix.view')).STORAGE_KEY_PREFIXES;
       });
-      jest.dontMock('../app-registrations/storage-prefixes');
+      jest.dontMock('../../app-registrations/storage-prefixes');
       return view;
     }
 

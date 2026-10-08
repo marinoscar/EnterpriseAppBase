@@ -1,14 +1,14 @@
-import type { CredentialsService } from '@marinoscar/platform-api/credentials';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { SystemStorageValue } from '../../common/schemas/settings.schema';
+import type { CredentialsService } from '../../../src/credentials/index';
+import type { SystemSettingsService } from '../../../src/settings/index';
+import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
 import {
   STORAGE_CREDENTIAL_NAME,
   STORAGE_CREDENTIAL_PURPOSE,
-} from '../storage-credential.constants';
+} from '../../../src/storage/storage-credential.constants';
 import {
   STORAGE_POLICY_CACHE_MS,
   StorageConfigService,
-} from './storage-config.service';
+} from '../../../src/storage/config/storage-config.service';
 
 // =============================================================================
 // StorageConfigService — tests (issue #373, epic #372)

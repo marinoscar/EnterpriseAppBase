@@ -1,4 +1,4 @@
-import type { SystemStorageValue } from '../../common/schemas/settings.schema';
+import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
 import {
   R2_DEFAULT_REGION,
   R2_ENDPOINT_HOST_SUFFIX,
@@ -8,7 +8,7 @@ import {
   fingerprintStorageConfig,
   resolveStorageConfig,
   type ResolvedStorageConfig,
-} from './storage-config';
+} from '../../../src/storage/config/storage-config';
 
 // =============================================================================
 // storage-config.ts — tests (issue #373, epic #372)

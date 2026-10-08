@@ -10,17 +10,17 @@ import {
 import { Readable } from 'node:stream';
 import { Prisma } from '@prisma/client';
 
-import { ObjectsService } from './objects.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
-import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
-import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
-import { StorageConfigService } from '../config/storage-config.service';
-import { ObjectProcessingService } from '../processing/object-processing.service';
-import { ACTIVE_DEDUP_INDEX_NAME, JobsService } from '@marinoscar/platform-api/jobs';
-import { STORAGE_OBJECT_PROCESS_TYPE } from '../handlers/storage-object-process.handler';
-import { AVATARS_KEY_PREFIX } from '../storage-key-prefixes';
-import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';
+import { ObjectsService } from '../../../src/storage/objects/objects.service';
+import { PrismaService } from '../support/app-doubles';
+import { STORAGE_PROVIDER } from '../../../src/storage/providers/storage-provider.interface';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { createMockStorageProvider } from '../support/storage-provider.mock';
+import { StorageConfigService } from '../../../src/storage/config/storage-config.service';
+import { ObjectProcessingService } from '../../../src/storage/processing/object-processing.service';
+import { ACTIVE_DEDUP_INDEX_NAME, JobsService } from '../../../src/jobs/index';
+import { STORAGE_OBJECT_PROCESS_TYPE } from '../../../src/storage/handlers/storage-object-process.handler';
+import { AVATARS_KEY_PREFIX } from '../../../src/storage/storage-key-prefixes';
+import { AVATAR_PURPOSE } from '../../../src/storage/profile-image/profile-image';
 
 describe('ObjectsService', () => {
   let service: ObjectsService;
@@ -186,7 +186,8 @@ describe('ObjectsService', () => {
       expect(mockPrisma.storageObject.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            storageKey: expect.stringMatching(/^uploads\/\d+\/[a-f0-9-]+\.pdf$/),
+            // #736: new keys carry the organization segment.
+            storageKey: expect.stringMatching(new RegExp(`^uploads/${testOrgId}/\\d+/[a-f0-9-]+\\.pdf$`)),
           }),
         }),
       );

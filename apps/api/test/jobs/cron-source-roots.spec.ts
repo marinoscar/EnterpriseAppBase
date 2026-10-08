@@ -9,6 +9,7 @@ import {
   JOBS_SLICE_SOURCE_ROOT,
   NODES_SLICE_SOURCE_ROOT,
   SHARING_SLICE_SOURCE_ROOT,
+  STORAGE_SLICE_SOURCE_ROOT,
   TELEMETRY_SLICE_SOURCE_ROOT,
 } from './cron-source-roots';
 
@@ -67,6 +68,15 @@ describe('cron-enqueue-only source roots', () => {
       expect.arrayContaining(['tasks/node-stale-offline.task.ts', 'tasks/node-offline-prune.task.ts', 'tasks/node-secret-sweep.task.ts']),
     );
     expect(new Set(report.findings.map((finding) => finding.file))).toEqual(new Set(['tasks/node-secret-sweep.task.ts']));
+  });
+
+  it('include the packaged storage slice: its stale-upload cleanup cron enqueues (#736)', () => {
+    expect(CRON_SOURCE_ROOTS).toContain(STORAGE_SLICE_SOURCE_ROOT);
+
+    const report = cronEnqueueOnlySuite.check({ sourceRoots: [STORAGE_SLICE_SOURCE_ROOT] }, OPTIONS);
+
+    expect(report.scannedFiles.cronFiles).toContain('tasks/storage-cleanup.task.ts');
+    expect(report.findings).toEqual([]);
   });
 
   it('a cron that works inline inside a slice root is a finding', () => {

@@ -63,8 +63,8 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: jest.fn(),
 }));
 
-import { StorageBucketProvisionService } from './storage-bucket-provision.service';
-import type { ProvisionStorageBucketInput } from './dto/storage-bucket-provision.dto';
+import { StorageBucketProvisionService } from '../../../src/storage/config/storage-bucket-provision.service';
+import type { ProvisionStorageBucketInput } from '../../../src/storage/config/dto/storage-bucket-provision.dto';
 
 const APP_URL = 'https://app.example.com';
 

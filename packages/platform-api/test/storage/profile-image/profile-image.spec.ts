@@ -10,7 +10,7 @@ import {
   normalizeProfileSettings,
   resolveProfileImageUrl,
   type AvatarCandidate,
-} from './profile-image';
+} from '../../../src/storage/profile-image/profile-image';
 
 describe('profile-image helpers (#367)', () => {
   // ===========================================================================

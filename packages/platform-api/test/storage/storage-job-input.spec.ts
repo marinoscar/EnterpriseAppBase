@@ -21,13 +21,13 @@
 
 import { Job, StorageObject } from '@prisma/client';
 
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { PrismaService } from '../prisma/prisma.service';
+import { createMockPrismaService, MockPrismaService } from './support/prisma.mock';
+import { PrismaService } from './support/app-doubles';
 import {
   JobInputResolutionError,
   resolveStorageObjectInput,
   STORAGE_OBJECT_SUBJECT_TYPE,
-} from './storage-job-input';
+} from '../../src/storage/storage-job-input';
 
 describe('resolveStorageObjectInput', () => {
   let prisma: MockPrismaService;

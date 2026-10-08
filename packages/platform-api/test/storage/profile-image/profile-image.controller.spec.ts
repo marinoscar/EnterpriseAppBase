@@ -3,9 +3,12 @@ import { Readable } from 'node:stream';
 import { NotFoundException } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 
-import { ProfileImageController } from './profile-image.controller';
-import { ProfileImageService } from './profile-image.service';
-import { AvatarService } from './avatar.service';
+import {
+  createProfileImageController,
+  type ProfileImageControllerShape,
+} from '../../../src/storage/profile-image/profile-image.controller';
+import { ProfileImageService } from '../../../src/storage/profile-image/profile-image.service';
+import { AvatarService } from '../../../src/storage/profile-image/avatar.service';
 
 function createMockReply(): jest.Mocked<FastifyReply> {
   const reply: Partial<jest.Mocked<FastifyReply>> = {
@@ -31,7 +34,10 @@ function createMockReply(): jest.Mocked<FastifyReply> {
  * omitted when the stored object's size is zero.
  */
 describe('ProfileImageController preview (#367)', () => {
-  let controller: ProfileImageController;
+  // #736: the controller is built by a factory (its response embeds the
+  // composed user-settings schema).
+  const ProfileImageController = createProfileImageController();
+  let controller: ProfileImageControllerShape;
   let mockAvatars: { openStored: jest.Mock };
 
   const userId = '11111111-1111-4111-8111-111111111111';

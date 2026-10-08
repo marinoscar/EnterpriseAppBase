@@ -1,4 +1,4 @@
-import { mimeTypeMatches, normaliseMimeType } from './mime-type-match';
+import { mimeTypeMatches, normaliseMimeType } from '../../src/storage/mime-type-match';
 
 describe('normaliseMimeType', () => {
   it('lower-cases the type', () => {

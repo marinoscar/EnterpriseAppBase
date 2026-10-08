@@ -1,12 +1,20 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Readable } from 'node:stream';
 
-import { ObjectProcessingService } from './object-processing.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
-import { OBJECT_PROCESSOR, ObjectProcessor } from './object-processor.interface';
-import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/prisma.mock';
-import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
+import { ObjectProcessingService } from '../../../src/storage/processing/object-processing.service';
+import { PrismaService } from '../support/app-doubles';
+import { STORAGE_PROVIDER } from '../../../src/storage/providers/storage-provider.interface';
+import type { ObjectProcessor } from '../../../src/storage/processing/object-processor.interface';
+import { ObjectProcessorRegistry } from '../../../src/storage/processing/object-processor.registry';
+
+/** A registry holding `processors`, as their own `onModuleInit` would leave it (#736: the registry replaced `OBJECT_PROCESSOR`). */
+function registryWith(processors: ObjectProcessor | ObjectProcessor[]): ObjectProcessorRegistry {
+  const registry = new ObjectProcessorRegistry();
+  for (const processor of Array.isArray(processors) ? processors : [processors]) registry.register(processor);
+  return registry;
+}
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { createMockStorageProvider } from '../support/storage-provider.mock';
 
 describe('ObjectProcessingService', () => {
   // #520: `run` is what the `storage.object.process` job calls; before #520 the
@@ -45,6 +53,7 @@ describe('ObjectProcessingService', () => {
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           ObjectProcessingService,
+          ObjectProcessorRegistry,
           { provide: PrismaService, useValue: mockPrisma },
           { provide: STORAGE_PROVIDER, useValue: mockStorageProvider },
         ],
@@ -166,10 +175,7 @@ describe('ObjectProcessingService', () => {
           ObjectProcessingService,
           { provide: PrismaService, useValue: mockPrisma },
           { provide: STORAGE_PROVIDER, useValue: mockStorageProvider },
-          {
-            provide: OBJECT_PROCESSOR,
-            useValue: [mockProcessor1, mockProcessor2],
-          },
+          { provide: ObjectProcessorRegistry, useValue: registryWith([mockProcessor1, mockProcessor2]) },
         ],
       }).compile();
 
@@ -568,10 +574,7 @@ describe('ObjectProcessingService', () => {
           ObjectProcessingService,
           { provide: PrismaService, useValue: mockPrisma },
           { provide: STORAGE_PROVIDER, useValue: mockStorageProvider },
-          {
-            provide: OBJECT_PROCESSOR,
-            useValue: mockProcessor, // Single processor, not array
-          },
+          { provide: ObjectProcessorRegistry, useValue: registryWith(mockProcessor) },
         ],
       }).compile();
 

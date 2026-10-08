@@ -3,10 +3,10 @@ import type { ConfigService } from '@nestjs/config';
 import type {
   ResolvedStorageConfig,
   StorageConfigResolution,
-} from '../config/storage-config';
-import type { StorageConfigService } from '../config/storage-config.service';
-import { StorageNotConfiguredError } from '../config/storage-not-configured.error';
-import { ResolvingStorageProvider } from './resolving-storage.provider';
+} from '../../../src/storage/config/storage-config';
+import type { StorageConfigService } from '../../../src/storage/config/storage-config.service';
+import { StorageNotConfiguredError } from '../../../src/storage/config/storage-not-configured.error';
+import { ResolvingStorageProvider } from '../../../src/storage/providers/resolving-storage.provider';
 
 // =============================================================================
 // ResolvingStorageProvider — tests (issue #373, epic #372)
@@ -29,13 +29,13 @@ interface MockS3Instance {
 
 let createdInstances: MockS3Instance[] = [];
 
-jest.mock('./s3/s3-storage.provider', () => ({
+jest.mock('../../../src/storage/providers/s3/s3-storage.provider', () => ({
   DEFAULT_S3_PART_SIZE: 10_485_760,
   S3StorageProvider: jest.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { S3StorageProvider } = jest.requireMock('./s3/s3-storage.provider') as {
+const { S3StorageProvider } = jest.requireMock('../../../src/storage/providers/s3/s3-storage.provider') as {
   S3StorageProvider: jest.Mock;
 };
 
@@ -118,7 +118,7 @@ describe('ResolvingStorageProvider', () => {
     const result = await provider.upload(
       'some/key',
       {} as unknown as import('node:stream').Readable,
-      {} as unknown as import('./storage-provider.types').StorageUploadOptions,
+      {} as unknown as import('../../../src/storage/providers/storage-provider.types').StorageUploadOptions,
     );
 
     expect(result).toEqual({ key: 'uploaded' });

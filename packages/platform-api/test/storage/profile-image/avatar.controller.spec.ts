@@ -3,8 +3,8 @@ import { Readable } from 'node:stream';
 import { NotFoundException } from '@nestjs/common';
 import type { FastifyReply } from 'fastify';
 
-import { AvatarController } from './avatar.controller';
-import { AvatarService } from './avatar.service';
+import { AvatarController } from '../../../src/storage/profile-image/avatar.controller';
+import { AvatarService } from '../../../src/storage/profile-image/avatar.service';
 
 function createMockReply(): jest.Mocked<FastifyReply> {
   const reply: Partial<jest.Mocked<FastifyReply>> = {

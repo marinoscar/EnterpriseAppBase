@@ -1,9 +1,9 @@
 import { ConflictException } from '@nestjs/common';
 
-import { StorageConfigAdminService } from './storage-config-admin.service';
-import { STORAGE_SWITCH_CONFIRMATION } from './dto/update-storage-config.dto';
-import type { UpdateStorageConfigInput } from './dto/update-storage-config.dto';
-import type { SystemStorageValue } from '../../common/schemas/settings.schema';
+import { StorageConfigAdminService } from '../../../src/storage/config/storage-config-admin.service';
+import { STORAGE_SWITCH_CONFIRMATION } from '../../../src/storage/config/dto/update-storage-config.dto';
+import type { UpdateStorageConfigInput } from '../../../src/storage/config/dto/update-storage-config.dto';
+import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
 
 // =============================================================================
 // StorageConfigAdminService — tests (issue #375, epic #372)

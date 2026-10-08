@@ -15,7 +15,7 @@ import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 
-import { AVATARS_KEY_PREFIX } from '../storage-key-prefixes';
+import { AVATARS_KEY_PREFIX, ensureStorageSliceKeyPrefixes } from '../storage-key-prefixes';
 import { buildObjectKey } from '../storage-key-prefix.registry';
 import { AVATAR_PURPOSE } from '../profile-image/profile-image';
 import { mimeTypeMatches, normaliseMimeType } from '../mime-type-match';
@@ -107,7 +107,11 @@ export class ObjectsService {
     @Optional()
     @Inject(STORAGE_OPTIONS)
     private readonly options?: ResolvedStorageModuleOptions,
-  ) {}
+  ) {
+    // The `uploads` key prefix this service builds keys under (#736); a no-op
+    // when `StorageModule.forRoot()` or the app's manifest registered it.
+    ensureStorageSliceKeyPrefixes();
+  }
 
   /** The multipart part size: the forRoot option, else the deployment's `storage.partSize`. */
   private partSize(): number {
@@ -124,7 +128,7 @@ export class ObjectsService {
   }
 
   /**
-   * A new upload's key: `uploads/<orgId>/<timestamp>/<uuid><ext>`, through the
+   * A new upload's key, uploads/<orgId>/<timestamp>/<uuid><ext>, through the
    * key builder of the prefix registry (#736).
    */
   private newUploadKey(orgId: string, filename: string): string {
@@ -165,7 +169,7 @@ export class ObjectsService {
       );
     }
 
-    // Generate storage key: org-aware since #736 (`uploads/<orgId>/<timestamp>/
+    // Generate storage key: org-aware since #736 (uploads/<orgId>/<timestamp>/
     // <uuid><ext>`). Rows written before keep their stored key; nothing here
     // or anywhere rebuilds a key for an existing row.
     const storageKey = this.newUploadKey(orgId, name);

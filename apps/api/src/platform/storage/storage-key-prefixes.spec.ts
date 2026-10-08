@@ -3,26 +3,26 @@ import { join, relative } from 'node:path';
 
 import * as ts from 'typescript';
 
-import { BACKUP_KEY_PREFIX } from '../db-backup/db-backup-storage';
-import { NODE_OUTPUT_KEY_PREFIX } from '@marinoscar/platform-api/nodes';
-import { avatarKeyPrefix } from '../common/profile-image/profile-image';
-import { aiOutputKeyPrefix } from '../ai/storage/ai-output-writer';
 import { withTemporaryEntries } from '@marinoscar/platform-api/core';
-import { STORAGE_PROBE_KEY_PREFIX } from './config/storage-connection-test.service';
+import { NODE_OUTPUT_KEY_PREFIX } from '@marinoscar/platform-api/nodes';
 import {
-  STORAGE_KEY_PREFIX_PATTERN,
-  storageKeyPrefixRegistry,
-  type StorageKeyPrefixDef,
-} from './storage-key-prefix.registry';
-import { STORAGE_KEY_PREFIXES } from './storage-key-prefix.view';
-import {
-  AI_OUTPUTS_KEY_PREFIX,
   AVATARS_KEY_PREFIX,
-  DATABASE_BACKUPS_KEY_PREFIX,
   NODE_OUTPUTS_KEY_PREFIX,
+  STORAGE_KEY_PREFIX_PATTERN,
+  STORAGE_PROBE_KEY_PREFIX,
   STORAGE_TEST_KEY_PREFIX,
   UPLOADS_KEY_PREFIX,
-} from './storage-key-prefixes';
+  allKeyPrefixes,
+  avatarKeyPrefix,
+  buildObjectKey,
+  storageKeyPrefixRegistry,
+  type StorageKeyPrefixDef,
+} from '@marinoscar/platform-api/storage';
+
+import { BACKUP_KEY_PREFIX } from '../../db-backup/db-backup-storage';
+import { aiOutputKeyPrefix } from '../../ai/storage/ai-output-writer';
+import { STORAGE_KEY_PREFIXES } from './storage-key-prefix.view';
+import { AI_OUTPUTS_KEY_PREFIX, DATABASE_BACKUPS_KEY_PREFIX } from './storage-key-prefixes';
 
 /**
  * These assertions exist because of one concrete failure, recorded in the
@@ -36,7 +36,9 @@ import {
  * scanned for writer constants no registered prefix covers (issue #679).
  */
 
-const SRC_ROOT = join(__dirname, '..');
+/** The roots the writer scan reads: the app's source and the packaged slices' (#736: the storage writers live there now). */
+const SRC_ROOT = join(__dirname, '..', '..');
+const PACKAGE_SRC_ROOT = join(__dirname, '..', '..', '..', '..', '..', 'packages', 'platform-api', 'src');
 
 /** A `*_KEY_PREFIX` constant initialised with a plain string literal. */
 interface KeyPrefixConstant {
@@ -94,22 +96,26 @@ function unregisteredKeyPrefixes(
   });
 }
 
-/** Every non-spec `.ts` file under `apps/api/src`. */
+/** Every non-spec `.ts` file under `apps/api/src` and `packages/platform-api/src` (the latter as `platform-api/...`). */
 function apiSources(): Array<{ file: string; text: string }> {
-  const files: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')) files.push(path);
-    }
-  };
-  walk(SRC_ROOT);
-  return files.map((path) => ({ file: relative(SRC_ROOT, path), text: readFileSync(path, 'utf8') }));
+  const out: Array<{ file: string; text: string }> = [];
+  for (const [root, label] of [[SRC_ROOT, ''], [PACKAGE_SRC_ROOT, 'platform-api/']] as const) {
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')) {
+          out.push({ file: `${label}${relative(root, path).split('\\').join('/')}`, text: readFileSync(path, 'utf8') });
+        }
+      }
+    };
+    walk(root);
+  }
+  return out;
 }
 
 /** Owners of the platform's own entries; anything else is an app's. */
-const PLATFORM_OWNERS = new Set(['storage', 'settings/profile-image', 'db-backup', 'nodes', 'ai', 'storage/config']);
+const PLATFORM_OWNERS = new Set(['storage', 'storage/profile-image', 'db-backup', 'nodes', 'ai', 'storage/config']);
 
 describe('STORAGE_KEY_PREFIXES', () => {
   it('every registered prefix is well formed and no two overlap', () => {
@@ -130,6 +136,7 @@ describe('STORAGE_KEY_PREFIXES', () => {
 
   it('is exactly the registry, in registration order', () => {
     expect(STORAGE_KEY_PREFIXES).toEqual(storageKeyPrefixRegistry.list().map((d) => d.prefix));
+    expect(allKeyPrefixes()).toEqual(STORAGE_KEY_PREFIXES);
   });
 
   it('the platform baseline: the entries with a platform owner are the six the platform writes', () => {
@@ -138,15 +145,15 @@ describe('STORAGE_KEY_PREFIXES', () => {
     const platform = storageKeyPrefixRegistry
       .list()
       .filter((d) => PLATFORM_OWNERS.has(d.owner))
-      .map(({ id, prefix, owner }) => ({ id, prefix, owner }));
+      .map(({ id, prefix, owner, scope }) => ({ id, prefix, owner, scope }));
 
     expect(platform).toEqual([
-      { id: 'uploads', prefix: 'uploads/', owner: 'storage' },
-      { id: 'avatars', prefix: 'avatars/', owner: 'settings/profile-image' },
-      { id: 'database-backups', prefix: 'database-backups/', owner: 'db-backup' },
-      { id: 'node-outputs', prefix: 'node-outputs/', owner: 'nodes' },
-      { id: 'ai-outputs', prefix: 'ai-outputs/', owner: 'ai' },
-      { id: 'storage-config-test', prefix: 'storage-config-test/', owner: 'storage/config' },
+      { id: 'uploads', prefix: 'uploads/', owner: 'storage', scope: 'org' },
+      { id: 'avatars', prefix: 'avatars/', owner: 'storage/profile-image', scope: 'user' },
+      { id: 'database-backups', prefix: 'database-backups/', owner: 'db-backup', scope: 'deployment' },
+      { id: 'node-outputs', prefix: 'node-outputs/', owner: 'nodes', scope: 'deployment' },
+      { id: 'ai-outputs', prefix: 'ai-outputs/', owner: 'ai', scope: 'user' },
+      { id: 'storage-config-test', prefix: 'storage-config-test/', owner: 'storage/config', scope: 'deployment' },
     ]);
   });
 
@@ -165,9 +172,11 @@ describe('STORAGE_KEY_PREFIXES', () => {
       expect(`${NODE_OUTPUT_KEY_PREFIX}/`).toBe(NODE_OUTPUTS_KEY_PREFIX);
     });
 
-    it('avatars: the per-user key sits under the root prefix', () => {
+    it('avatars: the per-user key sits under the root prefix, as the user-scoped builder places it', () => {
+      const user = '11111111-1111-4111-8111-111111111111';
       expect(avatarKeyPrefix('user-123')).toBe(`${AVATARS_KEY_PREFIX}user-123/`);
       expect(avatarKeyPrefix('user-123').startsWith(AVATARS_KEY_PREFIX)).toBe(true);
+      expect(buildObjectKey('avatars', { userId: user }, 'x.png')).toBe(`${avatarKeyPrefix(user)}x.png`);
     });
 
     it('AI outputs: the per-user, per-run folder sits under the root prefix', () => {
@@ -180,23 +189,21 @@ describe('STORAGE_KEY_PREFIXES', () => {
       expect(STORAGE_PROBE_KEY_PREFIX).toBe(STORAGE_TEST_KEY_PREFIX);
     });
 
-    it('uploads: the object service builds its key from the constant, not a literal', () => {
+    it('uploads: the object service builds its key through the registry, not a literal', () => {
       // Read rather than invoked: the key is built inside a method that needs a
       // provider, a database and a request. What must be true is that the
       // literal is GONE from the source -- it appeared twice, and a third copy
-      // is exactly how this drifts.
-      const source = readFileSync(
-        join(__dirname, 'objects', 'objects.service.ts'),
-        'utf8',
-      );
+      // is exactly how this drifts. Since #736 the key is org-aware and comes
+      // from the builder of the registered `uploads` prefix.
+      const source = readFileSync(join(PACKAGE_SRC_ROOT, 'storage', 'objects', 'objects.service.ts'), 'utf8');
 
       expect(source).not.toMatch(/`uploads\//);
-      expect(source).toContain('UPLOADS_KEY_PREFIX');
+      expect(source).toContain("buildObjectKey('uploads'");
       expect(UPLOADS_KEY_PREFIX).toBe('uploads/');
     });
   });
 
-  describe('no writer in apps/api/src invents a prefix outside the registry', () => {
+  describe('no writer in apps/api/src or the packaged slices invents a prefix outside the registry', () => {
     // The tripwire for a NEW writer. The rule: a writer names its prefix
     // constant `*_KEY_PREFIX`. Every such constant initialised with a literal
     // must equal, or sit under, a registered prefix; otherwise its objects
@@ -207,17 +214,17 @@ describe('STORAGE_KEY_PREFIXES', () => {
 
       expect(names).toEqual(
         expect.arrayContaining([
-          'storage/storage-key-prefixes.ts:UPLOADS_KEY_PREFIX',
-          'storage/storage-key-prefixes.ts:AVATARS_KEY_PREFIX',
-          'storage/storage-key-prefixes.ts:DATABASE_BACKUPS_KEY_PREFIX',
-          'storage/storage-key-prefixes.ts:NODE_OUTPUTS_KEY_PREFIX',
-          'storage/storage-key-prefixes.ts:AI_OUTPUTS_KEY_PREFIX',
-          'storage/storage-key-prefixes.ts:STORAGE_TEST_KEY_PREFIX',
+          'platform-api/storage/storage-key-prefixes.ts:UPLOADS_KEY_PREFIX',
+          'platform-api/storage/storage-key-prefixes.ts:AVATARS_KEY_PREFIX',
+          'platform/storage/storage-key-prefixes.ts:DATABASE_BACKUPS_KEY_PREFIX',
+          'platform-api/nodes/node-data-plane.service.ts:NODE_OUTPUT_KEY_PREFIX',
+          'platform/storage/storage-key-prefixes.ts:AI_OUTPUTS_KEY_PREFIX',
+          'platform-api/storage/storage-key-prefixes.ts:STORAGE_TEST_KEY_PREFIX',
         ]),
       );
     });
 
-    it('every *_KEY_PREFIX literal in apps/api/src is covered by a registered prefix', () => {
+    it('every *_KEY_PREFIX literal in apps/api/src and packages/platform-api/src is covered by a registered prefix', () => {
       expect(unregisteredKeyPrefixes(findKeyPrefixConstants(apiSources()), STORAGE_KEY_PREFIXES)).toEqual([]);
     });
 
@@ -289,7 +296,7 @@ describe('STORAGE_KEY_PREFIXES', () => {
   });
 });
 
-describe('storage-key-prefixes.ts stays a no-import leaf', () => {
+describe("the app's storage-key-prefixes.ts stays a no-import leaf", () => {
   const LEAF = join(__dirname, 'storage-key-prefixes.ts');
 
   it('evaluates with a require that is never called', () => {
@@ -311,12 +318,8 @@ describe('storage-key-prefixes.ts stays a no-import leaf', () => {
 
     expect(required).toEqual([]);
     expect(fakeModule.exports).toEqual({
-      UPLOADS_KEY_PREFIX: 'uploads/',
-      AVATARS_KEY_PREFIX: 'avatars/',
       DATABASE_BACKUPS_KEY_PREFIX: 'database-backups/',
-      NODE_OUTPUTS_KEY_PREFIX: 'node-outputs/',
       AI_OUTPUTS_KEY_PREFIX: 'ai-outputs/',
-      STORAGE_TEST_KEY_PREFIX: 'storage-config-test/',
     });
   });
 

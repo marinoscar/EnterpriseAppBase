@@ -52,7 +52,7 @@
 // =============================================================================
 
 import { NODE_OUTPUT_KEY_PREFIX } from '../nodes/index';
-import { registerStorageKeyPrefixes, type StorageKeyPrefixDef } from './storage-key-prefix.registry';
+import { registerStorageKeyPrefixes, storageKeyPrefixRegistry, type StorageKeyPrefixDef } from './storage-key-prefix.registry';
 
 /**
  * Files uploaded through the storage objects API. ORG scope since #736: new
@@ -144,4 +144,20 @@ export const STORAGE_SLICE_KEY_PREFIXES: readonly StorageKeyPrefixDef[] = Object
  */
 export function registerStorageSliceKeyPrefixes(): void {
   registerStorageKeyPrefixes(STORAGE_SLICE_KEY_PREFIXES);
+}
+
+/**
+ * {@link registerStorageSliceKeyPrefixes} unless every slice prefix is
+ * registered already or the registry is frozen: what a service that builds
+ * keys calls from its constructor, so it works when it is constructed without
+ * `StorageModule.forRoot()` (a spec, a script).
+ *
+ * @internal
+ *
+ * @stability experimental
+ */
+export function ensureStorageSliceKeyPrefixes(): void {
+  if (STORAGE_SLICE_KEY_PREFIXES.every((def) => storageKeyPrefixRegistry.has(def.id))) return;
+  if (storageKeyPrefixRegistry.frozen) return;
+  registerStorageSliceKeyPrefixes();
 }

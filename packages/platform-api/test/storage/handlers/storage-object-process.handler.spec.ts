@@ -18,16 +18,16 @@
 import { Logger } from '@nestjs/common';
 import { Job, StorageObject } from '@prisma/client';
 
-import { createMockPrismaService, MOCK_DEFAULT_ORG_ID, MockPrismaService } from '../../../test/mocks/prisma.mock';
-import { recordTenancyMode, MissingOrgScopeError } from '@marinoscar/platform-api/identity';
-import type { JobSettledEvent } from '@marinoscar/platform-api/jobs';
-import type { JobHandler } from '@marinoscar/platform-api/jobs';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { jobTypeLabel } from '@marinoscar/platform-api/jobs';
-import { PrismaService } from '../../prisma/prisma.service';
-import type { ObjectProcessingService } from '../processing/object-processing.service';
-import { JobInputResolutionError, STORAGE_OBJECT_SUBJECT_TYPE } from '../storage-job-input';
-import { STORAGE_OBJECT_PROCESS_TYPE, StorageObjectProcessHandler } from './storage-object-process.handler';
+import { createMockPrismaService, MOCK_DEFAULT_ORG_ID, MockPrismaService } from '../support/prisma.mock';
+import { recordTenancyMode, MissingOrgScopeError } from '../../../src/identity/index';
+import type { JobSettledEvent } from '../../../src/jobs/index';
+import type { JobHandler } from '../../../src/jobs/index';
+import { JobHandlerRegistry } from '../../../src/jobs/index';
+import { jobTypeLabel } from '../../../src/jobs/index';
+import { PrismaService } from '../support/app-doubles';
+import type { ObjectProcessingService } from '../../../src/storage/processing/object-processing.service';
+import { JobInputResolutionError, STORAGE_OBJECT_SUBJECT_TYPE } from '../../../src/storage/storage-job-input';
+import { STORAGE_OBJECT_PROCESS_TYPE, StorageObjectProcessHandler } from '../../../src/storage/handlers/storage-object-process.handler';
 
 const OBJECT_ID = 'object-1';
 const JOB_ID = 'job-1';

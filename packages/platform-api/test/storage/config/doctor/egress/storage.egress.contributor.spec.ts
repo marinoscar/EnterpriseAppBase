@@ -1,7 +1,7 @@
-import { EgressRegistry } from '@marinoscar/platform-api/doctor';
+import { EgressRegistry } from '../../../../../src/doctor/index';
 
-import { StorageConfigAdminService } from '../../storage-config-admin.service';
-import { StorageEgressContributor } from './storage.egress.contributor';
+import { StorageConfigAdminService } from '../../../../../src/storage/config/storage-config-admin.service';
+import { StorageEgressContributor } from '../../../../../src/storage/config/doctor/egress/storage.egress.contributor';
 
 function setup(view: Record<string, unknown>) {
   const storageAdmin = {

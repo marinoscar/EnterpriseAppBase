@@ -38,7 +38,7 @@
 // the stored key and never rebuild it.
 // =============================================================================
 
-import { Registry, RegistryError, defineRegistry, isCanonicalUuid } from '../core/index';
+import { Registry, RegistryError, defineRegistry } from '../core/index';
 import { currentTenancyMode } from '../identity/index';
 
 /**
@@ -250,9 +250,9 @@ export function allKeyPrefixes(): readonly string[] {
  * segment (`uploads/<timestamp>/…`), so offboarding ALSO deletes the stored
  * keys of `storage_objects WHERE org_id = $1`.
  *
- * @param orgId - the organization (a canonical UUID).
+ * @param orgId - the organization id.
  * @returns a frozen array, in registration order.
- * @throws Error when `orgId` is not a canonical UUID.
+ * @throws Error when `orgId` is empty or not one path segment.
  *
  * @extensionPoint registry
  * @stability experimental
@@ -295,9 +295,15 @@ function assertPart(part: string): void {
   }
 }
 
+/**
+ * The tenant segment: one non-empty path segment (no `/`, not `.`/`..`). Not
+ * checked as a UUID here: the organization comes from the principal (the guard
+ * validated it against the user's memberships) or a job payload, and row-level
+ * security rejects any other on the row itself.
+ */
 function assertSegment(name: string, value: string | undefined): asserts value is string {
-  if (typeof value !== 'string' || !isCanonicalUuid(value)) {
-    throw new Error(`${name} must be a canonical UUID (got ${JSON.stringify(value)})`);
+  if (typeof value !== 'string' || value === '' || value.includes('/') || value === '.' || value === '..') {
+    throw new Error(`${name} must be one non-empty path segment (got ${JSON.stringify(value)})`);
   }
 }
 

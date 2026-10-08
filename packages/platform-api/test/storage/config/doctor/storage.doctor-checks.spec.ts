@@ -1,13 +1,13 @@
-import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { StorageProvider } from '../../providers/storage-provider.interface';
-import { StorageConfigService } from '../storage-config.service';
+import { DoctorCheckOutcome } from '../../../../src/doctor/index';
+import { DoctorCheckRegistry } from '../../../../src/doctor/index';
+import { StorageProvider } from '../../../../src/storage/providers/storage-provider.interface';
+import { StorageConfigService } from '../../../../src/storage/config/storage-config.service';
 import {
   STORAGE_DOCTOR_PROBE_KEY,
   StorageBucketDoctorCheck,
   decideStorageProbeError,
-} from './storage-bucket.doctor-check';
-import { StorageConfigDoctorCheck, decideStorageConfig } from './storage-config.doctor-check';
+} from '../../../../src/storage/config/doctor/storage-bucket.doctor-check';
+import { StorageConfigDoctorCheck, decideStorageConfig } from '../../../../src/storage/config/doctor/storage-config.doctor-check';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
   expect(['warn', 'fail']).toContain(outcome.status);

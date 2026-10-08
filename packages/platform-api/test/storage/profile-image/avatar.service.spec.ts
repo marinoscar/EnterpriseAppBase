@@ -2,15 +2,15 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { Readable } from 'node:stream';
 
-import { AvatarService } from './avatar.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
+import { AvatarService } from '../../../src/storage/profile-image/avatar.service';
+import { PrismaService } from '../support/app-doubles';
+import { PrismaSystemService } from '../support/app-doubles';
+import { STORAGE_PROVIDER } from '../../../src/storage/providers/storage-provider.interface';
 import {
   createMockPrismaService,
   MockPrismaService,
-} from '../../../test/mocks/prisma.mock';
-import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
+} from '../support/prisma.mock';
+import { createMockStorageProvider } from '../support/storage-provider.mock';
 
 /**
  * The public avatar route (#367) must answer an IDENTICAL 404 for every miss

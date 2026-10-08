@@ -64,8 +64,8 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: jest.fn((...args: unknown[]) => getSignedUrlMock(...args)),
 }));
 
-import { StorageConnectionTestService } from './storage-connection-test.service';
-import type { TestStorageConfigInput } from './dto/storage-connection-test.dto';
+import { StorageConnectionTestService } from '../../../src/storage/config/storage-connection-test.service';
+import type { TestStorageConfigInput } from '../../../src/storage/config/dto/storage-connection-test.dto';
 
 const STORED_SECRET = 'stored-secret-access-key-0123456789';
 const PRESIGNED_URL = 'https://example-bucket.s3.us-west-2.amazonaws.com/probe?X-Amz-Signature=abc';
