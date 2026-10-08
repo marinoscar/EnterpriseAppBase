@@ -113,7 +113,7 @@ None in this package. `@marinoscar/platform-web/user-data` ships the Danger Zone
 
 ## Infra
 
-None. The storage key-prefix registry's `survivesFactoryReset: true` marks prefixes the factory reset keeps (the reference app marks `database-backups/`).
+None. The storage key-prefix registry's `survivesFactoryReset: true` marks prefixes the factory reset keeps (the db-backup slice marks `database-backups/` in `DB_BACKUP_KEY_PREFIX`).
 
 ## Observability
 
