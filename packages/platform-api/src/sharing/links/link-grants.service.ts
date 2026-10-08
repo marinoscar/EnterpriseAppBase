@@ -302,10 +302,10 @@ export interface LegacyLinkImport {
  * `/s/<token>`, with the token in the PATH. The imported token is
  * `lnk_<token>`, so:
  *
- * 1. In the migration, for every `MediaShare` row: `importLegacyToken(tx, {
- *    orgId, resourceType, resourceId, role: 'viewer', token: row.token,
- *    expiresAt: row.expiresAt, revokedAt: row.revokedAt, grantedById:
- *    row.createdById, createdAt: row.createdAt })`, then drop the clear column.
+ * 1. In the migration, call `importLegacyToken` once per `MediaShare` row,
+ *    with its organization, resource type and id, `role: 'viewer'`, the old
+ *    `token`, and its `expiresAt`, `revokedAt`, `createdById` (as
+ *    `grantedById`) and `createdAt`; then drop the clear column.
  * 2. Optionally keep a web redirect from `/s/:token` to `/s#lnk_:token`, so
  *    links already handed out keep working. The FIRST request of an old link
  *    still carries the token in its path, so it is logged once (nginx
