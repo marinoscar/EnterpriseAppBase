@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 /**
  * Component tests — `DeviceInfoCard` (issue #141).
  *
@@ -10,10 +11,10 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { DeviceInfoCard } from '../../../components/device-activation/DeviceInfoCard';
-import { DEVICE_NAME_MAX_DISPLAY } from '../../../components/device-activation/credential';
-import type { DeviceActivationInfo } from '../../../types';
+import { render } from './render.js';
+import { DeviceInfoCard } from '../../src/identity/ui/device/DeviceInfoCard.js';
+import { DEVICE_NAME_MAX_DISPLAY } from '../../src/identity/headless/index.js';
+import type { DeviceActivationInfo } from '../../src/identity/headless/index.js';
 
 // Named by codepoint, per the convention in credential.test.ts and the API's
 // own spec — a hostile-input test file should never carry literal invisible

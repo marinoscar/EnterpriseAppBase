@@ -1,15 +1,16 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../utils/test-utils';
-import AuthCallbackPage from '../../pages/AuthCallbackPage';
-import { api } from '../../services/api';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './render.js';
+import { AuthCallbackPage } from '../../src/identity/ui/AuthCallbackPage.js';
 
 // Mock useNavigate and useSearchParams
 const mockNavigate = vi.fn();
 const mockSearchParams = new URLSearchParams();
 const mockRefreshUser = vi.fn();
 const mockLogin = vi.fn();
+const mockSetAccessToken = vi.fn();
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -21,8 +22,8 @@ vi.mock('react-router-dom', async () => {
 });
 
 // Mock useAuth hook
-vi.mock('../../contexts/AuthContext', async () => {
-  const actual = await vi.importActual('../../contexts/AuthContext');
+vi.mock('../../src/identity/headless/auth-context.js', async () => {
+  const actual = await vi.importActual('../../src/identity/headless/auth-context.js');
   return {
     ...actual,
     useAuth: () => ({
@@ -33,6 +34,7 @@ vi.mock('../../contexts/AuthContext', async () => {
       login: mockLogin,
       logout: vi.fn(),
       refreshUser: mockRefreshUser,
+      setAccessToken: mockSetAccessToken,
     }),
   };
 });
@@ -68,8 +70,7 @@ describe('AuthCallbackPage', () => {
       const mockToken = 'test-access-token-123';
       mockSearchParams.set('token', mockToken);
 
-      const setAccessTokenSpy = vi.spyOn(api, 'setAccessToken');
-      const mockRefreshUser = vi.fn().mockResolvedValue(undefined);
+      const setAccessTokenSpy = mockSetAccessToken;
 
       render(<AuthCallbackPage />, {
         wrapperOptions: {
@@ -302,7 +303,7 @@ describe('AuthCallbackPage', () => {
       const mockToken = 'test-access-token-123';
       mockSearchParams.set('token', mockToken);
       mockRefreshUser.mockRejectedValue(new Error('Network error'));
-      const setAccessTokenSpy = vi.spyOn(api, 'setAccessToken');
+      const setAccessTokenSpy = mockSetAccessToken;
 
       render(<AuthCallbackPage />, {
         wrapperOptions: {
@@ -319,7 +320,7 @@ describe('AuthCallbackPage', () => {
     it('should not store a token when an error code is present', async () => {
       mockSearchParams.set('error', 'access_denied');
       mockSearchParams.set('token', 'some-token');
-      const setAccessTokenSpy = vi.spyOn(api, 'setAccessToken');
+      const setAccessTokenSpy = mockSetAccessToken;
 
       render(<AuthCallbackPage />, {
         wrapperOptions: { authenticated: false },

@@ -62,14 +62,11 @@ vi.mock('../../components/settings/ProfileSettings', () => ({
   )),
 }));
 
-// `PersonalAccessTokens` owns its own hook and API calls (`/api/pat`), none
-// of which this file's mocked `useUserSettings` should ever gate — see
-// `UserTokensPage` below. Stubbed for the same reason `ThemeSettings` and
-// `ProfileSettings` are: it has its own test file, and the page under test
-// here is thin wiring.
-vi.mock('../../components/settings/PersonalAccessTokens', () => ({
-  PersonalAccessTokens: vi.fn(() => <div data-testid="personal-access-tokens" />),
-}));
+// The Access Tokens page is packaged (#727, `@marinoscar/platform-web/identity/ui`);
+// its composition (title, the token list) is covered in the package's
+// `test/identity/user-tokens-page.test.tsx`. Here it renders for real, over
+// the app's identity adapters, to prove the one property this file owns: it
+// never waits on `useUserSettings`.
 
 import { useUserSettings } from '../../hooks/useUserSettings';
 import UserProfilePage from '../../pages/UserProfilePage';
@@ -361,23 +358,6 @@ describe('UserTokensPage', () => {
     vi.clearAllMocks();
   });
 
-  it('displays its title and description', () => {
-    render(<UserTokensPage />);
-
-    expect(screen.getByRole('heading', { name: /access tokens/i })).toBeInTheDocument();
-    expect(
-      screen.getByText(/create and revoke personal access tokens/i),
-    ).toBeInTheDocument();
-  });
-
-  it('renders PersonalAccessTokens, and not the profile or appearance sections', () => {
-    render(<UserTokensPage />);
-
-    expect(screen.getByTestId('personal-access-tokens')).toBeInTheDocument();
-    expect(screen.queryByTestId('profile-settings')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('theme-settings')).not.toBeInTheDocument();
-  });
-
   it('never calls useUserSettings — it is not wrapped in UserSettingsSection', () => {
     // Mocked to be perpetually loading, so that if this page were ever
     // (re)wrapped in `UserSettingsSection` it would render a spinner instead
@@ -387,7 +367,6 @@ describe('UserTokensPage', () => {
     render(<UserTokensPage />);
 
     expect(mockUseUserSettings).not.toHaveBeenCalled();
-    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /access tokens/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Access Tokens' })).toBeInTheDocument();
   });
 });

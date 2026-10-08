@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 /**
  * `pages/Admin/UsersPage` — the former `pages/UserManagementPage`, moved under
  * the Console route tree by issue #92 and reached at
@@ -13,31 +14,31 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import UsersPage from '../../../pages/Admin/UsersPage';
+import { userEvent } from '@testing-library/user-event';
+import { render, mockAdminUser } from './render.js';
+import { UsersPage } from '../../src/identity/ui/users/UsersPage.js';
 
 // Mock the hooks
-vi.mock('../../../hooks/usePermissions', () => ({
+vi.mock('../../src/identity/headless/use-permissions.js', () => ({
   usePermissions: vi.fn(),
 }));
 
 // Mock the child components
-vi.mock('../../../components/admin/UserList', () => ({
+vi.mock('../../src/identity/ui/users/UserList.js', () => ({
   UserList: vi.fn(() => (
     <div data-testid="user-list">UserList Component</div>
   )),
 }));
 
-vi.mock('../../../components/admin/AllowlistTable', () => ({
+vi.mock('../../src/identity/ui/users/AllowlistTable.js', () => ({
   AllowlistTable: vi.fn(() => (
     <div data-testid="allowlist-table">AllowlistTable Component</div>
   )),
 }));
 
-import { usePermissions } from '../../../hooks/usePermissions';
-import { UserList } from '../../../components/admin/UserList';
-import { AllowlistTable } from '../../../components/admin/AllowlistTable';
+import { usePermissions } from '../../src/identity/headless/use-permissions.js';
+import { UserList } from '../../src/identity/ui/users/UserList.js';
+import { AllowlistTable } from '../../src/identity/ui/users/AllowlistTable.js';
 
 const mockUsePermissions = vi.mocked(usePermissions);
 const mockUserList = vi.mocked(UserList);

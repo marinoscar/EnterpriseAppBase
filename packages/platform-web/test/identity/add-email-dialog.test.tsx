@@ -1,8 +1,9 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import { AddEmailDialog } from '../../../components/admin/AddEmailDialog';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './render.js';
+import { AddEmailDialog } from '../../src/identity/ui/users/AddEmailDialog.js';
 
 describe('AddEmailDialog', () => {
   const mockOnClose = vi.fn();
@@ -365,7 +366,7 @@ describe('AddEmailDialog', () => {
       const user = userEvent.setup();
       let resolveAdd: () => void;
       mockOnAdd.mockReturnValue(
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           resolveAdd = resolve;
         }),
       );
@@ -394,7 +395,7 @@ describe('AddEmailDialog', () => {
       const user = userEvent.setup();
       let resolveAdd: () => void;
       mockOnAdd.mockReturnValue(
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           resolveAdd = resolve;
         }),
       );
@@ -425,7 +426,7 @@ describe('AddEmailDialog', () => {
       const user = userEvent.setup();
       let resolveAdd: () => void;
       mockOnAdd.mockReturnValue(
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           resolveAdd = resolve;
         }),
       );
@@ -454,7 +455,7 @@ describe('AddEmailDialog', () => {
       const user = userEvent.setup();
       let resolveAdd: () => void;
       mockOnAdd.mockReturnValue(
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           resolveAdd = resolve;
         }),
       );

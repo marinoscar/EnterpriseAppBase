@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 /**
  * Component tests — `CredentialGrantNotice` (issue #141).
  *
@@ -10,9 +11,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { CredentialGrantNotice } from '../../../components/device-activation/CredentialGrantNotice';
-import { DEVICE_PAT_APPROX_DAYS } from '../../../components/device-activation/credential';
+import { render } from './render.js';
+import { CredentialGrantNotice } from '../../src/identity/ui/device/CredentialGrantNotice.js';
+import { DEVICE_PAT_APPROX_DAYS } from '../../src/identity/headless/index.js';
 
 describe('CredentialGrantNotice', () => {
   describe('session', () => {

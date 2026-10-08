@@ -1,14 +1,15 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { RequirePermission } from '../../../components/common/RequirePermission';
+import { render } from './render.js';
+import { RequirePermission } from '../../src/identity/headless/index.js';
 
 // Mock usePermissions hook
-vi.mock('../../../hooks/usePermissions', () => ({
+vi.mock('../../src/identity/headless/use-permissions.js', () => ({
   usePermissions: vi.fn(),
 }));
 
-import { usePermissions } from '../../../hooks/usePermissions';
+import { usePermissions } from '../../src/identity/headless/use-permissions.js';
 
 const mockUsePermissions = vi.mocked(usePermissions);
 
@@ -326,7 +327,7 @@ describe('RequirePermission', () => {
     });
 
     it('should render nothing when permission denied and no fallback provided', () => {
-      const { container } = render(
+      render(
         <div data-testid="wrapper">
           <RequirePermission permission="nonexistent:permission">
             <div>Hidden Content</div>
@@ -492,7 +493,7 @@ describe('RequirePermission', () => {
         hasAnyPermission: vi.fn().mockReturnValue(false),
         hasAllPermissions: vi.fn().mockReturnValue(false),
         hasRole: (role: string) => role === 'guest',
-        hasAnyRole: (roleList: string[]) => roleList.includes('guest'),
+        hasAnyRole: (...roleList: string[]) => roleList.includes('guest'),
         isAdmin: false,
       });
 

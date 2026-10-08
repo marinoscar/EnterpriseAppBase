@@ -1,11 +1,15 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { usePermissions } from '../../hooks/usePermissions';
-import * as AuthContext from '../../contexts/AuthContext';
-import { User } from '../../types';
+import { usePermissions } from '../../src/identity/headless/index.js';
+import * as AuthContext from '../../src/identity/headless/auth-context.js';
+import type { AuthContextValue, AuthUser as User } from '../../src/identity/headless/index.js';
+
+/** The fields these cases leave out are never read by usePermissions. */
+const asAuth = (value: Partial<AuthContextValue>): AuthContextValue => value as AuthContextValue;
 
 // Mock the AuthContext
-vi.mock('../../contexts/AuthContext', () => ({
+vi.mock('../../src/identity/headless/auth-context.js', () => ({
   useAuth: vi.fn(),
 }));
 
@@ -16,7 +20,7 @@ describe('usePermissions', () => {
 
   describe('Initial State', () => {
     it('should return empty permissions and roles when user is null', () => {
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: null,
         isLoading: false,
         isAuthenticated: false,
@@ -24,7 +28,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -45,7 +49,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -53,7 +57,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -74,7 +78,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -82,7 +86,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -107,7 +111,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -115,7 +119,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -135,7 +139,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -143,7 +147,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -152,7 +156,7 @@ describe('usePermissions', () => {
     });
 
     it('should return false when user is null', () => {
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: null,
         isLoading: false,
         isAuthenticated: false,
@@ -160,7 +164,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -179,7 +183,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -187,7 +191,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -208,7 +212,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -216,7 +220,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -240,7 +244,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -248,7 +252,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -269,7 +273,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -277,7 +281,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -285,7 +289,7 @@ describe('usePermissions', () => {
     });
 
     it('should return false when user is null', () => {
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: null,
         isLoading: false,
         isAuthenticated: false,
@@ -293,7 +297,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -314,7 +318,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -322,7 +326,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -344,7 +348,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -352,7 +356,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -376,7 +380,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -384,7 +388,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -408,7 +412,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -416,7 +420,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -425,7 +429,7 @@ describe('usePermissions', () => {
     });
 
     it('should return false when user is null', () => {
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: null,
         isLoading: false,
         isAuthenticated: false,
@@ -433,7 +437,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -454,7 +458,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -462,7 +466,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -484,7 +488,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -492,7 +496,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -512,7 +516,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -520,7 +524,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -529,7 +533,7 @@ describe('usePermissions', () => {
     });
 
     it('should return false when user is null', () => {
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: null,
         isLoading: false,
         isAuthenticated: false,
@@ -537,7 +541,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -556,7 +560,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -564,7 +568,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -583,7 +587,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -591,7 +595,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -614,7 +618,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -622,7 +626,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -643,7 +647,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -651,7 +655,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -670,7 +674,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -678,7 +682,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -686,7 +690,7 @@ describe('usePermissions', () => {
     });
 
     it('should return false when user is null', () => {
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: null,
         isLoading: false,
         isAuthenticated: false,
@@ -694,7 +698,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -713,7 +717,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -721,7 +725,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -743,7 +747,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -751,7 +755,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -770,7 +774,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -778,7 +782,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -797,7 +801,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -805,7 +809,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -813,7 +817,7 @@ describe('usePermissions', () => {
     });
 
     it('should return false when user is null', () => {
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: null,
         isLoading: false,
         isAuthenticated: false,
@@ -821,7 +825,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -840,7 +844,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -848,7 +852,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -870,7 +874,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -878,7 +882,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result, rerender } = renderHook(() => usePermissions());
 
@@ -907,7 +911,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser1,
         isLoading: false,
         isAuthenticated: true,
@@ -915,7 +919,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result, rerender } = renderHook(() => usePermissions());
 
@@ -928,7 +932,7 @@ describe('usePermissions', () => {
         permissions: ['user_settings:read', 'user_settings:write'],
       };
 
-      mockUseAuth.mockReturnValue({
+      mockUseAuth.mockReturnValue(asAuth({
         user: mockUser2,
         isLoading: false,
         isAuthenticated: true,
@@ -936,7 +940,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       rerender();
 
@@ -961,7 +965,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -969,7 +973,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result, rerender } = renderHook(() => usePermissions());
 
@@ -996,7 +1000,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      const mockUseAuth = vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -1004,7 +1008,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result, rerender } = renderHook(() => usePermissions());
 
@@ -1034,7 +1038,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -1042,7 +1046,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -1062,7 +1066,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -1070,7 +1074,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -1091,7 +1095,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -1099,7 +1103,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -1122,7 +1126,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -1130,7 +1134,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
@@ -1152,7 +1156,7 @@ describe('usePermissions', () => {
         createdAt: '2024-01-01T00:00:00Z',
       };
 
-      vi.spyOn(AuthContext, 'useAuth').mockReturnValue({
+      vi.spyOn(AuthContext, 'useAuth').mockReturnValue(asAuth({
         user: mockUser,
         isLoading: false,
         isAuthenticated: true,
@@ -1160,7 +1164,7 @@ describe('usePermissions', () => {
         login: vi.fn(),
         logout: vi.fn(),
         refreshUser: vi.fn(),
-      });
+      }));
 
       const { result } = renderHook(() => usePermissions());
 
