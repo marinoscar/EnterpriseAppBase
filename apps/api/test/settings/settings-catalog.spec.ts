@@ -174,7 +174,7 @@ const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
 /** DEFAULT_USER_SETTINGS on main before #677. */
 const BASELINE_DEFAULT_USER_SETTINGS = {"theme":"system","profile":{"imageSource":"provider","imageObjectId":null}};
 
-/** Top-level keys of every composed schema on main before #677, in order. */
+/** Top-level keys of every composed schema on main before #677, in order (plus `onboarding`, appended by #745). */
 const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
  "systemSettingsSchema": [
   "notifications",
@@ -240,7 +240,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "dataTables",
   "navigation",
   "notifications",
-  "ai"
+  "ai",
+  "onboarding"
  ],
  "userSettingsPatchSchema": [
   "theme",
@@ -248,7 +249,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "dataTables",
   "navigation",
   "notifications",
-  "ai"
+  "ai",
+  "onboarding"
  ],
  "updateUserSettingsSchema": [
   "theme",
@@ -256,7 +258,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "dataTables",
   "navigation",
   "notifications",
-  "ai"
+  "ai",
+  "onboarding"
  ],
  "patchUserSettingsSchema": [
   "theme",
@@ -264,7 +267,8 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "dataTables",
   "navigation",
   "notifications",
-  "ai"
+  "ai",
+  "onboarding"
  ],
  "userSettingsResponseSchema": [
   "theme",
@@ -272,6 +276,7 @@ const BASELINE_SHAPE_KEYS: Record<string, string[]> = {
   "dataTables",
   "navigation",
   "notifications",
+  "onboarding",
   "updatedAt",
   "version"
  ]

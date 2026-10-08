@@ -84,8 +84,8 @@ describe('settings namespace registries (#677)', () => {
       ]);
     });
 
-    it('registers the four optional user namespaces in the pre-registry key order', () => {
-      expect(userSettingsNamespaceRegistry.ids()).toEqual(['dataTables', 'navigation', 'notifications', 'ai']);
+    it('registers the optional user namespaces in the pre-registry key order, then onboarding (#745)', () => {
+      expect(userSettingsNamespaceRegistry.ids()).toEqual(['dataTables', 'navigation', 'notifications', 'ai', 'onboarding']);
     });
 
     it('marks only notifications as required on PUT', () => {
@@ -290,6 +290,7 @@ describe('settings namespace registries (#677)', () => {
           'navigation',
           'notifications',
           'ai',
+          'onboarding',
           'probe',
         ]);
       });

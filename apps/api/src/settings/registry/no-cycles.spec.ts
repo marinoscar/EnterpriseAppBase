@@ -15,7 +15,7 @@
 // =============================================================================
 
 const SYSTEM_KEYS = ['notifications', 'jobs', 'nodes', 'databaseBackup', 'maintenance', 'storage', 'ai', 'telemetry', 'retention'];
-const USER_KEYS = ['dataTables', 'navigation', 'notifications', 'ai'];
+const USER_KEYS = ['dataTables', 'navigation', 'notifications', 'ai', 'onboarding'];
 
 type Exports = Record<string, unknown>;
 
