@@ -104,7 +104,19 @@ describe('androidIdentity', () => {
       storagePrefix: 'acmehub',
       apkStem: 'acme-hub-android',
     });
-    expect(androidIdentity({ productName: '!!', repoSlug: 'o/9lives' })).toMatchObject({ applicationId: 'com.app9lives.android', apkStem: 'app-android' });
+    expect(androidIdentity({ productName: '!!', repoSlug: 'o/9lives' })).toMatchObject({
+      applicationId: 'com.app9lives.android',
+      deepLinkScheme: 'app9lives-android',
+      apkStem: 'app-android',
+    });
+    // The same values identity.gradle.kts derived for this identity (checked with a Gradle run).
+    expect(androidIdentity({ productName: 'Acme Rocket! Pro', repoSlug: 'acme/9Lives-App.v2', android: { storagePrefix: 'legacy_prefix' } })).toEqual({
+      label: 'Acme Rocket! Pro',
+      applicationId: 'com.app9livesappv2.android',
+      deepLinkScheme: 'app9lives-app.v2-android',
+      storagePrefix: 'legacy_prefix',
+      apkStem: 'acme-rocket-pro-android',
+    });
   });
 
   it("expresses MemoriaHub's legacy values through the android block", async () => {

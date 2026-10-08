@@ -23,7 +23,7 @@ display name, the repository slug and the two brand colours.
 | Field | Default | Never change it for a shipped app because |
 |---|---|---|
 | `applicationId` | `com.<repo name, lower-cased letters and digits>.android` | a different id is a different app (no update path; assetlinks must list it) |
-| `deepLinkScheme` | `<repo name, lower-cased scheme characters>-android` | deep links and the device-flow `returnUri` stop resolving |
+| `deepLinkScheme` | `<repo name, lower-cased scheme characters>-android` (`app`-prefixed when the name starts with a digit) | deep links and the device-flow `returnUri` stop resolving |
 | `storagePrefix` | the same token as `applicationId`'s middle segment | renamed on-device files lose the server address and the pairing |
 | `apkStem` | `<app slug>-android` | (safe to change) only file names of new APKs change |
 

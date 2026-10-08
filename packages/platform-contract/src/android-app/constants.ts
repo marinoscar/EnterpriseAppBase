@@ -380,7 +380,8 @@ function slugifyName(name: string): string {
  * of `repoSlug`) lower-cased to letters and digits is the token (`app` when
  * empty, `app`-prefixed when it starts with a digit); `applicationId` is
  * `com.<token>.android`, `storagePrefix` the token, `deepLinkScheme` the
- * lower-cased repository name with only scheme characters, plus `-android`,
+ * lower-cased repository name with only scheme characters (`app`-prefixed
+ * when it starts with a digit), plus `-android`,
  * and `apkStem` the product slug plus `-android`. Each `android` override
  * wins when non-empty.
  *
@@ -398,7 +399,10 @@ export function androidIdentity(identity: AndroidIdentitySource): AndroidIdentit
   const repoName = identity.repoSlug.split('/')[1] || identity.repoSlug;
   let token = repoName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'app';
   if (/^[0-9]/.test(token)) token = `app${token}`;
-  const scheme = `${repoName.toLowerCase().replace(/[^a-z0-9+.-]/g, '').replace(/^[+.-]+/, '') || 'app'}-android`;
+  let schemeBase = repoName.toLowerCase().replace(/[^a-z0-9+.-]/g, '').replace(/^[+.-]+/, '') || 'app';
+  // A URI scheme starts with a letter (RFC 3986), so a digit-led name is prefixed like the token.
+  if (/^[0-9]/.test(schemeBase)) schemeBase = `app${schemeBase}`;
+  const scheme = `${schemeBase}-android`;
   const pick = (value: string | undefined, fallback: string): string => (value && value.trim() !== '' ? value.trim() : fallback);
   const overrides = identity.android ?? {};
   return Object.freeze({

@@ -61,7 +61,7 @@ Identity and version come from Gradle, through `identity.gradle.kts`, applied by
 |---|---|---|---|
 | `applicationId` | `com.<token>.android` (token: the repository name lower-cased to letters and digits) | `applicationId` | `app.applicationId` |
 | `storagePrefix` | `<token>` (never change it for a shipped app) | `storagePrefix` | none |
-| `deepLinkScheme` | the repository name lower-cased to scheme characters, plus `-android` | `deepLinkScheme` | `app.deepLinkScheme` |
+| `deepLinkScheme` | the repository name lower-cased to scheme characters (`app`-prefixed when it starts with a digit), plus `-android` | `deepLinkScheme` | `app.deepLinkScheme` |
 | `apkStem` | `slugify(productName)-android` | `apkStem` | none |
 | `productName` | identity.json `productName` | none | `app.productName` |
 | `versionName`, `versionCode` | `apps/android/version.properties` | none | `app.versionName`, `app.versionCode` |

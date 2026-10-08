@@ -19,8 +19,9 @@
 //   storagePrefix  = <token>          (on-device file names: NEVER change it
 //                                      for a shipped app, phones lose the
 //                                      server address and the pairing)
-//   deepLinkScheme = the repository name lower-cased to scheme characters,
-//                    plus `-android`
+//   deepLinkScheme = the repository name lower-cased to scheme characters
+//                    (`app`-prefixed when it starts with a digit), plus
+//                    `-android`
 //   apkStem        = slugify(productName) + `-android`
 //
 // Each of the four can be pinned in identity.json's `android` block (a fork
@@ -66,7 +67,11 @@ val identityToken: String = repoName.lowercase().replace(Regex("[^a-z0-9]"), "")
 val applicationId: String = stringProp("app.applicationId") ?: androidOverride("applicationId") ?: "com.$identityToken.android"
 val storagePrefix: String = androidOverride("storagePrefix") ?: identityToken
 val deepLinkScheme: String = stringProp("app.deepLinkScheme") ?: androidOverride("deepLinkScheme")
-    ?: (repoName.lowercase().replace(Regex("[^a-z0-9+.-]"), "").trimStart('+', '.', '-').ifEmpty { "app" } + "-android")
+    ?: (
+        repoName.lowercase().replace(Regex("[^a-z0-9+.-]"), "").trimStart('+', '.', '-').ifEmpty { "app" }
+            // A URI scheme starts with a letter, so a digit-led name is prefixed like the token.
+            .let { if (it.first().isDigit()) "app$it" else it } + "-android"
+        )
 val apkStem: String = androidOverride("apkStem")
     ?: (identityValue("productName").lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "app" } + "-android")
 
