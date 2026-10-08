@@ -648,7 +648,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       // guards the literal string this cross-cutting suite's own header
       // promises against a silent rename on one side only.
       const source = readFileSync(
-        join(__dirname, '..', '..', 'src', 'ai', 'catalog', 'ai-catalog.service.ts'),
+        join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'ai', 'catalog', 'ai-catalog.service.ts'),
         'utf8',
       );
 

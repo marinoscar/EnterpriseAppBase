@@ -120,18 +120,17 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { z } from 'zod';
 import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
 import { resolveServiceName } from '../../otel-core/index';
-import { userAiSettingsSchema } from '@marinoscar/platform-contract/ai';
 import type { AiPrisma } from '../data/ai-db';
 import { PLATFORM_PRISMA } from '../../core/index';
 import { resolveOrgId } from '../../identity/index';
 import { AiConfigService, providerCallSettings } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
-import type { AiCapability } from '../core/capabilities';
+import type { AiCapability, AiModelCapabilities } from '../core/capabilities';
 import type { AiCallContext, AiResponsesPort } from '../core/provider-adapter.interface';
 import {
   AI_STORAGE_INPUT_URL_TTL_SECONDS,
@@ -197,6 +196,8 @@ import { AiKeyResolver, type AiKeySource } from '../keys/ai-key-resolver.service
 import type { UsableAiModel } from '../keys/dto/usable-ai-model.dto';
 import { UsableModelsService } from '../keys/usable-models.service';
 import { AiOutputWriter } from '../storage/ai-output-writer';
+import { getAiFeature, type AiFeatureDefinition } from '../features/ai-feature.registry';
+import { AI_TARGET_RESOLVER, DefaultAiTargetResolver, type AiTargetResolver } from './target-resolver';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiStorageInputResolver, type AiStorageInput } from '../storage/ai-storage-input.resolver';
 import {
@@ -409,6 +410,12 @@ export interface AiClientScope {
    */
   orgId?: string;
   jobId?: string;
+  /**
+   * The registered AI feature the call is made for (`registerAiFeature`,
+   * #739): routed through `AI_TARGET_RESOLVER`, checked against the
+   * feature's `needs`, and recorded as the `ai.feature` span attribute.
+   */
+  feature?: string;
   /** The background run being executed — names the folder its outputs are stored in. */
   runId?: string;
 }
@@ -523,6 +530,8 @@ interface PrepareOptions {
   streaming: boolean;
   /** The organization stored inputs are read in (row-level security); absent: the single-mode default. */
   orgId?: string;
+  /** The registered feature the call is made for (#739). */
+  feature?: string;
 }
 
 /** How one round-trip ended, for its usage row and span. */
@@ -555,7 +564,14 @@ export class AiService {
     private readonly inputs: AiStorageInputResolver,
     private readonly outputs: AiOutputWriter,
     private readonly limits: AiLimitsService,
-  ) {}
+    // #739, rung 3: which (provider, model) a call targets. Optional: the
+    // default is the base behaviour (`DefaultAiTargetResolver`).
+    @Optional() @Inject(AI_TARGET_RESOLVER) targetResolver?: AiTargetResolver,
+  ) {
+    this.targets = targetResolver ?? new DefaultAiTargetResolver(prisma, registry);
+  }
+
+  private readonly targets: AiTargetResolver;
 
   /**
    * The AI client for `userId`. Cheap — create one per request.
@@ -563,8 +579,17 @@ export class AiService {
    * `jobId` is internal plumbing for the background-run handler, so its
    * usage rows name the job they were incurred under.
    */
-  forUser(userId: string, scope: { orgId?: string; jobId?: string; runId?: string } = {}): AiUserClient {
-    const bound: AiClientScope = { userId, orgId: scope.orgId, jobId: scope.jobId, runId: scope.runId };
+  forUser(
+    userId: string,
+    scope: { orgId?: string; jobId?: string; runId?: string; feature?: string } = {},
+  ): AiUserClient {
+    const bound: AiClientScope = {
+      userId,
+      orgId: scope.orgId,
+      jobId: scope.jobId,
+      runId: scope.runId,
+      ...(scope.feature !== undefined ? { feature: scope.feature } : {}),
+    };
 
     return {
       userId,
@@ -606,7 +631,7 @@ export class AiService {
   // ---- respond ----------------------------------------------------------------
 
   private async respond(scope: AiClientScope, req: AiRequest, opts: AiCallOptions = {}): Promise<AiResponse> {
-    const call = await this.prepare(scope.userId, req, { streaming: false, orgId: await this.orgOf(scope) });
+    const call = await this.prepare(scope.userId, req, { streaming: false, orgId: await this.orgOf(scope), feature: scope.feature });
 
     return this.invoke(scope, call, opts);
   }
@@ -634,7 +659,7 @@ export class AiService {
     }
 
     const orgId = await this.orgOf(scope);
-    const call = await this.prepare(scope.userId, req, { streaming: false, orgId });
+    const call = await this.prepare(scope.userId, req, { streaming: false, orgId, feature: scope.feature });
 
     return this.runs.create({
       userId: scope.userId,
@@ -760,7 +785,7 @@ export class AiService {
     req: AiEmbedRequest,
     opts: AiCallOptions = {},
   ): Promise<AiEmbeddingResult> {
-    const call = await this.prepareEmbedding(scope.userId, req);
+    const call = await this.prepareEmbedding(scope.userId, req, scope.feature);
     const { ctx, keySource } = await this.context(scope, call, opts, () => call.request.input);
     const tracker = this.track(scope, call, keySource, 'embeddings.create');
 
@@ -787,7 +812,7 @@ export class AiService {
     req: AiRealtimeRequest,
     opts: AiCallOptions = {},
   ): Promise<AiRealtimeSessionResult> {
-    const call = await this.prepareRealtime(scope.userId, req);
+    const call = await this.prepareRealtime(scope.userId, req, scope.feature);
     const { ctx, keySource } = await this.context(scope, call, opts, () => ({
       instructions: call.request.instructions,
     }));
@@ -829,7 +854,7 @@ export class AiService {
     req: AiGenerateImageRequest | AiEditImageRequest,
   ): Promise<AiRunHandle> {
     const orgId = await this.orgOf(scope);
-    const call = await this.prepareImage(scope.userId, operation, req, orgId);
+    const call = await this.prepareImage(scope.userId, operation, req, orgId, scope.feature);
 
     return this.runs.create({
       userId: scope.userId,
@@ -908,7 +933,7 @@ export class AiService {
 
   private async startTranscriptionRun(scope: AiClientScope, req: AiTranscribeRequest): Promise<AiRunHandle> {
     const orgId = await this.orgOf(scope);
-    const call = await this.prepareTranscription(scope.userId, req, orgId);
+    const call = await this.prepareTranscription(scope.userId, req, orgId, scope.feature);
 
     return this.runs.create({
       userId: scope.userId,
@@ -1012,7 +1037,7 @@ export class AiService {
 
   private async startSpeechRun(scope: AiClientScope, req: AiSpeakRequest): Promise<AiRunHandle> {
     const orgId = await this.orgOf(scope);
-    const call = await this.prepareSpeech(scope.userId, req);
+    const call = await this.prepareSpeech(scope.userId, req, scope.feature);
 
     return this.runs.create({
       userId: scope.userId,
@@ -1091,7 +1116,7 @@ export class AiService {
     req: AiRequest,
     opts: AiCallOptions = {},
   ): Promise<AsyncIterable<AiStreamEvent>> {
-    const call = await this.prepare(scope.userId, req, { streaming: true, orgId: await this.orgOf(scope) });
+    const call = await this.prepare(scope.userId, req, { streaming: true, orgId: await this.orgOf(scope), feature: scope.feature });
     const storageInputs = await this.materializeStorageInputs(call);
     const { ctx, keySource } = await this.context(scope, call, opts, () => responsePrompt(call.request), storageInputs);
     const tracker = this.track(scope, call, keySource, 'responses.stream');
@@ -1192,6 +1217,7 @@ export class AiService {
         'ai.model': call.modelId,
         'ai.operation': operation,
         'ai.key_source': keySource,
+        ...(scope.feature ? { 'ai.feature': scope.feature } : {}),
         ...(call.hostedTools?.length ? { 'ai.hosted_tools': call.hostedTools.join(',') } : {}),
       },
     });
@@ -1238,6 +1264,7 @@ export class AiService {
           errorCode: outcome.errorCode ?? null,
           providerRequestId: outcome.result?.providerRequestId ?? null,
           jobId: scope.jobId ?? null,
+          ...(scope.feature ? { feature: scope.feature } : {}),
         });
       },
     };
@@ -1253,7 +1280,8 @@ export class AiService {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
 
-    const { provider, model } = await this.resolveTarget(userId, req);
+    const feature = this.featureOf(opts.feature);
+    const { provider, model } = await this.resolveTarget(userId, req, { orgId: opts.orgId, feature });
 
     // 2. Provider enabled in settings AND registered in this process.
     const slot = await this.aiConfig.assertProviderEnabled(provider);
@@ -1279,6 +1307,7 @@ export class AiService {
     // 3. Model enabled, capabilities (model AND provider port), key reach.
     const needed = requiredCapabilities(req, opts.streaming);
     const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, needed);
+    assertFeatureFits(feature, provider, model, usable.capabilities);
 
     if (!port) {
       // assertUsable already refused a provider without a responses port
@@ -1337,7 +1366,7 @@ export class AiService {
    * provider, then model/capability/key/reach with `embeddings` as the one
    * capability needed. Decrypts nothing.
    */
-  async prepareEmbedding(userId: string, req: AiEmbedRequest): Promise<PreparedAiEmbeddingCall> {
+  async prepareEmbedding(userId: string, req: AiEmbedRequest, featureId?: string): Promise<PreparedAiEmbeddingCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
 
@@ -1350,14 +1379,16 @@ export class AiService {
       );
     }
 
-    const { provider, model } = await this.resolveTarget(userId, req);
+    const feature = this.featureOf(featureId);
+    const { provider, model } = await this.resolveTarget(userId, req, { feature });
 
     // 2. Provider enabled in settings AND registered in this process.
     const slot = await this.aiConfig.assertProviderEnabled(provider);
     const port = this.registry.get(provider)?.embeddings;
 
     // 3. Model enabled, `embeddings` declared (model AND provider port), key reach.
-    await this.usableModels.assertUsable(userId, provider, model, ['embeddings']);
+    const { model: usableEmbedding } = await this.usableModels.assertUsable(userId, provider, model, ['embeddings']);
+    assertFeatureFits(feature, provider, model, usableEmbedding.capabilities);
 
     if (!port) {
       // assertUsable already refused a provider without the port; this narrows the type.
@@ -1393,6 +1424,7 @@ export class AiService {
     operation: AiImageOperation,
     req: AiGenerateImageRequest | AiEditImageRequest,
     orgId?: string,
+    featureId?: string,
   ): Promise<PreparedAiImageCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
@@ -1405,7 +1437,8 @@ export class AiService {
       throw new AiError('AI_INVALID_REQUEST', 'Name the image model explicitly.');
     }
 
-    const { provider, model } = await this.resolveTarget(userId, req);
+    const feature = this.featureOf(featureId);
+    const { provider, model } = await this.resolveTarget(userId, req, { orgId, feature });
 
     // 2. Provider enabled in settings AND registered in this process.
     const slot = await this.aiConfig.assertProviderEnabled(provider);
@@ -1413,7 +1446,8 @@ export class AiService {
     const capability: AiCapability = edit ? 'image_edit' : 'image_generation';
 
     // 3. Model enabled, the capability declared (model AND provider port), key reach.
-    await this.usableModels.assertUsable(userId, provider, model, [capability]);
+    const { model: usableImage } = await this.usableModels.assertUsable(userId, provider, model, [capability]);
+    assertFeatureFits(feature, provider, model, usableImage.capabilities);
 
     if (!port || (edit && !port.edit)) {
       // assertUsable already refused a provider without the port; this narrows the type.
@@ -1630,14 +1664,16 @@ export class AiService {
     userId: string,
     req: AiTranscribeRequest,
     orgId?: string,
+    featureId?: string,
   ): Promise<PreparedAiTranscriptionCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
 
     assertTranscriptionShape(req);
 
+    const feature = this.featureOf(featureId);
     const { provider, model } = req.model?.trim()
-      ? await this.resolveTarget(userId, req)
+      ? await this.resolveTarget(userId, req, { orgId, feature })
       : await this.firstUsableModel(userId, 'audio_transcription', req.provider);
 
     // 2. Provider enabled in settings AND registered in this process.
@@ -1645,7 +1681,10 @@ export class AiService {
     const port = this.registry.get(provider)?.audio;
 
     // 3. Model enabled, `audio_transcription` declared (model AND port), key reach.
-    await this.usableModels.assertUsable(userId, provider, model, ['audio_transcription']);
+    const { model: usableTranscription } = await this.usableModels.assertUsable(userId, provider, model, [
+      'audio_transcription',
+    ]);
+    assertFeatureFits(feature, provider, model, usableTranscription.capabilities);
 
     const transcribe = port?.transcribe?.bind(port);
 
@@ -1693,14 +1732,15 @@ export class AiService {
    * first — checked against the model's catalog `voices`, else the port's.
    * Decrypts nothing.
    */
-  async prepareSpeech(userId: string, req: AiSpeakRequest): Promise<PreparedAiSpeechCall> {
+  async prepareSpeech(userId: string, req: AiSpeakRequest, featureId?: string): Promise<PreparedAiSpeechCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
 
     assertSpeechShape(req);
 
+    const feature = this.featureOf(featureId);
     const { provider, model } = req.model?.trim()
-      ? await this.resolveTarget(userId, req)
+      ? await this.resolveTarget(userId, req, { feature })
       : await this.firstUsableModel(userId, 'audio_speech', req.provider);
 
     // 2. Provider enabled in settings AND registered in this process.
@@ -1709,6 +1749,7 @@ export class AiService {
 
     // 3. Model enabled, `audio_speech` declared (model AND port), key reach.
     const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['audio_speech']);
+    assertFeatureFits(feature, provider, model, usable.capabilities);
 
     const speech = port?.speech?.bind(port);
 
@@ -1764,7 +1805,7 @@ export class AiService {
    * port's. The deployment's output-token cap becomes the session's initial
    * `maxOutputTokens`. Decrypts nothing.
    */
-  async prepareRealtime(userId: string, req: AiRealtimeRequest): Promise<PreparedAiRealtimeCall> {
+  async prepareRealtime(userId: string, req: AiRealtimeRequest, featureId?: string): Promise<PreparedAiRealtimeCall> {
     // 1. Kill switch — before anything else is read.
     await this.aiConfig.assertEnabled();
 
@@ -1778,8 +1819,9 @@ export class AiService {
 
     assertRealtimeShape(req);
 
+    const feature = this.featureOf(featureId);
     const { provider, model } = req.model?.trim()
-      ? await this.resolveTarget(userId, req)
+      ? await this.resolveTarget(userId, req, { feature })
       : await this.firstUsableModel(userId, 'realtime', req.provider);
 
     // 2. Provider enabled in settings AND registered in this process.
@@ -1788,6 +1830,7 @@ export class AiService {
 
     // 3. Model enabled, `realtime` declared (model AND port), key reach.
     const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, ['realtime']);
+    assertFeatureFits(feature, provider, model, usable.capabilities);
 
     if (!port) {
       // assertUsable already refused a provider without the port; this narrows the type.
@@ -1918,54 +1961,44 @@ export class AiService {
   }
 
   /**
-   * Which (provider, model) the request targets. See `AiRequest` for the
-   * fallback order.
+   * Which (provider, model) the request targets: the bound
+   * `AI_TARGET_RESOLVER` (#739), by default the base order (see `AiRequest`
+   * and `DefaultAiTargetResolver`). `null` from the resolver is "no model".
    */
   private async resolveTarget(
     userId: string,
     req: { provider?: string; model?: string },
+    ctx: { orgId?: string; feature?: AiFeatureDefinition } = {},
   ): Promise<{ provider: string; model: string }> {
-    const requested = req.model?.trim();
-
-    if (requested) {
-      const provider = req.provider ?? (await this.defaultModel(userId))?.provider ?? this.soleProvider();
-
-      if (!provider) {
-        throw new AiError('AI_INVALID_REQUEST', 'No provider selected.', { details: { model: requested } });
-      }
-
-      return { provider, model: requested };
-    }
-
-    const fallback = await this.defaultModel(userId);
-
-    if (!fallback || (req.provider !== undefined && req.provider !== fallback.provider)) {
-      throw new AiError('AI_INVALID_REQUEST', 'No model selected.');
-    }
-
-    return { provider: fallback.provider, model: fallback.modelId };
-  }
-
-  /**
-   * The user's `ai.defaultModel`, read RAW from `user_settings.value` — not
-   * through `UserSettingsService.getSettings`, which creates a row when none
-   * exists (see `NotificationsService.loadRecipient` for the full argument).
-   */
-  private async defaultModel(userId: string): Promise<{ provider: string; modelId: string } | null> {
-    const row = await this.prisma.userSettings.findUnique({
-      where: { userId },
-      select: { value: true },
+    const target = await this.targets.resolve({
+      userId,
+      ...(ctx.orgId !== undefined ? { orgId: ctx.orgId } : {}),
+      ...(ctx.feature ? { feature: ctx.feature.id } : {}),
+      requested: {
+        ...(req.provider !== undefined ? { provider: req.provider } : {}),
+        ...(req.model !== undefined ? { model: req.model } : {}),
+      },
     });
-    const value = row?.value as { ai?: unknown } | null | undefined;
-    const parsed = userAiSettingsSchema.safeParse(value?.ai);
 
-    return parsed.success ? parsed.data.defaultModel : null;
+    if (!target) {
+      throw new AiError('AI_INVALID_REQUEST', 'No model selected.', {
+        ...(ctx.feature ? { details: { feature: ctx.feature.id } } : {}),
+      });
+    }
+
+    return { provider: target.provider, model: target.model };
   }
 
-  private soleProvider(): string | undefined {
-    const ids = this.registry.ids();
+  /** The registered feature a call names, or `undefined`; an unknown id is AI_INVALID_REQUEST. */
+  private featureOf(id: string | undefined): AiFeatureDefinition | undefined {
+    if (id === undefined) return undefined;
+    const feature = getAiFeature(id);
 
-    return ids.length === 1 ? ids[0] : undefined;
+    if (!feature) {
+      throw new AiError('AI_INVALID_REQUEST', `AI feature "${id}" is not registered.`, { details: { feature: id } });
+    }
+
+    return feature;
   }
 }
 
@@ -2339,4 +2372,47 @@ function promptPreview(content: unknown): string {
   return text.length > AI_PROMPT_LOG_MAX_CHARS
     ? `${text.slice(0, AI_PROMPT_LOG_MAX_CHARS)}… (truncated)`
     : text;
+}
+
+/**
+ * Refuses a model that does not fit the feature a call is made for (#739):
+ * a missing `needs` capability or input modality, or a provider outside the
+ * feature's allow-list. AI_INVALID_REQUEST, naming what is missing.
+ */
+export function assertFeatureFits(
+  feature: AiFeatureDefinition | undefined,
+  provider: string,
+  model: string,
+  capabilities: AiModelCapabilities,
+): void {
+  if (!feature) return;
+
+  if (feature.providers && !feature.providers.includes(provider)) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `AI feature "${feature.id}" does not run on provider "${provider}".`,
+      { details: { feature: feature.id, provider, model, allowedProviders: [...feature.providers] } },
+    );
+  }
+
+  const missing = feature.needs.filter((need) => !capabilities.capabilities.includes(need));
+  const missingModalities = (feature.inputModalities ?? []).filter(
+    (modality) => !capabilities.inputModalities.includes(modality),
+  );
+
+  if (missing.length > 0 || missingModalities.length > 0) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `Model "${model}" does not have what AI feature "${feature.id}" needs.`,
+      {
+        details: {
+          feature: feature.id,
+          provider,
+          model,
+          ...(missing.length > 0 ? { missingCapabilities: missing } : {}),
+          ...(missingModalities.length > 0 ? { missingInputModalities: missingModalities } : {}),
+        },
+      },
+    );
+  }
 }

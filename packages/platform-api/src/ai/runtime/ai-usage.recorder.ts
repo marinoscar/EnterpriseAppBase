@@ -69,6 +69,8 @@ export interface AiUsageRecord {
   errorCode?: string | null;
   providerRequestId?: string | null;
   jobId?: string | null;
+  /** The registered AI feature the call was made for (#739); a metric label, never a column. */
+  feature?: string;
 }
 
 @Injectable()
@@ -97,6 +99,7 @@ export class AiUsageRecorder {
       inputTokens: tokenCount(event.usage?.inputTokens),
       outputTokens: tokenCount(event.usage?.outputTokens),
       latencyMs: event.latencyMs,
+      ...(event.feature ? { feature: event.feature } : {}),
     });
 
     try {

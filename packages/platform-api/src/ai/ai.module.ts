@@ -3,6 +3,7 @@ import { DynamicModule, Module, type ForwardReference, type Type } from '@nestjs
 import { AiCatalogModule } from './catalog/ai-catalog.module';
 import { AiConfigModule } from './config/ai-config.module';
 import { AiCoreModule } from './core/ai-core.module';
+import { AiFeaturesModule } from './features/ai-features.module';
 import { AiHttpModule } from './http/ai-http.module';
 import { AiKeysModule } from './keys/ai-keys.module';
 import { AnthropicProviderModule } from './providers/anthropic/anthropic.module';
@@ -97,6 +98,8 @@ export class AiModule {
         AiRuntimeModule,
         AiHttpModule,
         AiUsageModule,
+        // #739: `GET /api/ai/features`. Last, so the routes before it keep their OpenAPI order.
+        AiFeaturesModule,
       ],
       // `AiRuntimeModule` is re-exported so a feature module can simply
       // `imports: [AiModule]` and inject `AiService`.

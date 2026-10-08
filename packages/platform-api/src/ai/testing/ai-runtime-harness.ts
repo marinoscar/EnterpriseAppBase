@@ -28,6 +28,7 @@ import type { AiModelCapabilities } from '../core/capabilities';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AiKeyResolver } from '../keys/ai-key-resolver.service';
 import { UsableModelsService } from '../keys/usable-models.service';
+import type { AiTargetResolver } from '../runtime/target-resolver';
 import { AiService } from '../runtime/ai.service';
 import { AiLimitsService, type AiLimitsClock } from '../runtime/ai-limits.service';
 import { AiRunsService } from '../runtime/ai-runs.service';
@@ -110,6 +111,11 @@ export interface AiRuntimeHarnessOptions {
    * Default: the real `Date.now`.
    */
   clock?: AiLimitsClock;
+  /**
+   * The `AI_TARGET_RESOLVER` binding (#739). Default: none, so the service
+   * uses `DefaultAiTargetResolver` (the base behaviour).
+   */
+  targetResolver?: AiTargetResolver;
 }
 
 export interface StoredAiRun {
@@ -434,6 +440,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     inputs,
     outputs,
     limits,
+    opts.targetResolver,
   );
 
   return {

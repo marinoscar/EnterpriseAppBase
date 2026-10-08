@@ -50,3 +50,5 @@ export type {
   UserAiSettingsPatchValue,
   UserAiSettingsValue,
 } from './settings.js';
+export { aiFeatureViewSchema } from './features.js';
+export type { AiFeatureView } from './features.js';

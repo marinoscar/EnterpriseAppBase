@@ -42,23 +42,26 @@ const SHAPE_CLASSIFIER: StorageFailureClassifier = {
   },
 };
 
-let classifier: StorageFailureClassifier = SHAPE_CLASSIFIER;
+let bound: StorageFailureClassifier | undefined;
 
 /**
  * Binds the object store's own recogniser of its "not configured" error.
- * Called once by `AiStorageModule` with the app's `AI_OBJECT_STORE`.
+ * Called once by `AiStorageModule` with the app's `AI_OBJECT_STORE`; the
+ * error shape every platform store uses stays recognised beside it.
  */
 export function useStorageFailureClassifier(store: StorageFailureClassifier): void {
-  classifier = store;
+  bound = store;
 }
 
 /** The `AiError` a job records for a storage failure, or `null` when `err` is not one. */
 export function aiErrorFromStorage(err: unknown): AiError | null {
-  const reason = classifier.notConfiguredReason(err);
+  const boundReason = bound?.notConfiguredReason(err) ?? null;
+  const reason = boundReason ?? SHAPE_CLASSIFIER.notConfiguredReason(err);
   if (reason !== null) {
+    const settingsPath = (boundReason !== null ? bound?.settingsPath : undefined) ?? SHAPE_CLASSIFIER.settingsPath;
     return new AiError(
       'AI_STORAGE_UNAVAILABLE',
-      `Object storage is not configured for this deployment; an administrator must complete it at ${classifier.settingsPath}.`,
+      `Object storage is not configured for this deployment; an administrator must complete it at ${settingsPath}.`,
       { cause: err, details: { storageReason: reason } },
     );
   }

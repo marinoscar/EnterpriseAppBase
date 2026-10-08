@@ -74,6 +74,9 @@ const AI_REQUEST_ATTRIBUTES = {
   operation: free,
   status: oneOf(...AI_STATUS_VALUES),
   key_source: free,
+  // #739: the registered AI feature (`registerAiFeature`), bounded by that
+  // registry; `none` for a call that named no feature.
+  feature: free,
 };
 
 export const PLATFORM_APP_METRICS = [

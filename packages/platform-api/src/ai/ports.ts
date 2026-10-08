@@ -155,6 +155,11 @@ export interface AiUsageMetricEvent {
   inputTokens?: number | null;
   /** Output tokens. */
   outputTokens?: number | null;
+  /**
+   * The registered feature the call was made for (`registerAiFeature`), when
+   * the caller named one. Bounded by the feature registry.
+   */
+  feature?: string;
 }
 
 /**

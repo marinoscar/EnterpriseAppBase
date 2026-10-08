@@ -53,6 +53,20 @@ export { UsableModelsService } from './keys/usable-models.service';
 export { UserAiKeysService } from './keys/user-ai-keys.service';
 export { AI_KEYS_RECHECK_TYPE } from './keys/ai-user-key.constants';
 
+// ---- the feature registry (rung 2) and the target resolver (rung 3) ----------------------------
+export {
+  aiFeatureRegistry,
+  getAiFeature,
+  listAiFeatures,
+  registerAiFeature,
+} from './features/ai-feature.registry';
+export type { AiFeatureDefinition } from './features/ai-feature.registry';
+export { AiFeaturesModule } from './features/ai-features.module';
+export { AiFeaturesService, modelFitsFeature } from './features/ai-features.service';
+export { AiFeaturesController } from './features/ai-features.controller';
+export { AI_TARGET_RESOLVER, DefaultAiTargetResolver } from './runtime/target-resolver';
+export type { AiTarget, AiTargetContext, AiTargetResolver } from './runtime/target-resolver';
+
 // ---- the runtime facade ----------------------------------------------------------------------
 export * from './runtime/index';
 export { AiRunsPurgeHandler, AI_RUNS_PURGE_TYPE } from './runtime/ai-runs-purge.handler';

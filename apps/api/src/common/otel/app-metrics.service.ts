@@ -215,6 +215,8 @@ export interface AiUsageMetric {
   inputTokens?: number | null;
   outputTokens?: number | null;
   latencyMs: number;
+  /** The registered AI feature the call was made for (#739). */
+  feature?: string;
 }
 
 /** One cached read of the database-backed gauges. */
@@ -385,6 +387,7 @@ export class AppMetricsService implements OnModuleInit {
         key_source: event.keySource
           ? this.boundLabel('ai_key_source', event.keySource)
           : UNKNOWN_LABEL,
+        feature: event.feature ? this.boundLabel('ai_feature', event.feature) : 'none',
       };
 
       this.counter('aiRequests').add(1, withStatus);
