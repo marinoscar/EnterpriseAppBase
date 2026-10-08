@@ -85,7 +85,7 @@ export function userDataServices(db: RlsDatabase, options: { userRemovalHooks?: 
 }
 
 /** One transaction on the bypass pool of `db`. */
-export function sys<T>(db: RlsDatabase, fn: (tx: any) => Promise<T>): Promise<T> {
+export function sys(db: RlsDatabase, fn: (tx: any) => Promise<any>): Promise<any> {
   return db.system.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT set_config('app.rls_bypass', 'on', true)`;
     return fn(tx);
