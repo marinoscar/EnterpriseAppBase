@@ -105,7 +105,6 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
   });
 
   it.each([
-    '../../common/maintenance/maintenance.system-settings',
     '../../platform/storage/storage.system-settings',
     '../../platform/telemetry/telemetry.system-settings',
     '../../common/retention/retention.system-settings',

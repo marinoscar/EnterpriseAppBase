@@ -5,7 +5,7 @@
 // The reference app's catalog example of `EgressRegistry.register` from APP
 // code (the Extension Contract, rung 2): `/api/docs` makes the BROWSER load the
 // Scalar bundle from a CDN (and Scalar's fonts from fonts.scalar.com) unless
-// `API_DOCS_CDN` points it elsewhere (`docs-page.ts`). A fork adds its own
+// `API_DOCS_CDN` points it elsewhere (the host slice's `renderDocsPage`). A fork adds its own
 // outbound dependency the same way: an `@Injectable()` that injects
 // `EgressRegistry`, registers itself in `onModuleInit`, and returns
 // `egressDependency(...)` entries from a read-only `describe()`.
@@ -20,7 +20,7 @@ import {
   egressDependency,
 } from '@marinoscar/platform-api/doctor';
 
-import { DEFAULT_SCALAR_CDN } from './docs-page';
+import { DEFAULT_SCALAR_CDN } from '@marinoscar/platform-api/host';
 
 /** Where the default Scalar bundle loads its fonts from. */
 export const SCALAR_FONTS_HOST = 'fonts.scalar.com';

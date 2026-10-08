@@ -430,7 +430,7 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // must be individually cancellable (see `PendingTimer`).
     @Optional() @Inject(JOB_CLOCK) clock?: JobClock,
     // THE WAKE-UP (PP-1.11, #682). Optional and last, so every hand-built
-    // worker in the suites stays valid; the global `EventBusModule` always
+    // worker in the suites stays valid; the host core's global `EVENT_BUS` always
     // provides it in the application. Without it the pool simply polls.
     @Optional() @Inject(JOBS_EVENT_BUS) private readonly bus?: JobsEventBus
   ) {

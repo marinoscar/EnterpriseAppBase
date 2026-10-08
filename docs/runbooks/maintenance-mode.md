@@ -9,14 +9,15 @@ layers, why each exists, and what is deliberately left uncovered.
 
 Source of truth for every claim below:
 
-- `apps/api/src/common/maintenance/maintenance-mode.service.ts` — the three
-  layers and how they are resolved.
-- `apps/api/src/common/maintenance/maintenance.guard.ts` — what a blocked
-  caller receives, and who is let through.
-- `apps/api/src/common/maintenance/maintenance.controller.ts` —
+- `packages/platform-api/src/host/maintenance/maintenance-mode.service.ts` —
+  the three layers and how they are resolved (the host slice,
+  `@marinoscar/platform-api/host`, since #867).
+- `packages/platform-api/src/host/maintenance/maintenance.guard.ts` — what a
+  blocked caller receives, and who is let through.
+- `packages/platform-api/src/host/maintenance/maintenance.controller.ts` —
   `GET`/`PUT /api/admin/maintenance`.
-- `apps/api/src/common/maintenance/allow-during-maintenance.decorator.ts` —
-  the exemption, and every controller that carries it.
+- `packages/platform-api/src/core/maintenance/allow-during-maintenance.decorator.ts`
+  — the exemption, and every controller that carries it.
 - `infra/compose/.env.example` — `MAINTENANCE_MODE`, commented out by default.
 
 **Maintenance mode ships off.** A fresh deployment has

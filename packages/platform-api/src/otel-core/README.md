@@ -48,21 +48,13 @@ export const sdk = initializeOtel({
 });
 ```
 
-2. Provide the metrics host (the reference app's [`app-metrics.module.ts`](../../../../apps/api/src/common/otel/app-metrics.module.ts)):
+2. Provide the metrics host. An app on the host slice gets it from `PlatformHostCoreModule.forRoot()` (`@marinoscar/platform-api/host`, #867), which imports it with the platform's `AppMetricsService` on top; an app wiring it itself does what the worked example [`app-metrics-extension.spec.ts`](../../../../apps/api/test/platform/app-metrics-extension.spec.ts) does:
 
 ```ts
-@Global()
-@Module({
-  imports: [
-    OtelMetricsModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({ gauges: config.get<boolean>('otel.enabled') === true }),
-    }),
-  ],
-  providers: [AppMetricsService],
-  exports: [AppMetricsService],
-})
-export class AppMetricsModule {}
+OtelMetricsModule.forRootAsync({
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => ({ gauges: config.get<boolean>('otel.enabled') === true }),
+});
 ```
 
 3. Register the request span hook right after `NestFactory.create` (the reference app's [`main.ts`](../../../../apps/api/src/main.ts)), and drive the gate from the app's setting (the telemetry slice's [`telemetry-settings.service.ts`](../telemetry/telemetry-settings.service.ts)):
@@ -76,7 +68,7 @@ telemetryGate.setEnabled(policy.enabled && greptime.isConfigured());
 
 ### Worked example: register an app metric name and a gauge provider
 
-The reference app does both in [`apps/api/src/common/otel/app-metrics.service.ts`](../../../../apps/api/src/common/otel/app-metrics.service.ts) (its manifest registers the names; its `registerGauges()` is a gauge provider) and borrows the context for a gauge provider that lives in a feature slice in [`packages/platform-api/src/nodes/node-fleet-metrics.service.ts`](../nodes/node-fleet-metrics.service.ts). A new metric group follows the same steps:
+The reference app's manifest registers the names ([`app-metric.manifest.ts`](../../../../apps/api/src/common/otel/app-metric.manifest.ts), after the platform's through the host slice's `registerPlatformHostAppMetrics`), the worked example [`app-metrics-extension.spec.ts`](../../../../apps/api/test/platform/app-metrics-extension.spec.ts) registers an app gauge provider, the host slice's `AppMetricsService.registerGauges()` is the platform's, and the nodes slice borrows the context for a gauge provider that lives in a feature slice in [`packages/platform-api/src/nodes/node-fleet-metrics.service.ts`](../nodes/node-fleet-metrics.service.ts). A new metric group follows the same steps:
 
 ```ts
 // 1. Declare the names at import time, from a manifest the metrics service imports.
@@ -138,11 +130,11 @@ Environment variables read (all pre-existing, none runtime-configured): `OTEL_EN
 | `initializeOtel` | option | `initializeOtel(options?: InitializeOtelOptions): NodeSDK \| null` | Install the SDK from the file the entry point loads first | experimental | [example](../../../../apps/api/src/instrumentation.ts) |
 | `InitializeOtelOptions` | option | `{ enabled?; endpoint?; serviceName?; serviceVersion?; instanceId?; ignoreIncomingPaths?; instrumentationOverrides?; shutdownOnSigterm? }` | Name the service, seed the instance id, change the endpoint, ignored paths or instrumentations | experimental | [example](../../../../apps/api/src/instrumentation.ts) |
 | `telemetryGate` | hook | `{ isEnabled(); setEnabled(next); instanceId(); setInstanceId(next) }` | Open or close export at runtime and relabel the instance from the app's own setting | stable | [example](../../../../apps/api/src/common/otel/telemetry-identity.ts) |
-| `appMetricRegistry` | registry | `Registry<AppMetricDef>` | Read the declared metrics (`list()`, `require(key)`), for example to build a name table | stable | [example](../../../../apps/api/src/common/otel/app-metrics.service.ts) |
+| `appMetricRegistry` | registry | `Registry<AppMetricDef>` | Read the declared metrics (`list()`, `require(key)`), for example to build a name table | stable | [example](../../../../apps/api/test/platform/app-metrics-extension.spec.ts) |
 | `registerAppMetrics` | registry | `registerAppMetrics(defs: readonly AppMetricDef[]): void` | Declare an app's `app.*` metrics (name, unit, buckets, attributes) at import time | stable | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |
-| `MetricsHostService.registerGaugeProvider` | registry | `registerGaugeProvider(provider: (ctx: AppGaugeContext) => void): boolean` | Add observable gauges whose callbacks read the app's own data | experimental | [example](../../../../apps/api/src/common/otel/app-metrics.service.ts) |
-| `METRICS_HOST_OPTIONS` | token | `unique symbol` -> `MetricsHostOptions` | Provide an explicit meter, clock, gate or gauge switch (tests, custom wiring) | experimental | [example](../../../../apps/api/src/common/otel/app-metrics.service.ts) |
-| `OtelMetricsModule.forRootAsync` | option | `forRootAsync({ imports?, inject?, useFactory }): DynamicModule` | Build the host options from the app's configuration | experimental | [example](../../../../apps/api/src/common/otel/app-metrics.module.ts) |
+| `MetricsHostService.registerGaugeProvider` | registry | `registerGaugeProvider(provider: (ctx: AppGaugeContext) => void): boolean` | Add observable gauges whose callbacks read the app's own data | experimental | [example](../../../../apps/api/test/platform/app-metrics-extension.spec.ts) |
+| `METRICS_HOST_OPTIONS` | token | `unique symbol` -> `MetricsHostOptions` | Provide an explicit meter, clock, gate or gauge switch (tests, custom wiring) | experimental | [example](../../../../apps/api/test/platform/app-metrics-extension.spec.ts) |
+| `OtelMetricsModule.forRootAsync` | option | `forRootAsync({ imports?, inject?, useFactory }): DynamicModule` | Build the host options from the app's configuration | experimental | [example](../../../../apps/api/test/platform/app-metrics-extension.spec.ts) |
 | `registerRequestSpanAttributes` | hook | `registerRequestSpanAttributes(fastify, otelEnabled: boolean): boolean` | Write route and caller attributes on every HTTP server span | stable | [example](../../../../apps/api/src/main.ts) |
 | `Trace` | hook | `Trace(spanName?: string, options?: { tracer? }): MethodDecorator` | Wrap one async method in an INTERNAL span | experimental | [example](../../../../apps/api/test/platform/otel-disabled.spec.ts) |
 
@@ -182,7 +174,7 @@ By itself the slice emits nothing but what passes the gate:
 
 ## Conformance suite
 
-None yet. The slice is pinned by its package specs (`test/otel-core/`: bootstrap on and off, load order, gate, registry, metrics host, request attributes, `@Trace()`), and the reference app pins its metric surface (`apps/api/src/common/otel/app-metrics.service.spec.ts`: names, descriptions, units and buckets of a recorded export) and the OTEL-off boot (`apps/api/test/platform/otel-disabled.spec.ts`).
+None yet. The slice is pinned by its package specs (`test/otel-core/`: bootstrap on and off, load order, gate, registry, metrics host, request attributes, `@Trace()`), the host slice pins the platform's metric surface (`packages/platform-api/test/host/metrics/app-metrics.service.spec.ts`: names, descriptions, units and buckets of a recorded export), the reference app pins its registry order (`apps/api/src/common/otel/app-metric.registry.spec.ts`) and the OTEL-off boot (`apps/api/test/platform/otel-disabled.spec.ts`).
 
 ## Upgrade notes
 

@@ -1,6 +1,7 @@
 // The metrics host's module (issue #700): global, so every slice and app
 // module injects `MetricsHostService` without importing it, like the app's
-// own `AppMetricsModule` before it.
+// own `AppMetricsModule` before it. The host slice's `PlatformHostCoreModule`
+// imports it (#867).
 
 import { Global, Module, type DynamicModule, type InjectionToken, type ModuleMetadata } from '@nestjs/common';
 

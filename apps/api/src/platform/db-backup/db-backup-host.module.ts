@@ -28,9 +28,7 @@ import {
 } from '@marinoscar/platform-api/db-backup';
 
 import { DeploymentModeService } from '../../common/deployment/deployment-mode.service';
-import { MaintenanceModeService } from '../../common/maintenance/maintenance-mode.service';
-import { MaintenanceModule } from '../../common/maintenance/maintenance.module';
-import { AppMetricsService } from '../../common/otel/app-metrics.service';
+import { AppMetricsService, MaintenanceModeService } from '@marinoscar/platform-api/host';
 import { NotificationsModule } from '../notifications/notifications.config';
 import { NotificationsService } from '@marinoscar/platform-api/notifications';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
@@ -45,7 +43,7 @@ const BINDINGS = [
 
 @Global()
 @Module({
-  imports: [MaintenanceModule, NotificationsModule],
+  imports: [NotificationsModule],
   providers: BINDINGS,
   exports: BINDINGS.map((binding) => binding.provide),
 })

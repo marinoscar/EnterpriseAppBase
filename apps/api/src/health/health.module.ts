@@ -2,17 +2,16 @@ import { Module } from '@nestjs/common';
 import { TerminusModule } from '@nestjs/terminus';
 import { HealthController } from './health.controller';
 import { DatabaseHealthIndicator } from './indicators/database.indicator';
-import { MaintenanceModule } from '../common/maintenance/maintenance.module';
 import { DbConnectionDoctorCheck } from './doctor/db-connection.doctor-check';
 import { DbMigrationsDoctorCheck } from './doctor/db-migrations.doctor-check';
 import { EncryptionKeyDoctorCheck } from './doctor/encryption-key.doctor-check';
 import { RlsRoleDoctorCheck } from './doctor/rls-role.doctor-check';
 
 @Module({
-  // MaintenanceModule (#257) for `MaintenanceModeService`: the readiness probe
-  // answers the maintenance question BEFORE the database probe. The edge goes
-  // one way — nothing in the maintenance graph knows this module exists.
-  imports: [TerminusModule, MaintenanceModule],
+  // `MaintenanceModeService` (#257) comes from the global host core (#867,
+  // `@marinoscar/platform-api/host`): the readiness probe answers the
+  // maintenance question BEFORE the database probe.
+  imports: [TerminusModule],
   controllers: [HealthController],
   // The `core` doctor checks (#634): database liveness and migrations reuse
   // this module's indicator and Prisma; the encryption-key check has no module

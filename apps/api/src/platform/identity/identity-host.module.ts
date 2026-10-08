@@ -11,8 +11,7 @@ import {
   type IdentityNodeCredentials,
 } from '@marinoscar/platform-api/identity';
 
-import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
-import { AppMetricsService } from '../../common/otel/app-metrics.service';
+import { AppMetricsService, EVENT_BUS } from '@marinoscar/platform-api/host';
 import { JobsModule } from '../jobs/jobs.config';
 import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
 import { NotificationsModule } from '../notifications/notifications.config';

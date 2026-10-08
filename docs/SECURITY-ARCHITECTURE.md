@@ -696,7 +696,10 @@ administrator revoked.
 ### Guards
 
 There is no global authentication guard. The only global guard is the
-maintenance-mode guard. Authentication and RBAC are applied per controller or
+maintenance-mode guard, registered by the host core
+(`PlatformHostCoreModule.forRoot()` of `@marinoscar/platform-api/host`, #867);
+the `host` conformance suite fails an app whose module graph registers any
+other `APP_GUARD`. Authentication and RBAC are applied per controller or
 per route with `@Auth()`, which composes three guards:
 
 ```mermaid
@@ -819,7 +822,7 @@ elsewhere.
 A protected request passes these checkpoints in order:
 
 1. **Nginx**: same-origin routing and security headers ([§9](#9-infrastructure-security)).
-2. **MaintenanceGuard** (global): 503 while a maintenance window is open,
+2. **MaintenanceGuard** (global, from `@marinoscar/platform-api/host`): 503 while a maintenance window is open,
    except for routes marked `@AllowDuringMaintenance()`.
 3. **JwtAuthGuard**: credential family, signature, expiry, revocation, user
    active, and the credential's org binding (an active membership, #724).

@@ -63,7 +63,7 @@ import type { NotificationsPrisma } from './data/notifications-db';
 // then hands the same event to the event bus on `notifications.stream`. Every
 // OTHER replica's instance of this class receives it from the bus and runs
 // the same `deliverLocal` against its own Map. What that means per adapter
-// (`EVENT_BUS_ADAPTER`, see common/event-bus/):
+// (`EVENT_BUS_ADAPTER`, see the host slice's event-bus/):
 //
 //   - `in-process` (the default when unset): exactly the old behaviour. The
 //     bus reaches this process only, and this class ignores its own local
@@ -369,7 +369,7 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
   /**
    * BOTH OPTIONAL, so `new NotificationStreamService()` remains a complete,
    * single-process instance (the unit suite builds it that way). In the
-   * application the `@Global()` `EventBusModule` and `PrismaModule` always
+   * application the global host core (`EVENT_BUS`) and the app's Prisma module always
    * provide them. Prisma is read ONLY to resolve an oversize event's reference.
    */
   constructor(

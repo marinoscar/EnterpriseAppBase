@@ -11,7 +11,7 @@
 // -----------------------------------------------------------------------------
 //
 // The callback needs `NodeOffloadService` (jobs module) and the fleet policy
-// (`NodeLifecycleService`, settings module). `AppMetricsModule` is global and
+// (`NodeLifecycleService`, settings module). The host core's `AppMetricsService` is global and
 // depends on nothing but Prisma and config; teaching it either service would
 // make every module that records a metric transitively depend on the queue.
 // So this provider lives in `NodesModule` (which already imports both) and

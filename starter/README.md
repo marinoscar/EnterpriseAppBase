@@ -75,7 +75,7 @@ Then add the module to `apps/api/src/app.module.ts`, its page to `apps/web/src/A
 
 ## Enable more of the platform
 
-The starter mounts identity, settings, worker-node credentials, jobs and the Doctor. Each further slice is a `forRoot()` in `apps/api/src/platform/platform.ts`, its name in `slices` in `src/platform/permissions.ts` (the platform's packaged registry then seeds its permissions), its settings namespace (when it has one) registered before `SettingsModule.forRoot()`, and its cards and routes in the web app, as its README's Quick start shows:
+The starter mounts the API host core (the event bus, the platform's app metrics, maintenance mode at `/api/admin/maintenance`, the `{ data }` envelope, request ids and the API reference at `/api/docs`: [host](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/host/README.md)), identity, settings, worker-node credentials, jobs and the Doctor. Each further slice is a `forRoot()` in `apps/api/src/platform/platform.ts`, its name in `slices` in `src/platform/permissions.ts` (the platform's packaged registry then seeds its permissions), its settings namespace (when it has one) registered before `SettingsModule.forRoot()`, and its cards and routes in the web app, as its README's Quick start shows:
 
 - [ ] storage (uploads, profile pictures): [README](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/storage/README.md)
 - [ ] email and notifications (the identity notices are only logged until then): [email](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/email/README.md), [notifications](https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/notifications/README.md)
@@ -88,8 +88,6 @@ The starter mounts identity, settings, worker-node credentials, jobs and the Doc
 Some plumbing the platform's reference app has is still app code there, not a package seam, so the starter does without it rather than copy it. Each is a seam request upstream; enable it here when the package ships it:
 
 - a packaged role and permission registry and the platform's user-owned model inventory (the starter lists its seeded permissions in `src/platform/permissions.ts`, and its conformance run checks only its own models);
-- the cross-replica event bus, maintenance mode, the `{ data }` response envelope, request ids and the OpenAPI document at `/api/docs`;
-- the cross-replica event bus, maintenance mode, the `{ data }` response envelope, request ids, the OpenAPI document at `/api/docs`, and the web app shell (navigation rail, bottom navigation);
 - the `postgres-init` script `devdb.compose.yml` mounts to create the ordinary database role (CI creates it inline);
 - typed `getNamespace()` for an app's own settings namespace (the sample parses `readNamespaceValue('notes')` instead).
 

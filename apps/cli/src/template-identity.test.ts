@@ -184,9 +184,9 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
 // Deliberately NOT allowlisted, on purpose, spelled out so nobody "fixes" this
 // guard by adding them back:
 //   - apps/api/src/openapi/document.ts
-//   - apps/api/src/openapi/description.ts
-// Both now import `REPO_URL` from `@app/shared` instead of hardcoding the
-// repository. This guard is what keeps them that way — allowlisting them
+// It imports `REPO_URL` from `@app/shared` instead of hardcoding the
+// repository, and hands it to the host slice's document builder (#867), which
+// writes the description prose from it. This guard is what keeps them that way — allowlisting them
 // would silently permit the regression it exists to catch.
 
 /**

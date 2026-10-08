@@ -40,7 +40,7 @@ export interface AuthOptions {
 
 /**
  * Vendor-extension key under which `@Auth()` records what it is about to
- * enforce. Read back by `src/openapi/rbac-docs.ts` and by the document builder.
+ * enforce. Read back by the host slice's `openapi/rbac-docs.ts` and by the document builder.
  *
  * @stability stable
  */

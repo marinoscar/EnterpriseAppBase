@@ -2,10 +2,9 @@ import request from 'supertest';
 import { JwtService } from '@nestjs/jwt';
 
 import { PrincipalCache } from '@marinoscar/platform-api/identity';
-import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
+import { EVENT_BUS, InProcessEventBus } from '@marinoscar/platform-api/host';
 import { closeTestApp, createTestApp, TestContext } from '../helpers/test-app.helper';
-import { FakeEventBusNetwork } from '../helpers/fake-network-event-bus.helper';
+import { FakeEventBusNetwork } from '@marinoscar/platform-api/host/testing';
 import { authHeader, createMockAdminUser, TestUser } from '../helpers/auth-mock.helper';
 import { setupBaseMocks, setupMockUserList } from '../fixtures/mock-setup.helper';
 import { prismaMock, resetPrismaMock } from '../mocks/prisma.mock';

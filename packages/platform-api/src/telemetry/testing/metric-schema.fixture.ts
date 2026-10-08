@@ -334,7 +334,7 @@ export function appSampleMetricSchema(only?: readonly string[]): TelemetrySchema
  * Tag columns of the five `app_*` counter tables the reference app's `activity`
  * group reads (`app.auth.logins`, `app.auth.refreshes`, `app.ai.requests`,
  * `app.ai.tokens`, `app.notifications.deliveries`). The tag set is the metric's
- * declared attributes (`apps/api/src/common/otel/platform-app-metrics.ts`) plus
+ * declared attributes (`PLATFORM_APP_METRICS` of `@marinoscar/platform-api/host`) plus
  * the four every `app_*` table carries; the names follow the spec's table
  * naming rule (dots become `_`, `_total` appended).
  *

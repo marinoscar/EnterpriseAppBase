@@ -34,7 +34,7 @@ import {
   OrganizationsService,
   TenancyService,
 } from '@marinoscar/platform-api/identity';
-import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
+import { InProcessEventBus } from '@marinoscar/platform-api/host';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';

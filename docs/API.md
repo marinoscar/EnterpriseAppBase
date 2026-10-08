@@ -25,12 +25,15 @@ CORS policy; call it from another origin server-side, with a token.
 
 ### How the document is built
 
-Everything that shapes the document lives in `apps/api/src/openapi/`, so a
-test, the dump script and the running server all produce the same document.
-`document.ts` builds it from the controllers' decorators, then post-processes
-it: `rbac-docs.ts` adds the permission line, `data-envelope.ts` wraps 2xx
-schemas in `{ data, meta }`, and `tags.ts` declares every tag and sidebar group
-(an undeclared tag fails a test). To document a new route, add
+The builder is the host slice's (`@marinoscar/platform-api/host`, #867:
+`createOpenApiDocument`, `registerPlatformDocs`); the reference app keeps only
+its binding in `apps/api/src/openapi/` (`document.ts`: the product name,
+repository and version; `tags.ts`: every tag and sidebar group, an undeclared
+tag fails a test), so a test, the dump script and the running server all
+produce the same document. It is built from the controllers' decorators, then
+post-processed: the generated permission line from `@Auth()`, the PAT scheme
+on every authenticated operation, 2xx schemas wrapped in `{ data, meta }`, the
+shared error response, the tag groups and OpenAPI 3.1 nullables. To document a new route, add
 `@ApiOperation` / `@ApiResponse` and `@Auth()`; the permission line is
 generated for you.
 

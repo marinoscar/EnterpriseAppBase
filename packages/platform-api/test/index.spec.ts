@@ -76,6 +76,8 @@ describe('@marinoscar/platform-api', () => {
       './user-data': { types: './dist/user-data/index.d.ts', default: './dist/user-data/index.js' },
       './user-data/testing': { types: './dist/user-data/testing/index.d.ts', default: './dist/user-data/testing/index.js' },
       './manifest': { types: './dist/manifest/index.d.ts', default: './dist/manifest/index.js' },
+      './host': { types: './dist/host/index.d.ts', default: './dist/host/index.js' },
+      './host/testing': { types: './dist/host/testing/index.d.ts', default: './dist/host/testing/index.js' },
       './package.json': './package.json',
     });
   });

@@ -11,7 +11,7 @@ import type { MetricGroupDef } from '@marinoscar/platform-api/telemetry';
 // no collector change: the dashboard renders any group the API reports.
 //
 // WHAT IT CHARTS. Counters this API already emits and no platform group shows
-// (declared in `common/otel/platform-app-metrics.ts`, named by the table rule
+// (declared in the host slice's `PLATFORM_APP_METRICS`, named by the table rule
 // of docs/specs/telemetry.md §11.13: dots become `_`, `_total` is appended):
 //
 //   app.auth.logins              provider, outcome   app_auth_logins_total

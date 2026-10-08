@@ -62,9 +62,7 @@ Keep this list current when you add one.
 |---|---|---|
 | Web wordmark (AppBar) | `apps/web/src/components/navigation/AppBar.tsx` | `APP_NAME` |
 | Web page title and meta description | `apps/web/index.html` via the `%APP_NAME%` plugin in `apps/web/vite.config.ts` | `APP_NAME` |
-| OpenAPI title, contact and docs link | `apps/api/src/openapi/document.ts` | `APP_NAME`, `REPO_URL` |
-| OpenAPI description prose | `apps/api/src/openapi/description.ts` | `APP_NAME`, `REPO_URL` |
-| API reference page heading and `<title>` | `apps/api/src/openapi/docs-page.ts`, `register-docs-routes.ts` | `APP_NAME` |
+| OpenAPI title, contact, docs link and description prose; the API reference page heading and `<title>` | `apps/api/src/openapi/document.ts` (`APP_OPENAPI`, handed to the host slice's `createOpenApiDocument` and `registerPlatformDocs`, #867) | `APP_NAME`, `REPO_URL` |
 | Email wordmark, footer and subjects | `apps/api/src/platform/email/email.options.ts` (`EmailModule.forRoot({ appName })`) | `APP_NAME` |
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `APP_NAME` |
 | Web theme (`palette.primary.main`, light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |

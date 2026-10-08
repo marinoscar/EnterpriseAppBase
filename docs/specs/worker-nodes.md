@@ -380,7 +380,7 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 | `apps/api/test/nodes/node-offline-event.integration.spec.ts` | `nodes.node.offline` reaches the app's notifier after the sweep's write; nobody is notified for no change or a failed write |
 | `apps/api/test/nodes/node-credential.integration.spec.ts` | `403` for a `nod_` token on `/api/users`, `/api/admin/jobs`, `/api/node-credentials` with an admin owner; RBAC; show-once; `lastUsedAt` stamped on allowed routes |
 | `packages/platform-api/test/nodes/node-credential.service.spec.ts` | Four rejection paths; `expiresAt: null` group |
-| `apps/api/src/common/maintenance/maintenance.guard.spec.ts` | `OPAQUE_BEARER_PREFIXES` contains `NODE_TOKEN_PREFIX` |
+| `packages/platform-api/test/host/maintenance/maintenance.guard.spec.ts` | `OPAQUE_BEARER_PREFIXES` contains `NODE_TOKEN_PREFIX` |
 | `apps/api/test/auth/pat-universality.integration.spec.ts` | A PAT stays universal (why nodes need their own family) |
 | `packages/platform-api/test/nodes/nodes.service.spec.ts` | Register-or-reattach incl. `P2002`; the three claim filters; lease guard's five conditions one at a time across `renew`/`result`/`failure` |
 | `apps/api/test/nodes/nodes.integration.spec.ts` | `409` on late submission, Zod issues in `details`, `claimToken` round trip, `400` for a non-uuid token; `traceparent` on the assignment (`null` when absent or malformed); heartbeat vitals persisted and shown by the admin read, `400` for unknown or out-of-range vitals |

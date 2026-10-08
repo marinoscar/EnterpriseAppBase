@@ -24,7 +24,7 @@ import {
   SseMessage,
 } from './support/notifications';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import { FakeEventBusNetwork, flushEventBus } from '../helpers/fake-network-event-bus.helper';
+import { FakeEventBusNetwork, flushEventBus } from '@marinoscar/platform-api/host/testing';
 
 function makeEvent(overrides: Partial<NotificationStreamEvent> = {}): NotificationStreamEvent {
   return {

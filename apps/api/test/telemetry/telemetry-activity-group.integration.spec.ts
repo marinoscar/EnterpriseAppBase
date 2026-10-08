@@ -10,7 +10,7 @@ import {
 import { APP_ACTIVITY_METRIC_TAGS, appActivityMetricSchema } from '@marinoscar/platform-api/telemetry/testing';
 
 import type { SystemTelemetryValue } from '../../src/common/schemas/settings.schema';
-import { PLATFORM_APP_METRICS } from '../../src/common/otel/platform-app-metrics';
+import { PLATFORM_APP_METRICS } from '@marinoscar/platform-api/host';
 import { ACTIVITY_METRIC_GROUP } from '../../src/platform-extensions/telemetry/activity.metric-group';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser } from '../helpers/auth-mock.helper';

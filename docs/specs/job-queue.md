@@ -577,7 +577,7 @@ Paths starting `test/` are under `apps/api/`; the unit specs that moved with the
 | `platform-api/test/jobs/job-insights.service.spec.ts`, `test/jobs/job-insights.db.spec.ts` | Only `SELECT`s, runs while `FOR UPDATE` locks are held, `PERCENTILE_CONT` values, `basis`, lifetime merge, `reset-history` |
 
 | `test/jobs/job-org-id.db.spec.ts`, `platform-api/test/jobs/job-scope.spec.ts` | `org_id` column, `SET NULL` FK and index; housekeeping stores `NULL`; the organization subject dedups per org; `JobScope.run` shows only the job's org under RLS and refuses a system job |
-| `test/jobs/job-claim.db.spec.ts` (`org_id` case), `src/common/otel/app-metrics.service.spec.ts` (`org.id` case) | One cross-org claim statement, `org_id` only in `RETURNING`, plan shape unchanged; no queue metric carries the organization |
+| `test/jobs/job-claim.db.spec.ts` (`org_id` case), `packages/platform-api/test/host/metrics/app-metrics.service.spec.ts` (`org.id` case) | One cross-org claim statement, `org_id` only in `RETURNING`, plan shape unchanged; no queue metric carries the organization |
 
 Not proved: that `@Cron` schedules fire (that is Nest's), that the planner chooses the partial or covering indexes (asserted instead by the shape of each `where`), or that insights are fast on a large table.
 

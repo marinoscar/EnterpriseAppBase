@@ -8,9 +8,8 @@ import {
 import { openApiTagGroups, openApiTags } from '@marinoscar/platform-api/core';
 
 import '../../src/openapi/tags';
-import { REQUIREMENTS_MARKER } from '../../src/openapi/rbac-docs';
 import { RBAC_EXTENSION_KEY } from '@marinoscar/platform-api/identity';
-import { DocOperation, forEachOperation, MutableDocument } from '../../src/openapi/types';
+import { REQUIREMENTS_MARKER, forEachOperation, type DocOperation, type MutableDocument } from '@marinoscar/platform-api/host';
 
 // The app's taxonomy, as registered by src/openapi/tags.ts into the core
 // OpenAPI tag registry (issue #698).

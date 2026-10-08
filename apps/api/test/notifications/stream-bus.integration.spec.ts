@@ -12,7 +12,7 @@
 import { Logger } from '@nestjs/common';
 
 import { notificationsEventBusOf } from '../../src/platform/notifications/notifications-host.module';
-import { FakeEventBusNetwork, flushEventBus } from '../helpers/fake-network-event-bus.helper';
+import { FakeEventBusNetwork, flushEventBus } from '@marinoscar/platform-api/host/testing';
 import {
   BrowserNotificationChannel,
   NOTIFICATION_SSE_EVENT,

@@ -14,7 +14,8 @@
 // Prisma query API; reach for raw SQL only for what it cannot express.
 //
 // Files are paths relative to the scanned root (apps/api/src, or a packaged
-// slice's src/<slice> folder: identity since #727, db-backup since #740), with
+// slice's src/<slice> folder: identity since #727, db-backup since #740, host
+// since #867), with
 // forward slashes.
 // =============================================================================
 
@@ -24,7 +25,8 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: 'cleanDatabase(): lists and truncates every table; test environment only (it throws otherwise).',
   },
   {
-    file: 'common/event-bus/postgres-event-bus.ts',
+    // The host slice's root (#867), packages/platform-api/src/host.
+    file: 'event-bus/postgres-event-bus.ts',
     why: 'Event bus publish: SELECT pg_notify(...). No table access.',
   },
   {

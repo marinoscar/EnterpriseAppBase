@@ -195,7 +195,7 @@ export interface SystemSettings {
 // =============================================================================
 //
 // The web mirror of `GET`/`PUT /api/admin/maintenance`
-// (`apps/api/src/common/maintenance/dto/update-maintenance.dto.ts`). Mirrored
+// (`packages/platform-api/src/host/maintenance/dto/update-maintenance.dto.ts`). Mirrored
 // rather than shared because there is no cross-package type surface between
 // `apps/api` and `apps/web` — `packages/shared` is deliberately plain
 // JavaScript constants (see its header) — so this is the same arrangement

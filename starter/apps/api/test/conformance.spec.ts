@@ -2,6 +2,7 @@
 // The package owns each scan; the app supplies only its own data. A suite
 // that ships with a slice registers when its testing entry is imported.
 import '@marinoscar/platform-api/identity/testing';
+import '@marinoscar/platform-api/host/testing';
 
 import { join } from 'node:path';
 import {
@@ -44,6 +45,10 @@ runPlatformConformance({
       grants: catalogGrants(buildPermissionCatalog()),
       minRoutes: 4,
     },
+    // The host core: exactly one APP_GUARD and it is the maintenance guard
+    // (no global JWT guard), one PlatformHostCoreModule, the `{ data }`
+    // envelope and the exception filter registered once.
+    host: { rootModule: AppModule },
   },
 });
 

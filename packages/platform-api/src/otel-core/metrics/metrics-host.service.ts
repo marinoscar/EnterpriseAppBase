@@ -7,8 +7,8 @@
 // in the app-metric registry (`metric-name.registry.ts`) is created here, with
 // exactly its declared name, unit, description and bucket boundaries; gauges
 // are created by their providers (`gauge-provider.ts`). An app's own metrics
-// service builds its typed recorders on top (the reference app:
-// `apps/api/src/common/otel/app-metrics.service.ts`), and emits generic ones
+// service builds its typed recorders on top (the platform's: the host slice's
+// `AppMetricsService`, #867), and emits generic ones
 // with `add(key, …)` / `record(key, …)`.
 //
 // -----------------------------------------------------------------------------

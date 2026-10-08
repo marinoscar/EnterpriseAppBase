@@ -3,8 +3,8 @@ import { DatabaseHealthIndicator } from '../../src/health/indicators/database.in
 import {
   MAINTENANCE_ERROR_MARKER,
   MAINTENANCE_RETRY_AFTER_SECONDS,
-} from '../../src/common/maintenance/maintenance.guard';
-import { MaintenanceModeService } from '../../src/common/maintenance/maintenance-mode.service';
+  MaintenanceModeService,
+} from '@marinoscar/platform-api/host';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import type { SystemMaintenanceValue } from '../../src/common/schemas/settings.schema';
 import {

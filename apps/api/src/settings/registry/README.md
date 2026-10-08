@@ -45,7 +45,7 @@ The declaration files:
 | system `jobs` | `@marinoscar/platform-api/jobs` (`JOBS_SYSTEM_SETTINGS`; `JobsModule.forRoot()` would register it, the manifest lists it to pin the key order) |
 | system `nodes` | `@marinoscar/platform-api/nodes` (`NODES_SYSTEM_SETTINGS`; likewise `NodesModule.forRoot()`) |
 | system `databaseBackup` | `db-backup/db-backup.system-settings.ts` |
-| system `maintenance` | `common/maintenance/maintenance.system-settings.ts` |
+| system `maintenance` | `MAINTENANCE_SYSTEM_SETTINGS` of `@marinoscar/platform-api/host` (#867) |
 | system `storage` | `storage/config/storage.system-settings.ts` |
 | system `ai` | `ai/ai.system-settings.ts` |
 | system `telemetry` | `platform/telemetry/telemetry.system-settings.ts` (data from `@marinoscar/platform-api/telemetry`) |

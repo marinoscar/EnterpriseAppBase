@@ -2037,14 +2037,15 @@ controls instead, just not by selecting a span on the chart itself.
 
 ### 11.13 Application metrics
 
-> **Code:** `apps/api/src/common/otel/app-metrics.service.ts`, `app-metrics.module.ts`,
-> `platform-app-metrics.ts` (the platform's declarations), `app-metric.manifest.ts`; an app's own in
-> `apps/api/src/app-registrations/telemetry.ts` (`APP_METRICS`). The generic half is packaged (#700) in
+> **Code:** the host slice (#867, `@marinoscar/platform-api/host`): `packages/platform-api/src/host/metrics/`
+> (`app-metrics.service.ts`, `platform-app-metrics.ts` with the platform's declarations, `register.ts`), provided by
+> `PlatformHostCoreModule.forRoot()`; the reference app's manifest `apps/api/src/common/otel/app-metric.manifest.ts`;
+> an app's own in `apps/api/src/app-registrations/telemetry.ts` (`APP_METRICS`). The generic half is packaged (#700) in
 > `@marinoscar/platform-api/otel-core`: `MetricsHostService` (instruments, label bounding, the gauge-provider
 > seam), `OtelMetricsModule` and the registry (`appMetricRegistry`, `registerAppMetrics`), in
 > `packages/platform-api/src/otel-core/metrics/`
 
-`AppMetricsModule` (global) exposes `AppMetricsService`, the one place the application's own metrics are recorded: meter scope `app`, every name prefixed `app.`. Since #700 it records through the package's `MetricsHostService` (provided by `OtelMetricsModule`, which `AppMetricsModule` imports), which creates every registered counter and histogram; `AppMetricsService` keeps the typed recorders and the database-backed gauges, which it registers with `registerGaugeProvider`. Jobs, backups, auth, AI and notifications call its typed methods (`jobEnqueued`, `aiUsage`, …). The only other code that creates `app.*` instruments is the node fleet gauges (`nodes/node-fleet-metrics.service.ts`, see Gauges below). With `OTEL_ENABLED` unset the service is a no-op.
+The host core (`PlatformHostCoreModule`, global) exposes `AppMetricsService`, the one place the application's own metrics are recorded: meter scope `app`, every name prefixed `app.`. Since #700 it records through the package's `MetricsHostService` (provided by `OtelMetricsModule`, which the host core imports), which creates every registered counter and histogram; `AppMetricsService` keeps the typed recorders and the database-backed gauges, which it registers with `registerGaugeProvider`. Jobs, backups, auth, AI and notifications call its typed methods (`jobEnqueued`, `aiUsage`, …). The only other code that creates `app.*` instruments is the node fleet gauges (the nodes slice's `node-fleet-metrics.service.ts`, see Gauges below). With `OTEL_ENABLED` unset the service is a no-op.
 
 #### The app-metric registry (#680)
 
@@ -2052,7 +2053,7 @@ Every `app.*` metric is **declared** in a static registry (`appMetricRegistry`, 
 
 | Field | Rule |
 |---|---|
-| `key` | Stable code key, lowerCamelCase (`jobsEnqueued`); what `add`/`record` and `APP_METRIC_NAMES` use. Unique. |
+| `key` | Stable code key, lowerCamelCase (`jobsEnqueued`); what `add`/`record` use. Unique. |
 | `name` | The OTLP name, `/^app(\.[a-z][a-z0-9_]*)+$/`, unique. Permanent: it is the GreptimeDB table name (table naming below). |
 | `kind` | `counter`, `histogram` or `gauge`. |
 | `unit` | The OTel unit (`s`, `By`, `{job}`, `1`); it picks the table suffix. |
@@ -2060,7 +2061,7 @@ Every `app.*` metric is **declared** in a static registry (`appMetricRegistry`, 
 | `buckets` | Histograms only; strictly ascending, in `unit`. |
 | `attributes` | The label keys the metric may carry (snake_case, no dots): `{ kind: 'enum', values }` (anything else becomes `other`) or `{ kind: 'free' }` (bounded by `boundLabel`, Labels below). |
 
-The manifest registers the platform's 31 (`platform-app-metrics.ts`), then the event bus's three (`common/event-bus/event-bus.metrics.ts`), then the app's `APP_METRICS`; a rule breach fails at import time. `APP_METRIC_NAMES` is derived from the registry (`{ [key]: name }`).
+The app's manifest calls `registerPlatformHostAppMetrics(...)` (the host slice): the platform's 31 (`PLATFORM_APP_METRICS`), then the event bus's three (`EVENT_BUS_APP_METRICS`), then the slices' it mounts and the app's `APP_METRICS`; a rule breach fails at import time. `PlatformHostCoreModule.forRoot()` registers the platform's two lists itself too (idempotently), so an app without a manifest still declares them. A name table is `Object.fromEntries(appMetricRegistry.list().map((d) => [d.key, d.name]))`.
 
 - The constructor creates **every registered counter and histogram** from its declaration (name, unit, description, buckets as `advice.explicitBucketBoundaries`). The typed methods use those instruments and keep their own label logic.
 - `add(key, value = 1, attributes?)` (counters) and `record(key, value, attributes?)` (histograms) emit any registered metric, and are how an app emits its own. Only declared attribute keys are kept; each is bounded (`enum`: the value or `other`; `free`: `boundLabel`; numbers and booleans are stringified first). An unknown key, or one that names another kind, is a no-op logged once at `debug`; a negative or non-finite value is ignored. Neither throws.
@@ -2146,7 +2147,7 @@ Tables verified live: `app_jobs_enqueued_total`, `app_jobs_duration_seconds_{buc
 - Backup settlements made by the stale-sweep.
 - Controller-level auth cases (missing profile, missing cookie).
 
-Tests: `apps/api/src/common/otel/app-metrics.service.spec.ts` (including the pinned descriptor baseline and a recorded export of every counter and histogram), `app-metric.registry.spec.ts`, `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, `apps/api/src/common/event-bus/event-bus.metrics.spec.ts`, `apps/api/test/platform/otel-disabled.spec.ts` (the API with `OTEL_ENABLED` unset), the package's `packages/platform-api/test/otel-core/metrics-host.spec.ts` (generic `add`/`record`, label bounding, gauge providers) and `metric-name.registry.spec.ts`, the gauge-temporality case in `packages/platform-api/test/otel-core/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
+Tests: `packages/platform-api/test/host/metrics/app-metrics.service.spec.ts` (including the pinned descriptor baseline and a recorded export of every counter and histogram), the reference app's `apps/api/src/common/otel/app-metric.registry.spec.ts` (the registry order with the slices' metrics), `apps/api/src/nodes/node-fleet-metrics.service.spec.ts`, `packages/platform-api/test/host/event-bus/event-bus.metrics.spec.ts`, the worked example `apps/api/test/platform/app-metrics-extension.spec.ts` (an app gauge provider), `apps/api/test/platform/otel-disabled.spec.ts` (the API with `OTEL_ENABLED` unset), the package's `packages/platform-api/test/otel-core/metrics-host.spec.ts` (generic `add`/`record`, label bounding, gauge providers) and `metric-name.registry.spec.ts`, the gauge-temporality case in `packages/platform-api/test/otel-core/telemetry-gate.spec.ts`, and the hook-site specs beside each caller.
 
 - **PostgreSQL is scraped by the collector, not instrumented in the API.**
   The `postgresql` receiver reads the statistics views from outside the

@@ -7,7 +7,7 @@ import {
   USER_DEFAULTS,
 } from '@marinoscar/platform-api/identity';
 
-import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
+import { EVENT_BUS } from '@marinoscar/platform-api/host';
 import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
 import { NotificationsIdentityNotifier } from '../../src/platform/identity/identity-notifier.adapter';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';

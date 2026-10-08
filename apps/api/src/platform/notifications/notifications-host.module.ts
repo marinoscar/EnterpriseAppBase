@@ -5,9 +5,12 @@ import {
   type NotificationsEventBus,
 } from '@marinoscar/platform-api/notifications';
 
-import { exceedsEventBusPayloadLimit } from '../../common/event-bus/event-bus-core';
-import { EVENT_BUS, type EventBus } from '../../common/event-bus/event-bus.interface';
-import { AppMetricsService } from '../../common/otel/app-metrics.service';
+import {
+  AppMetricsService,
+  EVENT_BUS,
+  exceedsEventBusPayloadLimit,
+  type EventBus,
+} from '@marinoscar/platform-api/host';
 
 // =============================================================================
 // The notifications slice's host ports, bound to this app (issue #738)

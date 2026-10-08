@@ -50,6 +50,9 @@ export const DB_BACKUP_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api'
 /** The packaged user-data slice's source root (#743: three jobs, no cron). */
 export const USER_DATA_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'user-data');
 
+/** The packaged host slice's source root (#867: the event bus, metrics and maintenance; no cron). */
+export const HOST_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'host');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -63,4 +66,5 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   AI_SLICE_SOURCE_ROOT,
   DB_BACKUP_SLICE_SOURCE_ROOT,
   USER_DATA_SLICE_SOURCE_ROOT,
+  HOST_SLICE_SOURCE_ROOT,
 ];

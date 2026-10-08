@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 
 // =============================================================================
 // No local copies of what moved into @marinoscar/platform-api/core (issue #698)
+// or @marinoscar/platform-api/host (issue #867)
 // =============================================================================
 //
 // The registry primitive, the principal and scope contract, the exception
@@ -41,6 +42,23 @@ const MOVED: ReadonlyArray<{ path: string; kind: 'file' | 'dir' }> = [
   { path: 'permissions/permission.registry', kind: 'file' },
   { path: 'permissions/permission-ids', kind: 'file' },
   { path: 'permissions/platform-roles', kind: 'file' },
+  // The host core (#867), `@marinoscar/platform-api/host`: the event bus, the
+  // platform's app metrics, maintenance mode, the envelope, the request log
+  // line and request ids. (`maintenance/allow-during-maintenance.decorator`
+  // stays: core's decorator, re-exported.)
+  { path: 'event-bus', kind: 'dir' },
+  { path: 'interceptors', kind: 'dir' },
+  { path: 'middleware', kind: 'dir' },
+  { path: 'otel/app-metrics.service', kind: 'file' },
+  { path: 'otel/app-metrics.module', kind: 'file' },
+  { path: 'otel/platform-app-metrics', kind: 'file' },
+  { path: 'maintenance/maintenance-mode.service', kind: 'file' },
+  { path: 'maintenance/maintenance.guard', kind: 'file' },
+  { path: 'maintenance/maintenance.controller', kind: 'file' },
+  { path: 'maintenance/maintenance.module', kind: 'file' },
+  { path: 'maintenance/maintenance.system-settings', kind: 'file' },
+  { path: 'maintenance/dto', kind: 'dir' },
+  { path: 'maintenance/doctor', kind: 'dir' },
 ];
 
 const SCANNED_DIRS = ['src', 'test', 'prisma', 'scripts'];

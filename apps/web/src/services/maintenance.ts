@@ -15,7 +15,7 @@
  * So this file holds exactly two things:
  *
  *   1. THE MIRRORED CONSTANTS AND THE RECOGNISER. `MAINTENANCE_ERROR_MARKER`
- *      is the same string `apps/api/src/common/maintenance/maintenance.guard.ts`
+ *      is the same string `packages/platform-api/src/host/maintenance/maintenance.guard.ts`
  *      exports, and `readMaintenanceBlock` is the ONE place in the web app that
  *      decides whether a failed response is a maintenance window. Changing
  *      either is a wire-contract change on both sides.
@@ -62,7 +62,7 @@ import type { MaintenanceStatus } from '../types';
  * The stable marker on a maintenance `503`'s body, at `details.reason`.
  *
  * MIRRORED FROM `MAINTENANCE_ERROR_MARKER` in
- * `apps/api/src/common/maintenance/maintenance.guard.ts`. It lives under
+ * `packages/platform-api/src/host/maintenance/maintenance.guard.ts`. It lives under
  * `details` rather than at the top level because the API's exception filter
  * rebuilds every error body from a fixed key allowlist and would silently strip
  * a custom top-level field — so `details.reason` is not a stylistic choice on

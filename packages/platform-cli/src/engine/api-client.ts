@@ -365,7 +365,7 @@ export class ApiClient {
 
 /**
  * Remove the response envelope added by
- * apps/api/src/common/interceptors/transform.interceptor.ts, which wraps a
+ * the API host core's `TransformInterceptor` (`@marinoscar/platform-api/host`), which wraps a
  * handler's return value as `{ data, meta: { timestamp } }`.
  *
  * THE SUBTLETY, and the reason `ApiResponse.body` exists alongside this: the

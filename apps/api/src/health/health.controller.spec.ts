@@ -3,8 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HealthCheckService, HealthCheckResult } from '@nestjs/terminus';
 import { HealthController } from './health.controller';
 import { DatabaseHealthIndicator } from './indicators/database.indicator';
-import { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
-import { MAINTENANCE_ERROR_MARKER } from '../common/maintenance/maintenance.guard';
+import { MAINTENANCE_ERROR_MARKER, MaintenanceModeService } from '@marinoscar/platform-api/host';
 
 describe('HealthController', () => {
   let controller: HealthController;

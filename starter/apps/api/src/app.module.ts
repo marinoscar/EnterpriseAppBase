@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_PIPE } from '@nestjs/core';
+import { APP_PIPE } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { HttpExceptionFilter, RegistryFreezeService } from '@marinoscar/platform-api/core';
+import { RegistryFreezeService } from '@marinoscar/platform-api/core';
 
 import configuration from './config/configuration';
 import { NotesModule } from './notes/notes.module';
@@ -28,7 +28,10 @@ import { PrismaModule } from './prisma/prisma.service';
   ],
   providers: [
     { provide: APP_PIPE, useClass: ZodValidationPipe },
-    { provide: APP_FILTER, useClass: HttpExceptionFilter },
+    // No APP_GUARD, APP_FILTER or APP_INTERCEPTOR here: the host core
+    // (PlatformHostCoreModule) registers the maintenance guard (the only
+    // global guard; a route without @Auth() is public), the exception filter
+    // and the `{ data }` envelope.
     // Freezes every platform registry once the graph is built.
     RegistryFreezeService,
   ],

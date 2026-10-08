@@ -2,7 +2,7 @@ import { metrics, trace } from '@opentelemetry/api';
 import { APP_SLUG } from '@app/shared';
 import { MetricsHostService, telemetryGate, Trace } from '@marinoscar/platform-api/otel-core';
 
-import { AppMetricsService } from '../../src/common/otel/app-metrics.service';
+import { AppMetricsService } from '@marinoscar/platform-api/host';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 
 // =============================================================================

@@ -72,13 +72,9 @@ export { nodesSettingsPatchSchema, nodesSettingsSchema } from '@marinoscar/platf
 // since #740, re-exported unchanged.
 export { databaseBackupSettingsPatchSchema, databaseBackupSettingsSchema } from '@marinoscar/platform-contract/db-backup';
 
-export const maintenanceSettingsSchema = z.object({
-  enabled: z.boolean(),
-  message: z.string().min(1).max(1000),
-  allowAdmins: z.boolean(),
-  startedAt: z.iso.datetime().nullable(),
-  startedById: z.string().uuid().nullable(),
-});
+// The `maintenance` branches live in `@marinoscar/platform-api/host` since #867,
+// re-exported unchanged.
+export { maintenanceSettingsPatchSchema, maintenanceSettingsSchema } from '@marinoscar/platform-api/host';
 
 // Storage provider configuration on the wire (#373): `storageSettingsSchema`
 // and `storageSettingsPatchSchema` live in `@marinoscar/platform-contract/storage`
@@ -174,17 +170,9 @@ export const retentionPolicyPatchSettingsSchema = z.object({
 
 // `databaseBackupSettingsPatchSchema`: re-exported above from the contract (#740).
 
-// `startedAt` and `startedById` are `.nullable().optional()`: `null` clears
-// the window's provenance, absent leaves it alone. The service's merge
-// distinguishes the two with `!== undefined` rather than `??`, which would
-// collapse them and make "clear it" impossible to express.
-export const maintenanceSettingsPatchSchema = z.object({
-  enabled: z.boolean().optional(),
-  message: z.string().min(1).max(1000).optional(),
-  allowAdmins: z.boolean().optional(),
-  startedAt: z.iso.datetime().nullable().optional(),
-  startedById: z.string().uuid().nullable().optional(),
-});
+// `maintenanceSettingsPatchSchema`: re-exported above from the host slice
+// (#867). `startedAt` and `startedById` are `.nullable().optional()` there:
+// `null` clears the window's provenance, absent leaves it alone.
 
 
 // Epic #528, story #533. Optional at the namespace level and field by field
