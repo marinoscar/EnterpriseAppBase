@@ -1591,7 +1591,11 @@ registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`, a
 policy `org_credentials_org_isolation`). Each carries `org_id`, has
 `ENABLE` and `FORCE ROW LEVEL SECURITY`, and one policy named in
 `packages/platform-db/rls-policies.json` (`RLS_POLICIES`). `AuditEvent` has a
-nullable `org_id` and no policy yet (`org-optional`); `user` and `system`
+nullable `org_id` and no policy yet (`org-optional`). `Job` (#734) is
+`org-optional` by design: `jobs.org_id` records whose work a job is, but the
+claim is one cross-organization `FOR UPDATE SKIP LOCKED` statement, so the
+admin routes are system routes and a handler reaches tenant tables through
+`JobScope.run(job, fn)` (transaction-local `app.org_id`); `user` and `system`
 models carry no organization. A table that merely **references** an
 organization (`Membership`, `Invite`, org-bound tokens) says so with
 `orgReference` and is not isolated by RLS; its service code guards it.
