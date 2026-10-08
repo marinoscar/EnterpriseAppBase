@@ -376,17 +376,17 @@ describe('OAuthButton', () => {
       const buttons = container.querySelectorAll('button');
       expect(buttons).toHaveLength(3);
 
-      await user.click(buttons[0]);
+      await user.click(buttons.item(0));
       expect(mockOnClickGoogle).toHaveBeenCalledTimes(1);
       expect(mockOnClickMicrosoft).not.toHaveBeenCalled();
       expect(mockOnClickGitHub).not.toHaveBeenCalled();
 
-      await user.click(buttons[1]);
+      await user.click(buttons.item(1));
       expect(mockOnClickGoogle).toHaveBeenCalledTimes(1);
       expect(mockOnClickMicrosoft).toHaveBeenCalledTimes(1);
       expect(mockOnClickGitHub).not.toHaveBeenCalled();
 
-      await user.click(buttons[2]);
+      await user.click(buttons.item(2));
       expect(mockOnClickGoogle).toHaveBeenCalledTimes(1);
       expect(mockOnClickMicrosoft).toHaveBeenCalledTimes(1);
       expect(mockOnClickGitHub).toHaveBeenCalledTimes(1);

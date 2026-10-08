@@ -266,7 +266,7 @@ describe('usePersonalAccessTokens', () => {
       });
 
       await waitFor(() => expect(result.current.tokens).toHaveLength(1));
-      expect(result.current.tokens[0].id).toBe(mockCreatedResponse.id);
+      expect(result.current.tokens[0]?.id).toBe(mockCreatedResponse.id);
     });
 
     it('should set error and rethrow when create fails', async () => {
@@ -276,7 +276,7 @@ describe('usePersonalAccessTokens', () => {
       const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-      let caughtError: Error | null = null;
+      let caughtError = null as Error | null;
       await act(async () => {
         try {
           await result.current.createToken({
@@ -290,7 +290,7 @@ describe('usePersonalAccessTokens', () => {
       });
 
       expect(caughtError).not.toBeNull();
-      expect((caughtError as Error).message).toBe('Create failed');
+      expect(caughtError?.message).toBe('Create failed');
       await waitFor(() => expect(result.current.error).toBe('Create failed'));
     });
 
@@ -350,7 +350,7 @@ describe('usePersonalAccessTokens', () => {
       });
 
       await waitFor(() => expect(result.current.tokens).toHaveLength(1));
-      expect(result.current.tokens[0].id).toBe('pat-id-2');
+      expect(result.current.tokens[0]?.id).toBe('pat-id-2');
     });
 
     it('should set error and rethrow when revoke fails', async () => {
@@ -360,7 +360,7 @@ describe('usePersonalAccessTokens', () => {
       const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-      let caughtError: Error | null = null;
+      let caughtError = null as Error | null;
       await act(async () => {
         try {
           await result.current.revokeToken('pat-id-1');
@@ -370,7 +370,7 @@ describe('usePersonalAccessTokens', () => {
       });
 
       expect(caughtError).not.toBeNull();
-      expect((caughtError as Error).message).toBe('Revoke failed');
+      expect(caughtError?.message).toBe('Revoke failed');
       await waitFor(() => expect(result.current.error).toBe('Revoke failed'));
     });
 

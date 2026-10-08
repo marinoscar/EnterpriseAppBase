@@ -453,7 +453,7 @@ describe('useAllowlist', () => {
 
       const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.addEmail('test@example.com');
@@ -475,7 +475,7 @@ describe('useAllowlist', () => {
 
       const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.addEmail('user1@example.com');
@@ -574,7 +574,7 @@ describe('useAllowlist', () => {
 
       const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.removeEmail('entry-1');
@@ -596,7 +596,7 @@ describe('useAllowlist', () => {
 
       const { result } = renderHook(() => useAllowlist(api));
 
-      let thrownError: Error | null = null;
+      let thrownError = null as Error | null;
       await act(async () => {
         try {
           await result.current.removeEmail('nonexistent-id');

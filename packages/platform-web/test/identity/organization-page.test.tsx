@@ -81,7 +81,7 @@ describe('OrganizationPage (#726)', () => {
     expect(screen.getByRole('tab', { name: 'Invites' })).toBeInTheDocument();
     expect(await screen.findByText('Other Person')).toBeInTheDocument();
     // No org id is sent: the API acts on the session's org.
-    expect(vi.mocked(service.getOrgMembers).mock.calls[0][0]).not.toHaveProperty('orgId');
+    expect(vi.mocked(service.getOrgMembers).mock.calls[0]?.[0]).not.toHaveProperty('orgId');
   });
 
   it("enables role, suspend and remove on another member's row, never on the viewer's own", async () => {
