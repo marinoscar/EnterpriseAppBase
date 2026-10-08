@@ -54,7 +54,7 @@
 // with the same case list. The app supplies how it boots (`AiConformanceFixture`).
 // =============================================================================
 
-import request from 'supertest';
+import { request, type SupertestResponse } from './ai-http-client';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -707,7 +707,7 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
   // unchanged (no organization key stored: rule 3, the deployment key).
   // ==========================================================================
   describe('the organization tier (#739)', () => {
-    async function respond(): Promise<request.Response> {
+    async function respond(): Promise<SupertestResponse> {
       return request(app.context.app.getHttpServer()).post('/api/ai/responses').set(authHeader(holderToken)).send(BODY);
     }
 

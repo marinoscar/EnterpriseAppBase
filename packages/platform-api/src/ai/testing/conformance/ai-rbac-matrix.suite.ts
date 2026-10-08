@@ -37,7 +37,7 @@
 // with the same case list. The app supplies how it boots (`AiConformanceFixture`).
 // =============================================================================
 
-import request from 'supertest';
+import { request } from './ai-http-client';
 import { createHash, randomUUID } from 'node:crypto';
 
 import type { ConformanceAppSuite } from '../../../testing/index';

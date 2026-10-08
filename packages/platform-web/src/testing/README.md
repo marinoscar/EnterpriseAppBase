@@ -56,7 +56,7 @@ The test doubles are not extension points; apps extend nothing there. The confor
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `runPlatformWebConformance` | option | `runPlatformWebConformance(options: PlatformWebConformanceOptions): void` | Run the platform's web suites over the app's registries, routes and destinations, in one test file | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
-| `PlatformWebConformanceOptions` | option | `{ adminSections; userSettingsSections; hubs; routes; apiPermissions; openApiDocument?; destinations?; suites?; testApi? }` | Pass the app's data and, per suite id, an argued `{ skip: 'reason' }` | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
+| `PlatformWebConformanceOptions` | option | `{ adminSections; userSettingsSections; hubs; routes; apiPermissions; openApiDocument?; destinations?; suites?; testApi?; summaryOutput? }` | Pass the app's data and, per suite id, an argued `{ skip: 'reason' }` | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `WebConformanceSuite` | registry | `interface WebConformanceSuite { id; title; description; register(api, context) }` | Write a web suite in a slice's `testing` entry | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `webConformanceSuites` | registry | `{ register(suite); list(); ids() }` | Register a suite when the slice's testing entry is imported; frozen on the first run | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 

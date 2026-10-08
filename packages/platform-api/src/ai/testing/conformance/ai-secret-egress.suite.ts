@@ -55,7 +55,7 @@
 // with the same case list. The app supplies how it boots (`AiConformanceFixture`).
 // =============================================================================
 
-import request from 'supertest';
+import { request } from './ai-http-client';
 import { Logger } from '@nestjs/common';
 import {
   AI_SETTINGS_CARRIES_NO_SECRET,

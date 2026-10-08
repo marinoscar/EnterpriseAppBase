@@ -36,7 +36,7 @@
 // with the same case list. The app supplies how it boots (`AiConformanceFixture`).
 // =============================================================================
 
-import request from 'supertest';
+import { request } from './ai-http-client';
 
 import { AiProviderRegistry } from '../../core/provider-registry';
 import { JobHandlerRegistry } from '../../../jobs/index';

@@ -29,11 +29,10 @@ describe('runPlatformConformance', () => {
       testApi: api,
     });
 
-    expect(titles).toEqual(['every @Cron enqueues rather than working', 'platform conformance: suites run and skipped']);
+    expect(titles).toEqual(['every @Cron enqueues rather than working']);
     expect(tests.map((t) => t.name)).toEqual([
       'every @Cron enqueues rather than working > finds the crons at all, so a broken scan cannot pass vacuously',
       'every @Cron enqueues rather than working > queues its work instead of doing it, in every non-exempt cron',
-      'platform conformance: suites run and skipped > prints the summary table',
     ]);
   });
 
@@ -128,10 +127,9 @@ describe('runPlatformConformance', () => {
       testApi: api,
     });
 
-    expect(titles).toEqual(['every @Cron enqueues rather than working', 'platform conformance: suites run and skipped']);
+    expect(titles).toEqual(['every @Cron enqueues rather than working']);
     expect(tests.map((t) => t.name)).toEqual([
       'every @Cron enqueues rather than working > cron-enqueue-only: skipped by the app (This fixture app has no crons.)',
-      'platform conformance: suites run and skipped > prints the summary table',
     ]);
     expect(await outcome(tests[0])).toBeNull();
   });
@@ -148,33 +146,53 @@ describe('runPlatformConformance', () => {
     expect(run(false)).toThrow("An opt-out needs a reason: `cronEnqueueOnly: { skip: 'why this app does not run it' }`");
   });
 
-  it('prints a summary of the suites run and skipped, with the reasons', async () => {
+  it('prints a summary of the suites run and skipped, with the reasons, without adding a test', () => {
     const { api, tests } = recordingTestApi();
-    const written: string[] = [];
-    const write = jest.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
-      written.push(String(chunk));
-      return true;
+    const printed: string[] = [];
+
+    runPlatformConformance({
+      sourceRoots: [compliantRoot()],
+      suites: {
+        cronEnqueueOnly: { exempt: [], minCronFiles: 1 },
+        userOwnedData: { skip: 'No Prisma schema in this fixture.' } as never,
+      },
+      testApi: api,
+      summaryOutput: (table) => printed.push(table),
     });
 
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toContain('cron-enqueue-only  run');
+    expect(printed[0]).toContain('user-owned-data    skipped: No Prisma schema in this fixture.');
+    expect(printed[0]).toContain('1 run, 1 skipped');
+    // A summary test would change the case list of every suite the app runs.
+    expect(tests.some((t) => t.name.includes('summary'))).toBe(false);
+  });
+
+  it('prints the summary to standard output when the runner’s own globals are used, and nothing for an injected test API', () => {
+    const write = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const g = globalThis as unknown as Record<string, unknown>;
+    const savedDescribe = g.describe;
+    const savedIt = g.it;
+    // Collection under the real runner cannot happen inside a test, so stand in for its globals.
+    g.describe = (_name: string, fn: () => void) => fn();
+    g.it = () => undefined;
     try {
+      runPlatformConformance({ sourceRoots: [compliantRoot()], suites: { cronEnqueueOnly: { skip: 'No crons in this fixture.' } } });
+      const printedByGlobals = write.mock.calls.map((call) => String(call[0])).join('');
+      write.mockClear();
       runPlatformConformance({
         sourceRoots: [compliantRoot()],
-        suites: {
-          cronEnqueueOnly: { exempt: [], minCronFiles: 1 },
-          userOwnedData: { skip: 'No Prisma schema in this fixture.' } as never,
-        },
-        testApi: api,
+        suites: { cronEnqueueOnly: { skip: 'No crons in this fixture.' } },
+        testApi: recordingTestApi().api,
       });
-      const summary = tests.find((t) => t.name.endsWith('prints the summary table'))!;
-      expect(await outcome(summary)).toBeNull();
+
+      expect(printedByGlobals).toContain('cron-enqueue-only  skipped: No crons in this fixture.');
+      expect(write).not.toHaveBeenCalled();
     } finally {
+      g.describe = savedDescribe;
+      g.it = savedIt;
       write.mockRestore();
     }
-
-    const table = written.join('');
-    expect(table).toContain('cron-enqueue-only  run');
-    expect(table).toContain('user-owned-data    skipped: No Prisma schema in this fixture.');
-    expect(table).toContain('1 run, 1 skipped');
   });
 
   it('formats the summary table', () => {

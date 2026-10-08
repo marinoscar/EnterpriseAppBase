@@ -9,7 +9,7 @@
 // unenforced permission). The suites call them over the real app.
 // =============================================================================
 
-import request from 'supertest';
+import { request } from './ai-http-client';
 
 import { RBAC_EXTENSION_KEY, type RbacExtension } from '../../../identity/index';
 import { authHeader, concreteRoutePath, forEachDocumentOperation } from './ai-conformance-fixture';

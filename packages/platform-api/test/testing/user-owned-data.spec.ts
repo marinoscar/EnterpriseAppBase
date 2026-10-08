@@ -327,7 +327,6 @@ describe('user-owned-data suite through runPlatformConformance', () => {
       ['user-owned data is registered and raw SQL is allowlisted > reads the schema and the sources at all, so a broken scan cannot pass vacuously', null],
       ['user-owned data is registered and raw SQL is allowlisted > registers every User foreign key, with purge policies that match onDelete', null],
       ['user-owned data is registered and raw SQL is allowlisted > issues raw SQL only from allowlisted files, each with a reason', null],
-      ['platform conformance: suites run and skipped > prints the summary table', null],
     ]);
   });
 

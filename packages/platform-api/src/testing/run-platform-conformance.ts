@@ -58,6 +58,11 @@ export interface PlatformConformanceOptions {
   };
   /** Defaults to the globals `describe`/`it`/`expect` (Jest, or Vitest with `globals: true`). */
   testApi?: ConformanceTestApi;
+  /**
+   * Where the summary table of suites run and skipped goes. Default: standard
+   * output, unless `testApi` is injected (then nothing is printed).
+   */
+  summaryOutput?: (table: string) => void;
 }
 
 /** `cronEnqueueOnly` for `cron-enqueue-only`: how the app spells a suite id. */
@@ -166,14 +171,14 @@ export function runPlatformConformance(options: PlatformConformanceOptions): voi
     });
   }
 
+  // The summary is printed at registration time, not registered as a test: a
+  // test would change the case list of every suite the app runs. A test API
+  // the caller injects (a recording fake) prints nothing unless `summaryOutput`
+  // says where.
   if (summary.length > 0) {
-    api.describe('platform conformance: suites run and skipped', () => {
-      api.it('prints the summary table', () => {
-        const table = formatConformanceSummary(summary);
-        process.stdout.write(`\n${table}\n`);
-        api.expect(table.split('\n').length).toBeGreaterThanOrEqual(summary.length + 2);
-      });
-    });
+    const table = formatConformanceSummary(summary);
+    if (options.summaryOutput) options.summaryOutput(table);
+    else if (options.testApi === undefined) process.stdout.write(`\n${table}\n`);
   }
 }
 

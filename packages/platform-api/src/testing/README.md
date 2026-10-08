@@ -68,6 +68,7 @@ runPlatformConformance({
 | `sourceRoots` | `readonly string[]` | required | Absolute directories with the app's non-test TypeScript. Never empty. |
 | `suites` | `{ cronEnqueueOnly?: CronEnqueueOnlyOptions; userOwnedData?: UserOwnedDataOptions; ...a slice's key once its testing entry is imported }`, each also `{ skip: string }` | required | A suite's options runs it; `{ skip: 'reason' }` opts out and the reason is printed in the run summary (an empty reason, or `false`, throws); an omitted key does not run; an unknown key throws. The option key is the camelCase form of the suite id. |
 | `testApi` | `ConformanceTestApi` | the globals `describe`/`it`/`expect` | Inject a runner, or a recording fake in tests. |
+| `summaryOutput` | `(table: string) => void` | standard output; nothing when `testApi` is injected | Where the table of suites run and skipped goes. It is printed at collection time, never registered as a test, so it does not change any suite's case list. |
 
 `CronEnqueueOnlyOptions`:
 
@@ -92,7 +93,7 @@ runPlatformConformance({
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `runPlatformConformance` | option | `runPlatformConformance(options: PlatformConformanceOptions): void` | Register the enabled suites at the top level of a spec file | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
-| `PlatformConformanceOptions` | option | `{ sourceRoots; suites; testApi? }` | Configure the run: where to scan, which suites, which test runner | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `PlatformConformanceOptions` | option | `{ sourceRoots; suites; testApi?; summaryOutput? }` | Configure the run: where to scan, which suites, which test runner, where the summary table goes | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `CronEnqueueOnlyOptions` | option | `{ exempt; minCronFiles; extraWorkMarkers? }` | Give the cron suite the app's argued exemptions and vacuity minimum | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `conformanceSuites` | registry | `Registry<ConformanceSuite<any>>` | The suites the runner can run, frozen on the first run; a new suite registers in `conformance-suites.ts` | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `ConformanceSuite` | registry | `interface ConformanceSuite<TOptions>` | Write a suite: `id`, `title`, `description`, a pure `check()` and its `cases()` | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |

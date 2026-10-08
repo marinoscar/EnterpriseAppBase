@@ -31,41 +31,34 @@ describe('runPlatformWebConformance', () => {
     expect(() => fresh.runPlatformWebConformance({ ...base(), testApi: recordingWebTestApi().api })).toThrow('no suite is registered');
   });
 
-  it('registers every suite, passes it the app’s context, and adds a summary test', async () => {
+  it('registers every suite and passes it the app’s context; the summary table is printed, not a test', async () => {
     webConformanceSuites.register(fixtureSuite);
     const { api, tests, titles } = recordingWebTestApi();
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    let printed = '';
+    const printed: string[] = [];
 
-    try {
-      runPlatformWebConformance({ ...base(), apiPermissions: ['a:b', 'c:d'], testApi: api });
-      for (const test of tests) expect(await webOutcome(test)).toBeNull();
-      printed = info.mock.calls.map((call) => String(call[0])).join('\n');
-    } finally {
-      info.mockRestore();
-    }
+    runPlatformWebConformance({ ...base(), apiPermissions: ['a:b', 'c:d'], testApi: api, summaryOutput: (table) => printed.push(table) });
+    for (const test of tests) expect(await webOutcome(test)).toBeNull();
 
     expect(titles).toContain('a fixture web suite');
     expect(tests.map((test) => test.name)).toContain('a fixture web suite > sees 2 permissions');
-    expect(printed).toContain('fixture-web-suite  run');
+    expect(printed.join('')).toContain('fixture-web-suite  run');
   });
 
   it('lets an app skip a suite with a reason, which stays visible as a passing test and in the summary', async () => {
     webConformanceSuites.register(fixtureSuite);
     const { api, tests } = recordingWebTestApi();
-    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-    let printed = '';
+    const printed: string[] = [];
 
-    try {
-      runPlatformWebConformance({ ...base(), suites: { 'fixture-web-suite': { skip: 'This app has no fixtures.' } }, testApi: api });
-      for (const test of tests) expect(await webOutcome(test)).toBeNull();
-      printed = info.mock.calls.map((call) => String(call[0])).join('\n');
-    } finally {
-      info.mockRestore();
-    }
+    runPlatformWebConformance({
+      ...base(),
+      suites: { 'fixture-web-suite': { skip: 'This app has no fixtures.' } },
+      testApi: api,
+      summaryOutput: (table) => printed.push(table),
+    });
+    for (const test of tests) expect(await webOutcome(test)).toBeNull();
 
     expect(tests.map((test) => test.name)).toContain('a fixture web suite > fixture-web-suite: skipped by the app (This app has no fixtures.)');
-    expect(printed).toContain('fixture-web-suite  skipped: This app has no fixtures.');
+    expect(printed.join('')).toContain('fixture-web-suite  skipped: This app has no fixtures.');
   });
 
   it('throws when a skip has no reason', () => {

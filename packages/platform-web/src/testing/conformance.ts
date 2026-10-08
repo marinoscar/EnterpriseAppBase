@@ -251,6 +251,8 @@ export interface PlatformWebConformanceOptions extends WebConformanceContext {
   suites?: Readonly<Record<string, WebConformanceSkip>>;
   /** Defaults to the globals `describe`/`it`/`expect` (Vitest with `globals: true`, or Jest). */
   testApi?: WebConformanceTestApi;
+  /** Where the summary table of suites run and skipped goes. Default: the console, unless `testApi` is injected (then nothing is printed). */
+  summaryOutput?: (table: string) => void;
 }
 
 /**
@@ -379,13 +381,14 @@ export function runPlatformWebConformance(options: PlatformWebConformanceOptions
     suite.register(api, options);
   }
 
-  api.describe('platform web conformance: suites run and skipped', () => {
-    api.it('prints the summary table', () => {
-      const table = formatWebConformanceSummary(summary);
-      // `console` is not in this package's types (a browser package); the harness
-      // only ever runs in a test runner, where it is.
-      (globalThis as unknown as { console: { info(message: string): void } }).console.info(`\n${table}`);
-      api.expect(table.split('\n').length).toBeGreaterThanOrEqual(summary.length + 2);
-    });
-  });
+  // The summary is printed at registration time, not registered as a test: a
+  // test would change the case list of the suites the app runs. A test API the
+  // caller injects (a recording fake) prints nothing unless `summaryOutput` says where.
+  const table = formatWebConformanceSummary(summary);
+  if (options.summaryOutput) options.summaryOutput(table);
+  else if (options.testApi === undefined) {
+    // `console` is not in this package's types (a browser package); the harness
+    // only ever runs in a test runner, where it is.
+    (globalThis as unknown as { console: { info(message: string): void } }).console.info(`\n${table}`);
+  }
 }
