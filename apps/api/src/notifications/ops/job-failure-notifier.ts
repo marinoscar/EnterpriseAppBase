@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
 import { PERMISSIONS } from '../../common/constants/roles.constants';
-import type { JobFailedEmailData } from '../../email';
+import type { JobFailedEmailData } from '@marinoscar/platform-api/email';
 import {
   JOB_SETTLED_EVENT,
   type JobSettledEvent,

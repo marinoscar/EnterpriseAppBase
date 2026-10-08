@@ -30,7 +30,9 @@ Platform declarations live beside their modules:
 `users/users.notifications.ts`, `notifications/broadcasts/broadcasts.notifications.ts`,
 `notifications/ops/ops.notifications.ts`, `nodes/nodes.notifications.ts`,
 `db-backup/db-backup.notifications.ts`, and the email templates in
-`email/templates/platform-email-templates.ts`. Platform browser renderers are in
+`@marinoscar/platform-api/email` (the template registry itself lives there
+since #737; `platform/email/templates/` holds the identity and sharing
+adapters). Platform browser renderers are in
 `notifications/channels/browser-templates.ts`.
 
 ## Registration order
@@ -98,7 +100,7 @@ OpenAPI schema changed:
 | `NOTIFICATION_CHANNELS` (`notification-events.ts`) | frozen non-empty tuple of the channel ids, so `z.enum(NOTIFICATION_CHANNELS)` works |
 | `NOTIFICATION_EVENTS` | frozen array of the registered events |
 | `findEvent`, `channelsFor`, `supportsChannel`, `isMandatory`, `listNotificationEvents` | read the registry live |
-| `EMAIL_TEMPLATES`, `EMAIL_TEMPLATE_NAMES` (`email/templates/index.ts`) | frozen snapshots of the template registry |
+| `EMAIL_TEMPLATES`, `EMAIL_TEMPLATE_NAMES` | removed by #737: read `emailTemplateRegistry` (`@marinoscar/platform-api/email`) |
 | `isEmailTemplateName`, `findEmailTemplate`, `renderEmailTemplate` | read the registry live |
 | `EVENT_EMAIL_TEMPLATES`, `EVENT_BROWSER_TEMPLATES` | frozen snapshots of the binding registries |
 
@@ -158,4 +160,4 @@ Every registry is restored afterwards. Examples: `registry.spec.ts`,
 `apps/api/test/notifications/notification-registry.integration.spec.ts`.
 `no-cycles.spec.ts` loads each entry point first in an isolated module
 registry: a declaration file that imports the browser channel class, or a
-template file that imports `email/templates/index.ts`, fails it.
+slice-owned template file (`platform/email/templates/`) that cannot load on its own, fails it.

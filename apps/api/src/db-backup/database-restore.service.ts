@@ -12,7 +12,7 @@ import { PERMISSIONS } from '../common/constants/roles.constants';
 import { DeploymentModeService } from '../common/deployment/deployment-mode.service';
 import { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
-import type { RestoreCompletedEmailData } from '../email';
+import type { RestoreCompletedEmailData } from '@marinoscar/platform-api/email';
 import { JobsService } from '../jobs/jobs.service';
 import { jobTempPath } from '../jobs/job-temp';
 import { NotificationsService } from '../notifications/notifications.service';

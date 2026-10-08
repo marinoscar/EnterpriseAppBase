@@ -82,7 +82,7 @@ const UserTokensPage = lazy(() =>
 // `config/adminSections.tsx` (#92, epic #90).
 const SettingsHubPage = lazy(() => import('./pages/Admin/SettingsHubPage'));
 // Issue #124, epic #109 — the admin email configuration and its test send.
-const EmailSettingsPage = lazy(() => import('./pages/Admin/EmailSettingsPage'));
+const EmailSettingsPage = lazy(() => import('@marinoscar/platform-web/email/ui'));
 // Issue #225, epic #215 — the deployment-wide browser-notification policy.
 const NotificationSettingsPage = lazy(
   () => import('./pages/Admin/NotificationSettingsPage'),

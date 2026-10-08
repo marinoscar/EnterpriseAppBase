@@ -22,11 +22,11 @@
 // put the burden of building both on every call site.
 // =============================================================================
 
-import type { BackupFailedEmailData } from '../../email/templates/backup-failed.email';
-import type { BroadcastEmailData } from '../../email/templates/broadcast.email';
-import type { NodeOfflineEmailData } from '../../email/templates/node-offline.email';
-import type { RestoreCompletedEmailData } from '../../email/templates/restore-completed.email';
-import type { RoleChangedEmailData } from '../../email/templates/role-changed.email';
+import type { BackupFailedEmailData } from '@marinoscar/platform-api/email';
+import type { BroadcastEmailData } from '@marinoscar/platform-api/email';
+import type { NodeOfflineEmailData } from '@marinoscar/platform-api/email';
+import type { RestoreCompletedEmailData } from '@marinoscar/platform-api/email';
+import type { RoleChangedEmailData } from '@marinoscar/platform-api/email';
 
 /**
  * What a browser notification renders to.

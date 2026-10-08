@@ -256,10 +256,12 @@ Every notification is an event declared once, next to the module that raises it 
 
 The channels are email (SMTP or SES, configured at `/admin/settings/email`), in-app (a `notifications` inbox row pushed to open tabs over an SSE stream), and Web Push (VAPID keys generated and rotated at `/admin/settings/push`). The web app ships a service worker that handles push and notification clicks.
 
-- **Code:** `apps/api/src/notifications/`, `apps/api/src/email/`
+Email is the `@marinoscar/platform-api/email` slice (issue #737), mounted with `EmailModule.forRoot({ appName, ... })` in `apps/api/src/platform/email/`. Its templates are a registry, not a closed map: the platform's nine register by default, another slice's adapter or an app adds one with `registerEmailTemplate(name, template)` and types its data by augmenting `EmailTemplateDataMap`, and `{ override: true }` replaces a platform template on purpose (a duplicate without it fails at bootstrap; each override is logged once). Every message renders through one escaping layout whose theme, inline brand mark (a `Content-ID` part, never a remote image) and footer are `forRoot` options; with the defaults the output is byte-identical to the pre-package layout. The `email` row of `system_settings` goes through the settings slice's `SystemSettingsRowStore`; the SMTP password and the SES secret are in the credential store.
+
+- **Code:** `apps/api/src/notifications/`, `packages/platform-api/src/email/` (wiring in `apps/api/src/platform/email/`)
 - **UI:** `/admin/settings/notifications`, `/admin/settings/push`, `/admin/settings/email`; user `/settings/notifications`
 - **Permissions:** `system_settings:read/write` (email, policy), `push:read/write` (VAPID keys)
-- **Read more:** [notifications README](../apps/api/src/notifications/README.md), [notification registries](../apps/api/src/notifications/registry/README.md), [specs/browser-notifications.md](specs/browser-notifications.md), [runbooks/vapid-keys.md](runbooks/vapid-keys.md)
+- **Read more:** [notifications README](../apps/api/src/notifications/README.md), [notification registries](../apps/api/src/notifications/registry/README.md), [email slice README](../packages/platform-api/src/email/README.md), [specs/browser-notifications.md](specs/browser-notifications.md), [runbooks/vapid-keys.md](runbooks/vapid-keys.md)
 
 ### 5.12 Admin broadcasts
 

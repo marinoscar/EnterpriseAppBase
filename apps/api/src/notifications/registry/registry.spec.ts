@@ -2,14 +2,12 @@ import { groupInvitationBrowserTemplate, sharedWithYouBrowserTemplate } from '@m
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../common/schemas/user-settings-namespaces.schema';
 import {
-  EMAIL_TEMPLATES,
-  EMAIL_TEMPLATE_NAMES,
   PLATFORM_EMAIL_TEMPLATES,
   findEmailTemplate,
   isEmailTemplateName,
   type EmailTemplate,
   type RenderedEmail,
-} from '../../email/templates';
+} from '@marinoscar/platform-api/email';
 import {
   backupFailedBrowserTemplate,
   broadcastBrowserTemplate,
@@ -193,12 +191,10 @@ describe('notification registries (#678)', () => {
       expect(Object.isFrozen(NOTIFICATION_EVENTS)).toBe(true);
     });
 
-    it('EMAIL_TEMPLATES, EMAIL_TEMPLATE_NAMES and the two binding maps are frozen snapshots', () => {
-      expect(Object.keys(EMAIL_TEMPLATES)).toEqual(emailTemplateRegistry.ids());
-      expect([...EMAIL_TEMPLATE_NAMES]).toEqual(emailTemplateRegistry.ids());
+    it('the two binding maps are frozen snapshots (EMAIL_TEMPLATES and EMAIL_TEMPLATE_NAMES gave way to the registry, #737)', () => {
       expect(Object.keys(EVENT_EMAIL_TEMPLATES)).toEqual(eventEmailTemplateRegistry.ids());
       expect(Object.keys(EVENT_BROWSER_TEMPLATES)).toEqual(eventBrowserTemplateRegistry.ids());
-      for (const view of [EMAIL_TEMPLATES, EMAIL_TEMPLATE_NAMES, EVENT_EMAIL_TEMPLATES, EVENT_BROWSER_TEMPLATES]) {
+      for (const view of [EVENT_EMAIL_TEMPLATES, EVENT_BROWSER_TEMPLATES]) {
         expect(Object.isFrozen(view)).toBe(true);
       }
     });
@@ -227,7 +223,9 @@ describe('notification registries (#678)', () => {
     it('an app email template is visible to findEmailTemplate and isEmailTemplateName', async () => {
       await withTemporaryEntries(emailTemplateRegistry, [{ name: 'coach-weekly-review', render: appEmail }], () => {
         expect(isEmailTemplateName('coach-weekly-review')).toBe(true);
-        expect(findEmailTemplate('coach-weekly-review')).toBe(appEmail);
+        // A wrapper that renders with the configured context (#737), so
+        // compare what it renders rather than the function itself.
+        expect(findEmailTemplate('coach-weekly-review')?.(undefined)).toEqual(appEmail(undefined as never));
       });
       expect(isEmailTemplateName('coach-weekly-review')).toBe(false);
     });

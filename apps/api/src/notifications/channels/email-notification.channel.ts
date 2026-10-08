@@ -6,7 +6,7 @@ import {
   SmtpEmailProvider,
   findEmailTemplate,
   formatFromHeader,
-} from '../../email';
+} from '@marinoscar/platform-api/email';
 import type {
   EmailMessage,
   EmailProvider,
@@ -14,7 +14,7 @@ import type {
   EmailSettings,
   EmailTemplateName,
   RenderedEmail,
-} from '../../email';
+} from '@marinoscar/platform-api/email';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { eventEmailTemplateRegistry } from '../registry';

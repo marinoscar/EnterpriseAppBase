@@ -100,6 +100,16 @@
         "default": "./dist/cjs/onboarding/index.js"
       }
     },
+    "./email": {
+      "import": {
+        "types": "./dist/esm/email/index.d.ts",
+        "default": "./dist/esm/email/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/email/index.d.ts",
+        "default": "./dist/cjs/email/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

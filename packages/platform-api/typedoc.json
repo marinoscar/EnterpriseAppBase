@@ -1,5 +1,7 @@
 {
-  "extends": ["../../typedoc.base.json"],
+  "extends": [
+    "../../typedoc.base.json"
+  ],
   "tsconfig": "tsconfig.build.json",
   "entryPoints": [
     "src/index.ts",
@@ -19,7 +21,9 @@
     "src/credentials/index.ts",
     "src/credentials/testing/index.ts",
     "src/onboarding/index.ts",
-    "src/onboarding/testing/index.ts"
+    "src/onboarding/testing/index.ts",
+    "src/email/index.ts",
+    "src/email/testing/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

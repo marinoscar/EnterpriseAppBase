@@ -72,7 +72,7 @@ A card's `permission` is the literal string the API controller enforces. The hub
 
 | Card permission | Enforced by |
 |---|---|
-| `system_settings:read` | `packages/platform-api/src/settings/system-settings/system-settings.controller.ts` (Notifications card); `apps/api/src/email/email-settings.controller.ts`, `apps/api/src/common/maintenance/maintenance.controller.ts`, `apps/api/src/about/about.controller.ts` (Email, Maintenance, About) |
+| `system_settings:read` | `packages/platform-api/src/settings/system-settings/system-settings.controller.ts` (Notifications card); `packages/platform-api/src/email/email-settings.controller.ts`, `apps/api/src/common/maintenance/maintenance.controller.ts`, `apps/api/src/about/about.controller.ts` (Email, Maintenance, About) |
 | `users:read` | `packages/platform-api/src/identity/users/users.controller.ts` |
 | `allowlist:read` | `packages/platform-api/src/identity/allowlist/allowlist.controller.ts` (gates the Allowlist **tab**, not the route) |
 | `push:read` | `apps/api/src/notifications/push-config.controller.ts` |

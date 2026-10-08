@@ -99,6 +99,14 @@
       "types": "./dist/onboarding/ui/index.d.ts",
       "default": "./dist/onboarding/ui/index.js"
     },
+    "./email/headless": {
+      "types": "./dist/email/headless/index.d.ts",
+      "default": "./dist/email/headless/index.js"
+    },
+    "./email/ui": {
+      "types": "./dist/email/ui/index.d.ts",
+      "default": "./dist/email/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

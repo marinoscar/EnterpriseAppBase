@@ -37,12 +37,14 @@ export {
 } from './event.registry';
 export type { NotificationEventDef } from './event.registry';
 
+// The email template registry moved into @marinoscar/platform-api/email
+// (#737); re-exported so the notification registries stay one import.
 export {
   EMAIL_TEMPLATE_NAME_PATTERN,
   emailTemplateRegistry,
   registerEmailTemplates,
-} from './email-template.registry';
-export type { EmailTemplateEntry } from './email-template.registry';
+} from '@marinoscar/platform-api/email';
+export type { EmailTemplateEntry } from '@marinoscar/platform-api/email';
 
 export {
   eventBrowserTemplateRegistry,

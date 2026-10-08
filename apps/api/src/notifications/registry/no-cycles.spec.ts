@@ -36,15 +36,13 @@ describe('notification registry: no import cycles', () => {
     expect(mod.findEvent('user.welcome')?.label).toBe('Welcome');
   });
 
-  it('email/templates/index.ts loads first with every export defined', () => {
-    const mod = loadFirst<typeof import('../../email/templates')>('../../email/templates');
+  it('platform/email/templates (the slice-owned templates) loads first with every export defined', () => {
+    const mod = loadFirst<typeof import('../../platform/email/templates')>('../../platform/email/templates');
 
-    expect(mod.EMAIL_TEMPLATE_NAMES).toHaveLength(12);
-    expect(Object.keys(mod.EMAIL_TEMPLATES)).toHaveLength(12);
-    expect(typeof mod.PLATFORM_EMAIL_TEMPLATES['test-email']).toBe('function');
-    expect(typeof mod.findEmailTemplate('user-welcome')).toBe('function');
-    expect(mod.isEmailTemplateName('broadcast')).toBe(true);
-    expect(typeof mod.renderEmailTemplate).toBe('function');
+    expect(mod.SLICE_EMAIL_TEMPLATES.map((entry) => entry.name)).toEqual(['org-invitation', 'group-invitation', 'shared-with-you']);
+    expect(typeof mod.orgInvitationEmail).toBe('function');
+    expect(typeof mod.groupInvitationEmail).toBe('function');
+    expect(typeof mod.sharedWithYouEmail).toBe('function');
   });
 
   it('common/schemas/user-settings-namespaces.schema.ts loads first with every export defined', () => {

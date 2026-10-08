@@ -94,7 +94,7 @@ import type { DatabaseBackupStatus, DatabaseBackupTrigger, Job } from '@prisma/c
 
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
-import type { BackupFailedEmailData } from '../../email';
+import type { BackupFailedEmailData } from '@marinoscar/platform-api/email';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import { NotificationsService } from '../../notifications/notifications.service';
