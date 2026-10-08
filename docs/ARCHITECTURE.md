@@ -567,6 +567,8 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `sharing:read` | org | | ✓ | ✓ | ✓ | `GET /api/grants` (with the `share` action on the record), `GET /api/grants/shared-with-me`, `DELETE /api/grants/:id` for your own access (#729) |
 | `sharing:write` | org | | ✓ | ✓ | | `POST /api/grants`, `PATCH /api/grants/:id`, revoke someone else's grant, each with the `share` action on the record (#729) |
 | `sharing:admin` | org | | ✓ | | | A bypass for the `share` action on every record of every resource type, so an org admin can revoke a leak (#729) |
+| `org_settings:read` | org | | ✓ | | | `GET /api/org-settings`: the active organization's settings overrides and their effective values; each namespace's own read permission then gates its fields (`@marinoscar/platform-api/settings`, #733) |
+| `org_settings:write` | org | | ✓ | | | `PATCH /api/org-settings` (`If-Match`): change the active organization's overrides; each namespace's own write permission then gates its fields (#733) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 

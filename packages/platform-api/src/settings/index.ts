@@ -130,3 +130,6 @@ export { createUserSettingsController } from './user-settings/user-settings.cont
 // ---- permissions, as data for the app's permission registry -----------------------------
 export { ORG_SETTINGS_PERMISSIONS, SETTINGS_PERMISSIONS } from './settings.permissions';
 export type { SettingsPermissionDeclaration } from './settings.permissions';
+
+// ---- the slice's models in the app's data registries --------------------------------------
+export { SETTINGS_MODEL_OWNERSHIP, SETTINGS_USER_OWNED_MODELS } from './data/settings-ownership';
