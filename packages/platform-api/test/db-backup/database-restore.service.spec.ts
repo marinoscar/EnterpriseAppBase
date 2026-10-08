@@ -33,6 +33,8 @@ import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import type { Job } from '../../src/jobs/index';
+import { withTemporaryEntries } from '../../src/core/index';
+import { restoreCarryOverRegistry, type RestoreCarryOver } from '../../src/db-backup/carry-over.registry';
 import type { DatabaseBackupRun } from '../../src/db-backup/data/db-backup-db';
 
 import type { ConfigService } from '@nestjs/config';
@@ -222,6 +224,8 @@ interface HarnessOptions {
 function makeHarness(options: HarnessOptions = {}) {
   /** `<attached database>: <statement>`, in order. The no-mutation assertions read this. */
   const sql: string[] = [];
+  /** #740: every statement with its bound values, for the carry-over assertions. */
+  const calls: Array<{ text: string; values?: unknown[] }> = [];
   /** The cluster's database names. */
   const cluster = new Set<string>([LIVE, 'postgres', ...(options.databases ?? [])]);
   /** Rows the carry-over inserted, in the order it inserted them. */
@@ -238,6 +242,7 @@ function makeHarness(options: HarnessOptions = {}) {
     end: jest.fn(async () => undefined),
     query: jest.fn(async (text: string, values?: unknown[]) => {
       sql.push(`${attachedTo}: ${text}`);
+      calls.push({ text, values });
 
       const failure = options.failStatement;
       if (failure && failure.pattern.test(text)) {
@@ -281,6 +286,11 @@ function makeHarness(options: HarnessOptions = {}) {
 
       if (text.includes("to_regclass('_prisma_migrations')")) {
         return { rows: [{ count: String(options.restoredMigrations ?? 7) }] };
+      }
+
+      // #740: a registered RestoreCarryOver's export (see 'registered carry-overs').
+      if (text.startsWith('SELECT * FROM carry_probe')) {
+        return { rows: [{ id: 'a', note: 'kept' }, { id: 'b', note: null }] };
       }
 
       if (text.startsWith('INSERT INTO jobs')) {
@@ -521,6 +531,7 @@ function makeHarness(options: HarnessOptions = {}) {
     notifyAtSql,
     seam,
     sql,
+    calls,
     cluster,
     carried,
     selfLinks,
@@ -2032,5 +2043,70 @@ describe('in DEPLOYMENT_MODE=saas (#685)', () => {
 
     expect(await h.service.dropExpiredOldDatabases(POLICY, NOW)).toBe(1);
     expect(h.cluster.has(OLD)).toBe(false);
+  });
+});
+
+describe('registered carry-overs (RestoreCarryOver, #740)', () => {
+  const PROBE: RestoreCarryOver = {
+    id: 'carry_probe',
+    order: 10,
+    exportSql: 'SELECT * FROM carry_probe',
+    reinsertSql:
+      'INSERT INTO carry_probe SELECT * FROM jsonb_populate_record(NULL::carry_probe, $1::jsonb) ON CONFLICT (id) DO NOTHING',
+  };
+
+  it('exports from the LIVE database before the swap and re-inserts after it, one row per $1', async () => {
+    await withTemporaryEntries(restoreCarryOverRegistry, [PROBE], async () => {
+      const h = makeHarness();
+
+      await runRestore(h);
+
+      const lines = h.sql;
+      const exportAt = lines.findIndex((line) => line.endsWith('SELECT * FROM carry_probe'));
+      const firstRename = lines.findIndex((line) => /: ALTER DATABASE/.test(line));
+      const reinserts = lines.filter((line) => line.includes('INSERT INTO carry_probe'));
+      const lastRename = lines.map((line) => /: ALTER DATABASE/.test(line)).lastIndexOf(true);
+
+      expect(exportAt).toBeGreaterThanOrEqual(0);
+      expect(lines[exportAt].startsWith(`${LIVE}: `)).toBe(true);
+      expect(exportAt).toBeLessThan(firstRename);
+      expect(reinserts).toHaveLength(2);
+      expect(lines.findIndex((line) => line.includes('INSERT INTO carry_probe'))).toBeGreaterThan(lastRename);
+      // Each carry runs in its own transaction with the bypass set transaction-locally.
+      expect(lines.some((line) => line.endsWith("SELECT set_config('app.rls_bypass', 'on', true)"))).toBe(true);
+      expect(h.exitProcess).toHaveBeenCalledWith(0);
+    });
+  });
+
+  it('binds each exported row as JSON', async () => {
+    await withTemporaryEntries(restoreCarryOverRegistry, [PROBE], async () => {
+      const h = makeHarness();
+      const values: unknown[][] = [];
+
+      await runRestore(h);
+
+      for (const call of h.calls.filter((entry) => entry.text.includes('INSERT INTO carry_probe'))) values.push(call.values ?? []);
+      expect(values).toEqual([[JSON.stringify({ id: 'a', note: 'kept' })], [JSON.stringify({ id: 'b', note: null })]]);
+    });
+  });
+
+  it('never fails a restore over an extra carry that cannot be re-inserted', async () => {
+    await withTemporaryEntries(restoreCarryOverRegistry, [PROBE], async () => {
+      const h = makeHarness({ failStatement: { pattern: /INSERT INTO carry_probe/, error: new Error('relation "carry_probe" does not exist') } });
+
+      await runRestore(h);
+
+      expect(h.exitProcess).toHaveBeenCalledWith(0);
+      expect(h.sql.some((line) => line.endsWith('ROLLBACK'))).toBe(true);
+    });
+  });
+
+  it('opens no extra session when nothing is registered', async () => {
+    const h = makeHarness();
+
+    await runRestore(h);
+
+    expect(h.sql.some((line) => line.includes('carry_probe'))).toBe(false);
+    expect(h.sql.some((line) => line.includes('app.rls_bypass'))).toBe(false);
   });
 });
