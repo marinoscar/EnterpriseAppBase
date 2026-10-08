@@ -27,3 +27,22 @@ export const PERMISSIONS_KEY = 'permissions';
  */
 export const Permissions = (...permissions: PermissionName[]) =>
   SetMetadata(PERMISSIONS_KEY, permissions);
+
+/**
+ * The metadata key `@AnyPermissions(...)` writes and `PermissionsGuard` reads (#738).
+ *
+ * @stability experimental
+ */
+export const ANY_PERMISSIONS_KEY = 'anyPermissions';
+
+/**
+ * Decorator: the caller must hold AT LEAST ONE of the permissions. Applied by
+ * `@Auth({ anyPermissions })`; checked by `PermissionsGuard` after
+ * `@Permissions(...)`.
+ *
+ * @param permissions - the permissions, any one of which admits the caller.
+ * @returns the metadata decorator `PermissionsGuard` reads.
+ *
+ * @stability experimental
+ */
+export const AnyPermissions = (...permissions: PermissionName[]) => SetMetadata(ANY_PERMISSIONS_KEY, permissions);

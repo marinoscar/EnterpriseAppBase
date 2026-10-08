@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import { ANY_PERMISSIONS_KEY, PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import type { Principal } from '../../../core/index';
 import { toRequestUser, AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
@@ -32,8 +32,15 @@ export class PermissionsGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
+    const anyOf = this.reflector.getAllAndOverride<string[]>(ANY_PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    const required = requiredPermissions ?? [];
+    const alternatives = anyOf ?? [];
+
     // No permissions required - allow access
-    if (!requiredPermissions || requiredPermissions.length === 0) {
+    if (required.length === 0 && alternatives.length === 0) {
       return true;
     }
 
@@ -54,12 +61,12 @@ export class PermissionsGuard implements CanActivate {
     const granted: readonly string[] = principal?.permissions ?? requestUser.permissions;
 
     // Check if user has ALL required permissions
-    const hasAllPermissions = requiredPermissions.every((permission) =>
+    const hasAllPermissions = required.every((permission) =>
       granted.includes(permission),
     );
 
     if (!hasAllPermissions) {
-      const missing = requiredPermissions.filter(
+      const missing = required.filter(
         (p) => !granted.includes(p),
       );
       throw new ForbiddenException(
@@ -68,6 +75,11 @@ export class PermissionsGuard implements CanActivate {
     }
 
     // Attach simplified user to request for convenience
+    // `@Auth({ anyPermissions })` (#738): at least one of them.
+    if (alternatives.length > 0 && !alternatives.some((permission) => granted.includes(permission))) {
+      throw new ForbiddenException(`Missing permissions: one of ${alternatives.join(', ')}`);
+    }
+
     request.requestUser = requestUser;
 
     return true;
