@@ -55,6 +55,15 @@ export interface NotificationChannelDef {
    * the dispatcher ignores a stored preference for it.
    */
   readonly userConfigurable?: boolean;
+  /**
+   * The id of a channel that already delivers everything this one does
+   * (#746). When one dispatch resolves to both, this channel is dropped, so
+   * nobody is reached twice: `android_app` (Web Push to the Android app's
+   * subscriptions only) is `coveredBy: 'push'` (Web Push to every
+   * subscription). Decided after preferences and narrowing, so a user who
+   * muted the covering channel still gets this one.
+   */
+  readonly coveredBy?: string;
 }
 
 /**
@@ -121,6 +130,9 @@ export const notificationChannelRegistry = defineRegistry<NotificationChannelDef
     }
     if (channel.userConfigurable !== undefined && typeof channel.userConfigurable !== 'boolean') {
       throw new Error('userConfigurable must be a boolean when present');
+    }
+    if (channel.coveredBy !== undefined && (typeof channel.coveredBy !== 'string' || channel.coveredBy === channel.id)) {
+      throw new Error('coveredBy must name another channel id when present');
     }
     if (channel.id.length > 32) {
       throw new Error('a channel id must be at most 32 characters');
@@ -192,4 +204,29 @@ export function isRegisteredNotificationChannel(id: string): boolean {
  */
 export function listNotificationChannels(): NotificationChannelDef[] {
   return notificationChannelRegistry.list();
+}
+
+/**
+ * Drops every channel another channel of the same dispatch covers
+ * ({@link NotificationChannelDef.coveredBy}, #746): with `push` and
+ * `android_app` both resolved, `android_app` goes, `push` reaches each
+ * subscription once and the delivery row says `push`, the channel that sent.
+ * The dispatcher applies it after preferences and narrowing.
+ *
+ * @param channels - the resolved channels, in dispatch order.
+ * @returns a fresh array, order preserved.
+ *
+ * @example
+ * ```ts
+ * collapseOverlappingChannels(['browser', 'push', 'android_app']); // ['browser', 'push']
+ * ```
+ *
+ * @stability experimental
+ */
+export function collapseOverlappingChannels<C extends string>(channels: readonly C[]): C[] {
+  const present = new Set<string>(channels);
+  return channels.filter((channel) => {
+    const coveredBy = notificationChannelRegistry.get(channel)?.coveredBy;
+    return coveredBy === undefined || !present.has(coveredBy);
+  });
 }

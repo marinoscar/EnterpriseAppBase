@@ -190,6 +190,26 @@ export class PushNotificationChannel implements NotificationChannelSender {
     }
   }
 
+  /**
+   * The subscriptions this channel pushes to, as a `where` filter added to the
+   * recipient's (#746). Every subscription for `push`; the `android_app`
+   * channel narrows it to `platform: 'android_app'`.
+   *
+   * @returns a Prisma `where` fragment.
+   */
+  protected subscriptionScope(): Record<string, unknown> {
+    return {};
+  }
+
+  /**
+   * The delivery error when the recipient has no subscription in scope.
+   *
+   * @returns the error text recorded on the delivery row.
+   */
+  protected noSubscriptionsError(): string {
+    return 'No push subscriptions for this user';
+  }
+
   private async deliverInner(
     context: NotificationDispatchContext,
     to: string,
@@ -197,7 +217,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
     const eventKey = context.event.key;
 
     const subscriptions = await this.prisma.pushSubscription.findMany({
-      where: { userId: to },
+      where: { ...this.subscriptionScope(), userId: to },
     });
 
     if (subscriptions.length === 0) {
@@ -210,7 +230,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
       // an explanatory row, not silence.
       return {
         success: false,
-        error: 'No push subscriptions for this user',
+        error: this.noSubscriptionsError(),
       };
     }
 

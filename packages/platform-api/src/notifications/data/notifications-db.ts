@@ -192,6 +192,8 @@ export interface PushSubscriptionRow {
   failureCount: number;
   /** The last successful delivery, or null. */
   lastSuccessAt: Date | null;
+  /** The surface that registered it (#746): `browser` or `android_app`. */
+  platform: string;
   /** Creation time. */
   createdAt: Date;
   /** Last update. */

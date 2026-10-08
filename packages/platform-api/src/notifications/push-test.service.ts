@@ -397,6 +397,24 @@ export class PushTestService {
   // 4. Delivery
   // ---------------------------------------------------------------------------
 
+  /**
+   * Sends one payload to each subscription with the test's TTL, urgency and
+   * timeout, recording success and pruning dead ones exactly as a test does
+   * (#746: the Android app test notification reuses it). Never throws.
+   *
+   * @param active - the resolved VAPID configuration.
+   * @param subscriptions - the rows to push to.
+   * @param payload - the serialized payload.
+   * @returns one result per subscription, in order.
+   */
+  async sendToSubscriptions(
+    active: ActiveVapidConfig,
+    subscriptions: readonly PushSubscription[],
+    payload: string,
+  ): Promise<PushTestSendResult[]> {
+    return this.sendAll(active, subscriptions, payload);
+  }
+
   private async sendAll(
     active: ActiveVapidConfig,
     subscriptions: readonly PushSubscription[],
@@ -590,7 +608,16 @@ export function isValidVapidSubject(subject: string): boolean {
   }
 }
 
-function endpointHost(endpoint: string): string {
+/**
+ * The push service host of a subscription endpoint, the only part of a
+ * capability URL that may be logged or returned.
+ *
+ * @param endpoint - the subscription endpoint.
+ * @returns the host, or `(invalid endpoint)`.
+ *
+ * @stability experimental
+ */
+export function endpointHost(endpoint: string): string {
   try {
     return new URL(endpoint).hostname;
   } catch {

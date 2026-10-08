@@ -17,6 +17,7 @@ import {
 } from './notification-events';
 import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
+import { collapseOverlappingChannels } from './registry/channel.registry';
 import {
   readNotificationPreferences,
   resolveChannels,
@@ -1163,6 +1164,12 @@ export class NotificationsService implements OnModuleDestroy {
       const requested = new Set(options.channels);
       channels = channels.filter((channel) => requested.has(channel));
     }
+
+    // #746: a channel another resolved channel covers is dropped (`push`
+    // already reaches every `android_app` subscription), so nobody gets the
+    // same message twice. After preferences and narrowing: a user who muted
+    // `push` still gets `android_app`. See `collapseOverlappingChannels`.
+    channels = collapseOverlappingChannels(channels);
 
     if (channels.length === 0) {
       // Every channel muted — or narrowed away to nothing by `options.channels`

@@ -20,6 +20,7 @@
 
 export {
   NOTIFICATION_CHANNEL_ID_PATTERN,
+  collapseOverlappingChannels,
   isRegisteredNotificationChannel,
   listNotificationChannels,
   notificationChannelRegistry,
@@ -58,7 +59,12 @@ export {
   registerNotifications,
 } from './bindings.registry';
 
-export { PLATFORM_NOTIFICATION_CHANNELS, registerPlatformNotificationChannels } from './platform-channels';
+export {
+  ANDROID_APP_NOTIFICATION_CHANNEL,
+  PLATFORM_NOTIFICATION_CHANNELS,
+  registerAndroidAppNotificationChannel,
+  registerPlatformNotificationChannels,
+} from './platform-channels';
 export type {
   EventBrowserTemplateBinding,
   EventEmailTemplateBinding,
