@@ -6,10 +6,5 @@
 
 export { CREDENTIAL_SOURCES, CREDENTIAL_TIERS, SECRET_BEARING_KEYS } from './constants.js';
 export type { CredentialSourceValue, CredentialTierValue } from './constants.js';
-export {
-  credentialInfoSchema,
-  credentialSourceSchema,
-  orgCredentialInfoSchema,
-  userCredentialInfoSchema,
-} from './schemas.js';
-export type { CredentialInfoDto, CredentialSourceDto, OrgCredentialInfoDto, UserCredentialInfoDto } from './schemas.js';
+export { credentialInfoSchema, orgCredentialInfoSchema, userCredentialInfoSchema } from './schemas.js';
+export type { CredentialInfoDto, OrgCredentialInfoDto, UserCredentialInfoDto } from './schemas.js';

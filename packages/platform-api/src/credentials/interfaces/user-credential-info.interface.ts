@@ -30,6 +30,8 @@
  * - `updatedByUserId`. The owner is the only writer of their own credential,
  *   so provenance is the owner — unlike the system store, where an admin
  *   writes infrastructure that outlives them.
+ *
+ * @stability experimental
  */
 export interface UserCredentialInfo {
   /** The BYO key type (a `USER_CREDENTIAL_PURPOSES` entry's `purpose`). */
@@ -47,7 +49,9 @@ export interface UserCredentialInfo {
   /** Human description. User-entered, non-secret. */
   readonly label: string | null;
 
+  /** When it was first stored. */
   readonly createdAt: Date;
+  /** When it last changed. */
   readonly updatedAt: Date;
 }
 
@@ -57,8 +61,11 @@ export interface UserCredentialInfo {
  * `hint` is NOT here: the service derives it from the plaintext it already
  * holds (see `deriveHint` in `credentials/credential-internals.ts`). Omitting
  * `label` leaves it alone; `null` clears it.
+ *
+ * @stability experimental
  */
 export interface UserCredentialMeta {
+  /** Human description; `null` clears it, absent leaves it. */
   readonly label?: string | null;
 }
 

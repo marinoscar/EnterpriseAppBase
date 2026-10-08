@@ -17,7 +17,13 @@ export type { OrgCredentialInfo, OrgCredentialMeta } from './interfaces/org-cred
 export { UserCredentialsModule } from './user-credentials.module';
 export { UserCredentialsService } from './user-credentials.service';
 export { USER_CREDENTIAL_PURPOSE_REGISTRY, UserCredentialResolver } from './user-credential.resolver';
-export type { ResolveCredentialOptions, ResolvedCredential, ResolvedCredentialSource } from './user-credential.resolver';
+export type {
+  ResolveCredentialOptions,
+  ResolvedCredential,
+  ResolvedCredentialFound,
+  ResolvedCredentialNone,
+  ResolvedCredentialSource,
+} from './user-credential.resolver';
 export type { UserCredentialInfo, UserCredentialMeta } from './interfaces/user-credential-info.interface';
 
 // ---- the purpose registries (rung 2) ------------------------------------------------
@@ -46,6 +52,7 @@ export { deriveHint } from './credential-internals';
 // ---- the structural data types --------------------------------------------------------
 export type {
   CredentialRow,
+  CredentialsBatchResult,
   CredentialsDelegate,
   CredentialsPrisma,
   CredentialsQueryArgs,

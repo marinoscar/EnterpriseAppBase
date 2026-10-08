@@ -53,7 +53,17 @@ export interface SecretFieldProps {
    * Overrides for the underlying parts. `textField` props are spread last,
    * except `type`, `value` and `onChange`, which stay the field's own.
    */
-  slots?: { textField?: Partial<Omit<TextFieldProps, 'type' | 'value' | 'onChange'>> };
+  slots?: SecretFieldSlots;
+}
+
+/**
+ * The part overrides of {@link SecretField}.
+ *
+ * @stability experimental
+ */
+export interface SecretFieldSlots {
+  /** Props for the MUI `TextField`, except `type`, `value` and `onChange`. */
+  textField?: Partial<Omit<TextFieldProps, 'type' | 'value' | 'onChange'>>;
 }
 
 /**

@@ -14,21 +14,26 @@
 
 import { z } from 'zod';
 
-import { CREDENTIAL_SOURCES } from './constants.js';
-
 /**
  * A deployment credential, as the API presents it (`CredentialInfo`).
  *
  * @stability experimental
  */
 export const credentialInfoSchema = z.object({
-  purpose: z.string().describe('The purpose (and cipher sub-key domain): `smtp`, `storage`, ...'),
-  name: z.string().describe('The discriminator within the purpose: `default`, a provider id, ...'),
-  hint: z.string().nullable().describe('A non-secret display aid, `••••abcd`; null for a row written outside the store.'),
-  label: z.string().nullable().describe('The admin-entered description.'),
-  updatedByUserId: z.uuid().nullable().describe('Who last set it; null when that user was deleted.'),
-  createdAt: z.string().describe('ISO 8601.'),
-  updatedAt: z.string().describe('ISO 8601.'),
+  /** The purpose (and cipher sub-key domain): `smtp`, `storage`, ... */
+  purpose: z.string(),
+  /** The discriminator within the purpose: `default`, a provider id, ... */
+  name: z.string(),
+  /** A non-secret display aid, `••••abcd`; `null` for a row written outside the store. */
+  hint: z.string().nullable(),
+  /** The admin-entered description, or `null`. */
+  label: z.string().nullable(),
+  /** Who last set it; `null` when that user was deleted. */
+  updatedByUserId: z.uuid().nullable(),
+  /** When it was first stored (ISO 8601). */
+  createdAt: z.string(),
+  /** When it last changed (ISO 8601). */
+  updatedAt: z.string(),
 });
 
 /**
@@ -40,11 +45,25 @@ export type CredentialInfoDto = z.infer<typeof credentialInfoSchema>;
 
 /**
  * A user's own credential, as the API presents it to that user
- * (`UserCredentialInfo`): no owner id, no provenance.
+ * (`UserCredentialInfo`): no owner id and no provenance (the owner is the only
+ * writer).
  *
  * @stability experimental
  */
-export const userCredentialInfoSchema = credentialInfoSchema.omit({ updatedByUserId: true });
+export const userCredentialInfoSchema = z.object({
+  /** The user credential purpose. */
+  purpose: z.string(),
+  /** The discriminator within the purpose: `default`, ... */
+  name: z.string(),
+  /** A non-secret display aid, `••••abcd`, or `null`. */
+  hint: z.string().nullable(),
+  /** The user-entered description, or `null`. */
+  label: z.string().nullable(),
+  /** When it was first stored (ISO 8601). */
+  createdAt: z.string(),
+  /** When it last changed (ISO 8601). */
+  updatedAt: z.string(),
+});
 
 /**
  * The inferred type of {@link userCredentialInfoSchema}.
@@ -59,7 +78,22 @@ export type UserCredentialInfoDto = z.infer<typeof userCredentialInfoSchema>;
  *
  * @stability experimental
  */
-export const orgCredentialInfoSchema = credentialInfoSchema;
+export const orgCredentialInfoSchema = z.object({
+  /** A purpose registered with the `org` tier. */
+  purpose: z.string(),
+  /** The discriminator within the purpose: `default`, a provider id, ... */
+  name: z.string(),
+  /** A non-secret display aid, `••••abcd`, or `null`. */
+  hint: z.string().nullable(),
+  /** The admin-entered description, or `null`. */
+  label: z.string().nullable(),
+  /** Who last set it; `null` when that user was deleted. */
+  updatedByUserId: z.uuid().nullable(),
+  /** When it was first stored (ISO 8601). */
+  createdAt: z.string(),
+  /** When it last changed (ISO 8601). */
+  updatedAt: z.string(),
+});
 
 /**
  * The inferred type of {@link orgCredentialInfoSchema}.
@@ -67,17 +101,3 @@ export const orgCredentialInfoSchema = credentialInfoSchema;
  * @stability experimental
  */
 export type OrgCredentialInfoDto = z.infer<typeof orgCredentialInfoSchema>;
-
-/**
- * Which tier answered a credential resolution (never the secret).
- *
- * @stability experimental
- */
-export const credentialSourceSchema = z.enum(CREDENTIAL_SOURCES).describe('`user`, `org`, `system` or `none`.');
-
-/**
- * The inferred type of {@link credentialSourceSchema}.
- *
- * @stability experimental
- */
-export type CredentialSourceDto = z.infer<typeof credentialSourceSchema>;

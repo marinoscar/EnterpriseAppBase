@@ -36,6 +36,7 @@ import { UserCredentialsService } from './user-credentials.service';
  * export class WebhooksModule {}
  * ```
  *
+ * @extensionPoint token
  * @stability experimental
  */
 @Module({

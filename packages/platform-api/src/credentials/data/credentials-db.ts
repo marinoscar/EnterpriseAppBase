@@ -23,6 +23,16 @@
 export type CredentialsQueryArgs = Record<string, unknown>;
 
 /**
+ * What a batch write reports.
+ *
+ * @stability experimental
+ */
+export interface CredentialsBatchResult {
+  /** How many rows it touched. */
+  count: number;
+}
+
+/**
  * One Prisma model delegate, as the credentials slice calls it. Every method
  * is generic in its result: a call that `select`s names the shape it reads.
  *
@@ -39,7 +49,7 @@ export interface CredentialsDelegate<Row> {
   /** Inserts or updates one row by a unique key. */
   upsert<T = Row>(args: CredentialsQueryArgs): Promise<T>;
   /** Deletes every matching row. */
-  deleteMany(args?: CredentialsQueryArgs): Promise<{ count: number }>;
+  deleteMany(args?: CredentialsQueryArgs): Promise<CredentialsBatchResult>;
 }
 
 /**

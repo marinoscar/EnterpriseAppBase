@@ -34,6 +34,7 @@ import { CredentialsService } from './credentials.service';
  * export class EmailModule {}
  * ```
  *
+ * @extensionPoint token
  * @stability experimental
  */
 @Module({

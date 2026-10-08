@@ -1,4 +1,4 @@
-import { withTemporaryEntries } from '../../core/registry/testing';
+import { withTemporaryEntries } from '../../core/index';
 import {
   credentialPurposeRegistry,
   userCredentialPurposeRegistry,

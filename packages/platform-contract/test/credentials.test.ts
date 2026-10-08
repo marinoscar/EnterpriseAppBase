@@ -11,7 +11,6 @@ import {
   CREDENTIAL_TIERS,
   SECRET_BEARING_KEYS,
   credentialInfoSchema,
-  credentialSourceSchema,
   orgCredentialInfoSchema,
   userCredentialInfoSchema,
 } from '../src/credentials/index.js';
@@ -26,8 +25,6 @@ describe('@marinoscar/platform-contract/credentials', () => {
   it('lists the tiers and the resolution sources', () => {
     expect(CREDENTIAL_TIERS).toEqual(['system', 'org']);
     expect(CREDENTIAL_SOURCES).toEqual(['user', 'org', 'system', 'none']);
-    expect(credentialSourceSchema.safeParse('org').success).toBe(true);
-    expect(credentialSourceSchema.safeParse('admin').success).toBe(false);
   });
 
   it('scans every *InfoSchema: none has a secret-bearing, id or owner property', () => {

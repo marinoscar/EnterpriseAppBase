@@ -24,6 +24,7 @@ import { OrgCredentialsService } from './org-credentials.service';
  * export class OrgAiKeysModule {}
  * ```
  *
+ * @extensionPoint token
  * @stability experimental
  */
 @Module({

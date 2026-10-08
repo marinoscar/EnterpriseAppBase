@@ -56,11 +56,33 @@ export const USER_CREDENTIAL_PURPOSE_REGISTRY: unique symbol = Symbol.for(
  *
  * @stability experimental
  */
-export type ResolvedCredential =
-  | { readonly source: 'user'; readonly purpose: string; readonly secret: string }
-  | { readonly source: 'org'; readonly purpose: string; readonly secret: string }
-  | { readonly source: 'system'; readonly purpose: string; readonly secret: string }
-  | { readonly source: 'none'; readonly purpose: string };
+export type ResolvedCredential = ResolvedCredentialFound | ResolvedCredentialNone;
+
+/**
+ * A resolution that found a key. SERVER-SIDE ONLY: it carries plaintext.
+ *
+ * @stability experimental
+ */
+export interface ResolvedCredentialFound {
+  /** Whose key answered. */
+  readonly source: 'user' | 'org' | 'system';
+  /** The user credential purpose that was resolved. */
+  readonly purpose: string;
+  /** The plaintext. Never log it, never return it from a controller. */
+  readonly secret: string;
+}
+
+/**
+ * A resolution that found no key at any tier.
+ *
+ * @stability experimental
+ */
+export interface ResolvedCredentialNone {
+  /** Nobody's key answered. */
+  readonly source: 'none';
+  /** The user credential purpose that was resolved. */
+  readonly purpose: string;
+}
 
 /**
  * Which source answered, without the secret — safe to log or return.
@@ -96,6 +118,7 @@ export interface ResolveCredentialOptions {
  * if (key.source !== 'none') await callPartner(key.secret);
  * ```
  *
+ * @extensionPoint token
  * @stability experimental
  */
 @Injectable()

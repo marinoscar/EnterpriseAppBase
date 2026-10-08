@@ -40,6 +40,8 @@
  *   to reach a credential. Publishing a uuid invites an id-addressed lookup,
  *   and an id-addressed lookup silently drops the `purpose` scoping that both
  *   the table's uniqueness and the cipher's sub-key domain are built on.
+ *
+ * @stability experimental
  */
 export interface CredentialInfo {
   /** Sub-key domain from #114 and the first half of the address: 'smtp', … */
@@ -60,7 +62,9 @@ export interface CredentialInfo {
   /** Provenance: who last set the value. Null if the user was deleted. */
   readonly updatedByUserId: string | null;
 
+  /** When it was first stored. */
   readonly createdAt: Date;
+  /** When it last changed. */
   readonly updatedAt: Date;
 }
 
@@ -76,9 +80,13 @@ export interface CredentialInfo {
  * null": omitting `label` on a write leaves the stored label alone, whereas
  * passing `null` clears it. Metadata is not secret, so clearing it is a
  * legitimate thing to ask for — unlike the secret, where blank means preserve.
+ *
+ * @stability experimental
  */
 export interface CredentialMeta {
+  /** Human description; `null` clears it, absent leaves it. */
   readonly label?: string | null;
+  /** Who is writing (provenance); `null` clears it, absent leaves it. */
   readonly updatedByUserId?: string | null;
 }
 
