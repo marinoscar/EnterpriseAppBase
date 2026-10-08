@@ -24,7 +24,10 @@ export const MAX_AI_USAGE_RANGE_DAYS = 90;
 export const DEFAULT_AI_USAGE_RANGE_DAYS = 30;
 
 /** Every grouping the admin report accepts. */
-export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource'] as const;
+export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource', 'org'] as const;
+
+/** The groupings an organization administrator's report accepts (#739): every one but `org`. */
+export const AI_USAGE_ORG_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource'] as const;
 
 /** The groupings a user's own report accepts — no per-user split of one user. */
 export const AI_USAGE_ME_GROUP_BY = ['day', 'model'] as const;
@@ -51,7 +54,25 @@ export const aiUsageAdminQuerySchema = z.object({
   provider: z.string().min(1).max(64).optional(),
   /** Only this provider model id's events (`gpt-4o-mini`). */
   model: z.string().min(1).max(200).optional(),
+  /** #739: only this organization's events (a system administrator's filter). */
+  orgId: z.uuid().optional(),
 });
+
+/**
+ * `GET /api/admin/ai/org-usage` (#739): the admin report's filters, minus
+ * `orgId` (always the caller's active organization) and the `org` grouping.
+ */
+export const aiUsageOrgQuerySchema = z.object({
+  from: isoDay.optional(),
+  to: isoDay.optional(),
+  groupBy: z.enum(AI_USAGE_ORG_GROUP_BY).default('day'),
+  userId: z.uuid().optional(),
+  provider: z.string().min(1).max(64).optional(),
+  model: z.string().min(1).max(200).optional(),
+});
+
+export class AiUsageOrgQueryDto extends createZodDto(aiUsageOrgQuerySchema) {}
+export type AiUsageOrgQuery = z.output<typeof aiUsageOrgQuerySchema>;
 
 export class AiUsageMeQueryDto extends createZodDto(aiUsageMeQuerySchema) {}
 export class AiUsageAdminQueryDto extends createZodDto(aiUsageAdminQuerySchema) {}

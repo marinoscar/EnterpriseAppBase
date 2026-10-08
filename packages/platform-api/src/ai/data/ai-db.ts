@@ -287,7 +287,7 @@ export interface AiDb {
   /** `memberships` (owned by identity): the org `org_ai_config:write` lookup. */
   membership: AiDelegate<{ id: string; orgId: string; userId: string; roleId: string; status: string }>;
   /** `organizations` (owned by identity): the single-org default. */
-  organization: AiDelegate<{ id: string; isDefault: boolean }>;
+  organization: AiDelegate<{ id: string; name: string; isDefault: boolean }>;
   /** `user_settings` (owned by settings): the raw `ai.defaultModel` read. */
   userSettings: AiDelegate<{ userId: string; value: AiJsonValue }>;
   /** `audit_events` (owned by identity): the slice's audit rows, written after their write commits. */

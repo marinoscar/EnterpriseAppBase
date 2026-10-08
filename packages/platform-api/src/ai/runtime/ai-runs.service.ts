@@ -147,6 +147,8 @@ export class AiRunsService {
         subjectType: AI_RUN_SUBJECT_TYPE,
         subjectId: run.id,
         payload: { runId: run.id, orgId: input.orgId },
+        // #739: the job row carries the run's organization too (jobs.org_id).
+        orgId: input.orgId,
       });
 
       await tx.aiRun.update({ where: { id: run.id }, data: { jobId: job.id } });
@@ -160,7 +162,10 @@ export class AiRunsService {
    * enqueued before #725 has none (single mode: the default organization;
    * multi mode: this throws and the job fails with the reason).
    */
-  orgOfJob(job: { id: string; type: string; payload: unknown }): Promise<string> {
+  orgOfJob(job: { id: string; type: string; payload: unknown; orgId?: string | null }): Promise<string> {
+    // #739: the job row's own organization (#734) first; the payload's for a
+    // job enqueued before jobs carried one.
+    if (typeof job.orgId === 'string' && job.orgId.length > 0) return Promise.resolve(job.orgId);
     return resolveJobOrgId(this.prisma, job);
   }
 

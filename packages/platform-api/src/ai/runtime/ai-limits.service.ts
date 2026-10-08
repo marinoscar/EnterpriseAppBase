@@ -89,7 +89,10 @@ export type AiLimitName =
   | 'perUser.requestsPerDay'
   | 'orgKey.requestsPerDayPerUser'
   | 'orgKey.tokensPerDayPerUser'
-  | 'perModel.requestsPerMinutePerUser';
+  | 'perModel.requestsPerMinutePerUser'
+  // #739: every call made in ONE organization, per UTC day.
+  | 'perOrg.requestsPerDay'
+  | 'perOrg.outputTokensPerDay';
 
 /** One call about to be made, after its key was resolved. */
 export interface AiLimitCall {
@@ -152,8 +155,10 @@ interface DayWindow {
   max: number;
   /** Count only org-key calls. */
   orgOnly: boolean;
-  /** Sum tokens instead of counting calls. */
-  tokens: boolean;
+  /** Sum tokens instead of counting calls: input + output (`true`), or output only. */
+  tokens: boolean | 'output';
+  /** Count every user of the organization, not only the caller (#739). */
+  wholeOrg?: boolean;
 }
 
 @Injectable()
@@ -177,7 +182,9 @@ export class AiLimitsService {
    * header); a refused call records nothing.
    */
   async enforce(call: AiLimitCall): Promise<void> {
-    const { limits } = await this.aiConfig.resolve();
+    // #739: the organization's effective policy (its org layer can only lower
+    // `limits.perOrg`; every other limit is the deployment's).
+    const { limits } = await this.aiConfig.resolveForOrg(call.orgId);
     const minutes = this.minuteWindows(limits, call);
     const days = dayWindows(limits, call);
 
@@ -312,14 +319,23 @@ export class AiLimitsService {
 
   private async checkDay(window: DayWindow, call: AiLimitCall, now: number): Promise<void> {
     const where = {
-      userId: call.userId,
+      // A per-org window counts every member's calls: the row-level-security
+      // scope (`forOrg`) already confines the count to this organization.
+      ...(window.wholeOrg ? { orgId: call.orgId } : { userId: call.userId }),
       keySource: window.orgOnly ? 'org' : { in: COUNTED_KEY_SOURCES },
       createdAt: { gte: new Date(utcMidnight(now)) },
     };
 
     let used: number;
 
-    if (window.tokens) {
+    if (window.tokens === 'output') {
+      const sums = await this.prisma.forOrg(call.orgId).aiUsageEvent.aggregate({
+        where,
+        _sum: { outputTokens: true },
+      });
+
+      used = sums._sum.outputTokens ?? 0;
+    } else if (window.tokens) {
       const sums = await this.prisma.forOrg(call.orgId).aiUsageEvent.aggregate({
         where,
         _sum: { inputTokens: true, outputTokens: true },
@@ -334,9 +350,13 @@ export class AiLimitsService {
 
     throw new AiError(
       'AI_RATE_LIMITED',
-      window.tokens
-        ? `The daily organization-key token limit (${window.max}) has been reached; it resets at midnight UTC.`
-        : `The daily AI request limit (${window.max}) has been reached; it resets at midnight UTC.`,
+      window.wholeOrg
+        ? window.tokens
+          ? `Your organization's daily AI output-token limit (${window.max}) has been reached; it resets at midnight UTC.`
+          : `Your organization's daily AI request limit (${window.max}) has been reached; it resets at midnight UTC.`
+        : window.tokens
+          ? `The daily organization-key token limit (${window.max}) has been reached; it resets at midnight UTC.`
+          : `The daily AI request limit (${window.max}) has been reached; it resets at midnight UTC.`,
       {
         retryAfterMs: Math.max(AI_LIMIT_MIN_RETRY_MS, utcMidnight(now) + DAY_MS - now),
         details: {
@@ -344,6 +364,7 @@ export class AiLimitsService {
           max: window.max,
           window: 'day',
           ...(window.orgOnly ? { keySource: 'org' } : {}),
+          ...(window.wholeOrg ? { scope: 'org' } : {}),
           provider: call.provider,
           model: call.modelId,
         },
@@ -374,6 +395,18 @@ function dayWindows(limits: SystemAiLimitsValue | undefined, call: AiLimitCall):
     if (tokens !== undefined) {
       windows.push({ name: 'orgKey.tokensPerDayPerUser', max: tokens, orgOnly: true, tokens: true });
     }
+  }
+
+  // #739: the per-organization budget, every member's calls together.
+  const perOrgRequests = limits?.perOrg?.requestsPerDay;
+  const perOrgOutput = limits?.perOrg?.outputTokensPerDay;
+
+  if (perOrgRequests !== undefined) {
+    windows.push({ name: 'perOrg.requestsPerDay', max: perOrgRequests, orgOnly: false, tokens: false, wholeOrg: true });
+  }
+
+  if (perOrgOutput !== undefined) {
+    windows.push({ name: 'perOrg.outputTokensPerDay', max: perOrgOutput, orgOnly: false, tokens: 'output', wholeOrg: true });
   }
 
   return windows;

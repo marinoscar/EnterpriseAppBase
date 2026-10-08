@@ -47,6 +47,8 @@ describe('AiRunsService', () => {
       subjectType: AI_RUN_SUBJECT_TYPE,
       subjectId: handle.runId,
       payload: { runId: handle.runId, orgId: HARNESS_ORG },
+      // #739: the job row carries the organization too.
+      orgId: HARNESS_ORG,
     });
   });
 

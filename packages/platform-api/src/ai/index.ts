@@ -70,6 +70,10 @@ export type { AiTarget, AiTargetContext, AiTargetResolver } from './runtime/targ
 // ---- the runtime facade ----------------------------------------------------------------------
 export * from './runtime/index';
 export { AiRunsPurgeHandler, AI_RUNS_PURGE_TYPE } from './runtime/ai-runs-purge.handler';
+export { AiLimitsService, AI_LIMITS_CLOCK } from './runtime/ai-limits.service';
+export type { AiLimitCall, AiLimitName, AiLimitsClock } from './runtime/ai-limits.service';
+export { AiUsageRecorder } from './runtime/ai-usage.recorder';
+export type { AiUsageOperation, AiUsageRecord, AiUsageStatus, AiUsageUnits } from './runtime/ai-usage.recorder';
 
 // ---- object storage in and out ----------------------------------------------------------------
 export * from './storage/index';

@@ -59,7 +59,12 @@ const GROUP_KEY_SQL: Record<AiUsageGroupBy, Prisma.Sql> = {
   model: Prisma.raw(`provider || ':' || model_id`),
   provider: Prisma.raw(`provider`),
   keySource: Prisma.raw(`key_source`),
+  // #739: per organization (the system report only).
+  org: Prisma.raw(`org_id::text`),
 };
+
+/** The key an `org` group takes for events with no organization (catalog discovery). */
+export const AI_USAGE_NO_ORG_KEY = 'none';
 
 const KEY_SOURCE_LABELS: Record<string, string> = {
   user: "User's own key",
@@ -76,6 +81,8 @@ export interface AiUsageQuery {
   userId?: string;
   provider?: string;
   model?: string;
+  /** #739: restrict to one organization. */
+  orgId?: string;
 }
 
 /** A resolved window: `from`/`to` inclusive UTC days, `start`/`end` the half-open instants. */
@@ -207,6 +214,7 @@ export class AiUsageService {
     groups: Array<{ key: string | null; bucket: AiUsageBucket }>,
   ): Promise<AiUsageSeriesItem[]> {
     const emails = groupBy === 'user' ? await this.emailsFor(groups) : new Map<string, string>();
+    const orgNames = groupBy === 'org' ? await this.orgNamesFor(groups) : new Map<string, string>();
 
     const series = groups.map(({ key, bucket }) => {
       switch (groupBy) {
@@ -223,6 +231,10 @@ export class AiUsageService {
           const k = key ?? '';
           return { key: k, label: this.registry.get(k)?.displayName ?? k, ...bucket };
         }
+        case 'org':
+          return key === null
+            ? { key: AI_USAGE_NO_ORG_KEY, label: 'No organization', ...bucket }
+            : { key, label: orgNames.get(key) ?? key, ...bucket };
         case 'keySource': {
           const k = key ?? '';
           return { key: k, label: KEY_SOURCE_LABELS[k] ?? k, ...bucket };
@@ -231,6 +243,19 @@ export class AiUsageService {
     });
 
     return series.sort((a, b) => b.requests - a.requests || a.key.localeCompare(b.key));
+  }
+
+  private async orgNamesFor(groups: Array<{ key: string | null }>): Promise<Map<string, string>> {
+    const ids = groups.map((g) => g.key).filter((id): id is string => id !== null);
+
+    if (ids.length === 0) return new Map();
+
+    const orgs = await this.prisma.organization.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+
+    return new Map(orgs.map((o) => [o.id, o.name]));
   }
 
   private async emailsFor(
@@ -258,6 +283,7 @@ function whereSql(range: AiUsageRange, query: AiUsageQuery): Prisma.Sql {
   if (query.userId) clauses.push(Prisma.sql`user_id = ${query.userId}::uuid`);
   if (query.provider) clauses.push(Prisma.sql`provider = ${query.provider}`);
   if (query.model) clauses.push(Prisma.sql`model_id = ${query.model}`);
+  if (query.orgId) clauses.push(Prisma.sql`org_id = ${query.orgId}::uuid`);
 
   return Prisma.sql`WHERE ${Prisma.join(clauses, ' AND ')}`;
 }
