@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { ADMIN_SECTIONS } from '../config/adminSections';
+import { NAVIGATION } from '../config/navigation';
 import { USER_SETTINGS_SECTIONS } from '../config/userSettingsSections';
 
 // The Settings UI Pattern, as tests: every card is reachable (App.tsx has its
@@ -28,5 +29,22 @@ describe('settings registries', () => {
     const card = cards.find((c) => c.path === '/notes');
     expect(listRoute?.[1]).toBe('notes:read');
     expect(card?.permission).toBe(listRoute?.[1]);
+  });
+});
+
+// The shell's navigation (the rail, the bottom bar, the user menu) reaches the
+// same routes, behind the same permissions, as the cards.
+describe('shell navigation', () => {
+  it.each(NAVIGATION.destinations.filter((d) => d.path !== '/').map((d) => [d.path]))('destination %s has a route in App.tsx', (path) => {
+    expect(appSource).toContain(`path="${path.replace(/^\//, '')}"`);
+  });
+
+  it('gate the Notes destination with its card\'s permission', () => {
+    const destination = NAVIGATION.destinations.find((d) => d.key === 'notes');
+    expect(destination?.permission).toBe(cards.find((c) => c.path === '/notes')?.permission);
+  });
+
+  it('fit the bottom bar (four destinations at most)', () => {
+    expect(NAVIGATION.destinations.length).toBeLessThanOrEqual(4);
   });
 });

@@ -1,6 +1,6 @@
 import { APP_NAME } from '@app/shared';
-import { AppBar, Box, Button, CircularProgress, Container, Toolbar, Typography } from '@mui/material';
-import { Link, Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { Box, CircularProgress, Typography } from '@mui/material';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { DoctorPage } from '@marinoscar/platform-web/doctor/ui';
 import {
   AuthProvider,
@@ -15,10 +15,13 @@ import { AuthCallbackPage, LoginPage, OrganizationPage, OrganizationsPage, UserT
 import { JobInsightsPage, JobsPage } from '@marinoscar/platform-web/jobs/ui';
 import { registerSettingsFeature, useSettingsFeatures } from '@marinoscar/platform-web/settings/headless';
 import { SettingsHub, type SettingsHubProps } from '@marinoscar/platform-web/settings/ui';
+import { ShellProviders, type ShellProvider } from '@marinoscar/platform-web/shell/headless';
+import { ShellLayout } from '@marinoscar/platform-web/shell/ui';
 import type { ReactElement } from 'react';
 
 import { api } from './api';
 import { ADMIN_SECTIONS } from './config/adminSections';
+import { NAVIGATION } from './config/navigation';
 import { USER_SETTINGS_SECTIONS } from './config/userSettingsSections';
 import { NotesPage } from './pages/NotesPage';
 import { AppPlatformHost } from './platformHost';
@@ -46,48 +49,30 @@ function Gate({ permission, children }: { permission: string; children: ReactEle
   );
 }
 
-function Shell() {
-  const { user, logout } = useAuth();
-  const { hasPermission } = usePermissions();
-  return (
-    <AppPlatformHost>
-      <AppBar position="static" elevation={0}>
-        <Toolbar sx={{ gap: 1 }}>
-          <Typography variant="h6" component={Link} to="/" sx={{ flexGrow: 1, color: 'inherit', textDecoration: 'none' }}>
-            {APP_NAME}
-          </Typography>
-          <Button color="inherit" component={Link} to="/notes">
-            Notes
-          </Button>
-          <Button color="inherit" component={Link} to="/settings">
-            Settings
-          </Button>
-          {hasPermission('system_settings:read') && (
-            <Button color="inherit" component={Link} to="/admin/settings">
-              Admin
-            </Button>
-          )}
-          <Button color="inherit" onClick={() => void logout()} aria-label={`Sign out ${user?.email ?? ''}`}>
-            Sign out
-          </Button>
-        </Toolbar>
-      </AppBar>
-      <Outlet />
-    </AppPlatformHost>
-  );
-}
+/**
+ * The providers around the signed-in shell, outermost first. Add a slice's
+ * provider here (its adapters, a feature config) rather than nesting by hand.
+ */
+const SHELL_PROVIDERS: readonly ShellProvider[] = [AppPlatformHost];
+
+/** The platform shell: AppBar, navigation rail or bottom bar (by width), user menu. */
+const shell = (
+  <ShellProviders providers={SHELL_PROVIDERS}>
+    <ShellLayout navigation={NAVIGATION} brand={APP_NAME} />
+  </ShellProviders>
+);
 
 function Home() {
   const { user } = useAuth();
   return (
-    <Container sx={{ py: 4 }}>
+    <Box>
       <Typography variant="h4" component="h1">
         Welcome{user?.displayName ? `, ${user.displayName}` : ''}
       </Typography>
       <Typography color="text.secondary" sx={{ mt: 1 }}>
         Start with your notes, or open Settings.
       </Typography>
-    </Container>
+    </Box>
   );
 }
 
@@ -98,7 +83,7 @@ export function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route element={<RequireAuth loading={spinner} />}>
-        <Route element={<Shell />}>
+        <Route element={shell}>
           <Route index element={<Home />} />
           <Route path="notes" element={<Gate permission="notes:read"><NotesPage /></Gate>} />
           <Route path="settings" element={<Hub sections={USER_SETTINGS_SECTIONS} hubKey="user-settings-hub" title="Settings" subtitle="Manage your account preferences." />} />
