@@ -21,7 +21,9 @@
 // -----------------------------------------------------------------------------
 //
 // It reads the BODY of every `@OnEvent`-decorated method under `apps/api/src`
-// and fails when it contains a marker of storage I/O: a call on an injected
+// and under every packaged slice the app runs whose source lives in this
+// repository (`CRON_SOURCE_ROOTS`; the jobs and nodes slices' listeners since
+// #734), and fails when it contains a marker of storage I/O: a call on an injected
 // storage provider, or a `.download(`/`.upload(` call. It does not follow calls
 // into helpers — a listener calling `this.processing.markAbandoned(...)` is
 // trusted, and that helper's own spec pins that it is one bounded row. Like
@@ -37,8 +39,17 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-/** The API's source root, from this file. */
-const SRC = join(__dirname, '..', '..', 'src');
+import { CRON_SOURCE_ROOTS } from './cron-source-roots';
+
+/**
+ * Where the rule looks: the API's own sources and every packaged slice it runs
+ * whose source lives in this repository (the same roots as the cron rule,
+ * ./cron-source-roots.ts; the jobs and nodes slices since #734).
+ */
+const ROOTS = CRON_SOURCE_ROOTS;
+
+/** The repository root, for labelling a file unambiguously across roots. */
+const REPO = join(__dirname, '..', '..', '..', '..');
 
 /** Markers of a listener moving object bytes itself. */
 const IO_MARKERS: ReadonlyArray<{ pattern: RegExp; what: string }> = [
@@ -139,8 +150,8 @@ function markersIn(body: string): string[] {
   return IO_MARKERS.filter((marker) => marker.pattern.test(body)).map((marker) => marker.what);
 }
 
-const files = sourceFiles(SRC)
-  .map((file) => ({ path: file, rel: relative(SRC, file).split('\\').join('/') }))
+const files = ROOTS.flatMap((root) => sourceFiles(root))
+  .map((file) => ({ path: file, rel: relative(REPO, file).split('\\').join('/') }))
   .map((file) => ({ ...file, source: stripComments(readFileSync(file.path, 'utf8')) }))
   .filter((file) => file.source.includes('@OnEvent('));
 
@@ -150,6 +161,19 @@ describe('no @OnEvent body does storage I/O', () => {
     // nothing, and the case below passes over an empty list.
     expect(files.length).toBeGreaterThanOrEqual(5);
     expect(files.flatMap((file) => onEventBodies(file.source)).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("scans the packaged jobs and nodes slices' listeners, not only the app's (#734)", () => {
+    const scanned = files.map((file) => file.rel);
+
+    expect(scanned).toEqual(
+      expect.arrayContaining([
+        'packages/platform-api/src/nodes/ops/node-secret-revoker.ts',
+        // The app-side listener for the slice's `nodes.node.offline` event:
+        // notification dispatch, the documented exception, and no storage I/O.
+        'apps/api/src/notifications/ops/node-offline-notifier.ts',
+      ]),
+    );
   });
 
   it('keeps object bytes out of every event listener', () => {

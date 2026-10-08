@@ -4,7 +4,13 @@ import { join } from 'node:path';
 
 import { cronEnqueueOnlySuite } from '@marinoscar/platform-api/testing';
 
-import { CRON_SOURCE_ROOTS, SHARING_SLICE_SOURCE_ROOT, TELEMETRY_SLICE_SOURCE_ROOT } from './cron-source-roots';
+import {
+  CRON_SOURCE_ROOTS,
+  JOBS_SLICE_SOURCE_ROOT,
+  NODES_SLICE_SOURCE_ROOT,
+  SHARING_SLICE_SOURCE_ROOT,
+  TELEMETRY_SLICE_SOURCE_ROOT,
+} from './cron-source-roots';
 
 // =============================================================================
 // The cron rule demonstrably scans the packaged telemetry slice (issue #703)
@@ -35,6 +41,32 @@ describe('cron-enqueue-only source roots', () => {
 
     expect(report.scannedFiles.cronFiles).toContain('jobs/grants-prune.task.ts');
     expect(report.findings).toEqual([]);
+  });
+
+  it('include the packaged jobs slice: its purge task enqueues, its two exemptions are seen (#734)', () => {
+    expect(CRON_SOURCE_ROOTS).toContain(JOBS_SLICE_SOURCE_ROOT);
+
+    const report = cronEnqueueOnlySuite.check({ sourceRoots: [JOBS_SLICE_SOURCE_ROOT] }, OPTIONS);
+
+    expect(report.scannedFiles.cronFiles).toEqual(
+      expect.arrayContaining(['tasks/job-history-purge.task.ts', 'tasks/job-stuck-reset.task.ts', 'tasks/temp-file-janitor.task.ts']),
+    );
+    // Unexempted here, so the two permanent exemptions are findings: proof that
+    // the exemption list, not the scan, is what lets them work inline.
+    expect(new Set(report.findings.map((finding) => finding.file))).toEqual(
+      new Set(['tasks/job-stuck-reset.task.ts', 'tasks/temp-file-janitor.task.ts']),
+    );
+  });
+
+  it('include the packaged nodes slice: its fleet crons enqueue, the secret sweep is seen (#734)', () => {
+    expect(CRON_SOURCE_ROOTS).toContain(NODES_SLICE_SOURCE_ROOT);
+
+    const report = cronEnqueueOnlySuite.check({ sourceRoots: [NODES_SLICE_SOURCE_ROOT] }, OPTIONS);
+
+    expect(report.scannedFiles.cronFiles).toEqual(
+      expect.arrayContaining(['tasks/node-stale-offline.task.ts', 'tasks/node-offline-prune.task.ts', 'tasks/node-secret-sweep.task.ts']),
+    );
+    expect(new Set(report.findings.map((finding) => finding.file))).toEqual(new Set(['tasks/node-secret-sweep.task.ts']));
   });
 
   it('a cron that works inline inside a slice root is a finding', () => {
