@@ -33,13 +33,19 @@
 // `AccessPolicy`'s, not the list helpers'. A route that shows "every record of
 // the organization" to an administrator does so without these helpers.
 //
+// THE SQL KIT. The package never imports Prisma (no generated client, no
+// runtime subpath: it is built before any `prisma generate`), so the SQL
+// helpers build their fragment with the app's own `Prisma` namespace, passed
+// as `sqlKit: Prisma` (`sql`, `join`, `raw`, `empty`), exactly as the e-mail
+// renderers take the app's `html` kit. The result is the app's `Prisma.Sql`,
+// which nests in its `$queryRaw` templates.
+//
 // Give every helper a principal the `PrincipalGroupsProvider` enriched
 // (`principalGroups.enrich(principal)`): its `groups` are the caller's groups
 // of the active organization (`Scope.groupIds`). An unenriched principal has
 // none.
 // =============================================================================
 
-import { Sql, empty, join, raw, sqltag } from '@prisma/client/runtime/client';
 import type { AccessScope } from '@marinoscar/platform-contract/sharing';
 
 import type { Principal } from '../../core/index';
@@ -54,6 +60,27 @@ import { requireResourceType, type ResolvedResourceType } from './resource-types
  * @stability stable
  */
 export const SHARED_IDS_INLINE_LIMIT = 1000;
+
+/**
+ * The app's raw-SQL builders, structurally: pass the generated `Prisma`
+ * namespace (`Prisma.sql`, `Prisma.join`, `Prisma.raw`, `Prisma.empty`). Every
+ * value goes through `sql` as a bind parameter; `raw` only ever receives
+ * validated identifiers.
+ *
+ * @typeParam S - the app's `Prisma.Sql`.
+ *
+ * @stability stable
+ */
+export interface SqlKit<S> {
+  /** The tagged template (`Prisma.sql`): every interpolation is a bind parameter or a nested fragment. */
+  sql(strings: readonly string[], ...values: unknown[]): S;
+  /** Joins values or fragments with a separator (`Prisma.join`). */
+  join(values: readonly unknown[], separator?: string): S;
+  /** A fragment of literal SQL (`Prisma.raw`); here only for checked identifiers. */
+  raw(text: string): S;
+  /** The empty fragment (`Prisma.empty`). */
+  readonly empty: S;
+}
 
 /** The largest `limit` `sharedResourceIds` accepts. */
 const SHARED_IDS_MAX = 10_000;
@@ -86,9 +113,11 @@ export interface AccessibleFieldOptions {
  *
  * @stability stable
  */
-export interface AccessibleWhereOptions extends AccessibleFieldOptions {
+export interface AccessibleWhereOptions<S = unknown> extends AccessibleFieldOptions {
   /** The app's transaction client, scoped to the caller's active organization. */
   tx: unknown;
+  /** The app's `Prisma` namespace, for the EXISTS form above the threshold. */
+  sqlKit: SqlKit<S>;
   /**
    * The SQL shape of the table, for the EXISTS form above the threshold:
    * its alias and columns. Default: alias `r`, columns `owner_user_id`,
@@ -123,7 +152,9 @@ export interface AccessibleColumnOptions {
  *
  * @stability stable
  */
-export interface AccessibleSqlOptions extends AccessibleColumnOptions {
+export interface AccessibleSqlOptions<S = unknown> extends AccessibleColumnOptions {
+  /** The app's `Prisma` namespace (`sql`, `join`, `raw`, `empty`). */
+  sqlKit: SqlKit<S>;
   /** Which records. Default `'all'`. */
   scope?: AccessScope;
   /** The least role the caller must hold. Default: any role. */
@@ -137,7 +168,7 @@ export interface AccessibleSqlOptions extends AccessibleColumnOptions {
  *
  * @stability stable
  */
-export type AccessibleWhere =
+export type AccessibleWhere<S = unknown> =
   | {
       /** A Prisma `where` fragment. */
       readonly form: 'where';
@@ -147,8 +178,8 @@ export type AccessibleWhere =
   | {
       /** The EXISTS form: too many shared records to inline. */
       readonly form: 'exists';
-      /** An SQL condition on `alias` for `$queryRaw` (`accessibleSql`). */
-      readonly sql: Sql;
+      /** An SQL condition on `alias` for `$queryRaw` (`accessibleSql`): the app's `Prisma.Sql`. */
+      readonly sql: S;
     };
 
 interface Prepared {
@@ -180,6 +211,19 @@ function prepare(principal: Principal, type: string, scope: AccessScope | undefi
     ownerGroupIds: [...new Set(groups.filter((group) => rt.rank(rt.groupRole(group.role)) >= min).map((group) => group.groupId))],
     granteeGroupIds: [...new Set(groups.map((group) => group.groupId))],
     orgDefault: rt.defaultVisibility === 'org' && rt.rank(rt.orgRole) >= min,
+  };
+}
+
+/** The kit's functions, bound (a namespace object's methods may rely on `this`), checked once. */
+function kitOf<S>(kit: SqlKit<S> | undefined): { sql: (strings: TemplateStringsArray, ...values: unknown[]) => S; join: (values: readonly unknown[], separator?: string) => S; raw: (text: string) => S; empty: S } {
+  if (!kit || typeof kit.sql !== 'function' || typeof kit.join !== 'function' || typeof kit.raw !== 'function') {
+    throw new Error('accessibleSql needs `sqlKit`: pass the app\'s Prisma namespace (`sqlKit: Prisma`).');
+  }
+  return {
+    sql: (strings, ...values) => kit.sql(strings, ...values),
+    join: (values, separator) => (separator === undefined ? kit.join(values) : kit.join(values, separator)),
+    raw: (text) => kit.raw(text),
+    empty: kit.empty,
   };
 }
 
@@ -228,7 +272,7 @@ function sharedGrantWhere(p: Prepared, principal: Principal, now: Date): Record<
  * ```ts
  * const me = await principalGroups.enrich(principal);
  * await prisma.runInOrg(me.activeOrgId!, async (tx) => {
- *   const access = await accessibleWhere(me, 'transcript', { tx, scope: 'shared' });
+ *   const access = await accessibleWhere(me, 'transcript', { tx, sqlKit: Prisma, scope: 'shared' });
  *   if (access.form === 'where') return tx.transcript.findMany({ where: { AND: [access.where, filters] } });
  *   const ids = await tx.$queryRaw<{ id: string }[]>`
  *     SELECT r.id FROM transcripts r WHERE ${access.sql} ORDER BY r.created_at DESC LIMIT 50`;
@@ -239,7 +283,7 @@ function sharedGrantWhere(p: Prepared, principal: Principal, now: Date): Record<
  * @extensionPoint hook
  * @stability stable
  */
-export async function accessibleWhere(principal: Principal, type: string, opts: AccessibleWhereOptions): Promise<AccessibleWhere> {
+export async function accessibleWhere<S>(principal: Principal, type: string, opts: AccessibleWhereOptions<S>): Promise<AccessibleWhere<S>> {
   const p = prepare(principal, type, opts.scope, opts.minRole);
   const idField = identifier(opts.idField ?? 'id', 'idField');
   const ownerUserField = identifier(opts.ownerUserField ?? 'ownerUserId', 'ownerUserField');
@@ -265,7 +309,13 @@ export async function accessibleWhere(principal: Principal, type: string, opts: 
         take: limit + 1,
       });
       if (rows.length > limit) {
-        return { form: 'exists', sql: accessibleSql(principal, type, opts.sql?.alias ?? 'r', { ...opts.sql, scope: p.scope, ...(opts.minRole ? { minRole: opts.minRole } : {}) }) };
+        const sql = accessibleSql(principal, type, opts.sql?.alias ?? 'r', {
+          ...opts.sql,
+          sqlKit: opts.sqlKit,
+          scope: p.scope,
+          ...(opts.minRole ? { minRole: opts.minRole } : {}),
+        });
+        return { form: 'exists', sql };
       }
       if (rows.length > 0) any.push({ [idField]: { in: rows.map((row) => row.resourceId) } });
     }
@@ -289,41 +339,42 @@ export async function accessibleWhere(principal: Principal, type: string, opts: 
  * @param type - a registered resource type.
  * @param alias - the table's alias in the caller's query (`r` in `FROM transcripts r`).
  * @param opts - the columns, the scope and the least role.
- * @returns a `Prisma.Sql` condition for `$queryRaw`.
+ * @returns the app's `Prisma.Sql` condition, for `$queryRaw`.
  * @throws Error for an unknown type or role, or a non-identifier alias or column.
  *
  * @example
  * ```ts
  * const rows = await tx.$queryRaw<{ id: string }[]>`
  *   SELECT r.id FROM transcripts r
- *   WHERE ${accessibleSql(me, 'transcript', 'r', { scope: 'all' })}
+ *   WHERE ${accessibleSql(me, 'transcript', 'r', { sqlKit: Prisma, scope: 'all' })}
  *   ORDER BY r.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`;
  * ```
  *
  * @extensionPoint hook
  * @stability stable
  */
-export function accessibleSql(principal: Principal, type: string, alias: string, opts: AccessibleSqlOptions = {}): Sql {
+export function accessibleSql<S>(principal: Principal, type: string, alias: string, opts: AccessibleSqlOptions<S>): S {
   const p = prepare(principal, type, opts.scope, opts.minRole);
-  const col = (name: string | undefined, fallback: string, what: string): Sql =>
+  const { sql, join, raw, empty } = kitOf(opts.sqlKit);
+  const col = (name: string | undefined, fallback: string, what: string): S =>
     raw(`"${identifier(alias, 'alias')}"."${identifier(name ?? fallback, what)}"`);
-  if (p.orgId === null) return sqltag`FALSE`;
+  if (p.orgId === null) return sql`FALSE`;
 
-  const any: Sql[] = [];
+  const any: S[] = [];
   if (includes(p.scope, 'owned') && p.rt.def.ownership !== 'group') {
-    any.push(sqltag`${col(opts.ownerUserColumn, 'owner_user_id', 'ownerUserColumn')} = ${principal.userId}::uuid`);
+    any.push(sql`${col(opts.ownerUserColumn, 'owner_user_id', 'ownerUserColumn')} = ${principal.userId}::uuid`);
   }
   if (includes(p.scope, 'groups') && p.rt.def.ownership !== 'user' && p.ownerGroupIds.length > 0) {
-    any.push(sqltag`${col(opts.ownerGroupColumn, 'owner_group_id', 'ownerGroupColumn')} IN (${join(p.ownerGroupIds.map((id) => sqltag`${id}::uuid`))})`);
+    any.push(sql`${col(opts.ownerGroupColumn, 'owner_group_id', 'ownerGroupColumn')} IN (${join(p.ownerGroupIds.map((id) => sql`${id}::uuid`))})`);
   }
   if (includes(p.scope, 'shared')) {
-    if (p.orgDefault) any.push(sqltag`TRUE`);
+    if (p.orgDefault) any.push(sql`TRUE`);
     else if (p.grantRoles.length > 0) {
       const groupGrantee =
         p.granteeGroupIds.length > 0
-          ? sqltag` OR (g.grantee_kind = 'group' AND g.grantee_group_id IN (${join(p.granteeGroupIds.map((id) => sqltag`${id}::uuid`))}))`
+          ? sql` OR (g.grantee_kind = 'group' AND g.grantee_group_id IN (${join(p.granteeGroupIds.map((id) => sql`${id}::uuid`))}))`
           : empty;
-      any.push(sqltag`EXISTS (
+      any.push(sql`EXISTS (
         SELECT 1 FROM grants g
         WHERE g.org_id = ${p.orgId}::uuid
           AND g.resource_type = ${p.rt.type}
@@ -335,9 +386,9 @@ export function accessibleSql(principal: Principal, type: string, alias: string,
       )`);
     }
   }
-  const visible = any.length === 0 ? sqltag`FALSE` : sqltag`(${join(any, ' OR ')})`;
+  const visible = any.length === 0 ? sql`FALSE` : sql`(${join(any, ' OR ')})`;
   if (opts.orgColumn === null) return visible;
-  return sqltag`(${col(opts.orgColumn, 'org_id', 'orgColumn')} = ${p.orgId}::uuid AND ${visible})`;
+  return sql`(${col(opts.orgColumn, 'org_id', 'orgColumn')} = ${p.orgId}::uuid AND ${visible})`;
 }
 
 /**

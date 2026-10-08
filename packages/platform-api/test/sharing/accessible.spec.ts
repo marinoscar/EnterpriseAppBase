@@ -7,6 +7,7 @@ import type { Principal } from '../../src/core/index';
 import { SHARED_IDS_INLINE_LIMIT, accessibleSql, accessibleWhere, sharedResourceIds } from '../../src/sharing/index';
 import { ALICE, GROUP, ORG, fakeTx, principal } from './fakes';
 import { DOC_A, DOC_B, GROUP_2, docType, withTypes } from './grants-fakes';
+import { fakeSqlKit as sqlKit } from './sql-kit';
 
 function me(groups: Array<[string, 'admin' | 'editor' | 'viewer']> = []): Principal {
   return principal({ groups: groups.map(([groupId, role]) => ({ groupId, orgId: ORG, role })) });
@@ -18,7 +19,7 @@ describe('accessibleWhere', () => {
   it('owned: my rows of my organization, with no query', async () => {
     const tx = fakeTx();
     await withTypes([def()], async () => {
-      expect(await accessibleWhere(me(), 'test_doc', { tx, scope: 'owned' })).toEqual({
+      expect(await accessibleWhere(me(), 'test_doc', { tx, sqlKit, scope: 'owned' })).toEqual({
         form: 'where',
         where: { AND: [{ orgId: ORG }, { ownerUserId: ALICE }] },
       });
@@ -30,15 +31,15 @@ describe('accessibleWhere', () => {
     const tx = fakeTx();
     await withTypes([def()], async () => {
       const who = me([[GROUP, 'viewer'], [GROUP_2, 'admin']]);
-      expect((await accessibleWhere(who, 'test_doc', { tx, scope: 'groups' })).form).toBe('where');
-      expect(await accessibleWhere(who, 'test_doc', { tx, scope: 'groups' })).toMatchObject({
+      expect((await accessibleWhere(who, 'test_doc', { tx, sqlKit, scope: 'groups' })).form).toBe('where');
+      expect(await accessibleWhere(who, 'test_doc', { tx, sqlKit, scope: 'groups' })).toMatchObject({
         where: { AND: [{ orgId: ORG }, { ownerGroupId: { in: [GROUP, GROUP_2] } }] },
       });
-      expect(await accessibleWhere(who, 'test_doc', { tx, scope: 'groups', minRole: 'editor' })).toMatchObject({
+      expect(await accessibleWhere(who, 'test_doc', { tx, sqlKit, scope: 'groups', minRole: 'editor' })).toMatchObject({
         where: { AND: [{ orgId: ORG }, { ownerGroupId: { in: [GROUP_2] } }] },
       });
       // No group at all: nothing.
-      expect(await accessibleWhere(me(), 'test_doc', { tx, scope: 'groups' })).toEqual({ form: 'where', where: { id: { in: [] } } });
+      expect(await accessibleWhere(me(), 'test_doc', { tx, sqlKit, scope: 'groups' })).toEqual({ form: 'where', where: { id: { in: [] } } });
     });
   });
 
@@ -46,7 +47,7 @@ describe('accessibleWhere', () => {
     const tx = fakeTx();
     tx.grant.groupBy.mockResolvedValue([{ resourceId: DOC_A }, { resourceId: DOC_B }]);
     await withTypes([def()], async () => {
-      expect(await accessibleWhere(me([[GROUP, 'viewer']]), 'test_doc', { tx, scope: 'shared', minRole: 'editor' })).toEqual({
+      expect(await accessibleWhere(me([[GROUP, 'viewer']]), 'test_doc', { tx, sqlKit, scope: 'shared', minRole: 'editor' })).toEqual({
         form: 'where',
         where: { AND: [{ orgId: ORG }, { id: { in: [DOC_A, DOC_B] } }] },
       });
@@ -63,7 +64,7 @@ describe('accessibleWhere', () => {
     const tx = fakeTx();
     tx.grant.groupBy.mockResolvedValue([{ resourceId: DOC_A }]);
     await withTypes([def()], async () => {
-      expect(await accessibleWhere(me([[GROUP, 'viewer']]), 'test_doc', { tx })).toEqual({
+      expect(await accessibleWhere(me([[GROUP, 'viewer']]), 'test_doc', { tx, sqlKit })).toEqual({
         form: 'where',
         where: { AND: [{ orgId: ORG }, { OR: [{ ownerUserId: ALICE }, { ownerGroupId: { in: [GROUP] } }, { id: { in: [DOC_A] } }] }] },
       });
@@ -73,10 +74,10 @@ describe('accessibleWhere', () => {
   it("shared with an 'org' default: every record of my organization, with no grant query", async () => {
     const tx = fakeTx();
     await withTypes([docType(new Map(), { defaultVisibility: 'org', orgRole: 'viewer' })], async () => {
-      expect(await accessibleWhere(me(), 'test_doc', { tx, scope: 'shared' })).toEqual({ form: 'where', where: { orgId: ORG } });
+      expect(await accessibleWhere(me(), 'test_doc', { tx, sqlKit, scope: 'shared' })).toEqual({ form: 'where', where: { orgId: ORG } });
       expect(tx.grant.groupBy).not.toHaveBeenCalled();
       // The default does not reach editor: back to grants.
-      await accessibleWhere(me(), 'test_doc', { tx, scope: 'shared', minRole: 'editor' });
+      await accessibleWhere(me(), 'test_doc', { tx, sqlKit, scope: 'shared', minRole: 'editor' });
       expect(tx.grant.groupBy).toHaveBeenCalledTimes(1);
     });
   });
@@ -85,31 +86,31 @@ describe('accessibleWhere', () => {
     const tx = fakeTx();
     tx.grant.groupBy.mockResolvedValue([{ resourceId: DOC_A }, { resourceId: DOC_B }, { resourceId: GROUP }]);
     await withTypes([def()], async () => {
-      const result = await accessibleWhere(me(), 'test_doc', { tx, scope: 'shared', inlineLimit: 2, sql: { alias: 'd' } });
+      const result = await accessibleWhere(me(), 'test_doc', { tx, sqlKit, scope: 'shared', inlineLimit: 2, sql: { alias: 'd' } });
       expect(result.form).toBe('exists');
       if (result.form !== 'exists') return;
-      expect(result.sql.sql).toContain('EXISTS (');
-      expect(result.sql.sql).toContain('"d"."id"');
+      expect(result.sql.text).toContain('EXISTS (');
+      expect(result.sql.text).toContain('"d"."id"');
     });
   });
 
   it('uses the given fields, can leave the organization to RLS, and refuses a non-identifier field', async () => {
     const tx = fakeTx();
     await withTypes([def()], async () => {
-      expect(await accessibleWhere(me(), 'test_doc', { tx, scope: 'owned', ownerUserField: 'authorId', orgField: null })).toEqual({
+      expect(await accessibleWhere(me(), 'test_doc', { tx, sqlKit, scope: 'owned', ownerUserField: 'authorId', orgField: null })).toEqual({
         form: 'where',
         where: { authorId: ALICE },
       });
-      await expect(accessibleWhere(me(), 'test_doc', { tx, ownerUserField: 'a.b' })).rejects.toThrow(/plain identifier/);
-      await expect(accessibleWhere(me(), 'test_doc', { tx, minRole: 'boss' })).rejects.toThrow(/no role "boss"/);
-      await expect(accessibleWhere(me(), 'nope', { tx })).rejects.toThrow(/Unknown resource type/);
+      await expect(accessibleWhere(me(), 'test_doc', { tx, sqlKit, ownerUserField: 'a.b' })).rejects.toThrow(/plain identifier/);
+      await expect(accessibleWhere(me(), 'test_doc', { tx, sqlKit, minRole: 'boss' })).rejects.toThrow(/no role "boss"/);
+      await expect(accessibleWhere(me(), 'nope', { tx, sqlKit })).rejects.toThrow(/Unknown resource type/);
     });
   });
 
   it('matches nothing without an active organization', async () => {
     const tx = fakeTx();
     await withTypes([def()], async () => {
-      expect(await accessibleWhere(principal({ activeOrgId: undefined }), 'test_doc', { tx })).toEqual({ form: 'where', where: { id: { in: [] } } });
+      expect(await accessibleWhere(principal({ activeOrgId: undefined }), 'test_doc', { tx, sqlKit })).toEqual({ form: 'where', where: { id: { in: [] } } });
     });
   });
 });
@@ -117,7 +118,7 @@ describe('accessibleWhere', () => {
 describe('accessibleSql', () => {
   it('builds one parameterised condition with an EXISTS on grants', async () => {
     await withTypes([def()], () => {
-      const sql = accessibleSql(me([[GROUP, 'editor']]), 'test_doc', 'r', { minRole: 'viewer' });
+      const sql = accessibleSql(me([[GROUP, 'editor']]), 'test_doc', 'r', { sqlKit, minRole: 'viewer' });
       expect(sql.text).toMatch(/^\("r"\."org_id" = \$1::uuid AND \(/);
       expect(sql.text).toContain('"r"."owner_user_id" = $2::uuid');
       expect(sql.text).toContain('"r"."owner_group_id" IN ($3::uuid)');
@@ -133,17 +134,23 @@ describe('accessibleSql', () => {
 
   it('per scope, and only the owner columns the ownership has', async () => {
     await withTypes([def(), docType(new Map(), { type: 'note', ownership: 'user', countOwnedByGroup: undefined })], () => {
-      expect(accessibleSql(me(), 'test_doc', 'r', { scope: 'owned', orgColumn: null }).text).toBe('("r"."owner_user_id" = $1::uuid)');
-      expect(accessibleSql(me(), 'test_doc', 'r', { scope: 'groups', orgColumn: null }).text).toBe('FALSE');
-      expect(accessibleSql(me([[GROUP, 'admin']]), 'note', 'r', { scope: 'groups', orgColumn: null }).text).toBe('FALSE');
-      expect(accessibleSql(me(), 'test_doc', 'r', { scope: 'shared', minRole: 'owner', orgColumn: null }).text).toBe('FALSE');
+      expect(accessibleSql(me(), 'test_doc', 'r', { sqlKit, scope: 'owned', orgColumn: null }).text).toBe('("r"."owner_user_id" = $1::uuid)');
+      expect(accessibleSql(me(), 'test_doc', 'r', { sqlKit, scope: 'groups', orgColumn: null }).text).toBe('FALSE');
+      expect(accessibleSql(me([[GROUP, 'admin']]), 'note', 'r', { sqlKit, scope: 'groups', orgColumn: null }).text).toBe('FALSE');
+      expect(accessibleSql(me(), 'test_doc', 'r', { sqlKit, scope: 'shared', minRole: 'owner', orgColumn: null }).text).toBe('FALSE');
+    });
+  });
+
+  it("needs the app's Prisma namespace as its SQL kit (the package never loads Prisma)", async () => {
+    await withTypes([def()], () => {
+      expect(() => accessibleSql(me(), 'test_doc', 'r', {} as never)).toThrow(/sqlKit: Prisma/);
     });
   });
 
   it('refuses an alias or a column that is not a plain identifier', async () => {
     await withTypes([def()], () => {
-      expect(() => accessibleSql(me(), 'test_doc', 'r; drop table x', {})).toThrow(/plain identifier/);
-      expect(() => accessibleSql(me(), 'test_doc', 'r', { idColumn: 'id"--' })).toThrow(/plain identifier/);
+      expect(() => accessibleSql(me(), 'test_doc', 'r; drop table x', { sqlKit })).toThrow(/plain identifier/);
+      expect(() => accessibleSql(me(), 'test_doc', 'r', { sqlKit, idColumn: 'id"--' })).toThrow(/plain identifier/);
     });
   });
 });

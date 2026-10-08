@@ -69,6 +69,7 @@ export type {
   AccessibleSqlOptions,
   AccessibleWhere,
   AccessibleWhereOptions,
+  SqlKit,
 } from './access/accessible';
 
 // ---- the principal enrichment -------------------------------------------------------

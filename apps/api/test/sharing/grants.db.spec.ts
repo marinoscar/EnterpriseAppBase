@@ -21,6 +21,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { Prisma } from '@prisma/client';
 import type { Principal } from '@marinoscar/platform-api/core';
 import { accessibleSql, accessibleWhere, sharedResourceIds, type SharingDataPort } from '@marinoscar/platform-api/sharing';
 import type { AccessScope } from '@marinoscar/platform-contract/sharing';
@@ -348,7 +349,7 @@ describeWithDb('grants (real Postgres)', () => {
     }
 
     async function viaSql(me: Principal, scope: AccessScope, minRole?: string): Promise<string[]> {
-      const condition = accessibleSql(me, TEST_DOC_TYPE, 'r', { scope, ...(minRole ? { minRole } : {}) });
+      const condition = accessibleSql(me, TEST_DOC_TYPE, 'r', { sqlKit: Prisma, scope, ...(minRole ? { minRole } : {}) });
       const rows = await inOrg(db, ORG_A, (tx) => tx.$queryRaw<Array<{ id: string }>>`SELECT r.id::text AS id FROM sharing_test_docs r WHERE ${condition}`);
       return rows.map((row) => row.id);
     }
@@ -357,7 +358,7 @@ describeWithDb('grants (real Postgres)', () => {
       it(`${scope}: both forms return exactly the visible rows`, async () => {
         const me = await sharing.principalGroups.enrich(as('alice'));
         const rows = (await rowsInOrgA()).filter((row) => fixture().includes(row.id));
-        const access = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, scope }));
+        const access = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, sqlKit: Prisma, scope }));
         expect(access.form).toBe('where');
         const byWhere = rows.filter((row) => access.form === 'where' && matches(access.where, row)).map((row) => nameOf(row.id)).sort();
         const bySql = (await viaSql(me, scope)).filter((id) => fixture().includes(id)).map(nameOf).sort();
@@ -374,8 +375,8 @@ describeWithDb('grants (real Postgres)', () => {
 
     it('switches to the EXISTS form above the threshold, with the same rows', async () => {
       const me = await sharing.principalGroups.enrich(as('alice'));
-      const inline = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, scope: 'shared' }));
-      const switched = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, scope: 'shared', inlineLimit: 1 }));
+      const inline = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, sqlKit: Prisma, scope: 'shared' }));
+      const switched = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, sqlKit: Prisma, scope: 'shared', inlineLimit: 1 }));
       expect([inline.form, switched.form]).toEqual(['where', 'exists']);
       if (switched.form !== 'exists' || inline.form !== 'where') return;
       const rows = await inOrg(db, ORG_A, (tx) => tx.$queryRaw<Array<{ id: string }>>`SELECT r.id::text AS id FROM sharing_test_docs r WHERE ${switched.sql}`);
@@ -392,7 +393,7 @@ describeWithDb('grants (real Postgres)', () => {
                        SELECT gen_random_uuid(), ${ORG_A}::uuid, ${TEST_DOC_TYPE}, d.id, 'user', ${u.carol}::uuid, 'viewer', now(), now() FROM d`,
       );
       const me = await sharing.principalGroups.enrich(as('carol'));
-      const access = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, scope: 'shared' }));
+      const access = await inOrg(db, ORG_A, (tx) => accessibleWhere(me, TEST_DOC_TYPE, { tx, sqlKit: Prisma, scope: 'shared' }));
       expect(access.form).toBe('exists');
       if (access.form !== 'exists') return;
       const rows = await inOrg(db, ORG_A, (tx) =>

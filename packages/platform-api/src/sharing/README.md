@@ -52,7 +52,7 @@ registerResourceType({
 await access.require(principal, 'write', { type: 'transcript', id });   // 404 unless allowed
 
 const me = await principalGroups.enrich(principal);
-const visible = await accessibleWhere(me, 'transcript', { tx, scope: 'shared' });
+const visible = await accessibleWhere(me, 'transcript', { tx, sqlKit: Prisma, scope: 'shared' });
 // { form: 'where', where } for findMany, or { form: 'exists', sql } above 1,000 shared records
 
 await grants.deleteForResources(tx, 'transcript', [id]);  // in the transaction that deletes it
@@ -108,8 +108,8 @@ Resource types (`registerResourceType`, rung 2) are validated at registration wi
 | `renderGroupInvitationEmail` | hook | `(data, kit: GroupInvitationEmailKit) => RenderedGroupInvitationEmail` | Render the invitation e-mail with the app's layout and escaping helpers | experimental | [example](../../../../apps/api/src/email/templates/group-invitation.email.ts) |
 | `registerResourceType` | registry | `registerResourceType<TRole>(def: ResourceTypeDef<TRole>): void` | Make one app table shareable: roles, actions, permissions, ownership, default visibility, `loadOwners`; at import time, before bootstrap | stable | [example](../../../../apps/api/test/sharing/grants.db.spec.ts) |
 | `AccessPolicy` | token | `can`/`decide`/`require(principal, action, ref)`, `roleFor(principal, ref)`, `decideMany(principal, action, refs): Map<'type:id', AccessDecision>` | Inject it wherever a route acts on one record (or a page of them): the owner, group, grant and org-default decision | stable | [example](../../../../apps/api/test/sharing/grants.db.spec.ts) |
-| `accessibleWhere` | hook | `accessibleWhere(principal, type, { tx, scope?, minRole?, ...fields }): Promise<{ form: 'where'; where } \| { form: 'exists'; sql }>` | List the records a caller may see with Prisma; above 1,000 shared records it hands back the EXISTS form | stable | [example](../../../../apps/api/test/sharing/grants.db.spec.ts) |
-| `accessibleSql` | hook | `accessibleSql(principal, type, alias, { scope?, minRole?, ...columns }): Prisma.Sql` | The same condition for `$queryRaw` (the only sanctioned raw-SQL path to `grants`), e.g. to page ids in SQL | stable | [example](../../../../apps/api/test/sharing/grants.db.spec.ts) |
+| `accessibleWhere` | hook | `accessibleWhere(principal, type, { tx, sqlKit, scope?, minRole?, ...fields }): Promise<{ form: 'where'; where } \| { form: 'exists'; sql }>` | List the records a caller may see with Prisma; above 1,000 shared records it hands back the EXISTS form | stable | [example](../../../../apps/api/test/sharing/grants.db.spec.ts) |
+| `accessibleSql` | hook | `accessibleSql(principal, type, alias, { sqlKit, scope?, minRole?, ...columns }): Prisma.Sql` | The same condition for `$queryRaw` (the only sanctioned raw-SQL path to `grants`), e.g. to page ids in SQL; `sqlKit` is the app's `Prisma` namespace, so the package never loads Prisma | stable | [example](../../../../apps/api/test/sharing/grants.db.spec.ts) |
 | `sharedResourceIds` | hook | `sharedResourceIds(principal, type, { tx, minRole?, limit? }): Promise<string[]>` | The ids shared with the caller through grants, bounded (default 1,000, at most 10,000) | stable | [example](../../../../apps/api/test/sharing/grants.db.spec.ts) |
 | `GrantsService.deleteForResources` | hook | `deleteForResources(tx, type, ids): Promise<number>` | Inside the transaction that deletes records, so they leave no dangling grant (the prune job catches a forgotten call) | stable | [example](../../../../apps/api/test/sharing/grants-prune.db.spec.ts) |
 | `SHARING_JOBS` | token | `unique symbol` -> `SharingJobsPort` | Bind the job queue that runs `sharing.grants.prune` (server-only) and its daily enqueue | experimental | [example](../../../../apps/api/src/platform/sharing/sharing-jobs.adapter.ts) |
@@ -199,7 +199,7 @@ Completed in #732. In short: a span per service operation (`sharing.group.*`, `s
 
 ## Security notes
 
-Completed in #732. In short: 404 for a group the caller may not see; row-level security plus composite keys keep organizations apart; the member lookup by e-mail is throttled per account (10 misses per 10 minutes, approximate across replicas) to blunt address enumeration; memberships never travel in the JWT; audit meta, events and bus messages carry no e-mail address. Grants: a record the caller may not share is the same 404 as a missing one; a grantee is always of the record's organization (composite key for groups, an active-membership check for users); grant lookups by e-mail share the member-lookup throttle; decisions are never cached across requests, so a revoked grant stops working on the next request; `accessibleSql` interpolates only validated identifiers and binds every value.
+Completed in #732. In short: 404 for a group the caller may not see; row-level security plus composite keys keep organizations apart; the member lookup by e-mail is throttled per account (10 misses per 10 minutes, approximate across replicas) to blunt address enumeration; memberships never travel in the JWT; audit meta, events and bus messages carry no e-mail address. Grants: a record the caller may not share is the same 404 as a missing one; a grantee is always of the record's organization (composite key for groups, an active-membership check for users); grant lookups by e-mail share the member-lookup throttle; decisions are never cached across requests, so a revoked grant stops working on the next request; `accessibleSql` interpolates only validated identifiers and binds every value, through the app's own `Prisma.sql` (`sqlKit`): the package imports no Prisma module.
 
 ## Conformance suite
 
