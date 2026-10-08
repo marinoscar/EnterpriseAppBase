@@ -36,25 +36,26 @@
  * subtree.
  */
 
-import type { SvgIconComponent } from '@mui/icons-material';
 import HomeIcon from '@mui/icons-material/Home';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AdminIcon from '@mui/icons-material/AdminPanelSettings';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import type { SettingsFeatureKey, SettingsFeatures } from '@marinoscar/platform-web/settings/ui';
-import { isFeatureEnabled } from '@marinoscar/platform-web/settings/ui';
+import {
+  isDestinationVisible,
+  owns,
+  resolveActiveDestination as resolveShellDestination,
+} from '@marinoscar/platform-web/shell/headless';
+import type { ShellDestination } from '@marinoscar/platform-web/shell/headless';
 
 export type DestinationKey = 'home' | 'settings' | 'console' | 'ai';
 
 /**
  * Does `prefix` own `path`? True when the path equals the prefix or continues
  * with a `/`. `'/'` matches only itself — every path starts with it, so the
- * root has to be exact or Home would own the entire app.
+ * root has to be exact or Home would own the entire app. The shell's own
+ * function (`@marinoscar/platform-web/shell/headless`, #868), re-exported.
  */
-export function owns(prefix: string, path: string): boolean {
-  if (prefix === '/') return path === '/';
-  return path === prefix || path.startsWith(`${prefix}/`);
-}
+export { owns };
 
 /**
  * Route prefixes each destination owns. Child routes are covered by their
@@ -100,70 +101,16 @@ export const UNOWNED_ROUTES: readonly string[] = [
 ];
 
 /**
- * A navigation destination, fully described for every surface that draws it.
- *
- * `permission` is the API permission that makes the destination REACHABLE, and
- * it is deliberately the same string the corresponding controller enforces —
- * see the comments on each entry. A destination with no `permission` and no
- * `anyPermission` is available to every authenticated user.
+ * A navigation destination, fully described for every surface that draws it:
+ * the shell's `ShellDestination` (#868) over this app's keys. Every field is
+ * documented there: `label` and `compactLabel`, `Icon` (a component, never an
+ * element), `path`, `permission` (the API permission that makes it REACHABLE,
+ * the same string the controller enforces), `anyPermission` (any one of them;
+ * AND-ed with `permission` when both are set, which is why it is a separate
+ * field: an array in `permission` would read as ALL), `pinned` (the rail's
+ * foot, #105) and `feature` (#425, the fail-closed feature gate).
  */
-export interface Destination {
-  key: DestinationKey;
-  /** Full label — the expanded rail, the bottom bar, the user menu. */
-  label: string;
-  /** Shown in the 56px collapsed rail, which will not hold "System Settings". */
-  compactLabel: string;
-  Icon: SvgIconComponent;
-  path: string;
-  /** API permission required to reach it; absent means "any authenticated user". */
-  permission?: string;
-  /**
-   * Reachable when the user holds ANY ONE of these permissions.
-   *
-   * Added by #92 for `console`, which fronts pages from two different
-   * controllers: someone with `users:read` alone must reach the Users &
-   * Allowlist page, and someone with `system_settings:read` alone must reach
-   * the settings pages. Neither may be dropped, and the single-string
-   * `permission` field cannot express "or".
-   *
-   * Widening `permission` to `string | string[]` was the alternative and was
-   * rejected: an array there reads as ALL by every convention in this codebase
-   * (`hasAllPermissions`), so the same field would have meant "and" at one call
-   * site and "or" at another. A separate field names the semantics.
-   *
-   * The two fields AND together when both are set — `permission` must be held
-   * AND at least one of `anyPermission`. `ai` is the destination that sets
-   * both (#593): `ai:use` AND `ai_config:read`. `isDestinationVisible` is the
-   * only place that has to know.
-   */
-  anyPermission?: readonly string[];
-  /**
-   * Render this destination pinned at the FOOT of the navigation rail, below a
-   * divider, rather than inline in the destination list (#105).
-   *
-   * `console` is the only one today, and the flag exists so the rail never has
-   * to spell `key === 'console'` in its render. A magic key there would be a
-   * second, invisible answer to "what is the admin surface" — the exact
-   * split-brain this file's header describes — and it would silently stop
-   * being true the day the admin destination is renamed or a second mode is
-   * added. Declaring it here keeps ONE place that knows Console is a MODE and
-   * not a peer of the library destinations, which is what its position at the
-   * foot communicates.
-   *
-   * RAIL-ONLY, deliberately. The bottom bar has no foot to pin to (it IS the
-   * foot) and the user menu is a flat list, so both keep reading `DESTINATIONS`
-   * in declaration order and ignore this flag. Ordering here therefore still
-   * has to be the correct order for those surfaces.
-   */
-  pinned?: boolean;
-  /**
-   * A deployment-wide feature this destination only exists under (#425) — the
-   * same `feature` field, and the same fail-closed rule, as a settings card
-   * (`SettingsCardDef.feature` in `config/adminSections.tsx`): hidden unless
-   * the caller's feature map says it is on. AND-ed with the permission gates.
-   */
-  feature?: SettingsFeatureKey;
-}
+export type Destination = ShellDestination<DestinationKey>;
 
 /**
  * Is `destination` visible to a user with this `hasPermission` predicate?
@@ -174,17 +121,11 @@ export interface Destination {
  * every one of them silently ignored `anyPermission` the moment it was added —
  * the `console` row would have appeared for everyone. One function is the same
  * fix this file's header describes for the paths themselves.
+ *
+ * The shell's own function (#868), re-exported: the rail, the bottom bar and
+ * the user menu of `@marinoscar/platform-web/shell/ui` call it too.
  */
-export function isDestinationVisible(
-  destination: Destination,
-  hasPermission: (permission: string) => boolean,
-  features: SettingsFeatures = {},
-): boolean {
-  if (!isFeatureEnabled(destination.feature, features)) return false;
-  if (destination.permission && !hasPermission(destination.permission)) return false;
-  if (destination.anyPermission && !destination.anyPermission.some(hasPermission)) return false;
-  return true;
-}
+export { isDestinationVisible };
 
 /**
  * The four destinations, in navigation order.
@@ -287,19 +228,5 @@ export const DESTINATIONS: readonly Destination[] = [
  * keep a future sibling prefix correct without touching this function.
  */
 export function resolveActiveDestination(pathname: string): DestinationKey | null {
-  let best: { key: DestinationKey; length: number } | null = null;
-
-  for (const [key, prefixes] of Object.entries(DESTINATION_ROUTES) as [
-    DestinationKey,
-    readonly string[],
-  ][]) {
-    for (const prefix of prefixes) {
-      if (!owns(prefix, pathname)) continue;
-      if (!best || prefix.length > best.length) {
-        best = { key, length: prefix.length };
-      }
-    }
-  }
-
-  return best?.key ?? null;
+  return resolveShellDestination(DESTINATION_ROUTES, pathname);
 }
