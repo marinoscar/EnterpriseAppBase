@@ -111,6 +111,10 @@
       "types": "./dist/jobs/headless/index.d.ts",
       "default": "./dist/jobs/headless/index.js"
     },
+    "./jobs/ui": {
+      "types": "./dist/jobs/ui/index.d.ts",
+      "default": "./dist/jobs/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
