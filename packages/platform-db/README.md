@@ -159,6 +159,7 @@ The migration tooling adds no row to the catalog. How an app extends the migrati
 | `db-backup.prisma` | `DatabaseBackupRun` |
 | `ai.prisma` | `AiModel`, `UserAiKey`, `AiRun`, `AiUsageEvent` |
 | `sharing.prisma` | `Group` (`@extensible`), `GroupMember`, `GroupInvite` |
+| `android-app.prisma` | `AndroidAppRelease` (#746: the hosted Android APKs; `sizeBytes` BigInt; at most one current release through the raw-SQL index `android_app_releases_one_current_uniq_idx`) |
 
 A slice declares the back-relations that point **into** another slice as `extend model` blocks in its own fragment (the 17 `User` fields that leave identity, and `Job.backupRun` in `db-backup.prisma`). Every block comment of the original schema is kept verbatim: they are the design documentation.
 

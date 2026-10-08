@@ -52,7 +52,8 @@ describe('helloCommand', () => {
   it('is the same CLI when registered with registerCliCommand instead', () => {
     registerCliCommand(helloCommand);
     const cli = createCli(APP_CLI_OPTIONS);
-    expect(cli.program.commands.map((command) => command.name())).toEqual([...BUILT_INS, 'hello']);
+    // APP_CLI_OPTIONS ships the Android group (#746) through extraCommands, applied after the registry.
+    expect(cli.program.commands.map((command) => command.name())).toEqual([...BUILT_INS, 'hello', 'android']);
   });
 
   it('greets the world by default and the named person when given one, exiting 0', async () => {

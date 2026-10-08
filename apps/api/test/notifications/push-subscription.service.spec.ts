@@ -165,7 +165,7 @@ describe('PushSubscriptionService', () => {
       );
     });
 
-    it('create branch carries userId, endpoint, keys and userAgent, with no failureCount override', async () => {
+    it('create branch carries userId, endpoint, keys, userAgent and platform (browser by default, #746), with no failureCount override', async () => {
       const service = enabledService();
       mockPrisma.pushSubscription.upsert.mockResolvedValue({
         id: 'sub-1',
@@ -187,6 +187,7 @@ describe('PushSubscriptionService', () => {
         auth: 'auth-secret',
         expirationTime: null,
         userAgent: 'test-agent',
+        platform: 'browser',
       });
     });
 

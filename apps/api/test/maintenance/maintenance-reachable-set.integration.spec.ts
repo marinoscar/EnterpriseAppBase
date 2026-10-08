@@ -94,6 +94,11 @@ const EXPECTED_REACHABLE = [
   'GET /api/health',
   'GET /api/health/live',
   'GET /api/health/ready',
+
+  // Digital Asset Links (#746): Chrome verifies an installed Android app
+  // against it on every launch; a maintenance window must not make the
+  // Trusted Web Activity fall back to a URL bar. Public and read-only.
+  'GET /api/well-known/assetlinks.json',
 ].sort();
 
 describe('Maintenance mode: the reachable set', () => {

@@ -59,11 +59,15 @@ import {
   OPS_NOTIFICATIONS,
   registerNotificationChannels,
   registerNotifications,
+  registerAndroidAppNotificationChannel,
   registerPlatformNotificationChannels,
 } from '@marinoscar/platform-api/notifications';
 
 // 1-2. Channels.
 registerPlatformNotificationChannels();
+// The Android companion's channel (#746): Web Push to the Android app's
+// subscriptions only, covered by `push`. Its sender comes with AndroidAppModule.
+registerAndroidAppNotificationChannel();
 registerNotificationChannels(APP_NOTIFICATION_CHANNELS);
 
 // 3-4. Email templates (the registry lives in @marinoscar/platform-api/email

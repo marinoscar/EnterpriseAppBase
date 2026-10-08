@@ -945,7 +945,9 @@ describe('the Operations group (#266)', () => {
       //
       // GENERAL GAINED `Setup guide` (#745), appended, for the same reason:
       // `@marinoscar/platform-api/onboarding` returns the admin block and the
-      // metrics under `system_settings:read`.
+      // metrics under `system_settings:read`. Then `Android app` (#746),
+      // appended: `@marinoscar/platform-api/android-app` enforces
+      // `system_settings:read` on `GET /api/admin/android-app`.
       const result = visibleSettingsSections(ADMIN_SECTIONS, (permission) =>
         ['system_settings:read', 'system_settings:write', 'users:read'].includes(permission),
       );
@@ -961,6 +963,7 @@ describe('the Operations group (#266)', () => {
         'Notifications',
         'Maintenance',
         'Setup guide',
+        'Android app',
         'Users & Allowlist',
         'About',
         'Doctor',

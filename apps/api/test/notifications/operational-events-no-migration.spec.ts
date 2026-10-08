@@ -104,6 +104,9 @@ const MIGRATIONS_AT_288 = [
   // #738: broadcasts gain a target organization (a column on
   // notification_broadcasts; the four operational events still need nothing).
   '20261008080749_add_broadcast_target_org',
+  // #746 (PP-9.4): android_app_releases and push_subscriptions.platform (the
+  // android_app channel; the four operational events still need nothing).
+  '20261008120000_add_android_app',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

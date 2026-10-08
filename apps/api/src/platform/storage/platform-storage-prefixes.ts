@@ -16,6 +16,7 @@
 
 import { AI_STORAGE_KEY_PREFIXES } from '@marinoscar/platform-api/ai';
 import { DB_BACKUP_KEY_PREFIX } from '@marinoscar/platform-api/db-backup';
+import { ANDROID_RELEASES_KEY_PREFIX_DEF } from '@marinoscar/platform-api/android-app';
 import { STORAGE_SLICE_KEY_PREFIXES, type StorageKeyPrefixDef } from '@marinoscar/platform-api/storage';
 import { EXPORTS_KEY_PREFIXES } from '@marinoscar/platform-api/exports';
 
@@ -25,7 +26,7 @@ function slice(id: string): StorageKeyPrefixDef {
   return def;
 }
 
-/** The eight prefixes the platform writes, in purge order. */
+/** The nine prefixes the platform writes, in purge order. */
 export const PLATFORM_STORAGE_KEY_PREFIXES: readonly StorageKeyPrefixDef[] = Object.freeze([
   slice('uploads'),
   slice('avatars'),
@@ -38,4 +39,6 @@ export const PLATFORM_STORAGE_KEY_PREFIXES: readonly StorageKeyPrefixDef[] = Obj
   slice('storage-config-test'),
   // Data exports (#744): exports/users/<userId>/ and exports/orgs/<orgId>/.
   ...EXPORTS_KEY_PREFIXES,
+  // The Android companion's APKs (#746): kept by the factory reset.
+  ANDROID_RELEASES_KEY_PREFIX_DEF,
 ]);

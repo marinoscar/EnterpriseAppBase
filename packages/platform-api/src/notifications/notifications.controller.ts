@@ -529,6 +529,7 @@ export class NotificationsController {
     return {
       id: subscription.id,
       endpoint: subscription.endpoint,
+      platform: subscription.platform,
       createdAt: subscription.createdAt.toISOString(),
     };
   }

@@ -24,6 +24,7 @@ const OWNERSHIP: Record<string, string[]> = {
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
   ai: ['AiModel', 'UserAiKey', 'AiRun', 'AiUsageEvent'],
   sharing: ['Group', 'GroupMember', 'GroupInvite', 'GroupRole', 'Grant', 'GrantGranteeKind'],
+  'android-app': ['AndroidAppRelease'],
 };
 
 const files = readdirSync(SCHEMA_DIR).filter((f) => f.endsWith('.prisma')).sort();
@@ -44,9 +45,9 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 40 models and 15 enums, each once', () => {
+  it('declare 41 models and 15 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
-    expect(all.filter((b) => b.kind === 'model')).toHaveLength(40);
+    expect(all.filter((b) => b.kind === 'model')).toHaveLength(41);
     expect(all.filter((b) => b.kind === 'enum')).toHaveLength(15);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
@@ -67,11 +68,12 @@ describe('the shipped platform fragments', () => {
     expect(composeFragments(inputs).warnings).toEqual([]);
   });
 
-  it('move the 26 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
+  it('move the 27 User back-relations and Job.backupRun into the slices that own the foreign keys', () => {
     const { extensions } = composeFragments(inputs);
     const by = (m: string): string[] => extensions.filter((e) => e.model === m).map((e) => `${e.from.replace('package:', '').replace('.prisma', '')}:${e.field}`).sort();
     expect(by('User')).toEqual([
       'ai:aiKeys', 'ai:aiModelsUpdated', 'ai:aiRuns', 'ai:aiUsageEvents',
+      'android-app:androidAppReleases',
       'credentials:credentialUpdates', 'credentials:orgCredentialUpdates', 'credentials:userCredentials',
       'db-backup:databaseBackupRuns', 'db-backup:databaseRestores',
       'jobs:nodeCredentials', 'jobs:workerNodes',

@@ -325,5 +325,16 @@
     "sha256": "9f266799b1e3769233ea72873ce55394340da9f8ef1312a7e0b7b2ae410152e2",
     "since": "1.0.0",
     "slice": "notifications"
+  },
+  {
+    "dir": "0033_add_android_app",
+    "id": "0033_add_android_app",
+    "requires": [
+      "identity",
+      "notifications"
+    ],
+    "sha256": "7f343a96417825c1372388c199ad2dbecfcf8632a4ebc5080afb29c82109b719",
+    "since": "1.0.0",
+    "slice": "android-app"
   }
 ]

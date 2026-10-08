@@ -370,7 +370,7 @@ describeWithDb('platform db baseline against real Postgres', () => {
       const deploy = cli('prisma', ['migrate', 'deploy'], appDir, url);
       if (deploy.status !== 0) throw new Error(`prisma migrate deploy failed: ${lines(deploy)}`);
       prisma = prismaClientFor(DATABASE);
-      await prisma.$executeRawUnsafe('ALTER TABLE "push_subscriptions" ADD COLUMN "platform" TEXT');
+      await prisma.$executeRawUnsafe('ALTER TABLE "push_subscriptions" ADD COLUMN "device_label" TEXT');
     }, 300_000);
 
     afterAll(async () => {
@@ -380,7 +380,7 @@ describeWithDb('platform db baseline against real Postgres', () => {
     it('refuses until the column the app added to a platform table is declared as a deviation, then baselines cleanly', async () => {
       const refused = platform();
       expect(refused.status).toBe(1);
-      expect(lines(refused)).toContain('BLOCKING: ALTER TABLE "push_subscriptions" ADD COLUMN "platform" TEXT;');
+      expect(lines(refused)).toContain('BLOCKING: ALTER TABLE "push_subscriptions" ADD COLUMN "device_label" TEXT;');
       expect(existsSync(join(prismaDir, 'platform.lock'))).toBe(false);
 
       writeFileSync(
@@ -391,9 +391,9 @@ describeWithDb('platform db baseline against real Postgres', () => {
           migrations: [],
           deviations: [
             {
-              id: 'fork:push_subscriptions.platform',
-              reason: 'the fork stores the push platform',
-              expectDiff: ['ALTER TABLE "push_subscriptions" ADD COLUMN "platform" TEXT;'],
+              id: 'fork:push_subscriptions.device_label',
+              reason: 'the fork labels each push device (not `platform`: that column is the platform\'s own since #746)',
+              expectDiff: ['ALTER TABLE "push_subscriptions" ADD COLUMN "device_label" TEXT;'],
             },
           ],
         }),
@@ -403,8 +403,8 @@ describeWithDb('platform db baseline against real Postgres', () => {
       expect(dry.status).toBe(0);
       // 0027_add_grants (#729), 0028_add_org_settings (#733) and 0029_add_org_credentials (#735) are three more matched migrations,
       // and 0030_add_jobs_org_id and 0031_add_jobs_org_id_status_index (#734) two more,
-      // and 0032_add_broadcast_target_org (#738) one more.
-      expect(dry.stdout).toContain('31 matched, 1 unmatched, 1 app-only');
+      // and 0032_add_broadcast_target_org (#738) one more, and 0033_add_android_app (#746) one more.
+      expect(dry.stdout).toContain('32 matched, 1 unmatched, 1 app-only');
       expect(dry.stdout).toContain('platform:0017_revoke_viewer_ai_use -> 20260927000000_revoke_viewer_ai_use  [normalised, localSha256 recorded]');
       expect(dry.stdout).toMatch(/platform:0020_add_worker_node_vitals -> 20260929090000_worker_node_vitals\s+\[sha256\]/);
       expect(dry.stdout).toContain('would resolve --applied 20260929090001_add_job_trace_context (installed first)');

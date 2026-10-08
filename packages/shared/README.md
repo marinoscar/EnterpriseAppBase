@@ -11,9 +11,29 @@ display name, the repository slug and the two brand colours.
 | `REPO_SLUG` | `identity.json` → `repoSlug` | `owner/name`; published in the OpenAPI document |
 | `REPO_URL` | derived from `REPO_SLUG` | `https://github.com/<slug>` |
 | `APP_SLUG` | derived from `APP_NAME` | Lowercase, hyphenated |
+| `ANDROID_IDENTITY_SOURCE` | `productName`, `repoSlug` and the optional `android` block | Input of `androidIdentity()` (`@marinoscar/platform-contract/android-app`); see [The `android` block](#the-android-block) |
 
 [`index.js`](./index.js) holds no literal values. It reads
 [`identity.json`](./identity.json) and derives the rest.
+
+## The `android` block
+
+`identity.json` may carry an optional `android` object (#746). Without it, the Android companion's identity derives from `repoSlug` and `productName` exactly as the Gradle build does (`@marinoscar/platform-infra/android/platform-core/identity.gradle.kts`, and `androidIdentity()` for the API, web and CLI):
+
+| Field | Default | Never change it for a shipped app because |
+|---|---|---|
+| `applicationId` | `com.<repo name, lower-cased letters and digits>.android` | a different id is a different app (no update path; assetlinks must list it) |
+| `deepLinkScheme` | `<repo name, lower-cased scheme characters>-android` (`app`-prefixed when the name starts with a digit) | deep links and the device-flow `returnUri` stop resolving |
+| `storagePrefix` | the same token as `applicationId`'s middle segment | renamed on-device files lose the server address and the pairing |
+| `apkStem` | `<app slug>-android` | (safe to change) only file names of new APKs change |
+
+An app that shipped before adopting the platform copies its legacy values here verbatim, for example:
+
+```json
+{ "android": { "applicationId": "legacy.example.app", "deepLinkScheme": "legacy", "storagePrefix": "legacy", "apkStem": "legacy-android" } }
+```
+
+`scripts/rename.mjs` never rewrites the block: a rebrand of a shipped app must keep its Android identity.
 
 ## Rebranding a fork
 
@@ -49,6 +69,7 @@ Keep this list current when you add one.
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `APP_NAME` |
 | Web theme (`palette.primary.main`, light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |
 | Web app manifest | `apps/web/pwa/manifest.ts` | `APP_NAME`, `THEME_COLOR`, `BACKGROUND_COLOR` |
+| Android companion identity (API, web, CLI; Gradle reads `identity.json` itself) | `apps/api/src/platform/android-app/android-app.config.ts`, `apps/web/src/config/androidApp.ts`, `apps/cli/src/app.ts`, `apps/android/app/build.gradle.kts` | `ANDROID_IDENTITY_SOURCE` |
 | Brand icons and favicon (generated pixels) | `apps/web/public/icons/*.png`, `apps/web/public/favicon.ico` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR`, `BACKGROUND_COLOR` |
 
 ## Brand icons

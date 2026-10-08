@@ -39,6 +39,7 @@ import { sharingModule } from './platform/sharing/sharing.config';
 import { onboardingModule } from './platform/onboarding/onboarding.config';
 import { exportsModule } from './platform/exports/exports.config';
 import { IdentityExtensionsModule } from './identity-extensions/identity-extensions.module';
+import { androidAppModule } from './platform/android-app/android-app.config';
 
 import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -265,6 +266,9 @@ import configuration from './config/configuration';
 
     // Data exports (#744): /api/exports, export.run and export.purge.
     exportsModule,
+
+    // The Android companion (#746): trusted apps, assetlinks, APK releases.
+    androidAppModule,
 
     // The platform host ports (#696): binds AUDIT_SINK, SYSTEM_SETTINGS_STORE
     // and PLATFORM_PRISMA to the app's adapters, once, globally, so every

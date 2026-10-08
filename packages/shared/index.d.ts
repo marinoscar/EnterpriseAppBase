@@ -42,3 +42,20 @@ export declare const REPO_SLUG: string;
  * Typed `string`, not a literal — see the note on `APP_NAME`.
  */
 export declare const REPO_URL: string;
+
+/**
+ * The fields the Android companion's identity derives from: pass it to
+ * `androidIdentity()` of `@marinoscar/platform-contract/android-app` (#746).
+ * `android` is the optional block of `identity.json`; each field overrides one
+ * derived default.
+ */
+export declare const ANDROID_IDENTITY_SOURCE: {
+  readonly productName: string;
+  readonly repoSlug: string;
+  readonly android?: {
+    readonly applicationId?: string;
+    readonly deepLinkScheme?: string;
+    readonly storagePrefix?: string;
+    readonly apkStem?: string;
+  };
+};

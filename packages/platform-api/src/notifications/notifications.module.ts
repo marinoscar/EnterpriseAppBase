@@ -225,7 +225,7 @@ const PROVIDERS = [
   // app's own sender registers itself into it. It never hands out a platform
   // sender (its `get` answers only for app-registered channels), so exporting
   // it opens no way around the dispatcher's gate.
-const EXPORTED = [NotificationsService, PushConfigService, NotificationChannelSenderRegistry];
+const EXPORTED = [NotificationsService, PushConfigService, PushTestService, NotificationChannelSenderRegistry];
 
 /**
  * The notifications slice: the dispatcher (`NotificationsService`), the three

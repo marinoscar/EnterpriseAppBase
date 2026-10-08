@@ -10,6 +10,7 @@ import { PLATFORM_PRISMA } from '../core/index';
 import type { NotificationsPrisma } from './data/notifications-db';
 import { PushConfigService } from './push-config.service';
 import type { PushSubscribeRequest } from './dto/push-subscription.dto';
+import type { PushSubscriptionPlatform } from '@marinoscar/platform-contract/notifications';
 
 // =============================================================================
 // PushSubscriptionService (issue #229, epic #215; #355 made it async)
@@ -110,7 +111,7 @@ export class PushSubscriptionService {
     userId: string,
     dto: PushSubscribeRequest,
     userAgent: string | undefined,
-  ): Promise<{ id: string; endpoint: string; createdAt: Date }> {
+  ): Promise<{ id: string; endpoint: string; platform: PushSubscriptionPlatform; createdAt: Date }> {
     if (!(await this.isEnabled())) {
       // ConflictException (409): the closest existing vocabulary in this
       // codebase for "this state prevents the operation" (see
@@ -126,6 +127,14 @@ export class PushSubscriptionService {
     const expirationTime =
       dto.expirationTime == null ? null : new Date(dto.expirationTime);
 
+    // #746 (PP-9.4, from EvoPath #312): the surface subscribing. The UPDATE
+    // branch only ever moves a row UP to `android_app`: the Android app's
+    // Trusted Web Activity and the phone's Chrome share one push endpoint, so
+    // a `browser` re-post from Chrome must never downgrade the row the app
+    // registered (the `android_app` channel would lose the phone). An
+    // `android_app` post re-tags a `browser` row. Re-tagging DOWN takes an
+    // unsubscribe and a fresh subscribe.
+    const platform: PushSubscriptionPlatform = dto.platform ?? 'browser';
     const subscription = await this.prisma.pushSubscription.upsert({
       where: { endpoint: dto.endpoint },
       update: {
@@ -135,6 +144,7 @@ export class PushSubscriptionService {
         expirationTime,
         userAgent: userAgent ?? null,
         failureCount: 0,
+        ...(platform === 'android_app' ? { platform } : {}),
       },
       create: {
         userId,
@@ -143,16 +153,18 @@ export class PushSubscriptionService {
         auth: dto.keys.auth,
         expirationTime,
         userAgent: userAgent ?? null,
+        platform,
       },
     });
 
     this.logger.log(
-      `Upserted push subscription ${subscription.id} for user ${userId}`,
+      `Upserted push subscription ${subscription.id} (${subscription.platform}) for user ${userId}`,
     );
 
     return {
       id: subscription.id,
       endpoint: subscription.endpoint,
+      platform: subscription.platform as PushSubscriptionPlatform,
       createdAt: subscription.createdAt,
     };
   }

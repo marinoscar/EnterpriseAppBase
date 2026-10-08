@@ -10,7 +10,8 @@
     "src/deploy/index.ts",
     "src/node/index.ts",
     "src/api-client/index.ts",
-    "src/testing/index.ts"
+    "src/testing/index.ts",
+    "src/android/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

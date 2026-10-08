@@ -211,3 +211,32 @@ export const BROADCAST_LINK_MAX = 500;
  * @stability stable
  */
 export const BROADCAST_CHUNK_SIZE = 200;
+
+/**
+ * The surfaces a Web Push subscription can be registered from (#746, PP-9.4),
+ * the values of `push_subscriptions.platform`: `browser` (a browser tab or an
+ * installed PWA; the default) and `android_app` (the Android companion's
+ * Trusted Web Activity). Mirrors the CHECK constraint
+ * `push_subscriptions_platform_check` of platform migration
+ * `0033_add_android_app`; a value is added here and there together.
+ *
+ * @stability experimental
+ */
+export const PUSH_SUBSCRIPTION_PLATFORMS = ['browser', 'android_app'] as const;
+
+/**
+ * One subscription platform.
+ *
+ * @stability experimental
+ */
+export type PushSubscriptionPlatform = (typeof PUSH_SUBSCRIPTION_PLATFORMS)[number];
+
+/**
+ * The notification channel id that pushes to `android_app` subscriptions only
+ * (#746). Registered by the notifications slice's
+ * `registerAndroidAppNotificationChannel()`; permanent once delivery rows or
+ * preferences name it.
+ *
+ * @stability experimental
+ */
+export const ANDROID_APP_NOTIFICATION_CHANNEL_ID = 'android_app' as const;

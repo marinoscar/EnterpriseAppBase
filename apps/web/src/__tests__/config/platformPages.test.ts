@@ -12,6 +12,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { PlatformSettingsPage } from '@marinoscar/platform-web/core';
+import { androidAppSettingsPage } from '@marinoscar/platform-web/android-app/ui';
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 import { gettingStartedSettingsPage, setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
@@ -168,7 +169,12 @@ describe('packaged onboarding pages', () => {
   }
 
   it('appends the Setup guide to General and Getting started to Account', () => {
-    expect(ADMIN_SECTIONS.find((s) => s.label === 'General')?.cards.at(-1)?.path).toBe(setupGuideSettingsPage.card.path);
+    // Append-only: only the cards appended after the Setup guide follow it (the Android app, #746).
+    const general = ADMIN_SECTIONS.find((s) => s.label === 'General')?.cards.map((card) => card.path) ?? [];
+    expect(general.slice(general.indexOf(setupGuideSettingsPage.card.path))).toEqual([
+      setupGuideSettingsPage.card.path,
+      androidAppSettingsPage.card.path,
+    ]);
     expect(USER_SETTINGS_SECTIONS.find((s) => s.label === 'Account')?.cards.at(-1)?.path).toBe(gettingStartedSettingsPage.card.path);
   });
 

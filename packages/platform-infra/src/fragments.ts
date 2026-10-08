@@ -87,6 +87,7 @@ export const nginxInfraFragment: PlatformInfraFragment = deepFreeze({
     nginx('csp.dev.conf'),
     nginx('platform/security-headers.conf'),
     nginx('platform/sse-proxy.conf'),
+    nginx('platform/android-app.conf'),
   ],
   appOwnedFiles: [
     nginx('app.d/permissions-policy.conf'),

@@ -82,6 +82,12 @@ export interface StorageKeyPrefixDef {
    * `'deployment'` (keys are built as `<prefix><…parts>`, as they always were).
    */
   readonly scope?: KeyPrefixScope;
+  /**
+   * `true` when the admin factory reset (`@marinoscar/platform-api/user-data`,
+   * #743) must keep the objects under this prefix: database backups (the
+   * reset's undo), deployment artifacts. Absent means the reset deletes them.
+   */
+  readonly survivesFactoryReset?: boolean;
 }
 
 /**
@@ -120,6 +126,9 @@ function assertRegistrable(def: StorageKeyPrefixDef, others: Iterable<StorageKey
   }
   if (def.scope !== undefined && !KEY_PREFIX_SCOPES.includes(def.scope)) {
     throw new Error(`scope ${JSON.stringify(def.scope)} must be one of ${KEY_PREFIX_SCOPES.join(', ')}`);
+  }
+  if (def.survivesFactoryReset !== undefined && typeof def.survivesFactoryReset !== 'boolean') {
+    throw new Error('survivesFactoryReset must be a boolean');
   }
 
   for (const other of others) {
@@ -198,7 +207,8 @@ function isAlreadyRegistered(def: StorageKeyPrefixDef): boolean {
     existing.prefix === def.prefix &&
     existing.owner === def.owner &&
     existing.description === def.description &&
-    (existing.scope ?? 'deployment') === (def.scope ?? 'deployment')
+    (existing.scope ?? 'deployment') === (def.scope ?? 'deployment') &&
+    (existing.survivesFactoryReset ?? false) === (def.survivesFactoryReset ?? false)
   );
 }
 

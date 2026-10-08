@@ -14,6 +14,8 @@
 // channels in registration order.
 // =============================================================================
 
+import { ANDROID_APP_NOTIFICATION_CHANNEL_ID } from '@marinoscar/platform-contract/notifications';
+
 import { notificationChannelRegistry, type NotificationChannelDef } from './channel.registry';
 
 /**
@@ -56,4 +58,43 @@ export const PLATFORM_NOTIFICATION_CHANNELS: readonly NotificationChannelDef[] =
 export function registerPlatformNotificationChannels(): void {
   if (PLATFORM_NOTIFICATION_CHANNELS.every((channel) => notificationChannelRegistry.has(channel.id))) return;
   notificationChannelRegistry.registerAll(PLATFORM_NOTIFICATION_CHANNELS);
+}
+
+/**
+ * The `android_app` channel (#746, PP-9.4; EvoPath #312): Web Push to the
+ * subscriptions registered from inside the Android companion
+ * (`push_subscriptions.platform = 'android_app'`) only. `coveredBy: 'push'`:
+ * a dispatch that resolves both sends once, over `push`. Events opt in by
+ * listing it in `channels` (EvoPath: the two broadcast events). The id is
+ * permanent.
+ *
+ * @stability experimental
+ */
+export const ANDROID_APP_NOTIFICATION_CHANNEL: NotificationChannelDef = Object.freeze({
+  id: ANDROID_APP_NOTIFICATION_CHANNEL_ID,
+  label: 'Android app',
+  description:
+    'An operating-system notification on the phones where the user enabled notifications inside the Android app (Web Push to those subscriptions only).',
+  coveredBy: 'push',
+});
+
+/**
+ * Registers {@link ANDROID_APP_NOTIFICATION_CHANNEL}. Idempotent; call it from
+ * the app's notification manifest after
+ * {@link registerPlatformNotificationChannels} and before any event lists the
+ * channel. Its sender, `AndroidAppNotificationChannel`, is provided by
+ * `AndroidAppModule` (`@marinoscar/platform-api/android-app`).
+ *
+ * @example
+ * ```ts
+ * registerPlatformNotificationChannels();
+ * registerAndroidAppNotificationChannel();
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export function registerAndroidAppNotificationChannel(): void {
+  if (notificationChannelRegistry.has(ANDROID_APP_NOTIFICATION_CHANNEL.id)) return;
+  notificationChannelRegistry.register(ANDROID_APP_NOTIFICATION_CHANNEL);
 }

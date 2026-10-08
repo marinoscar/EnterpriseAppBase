@@ -6,6 +6,12 @@ import App from './App';
 // The app's sign-in button looks (#727): registered once, before the first render.
 import './identity/authProviders';
 import { registerAppLinkRenderers } from './platform/linkRenderers';
+import { captureTwaLaunch } from '@marinoscar/platform-web/android-app/headless';
+import { ANDROID_TWA_KEY_PREFIX } from './config/androidApp';
+
+// Remember an Android app (Trusted Web Activity) launch and the installed
+// build before the router drops `?source=twa&appVersion=&appVersionCode=` (#746).
+captureTwaLaunch(undefined, ANDROID_TWA_KEY_PREFIX);
 
 // The public `/s` page's renderers (#731), registered and frozen before the
 // first render.

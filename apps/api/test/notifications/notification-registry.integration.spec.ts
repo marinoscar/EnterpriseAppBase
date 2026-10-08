@@ -54,7 +54,7 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 // The rest of the suite proves the extension seams end to end, through the
 // real `AppModule` with mocked Prisma: an app notification registered with
 // `registerNotification` is listed and delivered by email and browser, and an
-// app channel (`android_app`) whose sender self-registers in `onModuleInit`
+// app channel (`pager_app`) whose sender self-registers in `onModuleInit`
 // receives deliveries, while a second sender for `email` stops the bootstrap.
 // =============================================================================
 
@@ -258,8 +258,8 @@ describe('Notification registry: an app notification is delivered (#678)', () =>
 // -----------------------------------------------------------------------------
 
 const ANDROID_CHANNEL = {
-  id: 'android_app',
-  label: 'Android app',
+  id: 'pager_app',
+  label: 'Pager app',
   description: 'A notification on the paired Android app.',
 };
 
@@ -267,7 +267,7 @@ const ANDROID_EVENT = {
   key: 'coach.reminder',
   label: 'Training reminder',
   description: 'Sent when a planned session is about to start.',
-  channels: ['android_app' as NotificationChannel],
+  channels: ['pager_app' as NotificationChannel],
   defaultEnabled: true,
 };
 
@@ -275,7 +275,7 @@ const androidDeliveries: Array<{ eventKey: string; to: string; data: unknown }> 
 
 @Injectable()
 class FakeAndroidAppSender implements NotificationChannelSender, OnModuleInit {
-  readonly channel = 'android_app' as NotificationChannel;
+  readonly channel = 'pager_app' as NotificationChannel;
 
   constructor(private readonly registry: NotificationChannelSenderRegistry) {}
 
@@ -339,10 +339,10 @@ describe('Notification registry: an app channel with a self-registering sender (
           expect(androidDeliveries).toEqual([
             { eventKey: 'coach.reminder', to: `device-of-${admin.id}`, data: { session: 'legs' } },
           ]);
-          expect(deliveryChannels()).toEqual(['android_app']);
+          expect(deliveryChannels()).toEqual(['pager_app']);
           expect(prismaMock.notificationDelivery.create).toHaveBeenCalledWith(
             expect.objectContaining({
-              data: expect.objectContaining({ channel: 'android_app', recipient: `device-of-${admin.id}` }),
+              data: expect.objectContaining({ channel: 'pager_app', recipient: `device-of-${admin.id}` }),
             }),
           );
         } finally {

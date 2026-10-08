@@ -180,6 +180,16 @@
         "default": "./dist/cjs/db-backup/index.js"
       }
     },
+    "./android-app": {
+      "import": {
+        "types": "./dist/esm/android-app/index.d.ts",
+        "default": "./dist/esm/android-app/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/android-app/index.d.ts",
+        "default": "./dist/cjs/android-app/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

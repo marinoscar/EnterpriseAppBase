@@ -337,6 +337,18 @@ model PushSubscription {
   // subscription has never had one.
   lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz
 
+  // Which surface registered this subscription (#746, PP-9.4; harvested from
+  // EvoPath #312): `browser` (a browser tab or installed PWA) or `android_app`
+  // (the Android companion's Trusted Web Activity). The `android_app`
+  // notification channel pushes to these rows alone; `push` keeps meaning
+  // every subscription. A re-post of the same endpoint as `android_app`
+  // re-tags a `browser` row, a `browser` re-post never downgrades an
+  // `android_app` row (push-subscription.service.ts). The CHECK constraint
+  // `push_subscriptions_platform_check` lives in the migration SQL only
+  // (Prisma cannot express one; see PUSH_SUBSCRIPTION_PLATFORMS in the
+  // notifications contract).
+  platform String @default("browser")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 

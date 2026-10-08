@@ -155,7 +155,7 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-six checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Twenty-eight checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
@@ -246,6 +246,15 @@ The five checks form one chain: `export`, `connection`, `reachable`, `tables`, `
 | `telemetry.freshness` | Telemetry data freshness | `telemetry.tables` | Data is actually arriving, from the dashboard's `lastDataSql` over the reader path (7-day lookback). Settings page `/admin/settings/telemetry/dashboard`. Timeout 7 s. | pass: both the newest trace and the newest log are within the threshold. warn: either side older than the threshold, or absent for 7 days. fail: neither arrived in 7 days. |
 
 **`telemetry.freshness` uses the dashboard's threshold.** Its limit is `DASHBOARD_VERDICT_THRESHOLDS.noDataMinutes` (5 minutes), the same constant behind the dashboard's "no data" banner, so the two cannot disagree. It reads through `GreptimeClient.queryReader` rather than `TelemetryDashboardService.summary` because the summary writes a `telemetry:dashboard` audit row per read, which would break [§2.2](#22-the-read-only-rule).
+
+#### android
+
+Registered by `AndroidAppModule` (`@marinoscar/platform-api/android-app`, #746); both read through the device sources apps register with `registerAndroidDeviceSource` and stay read-only. Settings page `/admin/settings/android`.
+
+| Id | Label | `dependsOn` | What it verifies | Rules |
+|---|---|---|---|---|
+| `android.assetlinks` | Android app Digital Asset Links | `db.connection` | Every (package, signing key) pair paired devices report is in the trusted list `/.well-known/assetlinks.json` serves. `data`: `trusted`, `reported`, `untrusted`. | skip: no device reported a signature. warn: a reported pair is not trusted (the app opens with a URL bar; names up to three). fail: the setting or a device source could not be read. pass: every reported pair is trusted. |
+| `android.releases` | Android app releases | `db.connection` | Paired devices have a current release to update to. `data`: `activeDevices`, `current`, `devicesBehind`. | skip: no device is paired. warn: devices are paired but no release is current. fail: the releases or a device source could not be read. pass: the current version, and how many devices run an older build. |
 
 #### network
 

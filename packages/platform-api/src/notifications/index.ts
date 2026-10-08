@@ -52,10 +52,12 @@ export type {
 // ---- registries --------------------------------------------------------------------------
 export {
   EMAIL_TEMPLATE_NAME_PATTERN,
+  ANDROID_APP_NOTIFICATION_CHANNEL,
   NOTIFICATION_CHANNEL_ID_PATTERN,
   NOTIFICATION_EVENT_KEY_MAX_LENGTH,
   NOTIFICATION_EVENT_KEY_PATTERN,
   PLATFORM_NOTIFICATION_CHANNELS,
+  collapseOverlappingChannels,
   emailTemplateRegistry,
   eventBrowserTemplateRegistry,
   eventEmailTemplateRegistry,
@@ -71,6 +73,7 @@ export {
   registerNotificationChannels,
   registerNotificationEvent,
   registerNotifications,
+  registerAndroidAppNotificationChannel,
   registerPlatformNotificationChannels,
 } from './registry/index';
 export type {
@@ -128,6 +131,11 @@ export type {
 
 // ---- Web Push configuration ----------------------------------------------------------------
 export { PUSH_CONFIG_KEY, PushConfigService } from './push-config.service';
+// #746: what the android-app slice (a sibling) needs to send its test
+// notification and to provide the `android_app` sender. The two classes are
+// `@internal` (no app should reach a channel or the test sender directly).
+export { PushTestService, endpointHost } from './push-test.service';
+export { AndroidAppNotificationChannel } from './channels/android-app-notification.channel';
 export type { ActiveVapidConfig, PrivateKeyStatus, PushConfigAdminView } from './push-config.service';
 export { DEFAULT_PUSH_CONFIG } from './push-config.schema';
 export {

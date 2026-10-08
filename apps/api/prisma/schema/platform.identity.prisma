@@ -51,6 +51,9 @@ model User {
   aiRuns                 AiRun[]
   aiUsageEvents          AiUsageEvent[]
 
+  // composed from package:android-app.prisma
+  androidAppReleases AndroidAppRelease[] @relation("AndroidAppReleaseUploader")
+
   // composed from package:credentials.prisma
   credentialUpdates      Credential[]            @relation("CredentialUpdatedBy")
   // Per-user encrypted credentials (issue #387). Cascade: a user-owned
