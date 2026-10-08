@@ -107,7 +107,7 @@ import { DataTable } from '../../components/datatable';
 import type { DataTableRowAction } from '../../components/datatable';
 import { NodeCredentials } from '../../components/admin/NodeCredentials';
 import { NodeVitalsDialog } from '../../components/admin/NodeVitalsDialog';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import {
   WORKER_NODES_POLL_INTERVAL_MS,
   useNodeActions,

@@ -37,9 +37,8 @@ import type {
   PlatformWebHost,
 } from '@marinoscar/platform-web/core';
 
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useAiFeatures } from '../hooks/useAiConfig';
-import { usePermissions } from '../hooks/usePermissions';
 import { API_BASE_URL, ApiError, api } from '../services/api';
 import type { BlobWithHeaders } from '../services/api';
 import { postSse } from '../services/sse';

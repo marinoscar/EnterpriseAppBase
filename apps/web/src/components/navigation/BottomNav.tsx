@@ -24,7 +24,7 @@ import {
   useTheme,
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import {
   DESTINATIONS,

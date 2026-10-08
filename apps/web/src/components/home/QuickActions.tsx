@@ -1,7 +1,7 @@
 import { Card, CardContent, Typography, Grid, Button, Box } from '@mui/material';
 import { Palette as ThemeIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import { DESTINATIONS, isDestinationVisible } from '../../config/destinations';
 import type { DestinationKey } from '../../config/destinations';

@@ -36,8 +36,7 @@ import {
 import { useOrgSettings } from '@marinoscar/platform-web/settings/headless';
 import type { OrgSettingsField, OrgSettingsNamespace } from '@marinoscar/platform-contract/settings';
 
-import { useAuth } from '../../contexts/AuthContext';
-import { usePermissions } from '../../hooks/usePermissions';
+import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
 
 type Draft = Record<string, unknown>;
 

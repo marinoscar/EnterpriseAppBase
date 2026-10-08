@@ -41,7 +41,7 @@ import {
   fillDailySeries,
   formatCount,
 } from '../../components/ai/usage';
-import { usePermissions } from '../../hooks/usePermissions';
+import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useAiUsage } from '../../hooks/useAiUsage';
 import {
   AI_USAGE_DEFAULT_RANGE_DAYS,

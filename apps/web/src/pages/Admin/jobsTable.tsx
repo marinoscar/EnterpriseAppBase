@@ -2,7 +2,7 @@
  * Admin → Operations → Jobs: the DataTable column contract (issue #266, epic #254).
  *
  * A sibling module rather than columns inlined in `JobsPage.tsx`, for the
- * reason every table in this repo follows (`components/admin/userListColumns.tsx`
+ * reason every table in this repo follows (`buildUserColumns` of `@marinoscar/platform-web/identity/ui`
  * is the model): the column list is the table's PUBLIC shape — what a test, a
  * CSV export and both renderers read — while the page is the state that feeds
  * it. Keeping them apart lets a test assert the contract without mounting a

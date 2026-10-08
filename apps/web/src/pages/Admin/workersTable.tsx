@@ -4,7 +4,7 @@
  *
  * A sibling module rather than columns inlined in `WorkersPage.tsx`, for the
  * reason every table in this repo follows (`jobsTable.tsx` and
- * `components/admin/userListColumns.tsx` are the models): the column list is
+ * `buildUserColumns` of `@marinoscar/platform-web/identity/ui` are the models): the column list is
  * the table's PUBLIC shape — what a test, a CSV export and both renderers read
  * — while the page is the state that feeds it. Keeping them apart lets a test
  * assert the contract without mounting a page and mocking its fetch layer.

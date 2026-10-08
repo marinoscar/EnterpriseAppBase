@@ -71,15 +71,6 @@ export const api = new ApiService();
 
 // Import types
 import type {
-  AllowlistResponse,
-  AllowedEmailEntry,
-  UsersResponse,
-  UserListItem,
-  DeviceActivationInfo,
-  DeviceAuthorizationResponse,
-  PersonalAccessToken,
-  PatCreatedResponse,
-  PatDurationUnit,
   EmailSettings,
   EmailSettingsInput,
   EmailTestResult,
@@ -131,121 +122,6 @@ export async function deleteProfileImage(): Promise<ProfileImageMutationResponse
  */
 export async function fetchProfileImagePreview(): Promise<Blob> {
   return api.getBlob('/user-settings/profile-image');
-}
-
-// Allowlist API
-/**
- * Sort keys `GET /api/allowlist` accepts (`allowlistQuerySchema.sortBy`);
- * defined in `@marinoscar/platform-web/identity/headless` (#727).
- */
-export type { AllowlistSortField } from '@marinoscar/platform-web/identity/headless';
-import type { AllowlistSortField, UserSortField } from '@marinoscar/platform-web/identity/headless';
-
-export async function getAllowlist(params?: {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  status?: 'all' | 'pending' | 'claimed';
-  sortBy?: AllowlistSortField;
-  sortOrder?: 'asc' | 'desc';
-}): Promise<AllowlistResponse> {
-  const searchParams = new URLSearchParams();
-  if (params?.page) searchParams.set('page', String(params.page));
-  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
-  if (params?.search) searchParams.set('search', params.search);
-  if (params?.status) searchParams.set('status', params.status);
-  if (params?.sortBy) searchParams.set('sortBy', params.sortBy);
-  if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
-
-  return api.get<AllowlistResponse>(`/allowlist?${searchParams}`);
-}
-
-export async function addToAllowlist(
-  email: string,
-  notes?: string,
-): Promise<AllowedEmailEntry> {
-  return api.post<AllowedEmailEntry>('/allowlist', { email, notes });
-}
-
-export async function removeFromAllowlist(id: string): Promise<void> {
-  await api.delete<void>(`/allowlist/${id}`);
-}
-
-// Users API
-/**
- * Sort keys `GET /api/users` accepts (`userListQuerySchema.sortBy`); defined
- * in `@marinoscar/platform-web/identity/headless` (#727).
- */
-export type { UserSortField } from '@marinoscar/platform-web/identity/headless';
-
-export async function getUsers(params?: {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  role?: string;
-  isActive?: boolean;
-  sortBy?: UserSortField;
-  sortOrder?: 'asc' | 'desc';
-}): Promise<UsersResponse> {
-  const searchParams = new URLSearchParams();
-  if (params?.page) searchParams.set('page', String(params.page));
-  if (params?.pageSize) searchParams.set('pageSize', String(params.pageSize));
-  if (params?.search) searchParams.set('search', params.search);
-  if (params?.role) searchParams.set('role', params.role);
-  if (params?.isActive !== undefined)
-    searchParams.set('isActive', String(params.isActive));
-  if (params?.sortBy) searchParams.set('sortBy', params.sortBy);
-  if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
-
-  return api.get<UsersResponse>(`/users?${searchParams}`);
-}
-
-export async function updateUser(
-  id: string,
-  data: { displayName?: string; isActive?: boolean },
-): Promise<UserListItem> {
-  return api.patch<UserListItem>(`/users/${id}`, data);
-}
-
-export async function updateUserRoles(
-  id: string,
-  roles: string[],
-): Promise<UserListItem> {
-  return api.put<UserListItem>(`/users/${id}/roles`, { roles });
-}
-
-// Device Activation API
-export async function getDeviceActivationInfo(
-  userCode: string,
-): Promise<DeviceActivationInfo> {
-  return api.get<DeviceActivationInfo>(`/auth/device/activate?code=${userCode}`);
-}
-
-export async function authorizeDevice(
-  userCode: string,
-  approve: boolean,
-): Promise<DeviceAuthorizationResponse> {
-  return api.post<DeviceAuthorizationResponse>('/auth/device/authorize', {
-    userCode,
-    approve,
-  });
-}
-
-// Personal Access Tokens API
-export async function getPersonalAccessTokens(): Promise<PersonalAccessToken[]> {
-  return api.get<PersonalAccessToken[]>('/pat');
-}
-
-export async function createPersonalAccessToken(data: {
-  name: string;
-  durationValue: number;
-  durationUnit: PatDurationUnit;
-}): Promise<PatCreatedResponse> {
-  return api.post<PatCreatedResponse>('/pat', data);
-}
-
-export async function revokePersonalAccessToken(id: string): Promise<void> {
-  await api.delete<void>(`/pat/${id}`);
 }
 
 // Email settings API — issue #124, epic #109.
