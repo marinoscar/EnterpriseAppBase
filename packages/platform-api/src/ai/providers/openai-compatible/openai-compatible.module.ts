@@ -11,6 +11,8 @@ import { OpenAiCompatibleProviderAdapter } from './openai-compatible.adapter';
  * `AiProviderRegistry`. Whether it is ENABLED, where the server is and
  * whether it needs a key are runtime configuration
  * (`ai.providers['openai-compatible']`), not wiring.
+ *
+ * @stability experimental
  */
 @Module({
   imports: [AiCoreModule],

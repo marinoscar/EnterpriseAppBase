@@ -207,7 +207,11 @@ export const CONFORMANCE_EMBEDDING_INPUTS = ['The quick brown fox.', 'jumps over
  */
 export const CONFORMANCE_IMAGE_PROMPT = 'A watercolour lighthouse at dusk.';
 
-/** A real 1x1 PNG — the source image the kit's edit scenario sends. */
+/**
+ * A real 1x1 PNG — the source image the kit's edit scenario sends.
+ *
+ * @stability experimental
+ */
 export const CONFORMANCE_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
   'base64',
@@ -216,6 +220,8 @@ export const CONFORMANCE_PNG = Buffer.from(
 /**
  * A real, tiny WAV (8 kHz mono 16-bit, 0.05 s of silence) — the audio the
  * kit's transcription scenarios send.
+ *
+ * @stability experimental
  */
 export const CONFORMANCE_WAV = (() => {
   const samples = 400;
@@ -244,7 +250,11 @@ async function* conformanceWavStream(): AsyncGenerator<Uint8Array> {
   for (let i = 0; i < CONFORMANCE_WAV.length; i += 128) yield CONFORMANCE_WAV.subarray(i, i + 128);
 }
 
-/** The structured-output schema the kit requests. */
+/**
+ * The structured-output schema the kit requests.
+ *
+ * @stability experimental
+ */
 export const conformanceStructuredSchema = z.object({
   /** The city named. */
   city: z.string(),
@@ -252,7 +262,25 @@ export const conformanceStructuredSchema = z.object({
   population: z.number().int(),
 });
 
-/** The function tool the kit offers. */
+/**
+ * What the kit's weather tool answers.
+ *
+ * @stability experimental
+ */
+export interface ConformanceWeatherReport {
+  /** The city asked about. */
+  city: string;
+  /** Temperature in degrees Celsius. */
+  temperatureC: number;
+  /** Conditions in words. */
+  conditions: string;
+}
+
+/**
+ * The function tool the kit offers.
+ *
+ * @stability experimental
+ */
 export const conformanceWeatherTool = defineTool({
   name: 'get_weather',
   description: 'Get the current weather for a city.',
@@ -260,7 +288,7 @@ export const conformanceWeatherTool = defineTool({
     /** The city to report on. */
     city: z.string(),
   }),
-  execute: ({ city }) => ({ city, temperatureC: 21, conditions: 'sunny' }),
+  execute: ({ city }): ConformanceWeatherReport => ({ city, temperatureC: 21, conditions: 'sunny' }),
 });
 
 /**

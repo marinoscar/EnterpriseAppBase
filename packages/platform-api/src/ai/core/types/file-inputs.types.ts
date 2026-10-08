@@ -27,46 +27,82 @@
 
 import type { AiBinaryPayload } from './media.types';
 
-/** The largest image a Responses request may reference by storage object (20 MiB). */
+/**
+ * The largest image a Responses request may reference by storage object (20 MiB).
+ *
+ * @stability experimental
+ */
 export const AI_STORAGE_INPUT_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 
-/** The largest non-image file a Responses request may reference by storage object (50 MiB). */
+/**
+ * The largest non-image file a Responses request may reference by storage object (50 MiB).
+ *
+ * @stability experimental
+ */
 export const AI_STORAGE_INPUT_FILE_MAX_BYTES = 50 * 1024 * 1024;
 
-/** The most storage-object parts one request may carry. */
+/**
+ * The most storage-object parts one request may carry.
+ *
+ * @stability experimental
+ */
 export const AI_STORAGE_INPUTS_MAX = 16;
 
-/** How long a presigned input URL stays valid, in seconds (10 minutes). */
+/**
+ * How long a presigned input URL stays valid, in seconds (10 minutes).
+ *
+ * @stability experimental
+ */
 export const AI_STORAGE_INPUT_URL_TTL_SECONDS = 600;
 
 /**
  * Stored objects of these MIME types are IMAGES (they need `vision_input`
  * and are capped at `AI_STORAGE_INPUT_IMAGE_MAX_BYTES`); every other type is
  * a FILE (`file_input`, `AI_STORAGE_INPUT_FILE_MAX_BYTES`).
+ *
+ * @stability experimental
  */
 export const AI_STORAGE_INPUT_IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
 
-/** What kind of input a stored object is, decided by its MIME type. */
+/**
+ * What kind of input a stored object is, decided by its MIME type.
+ *
+ * @stability experimental
+ */
 export type AiStorageInputModality = 'image' | 'file';
 
-/** How an adapter wants a resolved storage input delivered (see the file header). */
+/**
+ * How an adapter wants a resolved storage input delivered (see the file header).
+ *
+ * @stability experimental
+ */
 export type AiFileInputStrategy = 'presigned_url' | 'upload' | 'inline';
 
 /**
  * An adapter's delivery strategy per modality. Presence on the adapter IS the
  * declaration that it accepts storage-object inputs at all; an adapter
  * without one refuses them with `AI_CAPABILITY_UNSUPPORTED`.
+ *
+ * @stability experimental
  */
 export type AiFileInputStrategies = Readonly<Record<AiStorageInputModality, AiFileInputStrategy>>;
 
-/** The modality of a stored object with `mimeType`. */
+/**
+ * The modality of a stored object with `mimeType`.
+ *
+ * @stability experimental
+ */
 export function storageInputModality(mimeType: string): AiStorageInputModality {
   const normalised = mimeType.split(';')[0].trim().toLowerCase();
 
   return (AI_STORAGE_INPUT_IMAGE_MIME_TYPES as readonly string[]).includes(normalised) ? 'image' : 'file';
 }
 
-/** The size cap for a modality. */
+/**
+ * The size cap for a modality.
+ *
+ * @stability experimental
+ */
 export function storageInputMaxBytes(modality: AiStorageInputModality): number {
   return modality === 'image' ? AI_STORAGE_INPUT_IMAGE_MAX_BYTES : AI_STORAGE_INPUT_FILE_MAX_BYTES;
 }
@@ -74,6 +110,8 @@ export function storageInputMaxBytes(modality: AiStorageInputModality): number {
 /**
  * One storage-object input, resolved and authorised by the runtime for one
  * provider call. Exactly what the adapter's declared strategy needs is set.
+ *
+ * @stability experimental
  */
 export interface AiResolvedStorageInput {
   /** The storage object. */
@@ -101,5 +139,9 @@ export interface AiResolvedStorageInput {
   read?(): Promise<AiBinaryPayload>;
 }
 
-/** Every resolved storage input of one call, keyed by storage object id. */
+/**
+ * Every resolved storage input of one call, keyed by storage object id.
+ *
+ * @stability experimental
+ */
 export type AiResolvedStorageInputs = ReadonlyMap<string, AiResolvedStorageInput>;

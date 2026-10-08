@@ -35,7 +35,11 @@ import { AI_SYSTEM_PRISMA } from '../ports';
 import { SystemSettingsService } from '../../settings/index';
 import type { AiRunStatus } from './ai-runtime.types';
 
-/** The job type. PERMANENT once rows of it exist. */
+/**
+ * The job type. PERMANENT once rows of it exist.
+ *
+ * @stability experimental
+ */
 export const AI_RUNS_PURGE_TYPE = 'ai.runs.purge';
 
 /** The statuses this purge may delete. `pending` and `running` are deliberately absent. */

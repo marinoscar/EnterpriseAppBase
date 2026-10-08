@@ -35,6 +35,8 @@ import type {
  *                      `AI_INVALID_REQUEST` ('No model selected');
  *   - `model` alone -> `provider` is the default model's provider, else the
  *                      only registered provider, else `AI_INVALID_REQUEST`.
+ *
+ * @stability experimental
  */
 export type AiRequest = Omit<AiResponseRequest, 'model'> & {
   /** Provider id; resolved as above when omitted. */
@@ -47,6 +49,8 @@ export type AiRequest = Omit<AiResponseRequest, 'model'> & {
  * `embed`'s request. `model` is REQUIRED — vectors from different models are
  * not comparable, so an embedding model is never inferred from the caller's
  * chat `ai.defaultModel`. `provider` resolves as for `AiRequest`.
+ *
+ * @stability experimental
  */
 export type AiEmbedRequest = Omit<AiEmbeddingRequest, 'model'> & {
   /** Provider id; resolved as for `AiRequest` when omitted. */
@@ -59,6 +63,8 @@ export type AiEmbedRequest = Omit<AiEmbeddingRequest, 'model'> & {
  * `generateImage`'s request. `model` is REQUIRED — an image model is never
  * inferred from the caller's chat `ai.defaultModel`. `provider` resolves as
  * for `AiRequest`.
+ *
+ * @stability experimental
  */
 export type AiGenerateImageRequest = Omit<AiImageGenerationRequest, 'model'> & {
   /** Provider id; resolved as for `AiRequest` when omitted. */
@@ -72,6 +78,8 @@ export type AiGenerateImageRequest = Omit<AiImageGenerationRequest, 'model'> & {
  * STORAGE OBJECT ID. Each must be the caller's own (ownership only, like
  * `ObjectsService`), `ready`, PNG/JPEG/WebP and at most
  * `AI_IMAGE_INPUT_MAX_BYTES`; the mask, when given, must be a PNG.
+ *
+ * @stability experimental
  */
 export type AiEditImageRequest = AiGenerateImageRequest & {
   /** 1 to `AI_IMAGE_EDIT_MAX_INPUTS` storage object ids. */
@@ -89,6 +97,8 @@ export type AiEditImageRequest = AiGenerateImageRequest & {
  * `model` is optional: omitted, the first model the caller can use that
  * declares `audio_transcription` (by provider, then model id — the order
  * `GET /api/ai/models` lists them in) — never the chat `ai.defaultModel`.
+ *
+ * @stability experimental
  */
 export interface AiTranscribeRequest {
   /** The recording: a `ready` storage object the caller owns. */
@@ -114,6 +124,8 @@ export interface AiTranscribeRequest {
  * `model` is optional exactly as for `AiTranscribeRequest` (the first usable
  * model declaring `audio_speech`); `voice` is optional too — omitted, the
  * first voice the model lists (its catalog `voices`, else the provider's).
+ *
+ * @stability experimental
  */
 export interface AiSpeakRequest {
   /** 1 to 4096 characters. */
@@ -142,6 +154,8 @@ export interface AiSpeakRequest {
  * `ai.defaultModel`. `voice` defaults to the model's first listed voice.
  * Everything here is the session's INITIAL configuration: the browser that
  * holds the ephemeral secret may change it over its data channel.
+ *
+ * @stability experimental
  */
 export interface AiRealtimeRequest {
   /** Provider id; resolved from the model when omitted. */
@@ -164,6 +178,8 @@ export interface AiRealtimeRequest {
  * A minted realtime session. `clientSecret` is the provider's EPHEMERAL
  * secret — hand it to the browser that will connect, and nowhere else (never
  * log or store it). It is never the caller's key.
+ *
+ * @stability experimental
  */
 export interface AiRealtimeSessionResult {
   /** Provider id. */
@@ -180,13 +196,21 @@ export interface AiRealtimeSessionResult {
   connectUrl: string;
 }
 
-/** Per-call options every facade method accepts. */
+/**
+ * Per-call options every facade method accepts.
+ *
+ * @stability experimental
+ */
 export interface AiCallOptions {
   /** Aborts the provider call. An aborted call records a `cancelled` usage row. */
   signal?: AbortSignal;
 }
 
-/** `respondStructured`'s request: a Zod schema instead of a `structuredOutput` spec. */
+/**
+ * `respondStructured`'s request: a Zod schema instead of a `structuredOutput` spec.
+ *
+ * @stability experimental
+ */
 export type AiStructuredRequest<S extends z.ZodTypeAny> = Omit<AiRequest, 'structuredOutput'> & {
   /** The output's schema. */
   schema: S;
@@ -196,13 +220,21 @@ export type AiStructuredRequest<S extends z.ZodTypeAny> = Omit<AiRequest, 'struc
   strict?: boolean;
 };
 
-/** A structured response: `parsed` is always present and already validated. */
+/**
+ * A structured response: `parsed` is always present and already validated.
+ *
+ * @stability experimental
+ */
 export type AiStructuredResponse<T> = AiResponse<T> & {
   /** The validated output. */
   parsed: T;
 };
 
-/** What happened to one function call the model made during `runTools`. */
+/**
+ * What happened to one function call the model made during `runTools`.
+ *
+ * @stability experimental
+ */
 export type AiToolCallStatus = 'ok' | 'invalid_arguments' | 'unknown_tool' | 'error' | 'timeout';
 
 /**
@@ -227,7 +259,11 @@ export interface AiToolCallRecord {
   durationMs: number;
 }
 
-/** One provider round-trip of the tool loop, and the calls it produced. */
+/**
+ * One provider round-trip of the tool loop, and the calls it produced.
+ *
+ * @stability experimental
+ */
 export interface AiToolStep {
   /** 1-based round-trip index. */
   step: number;
@@ -292,7 +328,11 @@ export interface AiToolLoopResult {
   stopReason: 'completed' | 'steps_exhausted';
 }
 
-/** `startRun`'s answer. Poll `AiRunsService.get(userId, runId)`. */
+/**
+ * `startRun`'s answer. Poll `AiRunsService.get(userId, runId)`.
+ *
+ * @stability experimental
+ */
 export interface AiRunHandle {
   /** The run (`ai_runs.id`). */
   runId: string;
@@ -314,7 +354,11 @@ export const AI_RUN_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'ca
  */
 export type AiRunStatus = (typeof AI_RUN_STATUSES)[number];
 
-/** One image an image run stored. */
+/**
+ * One image an image run stored.
+ *
+ * @stability experimental
+ */
 export interface AiImageRunOutputImage {
   /** The storage object the image was saved as. */
   storageObjectId: string;
@@ -330,6 +374,8 @@ export interface AiImageRunOutputImage {
  * A succeeded image run's `output`: the storage objects it created, owned by
  * the run's user. Download each with `GET /api/storage/objects/{id}/download`.
  * The images themselves are never in the row.
+ *
+ * @stability experimental
  */
 export interface AiImageRunOutput {
   /** Discriminator. */
@@ -349,6 +395,8 @@ export interface AiImageRunOutput {
 /**
  * A succeeded transcription run's `output` (#438): the transcript itself.
  * `storageObjectId` is the recording it was made from.
+ *
+ * @stability experimental
  */
 export interface AiTranscriptionRunOutput {
   /** Discriminator. */
@@ -379,6 +427,8 @@ export interface AiTranscriptionRunOutput {
  * `GET /api/storage/objects/{id}/download`. `aiGenerated` is always `true`:
  * provider usage policies (OpenAI's among them) require telling listeners
  * the voice is AI-generated, and a client should surface it.
+ *
+ * @stability experimental
  */
 export interface AiSpeechRunOutput {
   /** Discriminator. */
@@ -405,10 +455,18 @@ export interface AiSpeechRunOutput {
   usage: AiUsage;
 }
 
-/** What a succeeded run's `output` holds: a response, an image run's images, a transcript, or speech. */
+/**
+ * What a succeeded run's `output` holds: a response, an image run's images, a transcript, or speech.
+ *
+ * @stability experimental
+ */
 export type AiRunOutput = AiResponse | AiImageRunOutput | AiTranscriptionRunOutput | AiSpeechRunOutput;
 
-/** A background run as its owner sees it. Carries no request and no key. */
+/**
+ * A background run as its owner sees it. Carries no request and no key.
+ *
+ * @stability experimental
+ */
 export interface AiRunView {
   /** The run. */
   id: string;

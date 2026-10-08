@@ -101,13 +101,26 @@ import {
  * A scripted response. Anything left out is filled in: `id`, `provider`,
  * `model` (from the request), `output` from `outputText` (or the reverse),
  * `usage`, and `finishReason` (`tool_calls` when a function call is present).
+ *
+ * @stability experimental
  */
 export type FakeAiScriptedResponse = Partial<AiResponse>;
 
+/**
+ * What `responses.create`/`stream` return: an array consumed in order, or a
+ * function called per request.
+ *
+ * @stability experimental
+ */
 export type FakeAiScript =
   | FakeAiScriptedResponse[]
   | ((req: AiResponseRequest, ctx: AiCallContext) => FakeAiScriptedResponse | Promise<FakeAiScriptedResponse>);
 
+/**
+ * The adapter methods the fake records.
+ *
+ * @stability experimental
+ */
 export type FakeAiCallMethod =
   | 'listModels'
   | 'verifyKey'
@@ -120,13 +133,23 @@ export type FakeAiCallMethod =
   | 'audio.speech'
   | 'realtime.createSession';
 
+/**
+ * One recorded call: the method, the key it carried and what it received.
+ *
+ * @stability experimental
+ */
 export interface FakeAiCall {
+  /** The adapter method. */
   method: FakeAiCallMethod;
+  /** The key the call carried (assert which key paid). */
   apiKey: string;
+  /** The call's request id. */
   requestId: string;
+  /** The endpoint override the call carried. */
   baseUrl?: string;
   /** The provider slot's other settings the runtime passed through (#448). */
   providerSettings?: Readonly<Record<string, unknown>>;
+  /** The request a responses call received. */
   request?: AiResponseRequest;
   /** The request an `embeddings.embed` call received. */
   embeddingRequest?: AiEmbeddingRequest;
@@ -134,7 +157,17 @@ export interface FakeAiCall {
   imageRequest?: AiImageGenerationRequest | AiImageEditRequest;
   /** The request an `audio.transcribe` call received, without its audio. */
   transcriptionRequest?: Omit<AiTranscriptionRequest, 'audio'> & {
-    audio: { mimeType: string; filename?: string; size?: number; streamed: boolean };
+    /** What is known of the audio. */
+    audio: {
+      /** Its MIME type. */
+      mimeType: string;
+      /** Its file name. */
+      filename?: string;
+      /** Its size, when known in advance. */
+      size?: number;
+      /** Whether it arrived as a stream. */
+      streamed: boolean;
+    };
   };
   /** The audio bytes an `audio.transcribe` call read. */
   audioBytes?: Buffer;
@@ -148,12 +181,21 @@ export interface FakeAiCall {
   storageInputs?: FakeAiDeliveredInput[];
 }
 
-/** One storage-object input as the fake received it. */
+/**
+ * One storage-object input as the fake received it.
+ *
+ * @stability experimental
+ */
 export interface FakeAiDeliveredInput {
+  /** The storage object. */
   storageObjectId: string;
+  /** Image or file. */
   modality: AiStorageInputModality;
+  /** How it was delivered. */
   strategy: AiResolvedStorageInput['strategy'];
+  /** Its file name. */
   filename: string;
+  /** Its MIME type. */
   mimeType: string;
   /** `presigned_url`: the URL the provider would fetch. */
   url?: string;
@@ -163,12 +205,22 @@ export interface FakeAiDeliveredInput {
   bytes?: number;
 }
 
-/** OpenAI's delivery strategies — the fake's default. */
+/**
+ * OpenAI's delivery strategies — the fake's default.
+ *
+ * @stability experimental
+ */
 export const FAKE_FILE_INPUT_STRATEGY: AiFileInputStrategies = { image: 'presigned_url', file: 'upload' };
 
+/**
+ * Options of {@link FakeAiProvider}.
+ *
+ * @stability experimental
+ */
 export interface FakeAiProviderOptions {
   /** Registry id. Defaults to `'fake'`; a test may register it as a real id. */
   id?: string;
+  /** Display name. Defaults to `Fake AI`. */
   displayName?: string;
   /**
    * What `responses.create`/`stream` return. An array is consumed in order
@@ -218,9 +270,13 @@ export interface FakeAiProviderOptions {
   embeddingDimensions?: number;
   /** Extra ports to carry, for registry/runtime tests. */
   ports?: {
+    /** An images port. */
     images?: AiImagesPort;
+    /** An audio port. */
     audio?: AiAudioPort;
+    /** An embeddings port. */
     embeddings?: AiEmbeddingsPort;
+    /** A realtime port. */
     realtime?: AiRealtimePort;
   };
   /**
@@ -243,7 +299,11 @@ export interface FakeAiProviderOptions {
   delayMs?: number;
 }
 
-/** The classification the fake gives its models unless told otherwise. */
+/**
+ * The classification the fake gives its models unless told otherwise.
+ *
+ * @stability experimental
+ */
 export const FAKE_TEXT_MODEL_CAPABILITIES: AiModelCapabilities = {
   capabilities: [
     'responses',
@@ -261,28 +321,44 @@ export const FAKE_TEXT_MODEL_CAPABILITIES: AiModelCapabilities = {
   maxOutputTokens: 16_384,
 };
 
-/** The classification a fake embedding model is given in tests. */
+/**
+ * The classification a fake embedding model is given in tests.
+ *
+ * @stability experimental
+ */
 export const FAKE_EMBEDDING_MODEL_CAPABILITIES: AiModelCapabilities = {
   capabilities: ['embeddings'],
   inputModalities: ['text'],
   outputModalities: ['embedding'],
 };
 
-/** The classification a fake image model is given in tests. */
+/**
+ * The classification a fake image model is given in tests.
+ *
+ * @stability experimental
+ */
 export const FAKE_IMAGE_MODEL_CAPABILITIES: AiModelCapabilities = {
   capabilities: ['image_generation', 'image_edit'],
   inputModalities: ['text', 'image'],
   outputModalities: ['image'],
 };
 
-/** The classification a fake transcription model is given in tests. */
+/**
+ * The classification a fake transcription model is given in tests.
+ *
+ * @stability experimental
+ */
 export const FAKE_TRANSCRIPTION_MODEL_CAPABILITIES: AiModelCapabilities = {
   capabilities: ['audio_transcription'],
   inputModalities: ['audio'],
   outputModalities: ['text'],
 };
 
-/** The classification a fake speech model is given in tests: two of the fake's voices. */
+/**
+ * The classification a fake speech model is given in tests: two of the fake's voices.
+ *
+ * @stability experimental
+ */
 export const FAKE_SPEECH_MODEL_CAPABILITIES: AiModelCapabilities = {
   capabilities: ['audio_speech'],
   inputModalities: ['text'],
@@ -290,7 +366,11 @@ export const FAKE_SPEECH_MODEL_CAPABILITIES: AiModelCapabilities = {
   voices: ['alloy', 'echo'],
 };
 
-/** The classification a fake realtime model is given in tests: two of the fake's realtime voices. */
+/**
+ * The classification a fake realtime model is given in tests: two of the fake's realtime voices.
+ *
+ * @stability experimental
+ */
 export const FAKE_REALTIME_MODEL_CAPABILITIES: AiModelCapabilities = {
   capabilities: ['realtime'],
   inputModalities: ['text', 'audio'],
@@ -298,22 +378,40 @@ export const FAKE_REALTIME_MODEL_CAPABILITIES: AiModelCapabilities = {
   voices: ['marin', 'alloy'],
 };
 
-/** The built-in realtime port's provider-wide voice list. */
+/**
+ * The built-in realtime port's provider-wide voice list.
+ *
+ * @stability experimental
+ */
 export const FAKE_REALTIME_VOICES = ['marin', 'alloy', 'cedar'] as const;
 
 /**
  * Every ephemeral secret the fake mints starts with this — a sentinel a test
  * can look for. It is NOT key material; `apiKey` is what must never leak.
+ *
+ * @stability experimental
  */
 export const FAKE_REALTIME_SECRET_PREFIX = 'ek_fake_realtime_secret_';
 
-/** The base URL the fake's connect URL is built from when the call names none. */
+/**
+ * The base URL the fake's connect URL is built from when the call names none.
+ *
+ * @stability experimental
+ */
 export const FAKE_REALTIME_BASE_URL = 'https://realtime.fake.invalid/v1';
 
-/** The built-in audio port's provider-wide voice list. */
+/**
+ * The built-in audio port's provider-wide voice list.
+ *
+ * @stability experimental
+ */
 export const FAKE_SPEECH_VOICES = ['alloy', 'echo', 'nova'] as const;
 
-/** The bytes every fake-generated image carries: a real 1x1 PNG. */
+/**
+ * The bytes every fake-generated image carries: a real 1x1 PNG.
+ *
+ * @stability experimental
+ */
 export const FAKE_IMAGE_BYTES = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
   'base64',
@@ -321,7 +419,11 @@ export const FAKE_IMAGE_BYTES = Buffer.from(
 
 const FAKE_IMAGE_MIME: Record<string, string> = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' };
 
-/** A deterministic vector for `text` — equal texts embed equally. */
+/**
+ * A deterministic vector for `text` — equal texts embed equally.
+ *
+ * @stability experimental
+ */
 export function fakeEmbeddingVector(text: string, dimensions: number): number[] {
   let seed = 7;
 
@@ -330,17 +432,33 @@ export function fakeEmbeddingVector(text: string, dimensions: number): number[] 
   return Array.from({ length: dimensions }, (_, i) => ((seed * (i + 1)) % 1000) / 1000);
 }
 
+/**
+ * A scripted, recording provider adapter: what a test registers instead of a
+ * real provider. Every call is recorded in `calls` with the key it carried.
+ *
+ * @stability experimental
+ */
 export class FakeAiProvider implements AiProviderAdapter {
+  /** Registry id. */
   readonly id: string;
+  /** Display name. */
   readonly displayName: string;
 
+  /** The scripted responses port (unless `responsesPort: false`). */
   readonly responses?: AiResponsesPort;
+  /** The images port, when enabled. */
   readonly images?: AiImagesPort;
+  /** The audio port, when enabled. */
   readonly audio?: AiAudioPort;
+  /** The embeddings port, when enabled. */
   readonly embeddings?: AiEmbeddingsPort;
+  /** The realtime port, when enabled. */
   readonly realtime?: AiRealtimePort;
+  /** How it wants storage-object inputs (`FAKE_FILE_INPUT_STRATEGY` by default). */
   readonly fileInputStrategy?: AiFileInputStrategies;
+  /** Whether it chains by response id (as configured). */
   readonly supportsPreviousResponseId?: boolean;
+  /** Whether it runs hosted tools (as configured). */
   readonly supportsHostedTools?: boolean;
 
   /** Every call, in order. */
@@ -431,6 +549,11 @@ export class FakeAiProvider implements AiProviderAdapter {
 
   // ---- AiProviderAdapter ----------------------------------------------------
 
+  /**
+   * Lists `models`; throws `AI_KEY_INVALID` for a rejected key.
+   *
+   * @param ctx - the call's key.
+   */
   async listModels(ctx: AiCallContext): Promise<AiDiscoveredModel[]> {
     this.record('listModels', ctx);
     this.assertKey(ctx);
@@ -438,6 +561,11 @@ export class FakeAiProvider implements AiProviderAdapter {
     return this.models.map((id) => ({ id, ownedBy: this.id }));
   }
 
+  /**
+   * Accepts any non-empty key, or exactly `validKeys`.
+   *
+   * @param ctx - the call's key.
+   */
   async verifyKey(ctx: AiCallContext): Promise<AiKeyVerification> {
     this.record('verifyKey', ctx);
 
@@ -446,6 +574,12 @@ export class FakeAiProvider implements AiProviderAdapter {
       : { ok: false, code: 'AI_KEY_INVALID', detail: 'The fake provider rejected this key.' };
   }
 
+  /**
+   * Classifies by `classify`, else text capabilities for every id in `models`.
+   *
+   * @param modelId - the model.
+   * @param metadata - the listing's metadata, when the sync passes it.
+   */
   classifyModel(modelId: string, metadata?: AiDiscoveredModelMetadata): AiModelCapabilities | null {
     const { classify } = this.options;
 

@@ -9,6 +9,8 @@ import { AnthropicProviderAdapter } from './anthropic.adapter';
  * is the registration: `AnthropicProviderAdapter.onModuleInit()` adds itself
  * to `AiProviderRegistry`. Whether the provider is ENABLED, and with which
  * key, is runtime configuration (`ai.providers.anthropic`), not wiring.
+ *
+ * @stability experimental
  */
 @Module({
   imports: [AiCoreModule],

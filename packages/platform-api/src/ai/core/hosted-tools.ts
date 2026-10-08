@@ -29,16 +29,28 @@ import { z } from 'zod';
 import { AiError } from './ai-error';
 import type { AiHostedTool, AiHostedToolType, AiMcpTool, AiTool } from './types/responses.types';
 
-/** The admin policy the gate reads — structurally `ai.hostedTools` from the settings namespace. */
+/**
+ * The admin policy the gate reads — structurally `ai.hostedTools` from the settings namespace.
+ *
+ * @stability experimental
+ */
 export type AiHostedToolsPolicy = Record<AiHostedToolType, boolean> & {
   /** Hosts an MCP `serverUrl` may name; `*.example.com` matches subdomains. Empty = any `https` host. */
   mcpAllowedHosts: string[];
 };
 
-/** Most header entries one MCP tool may carry. */
+/**
+ * Most header entries one MCP tool may carry.
+ *
+ * @stability experimental
+ */
 export const AI_MCP_MAX_HEADERS = 16;
 
-/** A label the provider accepts for an MCP server. */
+/**
+ * A label the provider accepts for an MCP server.
+ *
+ * @stability experimental
+ */
 export const AI_MCP_SERVER_LABEL = /^[a-zA-Z0-9_-]{1,64}$/;
 
 /** An HTTP header field name (RFC 9110 `token`). */
@@ -138,7 +150,11 @@ export const aiStoredHostedToolSchema = z.discriminatedUnion('type', [
   z.object(mcpToolFields).strict(),
 ]);
 
-/** The hosted tools among a request's tools. */
+/**
+ * The hosted tools among a request's tools.
+ *
+ * @stability experimental
+ */
 export function hostedToolsOf(tools: readonly AiTool[] | undefined): AiHostedTool[] {
   return (tools ?? []).filter((tool): tool is AiHostedTool => tool.type !== 'function');
 }
@@ -149,6 +165,8 @@ export function hostedToolsOf(tools: readonly AiTool[] | undefined): AiHostedToo
  * and the offending path — never a value (a header value is a secret).
  *
  * @throws AiError('AI_INVALID_REQUEST')
+ *
+ * @stability experimental
  */
 export function assertHostedToolShapes(tools: readonly AiTool[] | undefined): void {
   for (const tool of hostedToolsOf(tools)) {
@@ -164,7 +182,11 @@ export function assertHostedToolShapes(tools: readonly AiTool[] | undefined): vo
   }
 }
 
-/** Lower-cased hostname of an MCP `serverUrl`, or `null` when it does not parse. */
+/**
+ * Lower-cased hostname of an MCP `serverUrl`, or `null` when it does not parse.
+ *
+ * @stability experimental
+ */
 export function mcpHost(serverUrl: string): string | null {
   try {
     return new URL(serverUrl).hostname.toLowerCase();
@@ -177,6 +199,8 @@ export function mcpHost(serverUrl: string): string | null {
  * Whether `host` passes `allowed`. An empty list allows any host (the
  * `https://` rule still applies); `example.com` matches exactly that host;
  * `*.example.com` matches any subdomain of it, not the apex.
+ *
+ * @stability experimental
  */
 export function isMcpHostAllowed(host: string, allowed: readonly string[]): boolean {
   if (allowed.length === 0) return true;
@@ -199,6 +223,8 @@ export function isMcpHostAllowed(host: string, allowed: readonly string[]): bool
  * MCP server's host must pass the allowlist.
  *
  * @throws AiError('AI_TOOL_DISABLED') (403)
+ *
+ * @stability experimental
  */
 export function assertHostedToolsAllowed(
   tools: readonly AiTool[] | undefined,
@@ -223,7 +249,11 @@ export function assertHostedToolsAllowed(
   }
 }
 
-/** Whether any MCP tool in `tools` carries headers. */
+/**
+ * Whether any MCP tool in `tools` carries headers.
+ *
+ * @stability experimental
+ */
 export function hasMcpHeaders(tools: readonly AiTool[] | undefined): boolean {
   return hostedToolsOf(tools).some(
     (tool) => tool.type === 'mcp' && Object.keys(tool.headers ?? {}).length > 0,
@@ -234,6 +264,8 @@ export function hasMcpHeaders(tools: readonly AiTool[] | undefined): boolean {
  * Every MCP header VALUE in `tools` worth scrubbing for (at least 4
  * characters — shorter strings would redact ordinary text and are not
  * credentials anyone could use).
+ *
+ * @stability experimental
  */
 export function mcpHeaderValues(tools: readonly AiTool[] | undefined): string[] {
   const values = new Set<string>();
@@ -255,7 +287,11 @@ export function mcpHeaderValues(tools: readonly AiTool[] | undefined): string[] 
   return [...values];
 }
 
-/** The placeholder a scrubbed secret is replaced with. */
+/**
+ * The placeholder a scrubbed secret is replaced with.
+ *
+ * @stability experimental
+ */
 export const AI_REDACTED = '[REDACTED]';
 
 /**
@@ -263,6 +299,8 @@ export const AI_REDACTED = '[REDACTED]';
  * `[REDACTED]`, in every string reachable through plain objects and arrays.
  * Returns `value` itself when `secrets` is empty; otherwise a copy (binary
  * payloads are passed through untouched).
+ *
+ * @stability experimental
  */
 export function redactSecretValues<T>(value: T, secrets: readonly string[]): T {
   if (secrets.length === 0) return value;

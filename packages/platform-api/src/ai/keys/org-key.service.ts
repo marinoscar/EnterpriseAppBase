@@ -25,7 +25,11 @@ import { AiConfigAdminService } from '../config/ai-config-admin.service';
 import { AiProviderRegistry } from '../core/provider-registry';
 import type { AiPrisma } from '../data/ai-db';
 
-/** The audit actions of the org-key routes. */
+/**
+ * The audit actions of the org-key routes.
+ *
+ * @stability experimental
+ */
 export const ORG_AI_KEY_AUDIT_ACTIONS = Object.freeze({
   /** An organization key was stored or replaced. */
   set: 'org_ai_config:set_key',

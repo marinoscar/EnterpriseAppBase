@@ -70,10 +70,18 @@ export const AI_ERROR_STATUS = {
  */
 export type AiErrorCode = keyof typeof AI_ERROR_STATUS;
 
-/** Every code, in declaration order. */
+/**
+ * Every code, in declaration order.
+ *
+ * @stability experimental
+ */
 export const AI_ERROR_CODES = Object.keys(AI_ERROR_STATUS) as AiErrorCode[];
 
-/** Type guard for a string that arrived from somewhere untyped. */
+/**
+ * Type guard for a string that arrived from somewhere untyped.
+ *
+ * @stability experimental
+ */
 export function isAiErrorCode(value: unknown): value is AiErrorCode {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(AI_ERROR_STATUS, value);
 }
@@ -265,6 +273,8 @@ export class AiError extends HttpException implements SelfClassifyingRateLimit {
  * Bearer credentials and URLs redacted. Fields an error does not carry are
  * left out; string values are capped and quoted so no provider string can
  * forge a log line.
+ *
+ * @stability experimental
  */
 export const AI_ERROR_LOG_DETAIL_KEYS = ['status', 'providerCode', 'providerType', 'param', 'providerRequestId'] as const;
 
@@ -298,7 +308,11 @@ function providerMessageForLog(cause: unknown): string | null {
   return message.length > 0 ? message : null;
 }
 
-/** `status=400 providerCode="…" … providerMessage="…"` for `error`, or `''` when it carries none of the safe fields. */
+/**
+ * `status=400 providerCode="…" … providerMessage="…"` for `error`, or `''` when it carries none of the safe fields.
+ *
+ * @stability experimental
+ */
 export function aiErrorLogDetails(error: AiError): string {
   const details: Record<string, unknown> = (error.getResponse() as Partial<AiErrorBody>).details ?? {};
   const parts: string[] = [];

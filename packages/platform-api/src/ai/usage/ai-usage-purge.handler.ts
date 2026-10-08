@@ -30,7 +30,11 @@ import type { AiSystemPrisma } from '../data/ai-db';
 import { AI_SYSTEM_PRISMA } from '../ports';
 import { SystemSettingsService } from '../../settings/index';
 
-/** The job type. PERMANENT once rows of it exist. */
+/**
+ * The job type. PERMANENT once rows of it exist.
+ *
+ * @stability experimental
+ */
 export const AI_USAGE_PURGE_TYPE = 'ai.usage.purge';
 
 /** Rows per batch — a lock-duration bound, not a throughput knob. */

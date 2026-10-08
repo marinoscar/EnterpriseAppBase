@@ -9,6 +9,8 @@ import { AiProviderRegistry } from './provider-registry';
  * the in-memory provider registry, so it boots anywhere — including a
  * `createTestApp()` with nothing registered. Provider modules import this and
  * self-register their adapter with `AiProviderRegistry` from `onModuleInit`.
+ *
+ * @stability experimental
  */
 @Module({
   providers: [AiProviderRegistry],

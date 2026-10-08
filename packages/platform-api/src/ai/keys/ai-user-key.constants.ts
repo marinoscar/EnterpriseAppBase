@@ -16,7 +16,11 @@ export const AI_USER_KEY_PURPOSE = 'ai_user_key';
 /** Audit `targetType` for a user's own key lifecycle (`ai_key:set`, `ai_key:delete`). */
 export const AI_USER_KEY_AUDIT_TARGET = 'user_ai_key';
 
-/** The weekly reachability recheck job type. PERMANENT once jobs of it exist. */
+/**
+ * The weekly reachability recheck job type. PERMANENT once jobs of it exist.
+ *
+ * @stability experimental
+ */
 export const AI_KEYS_RECHECK_TYPE = 'ai.keys.recheck';
 
 /** A key's reachable-model list is re-verified once it is older than this. */

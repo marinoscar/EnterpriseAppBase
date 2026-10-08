@@ -46,6 +46,7 @@ export type {
   AiConformanceSubject,
   AiConformanceOptions,
   AiConformanceRequests,
+  ConformanceWeatherReport,
 } from './conformance';
 export {
   FAKE_FILE_INPUT_STRATEGY,

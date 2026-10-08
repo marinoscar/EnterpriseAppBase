@@ -91,7 +91,11 @@ const LOCAL_SWEEP_THRESHOLD = 10_000;
 /** The `keySource` values that are a user's request — never `admin_discovery`. */
 const COUNTED_KEY_SOURCES = ['user', 'org', 'none'];
 
-/** The names a refusal's `details.limit` carries. Permanent strings. */
+/**
+ * The names a refusal's `details.limit` carries. Permanent strings.
+ *
+ * @stability experimental
+ */
 export type AiLimitName =
   | 'perUser.requestsPerMinute'
   | 'perUser.requestsPerDay'

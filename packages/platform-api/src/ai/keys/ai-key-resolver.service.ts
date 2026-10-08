@@ -10,12 +10,16 @@ import { UserAiKeysService } from './user-ai-keys.service';
 /**
  * Whose key serves a user's call — `'none'` (#448) for a keyless provider.
  * `'admin_discovery'` is never a runtime answer.
+ *
+ * @stability experimental
  */
 export type AiKeySource = 'user' | 'org' | 'none';
 
 /**
  * Which tier paid (#739), recorded as the span attribute `ai.key.tier`:
  * `'org'` is the organization's own key, `'deployment'` the deployment's.
+ *
+ * @stability experimental
  */
 export type AiKeyTier = 'user' | 'org' | 'deployment' | 'none';
 
@@ -36,7 +40,11 @@ export interface ResolvedAiKey {
   tier: AiKeyTier;
 }
 
-/** The organization a resolution runs for, and memoised permission lookups. */
+/**
+ * The organization a resolution runs for, and memoised permission lookups.
+ *
+ * @stability experimental
+ */
 export interface AiKeyScope {
   /** The call's organization: the principal's active one, or a job's. Absent: no org tier. */
   orgId?: string;

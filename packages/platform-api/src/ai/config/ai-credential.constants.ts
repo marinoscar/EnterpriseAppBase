@@ -22,13 +22,19 @@
 
 import type { CredentialPurposeDef } from '../../credentials/index';
 
-/** `CredentialsService` purpose for every admin/org AI provider key. */
+/**
+ * `CredentialsService` purpose for every admin/org AI provider key.
+ *
+ * @stability experimental
+ */
 export const AI_CREDENTIAL_PURPOSE = 'ai';
 
 /**
  * The credential `name` for provider `providerId` — the provider id itself.
  * A function rather than a bare use of the id so every call site states which
  * half of the address it is building.
+ *
+ * @stability experimental
  */
 export function aiCredentialName(providerId: string): string {
   return providerId;
@@ -37,6 +43,8 @@ export function aiCredentialName(providerId: string): string {
 /**
  * Human label stored beside the key. NON-SECRET: it is shown verbatim in any
  * credential listing, and exists so a row there says what it is for.
+ *
+ * @stability experimental
  */
 export function aiCredentialLabel(providerDisplayName: string): string {
   return `AI provider key (${providerDisplayName})`;
@@ -47,6 +55,8 @@ export function aiCredentialLabel(providerDisplayName: string): string {
  * registered by `platform/credentials/credential-purposes.manifest.ts`. The
  * `org` tier is where an organization's own provider key goes (its policy is
  * the AI slice's, #739).
+ *
+ * @stability experimental
  */
 export const AI_CREDENTIAL_PURPOSE_DEF: CredentialPurposeDef = Object.freeze({
   purpose: AI_CREDENTIAL_PURPOSE,

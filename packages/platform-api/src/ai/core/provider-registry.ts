@@ -45,7 +45,11 @@ const CAPABILITY_PORT: Record<AiCapability, (adapter: AiProviderAdapter) => bool
   realtime: (a) => a.realtime !== undefined,
 };
 
-/** The capabilities an adapter's ports make possible, in `AI_CAPABILITIES` order. */
+/**
+ * The capabilities an adapter's ports make possible, in `AI_CAPABILITIES` order.
+ *
+ * @stability experimental
+ */
 export function adapterCapabilities(adapter: AiProviderAdapter): AiCapability[] {
   return AI_CAPABILITIES.filter((cap) => CAPABILITY_PORT[cap](adapter));
 }

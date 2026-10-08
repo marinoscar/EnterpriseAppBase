@@ -38,10 +38,16 @@ import type { AiPublicConfig } from './dto/ai-public-config.dto';
  * How long a settings read is reused. The same five seconds as
  * `STORAGE_POLICY_CACHE_MS` and `MAINTENANCE_PERSISTED_CACHE_MS`, for the same
  * reasons — see `storage-config.service.ts`.
+ *
+ * @stability experimental
  */
 export const AI_POLICY_CACHE_MS = 5_000;
 
-/** The deployment-wide AI policy (`ai` settings namespace). */
+/**
+ * The deployment-wide AI policy (`ai` settings namespace).
+ *
+ * @stability experimental
+ */
 export type AiPolicy = SystemAiValue;
 
 /**
@@ -49,6 +55,8 @@ export type AiPolicy = SystemAiValue;
  * (#448: the Azure OpenAI and OpenAI-compatible slots carry more than
  * `enabled`/`baseUrl`), so a generic reader can ask for any of them and get
  * `undefined` where a provider has no such field.
+ *
+ * @stability experimental
  */
 export interface AiProviderPolicy {
   /** Whether an administrator switched the provider on. */
@@ -65,7 +73,11 @@ export interface AiProviderPolicy {
   requiresKey?: boolean;
 }
 
-/** The provider-specific settings a slot may carry besides `enabled` (#448). */
+/**
+ * The provider-specific settings a slot may carry besides `enabled` (#448).
+ *
+ * @stability experimental
+ */
 export const AI_PROVIDER_SETTINGS_FIELDS = ['baseUrl', 'apiVersion', 'apiStyle', 'deployments', 'requiresKey'] as const;
 
 /**
@@ -75,7 +87,11 @@ export const AI_PROVIDER_SETTINGS_FIELDS = ['baseUrl', 'apiVersion', 'apiStyle',
  */
 export type AiProviderSettingsField = (typeof AI_PROVIDER_SETTINGS_FIELDS)[number];
 
-/** A provider's own slot schema, or `undefined` for an id with no settings slot. */
+/**
+ * A provider's own slot schema, or `undefined` for an id with no settings slot.
+ *
+ * @stability experimental
+ */
 export function providerSlotSchema(providerId: string): z.ZodObject<z.ZodRawShape> | undefined {
   const shape = systemAiSchema.shape.providers.shape as Record<string, z.ZodObject<z.ZodRawShape> | undefined>;
 
@@ -86,6 +102,8 @@ export function providerSlotSchema(providerId: string): z.ZodObject<z.ZodRawShap
  * The settings fields `providerId`'s slot accepts besides `enabled`, read off
  * its schema — so a slot that gains a field gains it here with no list to
  * update. Empty for an id with no slot.
+ *
+ * @stability experimental
  */
 export function providerSettingsFields(providerId: string): AiProviderSettingsField[] {
   const schema = providerSlotSchema(providerId);
@@ -102,6 +120,8 @@ export function providerSettingsFields(providerId: string): AiProviderSettingsFi
  * OpenAI-compatible slot can say no — `requiresKey: false` is the
  * administrator's opt-in to a keyless server, resolved as `keySource:
  * 'none'` — and absent means yes, as it does for every other provider.
+ *
+ * @stability experimental
  */
 export function providerRequiresKey(slot: AiProviderPolicy | undefined): boolean {
   return slot?.requiresKey !== false;
@@ -114,6 +134,8 @@ export function providerRequiresKey(slot: AiProviderPolicy | undefined): boolean
  * adapter to read with its own schema. `enabled` is the runtime's business,
  * never the adapter's. Nothing here can hold a secret — the slot has no
  * field able to (see `settings.schema.ts`'s compile-time proof).
+ *
+ * @stability experimental
  */
 export function providerCallSettings(
   slot: AiProviderPolicy | undefined,
@@ -138,6 +160,8 @@ export function providerCallSettings(
  * A provider's policy slot by id, or `undefined` for an id the settings schema
  * has no slot for. `providers` is a closed object keyed by `AI_PROVIDER_IDS`;
  * this is the one place that indexes it by an arbitrary string.
+ *
+ * @stability experimental
  */
 export function providerPolicy(policy: AiPolicy, providerId: string): AiProviderPolicy | undefined {
   const providers = policy.providers as Record<string, AiProviderPolicy | undefined>;

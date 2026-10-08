@@ -9,6 +9,8 @@ import { OpenAiProviderAdapter } from './openai.adapter';
  * the registration: `OpenAiProviderAdapter.onModuleInit()` adds itself to
  * `AiProviderRegistry`. Whether the provider is ENABLED, and with which key,
  * is runtime configuration (#423/#428), not wiring.
+ *
+ * @stability experimental
  */
 @Module({
   imports: [AiCoreModule],

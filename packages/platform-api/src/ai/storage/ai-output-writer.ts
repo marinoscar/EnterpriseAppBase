@@ -49,7 +49,11 @@ import { AI_OBJECT_STORE, type AiObjectStore } from '../ports';
  */
 export const AI_OUTPUTS_KEY_PREFIX = 'ai-outputs/';
 
-/** The folder one run's outputs live in: `ai-outputs/<userId>/<runId>/`. */
+/**
+ * The folder one run's outputs live in: `ai-outputs/<userId>/<runId>/`.
+ *
+ * @stability experimental
+ */
 export function aiOutputKeyPrefix(userId: string, runId: string): string {
   return `${AI_OUTPUTS_KEY_PREFIX}${userId}/${runId}/`;
 }

@@ -15,7 +15,11 @@ import { z } from 'zod';
 
 import { AiError } from './ai-error';
 
-/** A JSON Schema document, as plain data. */
+/**
+ * A JSON Schema document, as plain data.
+ *
+ * @stability experimental
+ */
 export type AiJsonSchema = Record<string, unknown>;
 
 /**
@@ -32,6 +36,8 @@ export type AiJsonSchema = Record<string, unknown>;
  * a programming error in the caller; it surfaces as
  * `AiError('AI_INVALID_REQUEST')` so it follows the same error path as every
  * other AI failure instead of escaping as a raw zod error.
+ *
+ * @stability experimental
  */
 export function toJsonSchema(schema: z.ZodTypeAny): AiJsonSchema {
   let json: AiJsonSchema;
@@ -51,7 +57,11 @@ export function toJsonSchema(schema: z.ZodTypeAny): AiJsonSchema {
   return rest;
 }
 
-/** One validation problem, safe to return to a client (no model output echoed). */
+/**
+ * One validation problem, safe to return to a client (no model output echoed).
+ *
+ * @stability experimental
+ */
 export interface AiStructuredOutputIssue {
   /** Where in the output the problem is. */
   path: Array<string | number>;
@@ -68,6 +78,8 @@ export interface AiStructuredOutputIssue {
  * returned something unusable, not the caller) with the issues in
  * `details.issues`. The raw text is deliberately NOT included: it is model
  * output derived from the user's prompt, and error bodies get logged.
+ *
+ * @stability experimental
  */
 export function parseStructured<S extends z.ZodTypeAny>(schema: S, text: string): z.output<S> {
   let value: unknown;

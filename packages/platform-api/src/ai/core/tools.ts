@@ -20,7 +20,11 @@ import type { AiFunctionTool, AiTool } from './types/responses.types';
 /** Names providers accept for a function tool (the strictest common subset). */
 const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-/** What a tool's `execute` is called with besides its arguments. */
+/**
+ * What a tool's `execute` is called with besides its arguments.
+ *
+ * @stability experimental
+ */
 export interface AiToolExecutionContext {
   /** The user on whose behalf the model is acting — scope every data access to it. */
   userId: string;
@@ -103,6 +107,8 @@ export interface AiDefinedTool<P extends z.ZodTypeAny = z.ZodTypeAny, R = unknow
  * Throws (a plain `TypeError` — this is a programming error, found at
  * definition time rather than on the first model call) when the name is not
  * provider-safe or `parameters` does not describe a JSON object.
+ *
+ * @stability experimental
  */
 export function defineTool<P extends z.ZodTypeAny, R>(
   def: AiToolDefinition<P, R>,
@@ -155,7 +161,11 @@ export function defineTool<P extends z.ZodTypeAny, R>(
   };
 }
 
-/** Narrows a request tool to a function tool (as opposed to a hosted one). */
+/**
+ * Narrows a request tool to a function tool (as opposed to a hosted one).
+ *
+ * @stability experimental
+ */
 export function isFunctionTool(tool: AiTool): tool is AiFunctionTool {
   return tool.type === 'function';
 }

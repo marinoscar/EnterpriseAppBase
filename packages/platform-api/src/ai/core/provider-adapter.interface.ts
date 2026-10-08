@@ -35,6 +35,8 @@ import type { AiResponse, AiResponseRequest, AiStreamEvent } from './types/respo
  * The key resolver returns it with `keySource: 'none'`, and an adapter that
  * sees it sends NO credential at all — it is a marker, never put on the wire,
  * in a log line or in a row.
+ *
+ * @stability experimental
  */
 export const AI_KEYLESS_API_KEY = 'not-needed';
 
@@ -45,6 +47,8 @@ export const AI_KEYLESS_API_KEY = 'not-needed';
  *
  * ⚠ `apiKey` is secret material: it must never appear in a log line, an
  * `AiError`'s details, or a persisted row.
+ *
+ * @stability experimental
  */
 export interface AiCallContext {
   /** The key this call is made under (`AI_KEYLESS_API_KEY` for a keyless server). ⚠ Secret. */
@@ -80,6 +84,8 @@ export interface AiCallContext {
  * `classifyModel` is the only reader. It is never stored as-is — the
  * classifier folds it into `AiModelCapabilities`, which is what the catalog
  * keeps.
+ *
+ * @stability experimental
  */
 export interface AiDiscoveredModelMetadata {
   /** The provider's display name for the model. */
@@ -114,6 +120,8 @@ export interface AiDiscoveredModel {
  * The outcome of `verifyKey`. A rejected key is an ordinary answer
  * (`ok: false, code: 'AI_KEY_INVALID'`), not an exception — the admin UI asks
  * this question precisely when it expects "no" to be possible.
+ *
+ * @stability experimental
  */
 export interface AiKeyVerification {
   /** Whether the provider accepted the key. */

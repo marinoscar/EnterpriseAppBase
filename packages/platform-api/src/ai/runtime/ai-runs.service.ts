@@ -48,19 +48,39 @@ import type { StoredAiImageRunRequest } from './ai-image-run-request';
 import { asJson, type StoredAiRunRequest } from './ai-run-request';
 import type { AiRunHandle, AiRunOutput, AiRunStatus, AiRunView } from './ai-runtime.types';
 
-/** The job type of a responses run. PERMANENT once jobs of it exist. */
+/**
+ * The job type of a responses run. PERMANENT once jobs of it exist.
+ *
+ * @stability experimental
+ */
 export const AI_RESPONSE_RUN_TYPE = 'ai.response.run';
 
-/** The job type of an image generation/edit run (#437). PERMANENT once jobs of it exist. */
+/**
+ * The job type of an image generation/edit run (#437). PERMANENT once jobs of it exist.
+ *
+ * @stability experimental
+ */
 export const AI_IMAGE_GENERATE_TYPE = 'ai.image.generate';
 
-/** The job type of a transcription run (#438). PERMANENT once jobs of it exist. */
+/**
+ * The job type of a transcription run (#438). PERMANENT once jobs of it exist.
+ *
+ * @stability experimental
+ */
 export const AI_AUDIO_TRANSCRIBE_TYPE = 'ai.audio.transcribe';
 
-/** The job type of a speech run (#439). PERMANENT once jobs of it exist. */
+/**
+ * The job type of a speech run (#439). PERMANENT once jobs of it exist.
+ *
+ * @stability experimental
+ */
 export const AI_AUDIO_SPEECH_TYPE = 'ai.audio.speech';
 
-/** `Job.subjectType` of an `ai.response.run` job; `subjectId` is the run id. */
+/**
+ * `Job.subjectType` of an `ai.response.run` job; `subjectId` is the run id.
+ *
+ * @stability experimental
+ */
 export const AI_RUN_SUBJECT_TYPE = 'ai_run';
 
 /** How many organizations' scoped views are kept. */

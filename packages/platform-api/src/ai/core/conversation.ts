@@ -11,7 +11,11 @@
 
 import { AI_PROVIDER_STATE, type AiInputItem, type AiOutputItem, type AiResponseRequest } from './types/responses.types';
 
-/** A request's `input` as items: a bare string is one user message. */
+/**
+ * A request's `input` as items: a bare string is one user message.
+ *
+ * @stability experimental
+ */
 export function asInputItems(input: AiResponseRequest['input']): AiInputItem[] {
   return typeof input === 'string'
     ? [{ type: 'message', role: 'user', content: [{ type: 'text', text: input }] }]
@@ -22,6 +26,8 @@ export function asInputItems(input: AiResponseRequest['input']): AiInputItem[] {
  * One response's output as the input items that replay it (#446). A
  * `reasoning` item keeps its symbol-keyed provider state — the reason it is
  * copied with a spread rather than rebuilt field by field.
+ *
+ * @stability experimental
  */
 export function replayOutput(output: AiOutputItem[]): AiInputItem[] {
   const items: AiInputItem[] = [];

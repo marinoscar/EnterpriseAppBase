@@ -9,6 +9,8 @@ import { GeminiProviderAdapter } from './gemini.adapter';
  * graph is the registration: `GeminiProviderAdapter.onModuleInit()` adds
  * itself to `AiProviderRegistry`. Whether the provider is ENABLED, and with
  * which key, is runtime configuration (`ai.providers.gemini`), not wiring.
+ *
+ * @stability experimental
  */
 @Module({
   imports: [AiCoreModule],

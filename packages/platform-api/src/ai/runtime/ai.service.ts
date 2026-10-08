@@ -262,6 +262,8 @@ export const AI_PROMPT_LOG_MAX_CHARS = 2048;
  * One user's AI client. Obtain it with `AiService.forUser(userId)`; every
  * method runs the full gate pipeline, resolves the right key, records one
  * usage row per provider round-trip, and traces the call.
+ *
+ * @stability experimental
  */
 export interface AiUserClient {
   /** The user this client acts for. */

@@ -10,6 +10,8 @@ import { AzureOpenAiProviderAdapter } from './azure-openai.adapter';
  * to `AiProviderRegistry`. Whether the provider is ENABLED, where its
  * resource is and which deployments it serves are runtime configuration
  * (`ai.providers['azure-openai']`), not wiring.
+ *
+ * @stability experimental
  */
 @Module({
   imports: [AiCoreModule],
