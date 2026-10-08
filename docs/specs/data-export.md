@@ -183,6 +183,13 @@ cd apps/web && npx vitest run src/__tests__/platform/exports.test.tsx
 npm run openapi:dump && npm run openapi:lint
 ```
 
+## 8. Open seams
+
+- **The offboarding precondition.** Offboarding an organization (#743) will require "an `org-data` export completed in the last 7 days" through its `OffboardingPrecondition` registry. That registry had not merged when this framework did, so the registration is a follow-up, wired by whichever of the two lands second.
+- **The telemetry export's CSV.** The telemetry slice keeps its internal copy of the CSV helpers until it exposes a seam to take this slice's (a slice may only import the slices it lists in `packages/platform-slices.json`).
+- **An action on the organization pages.** Organization administrators export from "Download your data", which offers them `org-data`. A button on the packaged Organization page (#726) needs a slot there.
+- **Files in the user export.** `storage_object` is a manifest; including the bytes ("with files") is a seam request.
+
 ## History
 
 - #744 (PP-9.2): the framework, harvested from EvoPath's health export and kvox's exporters.
