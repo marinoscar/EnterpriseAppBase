@@ -207,7 +207,7 @@ The `jobs` table is the queue. There is no Redis or message broker. Executors cl
 A job type is one `JobHandler` class that self-registers from `onModuleInit()`. `Job.type` is a plain string, so a new type needs no migration. Enqueueing the same type and subject twice is deduplicated while the first job is active. Failures retry with exponential backoff; provider rate limits defer the job on a separate budget. `job_stats_rollup` keeps lifetime counts and durations after the history purge removes old rows. The job inventory is in [§8](#8-background-work).
 
 - **Code:** `packages/platform-api/src/jobs/` (`@marinoscar/platform-api/jobs`); the reference app's wiring in `apps/api/src/platform/jobs/`, its examples in `apps/api/src/examples/jobs/`
-- **UI:** `/admin/settings/jobs`, `/admin/settings/jobs/insights`
+- **UI:** `/admin/settings/jobs`, `/admin/settings/jobs/insights` (packaged pages, `@marinoscar/platform-web/jobs/ui`, #854)
 - **Permissions:** `jobs:read`, `jobs:write`
 - **Read more:** [specs/job-queue.md](specs/job-queue.md), [handlers README](../packages/platform-api/src/jobs/handlers/README.md), [slice README](../packages/platform-api/src/jobs/README.md)
 
@@ -218,7 +218,7 @@ A worker node is an `appctl node` process on another machine that executes node-
 Whether a structurally eligible type is actually offered to nodes is a runtime decision made at claim time (a deployment-wide broker switch, the feature's own setting, and the broker's capability probe). `JOBS_WORKER_MODE=system` claims exactly the complement, so the API and the fleet partition the queue. Health is derived from `lastHeartbeatAt`; `nodes.fleet.sweep` marks silent nodes offline and `nodes.fleet.prune` forgets old ones.
 
 - **Code:** `packages/platform-api/src/nodes/` (`@marinoscar/platform-api/nodes`), `packages/platform-cli/src/engine/node/`, `infra/compose/worker.compose.yml`
-- **UI:** `/admin/settings/workers`
+- **UI:** `/admin/settings/workers` (packaged page, `@marinoscar/platform-web/jobs/ui`, #854)
 - **Permissions:** `nodes:read`, `nodes:write`
 - **Read more:** [specs/worker-nodes.md](specs/worker-nodes.md), [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md)
 
@@ -664,7 +664,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 | Admin | `/admin/settings` hub (`system_settings:read`, `users:read` or `org_members:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
 
-`RequireAuth` (from `@marinoscar/platform-web/identity/headless`, given the app's full-screen spinner) establishes that someone is signed in. `RequirePermission` (same package) wraps each gated page with the same permission string its registry card declares and its API controller enforces. `RequireAiEnabled` redirects AI pages while AI is off, and `RequireMultiOrg` (identity package) redirects the organization pages in a single-org deployment. The identity pages (`/login`, `/auth/callback`, `/activate`, `/settings/tokens`, `/admin/settings/users`, `/admin/settings/organization`, `/admin/settings/organizations`) are lazy-loaded from `@marinoscar/platform-web/identity/ui`; the login page is the packaged one with the app's slots (`apps/web/src/identity/LoginPage.tsx`). `MaintenanceGate` swaps the app for a maintenance screen while a window is open.
+`RequireAuth` (from `@marinoscar/platform-web/identity/headless`, given the app's full-screen spinner) establishes that someone is signed in. `RequirePermission` (same package) wraps each gated page with the same permission string its registry card declares and its API controller enforces. `RequireAiEnabled` redirects AI pages while AI is off, and `RequireMultiOrg` (identity package) redirects the organization pages in a single-org deployment. The identity pages (`/login`, `/auth/callback`, `/activate`, `/settings/tokens`, `/admin/settings/users`, `/admin/settings/organization`, `/admin/settings/organizations`) are lazy-loaded from `@marinoscar/platform-web/identity/ui`; the login page is the packaged one with the app's slots (`apps/web/src/identity/LoginPage.tsx`). The Operations pages Jobs, Job Insights and Worker Nodes are lazy-loaded from `@marinoscar/platform-web/jobs/ui` (#854), and their three cards are spread from `jobsAdminSections.operations`. `MaintenanceGate` swaps the app for a maintenance screen while a window is open.
 
 ### 9.2 Settings pages
 
@@ -718,7 +718,7 @@ The layout switches between a phone treatment (bottom navigation, compact AppBar
 | `NotificationProvider` | `apps/web/src/contexts/NotificationContext.tsx` | In-app inbox and the SSE notification stream |
 | `AiConfigProvider` | `apps/web/src/contexts/AiConfigContext.tsx` | The one `GET /api/ai/config` answer: whether AI is on, key policy, enabled providers |
 
-All HTTP calls go through `ApiService` in `apps/web/src/services/api.ts`, the app's binding of `PlatformHttpClient` (`@marinoscar/platform-web/core`, which holds the access token and the refresh). It resolves the base URL (`VITE_API_BASE_URL`, default `/api`), attaches the in-memory access token, refreshes it once on `401`, unwraps the `{ data }` envelope, and recognizes the maintenance `503` centrally. Feature-specific clients (`services/jobs.ts`, `services/ai.ts`, `services/storage.ts` and others) are thin wrappers over it; the identity calls are the package's `createIdentityApi` over it (`apps/web/src/platform/identityAdapters.ts`). `services/sse.ts` opens event streams against the same base URL.
+All HTTP calls go through `ApiService` in `apps/web/src/services/api.ts`, the app's binding of `PlatformHttpClient` (`@marinoscar/platform-web/core`, which holds the access token and the refresh). It resolves the base URL (`VITE_API_BASE_URL`, default `/api`), attaches the in-memory access token, refreshes it once on `401`, unwraps the `{ data }` envelope, and recognizes the maintenance `503` centrally. Feature-specific clients (`services/ai.ts`, `services/storage.ts` and others) are thin wrappers over it; the job queue and fleet calls are the package's `createJobsApi` over it (`apps/web/src/platform/jobsAdapters.ts`, #854); the identity calls are the package's `createIdentityApi` over it (`apps/web/src/platform/identityAdapters.ts`). `services/sse.ts` opens event streams against the same base URL.
 
 ---
 
