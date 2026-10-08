@@ -1,24 +1,21 @@
 import { PERMISSIONS, ROLES } from '../constants/roles.constants';
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
-import {
-  buildPermissionCatalog,
-  permissionIds,
-  permissionRegistry,
-  PLATFORM_ROLES,
-  roleRegistry,
-} from './index';
-import type { PermissionDeclaration, RoleDeclaration } from './permission.types';
+import type { PermissionDeclaration, RoleDeclaration } from '@marinoscar/platform-api/core';
+import { PLATFORM_ROLES, platformPermissionCatalog } from '@marinoscar/platform-api/manifest';
+import { buildPermissionCatalog, permissionRegistry, roleRegistry } from './index';
 
 // =============================================================================
 // Role and permission registries (issue #676, PP-1.4)
 // =============================================================================
 //
-// What this pins: the registry's validation rules (each refusal is a
-// RegistryError naming the id, at import time when it comes from a declaration
-// file), the seed order the manifest registers in, the literal types
-// `permissionIds` keeps, and the grant invariants docs/ARCHITECTURE.md §7.1
-// states (Admin holds every permission; `ai:use` is withheld from Viewer;
-// `storage_config:*` is not `storage:*`).
+// What this pins, for THIS app's registries: an app entry colliding with a
+// platform entry is refused, a bad app declaration fails at import time, the
+// seed order the manifest registers in (and that it equals the packaged
+// `platformPermissionCatalog()`), and the grant invariants
+// docs/ARCHITECTURE.md §7.1 states (Admin holds every permission; `ai:use` is
+// withheld from Viewer; `storage_config:*` is not `storage:*`). The registry's
+// generic validation rules and `permissionIds` are pinned in the package
+// (packages/platform-api/test/core/permissions.spec.ts, #866).
 // =============================================================================
 
 const APP_REGISTRATIONS = '../../app-registrations/permissions';
@@ -61,16 +58,7 @@ async function rejectedRegistryErrorOf(promise: Promise<unknown>): Promise<Regis
 describe('permission registry', () => {
   describe('validation', () => {
     it.each([
-      ['an unknown role in defaultGrants', permission({ defaultGrants: ['admin', 'ghost'] }), 'INVALID_ENTRY', /unknown role "ghost"/],
-      ['a repeated grant', permission({ defaultGrants: ['admin', 'admin'] }), 'INVALID_ENTRY', /role "admin" twice/],
-      ['an empty description', permission({ description: '   ' }), 'INVALID_ENTRY', /non-empty description/],
-      ['an id not shaped <resource>:<action>', permission({ id: 'widgets.read' }), 'INVALID_ID', /must match/],
-      ['an id with an upper-case letter', permission({ id: 'Widgets:read' }), 'INVALID_ID', /must match/],
-      ['an id with no action', permission({ id: 'widgets:' }), 'INVALID_ID', /must match/],
       ['a duplicate of a platform id', permission({ id: 'jobs:read' }), 'DUPLICATE_ID', /Duplicate id "jobs:read"/],
-      // Issue #723: every permission declares its scope; there is no default.
-      ['no scope', permission({ scope: undefined as unknown as 'system' }), 'INVALID_ENTRY', /needs a scope of 'system' or 'org'/],
-      ['an unknown scope', permission({ scope: 'tenant' as unknown as 'system' }), 'INVALID_ENTRY', /needs a scope/],
       ['a system permission granted to an org role', permission({ defaultGrants: ['admin', 'viewer'] }), 'INVALID_ENTRY', /org role "viewer" for a system permission/],
       ['an org permission granted to the system admin role', permission({ scope: 'org', defaultGrants: ['org_admin', 'admin'] }), 'INVALID_ENTRY', /system role "admin" for a org permission/],
     ])('refuses %s, naming the id', async (_label, entry, code, message) => {
@@ -84,21 +72,6 @@ describe('permission registry', () => {
       expect(error.message).toMatch(message);
     });
 
-    it('refuses a duplicate id inside one batch', async () => {
-      const error = await rejectedRegistryErrorOf(
-        withTemporaryEntries(permissionRegistry, [permission(), permission()], () => undefined),
-      );
-
-      expect(error.code).toBe('DUPLICATE_ID');
-      expect(error.id).toBe('widgets:read');
-    });
-
-    it('accepts an empty defaultGrants list (a permission no role holds by default)', async () => {
-      await withTemporaryEntries(permissionRegistry, [permission({ defaultGrants: [] })], () => {
-        expect(permissionRegistry.has('widgets:read')).toBe(true);
-      });
-    });
-
     it('accepts a grant to a role registered earlier', async () => {
       await withTemporaryEntries(roleRegistry, [{ id: 'coach', description: 'Coaches athletes', scope: 'org' }], () =>
         withTemporaryEntries(permissionRegistry, [permission({ scope: 'org', defaultGrants: ['coach'] })], () => {
@@ -108,10 +81,7 @@ describe('permission registry', () => {
     });
 
     it.each([
-      ['an empty description', { id: 'coach', description: '', scope: 'org' }, 'INVALID_ENTRY'],
-      ['an id with a colon', { id: 'coach:x', description: 'Coach', scope: 'org' }, 'INVALID_ID'],
       ['a duplicate of a platform role', { id: 'admin', description: 'Again', scope: 'system' }, 'DUPLICATE_ID'],
-      ['no scope', { id: 'coach', description: 'Coach' }, 'INVALID_ENTRY'],
     ])('refuses a role with %s, naming the id', async (_label, entry, code) => {
       const error = await rejectedRegistryErrorOf(
         withTemporaryEntries(roleRegistry, [entry as RoleDeclaration], () => undefined),
@@ -173,6 +143,10 @@ describe('permission registry', () => {
   });
 
   describe('order', () => {
+    it('fills the registries with exactly the packaged platform catalog (the app adds nothing upstream)', () => {
+      expect(buildPermissionCatalog()).toEqual(platformPermissionCatalog());
+    });
+
     it('registers the platform roles in seed order', () => {
       expect(roleRegistry.ids()).toEqual(['admin', 'contributor', 'viewer', 'org_admin']);
     });
@@ -188,22 +162,7 @@ describe('permission registry', () => {
     });
   });
 
-  describe('permissionIds', () => {
-    it('maps each key to its id, in key order, and freezes the result', () => {
-      const ids = permissionIds({
-        B_WRITE: { id: 'b:write', description: 'w', scope: 'system', defaultGrants: [] },
-        A_READ: { id: 'a:read', description: 'r', scope: 'org', defaultGrants: [] },
-      } as const);
-
-      expect(ids).toEqual({ B_WRITE: 'b:write', A_READ: 'a:read' });
-      expect(Object.keys(ids)).toEqual(['B_WRITE', 'A_READ']);
-      expect(Object.isFrozen(ids)).toBe(true);
-
-      // Compile-time: the literal id type survives (`npm run typecheck` checks this line).
-      const literal: 'a:read' = ids.A_READ;
-      expect(literal).toBe('a:read');
-    });
-
+  describe('ROLES', () => {
     it('derives ROLES from the platform role declarations', () => {
       expect(ROLES).toEqual({ ADMIN: 'admin', CONTRIBUTOR: 'contributor', VIEWER: 'viewer', ORG_ADMIN: 'org_admin' });
       expect(Object.values(PLATFORM_ROLES).map((role) => role.id)).toEqual(Object.values(ROLES));

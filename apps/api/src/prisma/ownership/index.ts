@@ -8,6 +8,5 @@ import './user-owned-model.manifest';
 import './model-ownership.manifest';
 
 export { PLATFORM_MODEL_OWNERSHIP } from './platform-model-ownership';
-export { PLATFORM_USER_OWNED_MODELS } from './platform-user-owned-models';
 export { ScopedPrismaService } from './scoped-prisma.service';
 export type { UserScopedClient } from './scoped-prisma.service';

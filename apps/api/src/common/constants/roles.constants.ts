@@ -3,46 +3,27 @@
 // =============================================================================
 //
 // Nothing is declared here any more. Each role and permission is declared
-// once, beside the module that enforces it (`<module>.permissions.ts`, and
-// `common/permissions/platform-roles.ts` for the roles), with its description
-// and default role grants; the rationale for each split lives there too. This
-// file only DERIVES the constants every guard and decorator already imports, so
-// none of those import sites change.
+// once, beside the module that enforces it (each slice's `<slice>.permissions.ts`
+// in `@marinoscar/platform-api`, and the identity slice's roles), with its
+// description and default role grants; the rationale for each split lives
+// there too. `@marinoscar/platform-api/manifest` collects them in seed order
+// (`PLATFORM_ROLES`, `PLATFORM_PERMISSIONS`). This file only DERIVES the
+// constants every guard and decorator already imports, so none of those import
+// sites change.
 //
-// ⚠ Imports the declaration files directly, never `common/permissions/index.ts`:
-// the index runs the manifest (a side effect), and this file is imported by
-// ~55 modules under `emitDecoratorMetadata`, where an import cycle bites. The
-// declaration files and `permission-ids.ts` import nothing but types, so this
-// stays a leaf.
+// ⚠ Never imports `common/permissions/index.ts`: the index runs the manifest
+// (a side effect), and this file is imported by ~55 modules under
+// `emitDecoratorMetadata`, where an import cycle bites. The packaged
+// declarations register nothing on import, so this stays a leaf of the app.
 //
 // An app adds its own ids in `app-registrations/permissions.ts`, including the
 // `AppPermissionIds` / `AppRoleIds` augmentation that widens `PermissionName`
 // and `RoleName` below. Recipe: common/permissions/README.md.
 // =============================================================================
 
-import { AI_PERMISSIONS } from '@marinoscar/platform-api/ai';
-import {
-  ALLOWLIST_PERMISSIONS,
-  USERS_PERMISSIONS,
-  ORGANIZATIONS_PERMISSIONS,
-} from '@marinoscar/platform-api/identity';
-import { DB_BACKUP_PERMISSIONS } from '@marinoscar/platform-api/db-backup';
-import { JOBS_PERMISSIONS } from '@marinoscar/platform-api/jobs';
-import { NODES_PERMISSIONS } from '@marinoscar/platform-api/nodes';
-import {
-  BROADCASTS_PERMISSIONS,
-  ORG_BROADCASTS_PERMISSIONS,
-  PUSH_PERMISSIONS,
-} from '@marinoscar/platform-api/notifications';
-import { ORG_SETTINGS_PERMISSIONS, SETTINGS_PERMISSIONS } from '@marinoscar/platform-api/settings';
-import { STORAGE_CONFIG_PERMISSIONS } from '@marinoscar/platform-api/storage';
-import { STORAGE_PERMISSIONS } from '@marinoscar/platform-api/storage';
-import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
-import { SHARING_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/sharing';
-import { USER_DATA_PERMISSIONS } from '@marinoscar/platform-api/user-data';
-import { permissionIds, roleIds } from '../permissions/permission-ids';
+import { permissionIds, roleIds } from '@marinoscar/platform-api/core';
+import { PLATFORM_PERMISSIONS, PLATFORM_ROLES } from '@marinoscar/platform-api/manifest';
 import type { AppPermissionIds, AppRoleIds } from '../permissions/permission.types';
-import { PLATFORM_ROLES } from '../permissions/platform-roles';
 
 // =============================================================================
 // Role Constants
@@ -65,25 +46,7 @@ export type RoleName = (typeof ROLES)[keyof typeof ROLES] | (keyof AppRoleIds & 
 // =============================================================================
 
 /** Every platform permission id, keyed as before (`JOBS_READ: 'jobs:read'`), in seed order. */
-export const PERMISSIONS = {
-  ...permissionIds(SETTINGS_PERMISSIONS),
-  ...permissionIds(USERS_PERMISSIONS),
-  ...permissionIds(ALLOWLIST_PERMISSIONS),
-  ...permissionIds(STORAGE_PERMISSIONS),
-  ...permissionIds(JOBS_PERMISSIONS),
-  ...permissionIds(NODES_PERMISSIONS),
-  ...permissionIds(DB_BACKUP_PERMISSIONS),
-  ...permissionIds(BROADCASTS_PERMISSIONS),
-  ...permissionIds(PUSH_PERMISSIONS),
-  ...permissionIds(STORAGE_CONFIG_PERMISSIONS),
-  ...permissionIds(AI_PERMISSIONS),
-  ...permissionIds(TELEMETRY_PERMISSION_DECLARATIONS),
-  ...permissionIds(ORGANIZATIONS_PERMISSIONS),
-  ...permissionIds(SHARING_PERMISSION_DECLARATIONS),
-  ...permissionIds(ORG_SETTINGS_PERMISSIONS),
-  ...permissionIds(ORG_BROADCASTS_PERMISSIONS),
-  ...permissionIds(USER_DATA_PERMISSIONS),
-} as const;
+export const PERMISSIONS = permissionIds(PLATFORM_PERMISSIONS);
 
 /** A platform permission id, or an app permission id added to `AppPermissionIds` by augmentation. */
 export type PermissionName =

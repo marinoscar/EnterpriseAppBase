@@ -6,8 +6,8 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 // =============================================================================
 //
 // The registry primitive, the principal and scope contract, the exception
-// filter and its exceptions, the error DTO and the secret cipher used to live
-// under apps/api/src/common/. They now live in `@marinoscar/platform-api/core`
+// filter and its exceptions, the error DTO, the secret cipher and (#866) the
+// role and permission registries used to live under apps/api/src/common/. They now live in `@marinoscar/platform-api/core`
 // and the app imports them from there, with no re-export shims left behind:
 // a shim becomes the next local copy, and two copies of the cipher (two key
 // caches) or of the verbatim-body brand are exactly the drift the package
@@ -36,6 +36,11 @@ const MOVED: ReadonlyArray<{ path: string; kind: 'file' | 'dir' }> = [
   { path: 'exceptions', kind: 'dir' },
   { path: 'dto/error.dto', kind: 'file' },
   { path: 'crypto', kind: 'dir' },
+  // The role and permission registries (#866): the registry, the id helper and
+  // the platform roles are core's and the manifest slice's now.
+  { path: 'permissions/permission.registry', kind: 'file' },
+  { path: 'permissions/permission-ids', kind: 'file' },
+  { path: 'permissions/platform-roles', kind: 'file' },
 ];
 
 const SCANNED_DIRS = ['src', 'test', 'prisma', 'scripts'];

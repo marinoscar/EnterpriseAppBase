@@ -1,12 +1,6 @@
-import { SETTINGS_USER_OWNED_MODELS } from '@marinoscar/platform-api/settings';
-import { CREDENTIALS_USER_OWNED_MODELS } from '@marinoscar/platform-api/credentials';
-import { SHARING_USER_OWNED_MODELS } from '@marinoscar/platform-api/sharing';
-import { ANDROID_APP_USER_OWNED_MODELS } from '@marinoscar/platform-api/android-app';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import { ownerFieldOf, userOwnedModelRegistry } from '@marinoscar/platform-api/core';
-import { PLATFORM_USER_OWNED_MODELS } from './index';
+import { PLATFORM_USER_OWNED_MODELS } from '@marinoscar/platform-api/manifest';
+import './index';
 import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models';
 
 // =============================================================================
@@ -14,24 +8,36 @@ import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models
 // =============================================================================
 //
 // The registry's own rules (validation, ids, duplicates, owner relations) are
-// pinned in packages/platform-api/test/core/data-access/. The schema
+// pinned in packages/platform-api/test/core/data-access/, and the platform
+// inventory against the platform's fragments in
+// packages/platform-api/test/manifest/ (#866). The schema
 // cross-check is the `userOwnedData` conformance suite, run by
 // test/prisma/user-owned-models.spec.ts. This file pins what the app
 // registers.
 // =============================================================================
 
 describe('the app fills userOwnedModelRegistry', () => {
-  it('registers the platform inventory, then the sharing, credentials and android-app slices\', then the (empty) app list', () => {
+  // The literal registration order before the inventory was packaged (#866):
+  // the user-data export lists its datasets in this order.
+  const BASELINE_ORDER = [
+    'UserIdentity', 'UserRole', 'UserSettings', 'RefreshToken', 'PersonalAccessToken', 'DeviceCode', 'Membership',
+    'Notification', 'PushSubscription', 'NodeCredential', 'UserAiKey', 'WorkerNode', 'StorageObject',
+    'NotificationDelivery', 'AiRun', 'AiUsageEvent', 'SystemSettings', 'AuditEvent', 'AllowedEmail',
+    'NotificationBroadcast', 'DatabaseBackupRun', 'Organization', 'Invite', 'AiModel',
+    // sharing (#728, #729)
+    'GroupMember', 'GroupInvite', 'Group', 'Grant',
+    // settings (#733)
+    'OrgSettings',
+    // credentials (#735)
+    'UserCredential', 'Credential', 'OrgCredential',
+    // android-app (#746)
+    'AndroidAppRelease',
+  ];
+
+  it('registers the packaged platform inventory in the baseline order, then the (empty) app list', () => {
     expect(APP_USER_OWNED_MODELS).toEqual([]);
-    expect(userOwnedModelRegistry.ids()).toEqual(
-      [
-        ...PLATFORM_USER_OWNED_MODELS,
-        ...SHARING_USER_OWNED_MODELS,
-        ...SETTINGS_USER_OWNED_MODELS,
-        ...CREDENTIALS_USER_OWNED_MODELS,
-        ...ANDROID_APP_USER_OWNED_MODELS,
-      ].map((def) => def.model),
-    );
+    expect(userOwnedModelRegistry.ids()).toEqual(BASELINE_ORDER);
+    expect(userOwnedModelRegistry.list()).toEqual([...PLATFORM_USER_OWNED_MODELS, ...APP_USER_OWNED_MODELS]);
   });
 
   it('holds 33 models and 40 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733; org credentials 1 and 1, #735; android-app 1 and 1, #746)', () => {
@@ -53,14 +59,5 @@ describe('the app fills userOwnedModelRegistry', () => {
     expect(ownerFieldOf('WorkerNode')).toBe('createdById');
     expect(ownerFieldOf('AuditEvent')).toBeUndefined();
     expect(ownerFieldOf('Role')).toBeUndefined();
-  });
-
-  it('keeps the inventory pure data: type-only imports, no side effect', () => {
-    const source = readFileSync(join(__dirname, 'platform-user-owned-models.ts'), 'utf8');
-    const imports = [...source.matchAll(/^import\s.*?from\s+'([^']+)';/gms)].map((match) => match[0]);
-    expect(imports).toEqual([
-      "import type { UserOwnedModelDef } from '@marinoscar/platform-api/core';",
-      "import type { Prisma } from '@prisma/client';",
-    ]);
   });
 });
