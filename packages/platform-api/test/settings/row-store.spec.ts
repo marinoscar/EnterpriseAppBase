@@ -35,6 +35,22 @@ describe('SystemSettingsRowStore', () => {
     ]);
   });
 
+  it('merges a custom audit action and non-secret meta under its own key and version (#737)', async () => {
+    const s = store();
+    await s.rows.write('mail', DEFAULTS, {
+      actorId: ALICE,
+      schema,
+      auditAction: 'mail_settings:replace',
+      auditMeta: { passwordChanged: true, key: 'not-the-key', version: 99 },
+    });
+    expect(s.audit).toEqual([
+      expect.objectContaining({
+        action: 'mail_settings:replace',
+        meta: { passwordChanged: true, key: 'mail', version: 1 },
+      }),
+    ]);
+  });
+
   it('refuses an invalid value with a 400 and writes nothing', async () => {
     const s = store();
     await expect(s.rows.write('mail', { host: '', port: 0, secure: true }, { actorId: ALICE, schema })).rejects.toMatchObject({ status: 400 });

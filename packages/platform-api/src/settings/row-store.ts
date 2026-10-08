@@ -60,6 +60,12 @@ export interface SystemSettingsRowWriteOptions<T> {
   schema: z.ZodType<T>;
   /** The audit action; default `system_settings:<key>:write`. */
   auditAction?: string;
+  /**
+   * Extra, NON-SECRET fields for the audit event's `meta`, merged under the
+   * store's own `key` and `version` (issue #737: the email slice records the
+   * new value and which credentials changed, never their material).
+   */
+  auditMeta?: Record<string, unknown>;
 }
 
 const ROW_KEY = /^[a-z][a-z0-9_]{0,62}$/;
@@ -153,7 +159,7 @@ export class SystemSettingsRowStore {
         action: options.auditAction ?? `system_settings:${key}:write`,
         targetType: 'system_settings',
         targetId: row.id,
-        meta: { key, version: row.version } as never,
+        meta: { ...(options.auditMeta ?? {}), key, version: row.version } as never,
       },
     });
     return {
