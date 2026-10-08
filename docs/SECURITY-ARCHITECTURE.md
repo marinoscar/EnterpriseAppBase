@@ -1448,7 +1448,7 @@ with Fastify's `reply.code(...).send(...)`, never Express's
 | PATs | `packages/platform-api/src/identity/pat/` |
 | Device flow | `packages/platform-api/src/identity/device-auth/` |
 | Node credentials and brokered secrets | `apps/api/src/nodes/node-credential.service.ts`, `node-credential.controller.ts`, `node-secret-broker.service.ts`, `apps/api/src/jobs/job-secret-broker.ts`, `apps/api/src/db-backup/pg-job-role.broker.ts` |
-| Encrypted stores | `packages/platform-api/src/core/crypto/secret-cipher.ts`, `encryption-key-startup-check.ts` (`@marinoscar/platform-api/core`), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `apps/api/src/ai/keys/` |
+| Encrypted stores | `packages/platform-api/src/core/crypto/secret-cipher.ts`, `encryption-key-startup-check.ts` (`@marinoscar/platform-api/core`), `apps/api/src/credentials/`, `apps/api/src/user-credentials/`, `packages/platform-api/src/ai/keys/` |
 | Test auth | `packages/platform-api/src/identity/testing/`, `apps/web/src/pages/TestLoginPage.tsx` |
 | Edge | `infra/nginx/nginx.conf`, `infra/nginx/csp.conf`, `infra/nginx/csp.dev.conf` |
 | Web session | `packages/platform-web/src/identity/headless/auth-context.tsx` (`AuthProvider`, `@marinoscar/platform-web/identity/headless`), `packages/platform-web/src/core/http/client.ts` (`PlatformHttpClient`: token holder, refresh), `apps/web/src/services/api.ts` (the app's binding) |

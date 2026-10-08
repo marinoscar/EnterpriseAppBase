@@ -57,7 +57,7 @@ Source of truth for every claim below:
   only inside a transaction that first runs
   `SELECT set_config('app.rls_bypass', 'on', true)` (the API's
   `PrismaSystemService.runAsSystem`), or it sees no rows at all.
-- `apps/api/src/ai/keys/user-ai-keys.service.ts` — the AI BYOK store, which is
+- `packages/platform-api/src/ai/keys/user-ai-keys.service.ts` — the AI BYOK store, which is
   **not** owner-bound (see step 6 below).
 - `packages/platform-db/schema/credentials.prisma` and `ai.prisma` — models
   `Credential`, `UserCredential`, `OrgCredential`, `UserAiKey`.

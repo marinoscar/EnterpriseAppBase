@@ -96,7 +96,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Runbook: database baseline (adopt the platform migration history in an existing database: rehearse on a restored backup, `platform db baseline`, rollback) | [docs/runbooks/database-baseline.md](docs/runbooks/database-baseline.md) |
 | `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
 | Recipe: add a job type | [packages/platform-api/src/jobs/handlers/README.md](packages/platform-api/src/jobs/handlers/README.md) |
-| Recipe: use AI in a feature | [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md) |
+| Recipe: use AI in a feature (`@marinoscar/platform-api/ai`) | [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md) |
 | Recipe: add a notification | [packages/platform-api/src/notifications/README.md](packages/platform-api/src/notifications/README.md) |
 | Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
 | Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
@@ -215,13 +215,13 @@ Full design: [docs/specs/job-queue.md](docs/specs/job-queue.md#all-long-running-
 
 Design: [docs/specs/ai-platform.md](docs/specs/ai-platform.md). Recipe: [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md). Operators: [docs/runbooks/ai-configuration.md](docs/runbooks/ai-configuration.md).
 
-1. **Never import a provider SDK outside `apps/api/src/ai/providers/<provider>/`.** A feature injects `AiService` (exported by `AiModule`) and calls `AiService.forUser(userId)`, never an SDK client of its own. A new provider's SDK gets its own boundary spec.
-2. **Never call AI from the browser; keys never leave the server.** Every provider call is server-side, under a key `AiKeyResolver` resolved for that call (admin/org key or the user's BYOK key), held only between resolution and the adapter call. No route, log line, span, `AiError`, `ai_usage_events` row or `ai_runs.request` row carries key material. The single exception is a realtime session's **ephemeral** provider secret, minted server-side and returned only by `POST /api/ai/realtime/sessions`, never the key itself.
+1. **Never import a provider SDK outside `packages/platform-api/src/ai/providers/<provider>/`.** The AI platform is the `@marinoscar/platform-api/ai` slice; the app configures it once (`apps/api/src/platform/ai/ai.config.ts`). A feature imports that `AiModule`, injects `AiService` and calls `AiService.forUser(userId, { orgId, feature })`, never an SDK client of its own. A new provider's SDK gets its own boundary spec.
+2. **Never call AI from the browser; keys never leave the server.** Every provider call is server-side, under a key `AiKeyResolver` resolved for that call (the user's BYOK key, the organization's own key, or the deployment's key), held only between resolution and the adapter call. No route, log line, span, `AiError`, `ai_usage_events` row or `ai_runs.request` row carries key material. The single exception is a realtime session's **ephemeral** provider secret, minted server-side and returned only by `POST /api/ai/realtime/sessions`, never the key itself.
 3. **AI jobs are server-only, permanently.** Every `ai.*` job type implements neither `nodeResultSchema` nor `persistNodeResult`: a user's BYOK key and the org key are never brokered to a worker node. This is on top of the queue rules above.
-4. **Route guards.** Every consumer route under `/api/ai/*` sits behind `AiEnabledGuard` plus `ai:use`, except `GET /api/ai/config`, which stays open. Every admin route under `/api/admin/ai/*` requires `ai_config:read`/`ai_config:write` and is deliberately **not** behind `AiEnabledGuard`, so an administrator can always turn AI back on.
+4. **Route guards.** Every consumer route under `/api/ai/*` sits behind `AiEnabledGuard` plus `ai:use`, except `GET /api/ai/config`, which stays open. Every admin route under `/api/admin/ai/*` requires `ai_config:read`/`ai_config:write` (the organization's own routes, `/api/admin/ai/org-*`, require `org_ai_config:read`/`org_ai_config:write` instead) and is deliberately **not** behind `AiEnabledGuard`, so an administrator can always turn AI back on.
 5. **New AI settings cards follow the Settings UI Pattern and declare `feature: 'ai'`**, so they are hidden while AI is off. The one exception is the admin `AI` card (`/admin/settings/ai`): it is where AI is switched on, so it carries no `feature`.
 
-Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secret egress, key policy, jobs server-only, no SDK leak), the per-provider SDK boundary specs and `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` discover routes, job types and cards automatically; see [ai-platform.md §5](docs/specs/ai-platform.md#5-guardrails).
+Guardrails: the suites under `apps/api/test/ai/` (kill switch, RBAC matrix, secret egress, key policy, jobs server-only, no SDK leak, orchestration boundary), the per-provider SDK boundary specs and `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` discover routes, job types and cards automatically; see [ai-platform.md §5](docs/specs/ai-platform.md#5-guardrails).
 
 ## MANDATORY: Invariants that are easy to break
 
