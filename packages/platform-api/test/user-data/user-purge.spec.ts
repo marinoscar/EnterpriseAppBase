@@ -137,7 +137,7 @@ function harness(fake: FakeDb, failKeys: string[] = []) {
   return { runner, storage, jobs, audit, plans, options };
 }
 
-const job = (fake: FakeDb) => fake.tables.job!.find((row) => row.id === JOB)!;
+const job = (fake: FakeDb): any => fake.tables.job!.find((row) => row.id === JOB)!;
 
 describe('user.data.purge: everything', () => {
   it('deletes the caller\'s owned rows and objects, clears the profile fields, keeps the account and other users', async () => {
@@ -290,7 +290,7 @@ describe('handlers', () => {
 describe('user removal hooks', () => {
   it('resolve their provider across modules and prefix their counts with the hook id', async () => {
     const fake = createFakeDb(seed());
-    const purge = { purgeUser: jest.fn(async () => ({ membershipsRemoved: 2, adminsPromoted: 1, groupsDeleted: 0, groupsOrphaned: 0 })) };
+    const purge = { purgeUser: jest.fn(async (_userId: string) => ({ membershipsRemoved: 2, adminsPromoted: 1, groupsDeleted: 0, groupsOrphaned: 0 })) };
     const moduleRef = { get: jest.fn(() => purge) };
     const options = resolveUserDataModuleOptions({
       datamodel,

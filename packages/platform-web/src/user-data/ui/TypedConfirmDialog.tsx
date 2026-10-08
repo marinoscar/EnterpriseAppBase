@@ -83,7 +83,6 @@ export interface TypedConfirmDialogProps {
  * @param props - see {@link TypedConfirmDialogProps}.
  *
  * @stability experimental
- * @extensionPoint component
  * @example
  * ```tsx
  * <TypedConfirmDialog open title="Delete all my data" description="..." phrase="DELETE MY DATA"

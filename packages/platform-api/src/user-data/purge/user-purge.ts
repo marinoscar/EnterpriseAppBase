@@ -37,7 +37,11 @@ import {
   type PurgeDatamodel,
 } from './purge-planner';
 
-/** Largest `IN (...)` list sent in one statement. */
+/**
+ * Largest `IN (...)` list sent in one statement.
+ *
+ * @stability experimental
+ */
 export const USER_DATA_CHUNK_SIZE = 1000;
 
 /**
@@ -79,6 +83,30 @@ export interface UserPurgeDelegateStep extends UserDataPurgeDelegate {
 }
 
 /**
+ * An owner model every data reset keeps.
+ *
+ * @stability experimental
+ */
+export interface KeptModel {
+  /** The model. */
+  readonly model: string;
+  /** Why it is kept (the hint's `keep`). */
+  readonly reason: string;
+}
+
+/**
+ * What one user owns, for the Danger Zone summary.
+ *
+ * @stability experimental
+ */
+export interface UserDataCounts {
+  /** Rows per category id. */
+  counts: Record<string, number>;
+  /** Stored bytes per category id (the storage-object model's category only). */
+  bytes: Record<string, number>;
+}
+
+/**
  * The purge, computed once at bootstrap.
  *
  * @stability experimental
@@ -91,7 +119,7 @@ export interface UserPurgePlan {
   /** The storage-object model, deleted in the media step. */
   readonly storage?: UserPurgeStep;
   /** Owner models every data reset keeps, with the reason. */
-  readonly kept: readonly { readonly model: string; readonly reason: string }[];
+  readonly kept: readonly KeptModel[];
   /** Every model the purge reaches, per category (storage and delegated included). */
   readonly modelsByCategory: Readonly<Record<string, readonly string[]>>;
   /** The schema it was planned from (for the factory reset and offboarding orders). */
@@ -403,7 +431,7 @@ export async function countUserData(
   db: any,
   plan: UserPurgePlan,
   userId: string,
-): Promise<{ counts: Record<string, number>; bytes: Record<string, number> }> {
+): Promise<UserDataCounts> {
   const counts: Record<string, number> = {};
   const bytes: Record<string, number> = {};
   const all = [...plan.steps, ...plan.delegated, ...(plan.storage ? [plan.storage] : [])];

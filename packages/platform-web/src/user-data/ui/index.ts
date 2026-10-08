@@ -12,7 +12,7 @@ export type { FactoryResetPageProps } from './FactoryResetPage.js';
 export { OrgOffboardingDialog } from './OrgOffboardingDialog.js';
 export type { OffboardedOrganization, OrgOffboardingDialogProps } from './OrgOffboardingDialog.js';
 export { OffboardOrganizationButton } from './OffboardOrganizationButton.js';
-export type { OffboardOrganizationButtonProps } from './OffboardOrganizationButton.js';
+export type { OffboardOrganizationButtonProps, OffboardableOrganization } from './OffboardOrganizationButton.js';
 export { dangerZoneSettingsPage, factoryResetSettingsPage } from './settings-pages.js';
 export {
   DANGER_ZONE_PAGE_DESCRIPTION,

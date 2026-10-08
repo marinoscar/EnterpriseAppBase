@@ -256,6 +256,18 @@ export interface OffboardingPreconditionDef {
 }
 
 /**
+ * What one per-user purge is about: the user and the scope id.
+ *
+ * @stability experimental
+ */
+export interface UserDataPurgeInput {
+  /** The user whose data goes. */
+  userId: string;
+  /** The scope id (`everything`, `content`, an app's narrow scope). */
+  scope: string;
+}
+
+/**
  * A legacy job type an app queued before adopting the platform (a job type
  * is permanent once jobs exist): the module registers an alias handler that
  * maps the old payload and runs the platform's `user.data.purge`.
@@ -273,7 +285,7 @@ export interface LegacyUserDataJobType {
   /** The old job type (`user.data_reset`). */
   readonly type: string;
   /** Maps the old payload to the platform's `{ userId, scope }`. */
-  toPayload(old: unknown): { userId: string; scope: string };
+  toPayload(old: unknown): UserDataPurgeInput;
 }
 
 /**

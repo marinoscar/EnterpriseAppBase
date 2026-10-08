@@ -11,13 +11,23 @@ import { usePlatformViewer } from '../../core/index.js';
 import { OrgOffboardingDialog, type OffboardedOrganization } from './OrgOffboardingDialog.js';
 
 /**
+ * An organization row, as the button reads it.
+ *
+ * @stability experimental
+ */
+export interface OffboardableOrganization extends OffboardedOrganization {
+  /** Whether it is the default organization (never offboarded). */
+  isDefault: boolean;
+}
+
+/**
  * Props of {@link OffboardOrganizationButton}.
  *
  * @stability experimental
  */
 export interface OffboardOrganizationButtonProps {
-  /** The organization of the row. */
-  organization: OffboardedOrganization & { isDefault: boolean };
+  /** The organization of the row (`isDefault` hides the button). */
+  organization: OffboardableOrganization;
   /** Called after the offboarding succeeds (refresh the list). */
   onCompleted?(result: OrgOffboardingResult | null): void;
 }

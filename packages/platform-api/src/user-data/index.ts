@@ -8,7 +8,7 @@ export {
   USER_DATA_TX_TIMEOUT_MS,
   resolveUserDataModuleOptions,
 } from './user-data.options';
-export type { ResolvedUserDataModuleOptions, UserDataModuleOptions } from './user-data.options';
+export type { JobReference, ResolvedUserDataModuleOptions, UserDataModuleOptions } from './user-data.options';
 export { USER_DATA_DB, USER_DATA_ENVIRONMENT } from './ports';
 export type { UserDataDbPort, UserDataEnvironment, UserDataSystemReason } from './ports';
 export type {
@@ -20,6 +20,7 @@ export type {
   UserDataCategoryDef,
   UserDataModelHint,
   UserDataPurgeDelegate,
+  UserDataPurgeInput,
   UserDataScopeCategories,
   UserDataScopeDef,
   UserRemovalHook,
@@ -68,11 +69,19 @@ export {
   planUserPurge,
   readCounts,
 } from './purge/user-purge';
-export type { DeletedUserRows, StorageDeletionCounts, UserPurgeDelegateStep, UserPurgePlan, UserPurgeStep } from './purge/user-purge';
+export type {
+  DeletedUserRows,
+  KeptModel,
+  StorageDeletionCounts,
+  UserDataCounts,
+  UserPurgeDelegateStep,
+  UserPurgePlan,
+  UserPurgeStep,
+} from './purge/user-purge';
 export { UserDataPlanService } from './user-data-plan.service';
-export type { OrgDataPlan, OrgDataStep } from './user-data-plan.service';
+export type { OrgDataPlan, OrgDataStep, OrgStorageStep } from './user-data-plan.service';
 export { USER_DATA_SUBJECT_TYPE, UserPurgeRunner, userDataPurgeInputSchema } from './user-purge.runner';
-export type { UserDataPurgePayload } from './user-purge.runner';
+export type { UserDataPurgeDeleted, UserDataPurgeMedia, UserDataPurgePayload } from './user-purge.runner';
 export {
   LegacyUserDataPurgeHandler,
   LegacyUserDataPurgeHandlers,

@@ -6,6 +6,18 @@ import type { PurgeDatamodel } from './purge/purge-planner';
 import type { LegacyUserDataJobType, UserRemovalHook } from './user-data.types';
 
 /**
+ * A model column naming a job: the factory reset keeps the jobs such rows link to.
+ *
+ * @stability experimental
+ */
+export interface JobReference {
+  /** The Prisma model (`DatabaseBackupRun`). */
+  readonly model: string;
+  /** Its column holding a job id (`jobId`). */
+  readonly field: string;
+}
+
+/**
  * Injection token of the resolved options.
  *
  * @stability experimental
@@ -50,7 +62,7 @@ export interface UserDataModuleOptions {
      * Jobs a row of these models links to survive step 1 (the backups'
      * jobs: `{ model: 'DatabaseBackupRun', field: 'jobId' }`). Default none.
      */
-    keepJobsReferencedBy?: readonly { readonly model: string; readonly field: string }[];
+    keepJobsReferencedBy?: readonly JobReference[];
   };
   /** The row transaction's timeout, in milliseconds. Default 5 minutes. */
   txTimeoutMs?: number;
@@ -71,7 +83,7 @@ export interface ResolvedUserDataModuleOptions {
   /** See {@link UserDataModuleOptions.userRemovalHooks}. */
   readonly userRemovalHooks: readonly UserRemovalHook[];
   /** See {@link UserDataModuleOptions.factoryReset}. */
-  readonly keepJobsReferencedBy: readonly { readonly model: string; readonly field: string }[];
+  readonly keepJobsReferencedBy: readonly JobReference[];
   /** See {@link UserDataModuleOptions.txTimeoutMs}. */
   readonly txTimeoutMs: number;
 }

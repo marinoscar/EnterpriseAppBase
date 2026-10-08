@@ -1,5 +1,5 @@
 import { screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { FactoryResetSummary } from '@marinoscar/platform-contract/user-data';
 

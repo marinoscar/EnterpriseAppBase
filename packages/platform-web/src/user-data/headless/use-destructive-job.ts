@@ -72,7 +72,6 @@ export interface UseDestructiveJobReturn<TResult> {
  * @returns see {@link UseDestructiveJobReturn}.
  *
  * @stability experimental
- * @extensionPoint hook
  * @example
  * ```tsx
  * const job = useDestructiveJob({ start: () => client.request('FACTORY RESET'), poll: client.status });

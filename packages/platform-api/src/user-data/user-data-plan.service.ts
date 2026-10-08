@@ -28,6 +28,20 @@ export interface OrgDataStep {
 }
 
 /**
+ * The storage-object model of the org data plan.
+ *
+ * @stability experimental
+ */
+export interface OrgStorageStep {
+  /** The model. */
+  readonly model: string;
+  /** Its client delegate. */
+  readonly delegate: string;
+  /** Its organization column. */
+  readonly orgField: string;
+}
+
+/**
  * The org data plan: every `org` model of the model-ownership registry except
  * the storage-object model (the media step deletes it), children first.
  *
@@ -37,7 +51,7 @@ export interface OrgDataPlan {
   /** In delete order. */
   readonly steps: readonly OrgDataStep[];
   /** The storage-object model and its organization column, when registered. */
-  readonly storage?: { readonly model: string; readonly delegate: string; readonly orgField: string };
+  readonly storage?: OrgStorageStep;
 }
 
 /**

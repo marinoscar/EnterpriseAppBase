@@ -53,7 +53,6 @@ function nonEmpty(value: unknown, name: string): void {
  * The registered user-data categories, in display order.
  *
  * @stability experimental
- * @extensionPoint registry
  */
 export const userDataCategoryRegistry = defineRegistry<UserDataCategoryDef>({
   name: 'user-data-categories',
@@ -92,7 +91,6 @@ const BUILT_IN_SCOPE_IDS: readonly string[] = [USER_DATA_EVERYTHING_SCOPE, USER_
  * {@link resolvedUserDataScopes}).
  *
  * @stability experimental
- * @extensionPoint registry
  */
 export const userDataScopeRegistry = defineRegistry<UserDataScopeDef>({
   name: 'user-data-scopes',
@@ -276,7 +274,6 @@ export function storageObjectModelHint(): UserDataModelHint | undefined {
  * The registered factory reset steps, in registration order.
  *
  * @stability experimental
- * @extensionPoint registry
  */
 export const factoryResetStepRegistry = defineRegistry<FactoryResetStepDef>({
   name: 'factory-reset-steps',
@@ -309,7 +306,6 @@ export function registerFactoryResetStep(def: FactoryResetStepDef): void {
  * The registered offboarding preconditions, in registration order.
  *
  * @stability experimental
- * @extensionPoint registry
  */
 export const offboardingPreconditionRegistry = defineRegistry<OffboardingPreconditionDef>({
   name: 'offboarding-preconditions',

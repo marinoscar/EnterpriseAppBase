@@ -49,7 +49,6 @@ export interface OrgOffboardingDialogProps {
  * @param props - see {@link OrgOffboardingDialogProps}.
  *
  * @stability experimental
- * @extensionPoint component
  * @example
  * ```tsx
  * <OrgOffboardingDialog organization={selected} onClose={() => setSelected(null)} onCompleted={refresh} />

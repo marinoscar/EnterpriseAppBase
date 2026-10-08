@@ -56,9 +56,25 @@ export const USER_DATA_SUBJECT_TYPE = 'user';
  * @stability experimental
  */
 export const userDataPurgeInputSchema = z.object({
+  /** The user whose data goes. */
   userId: z.string().uuid(),
+  /** The scope id. */
   scope: z.string().min(1),
 });
+
+/**
+ * The row counts an attempt committed, on `payload.deleted`.
+ *
+ * @stability experimental
+ */
+export interface UserDataPurgeDeleted {
+  /** Rows per model. */
+  models?: Record<string, number>;
+  /** Rows per category. */
+  categories?: Record<string, number>;
+  /** Pending jobs cancelled. */
+  cancelledJobs?: number;
+}
 
 /**
  * The payload a `user.data.purge` job accumulates across attempts.
@@ -66,13 +82,30 @@ export const userDataPurgeInputSchema = z.object({
  * @stability experimental
  */
 export interface UserDataPurgePayload {
+  /** The user. */
   userId: string;
+  /** The scope id. */
   scope: string;
+  /** The storage objects collected before the rows went (unioned on retry). */
   objectIds?: string[];
-  deleted?: { models?: Record<string, number>; categories?: Record<string, number>; cancelledJobs?: number };
+  /** The row counts committed so far. */
+  deleted?: UserDataPurgeDeleted;
+  /** Delegated jobs enqueued. */
   delegated?: number;
-  media?: { storageObjectsDeleted?: number };
+  /** Objects deleted so far (bytes and row). */
+  media?: UserDataPurgeMedia;
+  /** The result, once finished. */
   result?: UserDataPurgeResult;
+}
+
+/**
+ * The media step's progress, on `payload.media`.
+ *
+ * @stability experimental
+ */
+export interface UserDataPurgeMedia {
+  /** Objects whose bytes and row were deleted. */
+  storageObjectsDeleted?: number;
 }
 
 /** The payload object of a job (`{}` for null or a non-object). */

@@ -12,4 +12,4 @@ export type {
   UseDestructiveJobReturn,
 } from './use-destructive-job.js';
 export { DANGER_ZONE_GROUP_LABEL, dangerZoneLastViolations } from './sections.js';
-export type { SettingsSectionsLike } from './sections.js';
+export type { SettingsCardLike, SettingsSectionLike, SettingsSectionsLike } from './sections.js';

@@ -12,15 +12,37 @@
 export const DANGER_ZONE_GROUP_LABEL = 'Danger Zone';
 
 /**
+ * One card of a settings group, as the check reads it.
+ *
+ * @stability experimental
+ */
+export interface SettingsCardLike {
+  /** The route the card opens. */
+  readonly path?: string;
+}
+
+/**
+ * One settings group, as the check reads it.
+ *
+ * @stability experimental
+ */
+export interface SettingsSectionLike {
+  /** The group label. */
+  readonly label: string;
+  /** Its cards. */
+  readonly cards: readonly SettingsCardLike[];
+}
+
+/**
  * The structural shape of a settings registry the check reads.
  *
  * @stability experimental
  */
 export interface SettingsSectionsLike {
-  /** The groups, in hub order. */
+  /** The number of groups. */
   readonly length: number;
-  /** Each group's label and cards. */
-  readonly [index: number]: { readonly label: string; readonly cards: readonly { readonly path?: string }[] };
+  /** Each group, in hub order. */
+  readonly [index: number]: SettingsSectionLike;
 }
 
 /**

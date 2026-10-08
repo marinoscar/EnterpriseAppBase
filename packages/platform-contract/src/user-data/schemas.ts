@@ -73,7 +73,9 @@ export const userDataJobStatusSchema: z.ZodEnum<UserDataJobStatusEnum> = z.enum(
 export const userDataCategorySummarySchema = z.object({
   /** The registered category id (`files`, `notifications`, an app's own). */
   id: z.string(),
+  /** Shown in the UI. */
   label: z.string(),
+  /** One sentence. */
   description: z.string(),
   /** Whether the built-in `content` scope includes it. */
   content: z.boolean(),
@@ -91,7 +93,9 @@ export const userDataCategorySummarySchema = z.object({
 export const userDataScopeSchema = z.object({
   /** The scope id the deletion request names. Permanent once a job carried it. */
   id: z.string(),
+  /** Shown in the UI. */
   label: z.string(),
+  /** One sentence. */
   description: z.string(),
   /** Which layer of the Danger Zone renders it. */
   layer: userDataScopeLayerSchema,
@@ -107,7 +111,9 @@ export const userDataScopeSchema = z.object({
  * @stability experimental
  */
 export const userDataSummarySchema = z.object({
+  /** Per category. */
   categories: z.array(userDataCategorySummarySchema),
+  /** Every scope the caller may request. */
   scopes: z.array(userDataScopeSchema),
 });
 
@@ -119,7 +125,9 @@ export const userDataSummarySchema = z.object({
  * @stability experimental
  */
 export const userDataDeletionRequestSchema = z.object({
+  /** The scope id. */
   scope: z.string().min(1).max(64),
+  /** The exact phrase. */
   confirmation: z.string().max(200),
 });
 
@@ -130,7 +138,9 @@ export const userDataDeletionRequestSchema = z.object({
  * @stability experimental
  */
 export const userDataJobStartedSchema = z.object({
+  /** The job. */
   jobId: z.string(),
+  /** The job status. */
   status: userDataJobStatusSchema,
 });
 
@@ -161,10 +171,15 @@ export const userDataPurgeResultSchema = z.object({
  * @stability experimental
  */
 export const userDataDeletionStatusSchema = z.object({
+  /** The job. */
   jobId: z.string(),
+  /** The job status. */
   status: userDataJobStatusSchema,
+  /** The scope id. */
   scope: z.string(),
+  /** The result, once succeeded (`null` otherwise). */
   result: userDataPurgeResultSchema.nullable(),
+  /** The failure, once failed (`null` otherwise). */
   error: z.string().nullable(),
 });
 
@@ -174,6 +189,7 @@ export const userDataDeletionStatusSchema = z.object({
  * @stability experimental
  */
 export const factoryResetRequestSchema = z.object({
+  /** The exact phrase. */
   confirmation: z.literal(FACTORY_RESET_CONFIRMATION, {
     error: `Type exactly "${FACTORY_RESET_CONFIRMATION}" to confirm`,
   }),
@@ -197,7 +213,16 @@ export const factoryResetSummarySchema = z.object({
   /** Pending and finished job rows that are not linked to a backup. */
   jobs: count,
   /** Rows per user-data category, across every user. */
-  categories: z.array(z.object({ id: z.string(), label: z.string(), count })),
+  categories: z.array(
+    z.object({
+      /** The category id. */
+      id: z.string(),
+      /** Its label. */
+      label: z.string(),
+      /** Rows across every user. */
+      count,
+    }),
+  ),
 });
 
 /**
@@ -209,6 +234,7 @@ export const factoryResetSummarySchema = z.object({
  * @stability experimental
  */
 export const factoryResetResultSchema = z.object({
+  /** Flat counts (see the schema). */
   counts: counts.default({}),
 });
 
@@ -218,9 +244,13 @@ export const factoryResetResultSchema = z.object({
  * @stability experimental
  */
 export const factoryResetStatusSchema = z.object({
+  /** The job. */
   jobId: z.string(),
+  /** The job status. */
   status: userDataJobStatusSchema,
+  /** The result, once succeeded (`null` otherwise). */
   result: factoryResetResultSchema.nullable(),
+  /** The failure, once failed (`null` otherwise). */
   error: z.string().nullable(),
 });
 
@@ -241,9 +271,17 @@ export const offboardingUserDispositionSchema: z.ZodEnum<OffboardingUserDisposit
  * @stability experimental
  */
 export const orgOffboardingRequestSchema = z.object({
+  /** The exact phrase. */
   confirmation: z.string().max(200),
+  /** What happens to members left without an organization. */
   userDisposition: offboardingUserDispositionSchema.default('keep'),
-  skipExport: z.object({ reason: z.string().trim().min(3).max(500) }).optional(),
+  /** Skip every failing precondition, with a reason. */
+  skipExport: z
+    .object({
+      /** Why, recorded in the audit event. */
+      reason: z.string().trim().min(3).max(500),
+    })
+    .optional(),
 });
 
 /**
@@ -252,9 +290,13 @@ export const orgOffboardingRequestSchema = z.object({
  * @stability experimental
  */
 export const offboardingPreconditionResultSchema = z.object({
+  /** The id. */
   id: z.string(),
+  /** Shown in the UI. */
   label: z.string(),
+  /** Whether it passed. */
   passed: z.boolean(),
+  /** Why not, or `null`. */
   message: z.string().nullable(),
 });
 
@@ -264,16 +306,30 @@ export const offboardingPreconditionResultSchema = z.object({
  * @stability experimental
  */
 export const orgOffboardingSummarySchema = z.object({
-  org: z.object({ id: z.string(), name: z.string(), slug: z.string(), isDefault: z.boolean() }),
+  /** The organization. */
+  org: z.object({
+    /** Its id. */
+    id: z.string(),
+    /** Its name. */
+    name: z.string(),
+    /** Its slug: the confirmation phrase. */
+    slug: z.string(),
+    /** Whether it is the default organization (never offboarded). */
+    isDefault: z.boolean(),
+  }),
   /** `null` when offboarding is possible; otherwise the error code the request answers with. */
   blockedReason: z.string().nullable(),
   /** Org-owned rows per model. */
   models: counts,
+  /** Its memberships. */
   members: count,
+  /** Its invitations. */
   invites: count,
+  /** Stored files that go. */
   storageObjects: count,
   /** Members with no other membership: the users `userDisposition` decides about. */
   usersLeftWithoutOrg: count,
+  /** Every registered precondition with its verdict. */
   preconditions: z.array(offboardingPreconditionResultSchema),
 });
 
@@ -285,6 +341,7 @@ export const orgOffboardingSummarySchema = z.object({
  * @stability experimental
  */
 export const orgOffboardingResultSchema = z.object({
+  /** Flat counts (see the schema). */
   counts: counts.default({}),
 });
 
@@ -294,9 +351,13 @@ export const orgOffboardingResultSchema = z.object({
  * @stability experimental
  */
 export const orgOffboardingStatusSchema = z.object({
+  /** The job. */
   jobId: z.string(),
+  /** The job status. */
   status: userDataJobStatusSchema,
+  /** The result, once succeeded (`null` otherwise). */
   result: orgOffboardingResultSchema.nullable(),
+  /** The failure, once failed (`null` otherwise). */
   error: z.string().nullable(),
 });
 
