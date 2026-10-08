@@ -133,6 +133,7 @@ export function useAppPlatformHost(): PlatformWebHost {
   // #726: org management exists only in multi-org mode.
   const orgs = user?.tenancyMode === 'multi';
   const userId = user?.id ?? null;
+  const email = user?.email ?? null;
 
   return useMemo<PlatformWebHost>(() => {
     const features: Record<string, boolean> = { ai, telemetry, orgs };
@@ -140,12 +141,13 @@ export function useAppPlatformHost(): PlatformWebHost {
       api: appPlatformApi,
       viewer: {
         userId,
+        email,
         hasPermission,
         isFeatureEnabled: (feature) => features[feature] === true,
       },
       formatRelativeTime: (iso) => formatRelativeTime(iso),
     };
-  }, [userId, hasPermission, ai, telemetry, orgs]);
+  }, [userId, email, hasPermission, ai, telemetry, orgs]);
 }
 
 /** `PlatformHostProvider` bound to the app's host. Mount it once, inside the auth provider. */

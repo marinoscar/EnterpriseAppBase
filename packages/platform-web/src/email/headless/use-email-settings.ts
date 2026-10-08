@@ -1,6 +1,6 @@
-/**
- * Load, save and test-send the deployment's email configuration.
- *
+// The email settings hook (issue #124, epic #109; in @marinoscar/platform-web
+// since #737, behaviour unchanged).
+/*
  * Issue #124, epic #109. Shaped after `useSystemSettings` — same `isMounted`
  * discipline, same "error is a string the page renders" contract — with three
  * departures that are specific to this endpoint and are the reason it is a
@@ -21,12 +21,68 @@
  *      refused the message.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { ApiError, getEmailSettings, sendTestEmail, updateEmailSettings } from '../services/api';
-import type { EmailSettings, EmailSettingsInput, EmailTestResult } from '../types';
-import { useIsMounted } from './useIsMounted';
+import type {
+  EmailProviderKind,
+  EmailSettingsResponse,
+  TestEmailResult,
+  UpdateEmailSettingsInput,
+} from '@marinoscar/platform-contract/email';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-interface UseEmailSettingsReturn {
+import { isPlatformApiError, useOptionalPlatformHost } from '../../core/index.js';
+import type { PlatformApiClient } from '../../core/index.js';
+
+/**
+ * The stored email configuration as `GET /api/email-settings` returns it: the
+ * settings, the masked status of both secrets, the repair message and the row
+ * version.
+ *
+ * @stability experimental
+ */
+export type EmailSettings = EmailSettingsResponse;
+
+/**
+ * The `PUT /api/email-settings` body. A blank or absent `smtpPassword` /
+ * `sesSecretAccessKey` keeps the stored secret.
+ *
+ * @stability experimental
+ */
+export type EmailSettingsInput = UpdateEmailSettingsInput;
+
+/**
+ * The last test attempt. A real response carries every field; the hook builds
+ * a partial one (`success: false` and the API's message) when the CALL itself
+ * failed (403, 500, a dropped connection), so both land in the same place.
+ *
+ * @stability experimental
+ */
+export type EmailTestResult = Partial<Omit<TestEmailResult, 'success'>> & { success: boolean };
+
+/**
+ * The masked status of a stored secret.
+ *
+ * @stability experimental
+ */
+export type SmtpPasswordStatus = EmailSettingsResponse['smtpPasswordStatus'];
+
+export type { EmailProviderKind };
+
+/**
+ * Options of {@link useEmailSettings}.
+ *
+ * @stability experimental
+ */
+export interface UseEmailSettingsOptions {
+  /** The transport. Default: the `PlatformHostProvider`'s (keep its identity stable). */
+  api?: PlatformApiClient;
+}
+
+/**
+ * What {@link useEmailSettings} returns.
+ *
+ * @stability experimental
+ */
+export interface UseEmailSettingsReturn {
   settings: EmailSettings | null;
   isLoading: boolean;
   /** Failure to LOAD. Distinct from `saveError`: one means "nothing to edit", the other "your edit did not stick". */
@@ -44,7 +100,43 @@ interface UseEmailSettingsReturn {
   refresh: () => Promise<void>;
 }
 
-export function useEmailSettings(): UseEmailSettingsReturn {
+/** A mounted guard for every `setState` past an `await`. */
+function useIsMounted(): () => boolean {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return useCallback(() => mounted.current, []);
+}
+
+/**
+ * Load, save and test-send the deployment's email configuration
+ * (`system_settings:read` to load, `system_settings:write` to save and send).
+ * Save is a PUT with the loaded version as `If-Match`; a 409 reloads the form
+ * and says so. A failed test send is a result, never a rejected promise.
+ *
+ * @param options - the transport, when the hook runs outside the host provider.
+ * @returns the settings, the flags and the three actions.
+ * @throws Error when there is neither a host nor an `api` option.
+ *
+ * @example
+ * ```tsx
+ * const { settings, save, sendTest, testResult } = useEmailSettings();
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
+export function useEmailSettings(options: UseEmailSettingsOptions = {}): UseEmailSettingsReturn {
+  const host = useOptionalPlatformHost();
+  const api = options.api ?? host?.api;
+  if (!api) {
+    throw new Error('useEmailSettings needs a transport: mount PlatformHostProvider (@marinoscar/platform-web/core) or pass { api }.');
+  }
+
   const [settings, setSettings] = useState<EmailSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -63,22 +155,22 @@ export function useEmailSettings(): UseEmailSettingsReturn {
     try {
       setIsLoading(true);
       setLoadError(null);
-      const data = await getEmailSettings();
+      const data = await api.get<EmailSettings>('/email-settings');
       if (isMounted()) setSettings(data);
     } catch (err) {
       if (isMounted()) {
         // 403 is named explicitly because it is the one failure the admin can
         // act on themselves; everything else surfaces the API's own message.
-        if (err instanceof ApiError && err.status === 403) {
+        if (isPlatformApiError(err) && err.status === 403) {
           setLoadError('You do not have permission to view email settings');
         } else {
-          setLoadError(err instanceof ApiError ? err.message : 'Failed to load email settings');
+          setLoadError(isPlatformApiError(err) ? err.message : 'Failed to load email settings');
         }
       }
     } finally {
       if (isMounted()) setIsLoading(false);
     }
-  }, [isMounted]);
+  }, [api, isMounted]);
 
   useEffect(() => {
     fetchSettings();
@@ -110,7 +202,7 @@ export function useEmailSettings(): UseEmailSettingsReturn {
         // than "omit when we have none": 0 is the API's way of asserting "I
         // believe nothing is stored yet", so even a first save on a fresh
         // deployment is guarded rather than being the one unprotected write.
-        const data = await updateEmailSettings(input, settings?.version ?? 0);
+        const data = await api.put<EmailSettings>('/email-settings', input, { ifMatch: String(settings?.version ?? 0) });
         if (isMounted()) setSettings(data);
         return true;
       } catch (err) {
@@ -121,7 +213,7 @@ export function useEmailSettings(): UseEmailSettingsReturn {
         // have been replaced — a message alone, over a form still holding the
         // stale values, would invite the admin to press Save again and
         // (version now current) overwrite the colleague's change for real.
-        if (err instanceof ApiError && err.status === 409) {
+        if (isPlatformApiError(err) && err.status === 409) {
           await fetchSettings();
           if (isMounted()) {
             setSaveError(
@@ -132,14 +224,14 @@ export function useEmailSettings(): UseEmailSettingsReturn {
           return false;
         }
         if (isMounted()) {
-          setSaveError(err instanceof ApiError ? err.message : 'Failed to save email settings');
+          setSaveError(isPlatformApiError(err) ? err.message : 'Failed to save email settings');
         }
         return false;
       } finally {
         if (isMounted()) setIsSaving(false);
       }
     },
-    [settings, fetchSettings, isMounted],
+    [api, settings, fetchSettings, isMounted],
   );
 
   /**
@@ -161,7 +253,7 @@ export function useEmailSettings(): UseEmailSettingsReturn {
     try {
       setIsTesting(true);
       setTestResult(null);
-      const result = await sendTestEmail();
+      const result = await api.post<EmailTestResult>('/email-settings/test');
       if (isMounted()) setTestResult(result);
     } catch (err) {
       if (isMounted()) {
@@ -170,13 +262,13 @@ export function useEmailSettings(): UseEmailSettingsReturn {
           // The API's message verbatim — a 403 from a read-only admin and a
           // 500 from a broken provider module read very differently, and
           // flattening both to "test failed" would throw away the only clue.
-          error: err instanceof ApiError ? err.message : 'The test request could not be sent',
+          error: isPlatformApiError(err) ? err.message : 'The test request could not be sent',
         });
       }
     } finally {
       if (isMounted()) setIsTesting(false);
     }
-  }, [isMounted]);
+  }, [api, isMounted]);
 
   const clearTestResult = useCallback(() => setTestResult(null), []);
   const clearSaveError = useCallback(() => setSaveError(null), []);

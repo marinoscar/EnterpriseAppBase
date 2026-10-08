@@ -46,6 +46,7 @@ import {
   AlertTitle,
   Box,
   Button,
+  CircularProgress,
   Container,
   Divider,
   FormControl,
@@ -63,15 +64,14 @@ import {
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import { Navigate } from 'react-router-dom';
-import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { useEmailSettings } from '../../hooks/useEmailSettings';
-import { LoadingSpinner } from '../../components/common/LoadingSpinner';
+import { usePlatformViewer } from '../../core/index.js';
+import { useEmailSettings } from '../headless/index.js';
 import type {
   EmailProviderKind,
   EmailSettings,
   EmailSettingsInput,
   SmtpPasswordStatus,
-} from '../../types';
+} from '../headless/index.js';
 
 /**
  * The form's own state, FLAT and all-strings-where-typed.
@@ -287,9 +287,22 @@ function validate(form: EmailFormState): Partial<Record<keyof EmailFormState, st
   return errors;
 }
 
+/**
+ * `/admin/settings/email`: the email transport, sender and secrets, and the
+ * test send. Routed behind `system_settings:read` (the `Email` card's
+ * permission, the exact string the API enforces on `GET /api/email-settings`);
+ * saving and test-sending need `system_settings:write`, and the page disables
+ * both without it. Reads the viewer from the `PlatformHostProvider`.
+ *
+ * @returns the page.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export default function EmailSettingsPage() {
-  const { user } = useAuth();
-  const { hasPermission } = usePermissions();
+  const viewer = usePlatformViewer();
+  const { hasPermission } = viewer;
+  const user = { email: viewer.email ?? undefined };
   const {
     settings,
     isLoading,
@@ -345,7 +358,11 @@ export default function EmailSettingsPage() {
   const canWrite = hasPermission('system_settings:write');
 
   if (isLoading || (!form && !loadError)) {
-    return <LoadingSpinner />;
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+        <CircularProgress size={40} />
+      </Box>
+    );
   }
 
   const errors = form ? validate(form) : {};

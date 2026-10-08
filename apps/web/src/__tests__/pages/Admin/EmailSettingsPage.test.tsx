@@ -16,9 +16,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockAdminUser } from '../../utils/test-utils';
-import type { EmailSettings, EmailTestResult } from '../../../types';
+import type { EmailSettings, EmailTestResult } from '@marinoscar/platform-web/email/headless';
 
-vi.mock('../../../hooks/useEmailSettings', () => ({
+// The page lives in @marinoscar/platform-web/email/ui since #737; mocking the
+// headless entry replaces the hook the page imports.
+vi.mock('@marinoscar/platform-web/email/headless', () => ({
   useEmailSettings: vi.fn(),
 }));
 
@@ -27,9 +29,9 @@ vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => 
   usePermissions: vi.fn(),
 }));
 
-import { useEmailSettings } from '../../../hooks/useEmailSettings';
+import { useEmailSettings } from '@marinoscar/platform-web/email/headless';
 import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import EmailSettingsPage from '../../../pages/Admin/EmailSettingsPage';
+import EmailSettingsPage from '@marinoscar/platform-web/email/ui';
 
 const mockUseEmailSettings = vi.mocked(useEmailSettings);
 const mockUsePermissions = vi.mocked(usePermissions);
