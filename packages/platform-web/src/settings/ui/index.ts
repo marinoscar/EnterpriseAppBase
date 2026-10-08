@@ -8,4 +8,7 @@ export type { SettingsHubProps } from './SettingsHub.js';
 export { cardPermissionGranted, settingsPageTitle, visibleSettingsSections } from './registry.js';
 export type { SettingsCardDef, SettingsSectionDef } from './registry.js';
 export { isFeatureEnabled } from '../headless/features.js';
-export type { SettingsFeatureKey, SettingsFeatureRegistry, SettingsFeatures } from '../headless/features.js';
+// `SettingsFeatureRegistry` is augmented and imported from `/settings/headless`,
+// where it is declared (#865): a re-export here would be a second, aliased
+// augmentation target.
+export type { SettingsFeatureKey, SettingsFeatures } from '../headless/features.js';

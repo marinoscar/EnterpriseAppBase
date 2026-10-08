@@ -13,7 +13,7 @@ import {
   type SettingsFeatureKey,
 } from '../../src/settings/headless/features.js';
 
-declare module '../../src/settings/headless/features.js' {
+declare module '../../src/settings/headless/index.js' {
   interface SettingsFeatureRegistry {
     /** A test app's own feature. */
     coachMode: true;
