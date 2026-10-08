@@ -50,12 +50,18 @@ export const SHARING_LIMITS: {
   readonly pageSizeMax: 100;
   /** The page size when none is asked for. */
   readonly pageSizeDefault: 20;
+  /** Longest resource type id or grant role, in characters (#729). */
+  readonly grantIdentifierMax: 64;
+  /** Longest link label, in characters (#730). */
+  readonly linkLabelMax: 120;
 } = {
   groupNameMax: 120,
   groupDescriptionMax: 2000,
   emailMax: 320,
   pageSizeMax: 100,
   pageSizeDefault: 20,
+  grantIdentifierMax: 64,
+  linkLabelMax: 120,
 };
 
 /**
@@ -82,3 +88,81 @@ export const GROUP_INVITE_LIST_FILTERS = ['pending', 'all'] as const;
  * @stability experimental
  */
 export type SharingEnumEntries<T extends string> = { [K in T]: K };
+
+// ---- grants (issue #729, PP-7.2) ---------------------------------------------------
+
+/**
+ * Who a grant shares a record with: one `user` of the organization, one
+ * `group` of the organization, or anyone holding a `link` token (#730).
+ *
+ * @stability experimental
+ */
+export const GRANT_GRANTEE_KINDS = ['user', 'group', 'link'] as const;
+
+/**
+ * One of {@link GRANT_GRANTEE_KINDS}.
+ *
+ * @stability experimental
+ */
+export type GrantGranteeKind = (typeof GRANT_GRANTEE_KINDS)[number];
+
+/**
+ * How a "shared with me" item reaches the caller: a grant to them, or a grant
+ * to a group they belong to.
+ *
+ * @stability experimental
+ */
+export const SHARED_WITH_ME_VIA = ['user_grant', 'group_grant'] as const;
+
+/**
+ * The scopes of a "resources I can see" list: `owned` (owned by me),
+ * `groups` (owned by a group I belong to), `shared` (shared with me through a
+ * grant, or visible through the type's organization-wide default) and `all`
+ * (the union).
+ *
+ * @stability experimental
+ */
+export const ACCESS_SCOPES = ['owned', 'groups', 'shared', 'all'] as const;
+
+/**
+ * One of {@link ACCESS_SCOPES}.
+ *
+ * @stability experimental
+ */
+export type AccessScope = (typeof ACCESS_SCOPES)[number];
+
+/**
+ * Resource type ids and grant roles: lower-case snake_case, like a table name
+ * or a job type segment (`transcript`, `media_item`, `viewer`).
+ *
+ * @stability experimental
+ */
+export const SHARING_IDENTIFIER_PATTERN: RegExp = /^[a-z][a-z0-9_]*$/;
+
+/**
+ * The request header a link-share token travels in on API calls (#730). The
+ * token reaches the browser in the URL FRAGMENT (`/s#<token>`), never in a
+ * path or a query string, so it never lands in an access log or a `Referer`.
+ *
+ * @stability experimental
+ */
+export const LINK_TOKEN_HEADER = 'x-link-token';
+
+/**
+ * The share URL of a link grant: `${appUrl}/s#${token}`. The token is in the
+ * fragment, which a browser never sends to a server.
+ *
+ * @param appUrl - the application's public origin (`APP_URL`); a trailing slash is dropped.
+ * @param token - the link token.
+ * @returns the URL to hand out.
+ *
+ * @example
+ * ```ts
+ * buildLinkUrl('https://app.example.com/', 'abc'); // 'https://app.example.com/s#abc'
+ * ```
+ *
+ * @stability experimental
+ */
+export function buildLinkUrl(appUrl: string, token: string): string {
+  return `${appUrl.replace(/\/+$/, '')}/s#${token}`;
+}
