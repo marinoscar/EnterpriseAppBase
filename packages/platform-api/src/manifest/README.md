@@ -158,16 +158,14 @@ New in this release. For an app that kept its own copies:
 - Replace a hand-written permission manifest with `registerPlatformPermissions({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS] } })`; the registries, ids, order and catalog are unchanged, so a committed catalog regenerates byte-identical. Derive `PERMISSIONS` with `permissionIds(PLATFORM_PERMISSIONS)` and `ROLES` with `roleIds(PLATFORM_ROLES)` (both from `core`).
 - Replace a local platform user-owned list with `registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS)`, and a local platform model ownership list with `registerPlatformModelOwnership(APP_MODEL_OWNERSHIP)`.
 
-### Starter follow-up
+### The starter
 
-The starter template (#741) hand-wrote both. Once #741 merges, it should:
+The starter template (`starter/`, #741) uses this slice instead of the hand-written lists it shipped with:
 
-1. Delete `apps/api/src/platform/permissions.ts` (`ROLES`, `PERMISSIONS`, `defaultGrants()`).
-2. Seed from the registry: in `prisma/seed.ts`, build `permissions` with `platformPermissionCatalog({ slices: ['identity', 'settings', 'jobs', 'nodes'], app: { permissions: [NOTES_PERMISSIONS] } })` and pass it, with `composeDefaultSystemSettings()`, through `platformSeedInputFrom({ permissions, settings }, process.env)` to `seedPlatform`. Widen `slices` as it mounts more slices.
-3. Add a permission manifest imported by `main.ts` and the conformance spec (`registerPlatformPermissions({ slices, app: { permissions: [NOTES_PERMISSIONS] } })`), and give the identity suite `permissionRegistry.list()`, `roleRegistry.list()` and `catalogGrants(buildPermissionCatalog())`.
-4. Replace `registerUserOwnedModels(APP_USER_OWNED_MODELS)` in `notes.ownership.ts` with `registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS)` (in one manifest, so it runs once). Without it a `forUser()` client refuses every platform model.
-5. Point the `userOwnedData` suite at the whole composed schema (`prisma/schema`, not `prisma/fragments`) with `policies: userOwnedModelRegistry.list()`, so platform and app models are checked together.
-6. Drop the "packaged role and permission registry and the platform's user-owned model inventory" bullet from the README's "Known gaps".
+- `starter/apps/api/src/platform/permissions.ts` holds only the options (`slices: ['identity', 'settings', 'jobs', 'nodes']`, `app: { permissions: [NOTES_PERMISSIONS] }`);
+- `starter/apps/api/prisma/seed.ts` seeds `platformSeedInputFrom({ permissions: platformPermissionCatalog(PERMISSION_OPTIONS), settings }, process.env)`;
+- `starter/apps/api/src/platform/registrations.ts` calls `registerPlatformPermissions`, `registerPlatformUserOwnedModels` and `registerPlatformModelOwnership` with the app's entries (`notes.ownership.ts`), imported before the first scoped client;
+- its conformance run checks the whole composed schema (`prisma/schema`) against `userOwnedModelRegistry.list()`, and the identity suite against the filled registries.
 
 ## Troubleshooting
 
