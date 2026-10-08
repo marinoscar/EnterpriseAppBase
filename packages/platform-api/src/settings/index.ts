@@ -100,6 +100,7 @@ export interface UserSettingsNamespaceDeclarations {}
 export {
   RESERVED_SYSTEM_SETTINGS_KEYS,
   SETTINGS_NAMESPACE_KEY_PATTERN,
+  ensureSystemSettingsNamespaces,
   registerSystemSettingsNamespaces,
   systemSettingsNamespaceRegistry,
 } from './registry/system-settings-namespace';

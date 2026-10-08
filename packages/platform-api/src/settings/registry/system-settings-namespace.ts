@@ -307,3 +307,62 @@ export const systemSettingsNamespaceRegistry = defineRegistry<SystemSettingsName
 export function registerSystemSettingsNamespaces(namespaces: readonly SystemSettingsNamespace[]): void {
   systemSettingsNamespaceRegistry.registerAll(namespaces);
 }
+
+// Set once `createSystemSettingsController()` (`SettingsModule.forRoot()`) has
+// built the request-body DTOs from the registry: a namespace registered later
+// would be stored and returned, but every PUT and PATCH of it would be
+// stripped by the validation pipe before the service saw it.
+let requestBodiesComposed = false;
+
+/**
+ * Records that `SettingsModule.forRoot()` composed the request bodies from the
+ * registry as it is now. Called by `createSystemSettingsController()`.
+ *
+ * @internal
+ */
+export function markSystemSettingsRequestBodiesComposed(): void {
+  requestBodiesComposed = true;
+}
+
+/**
+ * Registers each of a slice's own namespaces that the app has not registered
+ * itself, in order, all or nothing (#865). For a slice's `forRoot()`
+ * (`JobsModule`, `NodesModule`): a slice that owns a namespace registers it,
+ * so an app wires the slice without copying its declaration. A key already
+ * registered (by the app's manifest, possibly extended) is left alone, so an
+ * app that pins the stored key order lists the declaration in its manifest
+ * and this is a no-op.
+ *
+ * Call it before `SettingsModule.forRoot()`: the request bodies are composed
+ * there, once.
+ *
+ * @param namespaces - the slice's declarations, in order.
+ * @param owner - who registers them, for the error message (`'JobsModule.forRoot()'`).
+ * @returns the keys it registered (empty when every key was already registered,
+ *   or when the registries are frozen: an application already bootstrapped in
+ *   this process, as in a test file that builds several).
+ * @throws Error naming the owner, the keys and the remedy when
+ *   `SettingsModule.forRoot()` already composed the request bodies without them.
+ * @throws RegistryError when a declaration is invalid.
+ *
+ * @example
+ * ```ts
+ * ensureSystemSettingsNamespaces([JOBS_SYSTEM_SETTINGS], 'JobsModule.forRoot()');
+ * ```
+ *
+ * @stability experimental
+ */
+export function ensureSystemSettingsNamespaces(namespaces: readonly SystemSettingsNamespace[], owner: string): string[] {
+  const missing = namespaces.filter((ns) => !systemSettingsNamespaceRegistry.has(ns.key));
+  if (missing.length === 0 || systemSettingsNamespaceRegistry.frozen) return [];
+  const keys = missing.map((ns) => ns.key);
+  if (requestBodiesComposed) {
+    throw new Error(
+      `${owner} registers the system settings namespace(s) ${keys.map((k) => `"${k}"`).join(', ')}, but SettingsModule.forRoot() ` +
+        'already composed the request bodies without them, so PUT and PATCH /api/system-settings would drop them. ' +
+        `Call ${owner} before SettingsModule.forRoot(), or register the declaration(s) in the app's settings manifest.`,
+    );
+  }
+  systemSettingsNamespaceRegistry.registerAll(missing);
+  return keys;
+}
