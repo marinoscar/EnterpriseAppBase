@@ -8,6 +8,7 @@
 // =============================================================================
 
 import {
+  RECENT_ORG_EXPORT_PRECONDITION,
   registerFactoryResetStep,
   registerOffboardingPrecondition,
   registerPlatformUserData,
@@ -25,6 +26,10 @@ import {
 } from '../../app-registrations/user-data';
 
 registerPlatformUserData();
+// "Export, then purge the org" (#744): this app mounts the exports slice, so an
+// organization is offboarded only after an `org-data` export of it succeeded in
+// the last 7 days (or the operator gives a reason to skip, which is audited).
+registerOffboardingPrecondition(RECENT_ORG_EXPORT_PRECONDITION);
 
 // App-owned entries last.
 APP_USER_DATA_CATEGORIES.forEach(registerUserDataCategory);

@@ -43,7 +43,7 @@ Consequences to announce: every personal access token stops working (`401`), dev
 
 ## Offboard an organization
 
-1. Optionally export the organization's data first (the data export slice registers a precondition: "an export completed in the last 7 days").
+1. Export the organization's data first and download the file: switch to the organization, open **Download your data** (`/settings/data-export`), choose the organization's data. Offboarding requires an `org-data` export that succeeded in the last 7 days, and it deletes the organization's export files with everything else.
 2. Open `/admin/settings/organizations`, find the organization, click **Offboard**.
 3. Read what goes (rows per model, members, invitations, stored files) and how many members are left without any organization. Choose:
    - **Keep their accounts** (default): they remain and cannot sign in until invited somewhere;

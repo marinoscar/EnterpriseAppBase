@@ -185,7 +185,7 @@ npm run openapi:dump && npm run openapi:lint
 
 ## 8. Open seams
 
-- **The offboarding precondition.** Offboarding an organization (#743) will require "an `org-data` export completed in the last 7 days" through its `OffboardingPrecondition` registry. That registry had not merged when this framework did, so the registration is a follow-up, wired by whichever of the two lands second.
+- **The offboarding precondition** (wired by #743). Offboarding an organization requires "an `org-data` export completed in the last 7 days": `RECENT_ORG_EXPORT_PRECONDITION` of `@marinoscar/platform-api/user-data`, registered by the reference app's user-data manifest because it mounts this slice. It reads the queue's own `export.run` rows; an operator may skip it with an audited reason. See [user-data-reset.md §2.5](user-data-reset.md#25-organization-offboarding-orgoffboard).
 - **The telemetry export's CSV.** The telemetry slice keeps its internal copy of the CSV helpers until it exposes a seam to take this slice's (a slice may only import the slices it lists in `packages/platform-slices.json`).
 - **An action on the organization pages.** Organization administrators export from "Download your data", which offers them `org-data`. A button on the packaged Organization page (#726) needs a slot there.
 - **Files in the user export.** `storage_object` is a manifest; including the bytes ("with files") is a seam request.

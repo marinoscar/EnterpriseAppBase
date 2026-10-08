@@ -7,7 +7,7 @@ Three destructive flows on one decision table. A user deletes what they own and 
 ## 1. Purpose
 
 - **Is:** a registry-driven "delete my data" with scopes (kvox's narrow scopes, EvoPath's single `everything`), a deployment-wide factory reset, and organization offboarding ("export, then purge the org", [platform-packages.md](platform-packages.md)).
-- **Is not:** account deletion (no app ships it; the `User` row stays), a restore, or the data export (#744, which registers the offboarding export precondition).
+- **Is not:** account deletion (no app ships it; the `User` row stays), a restore, or the data export ([data-export.md](data-export.md), #744; its `org-data` export is the offboarding precondition).
 - **Why:** both source apps hand-maintained the keep-or-delete decision for every model (EvoPath's `user-data-purge.ts`, about 25 tables, "no test discovers a new model, so the decision is manual"; kvox's `scopeIncludes()`). A forker either left data behind or failed on a foreign key. Here the decision is registry data, the order is computed, and a conformance suite fails when a model with an owner column has no decision.
 
 ## 2. How it works
@@ -73,6 +73,8 @@ Kept: the actor and their session, roles and permissions, configuration, backups
 ### 2.5 Organization offboarding (`org.offboard`)
 
 Multi-organization mode only (`409 OFFBOARDING_REQUIRES_MULTI_ORG` otherwise); the default organization is never offboarded (`409 DEFAULT_ORG_NOT_OFFBOARDABLE`). The phrase is the organization's slug. Every registered `OffboardingPrecondition` must pass unless `skipExport.reason` is given (`409 OFFBOARDING_PRECONDITION_FAILED` with `details.preconditions`); the reason and the skipped ids go in the audit `meta`.
+
+The reference app registers `RECENT_ORG_EXPORT_PRECONDITION` ("export, then purge", [data-export.md](data-export.md)): an `export.run` job of the organization, `succeeded`, finished in the last 7 days (the export file's retention), whose payload names the `org-data` source and carries a committed result. An app without the exports slice does not register it. The offboarding deletes the organization's export files too (`exports/orgs/<orgId>/`), so download the export before confirming.
 
 1. Pending jobs with this `org_id` (except this one);
 2. The members left with no other membership are recorded on the payload (once);

@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/user-data
 
-The user-data slice of the API package (issue #743, PP-9.1): the per-user deletion with scopes (`user.data.purge`, `/api/user-data/*`), the admin factory reset (`admin.factory_reset`, `/api/admin/factory-reset/*`) and organization offboarding (`org.offboard`, `/api/admin/orgs/:orgId/offboarding/*`). Harvested from EvoPath's user data reset and factory reset and kvox's scoped deletion, which shared no file. It depends on `core` (the user-owned and model-ownership registries, the audit sink), `otel-core` (the metrics), `identity` (the route decorators), `jobs` (the queue), `storage` (the provider, the key-prefix registry), `sharing` (the group membership removal hook) and `testing` (the schema reader and the conformance harness) (`packages/platform-slices.json`).
+The user-data slice of the API package (issue #743, PP-9.1): the per-user deletion with scopes (`user.data.purge`, `/api/user-data/*`), the admin factory reset (`admin.factory_reset`, `/api/admin/factory-reset/*`) and organization offboarding (`org.offboard`, `/api/admin/orgs/:orgId/offboarding/*`). Harvested from EvoPath's user data reset and factory reset and kvox's scoped deletion, which shared no file. It depends on `core` (the user-owned and model-ownership registries, the audit sink), `otel-core` (the metrics), `identity` (the route decorators), `jobs` (the queue), `storage` (the provider, the key-prefix registry), `sharing` (the group membership removal hook), `exports` (the recent-export offboarding precondition) and `testing` (the schema reader and the conformance harness) (`packages/platform-slices.json`).
 
 ## Purpose and scope
 
@@ -21,7 +21,7 @@ Three server-only jobs, each with a permanent type string:
 | `admin.factory_reset` | none (one per deployment) | 30 min, 3 attempts | Jobs, every user's data, `before-users` steps, nodes to the actor, org data and other users, leftovers and `deployment` steps, storage outside the surviving prefixes, organizations but the default |
 | `org.offboard` | `organization:<orgId>` | 60 min, 3 attempts | Pending jobs, org-owned rows (DMMF order), the org's objects, invites and memberships, the users left without an organization (`keep` or `purge`), the organization |
 
-Not here: account deletion (no app ships it), data export (#744 fills the offboarding precondition registry), the pages (`@marinoscar/platform-web/user-data`).
+Not here: account deletion (no app ships it), the data export itself (`@marinoscar/platform-api/exports`; this slice ships `RECENT_ORG_EXPORT_PRECONDITION` for an app that mounts it), the pages (`@marinoscar/platform-web/user-data`).
 
 ## Install and peer dependencies
 
@@ -89,7 +89,7 @@ No environment variable and no settings namespace. `DEPLOYMENT_MODE=saas` disabl
 
 The purge hints (`category`, `storageObjectColumns`, `keepWhenReferenced`, `delegate`, `storageObjects`, `factoryReset`) are fields of `UserDataModelHint`; `legacyJobTypes` is a field of `UserDataModuleOptions`; both are shown in [user-data.examples.ts](../../../../apps/api/src/examples/user-data/user-data.examples.ts).
 
-Supporting exports (experimental): the read side of the registries (`userDataCategoryRegistry`, `userDataScopeRegistry`, `factoryResetStepRegistry`, `offboardingPreconditionRegistry`), the platform declarations (`PLATFORM_USER_DATA_CATEGORIES`, `PLATFORM_USER_DATA_MODELS`, `PLATFORM_FACTORY_RESET_STEPS`, `registerPlatformUserData`), the scope helpers (`BUILT_IN_USER_DATA_SCOPES`, `resolvedUserDataScopes`, `findUserDataScope`, `categoriesOfScope`), the planner (`orderForDeletion`, `relationsOf`, `selfUnlinkFields`, `backRelationFields`, `planUserPurge`, `UserDataPlanError`), the stateless purge functions (`collectUserObjectIds`, `deleteUserRows`, `deleteStorageObjects`, `countUserData`), the services, handlers, DTOs, permissions (`USER_DATA_PERMISSIONS`), metrics (`USER_DATA_APP_METRICS`) and audit actions (`USER_DATA_AUDIT_ACTIONS`).
+Supporting exports (experimental): `RECENT_ORG_EXPORT_PRECONDITION`, `recentOrgExportPrecondition(windowDays)` and `RECENT_ORG_EXPORT_PRECONDITION_ID` (an `org-data` export of the organization succeeded in the last 7 days; the reference app registers it in its user-data manifest), the read side of the registries (`userDataCategoryRegistry`, `userDataScopeRegistry`, `factoryResetStepRegistry`, `offboardingPreconditionRegistry`), the platform declarations (`PLATFORM_USER_DATA_CATEGORIES`, `PLATFORM_USER_DATA_MODELS`, `PLATFORM_FACTORY_RESET_STEPS`, `registerPlatformUserData`), the scope helpers (`BUILT_IN_USER_DATA_SCOPES`, `resolvedUserDataScopes`, `findUserDataScope`, `categoriesOfScope`), the planner (`orderForDeletion`, `relationsOf`, `selfUnlinkFields`, `backRelationFields`, `planUserPurge`, `UserDataPlanError`), the stateless purge functions (`collectUserObjectIds`, `deleteUserRows`, `deleteStorageObjects`, `countUserData`), the services, handlers, DTOs, permissions (`USER_DATA_PERMISSIONS`), metrics (`USER_DATA_APP_METRICS`) and audit actions (`USER_DATA_AUDIT_ACTIONS`).
 
 ## Data
 

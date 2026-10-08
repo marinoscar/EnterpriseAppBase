@@ -51,6 +51,11 @@ export {
 } from './platform-user-data';
 export { groupMembershipRemovalHook } from './user-removal-hooks';
 export {
+  RECENT_ORG_EXPORT_PRECONDITION,
+  RECENT_ORG_EXPORT_PRECONDITION_ID,
+  recentOrgExportPrecondition,
+} from './preconditions/recent-org-export';
+export {
   UserDataPlanError,
   backRelationFields,
   delegateName,

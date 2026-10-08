@@ -22,6 +22,7 @@ function matchValue(value: any, cond: any): boolean {
   if ('in' in cond) return cond.in.includes(value);
   if ('notIn' in cond) return !cond.notIn.includes(value);
   if ('gt' in cond) return value > cond.gt;
+  if ('gte' in cond) return value >= cond.gte;
   if ('startsWith' in cond) return typeof value === 'string' && value.startsWith(cond.startsWith);
   return false;
 }
