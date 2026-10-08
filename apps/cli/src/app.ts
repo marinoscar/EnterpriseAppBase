@@ -1,4 +1,6 @@
+import { ANDROID_IDENTITY_SOURCE } from '@app/shared';
 import type { CreateCliOptions } from '@marinoscar/platform-cli';
+import { androidCommand, androidDeployStep, androidTuiScreen } from '@marinoscar/platform-cli/android';
 
 import { CLI_IDENTITY } from './branding.js';
 import { CLI_VERSION } from './package-info.js';
@@ -24,12 +26,20 @@ import { CLI_VERSION } from './package-info.js';
 //
 // The examples are compiled and tested (examples/*.test.ts) but NOT wired
 // here, so `appctl --help` and the TUI menu stay the platform's.
+//
+// THE ANDROID COMPANION (#746) IS WIRED: the reference app ships `apps/android`,
+// so its CLI carries the platform's `android` group (`@marinoscar/platform-cli/android`),
+// the Android TUI screen, and the optional deploy step (after `verify` on
+// install and update; it runs only with `APPCTL_DEPLOY_ANDROID=1` and never
+// fails a deploy). A fork without an Android app removes these three lines.
 // =============================================================================
 
 /** The options `cli.ts` builds this app's CLI with. */
 export const APP_CLI_OPTIONS: CreateCliOptions = {
   identity: CLI_IDENTITY,
   version: CLI_VERSION,
-  extraCommands: [],
+  extraCommands: [androidCommand({ identity: ANDROID_IDENTITY_SOURCE })],
+  tuiScreens: [androidTuiScreen],
+  deploySteps: [androidDeployStep({ pipeline: 'install' }), androidDeployStep({ pipeline: 'update' })],
   envSpecFragments: [],
 };

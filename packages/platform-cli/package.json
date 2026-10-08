@@ -55,6 +55,10 @@
       "types": "./dist/api-client/index.d.ts",
       "default": "./dist/api-client/index.js"
     },
+    "./android": {
+      "types": "./dist/android/index.d.ts",
+      "default": "./dist/android/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -74,6 +78,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "@marinoscar/platform-contract": "0.1.0-next.3",
     "@marinoscar/platform-infra": "0.1.0-next.3",
     "commander": "^14.0.2",
     "ink": "^7.1.1",

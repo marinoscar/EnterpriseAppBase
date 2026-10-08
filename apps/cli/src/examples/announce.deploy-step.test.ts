@@ -14,9 +14,11 @@ beforeEach(() => resetCliForTests());
 afterEach(() => resetCliForTests());
 
 describe('announceInstall', () => {
-  it('is not in the shipped install plan', () => {
+  it('is not in the shipped install plan (which carries only the Android step, #746)', () => {
     createCli(APP_CLI_OPTIONS);
-    expect(planDeploySteps('install').map((step) => step.id)).toEqual([...INSTALL_STEP_IDS]);
+    const ids = [...INSTALL_STEP_IDS] as string[];
+    ids.splice(ids.indexOf('verify') + 1, 0, 'android-release');
+    expect(planDeploySteps('install').map((step) => step.id)).toEqual(ids);
   });
 
   it('runs right after verify once passed in deploySteps', () => {

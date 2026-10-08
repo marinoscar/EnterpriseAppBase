@@ -69,7 +69,7 @@ Keep this list current when you add one.
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `APP_NAME` |
 | Web theme (`palette.primary.main`, light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |
 | Web app manifest | `apps/web/pwa/manifest.ts` | `APP_NAME`, `THEME_COLOR`, `BACKGROUND_COLOR` |
-| Android companion identity (API, web, CLI; Gradle reads `identity.json` itself) | `apps/api/src/platform/android-app/android-app.config.ts`, `apps/web/src/config/androidApp.ts`, `apps/cli/src/android.ts`, `apps/android/app/build.gradle.kts` | `ANDROID_IDENTITY_SOURCE` |
+| Android companion identity (API, web, CLI; Gradle reads `identity.json` itself) | `apps/api/src/platform/android-app/android-app.config.ts`, `apps/web/src/config/androidApp.ts`, `apps/cli/src/app.ts`, `apps/android/app/build.gradle.kts` | `ANDROID_IDENTITY_SOURCE` |
 | Brand icons and favicon (generated pixels) | `apps/web/public/icons/*.png`, `apps/web/public/favicon.ico` via `apps/web/scripts/generate-icons.py` | `THEME_COLOR`, `BACKGROUND_COLOR` |
 
 ## Brand icons
