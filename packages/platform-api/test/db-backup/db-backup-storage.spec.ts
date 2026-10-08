@@ -1,17 +1,29 @@
-import { APP_NAME } from '@app/shared';
-
 import {
   BACKUP_ARCHIVE_FORMAT,
   BACKUP_KEY_PREFIX,
   BACKUP_NAME_SLUG,
   assertUsableStorageProvider,
+  configureBackupNameSlug,
+  slugifyAppName,
   buildBackupStorageKey,
   compactTimestamp,
   isUsableStorageProvider,
-} from './db-backup-storage';
-import { DatabaseBackupStorageProviderError } from './db-backup.errors';
+} from '../../src/db-backup/db-backup-storage';
+import { DatabaseBackupStorageProviderError } from '../../src/db-backup/db-backup.errors';
 
 describe('backup storage keys', () => {
+  // The app passes its name through `DbBackupModule.forRoot({ appName })`
+  // (#740); a package never imports the app's `APP_NAME`.
+  const FORK_NAME = 'Acme Field Ops';
+
+  beforeAll(() => {
+    configureBackupNameSlug(FORK_NAME);
+  });
+
+  afterAll(() => {
+    configureBackupNameSlug('app');
+  });
+
   const at = new Date('2026-09-07T02:00:00.000Z');
   const runId = '11111111-2222-3333-4444-555555555555';
 
@@ -45,9 +57,8 @@ describe('backup storage keys', () => {
     // The slug is DERIVED, so a fork that rebrands gets a rebranded key space
     // and two applications from this template can share one bucket. The
     // assertion is deliberately about derivation, not about a literal.
-    const expected = APP_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-
-    expect(BACKUP_NAME_SLUG).toBe(expected.length > 0 ? expected : 'app');
+    expect(BACKUP_NAME_SLUG).toBe('acme-field-ops');
+    expect(slugifyAppName('  ***  ')).toBe('app');
     expect(BACKUP_KEY_PREFIX).toBe('database-backups/');
   });
 

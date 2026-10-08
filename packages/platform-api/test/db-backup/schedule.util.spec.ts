@@ -8,7 +8,7 @@ import {
   parseCronExpression,
   parseTimeOfDay,
   previousFireBoundary,
-} from './schedule.util';
+} from '../../src/db-backup/schedule.util';
 
 // =============================================================================
 // Unit tests for the schedule translation and the boundary walk (#280)

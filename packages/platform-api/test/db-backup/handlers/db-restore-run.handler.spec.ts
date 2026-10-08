@@ -19,16 +19,16 @@
 // the server still will.
 // =============================================================================
 
-import type { JobHandler } from '@marinoscar/platform-api/jobs';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { DB_RESTORE_RUN_TYPE, type DatabaseRestoreService } from '../database-restore.service';
+import type { JobHandler } from '../../../src/jobs/index';
+import { JobHandlerRegistry } from '../../../src/jobs/index';
+import { DB_RESTORE_RUN_TYPE, type DatabaseRestoreService } from '../../../src/db-backup/database-restore.service';
 import {
   DatabaseRestoreRunHandler,
   RESTORE_JOB_MAX_RUNTIME_MS,
-} from './db-restore-run.handler';
-import type { DeploymentMode } from '../../common/deployment/deployment-mode';
-import { DatabaseRestoreDisabledError } from '../db-backup.errors';
-import { deploymentModeFor } from '../../../test/helpers/deployment-mode.helper';
+} from '../../../src/db-backup/handlers/db-restore-run.handler';
+type DeploymentMode = 'self-hosted' | 'saas';
+import { DatabaseRestoreDisabledError } from '../../../src/db-backup/db-backup.errors';
+import { restoreGateFor as deploymentModeFor } from '../../../src/db-backup/restore-gate';
 
 function makeHandler(mode: DeploymentMode = 'self-hosted') {
   const registry = new JobHandlerRegistry();

@@ -1,18 +1,18 @@
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
-import type { Job } from '@prisma/client';
+import type { Job } from '../../../src/jobs/index';
 
-import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '@marinoscar/platform-api/storage';
-import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
-import type { NotificationsService } from '@marinoscar/platform-api/notifications';
+import type { JobHandlerRegistry } from '../../../src/jobs/index';
+import type { DbBackupPrisma as PrismaService } from '../../../src/db-backup/data/db-backup-db';
+import type { SystemSettingsService } from '../../../src/settings/index';
+import type { StorageProvider } from '../../../src/storage/index';
+import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
+import type { DbBackupNotifier as NotificationsService } from '../../../src/db-backup/ports';
 import type {
   BackupPruneResult,
   DatabaseBackupRetentionService,
-} from '../db-backup-retention.service';
-import { DatabaseBackupSweepHandler } from './db-backup-sweep.handler';
+} from '../../../src/db-backup/db-backup-retention.service';
+import { DatabaseBackupSweepHandler } from '../../../src/db-backup/handlers/db-backup-sweep.handler';
 
 // =============================================================================
 // The backup sweep's acceptance criteria (issue #282 and #288, moved by #353)

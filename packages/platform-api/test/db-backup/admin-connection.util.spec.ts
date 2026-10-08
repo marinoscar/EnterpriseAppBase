@@ -49,7 +49,7 @@ import {
   withAdminConnection,
   type AdminConnection,
   type AdminQueryClient,
-} from './admin-connection.util';
+} from '../../src/db-backup/admin-connection.util';
 
 // ---------------------------------------------------------------------------
 // Doubles

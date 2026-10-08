@@ -1,36 +1,36 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import type { DatabaseBackupRun } from '@prisma/client';
+import type { DatabaseBackupRun } from '../../src/db-backup/data/db-backup-db';
 
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '@marinoscar/platform-api/storage';
-import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
+import type { DbBackupPrisma as PrismaService } from '../../src/db-backup/data/db-backup-db';
+import type { SystemSettingsService } from '../../src/settings/index';
+import type { StorageProvider } from '../../src/storage/index';
+import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
 import {
   BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS,
   DatabaseBackupAdminService,
-} from './db-backup-admin.service';
-import type { DatabaseBackupRunnerService } from './db-backup-runner.service';
-import { ACTIVE_RUN_STATUSES } from './db-backup-runner.service';
+} from '../../src/db-backup/db-backup-admin.service';
+import type { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import { ACTIVE_RUN_STATUSES } from '../../src/db-backup/db-backup-runner.service';
 import type {
   DatabaseRestoreService,
   RestoreRollbackResult,
   StartRestoreOptions,
   StartRestoreResult,
-} from './database-restore.service';
+} from '../../src/db-backup/database-restore.service';
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupStorageProviderError,
   DatabaseRestoreDisabledError,
   DatabaseRestoreNotAllowedError,
   DatabaseRestoreRunNotFoundError,
-} from './db-backup.errors';
-import { assertUsableStorageProvider } from './db-backup-storage';
-import type { JobRolePreflightResult } from './pg-job-role.broker';
-import type { PgJobRoleBroker } from './pg-job-role.broker';
-import type { RestorePreflightResult } from './restore-preflight.service';
-import { ACTIVE_BACKUP_STATUSES, toRunDto } from './dto/db-backup-run.dto';
-import type { DeploymentMode } from '../common/deployment/deployment-mode';
-import { deploymentModeFor } from '../../test/helpers/deployment-mode.helper';
+} from '../../src/db-backup/db-backup.errors';
+import { assertUsableStorageProvider } from '../../src/db-backup/db-backup-storage';
+import type { JobRolePreflightResult } from '../../src/db-backup/pg-job-role.broker';
+import type { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
+import type { RestorePreflightResult } from '../../src/db-backup/restore-preflight.service';
+import { ACTIVE_BACKUP_STATUSES, toRunDto } from '../../src/db-backup/dto/db-backup-run.dto';
+type DeploymentMode = 'self-hosted' | 'saas';
+import { restoreGateFor as deploymentModeFor } from '../../src/db-backup/restore-gate';
 
 // =============================================================================
 // The admin surface's acceptance criteria (issue #283, epic #254)

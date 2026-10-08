@@ -1,11 +1,11 @@
-import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { PrismaService } from '../../prisma/prisma.service';
-import { DatabaseBackupAdminService } from '../db-backup-admin.service';
-import { PgVersionCheck } from '../pg-version.util';
-import { BackupPgClientDoctorCheck, decidePgClient } from './backup-pg-client.doctor-check';
-import { BackupScheduleDoctorCheck, decideBackupSchedule } from './backup-schedule.doctor-check';
-import { decideBackupRls, type OrgTableCounts } from './backup-rls.doctor-check';
+import { DoctorCheckOutcome } from '../../../src/doctor/index';
+import { DoctorCheckRegistry } from '../../../src/doctor/index';
+import type { DbBackupPrisma as PrismaService } from '../../../src/db-backup/data/db-backup-db';
+import { DatabaseBackupAdminService } from '../../../src/db-backup/db-backup-admin.service';
+import { PgVersionCheck } from '../../../src/db-backup/pg-version.util';
+import { BackupPgClientDoctorCheck, decidePgClient } from '../../../src/db-backup/doctor/backup-pg-client.doctor-check';
+import { BackupScheduleDoctorCheck, decideBackupSchedule } from '../../../src/db-backup/doctor/backup-schedule.doctor-check';
+import { decideBackupRls, type OrgTableCounts } from '../../../src/db-backup/doctor/backup-rls.doctor-check';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
   expect(['warn', 'fail']).toContain(outcome.status);

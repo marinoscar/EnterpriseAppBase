@@ -18,10 +18,10 @@
 // is sufficient alone.
 // =============================================================================
 
-import { Job } from '@prisma/client';
+import type { Job } from '../../src/jobs/index';
 
-import { InvalidSqlLiteralError } from './admin-connection.util';
-import type { AdminConnection, AdminQueryClient } from './admin-connection.util';
+import { InvalidSqlLiteralError } from '../../src/db-backup/admin-connection.util';
+import type { AdminConnection, AdminQueryClient } from '../../src/db-backup/admin-connection.util';
 import {
   JOB_ROLE_PREFIX,
   NODE_JOB_SECRETS_RUNBOOK_PATH,
@@ -37,7 +37,7 @@ import {
   jobRolePattern,
   jobRoleSlug,
   type PgJobRoleSeam,
-} from './pg-job-role.broker';
+} from '../../src/db-backup/pg-job-role.broker';
 
 const CONNECTION: AdminConnection = {
   host: 'db.internal',
@@ -569,8 +569,8 @@ describe('issue()', () => {
     // generator cannot produce this, and if it ever did the statement would not
     // be built at all.
     expect(() => {
-      const { quoteLiteral } = jest.requireActual<typeof import('./admin-connection.util')>(
-        './admin-connection.util'
+      const { quoteLiteral } = jest.requireActual<typeof import('../../src/db-backup/admin-connection.util')>(
+        '../../src/db-backup/admin-connection.util'
       );
 
       return quoteLiteral("hunter2'; DROP ROLE appuser; --", 'role password');

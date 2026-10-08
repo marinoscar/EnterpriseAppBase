@@ -26,13 +26,13 @@
 // constructed at all.
 // =============================================================================
 
-import type { DatabaseBackupRun } from '@prisma/client';
+import type { DatabaseBackupRun } from '../../src/db-backup/data/db-backup-db';
 
-import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import * as adminConnection from './admin-connection.util';
-import type { AdminConnection, AdminQueryClient } from './admin-connection.util';
+import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
+import type { DbBackupPrisma as PrismaService } from '../../src/db-backup/data/db-backup-db';
+import type { SystemSettingsService } from '../../src/settings/index';
+import * as adminConnection from '../../src/db-backup/admin-connection.util';
+import type { AdminConnection, AdminQueryClient } from '../../src/db-backup/admin-connection.util';
 import {
   DatabaseRestorePreflightService,
   RESTORE_GATE_IDS,
@@ -40,8 +40,8 @@ import {
   type RestoreGateId,
   type RestorePreflightResult,
   type RestorePreflightSeam,
-} from './restore-preflight.service';
-import type { PgVersionCheck } from './pg-version.util';
+} from '../../src/db-backup/restore-preflight.service';
+import type { PgVersionCheck } from '../../src/db-backup/pg-version.util';
 
 // ---------------------------------------------------------------------------
 // Fixtures

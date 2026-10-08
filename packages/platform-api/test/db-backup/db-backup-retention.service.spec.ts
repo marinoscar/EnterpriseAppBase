@@ -1,8 +1,8 @@
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '@marinoscar/platform-api/storage';
-import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
-import { DatabaseBackupRetentionService } from './db-backup-retention.service';
+import type { DbBackupPrisma as PrismaService } from '../../src/db-backup/data/db-backup-db';
+import type { SystemSettingsService } from '../../src/settings/index';
+import type { StorageProvider } from '../../src/storage/index';
+import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
+import { DatabaseBackupRetentionService } from '../../src/db-backup/db-backup-retention.service';
 
 // =============================================================================
 // Retention's acceptance criteria (issue #282, epic #254)

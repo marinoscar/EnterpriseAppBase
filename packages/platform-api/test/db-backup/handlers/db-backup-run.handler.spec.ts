@@ -32,21 +32,21 @@
 // =============================================================================
 
 import { ConfigService } from '@nestjs/config';
-import { Job } from '@prisma/client';
+import type { Job } from '../../../src/jobs/index';
 import { z } from 'zod';
 
 import {
   resolveJobProfile,
   resolveMaxAttempts,
-} from '@marinoscar/platform-api/jobs';
-import type { JobHandler } from '@marinoscar/platform-api/jobs';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { LEASE_GRACE_MS, resolveJobLeaseMs } from '@marinoscar/platform-api/jobs';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import { BACKUP_JOB_TYPE } from '../db-backup-runner.service';
-import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';
-import { PG_JOB_ROLE_KIND, PgJobRoleBroker } from '../pg-job-role.broker';
-import { BACKUP_JOB_MAX_RUNTIME_MS, DatabaseBackupRunHandler } from './db-backup-run.handler';
+} from '../../../src/jobs/index';
+import type { JobHandler } from '../../../src/jobs/index';
+import { JobHandlerRegistry } from '../../../src/jobs/index';
+import { LEASE_GRACE_MS, resolveJobLeaseMs } from '../../../src/jobs/index';
+import type { SystemSettingsService } from '../../../src/settings/index';
+import { BACKUP_JOB_TYPE } from '../../../src/db-backup/db-backup-runner.service';
+import type { DatabaseBackupRunnerService } from '../../../src/db-backup/db-backup-runner.service';
+import { PG_JOB_ROLE_KIND, PgJobRoleBroker } from '../../../src/db-backup/pg-job-role.broker';
+import { BACKUP_JOB_MAX_RUNTIME_MS, DatabaseBackupRunHandler } from '../../../src/db-backup/handlers/db-backup-run.handler';
 
 describe('DatabaseBackupRunHandler', () => {
   const job = { id: 'job-1', type: BACKUP_JOB_TYPE } as Job;

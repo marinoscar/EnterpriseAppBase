@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 
-import { collect, createFakeSpawn } from '../../test/mocks/pg-process.mock';
+import { collect, createFakeSpawn } from './support/pg-process.mock';
 import {
   DEFAULT_COMPRESSION_LEVEL,
   buildPgDumpArgs,
@@ -12,7 +12,7 @@ import {
   spawnPgDump,
   spawnPgProcess,
   type PgConnection,
-} from './pg-dump.util';
+} from '../../src/db-backup/pg-dump.util';
 
 // =============================================================================
 // Unit tests for the pg_* process wrapper (issue #280, epic #254)

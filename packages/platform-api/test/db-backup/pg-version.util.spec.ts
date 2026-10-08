@@ -1,4 +1,4 @@
-import { createFakeSpawn } from '../../test/mocks/pg-process.mock';
+import { createFakeSpawn } from './support/pg-process.mock';
 import {
   MIN_PG_CLIENT_MAJOR,
   checkPgClientVersion,
@@ -8,7 +8,7 @@ import {
   readServerVersionNumWithPgClient,
   serverMajorFromVersionNum,
   type PgQueryClient,
-} from './pg-version.util';
+} from '../../src/db-backup/pg-version.util';
 
 // =============================================================================
 // Unit tests for the client/server version guard (issue #280, epic #254)

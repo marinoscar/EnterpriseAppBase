@@ -32,19 +32,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { Readable } from 'node:stream';
-import type { DatabaseBackupRun, Job } from '@prisma/client';
+import type { Job } from '../../src/jobs/index';
+import type { DatabaseBackupRun } from '../../src/db-backup/data/db-backup-db';
 
 import type { ConfigService } from '@nestjs/config';
 
-import type { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
-import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
-import { JOB_TEMP_PREFIX } from '@marinoscar/platform-api/jobs';
-import type { NotificationsService } from '@marinoscar/platform-api/notifications';
-import type { JobsService } from '@marinoscar/platform-api/jobs';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '@marinoscar/platform-api/storage';
-import type { AdminConnection, AdminQueryClient } from './admin-connection.util';
+import type { DbBackupMaintenance as MaintenanceModeService } from '../../src/db-backup/ports';
+import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
+import { JOB_TEMP_PREFIX } from '../../src/jobs/index';
+import type { DbBackupNotifier as NotificationsService } from '../../src/db-backup/ports';
+import type { JobsService } from '../../src/jobs/index';
+import type { DbBackupPrisma as PrismaService } from '../../src/db-backup/data/db-backup-db';
+import type { SystemSettingsService } from '../../src/settings/index';
+import type { StorageProvider } from '../../src/storage/index';
+import type { AdminConnection, AdminQueryClient } from '../../src/db-backup/admin-connection.util';
 import {
   DatabaseRestoreService,
   RESTORE_AUDIT_COMPLETE,
@@ -55,15 +56,15 @@ import {
   RESTORE_JOBS,
   defaultDatabaseRestoreSeam,
   type DatabaseRestoreSeam,
-} from './database-restore.service';
-import type { DatabaseBackupRunnerService } from './db-backup-runner.service';
-import { DatabaseRestoreDisabledError, DatabaseRestoreSwapError } from './db-backup.errors';
+} from '../../src/db-backup/database-restore.service';
+import type { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import { DatabaseRestoreDisabledError, DatabaseRestoreSwapError } from '../../src/db-backup/db-backup.errors';
 import type {
   DatabaseRestorePreflightService,
   RestorePreflightResult,
-} from './restore-preflight.service';
-import type { DeploymentMode } from '../common/deployment/deployment-mode';
-import { deploymentModeFor } from '../../test/helpers/deployment-mode.helper';
+} from '../../src/db-backup/restore-preflight.service';
+type DeploymentMode = 'self-hosted' | 'saas';
+import { restoreGateFor as deploymentModeFor } from '../../src/db-backup/restore-gate';
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -2,22 +2,21 @@ import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 
 import { Logger } from '@nestjs/common';
-import { Prisma, type Job } from '@prisma/client';
+import type { Job } from '../../src/jobs/index';
+import { PrismaClientKnownRequestError } from '../../src/db-backup/data/db-backup-db';
 
 import type { ConfigService } from '@nestjs/config';
 
-import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract';
-import { ACTIVE_DEDUP_INDEX_NAME, type JobsService } from '@marinoscar/platform-api/jobs';
-import type { NotificationsService } from '@marinoscar/platform-api/notifications';
-import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '@marinoscar/platform-api/storage';
-import type { StorageConfigService } from '@marinoscar/platform-api/storage';
-import type {
-  StorageProviderKind,
-  SystemDatabaseBackupValue,
-} from '../common/schemas/settings.schema';
-import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
+import type { DbBackupRunResult } from '@marinoscar/platform-contract/db-backup';
+import { ACTIVE_DEDUP_INDEX_NAME, type JobsService } from '../../src/jobs/index';
+import type { DbBackupNotifier as NotificationsService } from '../../src/db-backup/ports';
+import type { DbBackupPrisma as PrismaService } from '../../src/db-backup/data/db-backup-db';
+import type { SystemSettingsService } from '../../src/settings/index';
+import type { StorageProvider } from '../../src/storage/index';
+import type { StorageConfigService } from '../../src/storage/index';
+import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
+import type { StorageProviderKind } from '@marinoscar/platform-contract/storage';
+import { DATABASE_BACKUP_SYSTEM_SETTINGS } from '../../src/db-backup/db-backup.system-settings';
 import {
   ACTIVE_RUN_INDEX_NAME,
   BACKUP_HEARTBEAT_INTERVAL_MS,
@@ -28,17 +27,17 @@ import {
   systemBackupTimers,
   type BackupTimers,
   type DatabaseBackupEngine,
-} from './db-backup-runner.service';
-import { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
-import { BACKUP_KEY_PREFIX } from './db-backup-storage';
+} from '../../src/db-backup/db-backup-runner.service';
+import { DB_BACKUP_SWEEP_TYPE } from '../../src/db-backup/handlers/db-backup-sweep.handler';
+import { BACKUP_KEY_PREFIX } from '../../src/db-backup/db-backup-storage';
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupCancelledError,
   DatabaseBackupVerificationError,
   DatabaseBackupStorageProviderError,
-} from './db-backup.errors';
-import type { PgProcess } from './pg-dump.util';
-import type { PgVersionCheck } from './pg-version.util';
+} from '../../src/db-backup/db-backup.errors';
+import type { PgProcess } from '../../src/db-backup/pg-dump.util';
+import type { PgVersionCheck } from '../../src/db-backup/pg-version.util';
 
 // =============================================================================
 // The backup engine's acceptance criteria, one describe block each (#281)
@@ -477,8 +476,8 @@ function makeHarness(options: HarnessOptions = {}) {
 }
 
 /** A P2002 shaped the way `@prisma/adapter-pg` reports it. */
-function adapterConflict(indexName = ACTIVE_RUN_INDEX_NAME): Prisma.PrismaClientKnownRequestError {
-  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+function adapterConflict(indexName = ACTIVE_RUN_INDEX_NAME): PrismaClientKnownRequestError {
+  return new PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
     clientVersion: 'test',
     meta: {
@@ -603,7 +602,7 @@ describe('the claim', () => {
   });
 
   it('recognises the conflict through the classic query engine shape too', () => {
-    const classic = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    const classic = new PrismaClientKnownRequestError('Unique constraint failed', {
       code: 'P2002',
       clientVersion: 'test',
       meta: { target: ['status'] },
@@ -1206,12 +1205,12 @@ describe('the storage-provider constraint', () => {
   // test fails again the moment somebody puts a provider id back in the
   // default, which is the only way the bug can return.
   it('takes a backup on an R2 deployment that has left the setting at its shipped default', async () => {
-    expect(DEFAULT_SYSTEM_SETTINGS.databaseBackup.storageProvider).toBe('');
+    expect(DATABASE_BACKUP_SYSTEM_SETTINGS.defaults.storageProvider).toBe('');
 
     const h = makeHarness({
       activeProvider: 'r2',
       policy: {
-        storageProvider: DEFAULT_SYSTEM_SETTINGS.databaseBackup.storageProvider,
+        storageProvider: DATABASE_BACKUP_SYSTEM_SETTINGS.defaults.storageProvider,
       },
     });
 
@@ -1227,7 +1226,7 @@ describe('the storage-provider constraint', () => {
     // other caller that a pinned-to-`'s3'` default turned into a 400.
     await expect(
       h.service.assertStorageProviderUsable(
-        DEFAULT_SYSTEM_SETTINGS.databaseBackup.storageProvider
+        DATABASE_BACKUP_SYSTEM_SETTINGS.defaults.storageProvider
       )
     ).resolves.toBeUndefined();
   });
@@ -1381,8 +1380,8 @@ describe('retention is wired to the success path (#282, queued since #353)', () 
 // -----------------------------------------------------------------------------
 
 /** A P2002 shaped the way the queue's ACTIVE-DEDUP index reports it. */
-function dedupConflict(): Prisma.PrismaClientKnownRequestError {
-  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+function dedupConflict(): PrismaClientKnownRequestError {
+  return new PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
     clientVersion: 'test',
     meta: {

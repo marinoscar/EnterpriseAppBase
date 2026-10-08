@@ -14,10 +14,10 @@
 // through the real router and the real filter, for the reason stated there.
 // =============================================================================
 
-import { RESTORE_STATUSES as SERVICE_RESTORE_STATUSES } from '../database-restore.service';
-import type { RestoreRollbackResult, StartRestoreResult } from '../database-restore.service';
-import { RESTORE_SCHEMA_OVERRIDE_FIELD } from '../restore-preflight.service';
-import type { RestorePreflightResult } from '../restore-preflight.service';
+import { RESTORE_STATUSES as SERVICE_RESTORE_STATUSES } from '../../../src/db-backup/database-restore.service';
+import type { RestoreRollbackResult, StartRestoreResult } from '../../../src/db-backup/database-restore.service';
+import { RESTORE_SCHEMA_OVERRIDE_FIELD } from '../../../src/db-backup/restore-preflight.service';
+import type { RestorePreflightResult } from '../../../src/db-backup/restore-preflight.service';
 import {
   RESTORE_CONFIRMATION,
   ROLLBACK_CONFIRMATION,
@@ -26,8 +26,8 @@ import {
   toPreflightView,
   toRollbackResponse,
   toStartRestoreResponse,
-} from './db-backup-restore.dto';
-import { RESTORE_STATUSES as DTO_RESTORE_STATUSES, toRunDto } from './db-backup-run.dto';
+} from '../../../src/db-backup/dto/db-backup-restore.dto';
+import { RESTORE_STATUSES as DTO_RESTORE_STATUSES, toRunDto } from '../../../src/db-backup/dto/db-backup-run.dto';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const PRE_RESTORE_ID = '44444444-4444-4444-8444-444444444444';

@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 
-import { createFakeSpawn } from '../../test/mocks/pg-process.mock';
-import type { PgConnection } from './pg-dump.util';
+import { createFakeSpawn } from './support/pg-process.mock';
+import type { PgConnection } from '../../src/db-backup/pg-dump.util';
 import {
   MAX_RESTORE_JOBS,
   buildPgRestoreArgs,
@@ -10,7 +10,7 @@ import {
   parseTocEntryCount,
   readTocEntryCount,
   spawnPgRestore,
-} from './pg-restore.util';
+} from '../../src/db-backup/pg-restore.util';
 
 // =============================================================================
 // Unit tests for pg_restore (issue #280, epic #254)
