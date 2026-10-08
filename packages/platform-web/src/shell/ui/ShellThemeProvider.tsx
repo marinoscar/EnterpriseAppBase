@@ -104,7 +104,6 @@ function ShellMuiTheme({ children }: { children: ReactNode }): ReactElement {
  * </ShellRoot>
  * ```
  *
- * @extensionPoint component
  * @stability experimental
  */
 export function ShellRoot(props: ShellThemeProviderProps): ReactElement {

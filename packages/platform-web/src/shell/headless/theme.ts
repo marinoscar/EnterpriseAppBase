@@ -198,7 +198,6 @@ export function useOptionalShellTheme(): ShellThemeContextValue | null {
  * @returns the context value.
  * @throws Error outside a `ShellThemeProvider`.
  *
- * @extensionPoint hook
  * @stability experimental
  */
 export function useShellTheme(): ShellThemeContextValue {
