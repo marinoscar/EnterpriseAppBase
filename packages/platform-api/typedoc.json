@@ -11,6 +11,7 @@
     "src/telemetry/index.ts",
     "src/telemetry/testing/index.ts",
     "src/sharing/index.ts",
+    "src/sharing/testing/index.ts",
     "src/identity/index.ts",
     "src/identity/testing/index.ts",
     "src/settings/index.ts",
