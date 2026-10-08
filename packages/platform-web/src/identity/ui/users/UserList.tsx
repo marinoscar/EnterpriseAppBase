@@ -65,7 +65,6 @@ function readIsFilter(filters: IdentityTableFilter[], columnId: string): string 
  *
  * @returns the component.
  *
- * @extensionPoint component
  * @stability stable
  */
 export function UserList(): ReactElement {

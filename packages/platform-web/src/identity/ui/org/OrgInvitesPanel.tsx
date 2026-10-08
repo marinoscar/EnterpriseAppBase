@@ -34,7 +34,6 @@ type StatusFilter = 'all' | OrgInviteStatus;
  *
  * @returns the component.
  *
- * @extensionPoint component
  * @stability stable
  */
 export function OrgInvitesPanel(): ReactElement {

@@ -41,7 +41,6 @@ import { TABLE_ID, buildPatColumns, getTokenStatus } from './patColumns.js';
  *
  * @returns the component.
  *
- * @extensionPoint component
  * @stability stable
  */
 export function PersonalAccessTokens(): ReactElement {

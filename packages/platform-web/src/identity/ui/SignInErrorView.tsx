@@ -37,7 +37,6 @@ export interface SignInErrorViewProps {
  * @param props - see {@link SignInErrorViewProps}.
  * @returns the screen.
  *
- * @extensionPoint component
  * @stability stable
  */
 export function SignInErrorView({

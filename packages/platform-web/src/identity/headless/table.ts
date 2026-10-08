@@ -27,6 +27,18 @@ export type IdentityTableColumnPriority = 'primary' | 'secondary' | 'detail';
 export type IdentityTableFilterOperator = 'is';
 
 /**
+ * One choice of an enum filter.
+ *
+ * @stability experimental
+ */
+export interface IdentityTableEnumValue {
+  /** The filter value. */
+  value: string;
+  /** What the filter shows. */
+  label: string;
+}
+
+/**
  * One column of an identity list.
  *
  * @typeParam Row - the row type.
@@ -50,7 +62,7 @@ export interface IdentityTableColumn<Row> {
   /** The filter's input type. */
   filterType?: 'enum';
   /** The choices of an enum filter. */
-  enumValues?: { value: string; label: string }[];
+  enumValues?: IdentityTableEnumValue[];
   /** Covered by the quick search. */
   searchable?: boolean;
   /** Included in a CSV export. */

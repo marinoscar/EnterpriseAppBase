@@ -20,6 +20,18 @@ import type { PlatformApiClient } from '../../core/index.js';
 // ---- Users and the allowlist -------------------------------------------------
 
 /**
+ * A user as a list row names them (who added an entry, who sent an invitation).
+ *
+ * @stability stable
+ */
+export interface IdentityUserRef {
+  /** The user's id. */
+  id: string;
+  /** The user's email address. */
+  email: string;
+}
+
+/**
  * One row of `GET /api/users`.
  *
  * @stability stable
@@ -115,11 +127,11 @@ export interface AllowedEmailEntry {
   /** The allowed address. */
   email: string;
   /** Who added it, or `null`. */
-  addedBy: { id: string; email: string } | null;
+  addedBy: IdentityUserRef | null;
   /** ISO 8601 time it was added. */
   addedAt: string;
   /** Who signed in with it, or `null` while pending. */
-  claimedBy: { id: string; email: string } | null;
+  claimedBy: IdentityUserRef | null;
   /** ISO 8601 time it was claimed, or `null`. */
   claimedAt: string | null;
   /** Free-text notes, or `null`. */
@@ -350,9 +362,9 @@ export interface OrgInvite {
   /** ISO 8601 acceptance time, or `null`. */
   acceptedAt: string | null;
   /** Who sent it, or `null`. */
-  invitedBy: { id: string; email: string } | null;
+  invitedBy: IdentityUserRef | null;
   /** Who accepted it, or `null`. */
-  acceptedBy: { id: string; email: string } | null;
+  acceptedBy: IdentityUserRef | null;
 }
 
 /**

@@ -44,7 +44,6 @@ import { MEMBER_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
  *
  * @returns the component.
  *
- * @extensionPoint component
  * @stability stable
  */
 export function OrgMembersPanel(): ReactElement {

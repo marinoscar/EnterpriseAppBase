@@ -20,6 +20,16 @@ import type { IdentityApi } from './api.js';
 import type { IdentityDataTableComponent } from './table.js';
 
 /**
+ * What {@link IdentityWebAdapters.Spinner} takes.
+ *
+ * @stability experimental
+ */
+export interface IdentitySpinnerProps {
+  /** A whole-page wait (the login page while the session probe runs). */
+  fullScreen?: boolean;
+}
+
+/**
  * What the identity pages take from the app. Every member is optional; keep
  * the object a module constant.
  *
@@ -45,7 +55,7 @@ export interface IdentityWebAdapters {
    */
   appName?: string;
   /** The app's loading spinner (`fullScreen` for a whole-page wait). Default an MUI `CircularProgress`. */
-  Spinner?: ComponentType<{ fullScreen?: boolean }>;
+  Spinner?: ComponentType<IdentitySpinnerProps>;
   /** The app's table for the users, allowlist and token lists. Default a plain MUI table. */
   DataTable?: IdentityDataTableComponent;
   /** The identity calls. Default `createIdentityApi(usePlatformApi())`. */

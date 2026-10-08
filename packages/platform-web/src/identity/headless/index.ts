@@ -36,6 +36,7 @@ export type {
   DeviceActivationInfo,
   DeviceAuthorizationResponse,
   IdentityApi,
+  IdentityUserRef,
   OrgInvite,
   OrgInviteListParams,
   OrgInviteStatus,
@@ -55,12 +56,13 @@ export type {
   UsersResponse,
 } from './api.js';
 export { IdentityWebAdaptersProvider, useIdentityApi, useIdentityWebAdapters } from './adapters.js';
-export type { IdentityWebAdapters } from './adapters.js';
+export type { IdentitySpinnerProps, IdentityWebAdapters } from './adapters.js';
 export type {
   IdentityDataTableComponent,
   IdentityDataTableProps,
   IdentityTableColumn,
   IdentityTableColumnPriority,
+  IdentityTableEnumValue,
   IdentityTableFilter,
   IdentityTableFilterModelOperator,
   IdentityTableFilterOperator,

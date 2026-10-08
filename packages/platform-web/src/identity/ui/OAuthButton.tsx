@@ -58,7 +58,6 @@ export const BUILT_IN_AUTH_PROVIDERS: Readonly<Record<string, AuthProviderDescri
  * @param props - see {@link OAuthButtonProps}.
  * @returns the button.
  *
- * @extensionPoint component
  * @stability stable
  */
 export function OAuthButton({ provider, onClick }: OAuthButtonProps): ReactElement {

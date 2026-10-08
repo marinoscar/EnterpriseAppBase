@@ -57,7 +57,6 @@ function readStatusFilter(filters: IdentityTableFilter[]): AllowlistStatus {
  *
  * @returns the component.
  *
- * @extensionPoint component
  * @stability stable
  */
 export function AllowlistTable(): ReactElement {
