@@ -1152,8 +1152,8 @@ export async function createAiEmbeddings(req: AiEmbeddingsRequest): Promise<AiEm
 // the same shape; only the scope (everyone vs. the caller) and the allowed
 // `groupBy` values differ.
 
-/** `groupBy` values `GET /admin/ai/usage` accepts. */
-export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource'] as const;
+/** `groupBy` values `GET /admin/ai/usage` accepts (`org`: #739). */
+export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource', 'org'] as const;
 export type AiUsageGroupBy = (typeof AI_USAGE_ADMIN_GROUP_BY)[number];
 
 /** `groupBy` values `GET /ai/usage/me` accepts — a user sees only their own rows. */
@@ -1214,6 +1214,8 @@ export interface AiUsageQuery extends Partial<AiUsageRange> {
   userId?: string;
   provider?: string;
   model?: string;
+  /** One organization's rows only (#739); `none` for the organization-less catalogue-sync rows. */
+  orgId?: string;
 }
 
 export interface AiMyUsageQuery extends Partial<AiUsageRange> {
