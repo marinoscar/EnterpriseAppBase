@@ -447,113 +447,21 @@ export type SystemMaintenanceValue = z.infer<typeof systemMaintenanceSchema>;
 // all; ours deliberately does not. Two schemas, two different questions.
 // =============================================================================
 
-/**
- * S3-compatible providers this app can be pointed at.
- *
- * A closed enum rather than a free string (unlike `databaseBackup
- * .storageProvider`, which names a provider REGISTRATION and is deliberately
- * open for forks) because this value selects which set of the fields below is
- * meaningful and how an endpoint is derived. Derived type below rather than a
- * hand-written union, so adding one widens every `switch` in the same edit
- * instead of silently falling through.
- *
- *  - `s3`           — AWS S3 proper. `region` is required by the SDK;
- *                     `endpoint` is left empty and the SDK derives it.
- *  - `r2`           — Cloudflare R2, which is S3-compatible but addresses
- *                     buckets through an account-scoped host. Its `region` is
- *                     literally `auto`, and its endpoint is DERIVED from
- *                     `accountId` rather than typed by hand — which is why
- *                     `accountId` is a modelled field and not a note in a URL.
- *  - `s3compatible` — MinIO, Backblaze B2, Wasabi, Ceph RGW and anything else
- *                     speaking the same protocol at an operator-supplied
- *                     `endpoint`. This is the bucket the other two are NOT, so
- *                     a new vendor needs no schema change to be usable.
- */
-export const STORAGE_PROVIDER_KINDS = ['s3', 'r2', 's3compatible'] as const;
+// Moved to `@marinoscar/platform-contract/storage` (#736) with the rest of the
+// namespace's schemas; re-exported so every import of this file is unchanged.
+export {
+  STORAGE_PROVIDER_KINDS,
+  STORAGE_SETTINGS_CARRIES_NO_SECRET,
+  systemStoragePatchSchema,
+  systemStorageSchema,
+} from '@marinoscar/platform-contract/storage';
+export type {
+  StorageProviderKind,
+  StorageSettingsCarriesNoSecret,
+  SystemStorageValue,
+} from '@marinoscar/platform-contract/storage';
 
-/** A configured object-storage provider. See {@link STORAGE_PROVIDER_KINDS}. */
-export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
 
-/**
- * Object-storage provider configuration (`storage`).
- *
- * EVERY FIELD HAS A DEFAULT, and every string default is the EMPTY STRING
- * rather than `null` or an absent key. That is what lets this namespace degrade
- * field by field like its neighbours: `readNamespace` in
- * `system-settings.service.ts` validates each field on its own and substitutes
- * that field's default when storage holds something unusable, so a row with a
- * corrupt `region` keeps the bucket an operator typed. A `null`-or-string union
- * would make every consumer ask the same question twice ("absent, or empty?")
- * and get a different answer in different places.
- *
- * EMPTY MEANS "NOT CONFIGURED", and it is a legal, expected, persisted state —
- * it is what a fresh deployment reads, and it is why `bucket` carries no
- * `.min(1)`. Refusing to store an empty bucket would mean the only way to reach
- * a valid configuration is to type every field correctly in one request, and
- * would make the very first save of a half-filled form a 400. Whether the
- * configuration is COMPLETE ENOUGH TO USE is a question for the consumer that
- * builds a client from it, not for the shape of the document — and that
- * consumer is `storage/config/storage-config.ts` (`resolveStorageConfig`),
- * which holds every completeness rule in one place and is the ONLY place that
- * answers it.
- *
- * `region` defaults to empty rather than to `us-east-1`: a wrong region is a
- * confusing runtime failure ("bucket is in another region"), and inheriting one
- * silently from a schema default is how a deployment ends up with a value
- * nobody chose. R2 wants the literal `auto` here.
- *
- * `endpoint` empty means "derive it or use none" — the SDK's own host for `s3`,
- * the account-scoped host for `r2`. An explicit value always wins, which is
- * what makes pointing `s3` at a local MinIO for development possible without
- * changing `provider`.
- *
- * `forcePathStyle` selects `https://host/bucket/key` over
- * `https://bucket.host/key`, and is TRI-STATE — `true`, `false` or `null`.
- * `null` IS THE SHIPPED DEFAULT AND MEANS "USE THIS VENDOR'S CONVENTION":
- * path style for `s3compatible`, virtual-host style for `s3` and `r2`, applied
- * in exactly one place (`buildS3ClientConfig`, storage/providers/s3). It is not
- * inferred from `provider` HERE because an explicit value must be able to beat
- * the convention for every provider: MinIO needs path style, R2 does not, and
- * an S3-compatible appliance behind a TLS certificate that does not cover
- * wildcard subdomains needs it regardless of who made it.
- *
- * WHY NULLABLE RATHER THAN A PLAIN BOOLEAN, which is the same argument the
- * string fields above make. Empty string is how a string here says "the
- * operator has not said"; `null` is a boolean's only spelling of that, since
- * both `true` and `false` are answers an operator can mean. A plain
- * `z.boolean()` defaulting to `false` cannot express "unset", so every saved
- * configuration carried an explicit `false` into the driver and the
- * per-vendor default below it could never fire — which is precisely how
- * selecting `s3compatible`, typing a MinIO endpoint and saving produced a
- * deployment MinIO rejects (it requires path style). Consumers ask the same
- * one question the strings do ("did the operator state a value?"), and get
- * the same answer everywhere.
- *
- * NO `.default()` ON ANY FIELD, exactly as in the operations section above. The
- * defaults live in `DEFAULT_SYSTEM_SETTINGS` (settings.types.ts) and nowhere
- * else; a `.default()` here would mint values in whichever `parse` happened to
- * run first, and move "what does a fresh deployment do?" out of the one object
- * that is supposed to answer it.
- */
-export const systemStorageSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
-  // No `.min(1)`: empty is "not configured yet". See the block comment above.
-  bucket: z.string().trim().max(255),
-  region: z.string().trim().max(255),
-  // Longer bound than the rest: an endpoint is a URL, and a self-hosted one
-  // behind a path prefix is routinely longer than a bucket name.
-  endpoint: z.string().trim().max(512),
-  accountId: z.string().trim().max(255),
-  // An IDENTIFIER, not a secret — see the block comment above, and the
-  // compile-time proof at the bottom of this file.
-  accessKeyId: z.string().trim().max(255),
-  // TRI-STATE. `null` is "use this vendor's convention", and is the default in
-  // `DEFAULT_SYSTEM_SETTINGS`; `true`/`false` are an operator overriding it.
-  // See the block comment above for why a plain boolean cannot say "unset".
-  forcePathStyle: z.boolean().nullable(),
-});
-
-export type SystemStorageValue = z.infer<typeof systemStorageSchema>;
 
 // -----------------------------------------------------------------------------
 // PATCH (deep-partial) counterparts
@@ -608,30 +516,6 @@ export const systemDatabaseBackupPatchSchema = z.object({
   nodeOffloadEnabled: z.boolean().optional(),
 });
 
-/**
- * `storage`, one level deep (#373, epic #372).
- *
- * Every field optional, INCLUDING the strings, and an empty string is a
- * meaningful value here rather than a way of saying "leave it alone" — absent
- * is how a caller says that. `{ "storage": { "bucket": "" } }` therefore CLEARS
- * the bucket, which is the only way an operator can un-configure storage
- * through the API without hand-editing JSONB. The service's merge uses `??`
- * against the stored value, and `??` treats `''` as present, so this works
- * without the `!== undefined` dance `maintenance.startedAt` needs (no field
- * here is nullable, so there is no `null`-versus-absent distinction to lose).
- */
-export const systemStoragePatchSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS).optional(),
-  bucket: z.string().trim().max(255).optional(),
-  region: z.string().trim().max(255).optional(),
-  endpoint: z.string().trim().max(512).optional(),
-  accountId: z.string().trim().max(255).optional(),
-  accessKeyId: z.string().trim().max(255).optional(),
-  // `.nullable().optional()` means two different things here, and both are
-  // wanted: absent is "leave it alone", explicit `null` is "go back to this
-  // vendor's convention". See the block comment on `systemStorageSchema`.
-  forcePathStyle: z.boolean().nullable().optional(),
-});
 
 export const systemMaintenancePatchSchema = z.object({
   enabled: z.boolean().optional(),
@@ -1312,29 +1196,9 @@ export const systemRetentionPatchSchema = z.object({
 // leaves, and must never import a composed object (see the import-cycle rule
 // there).
 
-// -----------------------------------------------------------------------------
-// Compile-time proof that the `storage` namespace carries no secret (#373)
-// -----------------------------------------------------------------------------
-//
-// Mirrors the technique in `../../notifications/push-config.schema.ts` and
-// `../../email/email-settings.schema.ts`. Adding `secretAccessKey` (or any of
-// the other names below) to `systemStorageSchema` makes
-// `StorageSettingsCarriesNoSecret` resolve to `never`, and this file stops
-// compiling — a build break at the moment of the mistake, rather than a security
-// review that has to notice one new optional string in a schema file this long.
-//
-// If you are here because this line went red: you are trying to put a secret
-// into a settings blob that `GET /api/system-settings` returns wholesale and
-// that every settings audit row copies verbatim. Use `CredentialsService`
-// instead, at `(purpose 'storage', name 'default')` — see
-// `../../storage/storage-credential.constants.ts`.
-//
-// `accessKeyId` IS DELIBERATELY ABSENT FROM THIS LIST, unlike in
-// `email-settings.schema.ts` where it is forbidden. It is an identifier that
-// travels in the clear in every SigV4 `Authorization` header and authorises
-// nothing by itself — the counterpart of `smtpUsername`, not of
-// `smtpPassword`. The email blob bans it because that blob has no business
-// carrying AWS identity at all; this one is where AWS identity belongs.
+// The `storage` namespace's compile-time no-secret proof
+// (`StorageSettingsCarriesNoSecret`) lives with its schema in
+// `@marinoscar/platform-contract/storage` since #736, re-exported above.
 
 /**
  * Field names no system settings namespace may declare (#373, generalised by
@@ -1347,16 +1211,6 @@ export const systemRetentionPatchSchema = z.object({
 // one source for the registries, the row store and the conformance suite.
 import { SETTINGS_SECRET_FIELD_NAMES } from '@marinoscar/platform-api/settings';
 export { SETTINGS_SECRET_FIELD_NAMES };
-
-type StorageSecretFieldNames = (typeof SETTINGS_SECRET_FIELD_NAMES)[number];
-
-export type StorageSettingsCarriesNoSecret =
-  Extract<keyof SystemStorageValue, StorageSecretFieldNames> extends never
-    ? true
-    : never;
-
-export const STORAGE_SETTINGS_CARRIES_NO_SECRET: StorageSettingsCarriesNoSecret =
-  true;
 
 // -----------------------------------------------------------------------------
 // Compile-time proof that the `ai` namespace carries no secret (#423)
