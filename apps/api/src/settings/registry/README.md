@@ -42,8 +42,8 @@ The declaration files:
 | Namespace | Declared in |
 |---|---|
 | system `notifications` | `notifications/notifications.system-settings.ts` |
-| system `jobs` | `jobs/jobs.system-settings.ts` |
-| system `nodes` | `nodes/nodes.system-settings.ts` |
+| system `jobs` | `@marinoscar/platform-api/jobs` (`JOBS_SYSTEM_SETTINGS`; `JobsModule.forRoot()` would register it, the manifest lists it to pin the key order) |
+| system `nodes` | `@marinoscar/platform-api/nodes` (`NODES_SYSTEM_SETTINGS`; likewise `NodesModule.forRoot()`) |
 | system `databaseBackup` | `db-backup/db-backup.system-settings.ts` |
 | system `maintenance` | `common/maintenance/maintenance.system-settings.ts` |
 | system `storage` | `storage/config/storage.system-settings.ts` |

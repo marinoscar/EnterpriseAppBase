@@ -378,6 +378,10 @@ Doctor checks and job handlers are already registry-driven in the base ([doctor 
 | Apps never add columns to package-owned tables | Use side tables or JSONB `metadata` |
 | Export zod schemas | Apps call `.extend()` instead of duplicating |
 
+**An augmentable interface is declared in the module its public subpath resolves to** (`src/<slice>/index.ts`), never declared deeper and re-exported. TypeScript merges an app's `declare module '@marinoscar/platform-api/<slice>'` through a re-export alias, and a slice's own augmentation of the declaring file that the checker meets later replaces the merged symbol, so the app's keys vanish depending on file order. Slices augment `'../<slice>/index'`. The settings slice's four namespace maps follow this since #865 (`packages/platform-api/test/settings/namespace-augmentation.spec.ts`, and the consumer smoke's `notes.settings.ts` against the packed `.d.ts`).
+
+**A slice that owns a settings namespace registers it from its own `forRoot()`** (`ensureSystemSettingsNamespaces`, #865): a key the app's manifest already registered is left alone, so an app pins the stored key order by listing the declaration, and an app that does not still has the slice's defaults. `JobsModule` (`jobs`) and `NodesModule` (`nodes`) do; registering after `SettingsModule.forRoot()` composed the request bodies throws.
+
 #### Worked example: a new metric group
 
 Today an app edits the closed tuple and the inline name map. With the contract

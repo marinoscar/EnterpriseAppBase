@@ -86,7 +86,7 @@ Presence is the declaration; there is no flag for any of them.
 - `deriveOutputKey`: where a node's output upload lands; default `node-outputs/<jobId>/<uuid>`.
 - `canDelete`: veto an admin delete of a non-terminal row whose deletion would strand other state.
 
-Supporting exports (experimental unless noted): the services (`JobsService`, `JobClaimService`, `JobLeaseService`, `JobTerminalService`, `JobStuckService`, `ProviderThrottleService`, `NodeOffloadService`, `JobWorker`, `JobAdminService`, `JobInsightsService`, `JobScope`), `JobHistoryPurgeHandler`, the structural data types (`Job`, `JobsPrisma`, `JobStatus`, `JobReason`, `NodeStatus` and the `Jobs*` query types; stable where tagged), `buildDedupKey`, `ACTIVE_DEDUP_INDEX_NAME`, `isActiveDedupConflict`, the execution-profile resolvers, `RateLimitError` and the rate-limit classification, the temp-file helpers, the trace-context helpers (`captureJobTraceContext`, `jobParentContext`, `jobOrgSpanAttributes`), `jobTypeLabel` (stable) and `jobTypeLabels`, `JOB_SETTLED_EVENT` (stable), `JOBS_ENQUEUED_CHANNEL`, `jobsConfiguration`, the policies `DEFAULT_JOBS_POLICY` / `DEFAULT_NODES_POLICY`, and `JOBS_PERMISSIONS` (stable).
+Supporting exports (experimental unless noted): the services (`JobsService`, `JobClaimService`, `JobLeaseService`, `JobTerminalService`, `JobStuckService`, `ProviderThrottleService`, `NodeOffloadService`, `JobWorker`, `JobAdminService`, `JobInsightsService`, `JobScope`), `JobHistoryPurgeHandler`, the structural data types (`Job`, `JobsPrisma`, `JobStatus`, `JobReason`, `NodeStatus` and the `Jobs*` query types; stable where tagged), `buildDedupKey`, `ACTIVE_DEDUP_INDEX_NAME`, `isActiveDedupConflict`, the execution-profile resolvers, `RateLimitError` and the rate-limit classification, the temp-file helpers, the trace-context helpers (`captureJobTraceContext`, `jobParentContext`, `jobOrgSpanAttributes`), `jobTypeLabel` (stable) and `jobTypeLabels`, `JOB_SETTLED_EVENT` (stable), `JOBS_ENQUEUED_CHANNEL`, `jobsConfiguration`, the policies `DEFAULT_JOBS_POLICY` / `DEFAULT_NODES_POLICY`, the `jobs` settings namespace `JOBS_SYSTEM_SETTINGS` and its merge `mergeJobsSettings`, and `JOBS_PERMISSIONS` (stable).
 
 ## Data
 
@@ -100,7 +100,7 @@ The `jobs` fragment of `@marinoscar/platform-db` owns `Job` (`jobs`), `JobStatsR
 
 ## Permissions and settings
 
-Declares `jobs:read` and `jobs:write` (`JOBS_PERMISSIONS`, system scope, granted to `admin` by the seed); every `/api/admin/jobs` route enforces one of them with `@Auth`. Reads the `jobs` system-settings namespace through `@marinoscar/platform-api/settings` (`getJobsPolicy`: the stuck threshold, the history retention, the node-offload switches), registered by the app's manifest.
+Declares `jobs:read` and `jobs:write` (`JOBS_PERMISSIONS`, system scope, granted to `admin` by the seed); every `/api/admin/jobs` route enforces one of them with `@Auth`. Owns the `jobs` system-settings namespace: `JOBS_SYSTEM_SETTINGS` (the history retention, the purge switch, the stuck threshold; defaults `DEFAULT_JOBS_POLICY`; schemas in `@marinoscar/platform-contract/jobs`). `JobsModule.forRoot()` registers it unless the app's manifest already did (the reference app lists it in [`system-settings.manifest.ts`](../../../../apps/api/src/settings/registry/system-settings.manifest.ts) to pin the key order), so call `forRoot()` before `SettingsModule.forRoot()`. Reads it through `@marinoscar/platform-api/settings` (`getNamespace('jobs')`, or the deprecated `getJobsPolicy`), plus `nodes.jobSecretBrokerEnabled` for node offload.
 
 ## UI
 
@@ -157,6 +157,7 @@ New as a package subpath in this version (the code moved from `apps/api/src/jobs
 - `jobs.org_id` arrives with migrations `0030` and `0031` (`npm run db:sync`, then `prisma:migrate`). Existing rows are system jobs (`NULL`).
 - `GET /api/admin/jobs` gains an optional `orgId` filter and an `orgId` field (additive).
 - The cron-enqueue-only exemption paths changed; an app's own exemption list must name the new paths with their `root`.
+- #865: the `jobs` namespace declaration is the slice's (`JOBS_SYSTEM_SETTINGS`), and `JobsModule.forRoot()` registers it. An app that copied the reference app's `platform/jobs/jobs.system-settings.ts` deletes its copy and imports the packaged one into its manifest (or drops it from the manifest, accepting that `jobs` is then appended after the manifest's keys); `forRoot()` must run before `SettingsModule.forRoot()`.
 
 ## Troubleshooting
 
@@ -166,6 +167,8 @@ New as a package subpath in this version (the code moved from `apps/api/src/jobs
 | Two organizations' jobs collapse onto one row | Same type and subject; the organization is not part of the dedup key | Use `subjectType: 'organization', subjectId: orgId` for a subject-less org job |
 | A type shows its dotted key in the admin list | No `label` on its handler (or the handler is not loaded here) | Add `readonly label`, or `registerJobTypeLabel(type, label)` |
 | `job-type-snapshot.spec` fails with "Job type strings are permanent" | A registered type disappeared | Restore the type string; rows of it outlive the handler |
+| `JobsModule.forRoot() registers the system settings namespace(s) "jobs", but SettingsModule.forRoot() already composed ...` | `JobsModule.forRoot()` ran after `SettingsModule.forRoot()`, without the app's manifest registering `jobs` | Call `JobsModule.forRoot()` first, or register `JOBS_SYSTEM_SETTINGS` in the app's manifest |
+| The nightly purge logs that its policy is missing | The `jobs` namespace is not registered (a version before #865, or the registries froze before `JobsModule.forRoot()`) | Upgrade, or register `JOBS_SYSTEM_SETTINGS` in the manifest |
 
 ## Links
 
