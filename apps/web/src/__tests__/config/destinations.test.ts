@@ -304,10 +304,14 @@ describe('destinations — the table itself', () => {
  * card appears, the click 403s or redirects.
  */
 describe('admin sections — registry against the live routes', () => {
-  /** Every `<Route>` element in `App.tsx`, as `path` → the `permission` it wraps. */
-  function declaredRouteGates(): Map<string, string | null> {
+  /**
+   * Every `<Route>` element in `App.tsx`, as `path` → the `permission` it
+   * wraps, or the `permissions={[...]}` list of an any-of guard (#738, the
+   * Broadcasts route), in source order.
+   */
+  function declaredRouteGates(): Map<string, string | string[] | null> {
     const source = readFileSync(APP_TSX, 'utf8');
-    const gates = new Map<string, string | null>();
+    const gates = new Map<string, string | string[] | null>();
     // Split on the element opener so each chunk holds exactly one route, and
     // the first `permission=` inside it is that route's own guard. Chunks that
     // do not start with a `path` — `<Routes>`, the layout and guard routes —
@@ -316,7 +320,13 @@ describe('admin sections — registry against the live routes', () => {
     for (const chunk of source.split('<Route').slice(1)) {
       const path = /^\s*path="([^"]+)"/.exec(chunk)?.[1];
       if (!path) continue;
-      gates.set(path, /permission="([^"]+)"/.exec(chunk)?.[1] ?? null);
+      const anyOf = /permissions=\{\[([^\]]*)\]\}/.exec(chunk)?.[1];
+      gates.set(
+        path,
+        anyOf !== undefined
+          ? [...anyOf.matchAll(/'([^']+)'/g)].map((match) => match[1])
+          : (/permission="([^"]+)"/.exec(chunk)?.[1] ?? null),
+      );
     }
     return gates;
   }
@@ -329,7 +339,7 @@ describe('admin sections — registry against the live routes', () => {
     for (const card of cards) {
       if (!card.path) continue;
       expect(gates.has(card.path), `${card.title} → ${card.path} has no route`).toBe(true);
-      expect(gates.get(card.path), `${card.title} route gate`).toBe(card.permission);
+      expect(gates.get(card.path), `${card.title} route gate`).toEqual(card.permission);
     }
   });
 
