@@ -325,6 +325,7 @@ Rules:
 - `otel-core` (emitting) is separate from the **telemetry product** (viewing and querying). Every slice emits through `otel-core`. Apps must still run with `OTEL_ENABLED=false` and no telemetry stack.
 - `identity` owns the user tables, so every other slice may reference a user.
 - A slice may depend only on slices above it in the graph. Lint enforces it.
+- `manifest` (#866) sits at the bottom of the API package, below every slice that declares roles, permissions or user-owned models: it holds only their **registration order** (the seed order of the permission sets, the order of the platform's user-owned inventory) and the functions that register them plus an app's own. No slice depends on it; an app's manifests call it once.
 
 **Model ownership follows slices:**
 
@@ -481,7 +482,7 @@ TelemetryModule.forRoot({ dashboard: { verdictPolicy: { useClass: CoachVerdictPo
 
 The telemetry slice binds `VERDICT_POLICY` itself (to `DefaultVerdictPolicy`), so an app's own `{ provide: VERDICT_POLICY, ... }` in an imported module would be shadowed by the slice's provider; the slice therefore takes the binding as the `dashboard.verdictPolicy` option, in the `PortBinding` shape of the core host ports (#703).
 
-Existing precedent in the base: Doctor checks and job handlers already register themselves this way ([doctor spec](doctor.md), [job queue spec](job-queue.md)). Permissions and roles are the first static registry: an app declares them as data in `apps/api/src/app-registrations/permissions.ts`, and the permission manifest passes them to `registerPermissions()` after the platform's ([permissions README](../../apps/api/src/common/permissions/README.md)).
+Existing precedent in the base: Doctor checks and job handlers already register themselves this way ([doctor spec](doctor.md), [job queue spec](job-queue.md)). Permissions and roles are the first static registry: each slice declares its permissions as data typed with `PermissionDeclaration` (scope and default grants included), the registries are `roleRegistry` and `permissionRegistry` of `@marinoscar/platform-api/core`, and `registerPlatformPermissions({ slices?, app })` of `@marinoscar/platform-api/manifest` registers the platform roles, the app's roles, every slice's permissions in seed order and then the app's (#866). An app declares its own as data in `apps/api/src/app-registrations/permissions.ts` ([permissions README](../../apps/api/src/common/permissions/README.md)); a seed that imports its packages composes the same catalog with `platformPermissionCatalog()` and hands it to `seedPlatform`. The platform's user-owned model inventory ships beside it (`registerPlatformUserOwnedModels(appModels)`), so the `userOwnedData` suite checks platform and app models together in any app.
 
 #### Data
 
@@ -625,7 +626,7 @@ Documentation drift becomes a failing build.
 | Schema | The base is a generated, committed folder, `apps/api/prisma/schema/` (34 models, 12 enums, 9 files), composed by `platform db compose` from `packages/platform-db/schema/` (one fragment per slice plus `base.prisma`) and the app's own `apps/api/prisma/fragments/` ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D1 and D2). EvoPath still has one file of 3,905 lines and 77 models. |
 | Config | `prisma.config.ts` with `@prisma/adapter-pg`, `schema: 'prisma/schema'` and an explicit `migrations.path` |
 | Migrations | One linear history per app (22 directories in the base, plus `migration_lock.toml`; they are platform history v1, `0001`..`0022`, in `packages/platform-db/migrations`) |
-| Seeds | `prisma/seed.ts` runs `seedPlatform` (`@marinoscar/platform-db/seed`) with an input built from the committed catalogs that `prisma/seed-data.ts` loads, then `seedApp` from `prisma/seed-app.ts` (#712) |
+| Seeds | `prisma/seed.ts` runs `seedPlatform` (`@marinoscar/platform-db/seed`) with an input built from the committed catalogs that `prisma/seed-data.ts` loads, then `seedApp` from `prisma/seed-app.ts` (#712); an app whose seed imports its packages may build the permission half with `platformPermissionCatalog()` of `@marinoscar/platform-api/manifest` instead (#866) |
 | Startup | The API does not migrate on startup |
 
 ### The model

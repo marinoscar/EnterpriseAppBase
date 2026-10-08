@@ -77,7 +77,7 @@ empty; a fork fills them in and widens the typed ids by module augmentation:
 
 ```typescript
 // apps/api/src/app-registrations/permissions.ts (in the fork)
-import type { PermissionDeclaration, RoleDeclaration } from '../common/permissions/permission.types';
+import type { PermissionDeclaration, RoleDeclaration } from '@marinoscar/platform-api/core';
 
 export const APP_ROLES: readonly RoleDeclaration[] = [];
 

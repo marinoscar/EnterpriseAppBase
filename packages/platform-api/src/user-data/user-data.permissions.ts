@@ -2,24 +2,17 @@
 // is the settings slice's and held by every role; the slice declares only the
 // two Admin-only SYSTEM permissions.
 
+import type { PermissionDeclaration } from '../core/index';
+
 /**
- * One permission the slice declares, in the shape an app's permission
- * registry takes (structurally the reference app's `PermissionDeclaration`).
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
  *
  * @typeParam Id - the permission string.
  *
  * @stability experimental
  */
-export interface UserDataPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string the routes enforce. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /** Both are `'system'`: they operate the deployment. */
-  readonly scope: 'system' | 'org';
-  /** Role ids seeded into `role_permissions`. */
-  readonly defaultGrants: readonly string[];
-}
+export type UserDataPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 /**
  * `system:factory_reset` and `orgs:offboard`, both system scope and granted

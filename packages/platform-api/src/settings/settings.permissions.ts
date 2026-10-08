@@ -4,7 +4,7 @@
 //
 // Pure data: the slice's permissions and their default role grants. The app
 // registers them with its own permission registry (the reference app:
-// `common/permissions/permission.manifest.ts`, which also derives
+// the manifest slice (`registerPlatformPermissions()`), which also derives
 // `PERMISSIONS` from them), and the seed derives the rows from it. The
 // strings never change: they are rows in `permissions` and the exact strings
 // the routes (and the settings cards) enforce.
@@ -16,24 +16,17 @@
 //                               overrides, held through `org_admin`
 // =============================================================================
 
+import type { PermissionDeclaration } from '../core/index';
+
 /**
- * One permission the settings slice declares, in the shape an app's
- * permission registry takes.
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
  *
  * @typeParam Id - the permission string.
  *
  * @stability experimental
  */
-export interface SettingsPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /** `'system'` or `'org'`; every role in `defaultGrants` has the same scope. */
-  readonly scope: 'system' | 'org';
-  /** Role ids seeded into `role_permissions`; the seed only adds grants. */
-  readonly defaultGrants: readonly string[];
-}
+export type SettingsPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 /**
  * The system and user settings permissions (`system_settings:read|write`,

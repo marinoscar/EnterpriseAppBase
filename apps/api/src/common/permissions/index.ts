@@ -1,33 +1,20 @@
-// The role and permission registries (issue #676, PP-1.4). Recipe: ./README.md.
+// The role and permission registries, filled (issue #676, packaged by #866).
+// Recipe: ./README.md.
 //
-// Importing this folder fills both registries (the manifest runs first). The
-// declaration types live in ./permission.types; `roles.constants.ts` derives
-// `ROLES` and `PERMISSIONS` from the declaration files without importing this.
+// The registries are `@marinoscar/platform-api/core`'s. Importing this folder
+// runs the manifest first, so the registries it re-exports are full: import
+// `roleRegistry` and `permissionRegistry` from here, not from core, wherever
+// the platform's and the app's entries must be present. `roles.constants.ts`
+// derives `ROLES` and `PERMISSIONS` from the declarations without importing
+// this.
 
 import './permission.manifest';
 
-export {
-  permissionIds,
-  permissionRegistry,
-  registerPermissions,
-  registerRoles,
-  roleIds,
-  roleRegistry,
-} from './permission.registry';
+export { buildPermissionCatalog, permissionRegistry, roleRegistry } from '@marinoscar/platform-api/core';
 export {
   PERMISSION_CATALOG_COMMAND,
   PERMISSION_CATALOG_PATH,
-  buildPermissionCatalog,
   checkPermissionCatalog,
   renderPermissionCatalog,
 } from './permission-catalog';
-export type { PermissionCatalog } from './permission-catalog';
-export { PLATFORM_ROLES } from './platform-roles';
-export type {
-  AppPermissionIds,
-  AppRoleIds,
-  PermissionDeclaration,
-  PermissionDeclarationMap,
-  RoleDeclaration,
-  RoleDeclarationMap,
-} from './permission.types';
+export type { AppPermissionIds, AppRoleIds } from './permission.types';

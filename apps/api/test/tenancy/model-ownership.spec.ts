@@ -7,6 +7,7 @@
 import { join } from 'node:path';
 
 import { modelOwnershipRegistry, modelsOfKind, orgColumnOf } from '@marinoscar/platform-api/core';
+import { PLATFORM_MODEL_OWNERSHIP } from '@marinoscar/platform-api/manifest';
 import { readSchemaDatamodel } from '@marinoscar/platform-api/testing';
 
 // Fills the registry: the platform classification, then the app's own.
@@ -17,6 +18,55 @@ const datamodel = readSchemaDatamodel(SCHEMA);
 const modelNames = datamodel.map((m) => m.name);
 
 describe('model ownership vs prisma/schema/', () => {
+  // The literal registration order before the classification was packaged
+  // (#866): the packaged inventory, then the (empty) app list.
+  it('registers the packaged platform classification in the baseline order', () => {
+    expect(modelOwnershipRegistry.ids()).toEqual([
+    'StorageObject',
+    'StorageObjectChunk',
+    'AiRun',
+    'AiUsageEvent',
+    'AuditEvent',
+    'Job',
+    'UserSettings',
+    'Notification',
+    'NotificationDelivery',
+    'PushSubscription',
+    'UserAiKey',
+    'UserIdentity',
+    'RefreshToken',
+    'PersonalAccessToken',
+    'DeviceCode',
+    'User',
+    'SystemSettings',
+    'AiModel',
+    'Role',
+    'Permission',
+    'RolePermission',
+    'UserRole',
+    'AllowedEmail',
+    'DatabaseBackupRun',
+    'WorkerNode',
+    'NodeCredential',
+    'JobStatsRollup',
+    'JobNodeSecret',
+    'NotificationBroadcast',
+    'Organization',
+    'Membership',
+    'Invite',
+    'Group',
+    'GroupMember',
+    'GroupInvite',
+    'Grant',
+    'OrgSettings',
+    'Credential',
+    'UserCredential',
+    'OrgCredential',
+    'AndroidAppRelease',
+    ]);
+    expect(modelOwnershipRegistry.list()).toEqual([...PLATFORM_MODEL_OWNERSHIP]);
+  });
+
   it('classifies every model, and only models that exist', () => {
     const registered = modelOwnershipRegistry.list().map((d) => d.model);
     expect(registered.filter((m) => !modelNames.includes(m))).toEqual([]);

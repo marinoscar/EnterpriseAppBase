@@ -4,7 +4,7 @@
 //
 // Pure data: the organization surface's permissions and their default role
 // grants. Imports only types and has no side effect;
-// `common/permissions/permission.manifest.ts` registers it, and
+// the manifest slice (`registerPlatformPermissions()`) registers it, and
 // `common/constants/roles.constants.ts` derives `PERMISSIONS` from it. After a
 // change, run `npm run catalog:permissions --workspace=api` and commit the
 // regenerated `prisma/catalog/permissions.json`. Recipe:

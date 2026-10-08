@@ -86,7 +86,12 @@ would hit `FROZEN`.
 ## Recipe: a static registry
 
 The convention every registry story follows. The example is a permissions
-registry; names are illustrative.
+registry as the reference app first built it; names are illustrative. The real
+role and permission registries have since moved into this slice
+(`roleRegistry`, `permissionRegistry`, [core README](../README.md#roles-and-permissions),
+#866), and the platform's manifest into `@marinoscar/platform-api/manifest`,
+so the paths below no longer exist in the reference app; the steps are the
+same for any new static registry.
 
 ### 1. Define the registry with its domain
 

@@ -15,6 +15,38 @@ export { RegistryFreezeService } from './registry/registry-freeze.service';
 // `PlatformHostModule`, which binds them. Every packaged slice reuses them.
 export * from './host/index';
 
+// Roles and permissions (issue #676, packaged by #866): the role and
+// permission registries every slice declares into, the declaration types, and
+// the seed catalog built from them. Framework-free, like the registry
+// primitive. The platform's own declarations, in seed order, are
+// `@marinoscar/platform-api/manifest`.
+export {
+  buildPermissionCatalog,
+  catalogGrants,
+  composePermissionCatalog,
+  permissionIds,
+  permissionRegistry,
+  registerPermissions,
+  registerRoles,
+  roleIds,
+  roleRegistry,
+} from './permissions/index';
+export type {
+  CatalogGrant,
+  DeclarationList,
+  Declarations,
+  IdentifiedDeclaration,
+  PermissionCatalog,
+  PermissionCatalogDeclarations,
+  PermissionCatalogEntry,
+  PermissionCatalogSource,
+  PermissionDeclaration,
+  PermissionDeclarationMap,
+  PermissionScope,
+  RoleDeclaration,
+  RoleDeclarationMap,
+} from './permissions/index';
+
 // Principal and scope contract (ADR 0001, issue #687). Types only.
 export type {
   CredentialKind,

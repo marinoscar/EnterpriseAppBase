@@ -166,6 +166,10 @@
       "types": "./dist/user-data/testing/index.d.ts",
       "default": "./dist/user-data/testing/index.js"
     },
+    "./manifest": {
+      "types": "./dist/manifest/index.d.ts",
+      "default": "./dist/manifest/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

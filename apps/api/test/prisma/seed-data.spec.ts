@@ -1,6 +1,9 @@
 import { platformSeedInputFrom } from '@marinoscar/platform-db/seed';
 
+import { platformPermissionCatalog } from '@marinoscar/platform-api/manifest';
+
 import { SEED_SNAPSHOT } from '../../prisma/seed-data';
+import { APP_PERMISSIONS, APP_ROLES } from '../../src/app-registrations/permissions';
 import { PERMISSIONS as PERMISSION_CONSTANTS } from '../../src/common/constants/roles.constants';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { systemSettingsSchema } from '../../src/settings/registry/composed';
@@ -50,6 +53,13 @@ describe('seed data', () => {
       expect(SEED_INPUT.permissions).toBe(SEED_SNAPSHOT.permissions.permissions);
       expect(SEED_INPUT.roleGrants).toBe(SEED_SNAPSHOT.permissions.rolePermissions);
       expect(SEED_INPUT.systemSettingsDefaults).toBe(SEED_SNAPSHOT.settings);
+    });
+
+    it('equals the input composed straight from the packaged registry plus the app-owned declarations (#866)', () => {
+      // An app whose seed can import its packages composes the catalog instead
+      // of reading the committed file; both must write exactly the same rows.
+      const composed = platformPermissionCatalog({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS] } });
+      expect(platformSeedInputFrom({ permissions: composed, settings: SEED_SNAPSHOT.settings }, {})).toEqual(SEED_INPUT);
     });
 
     it('takes the initial administrator from INITIAL_ADMIN_EMAIL only', () => {

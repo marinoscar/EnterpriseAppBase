@@ -8,9 +8,9 @@
 // this app keeps its DATA:
 //
 //   - its registrations: the platform inventory
-//     (src/prisma/ownership/platform-user-owned-models.ts) and its own
-//     (src/app-registrations/user-owned-models.ts), read back from the filled
-//     registry;
+//     (`PLATFORM_USER_OWNED_MODELS`, `@marinoscar/platform-api/manifest`) and
+//     its own (src/app-registrations/user-owned-models.ts), read back from the
+//     filled registry;
 //   - its schema: the composed prisma/schema/ folder;
 //   - its raw-SQL allowlist (./raw-sql-allowlist.ts), entries verbatim.
 //
@@ -52,7 +52,7 @@ runPlatformConformance({
       policies: userOwnedModelRegistry.list(),
       rawSqlAllowlist: RAW_SQL_ALLOWLIST,
       registerIn:
-        'apps/api/src/prisma/ownership/platform-user-owned-models.ts (platform) or apps/api/src/app-registrations/user-owned-models.ts (app)',
+        'packages/platform-api/src/manifest/platform-user-owned-models.ts (platform) or apps/api/src/app-registrations/user-owned-models.ts (app)',
     },
   },
 });

@@ -446,7 +446,7 @@ const definedRegistries = new Map<string, Registry<unknown>>();
  *
  * @example
  * ```ts
- * // apps/api/src/common/permissions/permission.registry.ts
+ * // packages/platform-api/src/core/permissions/permission.registry.ts
  * export const permissionRegistry = defineRegistry<PermissionDefinition>({
  *   name: 'permissions',
  *   idOf: (p) => p.id,

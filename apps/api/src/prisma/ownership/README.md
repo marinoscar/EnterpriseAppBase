@@ -18,8 +18,10 @@ folder holds the **app side**:
    service.
 
 **Model ownership kinds and row-level security (#725).** Beside the user-owned
-registry this folder holds the **model ownership** registrations
-(`platform-model-ownership.ts`, `model-ownership.manifest.ts`): every Prisma
+registry this folder holds the **model ownership** registration
+(`model-ownership.manifest.ts`, which calls `registerPlatformModelOwnership()`
+of `@marinoscar/platform-api/manifest` with the app's own; the platform's
+classification is `PLATFORM_MODEL_OWNERSHIP` there, #866): every Prisma
 model is `org` (NOT NULL `org_id`, row-level security forced), `org-optional`
 (nullable `org_id`), `user` or `system`, with `orgReference` for an identity
 table that merely names an organization. An app adds its own in
@@ -38,10 +40,9 @@ The principal and scope types: [ADR 0001](../../../../../docs/adr/0001-org-aware
 
 | File | What it holds |
 |---|---|
-| `platform-user-owned-models.ts` | The platform inventory: 26 models, 29 `User` foreign keys, typed `UserOwnedModelDef<Prisma.ModelName>`. Pure data. The entries move next to their slices when the slices become packages. |
-| `user-owned-model.manifest.ts` | Registers the platform inventory, then `app-registrations/user-owned-models.ts`, into the package's `userOwnedModelRegistry`. |
+| `user-owned-model.manifest.ts` | One call: `registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS)` of `@marinoscar/platform-api/manifest`, which registers the platform inventory (`PLATFORM_USER_OWNED_MODELS`: 33 models, 40 `User` foreign keys, #866), then `app-registrations/user-owned-models.ts`, into the package's `userOwnedModelRegistry`. |
 | `scoped-prisma.service.ts` | `ScopedPrismaService` (`forUser`, `forScope`, `asSystem`): a thin Nest wrapper over the package's `userScopeExtension` and `asSystem`, plus the debug log line. Provided and exported by the global `PrismaModule`. |
-| `index.ts` | The barrel (`ScopedPrismaService`, `UserScopedClient`, `PLATFORM_USER_OWNED_MODELS`). Importing it fills the registry. The registry, `ScopedAccessError`, `ownerFieldOf` and friends are imported from `@marinoscar/platform-api/core`. |
+| `index.ts` | The barrel (`ScopedPrismaService`, `UserScopedClient`). Importing it fills the registry. The registry, `ScopedAccessError`, `ownerFieldOf` and friends are imported from `@marinoscar/platform-api/core`. |
 | `../prisma.service.ts` | `PrismaService.forUser(scope)`: `this.$extends(userScopeExtension(scope))`, typed with the generated models. |
 
 Tests: `user-owned-model.registry.spec.ts` (the app's inventory) and
@@ -95,7 +96,7 @@ The tripwire (`test/prisma/user-owned-models.spec.ts`) fails the moment a
 model gains a relation to `User` without an entry, and its message names the
 file to edit.
 
-**Platform model**: append an entry to `platform-user-owned-models.ts`.
+**Platform model**: append an entry to the owning slice's list, or to `packages/platform-api/src/manifest/platform-user-owned-models.ts` for a base model (append only: the order is the export's dataset order), then rebuild the package. `packages/platform-api/test/manifest/manifest.spec.ts` checks the inventory against the platform's fragments.
 
 **App model (a fork)**: add it to
 [`app-registrations/user-owned-models.ts`](../../app-registrations/user-owned-models.ts),

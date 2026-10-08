@@ -3,31 +3,24 @@
 // =============================================================================
 //
 // Declared once, here, in the shape an app's permission registry takes; the
-// reference app registers them in `common/permissions/permission.manifest.ts`
+// reference app registers them in the manifest slice (`registerPlatformPermissions()`)
 // (seed order: broadcasts, then push, then the org broadcasts appended last)
 // and derives its `PERMISSIONS` constant from them. Every controller of the
 // slice enforces these exact strings, and the settings cards declare them
 // (CLAUDE.md, Settings UI Pattern, rule 3).
 // =============================================================================
 
+import type { PermissionDeclaration } from '../core/index';
+
 /**
- * One permission the notifications slice declares, in the shape an app's
- * permission registry takes.
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
  *
  * @typeParam Id - the permission string.
  *
  * @stability experimental
  */
-export interface NotificationsPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /** `'system'` or `'org'`; every role in `defaultGrants` has the same scope. */
-  readonly scope: 'system' | 'org';
-  /** Role ids seeded into `role_permissions`; the seed only adds grants. */
-  readonly defaultGrants: readonly string[];
-}
+export type NotificationsPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 /**
  * The admin broadcast permissions (#366): `broadcasts:read` and

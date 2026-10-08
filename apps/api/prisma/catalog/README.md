@@ -8,7 +8,7 @@ and checked for staleness in CI:
 
 | File | Rendered from | Regenerate |
 |---|---|---|
-| `permissions.json` | The role and permission registries (`src/common/permissions/`): roles, permissions and default grants | `npm run catalog:permissions --workspace=api` |
+| `permissions.json` | The role and permission registries of `@marinoscar/platform-api/core`, filled by `src/common/permissions/` (the platform's declarations through `registerPlatformPermissions()` of `@marinoscar/platform-api/manifest`, then the app's): roles, permissions and default grants | `npm run catalog:permissions --workspace=api` |
 | `system-settings-defaults.json` | The system settings namespace registry (`src/settings/registry/`): every namespace's `defaults`, in registration order | `npm run catalog:settings --workspace=api` |
 
 Check without writing: append `-- --check` (exits 1 and prints the regenerate

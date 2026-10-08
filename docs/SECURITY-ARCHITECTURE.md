@@ -671,11 +671,14 @@ The full permission list and the role-to-permission matrix are in
 [ARCHITECTURE.md](ARCHITECTURE.md#7-authorization).
 
 Where RBAC data is declared: each permission, with its description and
-default role grants, in a declaration file beside the module whose controller
-enforces it (`apps/api/src/<module>/<module>.permissions.ts`); the four roles
-in `apps/api/src/common/permissions/platform-roles.ts` (each with its scope); an app's own roles and
-permissions in `apps/api/src/app-registrations/permissions.ts`. The role and
-permission registries (`apps/api/src/common/permissions/`) validate them at
+default role grants, in a declaration file beside the slice whose controller
+enforces it (`packages/platform-api/src/<slice>/<slice>.permissions.ts`); the four roles
+in the identity slice (`IDENTITY_ROLES`, each with its scope); an app's own roles and
+permissions in `apps/api/src/app-registrations/permissions.ts`. The platform's
+declarations are registered in seed order by `registerPlatformPermissions()`
+(`@marinoscar/platform-api/manifest`), the app's after them. The role and
+permission registries (`roleRegistry`, `permissionRegistry` of
+`@marinoscar/platform-api/core`, #866) validate them at
 import time (id shape, non-empty description, a `system` or `org` scope,
 every grant names a registered role of the same scope, no duplicate id), so a
 malformed declaration stops the API from
@@ -1513,8 +1516,9 @@ its registrations and a thin `ScopedPrismaService` in
 `apps/api/src/prisma/ownership/`.
 
 **The user-owned data registry.** Every model with a foreign key to `User`
-is registered (`apps/api/src/prisma/ownership/platform-user-owned-models.ts`,
-and `apps/api/src/app-registrations/user-owned-models.ts` for a fork), with
+is registered (the platform's inventory, `PLATFORM_USER_OWNED_MODELS` of
+`@marinoscar/platform-api/manifest`, #866, and
+`apps/api/src/app-registrations/user-owned-models.ts` for a fork), with
 each key's role and the row's policies:
 
 | Role | Meaning | Models today |
@@ -1580,8 +1584,8 @@ or a raw query cannot leak another tenant's data. Row-level security (RLS) is a
 second line behind `@Auth(...)` and the service's checks, never a replacement.
 
 **What is isolated.** The models registered `org` in the model ownership
-registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`, a
-`@marinoscar/platform-api/core` registry): `StorageObject`,
+registry (`PLATFORM_MODEL_OWNERSHIP` of `@marinoscar/platform-api/manifest`,
+#866, registered into a `@marinoscar/platform-api/core` registry): `StorageObject`,
 `StorageObjectChunk`, `AiRun`, `AiUsageEvent`, the sharing slice's `Group`,
 `GroupMember`, `GroupInvite` (#728) and `Grant` (#729), declared by
 `@marinoscar/platform-api/sharing`, the settings slice's `OrgSettings`

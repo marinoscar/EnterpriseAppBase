@@ -4,7 +4,7 @@
 //
 // Pure data: the slice's three permissions and their default role grants. The
 // app registers the declarations with its own permission registry (the
-// reference app: `common/permissions/permission.manifest.ts`, which also
+// reference app: the manifest slice (`registerPlatformPermissions()`), which also
 // derives `PERMISSIONS` from them in `common/constants/roles.constants.ts`).
 // The strings never change: they are rows in `permissions` and the exact
 // strings the controllers enforce.
@@ -21,28 +21,17 @@
 // governs it.
 // =============================================================================
 
+import type { PermissionDeclaration } from '../core/index';
+
 /**
- * One permission the telemetry slice declares, in the shape an app's
- * permission registry takes.
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
  *
  * @typeParam Id - the permission string.
  *
  * @stability experimental
  */
-export interface TelemetryPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /**
-   * What the permission operates: `'system'` (the deployment) or `'org'` (one
-   * organization). Every telemetry permission is `'system'`: telemetry is a
-   * deployment-wide operator surface.
-   */
-  readonly scope: 'system' | 'org';
-  /** Role ids the permission is granted to by default (seeded into `role_permissions`). */
-  readonly defaultGrants: readonly string[];
-}
+export type TelemetryPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 /**
  * The telemetry permissions with their descriptions and default grants, keyed

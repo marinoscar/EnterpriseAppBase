@@ -38,7 +38,7 @@ export const telemetryModule = TelemetryModule.forRoot({
 
 | Step | Reference-app file |
 |---|---|
-| Register the permissions with the app's permission registry | [`permission.manifest.ts`](../../../../apps/api/src/common/permissions/permission.manifest.ts): `registerPermissions(TELEMETRY_PERMISSION_DECLARATIONS)` |
+| Register the permissions with the app's permission registry | [`permission.manifest.ts`](../../../../apps/api/src/common/permissions/permission.manifest.ts): `registerPlatformPermissions()` (`@marinoscar/platform-api/manifest`) registers `TELEMETRY_PERMISSION_DECLARATIONS` with every other slice's, in seed order |
 | Register the `telemetry` settings namespace | [`telemetry.system-settings.ts`](../../../../apps/api/src/platform/telemetry/telemetry.system-settings.ts) |
 | Scan the slice's cron with the app's `cron-enqueue-only` run, and run the telemetry conformance suite | [`cron-source-roots.ts`](../../../../apps/api/test/jobs/cron-source-roots.ts), [`telemetry-conformance.spec.ts`](../../../../apps/api/test/telemetry/telemetry-conformance.spec.ts) |
 

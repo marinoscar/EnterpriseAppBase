@@ -1,26 +1,35 @@
 // =============================================================================
-// Platform user-owned model inventory (issue #688, PP-1.9)
+// The platform's user-owned model inventory (issue #688; packaged by #866)
 // =============================================================================
 //
 // Every platform model with a foreign key to `User`, classified against its
-// block comment and `onDelete` in prisma/schema.prisma. Pure data: no side
-// effect on import; user-owned-model.manifest.ts registers it.
+// `onDelete` in the platform's schema fragments (`@marinoscar/platform-db`,
+// `schema/*.prisma`). Every app composes every platform fragment, so every app
+// needs every entry: `registerPlatformUserOwnedModels()` registers them into
+// core's `userOwnedModelRegistry`, then the app's own.
 //
-// One file for now because every platform model lives in one schema file; the
-// entries move next to their slices when the slices become packages.
+// The base entries below were the reference app's
+// `prisma/ownership/platform-user-owned-models.ts`, moved unchanged; the
+// sharing, settings, credentials and android-app slices declare their own
+// models and are appended in the order the reference app registered them. The
+// registration order is the order the user-data export lists its datasets, so
+// it is append-only.
 //
 // OWNER: the row belongs to the user (a scoped client may read and write it).
 // ACTOR: the row only names a user who acted (a scoped client refuses it).
-// The tripwire (test/prisma/user-owned-models.spec.ts, the `userOwnedData`
-// conformance suite) fails when this list and the schema disagree. A fork
-// registers its own models in app-registrations/user-owned-models.ts, never
-// here. The entry type is the package's, narrowed to this app's model names.
+// The `userOwnedData` conformance suite fails when this list and a schema
+// disagree; `test/manifest/user-owned-models.spec.ts` runs it against the
+// platform's fragments.
 // =============================================================================
 
-import type { UserOwnedModelDef } from '@marinoscar/platform-api/core';
-import type { Prisma } from '@prisma/client';
+import { registerUserOwnedModels, type UserOwnedModelDef } from '../core/index';
+import { ANDROID_APP_USER_OWNED_MODELS } from '../android-app/index';
+import { CREDENTIALS_USER_OWNED_MODELS } from '../credentials/index';
+import { SETTINGS_USER_OWNED_MODELS } from '../settings/index';
+import { SHARING_USER_OWNED_MODELS } from '../sharing/index';
 
-export const PLATFORM_USER_OWNED_MODELS = [
+/** The models of the base, identity, notifications, jobs, AI, storage and db-backup fragments. */
+const BASE_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
   // ---------------------------------------------------------------------------
   // Owner models, deleted with the user (onDelete: Cascade)
   // ---------------------------------------------------------------------------
@@ -209,4 +218,47 @@ export const PLATFORM_USER_OWNED_MODELS = [
     export: 'exclude',
     rationale: 'The deployment AI model catalog; the user only last changed an entry.',
   },
-] as const satisfies readonly UserOwnedModelDef<Prisma.ModelName>[];
+];
+
+/**
+ * Every platform model with a foreign key to `User`, with its role, purge and
+ * export policy, in registration order: the base inventory, then the sharing,
+ * settings, credentials and android-app slices' own entries.
+ *
+ * @stability experimental
+ */
+export const PLATFORM_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = Object.freeze([
+  ...BASE_USER_OWNED_MODELS,
+  // The sharing slice's models (#728).
+  ...SHARING_USER_OWNED_MODELS,
+  // The settings slice's org table (#733).
+  ...SETTINGS_USER_OWNED_MODELS,
+  // The credentials slice's three models (#735).
+  ...CREDENTIALS_USER_OWNED_MODELS,
+  // The android-app slice's release table.
+  ...ANDROID_APP_USER_OWNED_MODELS,
+]);
+
+/**
+ * Registers {@link PLATFORM_USER_OWNED_MODELS} in core's
+ * `userOwnedModelRegistry`, then the app's own models, so a collision with a
+ * platform entry names the app. Call it once, at import time, from the app's
+ * user-owned model manifest; afterwards `userOwnedModelRegistry.list()` is
+ * the whole inventory the `userOwnedData` conformance suite, the scoped
+ * client, the user-data export and the purge planner read.
+ *
+ * @param appModels - the app's own definitions (typed with its own model names if it likes).
+ * @throws RegistryError `INVALID_ENTRY`, `DUPLICATE_ID` or `FROZEN`.
+ *
+ * @example
+ * ```ts
+ * registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS);
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export function registerPlatformUserOwnedModels<TModel extends string>(appModels: readonly UserOwnedModelDef<TModel>[] = []): void {
+  registerUserOwnedModels(PLATFORM_USER_OWNED_MODELS);
+  registerUserOwnedModels(appModels);
+}

@@ -3,7 +3,8 @@
 // =============================================================================
 //
 // Upstream keeps both arrays empty forever, so a fork's edits here never
-// conflict on merge. The manifest (`common/permissions/permission.manifest.ts`)
+// conflict on merge. The manifest (`common/permissions/permission.manifest.ts`,
+// through `registerPlatformPermissions()` of `@marinoscar/platform-api/manifest`)
 // registers these AFTER every platform declaration, roles before permissions:
 // a collision with a platform id fails at import time with `DUPLICATE_ID`,
 // and a grant naming an unknown role with `INVALID_ENTRY`.
@@ -13,7 +14,7 @@
 // (`npm run prisma:seed`). Recipe: common/permissions/README.md.
 // =============================================================================
 
-import type { PermissionDeclaration, RoleDeclaration } from '../common/permissions/permission.types';
+import type { PermissionDeclaration, RoleDeclaration } from '@marinoscar/platform-api/core';
 
 /** This app's own roles, seeded after the platform's admin, contributor, viewer and org_admin. */
 export const APP_ROLES: readonly RoleDeclaration[] = [
