@@ -19,6 +19,8 @@
 import request from 'supertest';
 import {
   NotificationsService,
+  eventBrowserTemplateRegistry,
+  eventEmailTemplateRegistry,
   registerNotificationEvent,
   type NotificationEventDef,
 } from '@marinoscar/platform-api/notifications';
@@ -33,6 +35,10 @@ import {
   registerExampleInvoiceNotification,
 } from '../../../src/examples/notifications/invoice-ready.notification';
 import { patchUserSettingsSchema } from '../../../src/settings/registry/composed';
+import {
+  EXAMPLE_SHIPMENT_SENT_EVENT,
+  registerExampleShipmentNotification,
+} from '../../../src/examples/notifications/shipment-sent.notification';
 import { setupBaseMocks } from '../../fixtures/mock-setup.helper';
 import { authHeader, createMockViewerUser } from '../../helpers/auth-mock.helper';
 import { closeTestApp, createTestApp, type TestContext } from '../../helpers/test-app.helper';
@@ -48,6 +54,7 @@ const PING_EVENT: NotificationEventDef = {
 
 registerExampleWebhookChannel();
 registerExampleInvoiceNotification();
+registerExampleShipmentNotification();
 registerNotificationEvent(PING_EVENT);
 
 describe('an app channel and an app event, with no package edit (#738)', () => {
@@ -73,9 +80,18 @@ describe('an app channel and an app event, with no package edit (#738)', () => {
       .set(authHeader(viewer.accessToken))
       .expect(200);
     const keys: string[] = response.body.data.map((event: { key: string }) => event.key);
-    expect(keys.slice(-2)).toEqual([EXAMPLE_INVOICE_READY_EVENT.key, PING_EVENT.key]);
+    expect(keys.slice(-3)).toEqual([EXAMPLE_INVOICE_READY_EVENT.key, EXAMPLE_SHIPMENT_SENT_EVENT.key, PING_EVENT.key]);
     const ping = response.body.data.find((event: { key: string }) => event.key === PING_EVENT.key);
     expect(ping.declaredChannels).toEqual(['example_webhook', 'browser']);
+  });
+
+  it('binds the step-by-step event to both renderers', () => {
+    expect(eventBrowserTemplateRegistry.get(EXAMPLE_SHIPMENT_SENT_EVENT.key)?.render({ orderId: 'A 1' })).toEqual({
+      title: 'Shipment sent',
+      body: 'Order A 1 is on its way.',
+      link: '/orders/A%201',
+    });
+    expect(eventEmailTemplateRegistry.get(EXAMPLE_SHIPMENT_SENT_EVENT.key)?.template).toBe('example-invoice-ready');
   });
 
   it('accepts a preference for the app channel, and still refuses an unregistered one', () => {
