@@ -101,7 +101,7 @@ export type {
 } from './in-memory-ai-storage';
 // The conformance suites.
 export { aiJobsServerOnlySuite, findAiJobsMissingFromServerOnly, findNodeEligibleAiJobs } from './conformance/ai-jobs-server-only.suite';
-export type { AiJobsServerOnlyOptions, JobRegistryView } from './conformance/ai-jobs-server-only.suite';
+export type { AiJobsServerOnlyOptions, JobHandlerView, JobRegistryView } from './conformance/ai-jobs-server-only.suite';
 export { aiKeyPolicySuite, keysSeenBy } from './conformance/ai-key-policy.suite';
 export type { AiKeyPolicyOptions } from './conformance/ai-key-policy.suite';
 export {
@@ -122,7 +122,7 @@ export {
   findRoutesNotKillSwitched,
   isPermissionDenied,
 } from './conformance/ai-route-checks';
-export type { AiRbacRoute, AiRoute } from './conformance/ai-route-checks';
+export type { AiRbacRoute, AiRoute, DiscoveredAiRoutes } from './conformance/ai-route-checks';
 export type { AiKillSwitchOptions } from './conformance/ai-kill-switch.suite';
 export {
   PROVIDER_SDK_PACKAGES,
@@ -132,7 +132,7 @@ export {
   findSdkLeaks,
   importSpecifiers,
 } from './conformance/ai-no-sdk-leak.suite';
-export type { AiNoSdkLeakOptions, SdkLeakTree } from './conformance/ai-no-sdk-leak.suite';
+export type { AiNoSdkLeakOptions, SdkLeakTree, SdkOwnerManifest } from './conformance/ai-no-sdk-leak.suite';
 export { aiOrchestrationBoundarySuite } from './conformance/ai-orchestration-boundary.registered';
 export { aiRbacMatrixSuite } from './conformance/ai-rbac-matrix.suite';
 export type { AiRbacMatrixOptions } from './conformance/ai-rbac-matrix.suite';
@@ -147,6 +147,7 @@ export {
   parseSse,
 } from './conformance/ai-conformance-fixture';
 export type {
+  AiAuthorizationHeader,
   AiConformanceApp,
   AiConformanceContext,
   AiConformanceFixture,

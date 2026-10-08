@@ -6,7 +6,7 @@
 // `sharing.grants.prune` job through the app's shared housekeeping helper
 // (`SharingJobsPort.enqueueHousekeepingJob`), and `GrantsPruneHandler` does
 // the deleting on a worker slot. Pinned by
-// `apps/api/test/jobs/cron-enqueue-only.spec.ts`, which scans this slice.
+// `apps/api/test/conformance.spec.ts`, which scans this slice.
 // Without a jobs port bound, it does nothing.
 // =============================================================================
 

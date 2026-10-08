@@ -64,13 +64,15 @@ Environment-only (no option): `JOBS_RATELIMIT_MAX_HITS` (10), `JOBS_RATELIMIT_BA
 | `JobHandler` | hook | `{ type; process(job); label?; profile?; nodeResultSchema?; persistNodeResult?; nodeSecretBroker?; nodeOffloadEnabled?; deriveOutputKey?; canDelete? }` | Implement one job type (server-only: neither node member; node-eligible: both) | stable | [example](../../../../apps/api/src/examples/jobs/example-checksum.handler.ts) |
 | `JobHandlerRegistry.register` | registry | `register(handler: JobHandler): void` | Self-register a handler from its `onModuleInit`; a duplicate type warns and the last wins | stable | [example](../../../../apps/api/src/examples/jobs/example-echo.handler.ts) |
 | `registerJobTypeLabel` | registry | `registerJobTypeLabel(type: string, label: string): void` | Label a type whose handler is not loaded in this process | experimental | [example](../../../../apps/api/src/examples/jobs/job-type-labels.example.ts) |
-| `JobSecretBroker` | hook | `{ kind; usable(); issue(job, until); revoke(handle) }` | A node-eligible type needs a per-job credential (`handler.nodeSecretBroker`) | experimental | [example](../../../../apps/api/test/jobs/on-event-no-io.spec.ts) |
+| `JobSecretBroker` | hook | `{ kind; usable(); issue(job, until); revoke(handle) }` | A node-eligible type needs a per-job credential (`handler.nodeSecretBroker`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `enqueueHousekeepingJob` | hook | `enqueueHousekeepingJob(options: HousekeepingEnqueueOptions): Promise<Job \| null>` | The body of a `@Cron`: decide, then enqueue one system job unless one is in flight | stable | [example](../../../../apps/api/src/common/retention/retention-purge.task.ts) |
 | `JobScope.run` | hook | `run<R, TTx>(job, fn: (tx: TTx) => Promise<R>, options?): Promise<R>` | A handler reads or writes org (RLS) tables as the job's organization | experimental | [example](../../../../apps/api/test/jobs/job-org-id.db.spec.ts) |
-| `JobSettledEvent` | event | `@OnEvent(JOB_SETTLED_EVENT) (event: JobSettledEvent)` | React to a job reaching a terminal state (dispatch or one bounded row, never I/O) | stable | [example](../../../../apps/api/test/jobs/on-event-no-io.spec.ts) |
+| `JobSettledEvent` | event | `@OnEvent(JOB_SETTLED_EVENT) (event: JobSettledEvent)` | React to a job reaching a terminal state (dispatch or one bounded row, never I/O) | stable | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `JOBS_METRICS` | token | `unique symbol` -> `JobsMetrics` | Bind the app's `app.jobs.*` instruments (no method takes an organization) | experimental | [example](../../../../apps/api/src/platform/jobs/jobs-host.module.ts) |
 | `JOBS_EVENT_BUS` | token | `unique symbol` -> `JobsEventBus` | Bind the cross-replica bus the `jobs.enqueued` wake-up rides | experimental | [example](../../../../apps/api/src/platform/jobs/jobs-host.module.ts) |
 | `JOBS_ORG_SCOPE` | token | `unique symbol` -> `JobsOrgScope` | Fill an omitted `orgId` from the app's ambient organization | experimental | [example](../../../../apps/api/src/examples/jobs/ambient-org-scope.example.ts) |
+| `onEventNoIoSuite` | registry | `ConformanceSuite<OnEventNoIoOptions>` | Call the listener suite's `check()` directly in a test, or read its id (`on-event-no-io`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `OnEventNoIoOptions` | option | `{ minListenerFiles; minListenerBodies?; mustScan?; extraIoMarkers? }` | Give the `on-event-no-io` suite the listener files the app must see and its vacuity minimum | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 
 ### The optional members of `JobHandler`
 
@@ -123,15 +125,28 @@ None. The worker runs in the API process (`JOBS_WORKER_MODE`); remote executors 
 
 ## Conformance suite
 
-The invariants run in the reference app over the app's and this package's source roots:
+The invariants run in the reference app over the app's and this package's source roots, from one entry, [`apps/api/test/conformance.spec.ts`](../../../../apps/api/test/conformance.spec.ts), through `runPlatformConformance()`:
 
-- `cron-enqueue-only` (`apps/api/test/jobs/cron-enqueue-only.spec.ts`, through `runPlatformConformance`): every `@Cron` enqueues; exactly three exemptions, pinned to their roots: `packages/platform-api/src/jobs/tasks/job-stuck-reset.task.ts`, `packages/platform-api/src/jobs/tasks/temp-file-janitor.task.ts`, `packages/platform-api/src/nodes/tasks/node-secret-sweep.task.ts`.
-- `on-event-no-io` (`apps/api/test/jobs/on-event-no-io.spec.ts`): no listener does storage I/O.
-- AI jobs server-only (`apps/api/test/ai/ai-jobs-server-only.spec.ts`), derived from `serverOnlyTypes()`.
+| Suite id (option key) | Registered by | Enforces | Options |
+|---|---|---|---|
+| `cron-enqueue-only` (`cronEnqueueOnly`) | `@marinoscar/platform-api/testing` | Every `@Cron` enqueues; exactly three exemptions, pinned to their roots: `packages/platform-api/src/jobs/tasks/job-stuck-reset.task.ts`, `packages/platform-api/src/jobs/tasks/temp-file-janitor.task.ts`, `packages/platform-api/src/nodes/tasks/node-secret-sweep.task.ts`. A fourth exemption needs the spec and the app's `EXEMPT` list. | `exempt`, `minCronFiles` |
+| `on-event-no-io` (`onEventNoIo`) | `@marinoscar/platform-api/jobs/testing` | No event-listener body does storage I/O (a direct storage-provider call, `.download(`, `.upload(`). Bounded single-row writes in a listener are outside the rule. | `minListenerFiles`, `minListenerBodies?`, `mustScan?`, `extraIoMarkers?` |
+| `ai-jobs-server-only` (`aiJobsServerOnly`) | `@marinoscar/platform-api/ai/testing` | Every `ai.*` job type is server-only, derived from `serverOnlyTypes()` (see the [AI README](../ai/README.md#conformance-suite)). | `fixture` |
+
+How an app runs the listener suite:
+
+```ts
+import '@marinoscar/platform-api/jobs/testing'; // registers the suite
+runPlatformConformance({
+  sourceRoots: CRON_SOURCE_ROOTS, // the app's sources and every packaged slice's, so their listeners are scanned
+  suites: { onEventNoIo: { minListenerFiles: 5, mustScan: ['ops/node-secret-revoker.ts'] } },
+});
+```
+
+`test/jobs/testing/on-event-no-io.spec.ts` proves the suite fails on a planted storage download, an upload and an app marker. Also pinned in the reference app:
+
 - Job-type snapshot (`apps/api/test/jobs/job-type-snapshot.spec.ts`): "job type strings are permanent", and every label unchanged in `GET /api/admin/jobs`.
 - The claim is unchanged by `org_id` (`apps/api/test/jobs/job-claim.db.spec.ts`), and `jobs.org_id`, the organization-subject dedup and `JobScope.run` under RLS (`apps/api/test/jobs/job-org-id.db.spec.ts`).
-
-Moving these into `runPlatformConformance()` as package suites is #742.
 
 ## Upgrade notes
 

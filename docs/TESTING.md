@@ -431,15 +431,8 @@ no edit to the suite.
 | Suite | Invariant |
 |---|---|
 | `apps/api/test/docs-links.spec.ts` | Every relative link in `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `docs/**` and `.claude/agents/*.md` resolves to a real file (anchors stripped, fenced code ignored) |
-| `apps/api/test/jobs/cron-enqueue-only.spec.ts` | Every `@Cron` only enqueues work, except the three permanent exemptions it names. The scan runs through `@marinoscar/platform-api/testing` (`runPlatformConformance()`); the spec keeps the exemption list and the minimum |
-| `apps/api/test/jobs/on-event-no-io.spec.ts` | Every `@OnEvent` body is free of storage I/O (a direct storage-provider call, `.download(`, `.upload(`) |
-| `apps/api/test/ai/ai-kill-switch.integration.spec.ts` | With `ai.enabled=false`, every discovered `/api/ai/*` route except `GET /api/ai/config` answers 403 `AI_DISABLED`, every `/api/admin/ai/*` route stays reachable, and no `ai.*` job reaches a provider |
-| `apps/api/test/ai/ai-rbac-matrix.integration.spec.ts` | Every AI route crossed with Admin/Contributor/Viewer/anonymous; the expected permission comes from the route's `@Auth()` metadata and the grant from `prisma/seed-data.ts` |
-| `apps/api/test/ai/ai-secret-egress.integration.spec.ts` | Sentinel keys never appear in any response, header, log line, audit row, usage row, run row or error body |
-| `apps/api/test/ai/ai-key-policy.integration.spec.ts` | The BYOK / org-key resolution rule holds on every inference route, checked on the key the fake provider actually received |
-| `apps/api/test/ai/ai-jobs-server-only.spec.ts` | No `ai.*` job type is node-eligible |
-| `apps/api/test/ai/ai-no-sdk-leak.spec.ts` | No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src` |
-| `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` | Every AI settings card's `permission` equals the string its API controller enforces, read from the controller source |
+| `apps/api/test/conformance.spec.ts` | One entry for the platform's cross-cutting API invariants, through `runPlatformConformance()`: `cron-enqueue-only` (every `@Cron` only enqueues, except the three permanent exemptions), `on-event-no-io` (no `@OnEvent` body does storage I/O), `ai-kill-switch`, `ai-rbac-matrix`, `ai-secret-egress`, `ai-key-policy`, `ai-jobs-server-only`, `ai-no-sdk-leak` and `ai-orchestration-boundary`. Each suite's invariant is in [Platform conformance](#platform-conformance) |
+| `apps/web/src/__tests__/conformance.test.ts` | The web counterpart, through `runPlatformWebConformance()`: `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes` and `settings-route-ownership` |
 | `apps/api/test/prisma/user-owned-models.spec.ts` | Every `User` foreign key in the `prisma/schema/` folder is in the user-owned data registry, every registered model and field exists, and every purge policy matches the relation's `onDelete`; and only the files in `raw-sql-allowlist.ts` use `$queryRaw`/`$executeRaw` (or their `Unsafe` variants) under `apps/api/src`, comments and strings ignored, and every listed file still does. The scans run through `@marinoscar/platform-api/testing` (the `userOwnedData` suite of `runPlatformConformance()`, whose rules are proven on synthetic datamodels and fixture sources in the package); the spec keeps the registrations, the schema path, the allowlist and the 23-model pin |
 | `npm run db:check` (`smoke` job) | `apps/api/prisma/platform.lock` matches the files and the package: an installed migration is never edited, a released package migration is never rewritten, every package migration is installed. Logic in `packages/platform-db/test/sync/` |
 | `npm run db:check:database` (`smoke` job) | Every row of `_prisma_migrations` matches the migration file on disk (Prisma itself never checks this) |
@@ -448,28 +441,51 @@ no edit to the suite.
 | `apps/api/test/platform/no-local-core-copies.spec.ts` | Nothing that moved into `@marinoscar/platform-api/core` (registry, principal, exception filter, exceptions, `ErrorDto`, secret cipher) exists again under `apps/api/src/common/`, and no file under `apps/api` imports those paths |
 | `apps/api/test/platform/secret-cipher-compat.spec.ts` | Ciphertexts the app's cipher wrote before the move into the package still decrypt (fixed key and fixtures; never regenerate them) |
 
-### Conformance suites in packages
+### Platform conformance
 
-A tripwire that stays in the platform repository stops checking an app the moment the app consumes a package. So the scan of an invariant ships in the package as a conformance suite, and each app runs it from a three-line spec that supplies only its own data. The entry point is `runPlatformConformance()` from `@marinoscar/platform-api/testing`; `apps/api/test/jobs/cron-enqueue-only.spec.ts` is the worked example:
+A tripwire that stays in the platform repository stops checking an app the moment the app consumes a package. So the scan of an invariant ships in the package as a conformance suite, and each app runs it from one spec that supplies only its own data. The entry points are `runPlatformConformance()` from `@marinoscar/platform-api/testing` (Jest) and `runPlatformWebConformance()` from `@marinoscar/platform-web/testing` (Vitest); `apps/api/test/conformance.spec.ts` and `apps/web/src/__tests__/conformance.test.ts` are the worked examples. A suite's id is its stable name: the table lists the id, who owns it and what it pins; [the testing README](../packages/platform-api/src/testing/README.md#conformance-suite) has the options.
+
+| Suite id | Registered by | Invariant |
+|---|---|---|
+| `cron-enqueue-only` | `@marinoscar/platform-api/testing` | Every `@Cron` body enqueues and does none of the work itself, except exactly three argued exemptions (queue rule 1) |
+| `on-event-no-io` | `@marinoscar/platform-api/jobs/testing` | No `@OnEvent` body does storage I/O (queue rule 1, listener half) |
+| `ai-kill-switch` | `@marinoscar/platform-api/ai/testing` | With `ai.enabled=false` every discovered `/api/ai/*` route except `GET /api/ai/config` answers 403 `AI_DISABLED`, `/api/admin/ai/*` stays reachable, no `ai.*` job reaches a provider (AI rule 4) |
+| `ai-rbac-matrix` | `@marinoscar/platform-api/ai/testing` | Every AI route crossed with Admin/Contributor/Viewer/anonymous; the expected permission comes from the route's `@Auth()` metadata and the grant from the seeded role permissions |
+| `ai-secret-egress` | `@marinoscar/platform-api/ai/testing` | Sentinel keys never appear in any response, header, log line, audit row, usage row, run row or error body (AI rule 2) |
+| `ai-key-policy` | `@marinoscar/platform-api/ai/testing` | The BYOK / org-key resolution rule holds on every inference route, checked on the key the fake provider actually received |
+| `ai-jobs-server-only` | `@marinoscar/platform-api/ai/testing` | No `ai.*` job type is node-eligible (AI rule 3) |
+| `ai-no-sdk-leak` | `@marinoscar/platform-api/ai/testing` | No provider SDK import outside its adapter directory, none in the app, the web or the contract (AI rule 1) |
+| `ai-orchestration-boundary` | `@marinoscar/platform-api/ai/testing` | An orchestration library only under the roots an app allows (AI rule 6) |
+| `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes`, `settings-route-ownership` | `@marinoscar/platform-web/settings/testing` | The settings registries' shared gate, card shape and permission parity with the API's catalog, AI cards (AI rule 5), card-to-route parity, route ownership (Settings UI Pattern rules 1 and 3) |
+
+A slice's own suites (`identity`, `settings`, `storage`, ...) are listed in the same README table. To add the harness to an app:
 
 ```ts
+// apps/api/test/conformance.spec.ts
+import '@marinoscar/platform-api/ai/testing'; // importing a slice's testing entry REGISTERS its suites
+import '@marinoscar/platform-api/jobs/testing';
 runPlatformConformance({
-  sourceRoots: [join(__dirname, '..', '..', 'src')],
-  suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
+  sourceRoots: CRON_SOURCE_ROOTS,
+  suites: {
+    cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 14 },
+    onEventNoIo: { minListenerFiles: 5 },
+    aiKillSwitch: { fixture: aiConformanceFixture }, // how the app boots, see apps/api/test/conformance/ai-fixture.ts
+    aiRbacMatrix: { skip: 'This app does not ship the AI slice.' }, // an opt-out needs a reason
+  },
 });
 ```
 
-- **Data stays in the app.** The exemption list (each entry argued, more than 40 characters) and the vacuity minimum are the app's, so a fourth exemption is still a change to this repository's spec and to the spec of the rule.
-- **Runner-agnostic.** The harness imports neither Jest nor Vitest; it uses the global `describe`/`it`/`expect` or a `testApi` you pass, so the same harness serves the Jest API and the Vitest web and CLI apps.
-- **Opt-outs are visible.** `cronEnqueueOnly: false` registers a passing `cron-enqueue-only: disabled by the app` test instead of silently running nothing, and an unknown key in `suites` throws.
+- **Data stays in the app.** The exemption list (each entry argued, more than 40 characters), the vacuity minimums, the fixture that boots the app and the source trees are the app's, so a fourth exemption is still a change to this repository's spec and to the spec of the rule.
+- **Nothing is hand-listed or hard-coded.** Routes come from the booted app's OpenAPI document, job types from `JobHandlerRegistry`, roles from the seeded grants, cards from the registries, permission ids from the generated catalog (`apps/api/prisma/catalog/permissions.json`), the web route table from the live `App.tsx`. `packages/platform-api/test/testing/no-hardcoded-paths.spec.ts` fails a suite that names `apps/api/src`, `apps/web/src` or `ai/providers`.
+- **Each suite can fail.** Its package tests plant a violation (an ungated AI route, a leaked sentinel, an SDK import outside its adapter, an invented card permission, a route two destinations claim) and assert the suite names it. A suite that cannot fail is not a tripwire.
+- **Opt-outs are visible and argued.** `{ skip: 'reason' }` registers a passing `<id>: skipped by the app (<reason>)` test instead of silently running nothing; a skip with no reason, or `false`, and an unknown key in `suites`, throw. The run prints a table of the suites run and skipped.
+- **Runner-agnostic where it can be.** The harness imports neither Jest nor Vitest; it uses the global `describe`/`it`/`expect` or a `testApi` you pass. The AI suites that boot the app are Jest-only (they use `jest.fn`) and need `supertest` (an optional peer).
 - **Needs built packages.** Jest resolves `@marinoscar/platform-api/testing` through the package `exports` to `dist/`, so run `npm run build:packages` first (every CI job already does).
-- **Package tests** live in `packages/platform-api/test/testing/` (fixtures as `.ts.txt` under `test/fixtures/cron/`) and run with `npm run test:packages`.
+- **Package tests** live in `packages/platform-api/test/testing/`, `test/jobs/testing/` and `test/ai/testing/`, and `packages/platform-web/test/settings/testing/`, and run with `npm run test:packages`.
 
 The telemetry slice ships the `telemetry` suite: importing `@marinoscar/platform-api/telemetry/testing` registers it, `apps/api/test/telemetry/telemetry-conformance.spec.ts` runs it, and each check is proved against a deliberately broken fixture in `packages/platform-api/test/telemetry/conformance.spec.ts`. The checks and how to run them are in the [slice README](../packages/platform-api/src/telemetry/README.md#conformance-suite); its web half is `apps/web/src/__tests__/config/telemetryParity.test.ts`.
 
 The sharing slice ships the `sharing` suite the same way: importing `@marinoscar/platform-api/sharing/testing` registers it, `apps/api/test/sharing/sharing-conformance.spec.ts` runs it against the reference app, `apps/api/test/examples/sharing/conformance.example.spec.ts` runs it over the worked examples, and `packages/platform-api/test/sharing/conformance.spec.ts` proves each check against a planted violation. The examples themselves (`apps/api/test/examples/sharing/`, `*.db.spec.ts` where row-level security is involved, and `apps/web/src/__tests__/examples/sharing/`) are the compiled, tested reference uses the [slice README](../packages/platform-api/src/sharing/README.md#extension-point-catalog) links; they share records of test-only tables created in `beforeAll`, never a migration.
-
-Further suites (the AI invariants, the settings registry) join the same entry point as their slices are extracted.
 
 The migration guards (`db:check`, `db:check:database`, `db:drift`) are npm scripts
 rather than Jest suites because they must also run against an app that consumes

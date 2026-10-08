@@ -67,6 +67,18 @@ export interface SdkLeakTree {
 }
 
 /**
+ * The one manifest allowed to declare provider SDKs.
+ *
+ * @stability experimental
+ */
+export interface SdkOwnerManifest {
+  /** Absolute path of the owning package's `package.json`. */
+  manifest: string;
+  /** SDK names it must declare (proves the check reads real dependencies). */
+  declares: readonly string[];
+}
+
+/**
  * How an app configures the `ai-no-sdk-leak` suite.
  *
  * @example
@@ -95,7 +107,7 @@ export interface AiNoSdkLeakOptions {
    * must declare (proves the check reads real dependencies). Omit when the app
    * consumes the package from `node_modules`: the package owns its dependencies.
    */
-  sdkOwner?: { manifest: string; declares: readonly string[] };
+  sdkOwner?: SdkOwnerManifest;
   /** Absolute `package.json` paths that must declare no provider SDK. */
   noSdkManifests: readonly string[];
   /** More SDK package names to ban, beyond {@link PROVIDER_SDK_PACKAGES}. */

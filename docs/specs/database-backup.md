@@ -530,7 +530,7 @@ All three are seeded Admin-only, and every route also requires the Admin role.
 | `apps/api/test/db-backup/db-backup-admin.integration.spec.ts` | Every route through the real router and `HttpExceptionFilter`: `409` details, BigInt as decimal strings, permission split, route order |
 | `apps/api/test/db-backup/db-backup-node-offload.integration.spec.ts` | The three gates and the node result path |
 | `packages/platform-cli/src/engine/node/executors/db-backup-run.test.ts` | The node never persists or logs its credential |
-| `apps/api/test/jobs/cron-enqueue-only.spec.ts` | The scheduler only enqueues |
+| `apps/api/test/conformance.spec.ts` (suite `cron-enqueue-only`) | The scheduler only enqueues |
 | `packages/platform-api/test/db-backup/slice.spec.ts` | `forRoot()` defaults and refusals, the deployment-mode gate (option, port, neither), the `RestoreCarryOver` registry (order, duplicates, `$1`, frozen), the key prefix's registration, the conformance suite on a good and a broken slice |
 | `apps/api/test/db-backup/db-backup-conformance.spec.ts` | The reference app's composition passes the `dbBackup` conformance suite |
 | `apps/api/test/db-backup/db-backup-restore-saas-mode.integration.spec.ts` | `DEPLOYMENT_MODE=saas`: both restore routes `403` with `details.reason`, `restore.available: false` |

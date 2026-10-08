@@ -139,13 +139,25 @@ export interface AiConformanceFixture {
   rolePermissions: Readonly<Record<string, readonly string[]>>;
 }
 
-/** The distinct key of a second user, which must never appear anywhere. */
+/**
+ * The distinct key of a second user, which must never appear anywhere.
+ *
+ * @stability experimental
+ */
 export const OTHER_USER_KEY = 'sk-other-user-key-never-leak-4242';
 
-/** Every key a response or frame must never contain. */
+/**
+ * Every key a response or frame must never contain.
+ *
+ * @stability experimental
+ */
 export const ALL_KEYS: readonly string[] = [HARNESS_USER_KEY, HARNESS_ORG_KEY, HARNESS_TENANT_KEY, OTHER_USER_KEY];
 
-/** One parsed SSE frame. Comment lines (`: ping`) are kept as `{ comment }`. */
+/**
+ * One parsed SSE frame. Comment lines (`: ping`) are kept as `{ comment }`.
+ *
+ * @stability experimental
+ */
 export interface ParsedFrame {
   /** The `event:` name. */
   event?: string;
@@ -185,7 +197,14 @@ export function parseSse(body: string): ParsedFrame[] {
   return frames;
 }
 
-/** Replaces each path parameter (`{provider}`, `{id}`) with `test-value`: the guards run before any pipe reads it. */
+/**
+ * Replaces each path parameter (`{provider}`, `{id}`) with `test-value`: the guards run before any pipe reads it.
+ *
+ * @param path - an OpenAPI path.
+ * @returns the path with every parameter filled in.
+ *
+ * @stability experimental
+ */
 export function concreteRoutePath(path: string): string {
   return path.replace(/\{[^}]+\}/g, 'test-value');
 }
@@ -216,12 +235,24 @@ export function forEachDocumentOperation(
 }
 
 /**
+ * An `Authorization` header.
+ *
+ * @stability experimental
+ */
+export interface AiAuthorizationHeader {
+  /** `Bearer <token>`. */
+  Authorization: string;
+  /** Any other header supertest accepts. */
+  [header: string]: string;
+}
+
+/**
  * The `Authorization` header for a bearer token.
  *
  * @param token - an access token from {@link AiConformanceFixture.createUser}.
  *
  * @stability experimental
  */
-export function authHeader(token: string): { Authorization: string } {
+export function authHeader(token: string): AiAuthorizationHeader {
   return { Authorization: `Bearer ${token}` };
 }

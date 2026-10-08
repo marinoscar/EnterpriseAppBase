@@ -11,7 +11,7 @@
 //      directly (`prisma.grant`, `.group`, `.groupMember`, `.groupInvite`, or
 //      `grants`, `groups`, `group_members`, `group_invites` in raw SQL). Apps
 //      go through the exported services and helpers. Same scanning technique
-//      as the reference app's `ai-no-sdk-leak.spec.ts`.
+//      as the `ai-no-sdk-leak` conformance suite.
 //   2. group-ownership-registered: every model of the composed schema with an
 //      `owner_group_id` column maps to a resource type registered as
 //      group-owned (`registerResourceType` with group ownership, or a direct

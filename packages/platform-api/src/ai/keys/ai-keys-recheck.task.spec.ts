@@ -5,7 +5,7 @@
 // The task's whole job is deciding whether to enqueue: nothing while AI is off,
 // one `ai.keys.recheck` per enabled provider that has at least one stored key.
 // That it only enqueues is pinned structurally by
-// `test/jobs/cron-enqueue-only.spec.ts`.
+// `test/conformance.spec.ts`.
 // =============================================================================
 
 import type { AiConfigService, AiPolicy } from '../config/ai-config.service';

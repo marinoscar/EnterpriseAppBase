@@ -25,7 +25,7 @@
 // suites name them.
 // =============================================================================
 
-import type { WebConformanceCard, WebConformanceContext, WebConformanceTestApi } from '../../testing/index.js';
+import type { WebConformanceCard, WebConformanceContext, WebConformanceSuite, WebConformanceTestApi } from '../../testing/index.js';
 import { webConformanceSuites } from '../../testing/index.js';
 import { visibleSettingsSections } from '../ui/registry.js';
 import { asSections, cardsOf, permissionsOf, titlesOf } from './sections.js';
@@ -161,12 +161,12 @@ function register(api: WebConformanceTestApi, context: WebConformanceContext): v
  * @extensionPoint registry
  * @stability experimental
  */
-export const settingsAiCardsSuite = {
+export const settingsAiCardsSuite: WebConformanceSuite = {
   id: 'settings-ai-cards',
   title: 'AI settings cards: permission parity with the API, and feature gating (#435)',
   description:
     'Every AI settings card carries a permission the API enforces and feature "ai", except the admin AI card that switches AI on (AI rule 5; Settings UI Pattern rule 3).',
   register,
-} as const;
+};
 
 webConformanceSuites.register(settingsAiCardsSuite);

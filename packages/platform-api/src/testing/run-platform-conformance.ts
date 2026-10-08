@@ -87,7 +87,7 @@ function globalTestApi(): ConformanceTestApi {
  *
  * @example
  * ```ts
- * // apps/api/test/jobs/cron-enqueue-only.spec.ts
+ * // apps/api/test/conformance.spec.ts
  * runPlatformConformance({
  *   sourceRoots: [join(__dirname, '..', '..', 'src')],
  *   suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
@@ -177,7 +177,11 @@ export function runPlatformConformance(options: PlatformConformanceOptions): voi
   }
 }
 
-/** One row of the run summary. */
+/**
+ * One row of the run summary.
+ *
+ * @stability experimental
+ */
 export interface ConformanceSummaryEntry {
   /** The suite id. */
   id: string;

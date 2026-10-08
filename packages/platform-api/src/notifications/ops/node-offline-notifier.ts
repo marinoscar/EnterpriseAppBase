@@ -19,7 +19,7 @@
 //   - `.catch()` on the dispatch despite its never-reject contract, because
 //     an unhandled rejection here has no caller to surface it.
 //
-// It is the documented exception of `apps/api/test/jobs/on-event-no-io.spec.ts`
+// It is the documented exception of `apps/api/test/conformance.spec.ts`
 // (a fire-and-forget notification dispatch, not I/O worth a job).
 // =============================================================================
 

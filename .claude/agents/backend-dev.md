@@ -41,6 +41,6 @@ npm run openapi:dump && npm run openapi:lint  # repo root: regenerate and lint o
 ## Definition of done
 
 - Every new route has `@Auth(...)` or `@Public()`, a Zod DTO and OpenAPI annotations.
-- `npm run typecheck` and `npm test` pass in `apps/api`, including the tripwire suites under `apps/api/test/ai/` and `apps/api/test/jobs/cron-enqueue-only.spec.ts`.
+- `npm run typecheck` and `npm test` pass in `apps/api`, including the conformance suites in `apps/api/test/conformance.spec.ts` (the AI tripwires, `cron-enqueue-only`, `on-event-no-io`).
 - New behaviour has tests in the same or the next commit.
 - A new permission, table, job type or route group is flagged for `docs-dev` so ARCHITECTURE and the owning spec stay current.

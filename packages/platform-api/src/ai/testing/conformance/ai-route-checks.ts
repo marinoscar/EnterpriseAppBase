@@ -49,6 +49,18 @@ async function call(server: unknown, route: AiRoute, token?: string): Promise<{ 
 }
 
 /**
+ * The two route lists of {@link discoverAiRoutes}.
+ *
+ * @stability experimental
+ */
+export interface DiscoveredAiRoutes {
+  /** The consumer `/api/ai/*` routes. */
+  aiRoutes: AiRoute[];
+  /** The `/api/admin/ai/*` routes. */
+  adminAiRoutes: AiRoute[];
+}
+
+/**
  * The consumer (`/api/ai/*`) and admin (`/api/admin/ai/*`) routes of a document.
  *
  * @param document - the booted app's OpenAPI document.
@@ -56,7 +68,7 @@ async function call(server: unknown, route: AiRoute, token?: string): Promise<{ 
  *
  * @stability experimental
  */
-export function discoverAiRoutes(document: AiConformanceOpenApiDocument): { aiRoutes: AiRoute[]; adminAiRoutes: AiRoute[] } {
+export function discoverAiRoutes(document: AiConformanceOpenApiDocument): DiscoveredAiRoutes {
   const aiRoutes: AiRoute[] = [];
   const adminAiRoutes: AiRoute[] = [];
 
@@ -237,7 +249,14 @@ export async function findRoutesNotAnswering401(server: unknown, routes: readonl
   return failures;
 }
 
-/** True when the response is a bare, reason-less permission denial (a business refusal carries `details`). */
+/**
+ * True when the response is a bare, reason-less permission denial (a business refusal carries `details`).
+ *
+ * @param res - a response's status and body.
+ * @returns whether it is an RBAC denial.
+ *
+ * @stability experimental
+ */
 export function isPermissionDenied(res: { status: number; body?: any }): boolean {
   return res.status === 403 && res.body?.details === undefined;
 }

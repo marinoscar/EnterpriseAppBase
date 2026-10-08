@@ -5,7 +5,7 @@
 // ⚠ THIS TASK DELETES NOTHING. For each ENABLED `retention.*` policy it
 // enqueues one global purge job through the shared housekeeping helper, and
 // the handler does the deleting on a worker slot. Pinned by
-// `apps/api/test/jobs/cron-enqueue-only.spec.ts`, which needs no exemption for
+// `apps/api/test/conformance.spec.ts`, which needs no exemption for
 // this file.
 //
 // One job per table rather than one job for all four: four rows in the admin

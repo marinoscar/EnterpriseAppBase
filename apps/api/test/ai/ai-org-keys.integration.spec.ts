@@ -6,7 +6,7 @@
 // through the `org_admin` membership role), never behind `AiEnabledGuard`,
 // stored only through the credentials slice's `OrgCredentialsService`, and
 // write-only (masked views). The deeper egress sweep is in
-// ai-secret-egress.integration.spec.ts.
+// the `ai-secret-egress` conformance suite.
 // =============================================================================
 
 import request from 'supertest';

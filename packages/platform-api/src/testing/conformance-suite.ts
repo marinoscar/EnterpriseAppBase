@@ -152,6 +152,7 @@ export interface ConformanceAppSuite<TOptions> {
  * The reason is required (an empty one throws) and is printed in the run
  * summary, so a skipped invariant stays visible in the test output.
  *
+ * @extensionPoint option
  * @stability experimental
  */
 export interface ConformanceSkip {

@@ -12,7 +12,7 @@
 // `JobFailureNotifier`.
 //
 // ⚠ A LISTENER MUST NOT DO I/O IN ITS BODY beyond a fire-and-forget
-// notification dispatch (`apps/api/test/jobs/on-event-no-io.spec.ts`), and
+// notification dispatch (`apps/api/test/conformance.spec.ts`), and
 // must not throw: the sweep emits synchronously and has already succeeded.
 // =============================================================================
 

@@ -18,7 +18,7 @@ import {
 // The cron rule demonstrably scans the packaged telemetry slice (issue #703)
 // =============================================================================
 //
-// `cron-enqueue-only.spec.ts` passes when every cron it SEES enqueues; this
+// The `cron-enqueue-only` conformance suite passes when every cron it SEES enqueues; this
 // proves what it sees. The telemetry retention task is found under the
 // package's root, and a deliberately bad cron placed in a copy of that root is
 // a finding.

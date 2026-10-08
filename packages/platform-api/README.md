@@ -51,13 +51,14 @@ Install these in the app; the package never bundles its own copy (a second copy 
 | `passport` | `^0.7.0` (identity) |
 | `reflect-metadata` | `^0.2.2` |
 | `rxjs` | `^7.8.1` |
+| `supertest` | `^7.2.2` (optional; only the AI conformance suites, `@marinoscar/platform-api/ai/testing`) |
 | `zod` | `^4.4.3` |
 
 The OpenTelemetry SDK packages the `otel-core` slice installs (`@opentelemetry/sdk-node`, the auto-instrumentations, the OTLP/HTTP exporters and their SDK siblings) are regular dependencies, not peers: only `@opentelemetry/api`, which holds the process-wide providers, must be a single shared copy.
 
 ## Quick start
 
-Run the platform's conformance suites from a spec of your own (the reference app's is [`apps/api/test/jobs/cron-enqueue-only.spec.ts`](../../apps/api/test/jobs/cron-enqueue-only.spec.ts)):
+Run the platform's conformance suites from a spec of your own (the reference app's is [`apps/api/test/conformance.spec.ts`](../../apps/api/test/conformance.spec.ts)):
 
 ```ts
 import { join } from 'node:path';
@@ -105,7 +106,7 @@ Every packaged controller takes the app's auth decorators through the host acces
 
 ## Conformance suite
 
-The harness is the `testing` slice: `runPlatformConformance()` from `@marinoscar/platform-api/testing` runs the platform's suites in any app: `cron-enqueue-only` and `user-owned-data`. See the [testing README](src/testing/README.md#conformance-suite).
+The harness is the `testing` slice: `runPlatformConformance()` from `@marinoscar/platform-api/testing` runs the platform's suites in any app: `cron-enqueue-only`, `user-owned-data`, and the suites a slice ships in its `testing` entry (`on-event-no-io` with the jobs slice; the AI kill switch, RBAC matrix, secret egress, key policy, jobs server-only, no-SDK-leak and orchestration-boundary suites with the AI slice; one per slice besides). The [testing README](src/testing/README.md#conformance-suite) lists every suite id.
 
 ## Upgrade notes
 

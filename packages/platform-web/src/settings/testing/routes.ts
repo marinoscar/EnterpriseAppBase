@@ -3,7 +3,7 @@
 // still read the live routes and never a hand-kept copy. The app reads the file
 // (this package has no Node types) and passes the text.
 
-import type { AppRouteDef } from '../../testing/index.js';
+import type { AppRouteDef, WebConformanceRouteSource } from '../../testing/index.js';
 
 /**
  * The routes of the app, normalised.
@@ -13,12 +13,12 @@ import type { AppRouteDef } from '../../testing/index.js';
  *
  * @stability experimental
  */
-export function resolveAppRoutes(routes: readonly AppRouteDef[] | { appTsx: string }): AppRouteDef[] {
+export function resolveAppRoutes(routes: readonly AppRouteDef[] | WebConformanceRouteSource): AppRouteDef[] {
   if (Array.isArray(routes)) {
     return (routes as readonly AppRouteDef[]).map((route) => ({ path: route.path, permission: route.permission ?? null }));
   }
 
-  return parseAppRoutes((routes as { appTsx: string }).appTsx);
+  return parseAppRoutes((routes as WebConformanceRouteSource).appTsx);
 }
 
 /**

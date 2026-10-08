@@ -16,7 +16,7 @@
 // admin registry; the same rule holds for the user registry, so both run.
 // =============================================================================
 
-import type { WebConformanceContext, WebConformanceTestApi } from '../../testing/index.js';
+import type { WebConformanceContext, WebConformanceSuite, WebConformanceTestApi } from '../../testing/index.js';
 import { webConformanceSuites } from '../../testing/index.js';
 import { resolveAppRoutes, sameGate } from './routes.js';
 import { cardsOf, registriesOf } from './sections.js';
@@ -75,12 +75,12 @@ function register(api: WebConformanceTestApi, context: WebConformanceContext): v
  * @extensionPoint registry
  * @stability experimental
  */
-export const settingsCardRoutesSuite = {
+export const settingsCardRoutesSuite: WebConformanceSuite = {
   id: 'settings-card-routes',
   title: 'settings cards against the live routes',
   description:
     'Every settings card’s path has a route, gated on exactly the permission the card declares, and sits inside the destination that owns its hub (epic #90).',
   register,
-} as const;
+};
 
 webConformanceSuites.register(settingsCardRoutesSuite);

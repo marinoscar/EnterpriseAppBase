@@ -657,7 +657,7 @@ function AppRoutes() {
                       `nodes/nodes-admin.controller.ts` enforces on its fleet
                       list, its node detail and its credential list, and the
                       same one the `Worker Nodes` card declares (the invariant
-                      `settingsRegistry.test.ts` asserts against the API's own
+                      `settingsCards.test.ts` asserts against the API's own
                       constants file). Deleting a node and creating or revoking
                       a credential need `nodes:write`, which the PAGE gates
                       internally by omitting the row actions and the create

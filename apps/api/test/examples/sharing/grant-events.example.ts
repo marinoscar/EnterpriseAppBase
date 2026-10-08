@@ -8,7 +8,7 @@
 // `EventEmitter2`), AFTER the change committed, with ids and roles only (never
 // an address or a name). A listener stays small: it records, counts or
 // enqueues. Real work (a network call, a file) is a queued job (CLAUDE.md,
-// "Every Long-Running Activity Is a Queue Job"; `test/jobs/on-event-no-io.spec.ts`
+// "Every Long-Running Activity Is a Queue Job"; `test/conformance.spec.ts`
 // forbids storage I/O in an `@OnEvent` body).
 //
 // This one keeps the last grant changes in memory, for a "recent sharing

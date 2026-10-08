@@ -963,28 +963,30 @@ guardrails below discover all of these automatically.
 
 ## 5. Guardrails
 
-| Invariant | Test |
+| Invariant | Test (conformance suite id, run through `runPlatformConformance()` from `apps/api/test/conformance.spec.ts`; suites in `@marinoscar/platform-api/ai/testing`) |
 |---|---|
-| Every `/api/ai/*` route except `GET /api/ai/config` answers `403 AI_DISABLED` while off; every `/api/admin/ai/*` route stays reachable; every `ai.*` job makes zero provider calls while off (routes and job types discovered, not listed) | `apps/api/test/ai/ai-kill-switch.integration.spec.ts` |
-| Every discovered route × Admin/Contributor/Viewer/anonymous, expected permission read from `@Auth()` metadata and grants from `prisma/seed-data.ts` | `apps/api/test/ai/ai-rbac-matrix.integration.spec.ts` |
-| Sentinel keys (admin, this user, another user) never appear in bodies, headers, logs, audit `meta`, usage rows, run rows or errors; the ephemeral secret only in `data.clientSecret` | `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
-| The byok/fallback/keyless resolution rule over every inference route, sync and queued | `apps/api/test/ai/ai-key-policy.integration.spec.ts` |
-| Every `ai.*` job type is in `JobHandlerRegistry.serverOnlyTypes()` | `apps/api/test/ai/ai-jobs-server-only.spec.ts` |
-| No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src`, `apps/web/src` or `packages/platform-api/src` | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` |
-| `@langchain/*` only under the allowed orchestration roots; no banned orchestration package installed or imported | `apps/api/test/ai/ai-orchestration-boundary.spec.ts` (`runOrchestrationBoundarySuite` from `/ai/testing`) |
-| The organization tier: the org kill switch, org keys never served under an effective `byok` to a non-administrator, org-key sentinels never egress | the kill-switch, key-policy and secret-egress suites above, plus `apps/api/test/ai/ai-org-keys.integration.spec.ts` and `ai-org-usage.db.spec.ts` |
+| Every `/api/ai/*` route except `GET /api/ai/config` answers `403 AI_DISABLED` while off; every `/api/admin/ai/*` route stays reachable; every `ai.*` job makes zero provider calls while off (routes and job types discovered, not listed) | `ai-kill-switch` |
+| Every discovered route × Admin/Contributor/Viewer/anonymous, expected permission read from `@Auth()` metadata and grants from the seeded role permissions (the app's fixture) | `ai-rbac-matrix` |
+| Sentinel keys (admin, this user, another user) never appear in bodies, headers, logs, audit `meta`, usage rows, run rows or errors; the ephemeral secret only in `data.clientSecret` | `ai-secret-egress` |
+| The byok/fallback/keyless resolution rule over every inference route, sync and queued | `ai-key-policy` |
+| Every `ai.*` job type is in `JobHandlerRegistry.serverOnlyTypes()` | `ai-jobs-server-only` |
+| No file outside `ai/providers/<provider>/` imports a provider SDK, in the app, the web, the contract or the package (the trees the app passes) | `ai-no-sdk-leak` |
+| `@langchain/*` only under the allowed orchestration roots; no banned orchestration package installed or imported | `ai-orchestration-boundary` (`runOrchestrationBoundarySuite` from `/ai/testing`) |
+| The organization tier: the org kill switch, org keys never served under an effective `byok` to a non-administrator, org-key sentinels never egress | the `ai-kill-switch`, `ai-key-policy` and `ai-secret-egress` suites above, plus `apps/api/test/ai/ai-org-keys.integration.spec.ts` and `ai-org-usage.db.spec.ts` |
 | No provider SDK in `ai/core` | `packages/platform-api/src/ai/core/no-provider-sdk.spec.ts` |
 | Each SDK confined to its folder(s) | `packages/platform-api/src/ai/providers/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
-| AI registry cards carry the exact permission their controller enforces | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` |
+| AI registry cards carry a permission the API enforces (from its generated catalog, and `x-rbac` when the OpenAPI document is available) and `feature: 'ai'` except the admin switch | `settings-ai-cards` (`@marinoscar/platform-web/settings/testing`, run by `apps/web/src/__tests__/conformance.test.ts`) |
 | Resolution matrix; org key never returned under `byok` | `packages/platform-api/src/ai/keys/ai-key-resolver.service.spec.ts` |
 | Capability support derived from ports only | `packages/platform-api/src/ai/core/provider-registry.spec.ts` |
 | `AiError` never serializes key material | `packages/platform-api/src/ai/core/ai-error.spec.ts` |
 | Catalog sync never overwrites `admin_override`, never enables, deprecates without deleting | `packages/platform-api/src/ai/catalog/ai-catalog.service.spec.ts` |
-| AI crons only enqueue | `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
+| AI crons only enqueue | `cron-enqueue-only` |
 | Streaming nginx location unbuffered | `apps/api/test/ai/ai-stream-nginx.spec.ts` |
 | Seed grants (Viewer lacks `ai:use`) | `apps/api/test/prisma/seed-data.spec.ts` |
 | One provider slot per id | `apps/api/src/common/schemas/settings-parity.spec.ts` |
 | Each adapter passes the conformance kit | `packages/platform-api/src/ai/testing/fake-ai-provider.conformance.spec.ts`, `packages/platform-api/src/ai/providers/*/*.adapter.conformance.spec.ts` |
+
+The seven `ai-*` suites are the same suites in every app that consumes the AI slice: an app imports `@marinoscar/platform-api/ai/testing`, passes one fixture describing how it boots (`AiConformanceFixture`, [the reference](../../apps/api/test/conformance/ai-fixture.ts)) and the source trees it ships, and opts out of a suite only with a reason (`{ skip: 'reason' }`). None names a path; each is proved against a planted violation in `packages/platform-api/test/ai/testing/`. See [the testing README](../../packages/platform-api/src/testing/README.md#conformance-suite) for the options.
 
 ## 6. Design decisions
 

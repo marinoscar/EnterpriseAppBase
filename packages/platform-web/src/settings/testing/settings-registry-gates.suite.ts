@@ -25,7 +25,7 @@
 // are its own data, not an invariant of the platform.
 // =============================================================================
 
-import type { WebConformanceCard, WebConformanceContext, WebConformanceTestApi } from '../../testing/index.js';
+import type { WebConformanceCard, WebConformanceContext, WebConformanceSuite, WebConformanceTestApi } from '../../testing/index.js';
 import { webConformanceSuites } from '../../testing/index.js';
 import { settingsPageTitle, visibleSettingsSections } from '../ui/registry.js';
 import type { SettingsSectionDef } from '../ui/registry.js';
@@ -311,12 +311,12 @@ function register(api: WebConformanceTestApi, context: WebConformanceContext): v
  * @extensionPoint registry
  * @stability experimental
  */
-export const settingsRegistryGatesSuite = {
+export const settingsRegistryGatesSuite: WebConformanceSuite = {
   id: 'settings-registry-gates',
   title: 'settings registries: the shared visibility and title gate (#91, #425)',
   description:
     'visibleSettingsSections and settingsPageTitle gate every hub, rail and title consumer by permission, feature and longest-prefix route, over the app’s own registries.',
   register,
-} as const;
+};
 
 webConformanceSuites.register(settingsRegistryGatesSuite);

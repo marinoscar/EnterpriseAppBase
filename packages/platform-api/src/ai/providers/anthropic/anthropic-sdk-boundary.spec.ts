@@ -1,5 +1,5 @@
 // The narrow, per-provider pin for `@anthropic-ai/sdk` (#446): it is imported
-// ONLY under `ai/providers/anthropic/`. `test/ai/ai-no-sdk-leak.spec.ts`
+// ONLY under `ai/providers/anthropic/`. the `ai-no-sdk-leak` conformance suite
 // already keeps every provider SDK inside SOME provider directory; this adds
 // the stricter claim that no OTHER provider's directory (or anything else)
 // reaches for Anthropic's SDK — each adapter owns exactly one SDK.

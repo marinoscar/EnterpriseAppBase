@@ -21,7 +21,7 @@
 // cases of `settingsRegistry.test.ts`; the card-by-card pins stay in the app.
 // =============================================================================
 
-import type { WebConformanceContext, WebConformanceTestApi } from '../../testing/index.js';
+import type { WebConformanceContext, WebConformanceSuite, WebConformanceTestApi } from '../../testing/index.js';
 import { webConformanceSuites } from '../../testing/index.js';
 import { cardsOf, permissionsOf, registriesOf } from './sections.js';
 
@@ -132,12 +132,12 @@ function register(api: WebConformanceTestApi, context: WebConformanceContext): v
  * @extensionPoint registry
  * @stability experimental
  */
-export const settingsRegistryShapeSuite = {
+export const settingsRegistryShapeSuite: WebConformanceSuite = {
   id: 'settings-registry-shape',
   title: 'settings registries: every card is declared as the Settings UI Pattern requires',
   description:
     'Every card has a title, description and icon component, a route under its hub (or is inert with none), a unique route, and only permissions the API enforces (Settings UI Pattern rules 1 and 3).',
   register,
-} as const;
+};
 
 webConformanceSuites.register(settingsRegistryShapeSuite);

@@ -49,6 +49,18 @@ export interface AiJobsServerOnlyOptions {
 }
 
 /**
+ * The two members of a job handler that make it node-eligible.
+ *
+ * @stability experimental
+ */
+export interface JobHandlerView {
+  /** Schema of the result a node returns; with `persistNodeResult`, makes the type node-eligible. */
+  nodeResultSchema?: unknown;
+  /** Persists a node's result; with `nodeResultSchema`, makes the type node-eligible. */
+  persistNodeResult?: unknown;
+}
+
+/**
  * The slice of a job handler registry the suite reads.
  *
  * @stability experimental
@@ -57,7 +69,7 @@ export interface JobRegistryView {
   /** Every registered job type. */
   types(): string[];
   /** The handler of a type, when registered. */
-  get(type: string): { nodeResultSchema?: unknown; persistNodeResult?: unknown } | undefined;
+  get(type: string): JobHandlerView | undefined;
   /** The types the registry derives as server-only. */
   serverOnlyTypes(): string[];
 }
@@ -152,7 +164,7 @@ function register(options: AiJobsServerOnlyOptions): void {
         get: () => ({ nodeResultSchema: {} }),
         serverOnlyTypes: () => ['ai.half.done'],
       };
-      const nodeEligible = (handler: { nodeResultSchema?: unknown; persistNodeResult?: unknown }): boolean =>
+      const nodeEligible = (handler: JobHandlerView): boolean =>
         handler.nodeResultSchema !== undefined && typeof handler.persistNodeResult === 'function';
 
       expect(nodeEligible(half.get('ai.half.done')!)).toBe(false);

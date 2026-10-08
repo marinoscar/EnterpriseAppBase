@@ -9,7 +9,7 @@
 // be able to turn the platform back on).
 //
 // THE ROUTE LIST IS DISCOVERED, NEVER HAND-WRITTEN — the same tripwire shape
-// as `test/jobs/cron-enqueue-only.spec.ts`. the app's OpenAPI document (`fixture.openApiDocument`) reflects on
+// as `test/conformance.spec.ts`. the app's OpenAPI document (`fixture.openApiDocument`) reflects on
 // the real Nest router, so a future `/api/ai/foo` route added without
 // `@UseGuards(AiEnabledGuard)` (or a future `/api/admin/ai/foo` accidentally
 // given that guard) fails this suite the moment it is registered — nobody has

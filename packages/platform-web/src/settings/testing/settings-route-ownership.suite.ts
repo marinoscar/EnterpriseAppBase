@@ -16,7 +16,7 @@
 // Playground's two permissions).
 // =============================================================================
 
-import type { WebConformanceContext, WebConformanceTestApi } from '../../testing/index.js';
+import type { WebConformanceContext, WebConformanceSuite, WebConformanceTestApi } from '../../testing/index.js';
 import { webConformanceSuites } from '../../testing/index.js';
 import { resolveAppRoutes } from './routes.js';
 
@@ -128,12 +128,12 @@ function register(api: WebConformanceTestApi, context: WebConformanceContext): v
  * @extensionPoint registry
  * @stability experimental
  */
-export const settingsRouteOwnershipSuite = {
+export const settingsRouteOwnershipSuite: WebConformanceSuite = {
   id: 'settings-route-ownership',
   title: 'destinations: route ownership',
   description:
     'Every route the app declares is owned by exactly one destination or deliberately by none, and ownership matches on segment boundaries (#55, #92).',
   register,
-} as const;
+};
 
 webConformanceSuites.register(settingsRouteOwnershipSuite);

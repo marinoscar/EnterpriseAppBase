@@ -5,7 +5,7 @@
 // ⚠ THIS TASK DELETES NOTHING. It enqueues one global `ai.usage.purge` job
 // through the shared housekeeping helper, and `AiUsagePurgeHandler` does the
 // deleting on a worker slot. Pinned by
-// `apps/api/test/jobs/cron-enqueue-only.spec.ts`.
+// `apps/api/test/conformance.spec.ts`.
 //
 // 5am: after the 2am–4am housekeeping crons, so the purges do not queue up
 // behind each other at the same minute.
