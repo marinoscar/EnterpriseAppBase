@@ -69,7 +69,7 @@ export const BROADCAST_SUBJECT_TYPE = 'notification_broadcast';
  * beats drop, and for the seam that lets this bound be tightened without
  * restructuring anything.
  */
-export const BROADCAST_CHUNK_SIZE = 200;
+export { BROADCAST_CHUNK_SIZE } from '@marinoscar/platform-contract/notifications';
 
 /**
  * How many recipients inside one chunk are dispatched concurrently.

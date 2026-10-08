@@ -15,8 +15,8 @@ export interface SseFrame {
   event: string;
   /** The `data:` lines, joined. */
   data: string;
-  /** The `id:` field, when present. */
-  id?: string;
+  /** The `id:` field of this frame, or `null`. */
+  id: string | null;
 }
 
 /**

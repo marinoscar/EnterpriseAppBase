@@ -45,9 +45,8 @@
  * workspaces, so the composer's character counters would otherwise be numbers
  * invented in the UI — and a counter that disagrees with the validator is worse
  * than no counter, because it promises an acceptance the API will refuse. The
- * copies are asserted against the API file on disk in
- * `__tests__/services/broadcasts.test.ts`, the same technique
- * `services/maintenance.test.ts` uses for the maintenance marker.
+ * copies were asserted against the API file on disk until #738 moved both
+ * sides onto the contract's constants.
  */
 
 import { api } from './api.js';
@@ -57,36 +56,21 @@ import type { NotificationChannel } from './types.js';
 // Enumerations and limits — the API's own, restated so a bad value cannot compile
 // =============================================================================
 
-/** `BROADCAST_STATUSES` in `dto/broadcast-response.dto.ts`. */
-export const BROADCAST_STATUSES = [
-  'draft',
-  'scheduled',
-  'sending',
-  'sent',
-  'canceled',
-  'failed',
-] as const;
-export type BroadcastStatusName = (typeof BROADCAST_STATUSES)[number];
-
-/** `BROADCAST_TITLE_MAX` — the composer's title counter, and the API's ceiling. */
-export const BROADCAST_TITLE_MAX = 120;
-/** `BROADCAST_BODY_MAX` — exactly the browser channel's own `MAX_BODY_LENGTH`. */
-export const BROADCAST_BODY_MAX = 2_000;
-/** `BROADCAST_CTA_LABEL_MAX` — a button label, not a sentence. */
-export const BROADCAST_CTA_LABEL_MAX = 40;
-/** `BROADCAST_LINK_MAX`. */
-export const BROADCAST_LINK_MAX = 500;
-
-/**
- * `BROADCAST_CHUNK_SIZE` in `broadcast-audience.ts` — the fan-out's page size,
- * and therefore the bound on how many recipients a cancel cannot recall.
- *
- * Restated here because the cancel confirmation names the number out loud. An
- * operator pulling an announcement mid-send needs to be told what has already
- * escaped, and a vague "some may still be sent" is the sentence that makes them
- * think the cancel failed.
- */
-export const BROADCAST_CHUNK_SIZE = 200;
+// The limits and statuses are the wire contract's own values since #738
+// (`@marinoscar/platform-contract/notifications`), the same constants the
+// API's schemas validate with: a counter here can no longer drift from the
+// validator it previews. `BROADCAST_CHUNK_SIZE` is the fan-out's page size,
+// which the cancel confirmation names out loud.
+export {
+  BROADCAST_BODY_MAX,
+  BROADCAST_CHUNK_SIZE,
+  BROADCAST_CTA_LABEL_MAX,
+  BROADCAST_LINK_MAX,
+  BROADCAST_STATUSES,
+  BROADCAST_TITLE_MAX,
+} from '@marinoscar/platform-contract/notifications';
+export type { BroadcastStatusName } from '@marinoscar/platform-contract/notifications';
+import type { BroadcastStatusName } from '@marinoscar/platform-contract/notifications';
 
 // =============================================================================
 // Response shapes
@@ -119,6 +103,11 @@ export interface Broadcast {
   recipientsDispatched: number;
   lastError: string | null;
   createdById: string | null;
+  /**
+   * The organization the broadcast targets (#738): `null` for a system
+   * broadcast (every active user), set for one organization's members.
+   */
+  targetOrgId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -197,6 +186,12 @@ export interface CreateBroadcastRequest {
   channels: NotificationChannel[];
   scheduledFor?: string;
   critical: boolean;
+  /**
+   * Target one organization's active members (#738). A system administrator
+   * may name any organization or none; an organization administrator's
+   * broadcasts always target their active organization.
+   */
+  targetOrgId?: string;
 }
 
 /** The query `GET /` accepts, mirroring `broadcastListQuerySchema`. */
@@ -281,8 +276,9 @@ export async function sendTestBroadcast(
  * composer and the send can never disagree about the method — only about when
  * it was run.
  */
-export async function getBroadcastAudience(): Promise<BroadcastAudience> {
-  return api.get<BroadcastAudience>('/admin/broadcasts/audience');
+export async function getBroadcastAudience(targetOrgId?: string): Promise<BroadcastAudience> {
+  const suffix = targetOrgId ? `?targetOrgId=${encodeURIComponent(targetOrgId)}` : '';
+  return api.get<BroadcastAudience>(`/admin/broadcasts/audience${suffix}`);
 }
 
 // =============================================================================

@@ -202,3 +202,12 @@ export const BROADCAST_CTA_LABEL_MAX = 40;
  * @stability stable
  */
 export const BROADCAST_LINK_MAX = 500;
+
+/**
+ * The broadcast fan-out's page size: how many recipients one chunk job
+ * dispatches, and so the most a cancel cannot recall and a retry may resend.
+ * The web cancel dialog states it as a number.
+ *
+ * @stability stable
+ */
+export const BROADCAST_CHUNK_SIZE = 200;
