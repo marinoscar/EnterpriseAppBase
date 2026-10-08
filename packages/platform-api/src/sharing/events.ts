@@ -1,5 +1,5 @@
 // =============================================================================
-// Sharing events (issue #728, PP-7.1): rung 4 of the extension contract
+// Sharing events (issues #728 and #729): rung 4 of the extension contract
 // =============================================================================
 //
 // In-process events an app may listen to (`@OnEvent(SHARING_EVENTS.MEMBER_ADDED)`
@@ -36,6 +36,12 @@ export const SHARING_EVENTS: {
   readonly INVITE_CREATED: 'sharing.group.invite_created';
   /** An invite was accepted (a `MEMBER_ADDED` follows). */
   readonly INVITE_ACCEPTED: 'sharing.group.invite_accepted';
+  /** A record was shared: a new grant (#729). */
+  readonly GRANT_CREATED: 'sharing.grant.created';
+  /** A grant's role or expiry changed, or a re-grant replaced its role (#729). */
+  readonly GRANT_UPDATED: 'sharing.grant.updated';
+  /** A grant was revoked (#729). */
+  readonly GRANT_REVOKED: 'sharing.grant.revoked';
 } = {
   GROUP_CREATED: 'sharing.group.created',
   GROUP_DELETED: 'sharing.group.deleted',
@@ -44,6 +50,9 @@ export const SHARING_EVENTS: {
   MEMBER_ROLE_CHANGED: 'sharing.group.member_role_changed',
   INVITE_CREATED: 'sharing.group.invite_created',
   INVITE_ACCEPTED: 'sharing.group.invite_accepted',
+  GRANT_CREATED: 'sharing.grant.created',
+  GRANT_UPDATED: 'sharing.grant.updated',
+  GRANT_REVOKED: 'sharing.grant.revoked',
 };
 
 /**
@@ -92,4 +101,30 @@ export interface GroupInviteEventPayload extends GroupEventPayload {
   readonly inviteId: string;
   /** The role it grants. */
   readonly role: GroupRole;
+}
+
+/**
+ * The payload of the three grant events (#729): ids and roles only.
+ *
+ * @stability experimental
+ */
+export interface GrantEventPayload {
+  /** The record's organization. */
+  readonly orgId: string;
+  /** The grant. */
+  readonly grantId: string;
+  /** The record's resource type. */
+  readonly resourceType: string;
+  /** The record. */
+  readonly resourceId: string;
+  /** `user`, `group` or `link`. */
+  readonly granteeKind: 'user' | 'group' | 'link';
+  /** The user or group grantee (`null` for a link). */
+  readonly granteeId: string | null;
+  /** The role after the change (the revoked role for `sharing.grant.revoked`). */
+  readonly role: string;
+  /** The role before the change (`null` when newly created). */
+  readonly previousRole: string | null;
+  /** Who did it. */
+  readonly actorUserId: string;
 }

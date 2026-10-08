@@ -94,13 +94,13 @@ export interface ResourceTypeDef<TRole extends string = string> {
   readonly actions: Readonly<Record<string, TRole | 'owner'>>;
   /** RBAC permission the principal must ALSO hold per action (kvox: `write` needs `'transcripts:write'`). */
   readonly actionPermissions?: Readonly<Record<string, string>>;
-  /** Permission that grants an action regardless of ownership (MemoriaHub: `read` -> `'media:read_any'`). */
+  /** Permission that grants an action regardless of ownership (MemoriaHub: `read` to `'media:read_any'`). */
   readonly bypassPermissions?: Readonly<Record<string, string>>;
   /** Who can own a record: a user, a group, or either. */
   readonly ownership: 'user' | 'group' | 'user_or_group';
   /**
    * Effective role of a member of the owning group, per group role. Default:
-   * `admin` -> `'owner'`, `editor` -> the strongest role, `viewer` -> the weakest.
+   * `admin` gets `'owner'`, `editor` the strongest role, `viewer` the weakest.
    */
   readonly groupRoleMap?: Readonly<Record<GroupRole, TRole | 'owner'>>;
   /**

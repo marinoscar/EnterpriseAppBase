@@ -10,6 +10,8 @@
 //   GroupMember.addedById                   ACTOR: SetNull
 //   GroupInvite.invitedById / acceptedById  ACTOR: purge sets null (SetNull)
 //   Group.createdById                       ACTOR: purge sets null (SetNull)
+//   Grant.granteeUserId                     OWNER: purge deletes the row (Cascade); export includes it (#729)
+//   Grant.grantedById / revokedById         ACTOR: purge sets null (SetNull)
 //
 // THE LAST-ADMIN RULE ON PURGE (`GroupMembershipPurge.purgeUser`): before the
 // user's memberships go, every group where they were the only `admin` gets a
@@ -34,7 +36,7 @@ import { PrincipalGroupsProvider } from './principal-groups.provider';
  * @extensionPoint registry
  * @stability experimental
  */
-export const SHARING_USER_OWNED_MODELS: readonly UserOwnedModelDef<'Group' | 'GroupMember' | 'GroupInvite'>[] = [
+export const SHARING_USER_OWNED_MODELS: readonly UserOwnedModelDef<'Group' | 'GroupMember' | 'GroupInvite' | 'Grant'>[] = [
   {
     model: 'GroupMember',
     ownerField: 'userId',
@@ -58,16 +60,26 @@ export const SHARING_USER_OWNED_MODELS: readonly UserOwnedModelDef<'Group' | 'Gr
     export: 'exclude',
     rationale: 'A group belongs to its members and its organization, not to the user who created it; the creator is only recorded.',
   },
+  {
+    model: 'Grant',
+    ownerField: 'granteeUserId',
+    actorFields: ['grantedById', 'revokedById'],
+    purge: 'delete',
+    export: 'include',
+    exportOmit: ['linkTokenHash', 'linkTokenCiphertext'],
+    rationale:
+      "A record shared with the user: it means nothing without them, and the export lists what was shared with them. Who shared or revoked it is only recorded; a link grant's token never leaves the server.",
+  },
 ];
 
 /**
  * The slice's models in the model ownership registry
- * (`registerModelOwnership`): all three are `org` tables.
+ * (`registerModelOwnership`): all four are `org` tables.
  *
  * @extensionPoint registry
  * @stability experimental
  */
-export const SHARING_MODEL_OWNERSHIP: readonly ModelOwnershipDef<'Group' | 'GroupMember' | 'GroupInvite'>[] = [
+export const SHARING_MODEL_OWNERSHIP: readonly ModelOwnershipDef<'Group' | 'GroupMember' | 'GroupInvite' | 'Grant'>[] = [
   {
     model: 'Group',
     kind: 'org',
@@ -83,6 +95,12 @@ export const SHARING_MODEL_OWNERSHIP: readonly ModelOwnershipDef<'Group' | 'Grou
     model: 'GroupInvite',
     kind: 'org',
     rationale: "An invitation to a group, holding the invitee's address; composite foreign key (group_id, org_id) to the group.",
+  },
+  {
+    model: 'Grant',
+    kind: 'org',
+    rationale:
+      "A share of one record inside its organization (#729); a group grantee is reached through the composite foreign key (grantee_group_id, org_id) to the group.",
   },
 ];
 

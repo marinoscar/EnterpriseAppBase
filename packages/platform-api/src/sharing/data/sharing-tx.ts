@@ -31,6 +31,8 @@ export interface Delegate<Row> {
   updateMany(args: QueryArgs): Promise<{ count: number }>;
   delete<T = Row>(args: QueryArgs): Promise<T>;
   deleteMany(args?: QueryArgs): Promise<{ count: number }>;
+  /** `GROUP BY` in SQL (unlike `distinct`, which Prisma applies in memory), so `take` bounds the query. */
+  groupBy<T = Record<string, unknown>>(args: QueryArgs): Promise<T[]>;
 }
 
 /**

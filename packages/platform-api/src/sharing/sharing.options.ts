@@ -46,6 +46,19 @@ export interface SharingGroupsOptions {
 }
 
 /**
+ * The grant options (#729).
+ *
+ * @stability experimental
+ */
+export interface SharingGrantsOptions {
+  /**
+   * Days a revoked or expired grant is kept (for the audit trail and the
+   * owner's history) before `sharing.grants.prune` deletes it. Default 90.
+   */
+  retentionDays?: number;
+}
+
+/**
  * The options of `SharingModule.forRoot`.
  *
  * @stability experimental
@@ -53,10 +66,12 @@ export interface SharingGroupsOptions {
 export interface SharingModuleOptions {
   /** The app's access decorators (`definePlatformHost`): a group route is never public. */
   host: PlatformHost;
-  /** Modules that provide the host ports (`SHARING_DATA`, and optionally the bus, emitter, notifier and tenancy). */
+  /** Modules that provide the host ports (`SHARING_DATA`, and optionally the bus, emitter, notifier, tenancy and jobs). */
   imports?: ModuleMetadata['imports'];
   /** Group limits and behaviour. */
   groups?: SharingGroupsOptions;
+  /** Grant retention (#729). */
+  grants?: SharingGrantsOptions;
   /**
    * Reads the caller's principal from the framework request. Default:
    * `request.principal` (set by the reference app's authentication guard).
@@ -87,6 +102,11 @@ export interface ResolvedSharingModuleOptions {
     /** Membership cache TTL in seconds; `0` is off. */
     readonly membershipCacheTtlSeconds: number;
   };
+  /** Grant retention, every field set. */
+  readonly grants: {
+    /** Days a revoked or expired grant is kept before the prune job deletes it. */
+    readonly retentionDays: number;
+  };
   /** The principal resolver. */
   readonly principal: (request: unknown) => Principal | undefined;
 }
@@ -103,6 +123,13 @@ export const SHARING_GROUP_DEFAULTS: ResolvedSharingModuleOptions['groups'] = Ob
   autoAcceptInvitesOnSignup: false,
   membershipCacheTtlSeconds: 30,
 });
+
+/**
+ * The grant defaults {@link resolveSharingModuleOptions} applies.
+ *
+ * @stability experimental
+ */
+export const SHARING_GRANT_DEFAULTS: ResolvedSharingModuleOptions['grants'] = Object.freeze({ retentionDays: 90 });
 
 /**
  * The default principal resolver: `request.principal` when it is an object
@@ -124,10 +151,10 @@ function fail(why: string): never {
   throw new Error(`SharingModule.forRoot: ${why}.`);
 }
 
-function positiveInteger(value: unknown, name: string, fallback: number, allowZero = false): number {
+function positiveInteger(value: unknown, name: string, fallback: number, allowZero = false, section = 'groups'): number {
   if (value === undefined) return fallback;
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < (allowZero ? 0 : 1)) {
-    fail(`\`groups.${name}\` must be ${allowZero ? 'a non-negative' : 'a positive'} integer, not ${JSON.stringify(value)}`);
+    fail(`\`${section}.${name}\` must be ${allowZero ? 'a non-negative' : 'a positive'} integer, not ${JSON.stringify(value)}`);
   }
   return value;
 }
@@ -155,6 +182,8 @@ export function resolveSharingModuleOptions(options: SharingModuleOptions): Reso
   if (groups.autoAcceptInvitesOnSignup !== undefined && typeof groups.autoAcceptInvitesOnSignup !== 'boolean') {
     fail('`groups.autoAcceptInvitesOnSignup` must be a boolean');
   }
+  const grants = options.grants ?? {};
+  if (grants === null || typeof grants !== 'object') fail('`grants` must be an object');
   const principal = options.principal ?? defaultSharingPrincipal;
   if (typeof principal !== 'function') fail('`principal` must be a function');
 
@@ -172,6 +201,9 @@ export function resolveSharingModuleOptions(options: SharingModuleOptions): Reso
         SHARING_GROUP_DEFAULTS.membershipCacheTtlSeconds,
         true,
       ),
+    }),
+    grants: Object.freeze({
+      retentionDays: positiveInteger(grants.retentionDays, 'retentionDays', SHARING_GRANT_DEFAULTS.retentionDays, false, 'grants'),
     }),
     principal,
   };

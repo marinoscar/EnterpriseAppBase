@@ -254,10 +254,9 @@ export async function accessibleWhere(principal: Principal, type: string, opts: 
   if (includes(p.scope, 'shared')) {
     if (p.orgDefault) everyOrgRecord = true;
     else if (p.grantRoles.length > 0) {
-      const rows = await asSharingTx(opts.tx).grant.findMany<{ resourceId: string }>({
+      const rows = await asSharingTx(opts.tx).grant.groupBy<{ resourceId: string }>({
+        by: ['resourceId'],
         where: sharedGrantWhere(p, principal, new Date()),
-        select: { resourceId: true },
-        distinct: ['resourceId'],
         orderBy: { resourceId: 'asc' },
         take: limit + 1,
       });
@@ -354,10 +353,9 @@ export async function sharedResourceIds(principal: Principal, type: string, opts
   const p = prepare(principal, type, 'shared', opts.minRole);
   if (p.orgId === null || p.grantRoles.length === 0) return [];
   const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? SHARED_IDS_INLINE_LIMIT)), SHARED_IDS_MAX);
-  const rows = await asSharingTx(opts.tx).grant.findMany<{ resourceId: string }>({
+  const rows = await asSharingTx(opts.tx).grant.groupBy<{ resourceId: string }>({
+    by: ['resourceId'],
     where: sharedGrantWhere(p, principal, new Date()),
-    select: { resourceId: true },
-    distinct: ['resourceId'],
     orderBy: { resourceId: 'asc' },
     take: limit,
   });
