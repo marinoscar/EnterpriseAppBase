@@ -1277,6 +1277,15 @@ export const APP_CLI_OPTIONS: CreateCliOptions = {
 };
 ```
 
+**The Android group is wired this way.** [`src/app.ts`](src/app.ts) adds the
+platform's optional [`android` group](../../packages/platform-cli/src/android/README.md)
+(`androidCommand({ identity })` in `extraCommands`, `androidTuiScreen` in
+`tuiScreens`, and `androidDeployStep` for `install` and `update`, skipped
+unless `APPCTL_DEPLOY_ANDROID=1`): `appctl android doctor | keystore | version
+| build | publish | release | releases`, which builds, signs and publishes
+the reference shell in `apps/android`. Procedures:
+[android-release.md](../../docs/runbooks/android-release.md).
+
 **Annotate environment keys** with an env-spec fragment. The deploy wizard's
 questions come from `infra/compose/.env.example`, which `platform-infra sync`
 composes from the platform's variables and then this app's
