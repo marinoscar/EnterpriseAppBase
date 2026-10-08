@@ -47,6 +47,8 @@
  *
  * `subjectType` / `subjectId` follow `Job`'s own nullability: pass both as
  * `null` (or omit them) for a global/system job with no subject.
+  *
+  * @stability experimental
  */
 export function buildDedupKey(
   type: string,

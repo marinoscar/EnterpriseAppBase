@@ -54,10 +54,30 @@ import { type Job } from '../data/jobs-db';
  * memory from the terminal `UPDATE ... RETURNING`, subsetting it would need
  * updating every time a listener wants one more field, and the accessors
  * below cover the questions a listener actually asks.
+ *
+ * Emitted on `JOB_SETTLED_EVENT` after the terminal write committed. A
+ * listener is notification dispatch or one bounded row, never I/O
+ * (`on-event-no-io`): anything longer is a job of its own.
+ *
+ * @example
+ * ```ts
+ * @OnEvent(JOB_SETTLED_EVENT)
+ * handle(event: JobSettledEvent): void {
+ *   if (!event.succeeded) void this.notifications.notifyPermissionHolders('jobs.job_failed', 'jobs:read', { jobId: event.jobId });
+ * }
+ * ```
+ *
+ * @extensionPoint event
+ * @stability stable
  */
 export class JobSettledEvent {
-  constructor(public readonly job: Job) {}
+  /** @param job - the settled row, as the terminal `UPDATE ... RETURNING` produced it. */
+  constructor(
+    /** The settled row. */
+    public readonly job: Job
+  ) {}
 
+  /** The job id. */
   get jobId(): string {
     return this.job.id;
   }
@@ -72,6 +92,7 @@ export class JobSettledEvent {
     return this.job.status;
   }
 
+  /** `true` when it succeeded. */
   get succeeded(): boolean {
     return this.job.status === 'succeeded';
   }
@@ -86,10 +107,12 @@ export class JobSettledEvent {
     return this.job.executor;
   }
 
+  /** What the job was about, when the enqueuer named a subject. */
   get subjectType(): string | null {
     return this.job.subjectType;
   }
 
+  /** Which one. */
   get subjectId(): string | null {
     return this.job.subjectId;
   }
@@ -100,5 +123,7 @@ export class JobSettledEvent {
  *
  * Dotted and product-neutral. Treat it as permanent: a listener in a fork
  * subscribes by string, so renaming it silently unsubscribes them.
+ *
+ * @stability stable
  */
 export const JOB_SETTLED_EVENT = 'job.settled';

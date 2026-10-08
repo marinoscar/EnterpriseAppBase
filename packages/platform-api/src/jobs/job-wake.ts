@@ -18,6 +18,12 @@
 // which may hold user data (and the bus must never carry a secret).
 // =============================================================================
 
+/**
+ * The event-bus channel an enqueue announces itself on (`{ type }` only), so
+ * an idle worker on any replica claims at once instead of on its next poll.
+ *
+ * @stability experimental
+ */
 export const JOBS_ENQUEUED_CHANNEL = 'jobs.enqueued';
 
 export interface JobsEnqueuedMessage {

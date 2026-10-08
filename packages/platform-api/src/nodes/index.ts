@@ -38,7 +38,42 @@ export { NODE_FLEET_SWEEP_TYPE, NodeFleetSweepHandler } from './handlers/node-fl
 export { ClaimJobsDto, NodeJobResultDto } from './dto/node-control-plane.dto';
 export { NodeDownloadUrlDto, NodeUploadUrlDto } from './dto/node-data-plane.dto';
 
+// ---- service result shapes and the response DTOs (types; the OpenAPI document describes the wire) ----
+export type { AdminNodeCredentialRow, NodeCredentialCreated, NodeCredentialListRow } from './node-credential.service';
+export type { NodeEligibleJobType, NodeJobSettlement, NodeRegistration } from './nodes.service';
+export type { NodeSecretSweepResult } from './node-secret-broker.service';
+export type { PruneOfflineNodesResult } from './handlers/node-fleet-prune.handler';
+export type { NodeSettlementLedger } from './node-settlement-ledger';
+export type { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
+export type { HeartbeatNodeDto, NodeJobFailureDto, RegisterNodeDto, RenewLeaseDto } from './dto/node-control-plane.dto';
+export type {
+  NodeDownloadUrlResponseDto,
+  NodeJobTypeDto,
+  NodeJobTypesResponseDto,
+  NodeUploadUrlResponseDto,
+} from './dto/node-data-plane.dto';
+export type { NodeJobSecretRequestDto, NodeJobSecretResponseDto } from './dto/node-job-secret.dto';
+export type {
+  AdminNodeCredentialDto,
+  AdminNodeDto,
+  NodeJobCountsDto,
+  NodeOwnerDto,
+  NodeVitalsCountersDto,
+  NodeVitalsDto,
+} from './dto/node-admin.dto';
+export type {
+  ClaimJobsResponseDto,
+  JobSettlementResponseDto,
+  NodeJobAssignmentDto,
+  NodeJobDto,
+  RegisterNodeResponseDto,
+  RenewLeaseResponseDto,
+  WorkerNodeDto,
+} from './dto/node-response.dto';
+export type { NodeCredentialCreatedResponseDto, NodeCredentialListItemDto } from './dto/node-credential-response.dto';
+
 // ---- metrics, permissions ----------------------------------------------------------------------
 export { NODES_APP_METRICS, NODE_HEALTH_VALUES, NODE_STATUS_VALUES } from './nodes.metrics';
+export type { NodesAppMetricDef } from './nodes.metrics';
 export { NODES_PERMISSIONS } from './nodes.permissions';
 export type { NodesPermissionDeclaration } from './nodes.permissions';

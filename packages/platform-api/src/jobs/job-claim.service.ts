@@ -235,13 +235,21 @@ import { raw, sql } from './data/prisma-runtime';
 import { PLATFORM_PRISMA } from '../core/index';
 
 import { JOBS_METRICS, NOOP_JOBS_METRICS, type JobsMetrics } from './ports';
+import type { ClaimLease } from './job-execution-profile';
 
 /**
  * Which side of the system is executing a claimed job. Written to
  * `jobs.executor` so history records where the work actually ran.
+  *
+  * @stability experimental
  */
 export type JobExecutor = 'server' | 'node';
 
+/**
+ * One claim request: who claims, which types, how many, and each type's lease.
+ *
+ * @stability experimental
+ */
 export interface ClaimOptions {
   /**
    * The worker node taking the rows, or `null` for the API server's own
@@ -292,7 +300,7 @@ export interface ClaimOptions {
    * drop a row, and why that is a structural invariant rather than a
    * convention a caller is asked to honour.
    */
-  leases: Array<{ type: string; leaseMs: number }>;
+  leases: ClaimLease[];
 }
 
 /**
@@ -301,6 +309,8 @@ export interface ClaimOptions {
  * TYPED `Record<keyof Job, string>` ON PURPOSE — see the file header. This is
  * the compile-time half of "the claim's `RETURNING` clause cannot drift from
  * the schema"; `job-model-fields.spec.ts` is the runtime half.
+  *
+  * @stability experimental
  */
 export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
   id: 'id',
@@ -378,6 +388,11 @@ const CLAIM_RETURNING = raw(
  */
 const FALLBACK_LEASE_MS = 3_600_000;
 
+/**
+ * The atomic claim: one `FOR UPDATE SKIP LOCKED` statement shared by the server worker and the node control plane.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobClaimService {
   private readonly logger = new Logger(JobClaimService.name);
@@ -396,8 +411,8 @@ export class JobClaimService {
    * array means "nothing to do right now", which is the overwhelmingly common
    * answer and is not an error.
    *
-   * ⚠ THE RETURNED ARRAY IS UNORDERED. `ORDER BY priority ASC, created_at
-   * ASC` decides *which* rows are taken; `RETURNING` promises nothing about
+   * ⚠ THE RETURNED ARRAY IS UNORDERED.
+   * `ORDER BY priority ASC, created_at ASC` decides *which* rows are taken; `RETURNING` promises nothing about
    * the order they arrive in. Sort at the call site if it matters.
    *
    * MULTI-PROCESS SAFE. Two claimers running concurrently — two replicas, a

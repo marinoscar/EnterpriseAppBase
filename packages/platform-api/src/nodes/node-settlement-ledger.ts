@@ -43,6 +43,11 @@ interface SettlementEntry {
   settledAtMs: number;
 }
 
+/**
+ * Remembers, briefly, which node settled which job, so late telemetry from that node is still attributed.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeSettlementLedger {
   private readonly entries = new Map<string, SettlementEntry>();

@@ -78,6 +78,8 @@ import { JOBS_ENQUEUED_CHANNEL, type JobsEnqueuedMessage } from './job-wake';
  * in `prisma/migrations/20260906120000_add_jobs/migration.sql`; repeated here
  * because a P2002 has to be attributed to *this* constraint and not to some
  * other unique constraint that may exist on `jobs` in a fork.
+  *
+  * @stability experimental
  */
 export const ACTIVE_DEDUP_INDEX_NAME = 'jobs_active_dedup_uniq_idx';
 
@@ -104,6 +106,8 @@ const ENQUEUE_MAX_ATTEMPTS = 3;
  *
  * `type` and `reason` are required because the row cannot exist without them;
  * everything else has a database default or is genuinely optional.
+  *
+  * @stability experimental
  */
 export interface EnqueueJobInput {
   /**
@@ -120,6 +124,7 @@ export interface EnqueueJobInput {
    * with no subject; see `buildDedupKey` for how the pair folds into the key.
    */
   subjectType?: string | null;
+  /** Which one; see `subjectType`. */
   subjectId?: string | null;
 
   /**
@@ -136,8 +141,8 @@ export interface EnqueueJobInput {
 
   /**
    * Earliest time this job may be claimed. Omitted/null means "eligible
-   * immediately" — the claim query reads `scheduled_for IS NULL OR
-   * scheduled_for <= now()`.
+   * immediately" — the claim query reads
+   * `scheduled_for IS NULL OR scheduled_for <= now()`.
    */
   scheduledFor?: Date | null;
 
@@ -192,6 +197,8 @@ export interface EnqueueJobInput {
  * Both are checked rather than one, so switching adapters — or a Prisma
  * upgrade moving the detail around — degrades to "the P2002 propagates",
  * never to "an unrelated conflict is silently swallowed".
+  *
+  * @stability experimental
  */
 export function isActiveDedupConflict(error: unknown): boolean {
   if (!(error instanceof PrismaClientKnownRequestError) || error.code !== 'P2002') {
@@ -297,6 +304,11 @@ function buildJobCreateData(
   };
 }
 
+/**
+ * Enqueues jobs: one INSERT with active dedup (`jobs_active_dedup_uniq_idx`), the organization and the trace context recorded on the row.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);

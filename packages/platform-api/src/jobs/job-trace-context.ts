@@ -30,7 +30,11 @@
 
 import { Context, ROOT_CONTEXT, context, propagation, trace } from '@opentelemetry/api';
 
-/** The W3C trace-context header name, and the one key this module keeps. */
+/**
+ * The W3C trace-context header name, and the one key this module keeps.
+ *
+ * @stability experimental
+ */
 export const TRACEPARENT_HEADER = 'traceparent';
 
 /**
@@ -38,12 +42,16 @@ export const TRACEPARENT_HEADER = 'traceparent';
  * exactly 55 characters, so the pattern below already implies this; the
  * explicit bound is the column's contract and is checked FIRST so a
  * pathological input is rejected before a regex ever sees it.
+  *
+  * @stability experimental
  */
 export const MAX_TRACE_CONTEXT_LENGTH = 256;
 
 /**
  * Version `00`, a 32-hex trace id, a 16-hex parent span id, 2-hex flags.
  * Lower-case only, as the W3C spec requires of senders.
+  *
+  * @stability experimental
  */
 export const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 
@@ -53,6 +61,8 @@ const ALL_ZERO_SPAN_ID = '0'.repeat(16);
 /**
  * `value` if it is a well-formed, bounded W3C traceparent naming a real
  * (non-zero) trace and span, otherwise `null`. Never throws.
+  *
+  * @stability experimental
  */
 export function normalizeTraceparent(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > MAX_TRACE_CONTEXT_LENGTH) {
@@ -76,6 +86,8 @@ export function normalizeTraceparent(value: unknown): string | null {
 /**
  * The active span's traceparent, for storing on a job row being inserted now,
  * or `null` when nothing is being traced. Never throws.
+  *
+  * @stability experimental
  */
 export function captureJobTraceContext(): string | null {
   try {
@@ -95,6 +107,8 @@ export function captureJobTraceContext(): string | null {
  * loop has no meaningful ambient span, and a job without a stored parent is a
  * trace of its own — inheriting whatever happened to be active in the loop
  * would attach unrelated jobs to one another. Never throws.
+  *
+  * @stability experimental
  */
 export function jobParentContext(traceContext: string | null | undefined): Context {
   const traceparent = normalizeTraceparent(traceContext);
@@ -122,7 +136,11 @@ export function jobParentContext(traceContext: string | null | undefined): Conte
 // access model"). A system job (`orgId` null) carries no `org.id` at all.
 // -----------------------------------------------------------------------------
 
-/** The span attribute naming a job's organization. */
+/**
+ * The span attribute naming a job's organization.
+ *
+ * @stability experimental
+ */
 export const JOB_ORG_SPAN_ATTRIBUTE = 'org.id';
 
 /**
@@ -130,6 +148,8 @@ export const JOB_ORG_SPAN_ATTRIBUTE = 'org.id';
  * for a system job. Spread into a span's attributes.
  *
  * @param orgId - the job's `orgId`.
+  *
+  * @stability experimental
  */
 export function jobOrgSpanAttributes(orgId: string | null | undefined): Record<string, string> {
   return typeof orgId === 'string' && orgId.length > 0 ? { [JOB_ORG_SPAN_ATTRIBUTE]: orgId } : {};
@@ -140,6 +160,8 @@ export function jobOrgSpanAttributes(orgId: string | null | undefined): Record<s
  * the job has an organization and something is being traced. Never throws.
  *
  * @param orgId - the enqueued job's `orgId`.
+  *
+  * @stability experimental
  */
 export function annotateActiveSpanWithJobOrg(orgId: string | null | undefined): void {
   if (typeof orgId !== 'string' || orgId.length === 0) return;

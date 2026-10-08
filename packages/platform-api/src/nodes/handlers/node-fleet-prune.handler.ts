@@ -105,10 +105,16 @@ import { NodeLifecycleService } from '../node-lifecycle.service';
  * The handler key, and therefore the `Job.type` every fleet-prune row carries.
  * PERMANENT — rows outlive handlers. Exported so `NodeOfflinePruneTask` asks
  * about the same string it queues.
+  *
+  * @stability experimental
  */
 export const NODE_FLEET_PRUNE_TYPE = 'nodes.fleet.prune';
 
-/** What one prune did, split by what stopped a candidate from being deleted. */
+/**
+ * What one prune did, split by what stopped a candidate from being deleted.
+ *
+ * @stability experimental
+ */
 export interface PruneOfflineNodesResult {
   /** Node rows removed. */
   deleted: number;
@@ -145,6 +151,11 @@ function isNonNull(value: string | null): value is string {
   return value !== null;
 }
 
+/**
+ * The `nodes.fleet.prune` handler: deletes nodes offline past the retention period. Server-only.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeFleetPruneHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(NodeFleetPruneHandler.name);

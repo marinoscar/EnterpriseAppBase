@@ -20,4 +20,9 @@ export {
   createNodeCredentialSchema,
 };
 
+/**
+ * The node credential mint body (`createNodeCredentialSchema`).
+ *
+ * @stability experimental
+ */
 export class CreateNodeCredentialDto extends createZodDto(createNodeCredentialSchema) {}

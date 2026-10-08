@@ -55,11 +55,17 @@ import { type Job, type WorkerNode } from '../../jobs/index';
 
 import { normalizeTraceparent } from '../../jobs/index';
 
-/** One worker node, as the fleet sees it. */
+/**
+ * One worker node, as the fleet sees it.
+ *
+ * @stability experimental
+ */
 export class WorkerNodeDto {
+  /** Node ID (UUID) */
   @ApiProperty({ description: 'Node ID (UUID)' })
   id!: string;
 
+  /** Operator-chosen name. */
   @ApiProperty({
     description:
       'Operator-chosen name. Unique per owner, and the identity half of ' +
@@ -67,15 +73,19 @@ export class WorkerNodeDto {
   })
   name!: string;
 
+  /** Self-reported host name */
   @ApiProperty({ description: 'Self-reported host name' })
   hostname!: string;
 
+  /** Self-reported platform (e.g. */
   @ApiProperty({ description: 'Self-reported platform (e.g. `linux-x64`)' })
   platform!: string;
 
+  /** Self-reported CLI version */
   @ApiProperty({ description: 'Self-reported CLI version' })
   cliVersion!: string;
 
+  /** The job types this node declared it can run. */
   @ApiProperty({
     description:
       'The job types this node declared it can run. A claim can only ever narrow this list.',
@@ -83,6 +93,7 @@ export class WorkerNodeDto {
   })
   eligibleTypes!: string[];
 
+  /** The node’s declared concurrency ceiling. */
   @ApiProperty({
     description:
       'The node’s declared concurrency ceiling. Read live on every claim, so a ' +
@@ -90,6 +101,7 @@ export class WorkerNodeDto {
   })
   concurrency!: number;
 
+  /** Operator/administrative state — NOT liveness. */
   @ApiProperty({
     description:
       'Operator/administrative state — NOT liveness. `disabled` refuses this node’s ' +
@@ -99,6 +111,7 @@ export class WorkerNodeDto {
   })
   status!: string;
 
+  /** The node’s last self-reported capability summary, or `null` if it has reported none. */
   @ApiPropertyOptional({
     description: 'The node’s last self-reported capability summary, or `null` if it has reported none.',
     nullable: true,
@@ -106,9 +119,11 @@ export class WorkerNodeDto {
   })
   capabilities!: unknown;
 
+  /** ISO 8601 timestamp of first registration */
   @ApiProperty({ description: 'ISO 8601 timestamp of first registration' })
   registeredAt!: string;
 
+  /** ISO 8601 timestamp of the last heartbeat, or `null` if it has never sent one. */
   @ApiPropertyOptional({
     description: 'ISO 8601 timestamp of the last heartbeat, or `null` if it has never sent one.',
     nullable: true,
@@ -116,11 +131,17 @@ export class WorkerNodeDto {
   lastHeartbeatAt!: string | null;
 }
 
-/** The response to `POST /nodes/register`. */
+/**
+ * The response to `POST /nodes/register`.
+ *
+ * @stability experimental
+ */
 export class RegisterNodeResponseDto {
+  /** The registered (or reattached) node */
   @ApiProperty({ description: 'The registered (or reattached) node', type: WorkerNodeDto })
   node!: WorkerNodeDto;
 
+  /** `true` when an existing row for this `(owner, name)` was refreshed rather than a new one created — the normal outcome for a restarted worker. */
   @ApiProperty({
     description:
       '`true` when an existing row for this `(owner, name)` was refreshed rather than a new ' +
@@ -131,32 +152,44 @@ export class RegisterNodeResponseDto {
   reattached!: boolean;
 }
 
-/** A claimed job, as the node sees it. */
+/**
+ * A claimed job, as the node sees it.
+ *
+ * @stability experimental
+ */
 export class NodeJobDto {
+  /** Job ID (UUID) — echo this back on renew/result/failure */
   @ApiProperty({ description: 'Job ID (UUID) — echo this back on renew/result/failure' })
   id!: string;
 
+  /** Job type — echo this back on result, where it is verified */
   @ApiProperty({ description: 'Job type — echo this back on result, where it is verified' })
   type!: string;
 
+  /** Subject type this job is about */
   @ApiPropertyOptional({ description: 'Subject type this job is about', nullable: true })
   subjectType!: string | null;
 
+  /** Subject ID this job is about */
   @ApiPropertyOptional({ description: 'Subject ID this job is about', nullable: true })
   subjectId!: string | null;
 
+  /** Scheduling priority (lower runs first) */
   @ApiProperty({ description: 'Scheduling priority (lower runs first)' })
   priority!: number;
 
+  /** Attempts STARTED, including this one — it is charged at claim time, so it is never 0 here. */
   @ApiProperty({
     description:
       'Attempts STARTED, including this one — it is charged at claim time, so it is never 0 here.',
   })
   attempts!: number;
 
+  /** ISO 8601 timestamp this attempt started */
   @ApiProperty({ description: 'ISO 8601 timestamp this attempt started' })
   startedAt!: string | null;
 
+  /** ISO 8601 lease expiry. */
   @ApiProperty({
     description:
       'ISO 8601 lease expiry. Renew before this passes, or the job is requeued and any ' +
@@ -165,11 +198,17 @@ export class NodeJobDto {
   leaseExpiresAt!: string | null;
 }
 
-/** One claimed job plus the inputs needed to run it. */
+/**
+ * One claimed job plus the inputs needed to run it.
+ *
+ * @stability experimental
+ */
 export class NodeJobAssignmentDto {
+  /** The claimed job row, narrowed */
   @ApiProperty({ description: 'The claimed job row, narrowed', type: NodeJobDto })
   job!: NodeJobDto;
 
+  /** Everything the node needs to run this job that is not a column of the row — the job’s `payload`. */
   @ApiProperty({
     description:
       'Everything the node needs to run this job that is not a column of the row — the job’s ' +
@@ -181,6 +220,7 @@ export class NodeJobAssignmentDto {
   })
   params!: Record<string, unknown>;
 
+  /** How often, in milliseconds, this node should renew the job’s lease — derived by the SERVER from the same lease it just granted (a third of it, clamped), so a node never has to guess. */
   @ApiProperty({
     description:
       'How often, in milliseconds, this node should renew the job’s lease — derived by the ' +
@@ -193,6 +233,7 @@ export class NodeJobAssignmentDto {
   })
   renewIntervalMs!: number;
 
+  /** This assignment’s claim token — quote it back on `renew`, `result` and `failure` so the server can tell THIS claim of the job from a later one. */
   @ApiPropertyOptional({
     description:
       'This assignment’s claim token — quote it back on `renew`, `result` and `failure` so ' +
@@ -207,6 +248,7 @@ export class NodeJobAssignmentDto {
   })
   claimToken!: string | null;
 
+  /** The W3C `traceparent` of the span that was active when this job was ENQUEUED (issue #607) — `00-<32 hex trace id>-<16 hex span id>-<2 hex flags>` — so a node can start its execution span as a... */
   @ApiPropertyOptional({
     description:
       'The W3C `traceparent` of the span that was active when this job was ENQUEUED (issue ' +
@@ -222,8 +264,13 @@ export class NodeJobAssignmentDto {
   traceparent?: string | null;
 }
 
-/** The response to `POST /nodes/:id/claim`. */
+/**
+ * The response to `POST /nodes/:id/claim`.
+ *
+ * @stability experimental
+ */
 export class ClaimJobsResponseDto {
+  /** The rows this call took, in no particular order — `UPDATE … RETURNING` promises none. */
   @ApiProperty({
     description:
       'The rows this call took, in no particular order — `UPDATE … RETURNING` promises none. ' +
@@ -233,20 +280,32 @@ export class ClaimJobsResponseDto {
   jobs!: NodeJobAssignmentDto[];
 }
 
-/** The response to `POST /nodes/:id/jobs/:jobId/renew`. */
+/**
+ * The response to `POST /nodes/:id/jobs/:jobId/renew`.
+ *
+ * @stability experimental
+ */
 export class RenewLeaseResponseDto {
+  /** The job whose lease was extended */
   @ApiProperty({ description: 'The job whose lease was extended' })
   jobId!: string;
 
+  /** ISO 8601 timestamp of the new lease expiry */
   @ApiProperty({ description: 'ISO 8601 timestamp of the new lease expiry' })
   leaseExpiresAt!: string;
 }
 
-/** The response to a result or failure submission. */
+/**
+ * The response to a result or failure submission.
+ *
+ * @stability experimental
+ */
 export class JobSettlementResponseDto {
+  /** The job that was settled */
   @ApiProperty({ description: 'The job that was settled' })
   jobId!: string;
 
+  /** What the terminal state machine decided: `succeeded`, `failed`, `retry-scheduled`, `rate-limit-deferred`, or `write-failed` (the row was left for the lease reaper). */
   @ApiProperty({
     description:
       'What the terminal state machine decided: `succeeded`, `failed`, `retry-scheduled`, ' +
@@ -255,6 +314,7 @@ export class JobSettlementResponseDto {
   })
   outcome!: string;
 
+  /** Whether this job WILL run again — the server’s answer, not the node’s. */
   @ApiProperty({
     description:
       'Whether this job WILL run again — the server’s answer, not the node’s. A node may send ' +

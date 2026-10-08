@@ -47,7 +47,16 @@ export const NODES_OPTIONS: unique symbol = Symbol.for('@marinoscar/platform/nod
  */
 export interface ResolvedNodesModuleOptions {
   /** Per-cron overrides; an absent key defers to the environment. */
-  readonly tasks: Readonly<Partial<{ staleOffline: boolean; offlinePrune: boolean; secretSweep: boolean }>>;
+  readonly tasks: Readonly<
+    Partial<{
+      /** The stale-offline sweep cron (`NODE_STALE_OFFLINE_ENABLED`). */
+      staleOffline: boolean;
+      /** The offline-prune cron (`NODE_OFFLINE_PRUNE_ENABLED`). */
+      offlinePrune: boolean;
+      /** The secret-sweep cron (`NODE_SECRET_SWEEP_ENABLED`). */
+      secretSweep: boolean;
+    }>
+  >;
   /** The host-port modules. */
   readonly imports: ReadonlyArray<Type<unknown> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
 }

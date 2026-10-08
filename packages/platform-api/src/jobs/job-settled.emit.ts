@@ -30,6 +30,8 @@ import { JobSettledEvent, JOB_SETTLED_EVENT } from './events/job-settled.event';
 /**
  * Emits `JOB_SETTLED_EVENT` for a genuinely settled job. Never throws: a
  * listener error is logged and swallowed, and the job's row is unaffected.
+  *
+  * @stability experimental
  */
 export function emitJobSettled(events: EventEmitter2, job: Job, logger: Logger): void {
   try {

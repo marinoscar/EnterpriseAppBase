@@ -29,8 +29,13 @@ export type {
   JobStatusCounts,
 };
 
-/** The service's own return type: identical, but with `generatedAt` as a `Date`. */
+/**
+ * The service's own return type: identical, but with `generatedAt` as a `Date`.
+ *
+ * @stability experimental
+ */
 export type JobStatsResult = Omit<z.output<typeof jobStatsSchema>, 'generatedAt'> & {
+  /** When the counts were taken. */
   generatedAt: Date;
 };
 

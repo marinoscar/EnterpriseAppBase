@@ -13,8 +13,11 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  * remembering it. The row itself only ever stores a sha256 hash, so even a
  * mistake at this layer could not surface the real value — but a DTO that
  * cannot express it is the cheaper of the two guarantees.
+ *
+ * @stability experimental
  */
 export class NodeCredentialCreatedResponseDto {
+  /** The raw `nod_…` token. */
   @ApiProperty({
     description:
       'The raw `nod_…` token. Shown EXACTLY ONCE, in this response only — the ' +
@@ -24,17 +27,21 @@ export class NodeCredentialCreatedResponseDto {
   })
   token!: string;
 
+  /** Credential ID (UUID) */
   @ApiProperty({ description: 'Credential ID (UUID)' })
   id!: string;
 
+  /** Operator-chosen label for this credential */
   @ApiProperty({ description: 'Operator-chosen label for this credential' })
   name!: string;
 
+  /** Non-secret display prefix (e.g. */
   @ApiProperty({
     description: 'Non-secret display prefix (e.g. `nod_1a2b`) for telling credentials apart',
   })
   tokenPrefix!: string;
 
+  /** ISO 8601 expiry timestamp, or `null` when this credential never expires (the default). */
   @ApiPropertyOptional({
     description:
       'ISO 8601 expiry timestamp, or `null` when this credential never expires ' +
@@ -44,6 +51,7 @@ export class NodeCredentialCreatedResponseDto {
   })
   expiresAt!: string | null;
 
+  /** ISO 8601 creation timestamp */
   @ApiProperty({ description: 'ISO 8601 creation timestamp' })
   createdAt!: string;
 }
@@ -58,23 +66,30 @@ export class NodeCredentialCreatedResponseDto {
  * without ever touching this API, invisibly to any rate limit or audit trail
  * here. The service's `select` is the enforcement point; this DTO is the
  * documentation of it.
+ *
+ * @stability experimental
  */
 export class NodeCredentialListItemDto {
+  /** Credential ID (UUID) */
   @ApiProperty({ description: 'Credential ID (UUID)' })
   id!: string;
 
+  /** Operator-chosen label for this credential */
   @ApiProperty({ description: 'Operator-chosen label for this credential' })
   name!: string;
 
+  /** Non-secret display prefix (e.g. */
   @ApiProperty({ description: 'Non-secret display prefix (e.g. `nod_1a2b`)' })
   tokenPrefix!: string;
 
+  /** ISO 8601 expiry timestamp, or `null` when this credential never expires */
   @ApiPropertyOptional({
     description: 'ISO 8601 expiry timestamp, or `null` when this credential never expires',
     nullable: true,
   })
   expiresAt!: string | null;
 
+  /** ISO 8601 timestamp of the last successful authentication, or `null` if never used. */
   @ApiPropertyOptional({
     description:
       'ISO 8601 timestamp of the last successful authentication, or `null` if never ' +
@@ -84,9 +99,11 @@ export class NodeCredentialListItemDto {
   })
   lastUsedAt!: string | null;
 
+  /** ISO 8601 creation timestamp */
   @ApiProperty({ description: 'ISO 8601 creation timestamp' })
   createdAt!: string;
 
+  /** ISO 8601 revocation timestamp, or `null` while the credential is active */
   @ApiPropertyOptional({
     description: 'ISO 8601 revocation timestamp, or `null` while the credential is active',
     nullable: true,

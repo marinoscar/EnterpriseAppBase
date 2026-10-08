@@ -79,6 +79,8 @@ import { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
  * `MaintenanceGuard.OPAQUE_BEARER_PREFIXES` (which refuses to treat it as an
  * admin bypass). A typo in any one of them is not a crash — it is a token
  * that falls through to a different branch and is handled by the wrong rules.
+  *
+  * @stability experimental
  */
 export const NODE_TOKEN_PREFIX = 'nod_';
 
@@ -88,14 +90,25 @@ const DISPLAY_PREFIX_HEX_CHARS = 4;
 /** One day in milliseconds — the unit `expiresInDays` is expressed in. */
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/** The masked shape returned by {@link NodeCredentialService.listCredentials}. */
+/**
+ * The masked shape returned by {@link NodeCredentialService.listCredentials}.
+ *
+ * @stability experimental
+ */
 export interface NodeCredentialListRow {
+  /** The credential id. */
   id: string;
+  /** Its display name. */
   name: string;
+  /** The token's first characters, for recognising it; never the token. */
   tokenPrefix: string;
+  /** When it expires, or `null` for never. */
   expiresAt: Date | null;
+  /** When a node last authenticated with it. */
   lastUsedAt: Date | null;
+  /** When it was minted. */
   createdAt: Date;
+  /** When it was revoked, or `null` while it is live. */
   revokedAt: Date | null;
 }
 
@@ -110,12 +123,22 @@ export interface NodeCredentialListRow {
  * "every long-lived worker token in this deployment", where whose it is IS the
  * audit. An optional field would let the admin surface silently render
  * `undefined` the day somebody reused the owner-scoped query.
+  *
+  * @stability experimental
  */
 export interface AdminNodeCredentialRow extends NodeCredentialListRow {
   // The column on `User` is `displayName`; the admin DTO exposes it as
   // `owner.name` (see `NodesAdminService.listCredentials`, which does the
   // mapping). Renaming this back to `name` breaks the select, not the DTO.
-  user: { id: string; email: string; displayName: string | null };
+  /** The owner. */
+  user: {
+    /** The owner's id. */
+    id: string;
+    /** The owner's email. */
+    email: string;
+    /** The owner's display name. */
+    displayName: string | null;
+  };
 }
 
 /**
@@ -126,21 +149,41 @@ export interface AdminNodeCredentialRow extends NodeCredentialListRow {
  * `test/nodes/worker-node-model-fields.spec.ts` assert its keys are real
  * `User` scalar columns, which is the check issue #340 (a `name` column that
  * does not exist) would have failed instantly.
+  *
+  * @stability experimental
  */
-export const CREDENTIAL_OWNER_SELECT = {
+export const CREDENTIAL_OWNER_SELECT: {
+  /** The owner columns joined: id, email and display name only. */
+  readonly select: { readonly [K in 'id' | 'email' | 'displayName']: true };
+} = {
   select: { id: true, email: true, displayName: true },
-} as const;
+};
 
-/** The show-once shape returned by {@link NodeCredentialService.createCredential}. */
+/**
+ * The show-once shape returned by {@link NodeCredentialService.createCredential}.
+ *
+ * @stability experimental
+ */
 export interface NodeCredentialCreated {
+  /** The `nod_` token, returned exactly once; only its hash is stored. */
   token: string;
+  /** The credential id. */
   id: string;
+  /** Its display name. */
   name: string;
+  /** The token's first characters. */
   tokenPrefix: string;
+  /** When it expires (ISO 8601), or `null` for never. */
   expiresAt: string | null;
+  /** When it was minted (ISO 8601). */
   createdAt: string;
 }
 
+/**
+ * Mints, lists, validates and revokes the `nod_` node credentials (hashed at rest).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeCredentialService {
   private readonly logger = new Logger(NodeCredentialService.name);
@@ -174,7 +217,7 @@ export class NodeCredentialService {
    * Mints a credential and returns the raw token — THE ONLY TIME IT EXISTS
    * OUTSIDE THE CALLER'S PROCESS.
    *
-   * The row stores {@link hash}'s output and a short display prefix; the
+   * The row stores `hash()`'s output and a short display prefix; the
    * plaintext is never written anywhere, never logged (note that the log line
    * below names the credential and its owner and NOT the token), and cannot
    * be recovered. An operator who loses it revokes and mints again — which is

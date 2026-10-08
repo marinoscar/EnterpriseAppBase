@@ -49,16 +49,27 @@ export type {
   JobEtaBasis,
 };
 
-/** The service's own return type: identical, but with `Date`s where the wire has strings. */
+/**
+ * The service's own return type: identical, but with `Date`s where the wire has strings.
+ *
+ * @stability experimental
+ */
 export type JobInsightsResult = Omit<
   z.output<typeof jobInsightsSchema>,
   'generatedAt' | 'history'
 > & {
+  /** When every number was taken. */
   generatedAt: Date;
+  /** The windowed history, its two instants as `Date`s. */
   history: Omit<
     z.output<typeof jobInsightsSchema>['history'],
     'windowStart' | 'throughputSince'
-  > & { windowStart: Date; throughputSince: Date };
+  > & {
+    /** Where the window starts. */
+    windowStart: Date;
+    /** Where the throughput sub-window starts. */
+    throughputSince: Date;
+  };
 };
 
 export class JobInsightsQueryDto extends createZodDto(jobInsightsQuerySchema) {}

@@ -132,6 +132,8 @@ export function configureJobTempPrefix(appName: string): string {
  * function, not the environment: a Jest test file writes to a sandboxed copy
  * of `process.env`, so setting `TMPDIR` there would silently do nothing and
  * the suite would sweep the machine's real `/tmp`.
+  *
+  * @stability experimental
  */
 export function jobTempDir(): string {
   return tmpdir();
@@ -146,8 +148,10 @@ export function jobTempDir(): string {
  * cleaning up after yourself, because it deliberately leaves anything younger
  * than six hours alone.
  *
- * @param suffix an optional trailing part (`'.pdf'`, `'-page-2.png'`), for
+ * @param suffix - an optional trailing part (`'.pdf'`, `'-page-2.png'`), for
  * tools that insist on a real extension.
+  *
+  * @stability experimental
  */
 export function jobTempPath(suffix = ''): string {
   return join(jobTempDir(), `${JOB_TEMP_PREFIX}${randomUUID()}${suffix}`);

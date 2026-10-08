@@ -188,12 +188,18 @@ import { NodesService } from './nodes.service';
  * `IssuedJobSecret.expiresAt` still reports what the broker actually managed to
  * set, so the sweeper's own `row.expiresAt > now` check sees the truth rather
  * than the request.
+  *
+  * @stability experimental
  */
 export const SECRET_CLOCK_SKEW_ALLOWANCE_MS = 60_000;
 
 const SWEEP_BATCH_SIZE = 200;
 
-/** What one sweep did, for the cron's log line. */
+/**
+ * What one sweep did, for the cron's log line.
+ *
+ * @stability experimental
+ */
 export interface NodeSecretSweepResult {
   /** Grants examined this tick. */
   examined: number;
@@ -203,6 +209,11 @@ export interface NodeSecretSweepResult {
   failed: number;
 }
 
+/**
+ * Issues, and revokes, the per-job credential of a handler's `nodeSecretBroker`, bounded by the job's lease; stores only its handle.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeSecretBrokerService {
   private readonly logger = new Logger(NodeSecretBrokerService.name);

@@ -121,7 +121,11 @@ import { resolveLeaseHorizonMs, resolveMaxAttempts } from './job-execution-profi
 import { JobHandlerRegistry } from './job-handler.registry';
 import { emitJobSettled } from './job-settled.emit';
 
-/** What `resetStuck` did, split by which phase claimed each row. */
+/**
+ * What `resetStuck` did, split by which phase claimed each row.
+ *
+ * @stability experimental
+ */
 export interface ResetStuckResult {
   /** Rows put back to `pending` for another executor to claim. */
   reset: number;
@@ -232,6 +236,8 @@ export interface ResetStuckResult {
  * header gives: the admin surface, the reaper and any later node-plane
  * sweeper must ask the same question, and the only way to guarantee that is
  * for there to be one copy of it.
+  *
+  * @stability experimental
  */
 export function stuckRunningWhere(
   threshold: Date,
@@ -254,6 +260,11 @@ export function stuckRunningWhere(
   };
 }
 
+/**
+ * Finds and recovers jobs whose executor stopped renewing: the lease reaper's logic, shared with the admin "reset stuck" action.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobStuckService {
   private readonly logger = new Logger(JobStuckService.name);
@@ -333,7 +344,7 @@ export class JobStuckService {
    * meant to describe. It is two in-memory reads and a `Math.max` over single
    * digits of registered types — nothing next to the query it precedes.
    *
-   * @param now the sweep's single instant — passed in rather than read here,
+   * @param now - the sweep's single instant — passed in rather than read here,
    * so every clause of one sweep is judged against the same clock reading.
    */
   leaseHorizon(now: Date): Date {
@@ -392,7 +403,7 @@ export class JobStuckService {
    * `JobTerminalService` deliberately does) would erase the only evidence a
    * poison pill leaves behind and make phase 1 unreachable.
    *
-   * @param olderThanMinutes override for the configured threshold — what an
+   * @param olderThanMinutes - override for the configured threshold — what an
    * operator passes from an admin "reset jobs stuck for more than N minutes"
    * control. Omitted, the system setting decides.
    */

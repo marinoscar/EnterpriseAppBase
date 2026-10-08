@@ -129,6 +129,8 @@ import { JobHandlerRegistry } from '../job-handler.registry';
  * Exported because the scheduling task needs the exact same string to ask "is
  * one already queued?", and two literals is one typo away from a task that
  * enqueues a duplicate every midnight forever.
+  *
+  * @stability experimental
  */
 export const JOB_HISTORY_PURGE_TYPE = 'job.history.purge';
 
@@ -168,6 +170,11 @@ interface RollupDelta {
 /** The columns a purge candidate is read with — everything the fold needs. */
 type PurgeCandidate = Pick<Job, 'id' | 'type' | 'status' | 'startedAt' | 'finishedAt'>;
 
+/**
+ * The `job.history.purge` handler: folds old terminal rows into `job_stats_rollup` and deletes them. Server-only.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobHistoryPurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(JobHistoryPurgeHandler.name);
@@ -345,8 +352,8 @@ export function purgeableWhere(cutoff: Date): JobsWhere {
  * DURATION SAMPLES COME FROM SUCCEEDED ROWS ONLY, and that is a deliberate
  * definition rather than an omission. `jobs_succeeded_duration_idx` — the
  * partial index the schema builds for exactly this computation — is
- * `WHERE status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS
- * NOT NULL`, so the live half of "average duration for this type" is computed
+ *
+ * `WHERE status = 'succeeded' AND started_at IS NOT NULL AND finished_at IS NOT NULL`, so the live half of "average duration for this type" is computed
  * over successes; folding failures into the rollup's accumulators would make
  * the purged half mean something different from the live half, and the
  * average would drift every time history was trimmed. It is also the more

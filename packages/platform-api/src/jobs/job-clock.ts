@@ -31,7 +31,11 @@
 // the passage of time.
 // =============================================================================
 
-/** What the queue is allowed to know about time. */
+/**
+ * What the queue is allowed to know about time.
+ *
+ * @stability experimental
+ */
 export interface JobClock {
   /** Milliseconds since the epoch, exactly as `Date.now()` reports it. */
   now(): number;
@@ -52,6 +56,8 @@ export interface JobClock {
  * `JobsModule`, so the application always runs on `systemJobClock` below and
  * a fork cannot accidentally ship a stubbed clock. Tests construct the
  * services directly and pass their own.
+  *
+  * @stability experimental
  */
 export const JOB_CLOCK = Symbol('JOB_CLOCK');
 
@@ -69,6 +75,8 @@ export const JOB_CLOCK = Symbol('JOB_CLOCK');
  *
  * The `typeof` guard is for environments whose `setTimeout` returns a number
  * rather than a Node `Timeout` (jsdom, and some fake-timer configurations).
+  *
+  * @stability experimental
  */
 export const systemJobClock: JobClock = {
   now: () => Date.now(),

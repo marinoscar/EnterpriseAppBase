@@ -188,9 +188,45 @@ import type { JobSecretBroker } from './job-secret-broker';
  * under. Note that the registration path this epic actually uses is
  * SELF-REGISTRATION from each handler's own `OnModuleInit` — see
  * `job-handler.registry.ts` for why, and `handlers/README.md` for the recipe.
+  *
+  * @stability experimental
  */
 export const JOB_HANDLER = Symbol('JOB_HANDLER');
 
+/**
+ * One job type: the contract a feature implements so the queue can run its
+ * work. Two members are required (`type`, `process`); every other member is
+ * optional and its PRESENCE is the declaration:
+ *
+ * - `label`: the admin list's display phrase (`jobTypeLabel`).
+ * - `profile`: `{ maxRuntimeMs, maxAttempts }`, exactly; the lease, renewal
+ *   and reaper patience are derived from `maxRuntimeMs`.
+ * - `nodeResultSchema` + `persistNodeResult`: both present makes the type
+ *   node-eligible (derived; there is no flag). Neither: server-only.
+ * - `nodeSecretBroker`: the type needs a per-job credential, brokered through
+ *   `POST /api/nodes/:id/jobs/:jobId/secret`, never persisted by a node.
+ * - `nodeOffloadEnabled`: a deployment's runtime switch for offering an
+ *   eligible type to nodes (read at claim time).
+ * - `deriveOutputKey`: where a node's output upload lands.
+ * - `canDelete`: veto an admin delete of a row of this type.
+ *
+ * Register with `registry.register(this)` from the handler's `onModuleInit`.
+ *
+ * @example
+ * ```ts
+ * @Injectable()
+ * export class ExportCsvHandler implements JobHandler, OnModuleInit {
+ *   readonly type = 'export.csv';
+ *   readonly label = 'CSV export';
+ *   constructor(private readonly registry: JobHandlerRegistry) {}
+ *   onModuleInit(): void { this.registry.register(this); }
+ *   async process(job: Job): Promise<void> { ... }
+ * }
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability stable
+ */
 export interface JobHandler {
   /**
    * The `Job.type` value this handler is responsible for.
@@ -356,8 +392,8 @@ export interface JobHandler {
    * That is the central dispatch table this file's header exists to abolish,
    * one arm long, and it makes the nodes module depend on a feature module's
    * settings shape. Asking the handler keeps the knowledge where the feature
-   * is: `DatabaseBackupRunHandler` reads its own `databaseBackup
-   * .nodeOffloadEnabled`, and a fork's handler reads whatever its own feature
+   * is: `DatabaseBackupRunHandler` reads its own
+   * `databaseBackup .nodeOffloadEnabled`, and a fork's handler reads whatever its own feature
    * calls the same idea.
    *
    * Throwing is not a way to say "no": it fails the whole claim, which is a

@@ -136,6 +136,8 @@ const ERRORED_SPAN_OUTCOMES: ReadonlySet<JobSettleOutcome> = new Set<JobSettleOu
  *     added to take.
  *   - `off` — no pool at all. The process still enqueues, still serves the
  *     admin API, and never executes anything: a pure control plane.
+  *
+  * @stability experimental
  */
 export type JobWorkerMode = 'all' | 'system' | 'off';
 
@@ -162,6 +164,8 @@ const DEFAULT_JOB_TIMEOUT_MS = 600_000;
  * top of the longest lease any registered handler could ask for, so the
  * ceiling the reaper judges a lease against and the grace a claim was given
  * are the same number rather than two that merely happen to agree today.
+  *
+  * @stability experimental
  */
 export const LEASE_GRACE_MS = 60_000;
 
@@ -223,6 +227,8 @@ export function resetUnknownWorkerModeWarning(): void {
  *
  * A non-string (an unset key) is treated as the default rather than as
  * garbage, so a deployment that never set the variable is not "unrecognised".
+  *
+  * @stability experimental
  */
 export function parseWorkerMode(raw: unknown): JobWorkerMode | null {
   const value = (typeof raw === 'string' ? raw : DEFAULT_MODE).trim().toLowerCase();
@@ -251,6 +257,8 @@ export function parseWorkerMode(raw: unknown): JobWorkerMode | null {
  * with a stub `ConfigService`, and a missing key must degrade to the shipped
  * behaviour rather than to `NaN` — which as a divisor would publish an ETA of
  * `NaN` milliseconds.
+  *
+  * @stability experimental
  */
 export function resolveWorkerConcurrency(config: ConfigService): number {
   const value = config.get<number>('jobs.workerConcurrency');
@@ -298,6 +306,8 @@ export function resolveWorkerConcurrency(config: ConfigService): number {
  * unwritable `lease_expires_at`); a profile that arrives here has already been
  * bounds-checked by `resolveJobProfile`, which is why this reads its field
  * directly.
+  *
+  * @stability experimental
  */
 export function resolveJobLeaseMs(config: ConfigService, profile?: JobExecutionProfile): number {
   const value = profile ? profile.maxRuntimeMs : config.get<number>('jobs.jobTimeoutMs');
@@ -317,11 +327,16 @@ export function resolveJobLeaseMs(config: ConfigService, profile?: JobExecutionP
  * status code and no throttle-ish name, so `classifyRateLimit` correctly
  * leaves it on the ordinary retry path: a job that ran too long is a job that
  * failed, not a provider asking us to slow down.
+  *
+  * @stability experimental
  */
 export class JobTimeoutError extends Error {
   constructor(
+    /** The job that timed out. */
     readonly jobId: string,
+    /** Its type. */
     readonly jobType: string,
+    /** The timeout it exceeded, in milliseconds. */
     readonly timeoutMs: number
   ) {
     super(`Job ${jobId} (${jobType}) exceeded its ${timeoutMs}ms timeout`);
@@ -345,6 +360,11 @@ interface PendingTimer {
   abort: () => void;
 }
 
+/**
+ * The in-process worker pool: claims, runs and settles jobs per `JOBS_WORKER_MODE`, `JOBS_WORKER_CONCURRENCY` and `JOBS_POLL_MS`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(JobWorker.name);
@@ -1092,8 +1112,8 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
    * `work` once the race is decided, so a work promise that rejects AFTER
    * losing the race is a promise with no rejection handler — an
    * `unhandledRejection`, which in Node's default posture terminates the
-   * process. That is the exact bug this shape exists to avoid: `work.then(…,
-   * …)` is registered before the race can be decided and stays registered
+   * process. That is the exact bug this shape exists to avoid:
+   * `work.then(…, …)` is registered before the race can be decided and stays registered
    * forever, and settling an already-settled promise is a harmless no-op.
    */
   private withTimeout<T>(work: Promise<T>, ms: number, job: Job): Promise<T> {

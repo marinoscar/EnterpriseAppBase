@@ -121,9 +121,16 @@ import { NodeLifecycleService } from '../node-lifecycle.service';
  * The handler key, and therefore the `Job.type` every fleet-sweep row carries.
  * PERMANENT — rows outlive handlers. Exported so `NodeStaleOfflineTask` asks
  * about the same string it queues.
+  *
+  * @stability experimental
  */
 export const NODE_FLEET_SWEEP_TYPE = 'nodes.fleet.sweep';
 
+/**
+ * The `nodes.fleet.sweep` handler: marks silent nodes offline in one statement, then emits `nodes.node.offline` per node. Server-only.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeFleetSweepHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(NodeFleetSweepHandler.name);

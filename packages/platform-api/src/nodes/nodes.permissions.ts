@@ -45,7 +45,12 @@ export interface NodesPermissionDeclaration<Id extends string = string> {
  *
  * @stability stable
  */
-export const NODES_PERMISSIONS = {
+export const NODES_PERMISSIONS: {
+  /** `nodes:read`: view worker nodes and their health. */
+  readonly NODES_READ: NodesPermissionDeclaration<'nodes:read'>;
+  /** `nodes:write`: register, drain and remove worker nodes. */
+  readonly NODES_WRITE: NodesPermissionDeclaration<'nodes:write'>;
+} = {
   // Worker nodes — the fleet that executes those jobs (#256, epic #254).
   //
   // DELIBERATELY SPLIT FROM `jobs:*`, not folded into it. The Settings UI
@@ -69,4 +74,4 @@ export const NODES_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies Record<string, NodesPermissionDeclaration>;
+};

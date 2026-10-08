@@ -75,6 +75,8 @@ import { PLATFORM_PRISMA } from '../core/index';
  * Both members are optional and both are three-valued (see `heldLeaseWhere`).
  * The empty object — no constraint on either — is the "any holder" case, which
  * exists for a fork's own executor rather than for anything in this repo.
+  *
+  * @stability experimental
  */
 export interface LeaseHolder {
   /** The worker node holding the row, or `null` for the API server itself. */
@@ -174,6 +176,8 @@ export interface LeaseHolder {
  * running pre-#361 code emits no token clause at all, so during a rolling
  * deploy it can extend a new replica's lease exactly as before. That hole
  * closes when the last old replica is gone; nothing here can close it earlier.
+  *
+  * @stability experimental
  */
 export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): JobsWhere {
   const { nodeId, claimToken } = holder;
@@ -225,6 +229,8 @@ export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): JobsWhe
  * alone, so during a rolling deploy it can still overwrite a row that was
  * re-claimed from under it, exactly as before. The hole closes when the last
  * old replica is gone — the same caveat `heldLeaseWhere` carries for #361.
+  *
+  * @stability experimental
  */
 export function heldClaimWhere(
   job: Pick<Job, 'id' | 'claimToken' | 'claimedByNodeId'>
@@ -237,6 +243,11 @@ export function heldClaimWhere(
   };
 }
 
+/**
+ * Renews a held job's lease, fenced by its claim token.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobLeaseService {
   constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma) {}

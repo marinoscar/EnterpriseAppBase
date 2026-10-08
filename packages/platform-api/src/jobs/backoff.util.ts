@@ -68,9 +68,16 @@
  * so a unit test can assert the EXACT `scheduled_for` a deferral wrote
  * instead of a range; see the "the RNG is a parameter" note above for why a
  * range assertion is nearly worthless on a jittered delay.
+  *
+  * @stability experimental
  */
 export const JOB_RANDOM = Symbol('JOB_RANDOM');
 
+/**
+ * What `computeBackoffMs` needs to compute one retry delay.
+ *
+ * @stability experimental
+ */
 export interface BackoffInput {
   /**
    * WHICH attempt is about to be scheduled, 1-based: `1` produces the first
@@ -113,6 +120,8 @@ export interface BackoffInput {
  *
  * Always a non-negative integer (callers turn it into a `Date`, and a
  * fractional millisecond in a timestamp helps nobody read a job list).
+  *
+  * @stability experimental
  */
 export function computeBackoffMs(input: BackoffInput): number {
   const { baseMs, maxMs, retryAfterMs, rand = Math.random } = input;

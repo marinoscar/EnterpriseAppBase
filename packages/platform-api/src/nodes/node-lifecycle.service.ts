@@ -131,6 +131,11 @@ export function deriveNodeHealth(
   return node.lastHeartbeatAt.getTime() > staleAfter ? 'healthy' : 'stale';
 }
 
+/**
+ * The fleet's lifecycle policy: staleness, offline and retention cut-offs from the `nodes` system settings.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeLifecycleService {
   private readonly logger = new Logger(NodeLifecycleService.name);

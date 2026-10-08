@@ -64,10 +64,13 @@
  * Carries the provider's own `Retry-After` when there was one; the deferral
  * treats it as a FLOOR on the computed backoff, never as an override (see
  * `backoff.util.ts`).
+  *
+  * @stability experimental
  */
 export class RateLimitError extends Error {
   constructor(
     message: string,
+    /** The provider's own `Retry-After`, in milliseconds, when it sent one; a floor on the backoff. */
     public readonly retryAfterMs?: number
   ) {
     super(message);
@@ -86,7 +89,11 @@ export class RateLimitError extends Error {
   }
 }
 
-/** What `classifyRateLimit` concluded about an arbitrary thrown value. */
+/**
+ * What `classifyRateLimit` concluded about an arbitrary thrown value.
+ *
+ * @stability experimental
+ */
 export interface RateLimitClassification {
   /** Whether this error means "back off", as opposed to "this is broken". */
   rateLimited: boolean;
@@ -103,6 +110,8 @@ const NOT_RATE_LIMITED: RateLimitClassification = { rateLimited: false, retryAft
 /**
  * The well-known key an error implements to classify itself (issue #509).
  * See "ERRORS THAT CLASSIFY THEMSELVES" in the file header.
+  *
+  * @stability experimental
  */
 export const CLASSIFY_RATE_LIMIT: unique symbol = Symbol.for('jobs.classifyRateLimit');
 
@@ -111,8 +120,11 @@ export const CLASSIFY_RATE_LIMIT: unique symbol = Symbol.for('jobs.classifyRateL
  * status/name heuristic in `classifyRateLimit`; it should be a prototype
  * method (never an own enumerable property) so it cannot leak into a
  * serialised body.
+  *
+  * @stability experimental
  */
 export interface SelfClassifyingRateLimit {
+  /** Whether this error is a provider rate limit, and the delay the provider asked for. */
   [CLASSIFY_RATE_LIMIT](): RateLimitClassification;
 }
 
@@ -298,6 +310,8 @@ function readRetryAfterHeader(err: Record<string, unknown>): string | null {
  * value (`0.5`) is rejected too: the grammar is DIGIT-only, so a fractional
  * value means the header is not what we think it is, and guessing at a
  * malformed header is how a 500ms wait gets read as a 500-second one.
+  *
+  * @stability experimental
  */
 export function parseRetryAfterMs(
   header: string | number | null | undefined,
@@ -345,6 +359,8 @@ export function parseRetryAfterMs(
  * `Error`, an SDK shape nobody anticipated — is simply "not a rate limit".
  * The cost of a false negative is one wasted attempt; the cost of throwing
  * here would be losing the failure handling entirely.
+  *
+  * @stability experimental
  */
 export function classifyRateLimit(
   err: unknown,

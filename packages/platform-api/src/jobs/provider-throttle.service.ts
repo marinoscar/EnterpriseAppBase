@@ -90,6 +90,11 @@ interface ProviderCooldown {
   consecutiveTrips: number;
 }
 
+/**
+ * Per-provider concurrency and rate limits for handlers that call a rate-limited provider.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class ProviderThrottleService {
   private readonly logger = new Logger(ProviderThrottleService.name);

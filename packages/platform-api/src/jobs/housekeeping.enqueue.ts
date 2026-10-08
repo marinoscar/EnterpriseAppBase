@@ -78,12 +78,20 @@ import type { JobsService } from './jobs.service';
  * The same number `JobHistoryPurgeTask` chose in #263, now shared rather than
  * repeated: seven copies of a priority constant is seven chances for one of
  * them to be `-100` and starve the queue with a token cleanup.
+  *
+  * @stability experimental
  */
 export const HOUSEKEEPING_PRIORITY = 100;
 
-/** What one enqueue attempt needs. All four are required. */
+/**
+ * What one enqueue attempt needs. All four are required.
+ *
+ * @stability experimental
+ */
 export interface HousekeepingEnqueueOptions {
+  /** The queue to enqueue on. */
   jobs: JobsService;
+  /** The database port, for the "already in flight?" read. */
   prisma: JobsPrisma;
   /** The caller's own logger, so the line is attributed to the task. */
   logger: Logger;
@@ -102,6 +110,14 @@ export interface HousekeepingEnqueueOptions {
  * return value for their own logging only; NOTHING should branch on it in a
  * way that matters, because "already queued" and "queued" are equally healthy
  * outcomes.
+ *
+ * The job is a SYSTEM job (`orgId: null`), whatever ambient scope the caller
+ * runs in. This is what a `@Cron` calls: it decides, this enqueues.
+ *
+ * @param options - the queue, the database port, the caller's logger, the type and a log phrase.
+ *
+ * @extensionPoint hook
+ * @stability stable
  */
 export async function enqueueHousekeepingJob(
   options: HousekeepingEnqueueOptions

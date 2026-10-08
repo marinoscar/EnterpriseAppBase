@@ -32,6 +32,18 @@ const oneOf = (...values: string[]): AppMetricAttribute => ({ kind: 'enum', valu
 const NODE_ATTRIBUTES = { node_id: free, node_name: free };
 
 /**
+ * One fleet gauge's declaration: an {@link AppMetricDef} whose `key` is a
+ * literal, so the app's metric-key union keeps every fleet key.
+ *
+ * @typeParam Key - the metric's code key.
+ * @stability stable
+ */
+export interface NodesAppMetricDef<Key extends string> extends AppMetricDef {
+  /** The metric's code key. */
+  readonly key: Key;
+}
+
+/**
  * The fleet gauges' declarations. Register them with
  * `registerAppMetrics(NODES_APP_METRICS)` before the metrics host is built.
  *
@@ -42,7 +54,21 @@ const NODE_ATTRIBUTES = { node_id: free, node_name: free };
  *
  * @stability stable
  */
-export const NODES_APP_METRICS = [
+export const NODES_APP_METRICS: readonly [
+  NodesAppMetricDef<'nodesCount'>,
+  NodesAppMetricDef<'nodesCpuUtilization'>,
+  NodesAppMetricDef<'nodesMemoryRss'>,
+  NodesAppMetricDef<'nodesHeapUsed'>,
+  NodesAppMetricDef<'nodesHeapLimit'>,
+  NodesAppMetricDef<'nodesEventLoopDelayP99'>,
+  NodesAppMetricDef<'nodesStateDirFree'>,
+  NodesAppMetricDef<'nodesStateDirTotal'>,
+  NodesAppMetricDef<'nodesSlotsUsed'>,
+  NodesAppMetricDef<'nodesSlotsTotal'>,
+  NodesAppMetricDef<'nodesUptime'>,
+  NodesAppMetricDef<'nodesCounter'>,
+  NodesAppMetricDef<'nodesTypesNoEligibleNode'>,
+] = [
   {
     key: 'nodesCount',
     name: 'app.nodes.count',
@@ -149,4 +175,4 @@ export const NODES_APP_METRICS = [
       '1 when an offered job type has runnable pending jobs and no healthy online node lists it as eligible.',
     attributes: { job_type: free },
   },
-] as const satisfies readonly AppMetricDef[];
+];

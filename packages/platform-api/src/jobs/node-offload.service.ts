@@ -75,6 +75,8 @@ import type { JobSecretBroker } from './job-secret-broker';
  * which is where the rule was written before it needed a second reader. A
  * second literal `=== true` somewhere is how "the fleet page says brokering is
  * off while the claim thinks it is on" starts.
+  *
+  * @stability experimental
  */
 export function readJobSecretBrokerEnabled(
   policy: { jobSecretBrokerEnabled?: unknown } | null | undefined
@@ -82,6 +84,11 @@ export function readJobSecretBrokerEnabled(
   return policy?.jobSecretBrokerEnabled === true;
 }
 
+/**
+ * Which node-eligible job types this deployment offers to worker nodes right now (read at claim time from system settings).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeOffloadService {
   private readonly logger = new Logger(NodeOffloadService.name);
@@ -106,8 +113,8 @@ export class NodeOffloadService {
    * REGISTRY. A type whose handler carries a `nodeSecretBroker` is
    * node-eligible — permanently, structurally, because its handler says so —
    * and this method does not change that fact, it declines to OFFER the type.
-   * The tempting shortcut (unregistering the handler, or a `nodeEligible =
-   * false` flag) would make "can this type run on a node" depend on a runtime
+   * The tempting shortcut (unregistering the handler, or a
+   * `nodeEligible = false` flag) would make "can this type run on a node" depend on a runtime
    * setting, which is exactly the disagreement `job-handler.interface.ts`
    * spends a section making unrepresentable. A deployment's policy and a
    * type's capability are different facts, and they are intersected HERE, at

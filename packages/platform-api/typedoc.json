@@ -23,7 +23,9 @@
     "src/onboarding/index.ts",
     "src/onboarding/testing/index.ts",
     "src/email/index.ts",
-    "src/email/testing/index.ts"
+    "src/email/testing/index.ts",
+    "src/jobs/index.ts",
+    "src/nodes/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

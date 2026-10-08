@@ -21,15 +21,30 @@ export {
   nodeUploadUrlSchema,
 };
 
+/**
+ * The download-url body (`nodeDownloadUrlSchema`).
+ *
+ * @stability experimental
+ */
 export class NodeDownloadUrlDto extends createZodDto(nodeDownloadUrlSchema) {}
+/**
+ * The upload-url body (`nodeUploadUrlSchema`).
+ *
+ * @stability experimental
+ */
 export class NodeUploadUrlDto extends createZodDto(nodeUploadUrlSchema) {}
 
 // =============================================================================
 // Responses
 // =============================================================================
 
-/** The response to `POST /nodes/:id/jobs/:jobId/download-url`. */
+/**
+ * The response to `POST /nodes/:id/jobs/:jobId/download-url`.
+ *
+ * @stability experimental
+ */
 export class NodeDownloadUrlResponseDto {
+  /** A short-lived signed GET for this job’s input object. */
   @ApiProperty({
     description:
       'A short-lived signed GET for this job’s input object. Fetch it DIRECTLY from the ' +
@@ -39,6 +54,7 @@ export class NodeDownloadUrlResponseDto {
   })
   url!: string;
 
+  /** Seconds until the URL stops working. */
   @ApiProperty({
     description:
       'Seconds until the URL stops working. Bounded by the server and not negotiable; ask ' +
@@ -46,17 +62,20 @@ export class NodeDownloadUrlResponseDto {
   })
   expiresIn!: number;
 
+  /** ISO 8601 timestamp the URL stops working — `expiresIn` as an absolute time. */
   @ApiProperty({
     description: 'ISO 8601 timestamp the URL stops working — `expiresIn` as an absolute time.',
   })
   expiresAt!: string;
 
+  /** The storage object this job names as its input, for correlation in the node’s own logs. */
   @ApiProperty({
     description:
       'The storage object this job names as its input, for correlation in the node’s own logs.',
   })
   objectId!: string;
 
+  /** The object’s recorded size in bytes, as a decimal STRING (the column is a 64-bit integer and JSON has no such number). */
   @ApiProperty({
     description:
       'The object’s recorded size in bytes, as a decimal STRING (the column is a 64-bit ' +
@@ -66,14 +85,20 @@ export class NodeDownloadUrlResponseDto {
   })
   size!: string;
 
+  /** The object’s recorded MIME type, for a node that decodes rather than streams. */
   @ApiProperty({
     description: 'The object’s recorded MIME type, for a node that decodes rather than streams.',
   })
   mimeType!: string;
 }
 
-/** The response to `POST /nodes/:id/jobs/:jobId/upload-url`. */
+/**
+ * The response to `POST /nodes/:id/jobs/:jobId/upload-url`.
+ *
+ * @stability experimental
+ */
 export class NodeUploadUrlResponseDto {
+  /** A short-lived signed PUT accepting ONE request carrying the whole body. */
   @ApiProperty({
     description:
       'A short-lived signed PUT accepting ONE request carrying the whole body. Upload ' +
@@ -82,6 +107,7 @@ export class NodeUploadUrlResponseDto {
   })
   url!: string;
 
+  /** The storage key the server chose for this output. */
   @ApiProperty({
     description:
       'The storage key the server chose for this output. Report it back in the job’s result ' +
@@ -90,24 +116,33 @@ export class NodeUploadUrlResponseDto {
   })
   key!: string;
 
+  /** Seconds until the URL stops working. */
   @ApiProperty({ description: 'Seconds until the URL stops working.' })
   expiresIn!: number;
 
+  /** ISO 8601 timestamp the URL stops working. */
   @ApiProperty({ description: 'ISO 8601 timestamp the URL stops working.' })
   expiresAt!: string;
 }
 
-/** One node-eligible job type, with the contract its results must satisfy. */
+/**
+ * One node-eligible job type, with the contract its results must satisfy.
+ *
+ * @stability experimental
+ */
 export class NodeJobTypeDto {
+  /** The `Job.type` key — what a node registers and claims. */
   @ApiProperty({ description: 'The `Job.type` key — what a node registers and claims.' })
   type!: string;
 
+  /** Display label for the type, falling back to the raw key when none is mapped. */
   @ApiProperty({
     description:
       'Display label for the type, falling back to the raw key when none is mapped.',
   })
   label!: string;
 
+  /** JSON Schema (2020-12) for the `result` this type’s submissions must carry, generated from the server’s own Zod schema — so a client validates against the definition this server will actually... */
   @ApiPropertyOptional({
     description:
       'JSON Schema (2020-12) for the `result` this type’s submissions must carry, generated ' +
@@ -120,8 +155,13 @@ export class NodeJobTypeDto {
   resultSchema!: Record<string, unknown> | null;
 }
 
-/** The response to `GET /nodes/job-types`. */
+/**
+ * The response to `GET /nodes/job-types`.
+ *
+ * @stability experimental
+ */
 export class NodeJobTypesResponseDto {
+  /** Every job type this server could accept a node-computed result for — derived from the handler registry, so a fork’s own types appear here with no list to edit. */
   @ApiProperty({
     description:
       'Every job type this server could accept a node-computed result for — derived from the ' +

@@ -28,7 +28,6 @@
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JobsQueryArgs = any;
 
 /**
@@ -36,7 +35,6 @@ export type JobsQueryArgs = any;
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JobsWhere = { [field: string]: any };
 
 /**
@@ -44,7 +42,6 @@ export type JobsWhere = { [field: string]: any };
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JobsUpdateData = { [field: string]: any };
 
 /**
@@ -52,7 +49,6 @@ export type JobsUpdateData = { [field: string]: any };
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JobsCreateData = { [field: string]: any };
 
 /**
@@ -124,7 +120,7 @@ export interface JobsBatchPayload {
  *
  * @stability stable
  */
-export const JobStatus = Object.freeze({
+export const JobStatus: { readonly [K in 'pending' | 'running' | 'succeeded' | 'failed']: K } = Object.freeze({
   pending: 'pending',
   running: 'running',
   succeeded: 'succeeded',
@@ -143,7 +139,7 @@ export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
  *
  * @stability stable
  */
-export const JobReason = Object.freeze({
+export const JobReason: { readonly [K in 'upload' | 'rerun' | 'backfill']: K } = Object.freeze({
   upload: 'upload',
   rerun: 'rerun',
   backfill: 'backfill',
@@ -161,7 +157,7 @@ export type JobReason = (typeof JobReason)[keyof typeof JobReason];
  *
  * @stability stable
  */
-export const NodeStatus = Object.freeze({
+export const NodeStatus: { readonly [K in 'online' | 'draining' | 'offline' | 'disabled']: K } = Object.freeze({
   online: 'online',
   draining: 'draining',
   offline: 'offline',
@@ -388,7 +384,6 @@ export interface JobsDelegate<Row> {
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type JobsGroupByRow = { [field: string]: any };
 
 /**

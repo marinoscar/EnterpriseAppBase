@@ -44,9 +44,39 @@ export type {
   NodeVitalsCounters,
 };
 
+/**
+ * The register body (`registerNodeSchema`).
+ *
+ * @stability experimental
+ */
 export class RegisterNodeDto extends createZodDto(registerNodeSchema) {}
+/**
+ * The heartbeat body (`heartbeatNodeSchema`).
+ *
+ * @stability experimental
+ */
 export class HeartbeatNodeDto extends createZodDto(heartbeatNodeSchema) {}
+/**
+ * The claim body (`claimJobsSchema`).
+ *
+ * @stability experimental
+ */
 export class ClaimJobsDto extends createZodDto(claimJobsSchema) {}
+/**
+ * The renew body (`renewLeaseSchema`).
+ *
+ * @stability experimental
+ */
 export class RenewLeaseDto extends createZodDto(renewLeaseSchema) {}
+/**
+ * The result body (`nodeJobResultSchema`).
+ *
+ * @stability experimental
+ */
 export class NodeJobResultDto extends createZodDto(nodeJobResultSchema) {}
+/**
+ * The failure body (`nodeJobFailureSchema`).
+ *
+ * @stability experimental
+ */
 export class NodeJobFailureDto extends createZodDto(nodeJobFailureSchema) {}

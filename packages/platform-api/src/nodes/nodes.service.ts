@@ -168,9 +168,15 @@ import { NodeSettlementLedger } from './node-settlement-ledger';
  */
 const FRESH_HEARTBEAT_WARN_MS = 60_000;
 
-/** What `register` reports back: the row, and whether it already existed. */
+/**
+ * What `register` reports back: the row, and whether it already existed.
+ *
+ * @stability experimental
+ */
 export interface NodeRegistration {
+  /** The node row. */
   node: WorkerNode;
+  /** `true` when the row already existed (same owner and name). */
   reattached: boolean;
 }
 
@@ -181,16 +187,25 @@ export interface NodeRegistration {
  * describing what it KNOWS rather than what a controller happens to render —
  * the same reason the mappers in `dto/node-response.dto.ts` are the only place
  * a Prisma row becomes a wire shape.
+  *
+  * @stability experimental
  */
 export interface NodeEligibleJobType {
+  /** The job type. */
   type: string;
+  /** Its display label (`jobTypeLabel`). */
   label: string;
   /** JSON Schema for the result, or `null` when the schema cannot be published. */
   resultSchema: Record<string, unknown> | null;
 }
 
-/** What a settled job reports back to the node that settled it. */
+/**
+ * What a settled job reports back to the node that settled it.
+ *
+ * @stability experimental
+ */
 export interface NodeJobSettlement {
+  /** The settled job. */
   jobId: string;
 
   /**
@@ -243,6 +258,11 @@ function describeValidationError(error: unknown): unknown {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * The node control plane: register, heartbeat, claim, renew, result and failure, each gated by node ownership and the held claim.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodesService {
   private readonly logger = new Logger(NodesService.name);
@@ -702,7 +722,12 @@ export class NodesService {
     nodeId: string,
     jobId: string,
     claimToken?: string
-  ): Promise<{ jobId: string; leaseExpiresAt: Date }> {
+  ): Promise<{
+    /** The job whose lease was renewed. */
+    jobId: string;
+    /** When the renewed lease runs out. */
+    leaseExpiresAt: Date;
+  }> {
     const job = await this.assertJobHeldByNode(userId, nodeId, jobId, claimToken);
 
     // The renewal grants the SAME lease the claim did, which means resolving
@@ -960,8 +985,8 @@ export class NodesService {
    * length, why a compiled workspace package does not work in this
    * repository: `apps/api` builds with `rootDir: ./src`, so importing
    * TypeScript source from outside it widens the root and tsc starts emitting
-   * `dist/src/main.js`, which no longer matches `start:prod`'s `node
-   * dist/main` — a green build and a broken container. Its Jest config has no
+   * `dist/src/main.js`, which no longer matches `start:prod`'s
+   * `node dist/main` — a green build and a broken container. Its Jest config has no
    * `moduleNameMapper` and the default `transformIgnorePatterns`, so a
    * workspace symlink resolving to `.ts` would be untransformed and every API
    * suite would die at import time. And CI runs `npm ci` straight into

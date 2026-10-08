@@ -19,10 +19,20 @@ export {
   nodeJobSecretRequestSchema,
 };
 
+/**
+ * The per-job secret body (`nodeJobSecretRequestSchema`).
+ *
+ * @stability experimental
+ */
 export class NodeJobSecretRequestDto extends createZodDto(nodeJobSecretRequestSchema) {}
 
-/** The response to `POST /nodes/:id/jobs/:jobId/secret`. */
+/**
+ * The response to `POST /nodes/:id/jobs/:jobId/secret`.
+ *
+ * @stability experimental
+ */
 export class NodeJobSecretResponseDto {
+  /** What KIND of credential this is — the broker’s own key, e.g. */
   @ApiProperty({
     description:
       'What KIND of credential this is — the broker’s own key, e.g. `postgres.readonly`. ' +
@@ -31,6 +41,7 @@ export class NodeJobSecretResponseDto {
   })
   kind!: string;
 
+  /** ISO 8601 timestamp the credential stops working. */
   @ApiProperty({
     description:
       'ISO 8601 timestamp the credential stops working. Bounded by this job’s LEASE — the ' +
@@ -39,6 +50,7 @@ export class NodeJobSecretResponseDto {
   })
   expiresAt!: string;
 
+  /** The credential itself. */
   @ApiProperty({
     description:
       'The credential itself. Its shape is the broker’s business (a DSN, a token and an ' +

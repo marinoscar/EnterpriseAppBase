@@ -57,7 +57,7 @@ export {
   resolveMaxAttempts,
   resolveRenewIntervalMs,
 } from './job-execution-profile';
-export type { JobExecutionProfile } from './job-execution-profile';
+export type { ClaimLease, JobExecutionProfile } from './job-execution-profile';
 export type { IssuedJobSecret, JobSecretBroker, JobSecretUsability } from './job-secret-broker';
 export { JOB_HISTORY_PURGE_TYPE, JobHistoryPurgeHandler } from './handlers/job-history-purge.handler';
 
@@ -128,6 +128,9 @@ export {
 
 // ---- the admin read side ---------------------------------------------------------------------
 export { JobAdminService } from './job-admin.service';
+export type { JobListItem, JobListResult, ResetStuckAdminResult, RetryFailedResult } from './job-admin.service';
+export type { JobStatsResult } from './dto/job-stats.dto';
+export type { JobInsightsResult } from './dto/job-insights.dto';
 export { JobInsightsService } from './job-insights.service';
 export { jobTypeLabel, jobTypeLabels, registerJobTypeLabel } from './job-type-label';
 

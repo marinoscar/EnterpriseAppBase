@@ -158,6 +158,11 @@ export const NODE_SIGNED_URL_MIN_TTL_SECONDS = 60;
 // pins the two together), so a purge can never ask for `node-outputs//`,
 // match nothing, and report success. The slice cannot register it itself
 // until the storage registry is packaged (#736).
+/**
+ * The key prefix every default node output lands under (`node-outputs/<jobId>/<uuid>`), without the trailing slash.
+ *
+ * @stability experimental
+ */
 export const NODE_OUTPUT_KEY_PREFIX = 'node-outputs';
 
 /**
@@ -181,6 +186,11 @@ export const NODE_OUTPUT_KEY_PREFIX = 'node-outputs';
  */
 const SAFE_STORAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9/_.-]*$/;
 
+/**
+ * Mints the short-lived signed URLs a node moves a held job's bytes through (`NODE_OBJECT_STORE`).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodeDataPlaneService {
   private readonly logger = new Logger(NodeDataPlaneService.name);

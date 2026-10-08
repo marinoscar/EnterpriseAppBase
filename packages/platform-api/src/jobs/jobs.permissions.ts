@@ -49,7 +49,12 @@ export interface JobsPermissionDeclaration<Id extends string = string> {
  *
  * @stability stable
  */
-export const JOBS_PERMISSIONS = {
+export const JOBS_PERMISSIONS: {
+  /** `jobs:read`: view queued, running and completed jobs. */
+  readonly JOBS_READ: JobsPermissionDeclaration<'jobs:read'>;
+  /** `jobs:write`: enqueue, retry and cancel jobs. */
+  readonly JOBS_WRITE: JobsPermissionDeclaration<'jobs:write'>;
+} = {
   // Jobs — the background queue (#256, epic #254)
   JOBS_READ: {
     id: 'jobs:read',
@@ -63,4 +68,4 @@ export const JOBS_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies Record<string, JobsPermissionDeclaration>;
+};

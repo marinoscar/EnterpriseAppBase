@@ -49,7 +49,6 @@ import type { Job } from './data/jobs-db';
  * }
  * ```
  *
- * @extensionPoint hook
  * @stability experimental
  */
 @Injectable()
@@ -66,6 +65,9 @@ export class JobScope {
    * @param options - `maxWait` and `timeout`, forwarded to Prisma.
    * @returns what `fn` resolved to.
    * @throws ScopedAccessError when the job is a system job (`orgId` null) or `orgId` is not a UUID.
+   *
+   * @extensionPoint hook
+   * @stability experimental
    */
   run<R, TTx = unknown>(
     job: Pick<Job, 'id' | 'orgId'>,

@@ -109,16 +109,30 @@ import { type Job } from './data/jobs-db';
  * into a terminal. The same split `docs/specs/database-restore.md` makes for a
  * failed capability gate, for the same reason — a refusal that names no fix is
  * a refusal somebody works around.
+  *
+  * @stability experimental
  */
 export type JobSecretUsability =
-  | { ok: true }
-  | { ok: false; reason: string; remedy: string };
+  | {
+      /** The broker can issue now. */
+      ok: true;
+    }
+  | {
+      /** The broker cannot issue now. */
+      ok: false;
+      /** Why, for the operator (never secret material). */
+      reason: string;
+      /** What the operator does about it. */
+      remedy: string;
+    };
 
 /**
  * A credential minted for one job, handed over exactly once.
  *
  * ⚠ THE TWO HALVES ARE NOT EQUAL. See the file header: `handle` is persisted,
  * `material` never is, and there is no column it could go in if somebody tried.
+  *
+  * @stability experimental
  */
 export interface IssuedJobSecret {
   /**
@@ -169,6 +183,13 @@ export interface IssuedJobSecret {
  * central switch. #349 ships this contract with NO BROKER REGISTERED anywhere
  * in the template, deliberately: the mechanism is reviewable on its own, and
  * until a broker exists nothing can issue anything, whatever the settings say.
+ *
+ * Declare it by hanging an instance off the handler
+ * (`readonly nodeSecretBroker = this.broker`): presence is the declaration. A
+ * node never persists what it issues.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export interface JobSecretBroker {
   /**

@@ -105,6 +105,8 @@ import { LEASE_GRACE_MS, resolveJobLeaseMs } from './job.worker';
  * and `JobHandler.profile` for the one-paragraph version a handler author will
  * actually read. Do not add a lease, a renewal interval, or anything else that
  * can disagree with `maxRuntimeMs`.
+  *
+  * @stability experimental
  */
 export interface JobExecutionProfile {
   /**
@@ -179,6 +181,8 @@ const warnedProfiles = new Set<string>();
  * survived between cases would make "warns exactly once" pass for the first
  * case and vacuously for every case after it. Nothing in the application calls
  * this.
+  *
+  * @stability experimental
  */
 export function resetJobProfileWarnings(): void {
   warnedProfiles.clear();
@@ -218,6 +222,8 @@ function usable(value: unknown, min: number): value is number {
  * `JobHandlerRegistry.get` returns `undefined`: the caller is on a claim path
  * with a job to run, and a fork's typo in a profile must degrade that job to
  * the deployment defaults, not take the worker down.
+  *
+  * @stability experimental
  */
 export function resolveJobProfile(handler: JobHandler | undefined): JobExecutionProfile | undefined {
   const profile = handler?.profile;
@@ -263,6 +269,8 @@ export function resolveJobProfile(handler: JobHandler | undefined): JobExecution
  * `undefined` for a type this process cannot run), and an unknown type has no
  * profile to consult — it takes the deployment default, which is what it took
  * before profiles existed.
+  *
+  * @stability experimental
  */
 export function resolveMaxAttempts(config: ConfigService, handler: JobHandler | undefined): number {
   const profile = resolveJobProfile(handler);
@@ -288,6 +296,8 @@ export function resolveMaxAttempts(config: ConfigService, handler: JobHandler | 
  * `NaN` interval becomes a `setInterval(NaN)` firing every tick. An unusable
  * lease degrades to the FLOOR rather than the ceiling — renewing too often
  * costs a few requests, renewing too rarely loses the job.
+  *
+  * @stability experimental
  */
 export function resolveRenewIntervalMs(leaseMs: number): number {
   if (!usable(leaseMs, 1)) {
@@ -338,6 +348,8 @@ export function resolveRenewIntervalMs(leaseMs: number): number {
  * them is the only outcome that is not "stuck until a human notices". It is
  * also why the horizon is computed per sweep rather than cached — see
  * `JobStuckService.leaseHorizon`.
+  *
+  * @stability experimental
  */
 export function resolveLeaseHorizonMs(
   config: ConfigService,
@@ -357,6 +369,18 @@ export function resolveLeaseHorizonMs(
 }
 
 /**
+ * One job type's lease in a claim: the type and how long its claim is held.
+ *
+ * @stability experimental
+ */
+export interface ClaimLease {
+  /** The job type. */
+  type: string;
+  /** Its lease, in milliseconds, derived from the type's `maxRuntimeMs`. */
+  leaseMs: number;
+}
+
+/**
  * One `{ type, leaseMs }` pair per eligible type, for `ClaimOptions.leases`.
  *
  * THE REASON `ClaimOptions` TAKES A LIST RATHER THAN A NUMBER. A claim is not
@@ -373,12 +397,14 @@ export function resolveLeaseHorizonMs(
  * the API server must derive the SAME lease for the same type, because the
  * lease is not a private detail of a claimer — it is the contract the reaper
  * reads to decide a claim is dead.
+  *
+  * @stability experimental
  */
 export function buildClaimLeases(
   config: ConfigService,
   registry: JobHandlerRegistry,
   eligibleTypes: string[]
-): Array<{ type: string; leaseMs: number }> {
+): ClaimLease[] {
   return eligibleTypes.map((type) => ({
     type,
     leaseMs: resolveJobLeaseMs(config, resolveJobProfile(registry.get(type))),

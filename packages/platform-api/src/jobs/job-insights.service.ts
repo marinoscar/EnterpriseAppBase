@@ -256,6 +256,11 @@ interface LifetimeDurationRow {
   samples: number;
 }
 
+/**
+ * The `/api/admin/jobs/insights` numbers: live counts, windowed duration percentiles, lifetime totals and drain ETAs.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobInsightsService {
   constructor(
@@ -587,7 +592,10 @@ export class JobInsightsService {
    * wrong forever, since the rows that would prove it wrong were deleted.
    * Starting the accumulators again is the only available repair.
    */
-  async resetHistory(): Promise<{ reset: number }> {
+  async resetHistory(): Promise<{
+    /** Rollup rows deleted. */
+    reset: number;
+  }> {
     const { count } = await this.prisma.jobStatsRollup.deleteMany({});
 
     return { reset: count };

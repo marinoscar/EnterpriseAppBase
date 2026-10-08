@@ -67,6 +67,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { JobHandler } from './job-handler.interface';
 import { recordHandlerLabel } from './job-type-label';
 
+/**
+ * Every job type this process can run, by `type`: handlers register themselves from `onModuleInit`; a duplicate type warns and the last registration wins.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobHandlerRegistry {
   private readonly logger = new Logger(JobHandlerRegistry.name);
@@ -93,6 +98,12 @@ export class JobHandlerRegistry {
    * is visible in logs whether it was intended or a copy-pasted `type` string
    * two features apart. `warn` rather than `error`: an intentional override is
    * not a fault.
+   *
+   * @param handler - the handler; its `type` is the key, its `label` (when
+   *   declared) the type's display label.
+   *
+   * @extensionPoint registry
+   * @stability stable
    */
   register(handler: JobHandler): void {
     const existing = this.handlers.get(handler.type);

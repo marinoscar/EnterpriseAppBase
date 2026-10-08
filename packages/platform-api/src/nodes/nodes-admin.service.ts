@@ -83,14 +83,24 @@ import { NodeCredentialService } from './node-credential.service';
  * `User` scalar columns without duplicating this literal — issue #340 was
  * exactly this select naming a column, `name`, that does not exist, and every
  * existing test mocked `PrismaService` so nothing caught it.
+  *
+  * @stability experimental
  */
-export const OWNER_SELECT = { select: { id: true, email: true, displayName: true } } as const;
+export const OWNER_SELECT: {
+  /** The owner columns joined: id, email and display name only. */
+  readonly select: { readonly [K in 'id' | 'email' | 'displayName']: true };
+} = { select: { id: true, email: true, displayName: true } };
 
 /** A node row with its owner joined — what both read paths load. */
 type NodeWithOwner = WorkerNode & {
   createdBy: { id: string; email: string; displayName: string | null };
 };
 
+/**
+ * The `/api/admin/nodes` fleet read side: nodes, their vitals and job counts, and every node credential.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NodesAdminService {
   private readonly logger = new Logger(NodesAdminService.name);

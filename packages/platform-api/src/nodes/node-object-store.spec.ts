@@ -14,8 +14,7 @@
 
 import type { ConfigService } from '@nestjs/config';
 
-import type { Job, JobsPrisma } from '../jobs/data/jobs-db';
-import { JobHandlerRegistry } from '../jobs/job-handler.registry';
+import { JobHandlerRegistry, type Job, type JobsPrisma } from '../jobs/index';
 import { NODE_OUTPUT_KEY_PREFIX, NodeDataPlaneService } from './node-data-plane.service';
 import type { NodesService } from './nodes.service';
 import type { NodeJobInputs, NodeObjectStore, SignedPutUrlOptions, SignedUrlOptions } from './ports';

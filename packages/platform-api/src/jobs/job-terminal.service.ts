@@ -121,6 +121,8 @@ import { classifyRateLimit, RateLimitError } from './rate-limit.error';
  * What a caller may say about a failure that the thrown value does not carry
  * on its own. Used by the node control plane, which has an HTTP body rather
  * than an exception.
+  *
+  * @stability experimental
  */
 export interface CompleteFailedOptions {
   /** "This was a provider rate limit" — treated exactly as a thrown `RateLimitError`. */
@@ -165,6 +167,8 @@ export interface CompleteFailedOptions {
  * held by the claim that is settling it — reaped, re-claimed, or already
  * settled. Nothing was emitted. Not an error: the caller's conclusion is
  * stale and belongs to nobody. The node plane maps it to a 409.
+  *
+  * @stability experimental
  */
 export type JobSettleOutcome =
   | 'succeeded'
@@ -210,6 +214,8 @@ type TerminalWriteData = JobsUpdateData;
  * turn every ambiguous commit into a false `claim-lost`. The un-charge comment
  * in `deferForRateLimit` explains why no payload here uses operators; this
  * makes a future one fail loudly.
+  *
+  * @stability experimental
  */
 export function rowMatchesWrite(row: Job, data: TerminalWriteData): boolean {
   assertPlainTerminalData(data);
@@ -299,6 +305,11 @@ function toErrorMessage(error: unknown): string {
     : message;
 }
 
+/**
+ * The terminal state machine: settles an attempt as succeeded, retried, rate-limited or failed, and emits `job.settled`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobTerminalService {
   private readonly logger = new Logger(JobTerminalService.name);

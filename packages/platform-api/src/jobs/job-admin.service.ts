@@ -134,12 +134,21 @@ export const STATS_CACHE_TTL_MS = 2_000;
  */
 export const RETRY_FAILED_BATCH_LIMIT = 500;
 
-/** The list's page, in the flat shape every paginated list in this API uses. */
+/**
+ * The list's page, in the flat shape every paginated list in this API uses.
+ *
+ * @stability experimental
+ */
 export interface JobListResult {
+  /** The page's rows, newest first. */
   items: JobListItem[];
+  /** Rows matching the filters, across every page. */
   total: number;
+  /** The 1-based page returned. */
   page: number;
+  /** Rows per page. */
   pageSize: number;
+  /** Pages at this page size. */
   totalPages: number;
 }
 
@@ -148,20 +157,39 @@ export interface JobListResult {
  *
  * The omission list must match `JOB_LIST_SELECT`'s — see that constant for why
  * `payload` and `claimToken` are the two columns this API does not publish.
+  *
+  * @stability experimental
  */
 export type JobListItem = Omit<Job, 'payload' | 'claimToken' | 'traceContext'> & {
+  /** `type` through `jobTypeLabel()`; equal to `type` when unlabelled. */
   typeLabel: string;
 };
 
+/**
+ * What a retry-failed sweep did.
+ *
+ * @stability experimental
+ */
 export interface RetryFailedResult {
+  /** Rows moved back to `pending`. */
   retried: number;
+  /** Rows left `failed` because an active job already holds their dedup key. */
   skipped: number;
+  /** Failed rows still matching the scope after the sweep. */
   remaining: number;
 }
 
+/**
+ * What an admin reset-stuck sweep did.
+ *
+ * @stability experimental
+ */
 export interface ResetStuckAdminResult {
+  /** Rows requeued as `pending`. */
   reset: number;
+  /** Rows failed permanently because their attempt budget was spent. */
   failed: number;
+  /** The threshold applied, from the body or the settings. */
   thresholdMinutes: number;
 }
 
@@ -285,6 +313,11 @@ const RETRY_RESET = {
   executor: null,
 } as const satisfies JobsUpdateData;
 
+/**
+ * The `/api/admin/jobs` read and repair side: list, stats, retry, retry-failed, reset-stuck, delete.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class JobAdminService {
   private readonly logger = new Logger(JobAdminService.name);
@@ -305,7 +338,7 @@ export class JobAdminService {
 
   /**
    * The queue summary, from cache when it is younger than
-   * {@link STATS_CACHE_TTL_MS}.
+   * `STATS_CACHE_TTL_MS`.
    *
    * FOUR QUERIES, and the shape of each is chosen for the index it can use:
    *
@@ -316,8 +349,8 @@ export class JobAdminService {
    *      pair in `schema.prisma`. Adding a filter to either (a date window,
    *      say) would push them onto the heap and turn the cheapest part of this
    *      response into the most expensive.
-   *   3. the `scheduled` count uses `jobs(status, scheduled_for, priority,
-   *      created_at)` — the same index the claim query walks.
+   *   3. the `scheduled` count uses
+   * `jobs(status, scheduled_for, priority, created_at)` — the same index the claim query walks.
    *   4. the `stuckRunning` count uses `jobs(status, lease_expires_at)` for the
    *      lease signals — which since #347 are three of the predicate's four
    *      clauses, so this count leans on that index harder than it used to.
