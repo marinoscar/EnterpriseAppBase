@@ -30,3 +30,7 @@ export type {
   PlatformHttpRequestOptions,
   SessionExpiredListener,
 } from './http/client.js';
+// The adapter from that client to the transport port (issue #868): an app
+// keeps ONE `PlatformHttpClient` and hands the packaged pages this view of it.
+export { createPlatformApiClient, toHttpRequestOptions, toPlatformApiError } from './http/platform-api-client.js';
+export type { PlatformApiClientOptions } from './http/platform-api-client.js';
