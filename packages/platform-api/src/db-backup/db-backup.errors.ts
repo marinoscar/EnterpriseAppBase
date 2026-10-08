@@ -396,7 +396,7 @@ export class DatabaseRestoreNotAllowedError extends Error {
  * conflict, and no amount of waiting changes it): this deployment does not
  * offer the operation at all, whatever permission the caller holds.
  *
- * ⚠ RAISED BEFORE ANYTHING ELSE. `DeploymentModeService.assertInAppRestoreEnabled`
+ * ⚠ RAISED BEFORE ANYTHING ELSE. `DbBackupRestoreGate.assertInAppRestoreEnabled`
  * is the first statement of every restore entry point — before the run lookup,
  * before the pre-flight, before any download, pre-restore dump or cluster admin
  * connection — and of the `db.restore.run` handler, so a job queued before the

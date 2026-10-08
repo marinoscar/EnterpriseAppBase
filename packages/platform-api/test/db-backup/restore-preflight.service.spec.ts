@@ -622,7 +622,7 @@ describe('DatabaseRestorePreflightService', () => {
 
       expect(commands).toContain(`createdb --host=127.0.0.1 --port=5432 --username=appuser ${SCRATCH}`);
       expect(commands).toContain(
-        `pg_restore --host=127.0.0.1 --port=5432 --username=appuser --dbname=${SCRATCH} \\`
+        `PGOPTIONS='-c app.rls_bypass=on' pg_restore --host=127.0.0.1 --port=5432 --username=appuser --dbname=${SCRATCH} \\`
       );
       expect(commands).toContain('psql --host=127.0.0.1 --port=5432 --username=appuser --dbname=postgres');
     });
@@ -630,7 +630,17 @@ describe('DatabaseRestorePreflightService', () => {
     it('carries --exit-on-error, without which a half-restored database swaps in', async () => {
       const commands = await guided();
 
-      expect(commands).toContain('--no-owner --no-acl --exit-on-error --jobs=4');
+      expect(commands).toContain('--no-owner --no-acl --exit-on-error --enable-row-security --jobs=4');
+    });
+
+    it('carries BOTH halves of the row-level-security pair (#740)', async () => {
+      // The flag alone restores the tables without their rows; the option
+      // alone is refused. The manual restore is a restore like any other.
+      const commands = await guided();
+      const restoreLine = commands.split('\n').find((line) => line.includes('pg_restore --host='));
+
+      expect(restoreLine).toMatch(/^PGOPTIONS='-c app\.rls_bypass=on' pg_restore /);
+      expect(commands).toContain('--enable-row-security');
     });
 
     it('names the real archive and the real run', async () => {
