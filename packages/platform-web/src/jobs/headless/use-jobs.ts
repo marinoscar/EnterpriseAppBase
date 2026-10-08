@@ -42,6 +42,8 @@ import type { Job, JobListParams, JobStats, ResetStuckResult, RetryFailedResult 
  * cached in-process for about two seconds, so a shorter poll would return the
  * same cached numbers and buy only load, while a job that takes tens of seconds
  * is not observed any better by asking three times as often.
+ *
+ * @stability experimental
  */
 export const JOBS_POLL_INTERVAL_MS = 10_000;
 
@@ -60,10 +62,19 @@ function messageFor(err: unknown, fallback: string): string {
 // The list
 // =============================================================================
 
+/**
+ * What {@link useJobs} returns.
+ *
+ * @stability experimental
+ */
 export interface UseJobsResult {
+  /** This page's rows, newest first; emptied on an error. */
   jobs: Job[];
+  /** Rows across all pages. */
   total: number;
+  /** A query (not a poll) is in flight. */
   isLoading: boolean;
+  /** The last failure as a sentence, or `null`. */
   error: string | null;
   /** Run a query, and remember it so `refresh` can repeat it. */
   fetchJobs: (params?: JobListParams) => Promise<void>;
@@ -71,6 +82,23 @@ export interface UseJobsResult {
   refresh: () => Promise<void>;
 }
 
+/**
+ * The job list, `GET /api/admin/jobs`. Fetches nothing on mount: the caller
+ * runs `fetchJobs(params)` (filters, the activity window, the page, `orgId`)
+ * and `refresh` repeats the last query without raising the loading flag.
+ *
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the rows, the total, the state and the two fetchers.
+ *
+ * @example
+ * ```tsx
+ * const { jobs, total, fetchJobs } = useJobs();
+ * useEffect(() => { void fetchJobs({ orgId, status: 'failed', pageSize: 1 }); }, [fetchJobs, orgId]);
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
 export function useJobs(api?: JobsApi): UseJobsResult {
   const client = useJobsApi(api);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -138,10 +166,19 @@ export function useJobs(api?: JobsApi): UseJobsResult {
 // The summary
 // =============================================================================
 
+/**
+ * What {@link useJobStats} returns.
+ *
+ * @stability experimental
+ */
 export interface UseJobStatsResult {
+  /** The summary, or `null` before the first answer; kept on screen under a later error. */
   stats: JobStats | null;
+  /** The first read is in flight. */
   isLoading: boolean;
+  /** The last failure as a sentence, or `null`. */
   error: string | null;
+  /** Re-read without raising the loading flag. */
   refresh: () => Promise<void>;
 }
 
@@ -150,6 +187,12 @@ export interface UseJobStatsResult {
  * request: the strip above the table summarises the WHOLE queue, not the page
  * of rows below it, so it neither takes the list's filters nor reloads when
  * they change.
+ *
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the summary and its state.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useJobStats(api?: JobsApi): UseJobStatsResult {
   const client = useJobsApi(api);
@@ -194,17 +237,25 @@ export function useJobStats(api?: JobsApi): UseJobStatsResult {
 // The writes
 // =============================================================================
 
+/**
+ * What {@link useJobActions} returns.
+ *
+ * @stability experimental
+ */
 export interface UseJobActionsResult {
   /** True while any one of the four writes is in flight. */
   isWorking: boolean;
   /** The last failure, or `null`. Cleared when a write starts. */
   error: string | null;
+  /** Clears `error`. */
   clearError: () => void;
-  /** `true` when the write landed. Never throws. */
+  /** Retries one job; `true` when the write landed. Never throws. */
   retry: (id: string) => Promise<boolean>;
+  /** Deletes one job; `true` when the write landed. Never throws. */
   remove: (id: string) => Promise<boolean>;
-  /** The sweep's own counts, or `null` when it failed. */
+  /** The queue-wide retry sweep's own counts, or `null` when it failed. */
   retryAllFailed: (type?: string) => Promise<RetryFailedResult | null>;
+  /** The lease reaper on demand: its own counts, or `null` when it failed. */
   resetStuck: (olderThanMinutes?: number) => Promise<ResetStuckResult | null>;
 }
 
@@ -217,6 +268,13 @@ export interface UseJobActionsResult {
  * result would be reported over the top of the first one's. Disabling the whole
  * action set for the duration is the honest reading of "these are not
  * independent".
+ *
+ * @param onChanged - called after a write lands (the page re-reads the list and the summary).
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the four writes and their shared state.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useJobActions(onChanged?: () => void, api?: JobsApi): UseJobActionsResult {
   const client = useJobsApi(api);

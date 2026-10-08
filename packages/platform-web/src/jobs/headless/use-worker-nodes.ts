@@ -60,6 +60,8 @@ import type { CreateNodeCredentialInput, NodeCredential, NodeCredentialCreated, 
  * is measured in tens of seconds at minimum, so a node cannot change health
  * faster than that, and a shorter poll would re-derive the same verdict against
  * a `groupBy` over the jobs table for nothing.
+ *
+ * @stability experimental
  */
 export const WORKER_NODES_POLL_INTERVAL_MS = 10_000;
 
@@ -85,9 +87,17 @@ function messageFor(err: unknown, fallback: string): string {
 // The fleet
 // =============================================================================
 
+/**
+ * What {@link useWorkerNodes} returns.
+ *
+ * @stability experimental
+ */
 export interface UseWorkerNodesResult {
+  /** The whole fleet, ordered by name; emptied on an error. */
   nodes: WorkerNode[];
+  /** The first read is in flight. */
   isLoading: boolean;
+  /** The last failure as a sentence, or `null`. */
   error: string | null;
   /** Re-read WITHOUT raising the loading flag. What the poll calls. */
   refresh: () => Promise<void>;
@@ -100,6 +110,12 @@ export interface UseWorkerNodesResult {
  * ordered by name in one response. A filter argument here would be a promise
  * this hook could only keep by filtering client-side, which the DataTable
  * contract explicitly forbids a page from pretending to do.
+ *
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the fleet and its state.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useWorkerNodes(api?: JobsApi): UseWorkerNodesResult {
   const client = useJobsApi(api);
@@ -156,10 +172,17 @@ export function useWorkerNodes(api?: JobsApi): UseWorkerNodesResult {
 // One node
 // =============================================================================
 
+/**
+ * What {@link useWorkerNode} returns.
+ *
+ * @stability experimental
+ */
 export interface UseWorkerNodeResult {
   /** The node, or `null` before the first answer, on an error, or with no id. */
   node: WorkerNode | null;
+  /** The first read is in flight. */
   isLoading: boolean;
+  /** The last failure as a sentence, or `null`. */
   error: string | null;
   /** Re-read WITHOUT raising the loading flag. */
   refresh: () => Promise<void>;
@@ -174,6 +197,13 @@ export interface UseWorkerNodeResult {
  * card); the Worker Nodes page reads the whole fleet instead. `null` asks for
  * nothing. A 404 (the node was deleted) is an error string like any other,
  * and the node is cleared, for the reason the fleet clears its rows.
+ *
+ * @param id - the node id, or `null` to ask for nothing.
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the node and its state.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useWorkerNode(id: string | null, api?: JobsApi): UseWorkerNodeResult {
   const client = useJobsApi(api);
@@ -224,10 +254,19 @@ export function useWorkerNode(id: string | null, api?: JobsApi): UseWorkerNodeRe
 // The credentials
 // =============================================================================
 
+/**
+ * What {@link useNodeCredentials} returns.
+ *
+ * @stability experimental
+ */
 export interface UseNodeCredentialsResult {
+  /** Every credential, newest first, revoked ones included; emptied on an error. */
   credentials: NodeCredential[];
+  /** The first read is in flight. */
   isLoading: boolean;
+  /** The last failure as a sentence, or `null`. */
   error: string | null;
+  /** Re-read without raising the loading flag. */
   refresh: () => Promise<void>;
 }
 
@@ -237,6 +276,12 @@ export interface UseNodeCredentialsResult {
  *
  * On its own hook and its own request, for the reason in the file header: the
  * revoke button must not be gated behind the fleet query.
+ *
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the credentials and their state.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useNodeCredentials(api?: JobsApi): UseNodeCredentialsResult {
   const client = useJobsApi(api);
@@ -285,11 +330,17 @@ export function useNodeCredentials(api?: JobsApi): UseNodeCredentialsResult {
 // The writes
 // =============================================================================
 
+/**
+ * What {@link useNodeActions} returns.
+ *
+ * @stability experimental
+ */
 export interface UseNodeActionsResult {
   /** True while any one of the three writes is in flight. */
   isWorking: boolean;
   /** The last failure, or `null`. Cleared when a write starts. */
   error: string | null;
+  /** Clears `error`. */
   clearError: () => void;
   /** `true` when the node was deleted. Never throws. */
   removeNode: (id: string) => Promise<boolean>;
@@ -328,6 +379,13 @@ export interface UseNodeActionsResult {
  * `onChanged` fires AFTER the write resolves and never in parallel with it: a
  * refresh racing its own mutation is how a revoked credential flickers back to
  * "Active" for one frame.
+ *
+ * @param onChanged - called after a write lands (the page re-reads the fleet and the credentials).
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the three writes and their shared state.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useNodeActions(onChanged?: () => void, api?: JobsApi): UseNodeActionsResult {
   const client = useJobsApi(api);

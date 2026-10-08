@@ -53,6 +53,12 @@ import { useEffect, useRef } from 'react';
  *
  * `intervalMs <= 0` disables polling entirely, which is what a test — or a
  * caller with no reason to poll — passes.
+ *
+ * @param callback - what each tick runs (the latest closure is always used).
+ * @param intervalMs - the period; `0` or less disables polling.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useVisiblePolling(callback: () => void, intervalMs: number): void {
   const callbackRef = useRef(callback);

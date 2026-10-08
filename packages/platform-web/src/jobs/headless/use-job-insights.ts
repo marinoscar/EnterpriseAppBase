@@ -42,13 +42,24 @@ export { DEFAULT_INSIGHTS_WINDOW_DAYS } from '@marinoscar/platform-contract/jobs
  * Every value here is inside the API's range, so the clamp can never fire from
  * this UI — and if it ever did, the response's echoed `windowDays` is what gets
  * rendered.
+ *
+ * @stability experimental
  */
 export const INSIGHTS_WINDOW_OPTIONS = [1, 7, 30, 90] as const;
 
+/**
+ * What {@link useJobInsights} returns.
+ *
+ * @stability experimental
+ */
 export interface UseJobInsightsResult {
+  /** The analytics, or `null` before the first answer. */
   insights: JobInsights | null;
+  /** A read for a new window is in flight. */
   isLoading: boolean;
+  /** The last failure as a sentence, or `null`. */
   error: string | null;
+  /** Re-read the same window without raising the loading flag. */
   refresh: () => Promise<void>;
   /** True while the lifetime rollup is being cleared. */
   isResetting: boolean;
@@ -56,6 +67,18 @@ export interface UseJobInsightsResult {
   resetHistory: () => Promise<number | null>;
 }
 
+/**
+ * Queue analytics over a window, `GET /api/admin/jobs/insights`, and the
+ * `jobs:write` reset of the lifetime rollup. Re-reads when `windowDays`
+ * changes; never polls.
+ *
+ * @param windowDays - the window in days (the API clamps to 1..90 and echoes what it used).
+ * @param api - a client to use instead of the adapters' or the host's.
+ * @returns the analytics, their state and the reset.
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
 export function useJobInsights(windowDays: number, api?: JobsApi): UseJobInsightsResult {
   const client = useJobsApi(api);
   const [insights, setInsights] = useState<JobInsights | null>(null);
