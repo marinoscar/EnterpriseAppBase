@@ -75,6 +75,9 @@ vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => 
 // level, like `ImageUpload.test.tsx` does for `uploadProfileImage`.
 vi.mock('../../../services/api', () => ({
   deleteProfileImage: vi.fn(),
+  // The app transport `platform/platformHost.tsx` adapts at module load
+  // (`createPlatformApiClient(api)`, #868); never called here.
+  api: {},
   fetchProfileImagePreview: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number;

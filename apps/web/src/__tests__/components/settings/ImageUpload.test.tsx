@@ -15,6 +15,9 @@ import type { ProfileImageMutationResponse } from '../../../types';
 // `err instanceof ApiError` in `ImageUpload.describeUploadError` still works.
 vi.mock('../../../services/api', () => ({
   uploadProfileImage: vi.fn(),
+  // The app transport `platform/platformHost.tsx` adapts at module load
+  // (`createPlatformApiClient(api)`, #868); never called here.
+  api: {},
   ApiError: class ApiError extends Error {
     status: number;
     code?: string;
