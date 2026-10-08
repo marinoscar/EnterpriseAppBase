@@ -143,6 +143,14 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'ordinary settings edit. The VAPID private key is write-only: it is held in the ' +
           'encrypted credential store and is never returned by any endpoint.',
       },
+      {
+        name: 'Organization Settings',
+        description:
+          'The caller\'s active organization\'s overrides of the org-overridable system settings ' +
+          'namespaces, with the effective (system then organization) value of each. Org permissions ' +
+          '`org_settings:read`/`:write`; each namespace\'s own permissions gate its fields. Supports ' +
+          '`If-Match`.',
+      },
     ],
   },
   {

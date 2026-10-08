@@ -237,6 +237,16 @@
       "name": "sharing:admin",
       "description": "Manage the shares of every record of the organization, including records you do not own",
       "scope": "org"
+    },
+    {
+      "name": "org_settings:read",
+      "description": "Read the active organization's settings overrides",
+      "scope": "org"
+    },
+    {
+      "name": "org_settings:write",
+      "description": "Modify the active organization's settings overrides",
+      "scope": "org"
     }
   ],
   "rolePermissions": {
@@ -303,7 +313,9 @@
       "groups:admin",
       "sharing:read",
       "sharing:write",
-      "sharing:admin"
+      "sharing:admin",
+      "org_settings:read",
+      "org_settings:write"
     ]
   }
 }
