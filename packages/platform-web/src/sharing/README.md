@@ -11,7 +11,7 @@ Two subpath exports:
 
 Packages own behaviour, apps own appearance: no component creates a theme, every one takes `sx`, `className` and `slots`, and the pages are route components the app mounts inside its own shell. None imports the app's layout, navigation, auth context or datatable.
 
-Not here: the API (the routes, `AccessPolicy`, the token handling on the server) is `@marinoscar/platform-api/sharing`; organization administration is the identity slice (#726); what an anonymous visitor sees of a record is the app's own renderer (`registerLinkRenderer`); the README examples for `ShareDialog` and a registered renderer, and the conformance suite, follow in #732.
+Not here: the API (the routes, `AccessPolicy`, the token handling on the server) is `@marinoscar/platform-api/sharing`; organization administration is the identity slice (#726); what an anonymous visitor sees of a record is the app's own renderer (`registerLinkRenderer`). Every extension point below has a compiled, tested example in the reference app's test tree, `apps/web/src/__tests__/examples/sharing/` (#732), on the app's own platform host and transport.
 
 ## Install and peer dependencies
 
@@ -41,16 +41,16 @@ The routes ([`App.tsx`](../../../../apps/web/src/App.tsx)): the two group pages 
 <Route path="/settings/groups/:id" element={<RequirePermission permission="groups:read" fallback={<Navigate to="/" replace />}><GroupDetailPage /></RequirePermission>} />
 ```
 
-The link renderers, registered and frozen before the first render ([`platform/linkRenderers.ts`](../../../../apps/web/src/platform/linkRenderers.ts), called from `main.tsx`):
+The link renderers, registered and frozen before the first render ([`platform/linkRenderers.ts`](../../../../apps/web/src/platform/linkRenderers.ts), called from `main.tsx`; a worked renderer: [`PublicAlbumView.example.tsx`](../../../../apps/web/src/__tests__/examples/sharing/PublicAlbumView.example.tsx)):
 
 ```ts
 export function registerAppLinkRenderers(): void {
-  // registerLinkRenderer('media_item', PublicMediaView);
+  registerLinkRenderer('album', PublicAlbumView);   // the template registers none: it ships no shareable type
   freezeLinkRenderers();
 }
 ```
 
-A feature page opens the share dialog for one of its records:
+A feature page opens the share dialog for one of its records ([`NoteShareButton.example.tsx`](../../../../apps/web/src/__tests__/examples/sharing/NoteShareButton.example.tsx)):
 
 ```tsx
 <ShareDialog
@@ -95,10 +95,14 @@ Props, all optional unless marked. Every component also takes `sx` and `classNam
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `groupsSettingsPage` | component | `PlatformSettingsPage<never>` | Register the groups page as one user card (`groups:read`) and its routes | experimental | [example](../../../../apps/web/src/config/userSettingsSections.tsx) |
+| `ShareDialog` | component | `ShareDialog(props: ShareDialogProps): ReactElement` (`open`, `onClose`, `resource`, `roles`, `allowGroups?`, `allowLinks?`, `linkRoles?`, `linkExpiryPresets?`, `slots?: { Title? }`) | Let a feature page share one of its records with people, groups and links | experimental | [example](../../../../apps/web/src/__tests__/examples/sharing/NoteShareButton.example.tsx) |
+| `useGrants` | hook | `useGrants(resource, { enabled?, client? }): SharingResource<GrantList>` | Who a record is shared with, under the app's own markup | experimental | [example](../../../../apps/web/src/__tests__/examples/sharing/HeadlessShareList.example.tsx) |
+| `useShareActions` | hook | `useShareActions(resource, { client? }): ShareActions` (`shareWithEmail`, `shareWithUser`, `shareWithGroup`, `changeRole`, `changeExpiry`, `revoke`, `pending`) | The share writes without `ShareDialog` | experimental | [example](../../../../apps/web/src/__tests__/examples/sharing/HeadlessShareList.example.tsx) |
+| `useSharedWithMe` | hook | `useSharedWithMe(resourceType?, { page?, pageSize?, client? }): SharingResource<SharedWithMeList>` | A "shared with me" list of the app's own design | experimental | [example](../../../../apps/web/src/__tests__/examples/sharing/HeadlessShareList.example.tsx) |
 | `GroupsPage` | component | `GroupsPage(props?: GroupsPageProps): ReactElement` | Route the groups destination (`/settings/groups`) | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `GroupDetailPage` | component | `GroupDetailPage(props?: GroupDetailPageProps): ReactElement` | Route one group's page (`/settings/groups/:id`) | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `PublicLinkPage` | component | `PublicLinkPage(props?: { apiClient?; client?; registry?; slots?: { Frame?; NotAvailable?; Loading? }; sx?; className? }): ReactElement` | Route the public `/s` page outside the authenticated shell; brand it with `slots.Frame` | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `registerLinkRenderer` | registry | `registerLinkRenderer(resourceType: string, component: ComponentType<{ resolution; token; apiClient }>): void` | Show a resource type's public view on `/s` | experimental | [example](../../../../apps/web/src/__tests__/platform/linkRenderers.test.tsx) |
+| `PublicLinkPage` | component | `PublicLinkPage(props?: { apiClient?; client?; registry?; slots?: { Frame?; NotAvailable?; Loading? }; sx?; className? }): ReactElement` | Route the public `/s` page outside the authenticated shell; brand it with `slots.Frame` | experimental | [route](../../../../apps/web/src/App.tsx), [framed](../../../../apps/web/src/__tests__/examples/sharing/PublicAlbum.example.test.tsx) |
+| `registerLinkRenderer` | registry | `registerLinkRenderer(resourceType: string, component: ComponentType<{ resolution; token; apiClient }>): void` | Show a resource type's public view on `/s` | experimental | [example](../../../../apps/web/src/__tests__/examples/sharing/PublicAlbumView.example.tsx) |
 | `freezeLinkRenderers` | registry | `freezeLinkRenderers(): void` | Refuse every later registration once the app has bootstrapped | experimental | [example](../../../../apps/web/src/platform/linkRenderers.ts) |
 
 The link-renderer registry follows the core registry semantics (`@marinoscar/platform-api/core`'s `Registry`): ids are resource type ids (lower-case snake_case, `INVALID_ID` otherwise), a duplicate is `DUPLICATE_ID`, a registration after `freezeLinkRenderers()` is `FROZEN`, and reads keep working. Each refusal is a `LinkRendererRegistryError`; switch on its `code`.
@@ -121,7 +125,34 @@ Every read hook returns `{ data, loading, error, refresh }` (`SharingResource<T>
 | `useSharedWithMe(resourceType?)` | `GET /grants/shared-with-me` | `title` and `path` when the type describes its records |
 | `usePublicLink({ apiClient })` | `GET /public/links/current` | See Security notes |
 
-Supporting exports. `/sharing/headless`: `ResourceRef`, `SharingRoleOption`, `SharingError`, `SharingResource`, `toSharingError`, `isSharingError`, `describeRetryAfter`, `createSharingClient`, `SharingClient`, `SharingClientPaths`, `SharingPageQuery`, `ShareTarget`, `IssuedLinkGrant`, `CreateLinkInput`, `UseGroupsOptions`, `GroupActions`, `ShareActions`, `UseLinkGrantsReturn`, `parseLinkTokenFromHash`, `PublicLinkStatus`, `UsePublicLinkOptions`, `UsePublicLinkReturn`, `LinkRendererRegistry`, `LinkRendererRegistryError`, `LinkRendererRegistryErrorCode`, `linkRenderers`, `LinkRenderer`, `LinkRendererProps`, and the hooks above. `/sharing/ui`: `ShareDialog` with `ShareDialogProps` and `ShareDialogSlots` (`Title`), `PendingGroupInvites` with `PendingGroupInvitesProps` and `PendingGroupInvitesSlots` (`Container`), `SharedWithMeList` with `SharedWithMeListProps` and `SharedWithMeListSlots` (`Item`), `GroupsPageProps` and `GroupsPageSlots` (`Header`), `GroupDetailPageProps` and `GroupDetailPageSlots` (`Header`), `PublicLinkPageProps` and `PublicLinkPageSlots`. `ShareDialog`, the hooks and the slots become catalog rows with their reference examples in #732.
+Supporting exports. `/sharing/headless`: `ResourceRef`, `SharingRoleOption`, `SharingError`, `SharingResource`, `toSharingError`, `isSharingError`, `describeRetryAfter`, `createSharingClient`, `SharingClient`, `SharingClientPaths`, `SharingPageQuery`, `ShareTarget`, `IssuedLinkGrant`, `CreateLinkInput`, `UseGroupsOptions`, `GroupActions`, `ShareActions`, `UseLinkGrantsReturn`, `parseLinkTokenFromHash`, `PublicLinkStatus`, `UsePublicLinkOptions`, `UsePublicLinkReturn`, `LinkRendererRegistry`, `LinkRendererRegistryError`, `LinkRendererRegistryErrorCode`, `linkRenderers`, `LinkRenderer`, `LinkRendererProps`, and the hooks above. `/sharing/ui`: `ShareDialog` with `ShareDialogProps` and `ShareDialogSlots` (`Title`), `PendingGroupInvites` with `PendingGroupInvitesProps` and `PendingGroupInvitesSlots` (`Container`), `SharedWithMeList` with `SharedWithMeListProps` and `SharedWithMeListSlots` (`Item`), `GroupsPageProps` and `GroupsPageSlots` (`Header`), `GroupDetailPageProps` and `GroupDetailPageSlots` (`Header`), `PublicLinkPageProps` and `PublicLinkPageSlots`. The other read hooks (`useGroups`, `useGroup`, `useGroupMembers`, `useGroupInvites`, `useMyGroupInvites`, `useLinkGrants`, `usePublicLink`) and `useGroupActions` follow the same contract as the catalogued ones.
+
+### Minimal examples
+
+Each is the smallest working use; the linked file is the compiled, tested version (Vitest and Testing Library, msw for the API's wire shapes, the reference app's `AppPlatformHostProvider`).
+
+The app's own markup over the hooks ([`HeadlessShareList.example.tsx`](../../../../apps/web/src/__tests__/examples/sharing/HeadlessShareList.example.tsx)):
+
+```tsx
+const grants = useGrants({ type: 'note', id });
+const actions = useShareActions({ type: 'note', id });
+return <ul>{grants.data?.items.map((g) => (
+  <li key={g.id}>{g.grantee.displayName ?? g.grantee.groupName}
+    <button onClick={() => void actions.revoke(g.id).then(grants.refresh)}>Remove</button></li>
+))}</ul>;
+```
+
+A renderer for the public page, calling the app's public route with the token in the header and showing a presigned URL ([`PublicAlbumView.example.tsx`](../../../../apps/web/src/__tests__/examples/sharing/PublicAlbumView.example.tsx)):
+
+```tsx
+function PublicAlbumView({ token, apiClient }: LinkRendererProps) {
+  const [album, setAlbum] = useState<{ title: string; coverUrl: string } | null>(null);
+  useEffect(() => void apiClient.get('/public/albums/current', { headers: { [LINK_TOKEN_HEADER]: token } }).then(setAlbum), [apiClient, token]);
+  return album ? <img src={album.coverUrl} alt={album.title} /> : null;
+}
+registerLinkRenderer('album', PublicAlbumView);
+<PublicLinkPage apiClient={appPlatformApi} slots={{ Frame: AppPublicFrame }} />;
+```
 
 ## Data
 
@@ -174,7 +205,7 @@ None. The slice emits no log line, metric or span of its own; the API's sharing 
 
 ## Conformance suite
 
-None yet. #732 adds the sharing conformance suite and runs it through `runPlatformConformance()`; this slice's behaviour is pinned by its tests under `packages/platform-web/test/sharing/` and by the reference app's registry and route tests.
+None in this package: the web slice holds no invariant an app could break outside its own code (it owns no data and decides nothing; the API does). The sharing conformance suite is the API slice's (`@marinoscar/platform-api/sharing/testing`, see its [README](../../../platform-api/src/sharing/README.md#conformance-suite)); this slice's behaviour is pinned by its tests under `packages/platform-web/test/sharing/` and by the reference app's examples, registry and route tests.
 
 ## Upgrade notes
 
@@ -185,7 +216,7 @@ None. First release of the slice (#731); there is no earlier version to migrate 
 | Symptom | Cause | Fix |
 |---|---|---|
 | The share dialog's link section says "Links are not available for this item." | The links route answered `404`: the API does not serve `/grants/links` yet (#730), the resource type lists no link role, or the viewer may not share the record | Deploy the link routes, list a role under the type's `grantable.link`, or open the dialog only for records the viewer may share |
-| `/s` always shows "This link is not available." | No renderer is registered for the resolved type (the reference app registers none), the link expired or was revoked, or the page was reloaded after the fragment was removed | `registerLinkRenderer(type, Component)` before `freezeLinkRenderers()`; open the original link again |
+| `/s` always shows "This link is not available." | No renderer is registered for the resolved type (the template registers none), the link expired or was revoked, or the page was reloaded after the fragment was removed | `registerLinkRenderer(type, Component)` before `freezeLinkRenderers()`; open the original link again |
 | `LinkRendererRegistryError` with code `FROZEN` | A renderer registered after the app's bootstrap (a lazily imported module) | Register it in the app's registration file, before the freeze |
 | `usePublicLink: no apiClient, no client and no PlatformHostProvider` | The public route renders outside the host provider | Pass the app's transport: `<PublicLinkPage apiClient={appPlatformApi} />` |
 | The Groups card is missing | The viewer lacks `groups:read` in the active organization | Grant it through the org role (every org role holds it by default) |

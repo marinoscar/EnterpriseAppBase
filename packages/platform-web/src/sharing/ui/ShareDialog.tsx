@@ -155,6 +155,7 @@ function linksUnavailable(error: SharingError | null): boolean {
  * />
  * ```
  *
+ * @extensionPoint component
  * @stability experimental
  */
 export function ShareDialog(props: ShareDialogProps): ReactElement {

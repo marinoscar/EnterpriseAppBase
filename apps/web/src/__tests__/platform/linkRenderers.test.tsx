@@ -5,8 +5,8 @@
  * transport; `registerAppLinkRenderers()` (called from `main.tsx`) freezes the
  * registry, so a later registration is refused.
  *
- * The renderer here is a test fixture: the reference app registers none yet
- * (#732 adds the example).
+ * The renderer here is a test fixture: the template registers none. The worked
+ * example is ../examples/sharing/PublicAlbumView.example.tsx (#732).
  */
 
 import { useEffect, useState } from 'react';

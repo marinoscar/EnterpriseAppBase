@@ -830,7 +830,8 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 |---|---|
 | Now (wave 0 and 2) | The principal and scope in the core contracts include the org |
 | Identity wave (wave 4) | `Organization`, `Membership` and `Invite` tables; tenancy mode; org-scoped roles; the active-org token; RLS on `org_id`; backfill (EvoPath's about 40 and kvox's about 35 user-owned tables go into the default org; MemoriaHub circles become groups) |
-| Later, when a second app needs it | Groups and generic grants; per-org SSO (Entra, OIDC, SAML); per-org quotas and billing; an org admin console |
+| Sharing wave (epic #666, shipped) | Groups inside an organization (members, invites, group ownership), generic grants (user, group, link) with `AccessPolicy`, the list helpers, link shares and the public-route pattern, the sharing UI, a tested example per extension point and the sharing conformance suite; kvox and MemoriaHub are the consumers |
+| Later, when an app needs it | Per-org SSO (Entra, OIDC, SAML); per-org quotas and billing; an org admin console |
 
 ## Deployment modes
 
@@ -1322,3 +1323,4 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 - 2026-10-06 (rev 4): single rollback tag `MonoRepo` at e872eb6; safety copy in marinoscar/appbase.
 - 2026-10-07 (rev 5): the telemetry slice completed (wave 3): slice READMEs in all five packages, a reference-app example for every extension point (the `activity` group, an example verdict policy, an example CLI command), the telemetry conformance suite in `runPlatformConformance()` and a coach-shaped readiness test; corrected the claim that EvoPath has thresholds or collector configuration of its own.
 - 2026-10-07 (rev 6): go/no-go gate measured (issue 720): method, thresholds and the computed NO-GO recorded in [Go/no-go gate (after wave 3)](#gono-go-gate-after-wave-3), with the [report](../platform-adoption/go-no-go-evopath.md); the measurement method added to Appendix A. Corrections: the EvoPath migration count (20 same-id, of which 19 byte-identical and 1 comment-only, plus 1 renamed), EvoPath's collector configuration (comment-only drift), and the interim cost of URL pins in the release pipeline and the risks table.
+- 2026-10-08 (rev 7): groups and grants shipped (epic #666): the `sharing` slice in the contract, API and web packages (groups, grants, `AccessPolicy`, link shares and the public-route pattern, the sharing UI), a reference-app example for every extension point in the reference app's test trees (the template ships no product table), the sharing conformance suite in `runPlatformConformance()` (`@marinoscar/platform-api/sharing/testing`, a slice testing entry like telemetry's, identity's and settings'), and the kvox and MemoriaHub migration recipes in the slice README. The Phasing table moves groups and grants out of "later".

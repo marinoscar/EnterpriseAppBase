@@ -54,6 +54,10 @@
       "types": "./dist/sharing/index.d.ts",
       "default": "./dist/sharing/index.js"
     },
+    "./sharing/testing": {
+      "types": "./dist/sharing/testing/index.d.ts",
+      "default": "./dist/sharing/testing/index.js"
+    },
     "./identity": {
       "types": "./dist/identity/index.d.ts",
       "default": "./dist/identity/index.js"

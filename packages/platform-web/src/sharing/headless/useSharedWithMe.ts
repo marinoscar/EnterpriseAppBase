@@ -20,6 +20,7 @@ import type { SharingResource } from './types.js';
  * const { data } = useSharedWithMe('transcript');
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function useSharedWithMe(

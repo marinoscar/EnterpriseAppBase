@@ -104,6 +104,8 @@ READMEs that live next to the code they describe.
 | [../packages/platform-cli/src/telemetry/README.md](../packages/platform-cli/src/telemetry/README.md) | Telemetry CLI slice: the worker span relay and the deploy wizard's env metadata |
 | [../packages/platform-infra/src/telemetry/README.md](../packages/platform-infra/src/telemetry/README.md) | Telemetry infra slice: the compose files, the collector configuration, its app overlay and `platform-infra sync` |
 | [../packages/platform-web/src/sharing/README.md](../packages/platform-web/src/sharing/README.md) | Sharing UI slice: the hooks, the share dialog, the group pages, the public `/s` page and `registerLinkRenderer`; the fragment-token rules |
+| [../packages/platform-api/src/sharing/README.md](../packages/platform-api/src/sharing/README.md) | Sharing, API slice: groups, grants, `AccessPolicy`, the list helpers, link shares and the public-route pattern; a tested example per extension point (`apps/api/test/examples/sharing/`), the conformance suite and the kvox and MemoriaHub migration recipes; start here to make a table shareable |
+| [../packages/platform-contract/src/sharing/README.md](../packages/platform-contract/src/sharing/README.md) | Sharing wire shapes: the group, grant and link schemas, `LINK_TOKEN_HEADER` and `buildLinkUrl` |
 | [../packages/](../packages/) (`platform-*/README.md`) | The `@marinoscar/platform-*` packages: one README per package; layout and commands in [DEVELOPMENT.md § Platform packages](DEVELOPMENT.md#platform-packages) |
 
 ## Agent rules
