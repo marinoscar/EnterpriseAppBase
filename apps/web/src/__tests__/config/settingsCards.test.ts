@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import TuneIcon from '@mui/icons-material/Tune';
 import {
   ADMIN_SECTIONS,
   ADMIN_HUB_PATH,
@@ -20,162 +19,24 @@ import {
 } from '../../config/userSettingsSections';
 
 /**
- * Issue #91, epic #90 — `visibleSettingsSections` and `settingsPageTitle` are
- * the ONE gate every consumer (hub, rail, AppBar title) runs. A bug here is a
- * bug in three surfaces at once, and this suite is what makes that provable
- * with a single assertion per behavior instead of three near-identical
- * component tests.
+ * The reference app's own settings cards, pinned one by one (issues #225, #266,
+ * #325, #366, #376, #401, #425, #537, #726, #731): which group each card lives
+ * in, the exact permission it declares, and what the three surfaces (hub, rail,
+ * AppBar title) show a viewer, an operator and an organization administrator.
  *
- * `visibleSettingsSections` is exercised two ways:
- *   - against a small local FIXTURE, for the cases that need independent
- *     control over `permission` / `alwaysShow` (ADMIN_SECTIONS today has no
- *     `alwaysShow` card, and no card with an undeniable permission either);
- *   - against the REAL `ADMIN_SECTIONS` / `USER_SETTINGS_SECTIONS`, for the
- *     cases that are really about the real data (title-vs-description search,
- *     and "it works for the user registry too").
+ * This is the app's DATA. The platform invariants that used to share this file
+ * (that `visibleSettingsSections` and `settingsPageTitle` gate by permission,
+ * feature and longest-prefix route; that every card is declared as the Settings
+ * UI Pattern requires; that every AI card is feature-gated) run for EVERY app
+ * through `runPlatformWebConformance` (`../conformance.test.ts`, suites
+ * `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`).
  */
-
-/** A real Icon component, reused across the fixture — only its identity is asserted anywhere, so one is enough. */
-const Icon = TuneIcon;
-
-function buildFixture(): SettingsSectionDef[] {
-  return [
-    {
-      label: 'Alpha',
-      cards: [
-        { title: 'Open Card', description: 'visible to anyone, no gate', Icon, path: '/x/open' },
-        {
-          title: 'Gated Card',
-          description: 'needs a permission the fixture can deny',
-          Icon,
-          path: '/x/gated',
-          permission: 'alpha:read',
-        },
-        {
-          title: 'Bypass Card',
-          description: 'gated, but escapes the gate via alwaysShow',
-          Icon,
-          path: '/x/bypass',
-          permission: 'alpha:write',
-          alwaysShow: true,
-        },
-      ],
-    },
-    {
-      label: 'Beta (fully gated)',
-      cards: [
-        {
-          title: 'Beta Only',
-          description: 'the only card in its section, and it is gated',
-          Icon,
-          path: '/x/beta',
-          permission: 'beta:read',
-        },
-      ],
-    },
-  ];
-}
 
 function titlesOf(sections: SettingsSectionDef[]): string[] {
   return sections.flatMap((section) => section.cards.map((card) => card.title));
 }
 
-describe('visibleSettingsSections — permission gating', () => {
-  it('drops a card whose permission is not held', () => {
-    const result = visibleSettingsSections(buildFixture(), () => false);
-
-    expect(titlesOf(result)).not.toContain('Gated Card');
-  });
-
-  it('removes a section entirely once every one of its cards is filtered out, rather than rendering it empty', () => {
-    // 'Beta Only' is the section's sole card and is gated, so with every
-    // permission denied the whole section must disappear — not survive as a
-    // header over zero cards, which reads as a loading failure.
-    const result = visibleSettingsSections(buildFixture(), () => false);
-
-    expect(result.find((section) => section.label === 'Beta (fully gated)')).toBeUndefined();
-  });
-
-  it('lets alwaysShow bypass the permission gate', () => {
-    const result = visibleSettingsSections(buildFixture(), () => false);
-
-    expect(titlesOf(result)).toContain('Bypass Card');
-  });
-
-  it('shows a card with no permission declared regardless of what hasPermission answers', () => {
-    const result = visibleSettingsSections(buildFixture(), () => false);
-
-    expect(titlesOf(result)).toContain('Open Card');
-  });
-});
-
-describe('visibleSettingsSections — search', () => {
-  it('matches a card title case-insensitively', () => {
-    // Grant everything so the search filter is the only thing under test.
-    const result = visibleSettingsSections(ADMIN_SECTIONS, () => true, 'mAiL');
-
-    expect(titlesOf(result)).toContain('Email');
-  });
-
-  it('does not match a term that appears only in the description, never the title', () => {
-    // Email's description reads "...send a test message to prove it works" —
-    // "message" is in no card TITLE in ADMIN_SECTIONS. Matching descriptions
-    // too would mean a two-letter query surfacing cards on prose the user
-    // never sees highlighted, which `visibleSettingsSections`'s own doc
-    // comment calls out as the worse, unpredictable result set this design
-    // avoids.
-    const result = visibleSettingsSections(ADMIN_SECTIONS, () => true, 'message');
-
-    expect(titlesOf(result)).toHaveLength(0);
-  });
-
-  it('composes with permission gating: a title match the user lacks permission for stays hidden', () => {
-    // 'gated' matches only 'Gated Card' by title in the fixture. It is denied
-    // and not alwaysShow, so the hit must not surface — search narrows what is
-    // ELIGIBLE to show, it never re-opens a closed permission gate.
-    const result = visibleSettingsSections(buildFixture(), () => false, 'gated');
-
-    expect(result).toEqual([]);
-  });
-
-  it('treats an empty string query the same as no query argument at all', () => {
-    const hasPermission = (permission: string) => permission === 'alpha:read';
-    const fixture = buildFixture();
-
-    expect(visibleSettingsSections(fixture, hasPermission, '')).toEqual(
-      visibleSettingsSections(fixture, hasPermission),
-    );
-  });
-
-  it('treats a whitespace-only query the same as no query argument at all', () => {
-    const hasPermission = (permission: string) => permission === 'alpha:read';
-    const fixture = buildFixture();
-
-    expect(visibleSettingsSections(fixture, hasPermission, '   ')).toEqual(
-      visibleSettingsSections(fixture, hasPermission),
-    );
-  });
-});
-
-describe('visibleSettingsSections — works identically against USER_SETTINGS_SECTIONS', () => {
-  it('shows every user-settings card that declares no permission and no feature, with no permissions held', () => {
-    // Since #425 one user card (`AI Keys`) declares both a permission (`ai:use`)
-    // and a feature (`ai`); every other one is still open to any signed-in user.
-    const result = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false);
-    const ungated = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards)
-      .filter((card) => !card.permission && !card.feature)
-      .map((card) => card.title);
-
-    expect(titlesOf(result).sort()).toEqual(ungated.sort());
-    expect(titlesOf(result)).not.toContain('AI Keys');
-  });
-
-  it('shows every user-settings card once the permission is held and AI is on', () => {
-    const result = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => true, '', { ai: true });
-
-    expect(titlesOf(result).sort()).toEqual(titlesOf(USER_SETTINGS_SECTIONS).sort());
-  });
-
+describe('the user registry — Groups card (#731)', () => {
   it('shows the Groups card (#731) only to a holder of groups:read', () => {
     const without = visibleSettingsSections(USER_SETTINGS_SECTIONS, (permission) => permission === 'user_settings:read');
     expect(titlesOf(without)).not.toContain('Groups');
@@ -192,16 +53,6 @@ describe('visibleSettingsSections — works identically against USER_SETTINGS_SE
     expect(
       settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/groups/7d7e9c1a-0000-4000-8000-000000000001'),
     ).toBe('Groups');
-  });
-
-  it('still matches by title only for the user registry', () => {
-    // Profile's description reads "Your display name and profile image..." —
-    // "display" is in no user-settings card title.
-    const byDescriptionOnly = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false, 'display');
-    expect(titlesOf(byDescriptionOnly)).toHaveLength(0);
-
-    const byTitle = visibleSettingsSections(USER_SETTINGS_SECTIONS, () => false, 'profile');
-    expect(titlesOf(byTitle)).toContain('Profile');
   });
 });
 
@@ -633,66 +484,6 @@ describe('the About card (#401)', () => {
   });
 });
 
-describe('settingsPageTitle', () => {
-  it('resolves an exact card path to its title', () => {
-    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/users')).toBe(
-      'Users & Allowlist',
-    );
-  });
-
-  it('gives the longest matching prefix the win on a nested child path', () => {
-    expect(
-      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/users/123'),
-    ).toBe('Users & Allowlist');
-  });
-
-  it('respects segment boundaries: a path that only starts with a card path falls back to the hub title', () => {
-    // Per the function's own doc comment, `/admin/settings/users-archive` must
-    // NOT resolve to "Users & Allowlist" — but it IS still under the hub
-    // (`/admin/settings/...`), so the correct answer is the hub title, not
-    // null. A bare `startsWith` on the card path is the exact bug
-    // `destinations.ts`'s `owns()` was written to kill, reintroduced here.
-    expect(
-      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/users-archive'),
-    ).toBe(ADMIN_HUB_TITLE);
-  });
-
-  it('returns the hub title for the hub path itself', () => {
-    expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, ADMIN_HUB_PATH)).toBe(
-      ADMIN_HUB_TITLE,
-    );
-  });
-
-  it('returns the hub title for a child path under the hub that no card owns', () => {
-    expect(
-      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/whatever-not-a-card-path'),
-    ).toBe(ADMIN_HUB_TITLE);
-  });
-
-  describe('returns null for a path not under hubPath at all', () => {
-    it('the app root', () => {
-      expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/')).toBeNull();
-    });
-
-    it('a sibling under /admin that is not the settings hub', () => {
-      expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin')).toBeNull();
-    });
-
-    it('cross-registry: the admin registry does not claim a user-settings path', () => {
-      // /settings/profile belongs to the OTHER hub. Without the hubPath guard,
-      // nothing here would stop a coincidental card-path collision from
-      // resolving a title that belongs to the wrong surface.
-      expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/settings/profile')).toBeNull();
-    });
-
-    it('cross-registry: the user registry does not claim an admin-settings path', () => {
-      expect(
-        settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/admin/settings/users'),
-      ).toBeNull();
-    });
-  });
-});
-
 /**
  * Issue #266, epic #254 — the `Operations` group.
  *
@@ -1047,47 +838,6 @@ describe('the Operations group (#266)', () => {
 /**
  * Issue #425, epic #419 — the feature axis of the registry, and the AI cards.
  */
-describe('visibleSettingsSections — feature gating (#425)', () => {
-  function featureFixture(): SettingsSectionDef[] {
-    return [
-      {
-        label: 'Mixed',
-        cards: [
-          { title: 'Plain', description: 'no gate', Icon, path: '/f/plain' },
-          { title: 'Featured', description: 'ai only', Icon, path: '/f/featured', feature: 'ai' },
-          {
-            title: 'Forced',
-            description: 'alwaysShow does not beat a feature',
-            Icon,
-            path: '/f/forced',
-            alwaysShow: true,
-            feature: 'ai',
-          },
-        ],
-      },
-      {
-        label: 'Only Featured',
-        cards: [{ title: 'Lonely', description: 'ai only', Icon, path: '/f/lonely', feature: 'ai' }],
-      },
-    ];
-  }
-
-  it('hides feature cards when no feature map is passed (backwards compatible, fail closed)', () => {
-    const result = visibleSettingsSections(featureFixture(), () => true);
-    expect(titlesOf(result)).toEqual(['Plain']);
-  });
-
-  it('drops a section emptied by the feature gate', () => {
-    const result = visibleSettingsSections(featureFixture(), () => true, '', { ai: false });
-    expect(result.map((section) => section.label)).toEqual(['Mixed']);
-  });
-
-  it('shows feature cards when the feature is on', () => {
-    const result = visibleSettingsSections(featureFixture(), () => true, '', { ai: true });
-    expect(titlesOf(result)).toEqual(['Plain', 'Featured', 'Forced', 'Lonely']);
-  });
-});
-
 describe('settingsPageTitle — feature gating (#425)', () => {
   it('titles AI Models by longest prefix only while AI is on', () => {
     const path = '/admin/settings/ai/models';
@@ -1583,5 +1333,127 @@ describe('the Danger Zone groups (#743)', () => {
   it('hides the factory reset from a system_settings:write holder who is not an Admin', () => {
     const titles = titlesOf(visibleSettingsSections(ADMIN_SECTIONS, (p) => p === 'system_settings:write' || p === 'system_settings:read', ''));
     expect(titles).not.toContain('Factory reset');
+  });
+});
+
+/**
+ * Issue #126, epic #109. The Notifications card follows the same
+ * MANDATORY settings-registry pattern every other `/settings/*` card does
+ * (see CLAUDE.md's "MANDATORY: Settings UI Pattern" and
+ * `config/userSettingsSections.tsx`'s own header): declared once, here, with
+ * NO `permission` field.
+ *
+ * Every other card under `USER_SETTINGS_SECTIONS` is unpermissioned for the
+ * same reason - these are the caller's OWN settings, and the API grants
+ * `user_settings:read` / `user_settings:write` to all three roles. A
+ * `permission` field on this card would invent an authorization rule the API
+ * does not enforce, and would lock a Viewer out of saying how they want to be
+ * contacted.
+ */
+describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
+  function findNotificationsCard() {
+    for (const section of USER_SETTINGS_SECTIONS) {
+      const card = section.cards.find((c) => c.path === '/settings/notifications');
+      if (card) return card;
+    }
+    return undefined;
+  }
+
+  it('is present in the registry', () => {
+    const card = findNotificationsCard();
+    expect(card).toBeDefined();
+    expect(card?.title).toBe('Notifications');
+  });
+
+  it('declares no permission - reachable by every authenticated user, not gated on a specific one', () => {
+    const card = findNotificationsCard();
+    expect(card).toBeDefined();
+    expect('permission' in (card as object)).toBe(false);
+    expect(card?.permission).toBeUndefined();
+  });
+
+  it('points at /settings/notifications', () => {
+    const card = findNotificationsCard();
+    expect(card?.path).toBe('/settings/notifications');
+  });
+
+  it('is grouped under Account, not Security - it is about how the account is contacted, not a credential', () => {
+    const accountSection = USER_SETTINGS_SECTIONS.find((s) => s.label === 'Account');
+    expect(accountSection?.cards.some((c) => c.path === '/settings/notifications')).toBe(
+      true,
+    );
+  });
+
+  // The wider claim: this is not a one-off omission on this card, it is true
+  // of the whole per-user registry (see the file's own header comment). A
+  // regression that added a permission ANYWHERE in USER_SETTINGS_SECTIONS
+  // would be exactly the kind of invented gate that CLAUDE.md's Settings UI
+  // Pattern rule 3 warns against.
+  /**
+   * Replaces "no card declares a permission" (#425, epic #419), deliberately.
+   *
+   * Every per-user card edits something the API grants all three roles, so for
+   * those a permission would invent a rule the API does not enforce. `AI Keys`
+   * is the first exception, and a real one: `ai:use` is a grant a deployment
+   * can withhold from a role (AI calls cost money), and the `/api/ai/keys`
+   * controller enforces exactly that string. The allow-list keeps the rule for
+   * everything else — a new gated user card has to be added here on purpose.
+   */
+  const PERMISSION_GATED_USER_CARDS: Record<string, string> = {
+    '/settings/ai': 'ai:use',
+    // #731: the org permission the `/api/groups` controller enforces.
+    '/settings/groups': 'groups:read',
+  };
+
+  it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
+    const allCards = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards);
+    for (const card of allCards) {
+      const expected = card.path ? PERMISSION_GATED_USER_CARDS[card.path] : undefined;
+      expect(card.permission, `${card.title} permission`).toBe(expected);
+    }
+    // Every allow-listed card still exists — a stale entry is a silent hole.
+    for (const path of Object.keys(PERMISSION_GATED_USER_CARDS)) {
+      expect(allCards.some((card) => card.path === path), `${path} is registered`).toBe(true);
+    }
+  });
+});
+
+/**
+ * Issue #731 (PP-7.4). The packaged groups page is ONE card in a new `Sharing`
+ * section APPENDED after every existing one (Settings UI Pattern rule 1:
+ * append, never insert), gated on the exact string the `/api/groups`
+ * controller enforces (rule 3), with no `feature`.
+ */
+describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
+  it('is the only card of a Sharing section, appended after the existing ones', () => {
+    const sharing = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Sharing');
+    expect(sharing?.cards.map((card) => card.title)).toEqual(['Groups']);
+  });
+
+  it('leaves the existing sections, in order, untouched; later groups (#744 "Your data") append after it, and the Danger Zone (#743) stays last', () => {
+    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data', 'Danger Zone']);
+  });
+
+  it('points at /settings/groups and declares groups:read and no feature', () => {
+    const card = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards).find((c) => c.title === 'Groups');
+    expect(card?.path).toBe('/settings/groups');
+    expect(card?.permission).toBe('groups:read');
+    expect(card?.feature).toBeUndefined();
+  });
+});
+
+/**
+ * Issue #744 (PP-9.2). "Download your data" is ONE card in a `Your data`
+ * section appended after every existing one, with no permission (the API
+ * grants the `user-data` source to every role through `user_settings:read`)
+ * and no feature.
+ */
+describe('USER_SETTINGS_SECTIONS - Download your data (issue #744)', () => {
+  it('is the only card of the Your data section, ungated, at /settings/data-export', () => {
+    const section = USER_SETTINGS_SECTIONS.find((s) => s.label === 'Your data');
+    expect(section?.cards.map((card) => card.title)).toEqual(['Download your data']);
+    expect(section?.cards[0]?.path).toBe('/settings/data-export');
+    expect(section?.cards[0]?.permission).toBeUndefined();
+    expect(section?.cards[0]?.feature).toBeUndefined();
   });
 });

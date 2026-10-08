@@ -338,7 +338,7 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       // deliberately not `jobs:read`). Job Insights nests UNDER the Jobs route,
       // which `settingsPageTitle`'s longest-prefix rule resolves correctly (a
       // bare `startsWith` would let `Jobs` claim it and title the page "Jobs"
-      // in the compact AppBar); asserted in `settingsRegistry.test.ts`.
+      // in the compact AppBar); asserted in `settingsCards.test.ts`.
       // Writes (`jobs:write`, `nodes:write`) are gated inside the pages: the
       // card gate is about REACHABILITY.
       ...jobsAdminSections.operations,

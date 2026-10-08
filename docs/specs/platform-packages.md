@@ -991,9 +991,9 @@ MemoriaHub's `@memoriahub/enrichment-compute` (dual CommonJS and ESM) is the bui
 
 ### Conformance suites travel with packages
 
-The base enforces many invariants through tests (for example `apps/api/test/jobs/cron-enqueue-only.spec.ts`, the suites under `apps/api/test/ai/`: RBAC matrix, secret egress, kill switch, jobs server-only, no SDK leak). If those tests stay in the platform repository, an app silently stops being checked once it consumes a package.
+The base enforces many invariants through tests (the cron and listener rules of queue rule 1, the AI platform's RBAC matrix, secret egress, kill switch, key policy, jobs server-only and no SDK leak, the settings registries). If those tests stay in the platform repository, an app silently stops being checked once it consumes a package.
 
-So they move with the packages and run in every app through one entry point, `runPlatformConformance()`. Suites that exist only in a fork today (for example EvoPath's AI orchestration boundary) join the platform set when their slice is extracted.
+So they move with the packages and run in every app through one entry point per runtime: `runPlatformConformance()` (`@marinoscar/platform-api/testing`, Jest) and `runPlatformWebConformance()` (`@marinoscar/platform-web/testing`, Vitest). A slice registers its suites when its `testing` entry is imported; the app passes its own data (exemptions, minimums, the fixture that boots it, its registries and routes) and may skip a suite only with a written reason. The reference app's entries are `apps/api/test/conformance.spec.ts` and `apps/web/src/__tests__/conformance.test.ts`; [the testing README](../../packages/platform-api/src/testing/README.md#conformance-suite) lists every suite id. Suites that exist only in a fork today (for example EvoPath's AI orchestration boundary, whose scan is already the platform's `ai-orchestration-boundary` suite with the fork's allowed roots) join the platform set when their slice is extracted.
 
 ## Adoption strategy per app
 

@@ -328,7 +328,7 @@ The slice's extension points, with a reference-app example each, are catalogued 
 | Scopes and the key builder: org keys need an organization (the default org only in single mode), `orgKeyPrefixes` lists only org prefixes, legacy keys stay under their root | `packages/platform-api/test/storage/key-prefix-registry.spec.ts`, `apps/api/test/storage/org-keys.db.spec.ts` |
 | Processors register through the registry and run on upload | `packages/platform-api/test/storage/processing/object-processor.registry.spec.ts`, `apps/api/src/examples/storage/example-metadata.processor.spec.ts` |
 | The slice's invariants in the consuming app (prefixes, org keys, no secret) | `apps/api/test/storage/storage-conformance.spec.ts` (the `storage` conformance suite) |
-| The cleanup cron only enqueues | `apps/api/test/jobs/cron-enqueue-only.spec.ts` (scans the storage slice's root) |
+| The cleanup cron only enqueues | `apps/api/test/conformance.spec.ts`, suite `cron-enqueue-only` (scans the storage slice's root) |
 
 The unit suites mock the AWS SDK. They prove request shapes and error
 classification, not live vendor behaviour.

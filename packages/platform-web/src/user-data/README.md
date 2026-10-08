@@ -45,7 +45,7 @@ None beyond props: `onCompleted` and `pollIntervalMs` (default 1500 ms) on both 
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `dangerZoneLastViolations` | hook | `(sections, expectedPath) => string[]` | Assert both Danger Zone groups are last (web conformance) | experimental | [settingsRegistry.test.ts](../../../../apps/web/src/__tests__/config/settingsRegistry.test.ts) |
+| `dangerZoneLastViolations` | hook | `(sections, expectedPath) => string[]` | Assert both Danger Zone groups are last (web conformance) | experimental | [settingsCards.test.ts](../../../../apps/web/src/__tests__/config/settingsCards.test.ts) |
 | `UserDangerZonePage` | component | `(props: UserDangerZonePageProps) => ReactElement` | Mount `/settings/danger-zone` | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
 | `FactoryResetPage` | component | `(props: FactoryResetPageProps) => ReactElement` | Mount `/admin/settings/factory-reset` | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
 | `OffboardOrganizationButton` | component | `(props: OffboardOrganizationButtonProps) => ReactElement \| null` | The organizations page's row action (`renderActions`) | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
@@ -80,7 +80,7 @@ The phrase is collected here and re-checked by the API (a wrong phrase is a `400
 
 ## Conformance suite
 
-`dangerZoneLastViolations(sections, expectedPath)` is the web counterpart of the API's `user-data` suite; the reference app asserts both registries with it in [settingsRegistry.test.ts](../../../../apps/web/src/__tests__/config/settingsRegistry.test.ts). The package's own tests are `test/user-data/`.
+`dangerZoneLastViolations(sections, expectedPath)` is the web counterpart of the API's `user-data` suite; the reference app asserts both registries with it in [settingsCards.test.ts](../../../../apps/web/src/__tests__/config/settingsCards.test.ts). The package's own tests are `test/user-data/`.
 
 ## Upgrade notes
 

@@ -2,8 +2,13 @@
 // The scripted fake provider (`FakeAiProvider`), the runtime harness that
 // builds a real `AiService` over in-memory keys, storage and usage, the
 // adapter conformance kit (`describeAiProviderConformance`) and the
-// orchestration-boundary suite. Jest-only: it calls `jest.fn` and `describe`.
+// conformance suites (kill switch, RBAC matrix, secret egress, key policy,
+// jobs server-only, no SDK leak, orchestration boundary; issue #742). Jest-only:
+// it calls `jest.fn` and `describe`.
 // Documented in ../README.md.
+
+// Importing this entry registers the conformance suites with `runPlatformConformance`.
+import './conformance/register';
 
 export {
   HARNESS_USER,
@@ -94,6 +99,63 @@ export type {
   InMemoryAiStorage,
   InMemoryAiObjectStore,
 } from './in-memory-ai-storage';
+// The conformance suites.
+export { aiJobsServerOnlySuite, findAiJobsMissingFromServerOnly, findNodeEligibleAiJobs } from './conformance/ai-jobs-server-only.suite';
+export type { AiJobsServerOnlyOptions, JobHandlerView, JobRegistryView } from './conformance/ai-jobs-server-only.suite';
+export { aiKeyPolicySuite, keysSeenBy } from './conformance/ai-key-policy.suite';
+export type { AiKeyPolicyOptions } from './conformance/ai-key-policy.suite';
+export {
+  collectPropertyNames,
+  findKeyShapedProperties,
+  findLeakedSentinels,
+  findSecretShapedProperties,
+  KEY_SHAPED_PROPERTY_NAMES,
+} from './conformance/ai-egress-checks';
+export { aiKillSwitchSuite } from './conformance/ai-kill-switch.suite';
+export {
+  discoverAiRbacRoutes,
+  discoverAiRoutes,
+  findAdminRoutesBlocked,
+  findAiPermissionDeclarationFailures,
+  findRoleMismatches,
+  findRoutesNotAnswering401,
+  findRoutesNotKillSwitched,
+  isPermissionDenied,
+} from './conformance/ai-route-checks';
+export type { AiRbacRoute, AiRoute, DiscoveredAiRoutes } from './conformance/ai-route-checks';
+export type { AiKillSwitchOptions } from './conformance/ai-kill-switch.suite';
+export {
+  PROVIDER_SDK_PACKAGES,
+  aiNoSdkLeakSuite,
+  aiPackageProviderDirs,
+  declaredSdks,
+  findSdkLeaks,
+  importSpecifiers,
+} from './conformance/ai-no-sdk-leak.suite';
+export type { AiNoSdkLeakOptions, SdkLeakTree, SdkOwnerManifest } from './conformance/ai-no-sdk-leak.suite';
+export { aiOrchestrationBoundarySuite } from './conformance/ai-orchestration-boundary.registered';
+export { aiRbacMatrixSuite } from './conformance/ai-rbac-matrix.suite';
+export type { AiRbacMatrixOptions } from './conformance/ai-rbac-matrix.suite';
+export { aiSecretEgressSuite } from './conformance/ai-secret-egress.suite';
+export type { AiSecretEgressOptions } from './conformance/ai-secret-egress.suite';
+export {
+  ALL_KEYS,
+  OTHER_USER_KEY,
+  authHeader,
+  concreteRoutePath,
+  forEachDocumentOperation,
+  parseSse,
+} from './conformance/ai-conformance-fixture';
+export type {
+  AiAuthorizationHeader,
+  AiConformanceApp,
+  AiConformanceContext,
+  AiConformanceFixture,
+  AiConformanceNestApp,
+  AiConformanceOpenApiDocument,
+  AiConformanceUser,
+  ParsedFrame,
+} from './conformance/ai-conformance-fixture';
 export {
   DEFAULT_BANNED_ORCHESTRATION_PACKAGES,
   findOrchestrationViolations,

@@ -2,7 +2,7 @@
 // Support bundle secret no-egress (issue #772)
 // =============================================================================
 //
-// The pattern of `test/ai/ai-secret-egress.integration.spec.ts`: seed a
+// The pattern of the `ai-secret-egress` conformance suite: seed a
 // DISTINCT sentinel for every kind of secret the deployment holds, build a
 // bundle through the real AppModule, and assert that no sentinel appears
 // anywhere in the file, raw or encoded (base64, base64url, hex), nor in the

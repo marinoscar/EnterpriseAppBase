@@ -1,6 +1,6 @@
 import { defineRegistry } from '../core/index';
 
-import type { ConformanceSuite } from './conformance-suite';
+import type { ConformanceAppSuite, ConformanceSuite } from './conformance-suite';
 import { cronEnqueueOnlySuite } from './suites/cron-enqueue-only';
 import { userOwnedDataSuite } from './suites/user-owned-data';
 
@@ -17,7 +17,7 @@ import { userOwnedDataSuite } from './suites/user-owned-data';
  */
 // `any` only at the registry boundary: each entry has its own options type, and
 // the runner narrows through the typed `PlatformConformanceOptions.suites` map.
-export const conformanceSuites = defineRegistry<ConformanceSuite<any>>({
+export const conformanceSuites = defineRegistry<ConformanceSuite<any> | ConformanceAppSuite<any>>({
   name: 'platform-conformance-suites',
   idOf: (suite) => suite.id,
   order: 'registration',

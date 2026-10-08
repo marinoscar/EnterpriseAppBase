@@ -17,7 +17,7 @@
 // so a decorator OPTIONS object is read as the body and reported as queueing
 // nothing. That fails loudly, never silently; no cron in the base uses options.
 //
-// The scan was moved here UNCHANGED from apps/api/test/jobs/cron-enqueue-only.spec.ts:
+// The scan was moved here UNCHANGED from apps/api/test/conformance.spec.ts:
 // same markers, same enqueue pattern, same brace matching. What the app keeps
 // is DATA: its exemption list (each one argued) and its vacuity minimum.
 // =============================================================================

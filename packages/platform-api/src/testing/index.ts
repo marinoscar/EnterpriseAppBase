@@ -4,14 +4,16 @@
 // one harness serves the Jest API and the Vitest web and CLI apps
 // (test/testing/peer-free.spec.ts).
 
-export { runPlatformConformance } from './run-platform-conformance';
-export type { PlatformConformanceOptions, PlatformConformanceSuiteOptions } from './run-platform-conformance';
+export { formatConformanceSummary, runPlatformConformance } from './run-platform-conformance';
+export type { ConformanceSummaryEntry, PlatformConformanceOptions, PlatformConformanceSuiteOptions } from './run-platform-conformance';
 export { conformanceSuites } from './conformance-suites';
 export type {
+  ConformanceAppSuite,
   ConformanceCase,
   ConformanceContext,
   ConformanceFinding,
   ConformanceReport,
+  ConformanceSkip,
   ConformanceSuite,
   ConformanceTestApi,
 } from './conformance-suite';

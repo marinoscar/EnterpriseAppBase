@@ -76,6 +76,11 @@ The hooks take `{ api?: PlatformApiClient }` (default: the `PlatformHostProvider
 | `useSystemSettings` | hook | `useSystemSettings<T>(options?): UseSystemSettingsResult<T>` | Read and save the deployment-wide settings document | experimental | [example](../../../../apps/web/src/hooks/useSystemSettings.ts) |
 | `useUserSettings` | hook | `useUserSettings<T, U>(options?): UseUserSettingsResult<T, U>` | Read and save the signed-in user's settings, syncing the app's theme | experimental | [example](../../../../apps/web/src/hooks/useUserSettings.ts) |
 | `useOrgSettings` | hook | `useOrgSettings(options?): UseOrgSettingsResult` | Read and patch the active organization's settings overrides | experimental | [example](../../../../apps/web/src/pages/Admin/OrgSettingsPage.tsx) |
+| `settingsRegistryGatesSuite` | registry | `WebConformanceSuite` (id `settings-registry-gates`) | Read the suite's id; it runs for every app that imports `/settings/testing` | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
+| `settingsRegistryShapeSuite` | registry | `WebConformanceSuite` (id `settings-registry-shape`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
+| `settingsAiCardsSuite` | registry | `WebConformanceSuite` (id `settings-ai-cards`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
+| `settingsCardRoutesSuite` | registry | `WebConformanceSuite` (id `settings-card-routes`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
+| `settingsRouteOwnershipSuite` | registry | `WebConformanceSuite` (id `settings-route-ownership`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 
 Supporting exports: `SettingsCardDef`, `SettingsSectionDef`, `visibleSettingsSections`, `settingsPageTitle`, `isFeatureEnabled` (stable); `SettingsFeatureRegistry`, `SettingsFeatureKey`, `SettingsFeatures`, `useSettingsFeatures`, `registeredSettingsFeatures`, the hook option and result types (experimental).
 
@@ -105,7 +110,35 @@ The browser only presents: every permission and every org-layer rule is enforced
 
 ## Conformance suite
 
-None in this slice yet. The registry tripwires run in the reference app (`apps/web/src/__tests__/config/settingsRegistry.test.ts`, `aiSettingsRegistry.test.ts`, `platformPages.test.ts`); their web counterpart of `runPlatformConformance()` lands with #742.
+`@marinoscar/platform-web/settings/testing` registers five suites with `runPlatformWebConformance()` (`@marinoscar/platform-web/testing`). They run over the app's own registries, route table and destination table, and every expectation is derived from that data, never from a literal title or a controller's source:
+
+| Suite id | What it pins |
+|---|---|
+| `settings-registry-gates` | `visibleSettingsSections` and `settingsPageTitle` are the one gate the hub, the Console rail and the AppBar title run: permission gating, empty sections dropped, `alwaysShow` and the feature axis (fail closed), title-only case-insensitive search composed with the gates, longest-prefix titles on segment boundaries, nested routes, a feature card titles nothing while its feature is off, `null` outside the hub. Fixture cases plus every card of both registries, checked against an independent reference implementation |
+| `settings-registry-shape` | Every card has a title, a description and an icon component, a route under its hub (or is inert with no route), a unique route, and only permissions in the API's generated catalog (Settings UI Pattern rules 1 and 3) |
+| `settings-ai-cards` | AI cards (`feature: 'ai'` or routed under an `ai` segment) carry `ai_config:*`, `org_ai_config:*` or `ai:use` as the API enforces, are never confused across scopes, and declare `feature: 'ai'` except the admin switch (AI rule 5). With an OpenAPI document, the permission must also be one an AI route declares in `x-rbac` |
+| `settings-card-routes` | Every card path has a route gated on exactly the permission the card declares, and sits in the destination that owns its hub |
+| `settings-route-ownership` | Every route the app declares is owned by exactly one destination or deliberately by none; ownership matches on segment boundaries |
+
+```ts
+// apps/web/src/__tests__/conformance.test.ts
+import '@marinoscar/platform-web/settings/testing'; // registers the suites
+runPlatformWebConformance({
+  adminSections: ADMIN_SECTIONS,
+  userSettingsSections: USER_SETTINGS_SECTIONS,
+  hubs: { admin: { path: ADMIN_HUB_PATH, title: ADMIN_HUB_TITLE }, user: { path: USER_HUB_PATH, title: USER_HUB_TITLE } },
+  routes: { appTsx: readFileSync(APP_TSX, 'utf8') }, // or an exported array of { path, permission }
+  apiPermissions: catalog.permissions.map((permission) => permission.name),
+  destinations: { routes: DESTINATION_ROUTES, unowned: UNOWNED_ROUTES, owns, resolveActive: resolveActiveDestination, destinations: [...] },
+  suites: { 'settings-route-ownership': { skip: 'This app has no destination table.' } }, // optional; a reason is required
+});
+```
+
+Options: `adminSections`, `userSettingsSections`, `hubs`, `routes` (a route array, preferred, or `{ appTsx }`, the text of the route file parsed for `<Route>` elements so the live routes are read and never a copy), `apiPermissions` (the generated permission catalog, `apps/api/prisma/catalog/permissions.json`), `openApiDocument?` (when the environment has one), `destinations?` (required by `settings-route-ownership`) and `suites?` (skips by id). The app reads files itself, because this package has no Node types.
+
+The reference app keeps only what is about ITS cards (which group holds Broadcasts, that Console is pinned) in `apps/web/src/__tests__/config/settingsCards.test.ts` and `destinations.test.ts`. The breakpoint-gate tripwires (`Layout`, `AppBar`, `BottomNav`) stay in the app because they render the app's own components; gate 4, `SettingsHub`, is pinned by this package's `test/settings/settings-hub.test.tsx`.
+
+Each suite is proved against a planted violation in `test/settings/testing/conformance.test.ts` and `gate-broken.test.ts` (a card with no route, an invented permission, an AI card without its feature, a route two destinations claim, a shared gate that forgets the feature axis).
 
 ## Upgrade notes
 

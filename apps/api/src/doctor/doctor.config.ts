@@ -20,7 +20,7 @@
 // rule 3): the web Doctor card reaching this route declares the same literal
 // `system_settings:read` (`doctorSettingsPage.card.permission` in
 // `@marinoscar/platform-web/doctor/ui`), and
-// `apps/web/src/__tests__/config/settingsRegistry.test.ts` reads both sides.
+// `apps/web/src/__tests__/config/settingsCards.test.ts` reads both sides.
 //
 // The access check is the app's own `@Auth()`, applied through the platform
 // host (`../platform/platform-host.ts`): same guards, same RBAC metadata, same

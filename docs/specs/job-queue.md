@@ -397,7 +397,7 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 3. **A node never persists a job-scoped credential.** A secret a node needs is issued per job through `POST /api/nodes/{id}/jobs/{jobId}/secret`, gated by `assertJobHeldByNode`, bounded by the lease, held in memory, revoked when the job settles or by the sweep. The server stores the credential's handle in `job_node_secrets`, never its material. A handler declares the need by carrying `nodeSecretBroker`. The node's own `nod_` identity token is the one exception.
 4. **A job type declares its execution profile, or takes the global default.** `profile` is exactly `{ maxRuntimeMs, maxAttempts }`. Lease, renewal interval and reaper horizon are derived from `maxRuntimeMs`.
 
-**Exemptions.** Exactly three crons may do work inline. Adding a fourth means editing this table and the array in `apps/api/test/jobs/cron-enqueue-only.spec.ts`. The scan covers the app's sources and the packaged slices' (`apps/api/test/jobs/cron-source-roots.ts`), and each exemption is pinned to its slice's root, so the same relative path elsewhere is never exempt.
+**Exemptions.** Exactly three crons may do work inline. Adding a fourth means editing this table and the `EXEMPT` array in `apps/api/test/conformance.spec.ts` (the `cron-enqueue-only` suite's `exempt` option). The scan covers the app's sources and the packaged slices' (`apps/api/test/jobs/cron-source-roots.ts`), and each exemption is pinned to its slice's root, so the same relative path elsewhere is never exempt.
 
 | Cron | Why it cannot be a job |
 |---|---|
@@ -409,7 +409,7 @@ Any activity that outlives the HTTP request or cron tick that started it is a re
 
 **Kill switches stay with scheduling.** `NODE_STALE_OFFLINE_ENABLED`, `NODE_OFFLINE_PRUNE_ENABLED` and `DB_BACKUP_SCHEDULE_ENABLED` are read in the task before enqueue, never re-asked in the handler, so a job queued by one replica is never dropped by another. With `JOBS_WORKER_MODE=off` these crons queue work nothing on that process executes.
 
-**Test limit.** `cron-enqueue-only.spec.ts` reads each `@Cron` method body and requires it to enqueue and to contain no marker of doing work. The scan logic ships in `@marinoscar/platform-api/testing` (`runPlatformConformance()`), so every app that consumes the platform runs the same rule; the spec keeps this app's exemption list and minimum. `test/jobs/on-event-no-io.spec.ts` is its `@OnEvent` counterpart: it reads every `@OnEvent` method body and fails on a marker of storage I/O (a direct storage-provider call, `.download(`, `.upload(`). Neither follows calls into helpers; a helper's own spec pins that it only does the bounded thing it claims.
+**Test limit.** The `cron-enqueue-only` conformance suite reads each `@Cron` method body and requires it to enqueue and to contain no marker of doing work. The scan logic ships in `@marinoscar/platform-api/testing` (`runPlatformConformance()`), so every app that consumes the platform runs the same rule; the app's `conformance.spec.ts` keeps its exemption list and minimum. The `on-event-no-io` suite (`@marinoscar/platform-api/jobs/testing`, run from the same entry) is its `@OnEvent` counterpart: it reads every `@OnEvent` method body and fails on a marker of storage I/O (a direct storage-provider call, `.download(`, `.upload(`). Neither follows calls into helpers; a helper's own spec pins that it only does the bounded thing it claims.
 
 ### Job inventory
 
@@ -537,7 +537,7 @@ The full recipe, with worked examples, is [packages/platform-api/src/jobs/handle
 
 Optionally give the handler a `readonly label`. To make the type node-eligible, add both `nodeResultSchema` (the schema next to the handler; the reference app's are in `apps/api/src/jobs/contracts/`) and `persistNodeResult`, routing both executors through one write, as `example-checksum.handler.ts` does; the CLI side is in [worker-nodes.md](worker-nodes.md). Add `profile` for a type that runs long or must not retry, `registerProviderKey` for a type calling a rate-limited provider, and `canDelete` when a pending row is load-bearing for the feature's own state.
 
-If the work is triggered on a schedule, write a `@Cron` that only enqueues (use `enqueueHousekeepingJob` from `@marinoscar/platform-api/jobs`). `cron-enqueue-only.spec.ts` fails a cron body that does work inline.
+If the work is triggered on a schedule, write a `@Cron` that only enqueues (use `enqueueHousekeepingJob` from `@marinoscar/platform-api/jobs`). The `cron-enqueue-only` conformance suite fails a cron body that does work inline.
 
 Worked examples: `apps/api/src/examples/jobs/example-echo.handler.ts` (smallest server-only handler), `apps/api/src/examples/jobs/example-checksum.handler.ts` (node-eligible), the slice's `job-history-purge.handler.ts` (real work plus a scheduling task), `db-backup/handlers/db-backup-run.handler.ts` (`profile`, `deriveOutputKey`, `nodeOffloadEnabled`, `nodeSecretBroker`).
 
@@ -547,8 +547,8 @@ Paths starting `test/` are under `apps/api/`; the unit specs that moved with the
 
 | Test | Enforces |
 |---|---|
-| `test/jobs/cron-enqueue-only.spec.ts` | Every `@Cron` body only enqueues; exactly three exemptions |
-| `test/jobs/on-event-no-io.spec.ts` | Every `@OnEvent` body is free of storage I/O (direct storage-provider calls, `.download(`/`.upload(`) |
+| `test/conformance.spec.ts`, suite `cron-enqueue-only` | Every `@Cron` body only enqueues; exactly three exemptions |
+| `test/conformance.spec.ts`, suite `on-event-no-io` | Every `@OnEvent` body is free of storage I/O (direct storage-provider calls, `.download(`/`.upload(`) |
 | `platform-api/test/jobs/job-handler.registry.spec.ts` | Self-registration via real `onModuleInit`; `serverOnlyTypes()` derivation incl. exactly-one-member; duplicate warns, last wins; module graph boots |
 | `platform-api/src/jobs/job-type-label.spec.ts`, `test/jobs/job-type-snapshot.spec.ts` | Label registry precedence (handler, registered, type); every registered type still registered ("job type strings are permanent") and its label unchanged in `GET /api/admin/jobs` |
 | `test/jobs/jobs-enqueue.db.spec.ts` | Concurrent enqueue of one key yields one row for both callers; `skipDedup` yields NULL keys; settled job frees its key |
@@ -635,6 +635,6 @@ In a running app:
 - #361: `claim_token`. #364: token on the node plane. #456: broadcast chunk throttle key.
 - #459: broadcast failure listener. #468: reaper give-up emits `job.settled`. #477: claim-conditional terminal writes. #480: `canDelete` veto.
 - #607: `trace_context` — the enqueuing span's `traceparent`, parent of the server worker's job span and handed to nodes on claim.
-- #520: post-upload object processing becomes the `storage.object.process` job, replacing the `storage.object.uploaded` `@OnEvent` listener; `test/jobs/on-event-no-io.spec.ts` added as its tripwire.
+- #520: post-upload object processing becomes the `storage.object.process` job, replacing the `storage.object.uploaded` `@OnEvent` listener; the `on-event-no-io` suite (then `test/jobs/on-event-no-io.spec.ts`, moved into the conformance runner by #742) added as its tripwire.
 - PP-1.11 (#682): `jobs.enqueued` wake-up through the event bus; idle sleeps tracked apart from job timers; the poll stays the fallback.
 - PP-8.2 (#734): the queue becomes `@marinoscar/platform-api/jobs` (`JobsModule.forRoot()`, host ports), the HTTP shapes move to `@marinoscar/platform-contract/jobs`; `JOB_TYPE_LABELS` becomes the label registry; `jobs.org_id` (migrations `0030`, `0031`), `JobScope.run`, `org.id` on job spans; the cron exemptions move to the package paths.

@@ -59,6 +59,7 @@ describe('@marinoscar/platform-api', () => {
       './email': { types: './dist/email/index.d.ts', default: './dist/email/index.js' },
       './email/testing': { types: './dist/email/testing/index.d.ts', default: './dist/email/testing/index.js' },
       './jobs': { types: './dist/jobs/index.d.ts', default: './dist/jobs/index.js' },
+      './jobs/testing': { types: './dist/jobs/testing/index.d.ts', default: './dist/jobs/testing/index.js' },
       './nodes': { types: './dist/nodes/index.d.ts', default: './dist/nodes/index.js' },
       './storage': { types: './dist/storage/index.d.ts', default: './dist/storage/index.js' },
       './storage/testing': { types: './dist/storage/testing/index.d.ts', default: './dist/storage/testing/index.js' },

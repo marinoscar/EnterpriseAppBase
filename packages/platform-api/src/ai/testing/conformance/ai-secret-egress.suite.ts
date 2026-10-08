@@ -1,5 +1,5 @@
 // =============================================================================
-// AI secret no-egress — cross-cutting conformance (issue #435, epic #419)
+// Suite: AI secret no-egress (issues #435, #742)
 // =============================================================================
 //
 // No key material — a user's own provider key, the deployment's admin (org)
@@ -41,41 +41,62 @@
 //
 // Two app contexts, because the admin surface (`AiConfigAdminService` and
 // friends) and the consumer surface (`AiService`/`AiRunsService`, exercised
-// through `ai-http.helper`'s harness) are wired through different services
+// through the fixture's harness app) are wired through different services
 // and neither substitutes for the other:
 //
-//   - `adminCtx` mirrors `ai-admin.integration.spec.ts`'s own minimal setup
-//     (a stubbed `CredentialsService`, `FakeAiProvider` registered as
-//     `openai` in the REAL `AiProviderRegistry`) — reused rather than
-//     reinvented, since that file is the worked example for driving this
-//     surface at all.
-//   - `app` is the `createAiHttpTestApp` harness every other #433 HTTP spec
-//     uses, unchanged.
+//   - `adminCtx` (`fixture.createContext`) is the app with a stubbed
+//     `CredentialsService` and `OrgCredentialsService` and `FakeAiProvider`
+//     registered as `openai` in the REAL `AiProviderRegistry`.
+//   - `app` is the harness app (`fixture.createAiApp`) every other AI HTTP
+//     suite uses, unchanged.
+// =============================================================================
+//
+// Moved from the reference app's `apps/api/test/ai/ai-secret-egress.integration.spec.ts`
+// with the same case list. The app supplies how it boots (`AiConformanceFixture`).
 // =============================================================================
 
-import request from 'supertest';
+import { request } from './ai-http-client';
 import { Logger } from '@nestjs/common';
-
-import { createTestApp, closeTestApp, type TestContext } from '../helpers/test-app.helper';
-import { createMockAdminUser, createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
-import { CredentialsService, OrgCredentialsService } from '@marinoscar/platform-api/credentials';
-import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
-import { AiConfigService } from '@marinoscar/platform-api/ai';
-import { FAKE_REALTIME_SECRET_PREFIX, FakeAiProvider } from '@marinoscar/platform-api/ai/testing';
-import { AI_KEYLESS_API_KEY } from '@marinoscar/platform-api/ai';
 import {
   AI_SETTINGS_CARRIES_NO_SECRET,
   systemAiSchema,
-} from '../../src/common/schemas/settings.schema';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+} from '@marinoscar/platform-contract/ai';
+
+import { CredentialsService, OrgCredentialsService } from '../../../credentials/index';
+import { JobHandlerRegistry } from '../../../jobs/index';
+import type { ConformanceAppSuite } from '../../../testing/index';
+import { AiConfigService } from '../../config/ai-config.service';
+import { AiProviderRegistry } from '../../core/provider-registry';
+import { AI_KEYLESS_API_KEY } from '../../core/provider-adapter.interface';
+import {
+  aiConfigResponseSchema,
+  aiEmbeddingsResponseSchema,
+  aiImageRunOutputSchema,
+  aiKeyRemovalResponseSchema,
+  aiModelSchema,
+  aiProviderTestResultSchema,
+  aiPublicConfigSchema,
+  aiRealtimeSessionResponseSchema,
+  aiResponseSchema,
+  aiRunSchema,
+  aiRunStartedSchema,
+  aiSpeechRunOutputSchema,
+  aiTranscriptionRunOutputSchema,
+  refreshAiCatalogResultSchema,
+  usableAiModelSchema,
+  userAiKeyTestResultSchema,
+  userAiKeyViewSchema,
+} from '../../index';
 import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
   FAKE_IMAGE_MODEL_CAPABILITIES,
   FAKE_REALTIME_MODEL_CAPABILITIES,
+  FAKE_REALTIME_SECRET_PREFIX,
   FAKE_SPEECH_MODEL_CAPABILITIES,
-  FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
   FAKE_TEXT_MODEL_CAPABILITIES,
-} from '@marinoscar/platform-api/ai/testing';
+  FAKE_TRANSCRIPTION_MODEL_CAPABILITIES,
+  FakeAiProvider,
+} from '../fake-ai-provider';
 import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
@@ -87,26 +108,34 @@ import {
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
   HARNESS_TENANT_KEY,
-} from '@marinoscar/platform-api/ai/testing';
-import { MOCK_DEFAULT_ORG_ID } from '../fixtures/test-data.factory';
-import { IN_MEMORY_PRESIGNED_SIGNATURE } from '@marinoscar/platform-api/ai/testing';
-import { createAiHttpTestApp, type AiHttpTestApp, ALL_KEYS, OTHER_USER_KEY, parseSse } from './ai-http.helper';
-import { aiConfigResponseSchema, aiKeyRemovalResponseSchema } from '@marinoscar/platform-api/ai';
-import { aiModelSchema, refreshAiCatalogResultSchema } from '@marinoscar/platform-api/ai';
-import { aiProviderTestResultSchema } from '@marinoscar/platform-api/ai';
-import { aiPublicConfigSchema } from '@marinoscar/platform-api/ai';
-import { usableAiModelSchema } from '@marinoscar/platform-api/ai';
-import { userAiKeyViewSchema, userAiKeyTestResultSchema } from '@marinoscar/platform-api/ai';
+} from '../ai-runtime-harness';
+import { IN_MEMORY_PRESIGNED_SIGNATURE } from '../in-memory-ai-storage';
 import {
-  aiImageRunOutputSchema,
-  aiResponseSchema,
-  aiRunStartedSchema,
-  aiRunSchema,
-  aiSpeechRunOutputSchema,
-  aiTranscriptionRunOutputSchema,
-} from '@marinoscar/platform-api/ai';
-import { aiEmbeddingsResponseSchema } from '@marinoscar/platform-api/ai';
-import { aiRealtimeSessionResponseSchema } from '@marinoscar/platform-api/ai';
+  ALL_KEYS,
+  OTHER_USER_KEY,
+  authHeader,
+  parseSse,
+  type AiConformanceApp,
+  type AiConformanceContext,
+  type AiConformanceFixture,
+} from './ai-conformance-fixture';
+import { findKeyShapedProperties, findLeakedSentinels, findSecretShapedProperties } from './ai-egress-checks';
+
+/**
+ * How an app configures the `ai-secret-egress` suite.
+ *
+ * @example
+ * ```ts
+ * suites: { aiSecretEgress: { fixture: aiConformanceFixture } }
+ * ```
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export interface AiSecretEgressOptions {
+  /** How the app boots; see {@link AiConformanceFixture}. */
+  fixture: AiConformanceFixture;
+}
 
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
 /** An MCP server credential, sent as a hosted `mcp` tool's `Authorization` header (#442). */
@@ -126,25 +155,28 @@ const MCP_TOOL = {
 
 /** Every place a sentinel might leak, joined into one haystack per capture. */
 function assertNoLeak(label: string, haystack: string): void {
-  const leaked = ALL_SENTINELS.filter((sentinel) => haystack.includes(sentinel));
+  const leaked = findLeakedSentinels(haystack, ALL_SENTINELS);
   if (leaked.length > 0) {
     throw new Error(`${label} leaks: ${leaked.join(', ')}`);
   }
   expect(leaked).toEqual([]);
 }
 
+function register(options: AiSecretEgressOptions): void {
+  const { fixture } = options;
+
 describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
   // ---- consumer-side context (the #433 HTTP harness) -------------------------
-  let app: AiHttpTestApp;
+  let app: AiConformanceApp;
   let holderToken: string;
 
   // ---- admin-side context (mirrors ai-admin.integration.spec.ts's setup) ----
-  let adminCtx: TestContext;
+  let adminCtx: AiConformanceContext;
   let adminFake: FakeAiProvider;
   let storedAi: Record<string, unknown>;
   let storedAdminKey: string | null;
   let adminToken: string;
-  /** The org tier's store (#739): `orgId|purpose|name` -> secret. */
+  // The org tier's store (#739): `orgId|purpose|name` mapped to the secret.
   const storedOrgKeys = new Map<string, string>();
 
   // ---- Pino/Nest Logger capture, across BOTH contexts -----------------------
@@ -152,7 +184,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
   let logSpies: jest.SpyInstance[];
 
   beforeAll(async () => {
-    app = await createAiHttpTestApp({
+    app = await fixture.createAiApp({
       policy: { keyPolicy: 'byok_with_org_fallback' },
       // `fake-model` also declares `hosted_tools`, so the MCP sentinel below
       // reaches the provider rather than stopping at the capability gate.
@@ -167,8 +199,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       fake: { hostedTools: ['mcp'] },
     });
 
-    adminCtx = await createTestApp({
-      useMockDatabase: true,
+    adminCtx = await fixture.createContext({
       overrideProviders: [
         {
           provide: CredentialsService,
@@ -220,12 +251,12 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     });
 
     adminFake = new FakeAiProvider({ id: 'openai', validKeys: [ADMIN_KEY_SENTINEL, ORG_KEY_SENTINEL], models: ['gpt-mini'] });
-    adminCtx.app.get(AiProviderRegistry).register(adminFake);
+    adminCtx.app.get<AiProviderRegistry>(AiProviderRegistry).register(adminFake);
   }, 60_000);
 
   afterAll(async () => {
     await app.close();
-    await closeTestApp(adminCtx);
+    await fixture.closeContext(adminCtx);
   });
 
   beforeEach(async () => {
@@ -250,7 +281,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     });
 
     adminFake.reset();
-    adminCtx.app.get(AiConfigService).invalidateCache();
+    adminCtx.app.get<AiConfigService>(AiConfigService).invalidateCache();
 
     storedAi = {
       enabled: true,
@@ -289,9 +320,9 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
 
     // Both mock users are created LAST, after every reset above, so neither
     // registration is wiped by the other context's setup.
-    const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
+    const holder = await fixture.createUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
     holderToken = holder.accessToken;
-    const admin = await createMockAdminUser(adminCtx);
+    const admin = await fixture.createUser(adminCtx, { roleName: 'admin' });
     adminToken = admin.accessToken;
 
     logLines = [];
@@ -329,53 +360,6 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     // deliberately excluded: those legitimately carry `apiKey` IN, which is
     // the whole point of a write-only key route. What must never happen is a
     // RESPONSE schema publishing a property shaped to hold one back out.
-    const BANNED_PROPERTY_NAMES = new Set([
-      'secret',
-      'secretkey',
-      'secretaccesskey',
-      'sessiontoken',
-      'apikey',
-      'apikeys',
-      'password',
-      'token',
-      'privatekey',
-      'rawkey',
-    ]);
-
-    /** Unwraps optional/nullable/default wrappers to the schema they wrap. */
-    function unwrap(schema: any): any {
-      let current = schema;
-      while (current && typeof current.unwrap === 'function') {
-        current = current.unwrap();
-      }
-      return current;
-    }
-
-    /** Every property name reachable from `schema`, however deeply nested. */
-    function collectPropertyNames(schema: any, seen = new Set<any>()): string[] {
-      const node = unwrap(schema);
-      if (!node || seen.has(node)) return [];
-      seen.add(node);
-
-      const type = node.def?.type;
-      const names: string[] = [];
-
-      if (type === 'object' && node.shape) {
-        for (const [key, value] of Object.entries(node.shape)) {
-          names.push(key);
-          names.push(...collectPropertyNames(value, seen));
-        }
-      } else if (type === 'array' && node.element) {
-        names.push(...collectPropertyNames(node.element, seen));
-      } else if ((type === 'union' || type === 'discriminatedUnion') && node.options) {
-        for (const option of node.options) names.push(...collectPropertyNames(option, seen));
-      } else if (type === 'record' && node.valueType) {
-        names.push(...collectPropertyNames(node.valueType, seen));
-      }
-
-      return names;
-    }
-
     // The RESPONSE schemas — every `*Dto` this module publishes as an
     // HTTP response, imported by its underlying zod schema so this walk
     // needs no OpenAPI document at all.
@@ -407,15 +391,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     const ALLOWED_SECRET_PROPERTIES = new Set(['AiRealtimeSessionResponseDto.clientSecret']);
 
     it('only AiRealtimeSessionResponseDto.clientSecret carries a secret-shaped name (#449 allowlist)', () => {
-      const found: string[] = [];
-
-      for (const [name, schema] of Object.entries(responseSchemas)) {
-        for (const prop of collectPropertyNames(schema)) {
-          if (/secret|credential|apikey/i.test(prop)) found.push(`${name}.${prop}`);
-        }
-      }
-
-      expect(found).toEqual([...ALLOWED_SECRET_PROPERTIES]);
+      expect(findSecretShapedProperties(responseSchemas)).toEqual([...ALLOWED_SECRET_PROPERTIES]);
     });
 
     it('finds every response schema, so a broken import list cannot pass vacuously', () => {
@@ -426,11 +402,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     });
 
     it.each(Object.entries(responseSchemas))('%s carries no key-shaped property', (_name, schema) => {
-      const offenders = collectPropertyNames(schema).filter((prop) =>
-        BANNED_PROPERTY_NAMES.has(prop.toLowerCase()),
-      );
-
-      expect(offenders).toEqual([]);
+      expect(findKeyShapedProperties(schema)).toEqual([]);
     });
   });
 
@@ -501,7 +473,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         .send({ model: HARNESS_IMAGE_MODEL, prompt: 'a lighthouse', n: 2 })
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.image.generate');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       const run = await request(app.context.app.getHttpServer())
@@ -537,7 +509,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
           .send({ model: HARNESS_IMAGE_MODEL, prompt: 'x' })
           .expect(202);
 
-        const handler = app.context.app.get(JobHandlerRegistry).get('ai.image.generate');
+        const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.image.generate');
         const thrown = await handler!
           .process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never)
           .catch((err: unknown) => err);
@@ -568,7 +540,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         .send({ storageObjectId: recording.id, model: HARNESS_TRANSCRIPTION_MODEL, prompt: 'names: Acme' })
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.transcribe');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.transcribe');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       const run = await request(app.context.app.getHttpServer())
@@ -601,7 +573,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
           .send({ storageObjectId: recording.id, model: HARNESS_TRANSCRIPTION_MODEL })
           .expect(202);
 
-        const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.transcribe');
+        const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.transcribe');
         // The last attempt, so the run is failed rather than released for a retry.
         const thrown = await handler!
           .process({ id: started.body.data.jobId, attempts: 2, payload: { runId: started.body.data.runId } } as never)
@@ -631,7 +603,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         .send({ input: 'Read this aloud.', model: HARNESS_SPEECH_MODEL, instructions: 'calm' })
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.speech');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       const run = await request(app.context.app.getHttpServer())
@@ -668,7 +640,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
           .send({ input: 'x', model: HARNESS_SPEECH_MODEL })
           .expect(202);
 
-        const handler = app.context.app.get(JobHandlerRegistry).get('ai.audio.speech');
+        const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.speech');
         // The last attempt, so the run is failed rather than released for a retry.
         const thrown = await handler!
           .process({ id: started.body.data.jobId, attempts: 2, payload: { runId: started.body.data.runId } } as never)
@@ -761,7 +733,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       const started = await request(server).post('/api/ai/runs').set(authHeader(holderToken)).send(body).expect(202);
 
       await app.context.app
-        .get(JobHandlerRegistry)
+        .get<JobHandlerRegistry>(JobHandlerRegistry)
         .get('ai.response.run')!
         .process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
@@ -1026,7 +998,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         .send({ model: 'fake-model', input: 'hello' })
         .expect(202);
 
-      const handler = app.context.app.get(JobHandlerRegistry).get('ai.response.run');
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.response.run');
       await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
 
       const run = await request(server)
@@ -1124,8 +1096,8 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     });
 
     it('a member without a key is served by the org key: it reaches the provider and nothing else', async () => {
-      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, HARNESS_TENANT_KEY);
-      const member = await createMockTestUser(app.context, { roleName: 'contributor' });
+      app.harness.setTenantKey(fixture.defaultOrgId, HARNESS_TENANT_KEY);
+      const member = await fixture.createUser(app.context, { roleName: 'contributor' });
 
       const res = await request(app.context.app.getHttpServer())
         .post('/api/ai/responses')
@@ -1142,11 +1114,11 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     });
 
     it('a refused org-tier call (the provider rejects the org key) carries no sentinel in its error body', async () => {
-      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, HARNESS_TENANT_KEY);
+      app.harness.setTenantKey(fixture.defaultOrgId, HARNESS_TENANT_KEY);
       app.script(() => {
         throw new Error(`provider rejected key ${HARNESS_TENANT_KEY}`);
       });
-      const member = await createMockTestUser(app.context, { roleName: 'contributor' });
+      const member = await fixture.createUser(app.context, { roleName: 'contributor' });
 
       const res = await request(app.context.app.getHttpServer())
         .post('/api/ai/responses')
@@ -1208,3 +1180,20 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
     });
   });
 });
+}
+
+/**
+ * The suite behind `runPlatformConformance({ suites: { aiSecretEgress } })`.
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export const aiSecretEgressSuite: ConformanceAppSuite<AiSecretEgressOptions> = {
+  id: 'ai-secret-egress',
+  title: 'AI secret no-egress — cross-cutting conformance (#435)',
+  description:
+    'No AI response DTO has a property that could carry key material, and no key (user, administrator, organization, MCP header) appears in any response, log line, usage row or stored run (AI rule 2).',
+  register(_api, _context, options) {
+    register(options);
+  },
+};

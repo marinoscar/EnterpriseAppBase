@@ -5,7 +5,7 @@
 // ⚠ THIS TASK TOUCHES NO DATABASE BUT ITS OWN QUEUE. It enqueues one global
 // `telemetry.retention.apply` job through the shared housekeeping helper, and
 // `TelemetryRetentionHandler` runs the `ALTER DATABASE` on a worker slot.
-// Pinned by `apps/api/test/jobs/cron-enqueue-only.spec.ts`.
+// Pinned by `apps/api/test/conformance.spec.ts`.
 //
 // Daily re-assertion, not just on save: GreptimeDB may have been recreated
 // (a fresh volume starts with no TTL), or the save-time job may have been

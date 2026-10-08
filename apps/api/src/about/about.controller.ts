@@ -28,7 +28,7 @@
 //
 // ⚠ THE STRING HERE IS HALF OF A CROSS-APP CONTRACT. The web settings card that
 // reaches this route (a later issue in this epic) must declare the exact same
-// permission, and `apps/web/src/__tests__/config/settingsRegistry.test.ts` reads
+// permission, and `apps/web/src/__tests__/config/settingsCards.test.ts` reads
 // THIS FILE'S SOURCE to prove the two agree byte for byte. Both spellings — the
 // `PERMISSIONS.SYSTEM_SETTINGS_READ` reference below and the literal
 // `system_settings:read` — therefore appear in this file on purpose. Do not

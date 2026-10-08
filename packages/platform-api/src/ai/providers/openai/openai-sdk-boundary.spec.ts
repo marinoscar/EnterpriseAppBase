@@ -2,7 +2,7 @@
 // ONLY by the OpenAI wire family — `ai/providers/openai/` (which also holds
 // the mappers, engines and client helpers the family shares) and the two
 // adapters composed from them, `ai/providers/azure-openai/` and
-// `ai/providers/openai-compatible/`. `test/ai/ai-no-sdk-leak.spec.ts` already
+// `ai/providers/openai-compatible/`. the `ai-no-sdk-leak` conformance suite already
 // keeps every provider SDK inside SOME provider directory; this adds the
 // stricter claim that no other provider's directory (or anything else)
 // reaches for OpenAI's SDK.

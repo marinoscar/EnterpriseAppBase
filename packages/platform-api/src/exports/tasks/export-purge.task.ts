@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // ⚠ THIS TASK DELETES NOTHING. A `@Cron` decides and enqueues, nothing more
-// (CLAUDE.md queue rule 1; `apps/api/test/jobs/cron-enqueue-only.spec.ts`).
+// (CLAUDE.md queue rule 1; `apps/api/test/conformance.spec.ts`).
 // The deleting is `export.purge`'s work, on a worker slot, retried by the
 // queue. 3am, EvoPath's schedule.
 // =============================================================================

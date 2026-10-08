@@ -11,7 +11,7 @@
 // task queues one job PER PROVIDER. `JobsService.enqueue` dedups on type +
 // subject, so a provider whose recheck is still pending is not queued twice.
 //
-// Pinned by `apps/api/test/jobs/cron-enqueue-only.spec.ts`.
+// Pinned by `apps/api/test/conformance.spec.ts`.
 // =============================================================================
 
 import { Injectable, Logger, Inject } from '@nestjs/common';

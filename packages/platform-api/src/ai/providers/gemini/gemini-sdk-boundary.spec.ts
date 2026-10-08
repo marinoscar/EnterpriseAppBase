@@ -1,5 +1,5 @@
 // The narrow, per-provider pin for `@google/genai` (#447): it is imported
-// ONLY under `ai/providers/gemini/`. `test/ai/ai-no-sdk-leak.spec.ts`
+// ONLY under `ai/providers/gemini/`. the `ai-no-sdk-leak` conformance suite
 // already keeps every provider SDK inside SOME provider directory; this adds
 // the stricter claim that no OTHER provider's directory (or anything else)
 // reaches for Google's Gen AI SDK — each adapter owns exactly one SDK.

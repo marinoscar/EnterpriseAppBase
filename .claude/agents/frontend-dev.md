@@ -38,6 +38,6 @@ cd apps/web && npm run build
 ## Definition of done
 
 - `npm run typecheck`, `npm run test:run` and `npm run build` pass in `apps/web`.
-- Registry tests pass (`apps/web/src/__tests__/config/`), including `aiSettingsRegistry.test.ts` for AI cards.
+- Registry tests pass: `apps/web/src/__tests__/conformance.test.ts` (the `settings-*` suites, including `settings-ai-cards` for AI cards) and `apps/web/src/__tests__/config/`.
 - New components and hooks have tests in the same or the next commit.
 - The page works at phone width (below `sm`) and at desktop width.

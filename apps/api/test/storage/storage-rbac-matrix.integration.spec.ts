@@ -4,7 +4,7 @@
 //
 // Every route under `/api/storage/objects*`, DISCOVERED from the real Nest
 // router (never hand-listed — same technique as
-// `ai-rbac-matrix.integration.spec.ts`), crossed against Admin / Contributor /
+// the `ai-rbac-matrix` conformance suite), crossed against Admin / Contributor /
 // Viewer / unauthenticated, with the EXPECTED permission read off each
 // route's own `x-rbac` metadata (`@Auth()`'s vendor extension) rather than
 // re-declared by hand — and the seeded grant for each role read from

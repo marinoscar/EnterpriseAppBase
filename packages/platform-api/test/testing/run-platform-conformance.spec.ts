@@ -1,4 +1,4 @@
-import { runPlatformConformance, conformanceSuites } from '../../src/testing';
+import { conformanceSuites, formatConformanceSummary, runPlatformConformance } from '../../src/testing';
 import type { CronEnqueueOnlyOptions } from '../../src/testing';
 import {
   emptySourceRoot,
@@ -118,20 +118,90 @@ describe('runPlatformConformance', () => {
     ).toThrow('unknown conformance suite "cronEnqueueOnlyy"');
   });
 
-  it('makes an opt-out visible: a passing "<id>: disabled by the app" test replaces the suite', async () => {
+  it('makes an opt-out visible: a passing "<id>: skipped by the app (<reason>)" test replaces the suite', async () => {
     const { api, tests, titles } = recordingTestApi();
 
     runPlatformConformance({
       sourceRoots: [compliantRoot()],
-      suites: { cronEnqueueOnly: false },
+      suites: { cronEnqueueOnly: { skip: 'This fixture app has no crons.' } },
       testApi: api,
     });
 
     expect(titles).toEqual(['every @Cron enqueues rather than working']);
     expect(tests.map((t) => t.name)).toEqual([
-      'every @Cron enqueues rather than working > cron-enqueue-only: disabled by the app',
+      'every @Cron enqueues rather than working > cron-enqueue-only: skipped by the app (This fixture app has no crons.)',
     ]);
     expect(await outcome(tests[0])).toBeNull();
+  });
+
+  it('throws when a skip has no reason, or is spelled false', () => {
+    const { api } = recordingTestApi();
+    const run = (value: unknown) => () =>
+      runPlatformConformance({ sourceRoots: [compliantRoot()], suites: { cronEnqueueOnly: value } as never, testApi: api });
+
+    expect(run({ skip: '' })).toThrow('skipped without a reason');
+    expect(run({ skip: '   ' })).toThrow('skipped without a reason');
+    expect(run({})).not.toThrow('skipped without a reason');
+    expect(run({ skip: undefined })).toThrow('skipped without a reason');
+    expect(run(false)).toThrow("An opt-out needs a reason: `cronEnqueueOnly: { skip: 'why this app does not run it' }`");
+  });
+
+  it('prints a summary of the suites run and skipped, with the reasons, without adding a test', () => {
+    const { api, tests } = recordingTestApi();
+    const printed: string[] = [];
+
+    runPlatformConformance({
+      sourceRoots: [compliantRoot()],
+      suites: {
+        cronEnqueueOnly: { exempt: [], minCronFiles: 1 },
+        userOwnedData: { skip: 'No Prisma schema in this fixture.' } as never,
+      },
+      testApi: api,
+      summaryOutput: (table) => printed.push(table),
+    });
+
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toContain('cron-enqueue-only  run');
+    expect(printed[0]).toContain('user-owned-data    skipped: No Prisma schema in this fixture.');
+    expect(printed[0]).toContain('1 run, 1 skipped');
+    // A summary test would change the case list of every suite the app runs.
+    expect(tests.some((t) => t.name.includes('summary'))).toBe(false);
+  });
+
+  it('prints the summary to standard output when the runner’s own globals are used, and nothing for an injected test API', () => {
+    const write = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const g = globalThis as unknown as Record<string, unknown>;
+    const savedDescribe = g.describe;
+    const savedIt = g.it;
+    // Collection under the real runner cannot happen inside a test, so stand in for its globals.
+    g.describe = (_name: string, fn: () => void) => fn();
+    g.it = () => undefined;
+    try {
+      runPlatformConformance({ sourceRoots: [compliantRoot()], suites: { cronEnqueueOnly: { skip: 'No crons in this fixture.' } } });
+      const printedByGlobals = write.mock.calls.map((call) => String(call[0])).join('');
+      write.mockClear();
+      runPlatformConformance({
+        sourceRoots: [compliantRoot()],
+        suites: { cronEnqueueOnly: { skip: 'No crons in this fixture.' } },
+        testApi: recordingTestApi().api,
+      });
+
+      expect(printedByGlobals).toContain('cron-enqueue-only  skipped: No crons in this fixture.');
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      g.describe = savedDescribe;
+      g.it = savedIt;
+      write.mockRestore();
+    }
+  });
+
+  it('formats the summary table', () => {
+    expect(
+      formatConformanceSummary([
+        { id: 'a', status: 'run' },
+        { id: 'long-id', status: 'skipped', reason: 'why' },
+      ]),
+    ).toBe(['suite    status', 'a        run', 'long-id  skipped: why', '1 run, 1 skipped'].join('\n'));
   });
 
   it('registers nothing for a suite the app leaves out', () => {

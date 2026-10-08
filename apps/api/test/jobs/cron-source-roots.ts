@@ -8,8 +8,8 @@
 // `TelemetryRetentionTask`), or ships a cron of its own (the sharing slice's
 // `GrantsPruneTask`, #729), is still this application's cron, so the rule
 // must still see it. The jobs and nodes slices moved out too (#734), with the
-// three permanent exemptions. Shared by `cron-enqueue-only.spec.ts`,
-// `on-event-no-io.spec.ts` and the proof that the roots are scanned
+// three permanent exemptions. Shared by the `cron-enqueue-only` and
+// `on-event-no-io` conformance suites (`conformance.spec.ts`) and the proof that the roots are scanned
 // (`cron-source-roots.spec.ts`).
 // =============================================================================
 

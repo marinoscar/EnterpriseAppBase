@@ -1,11 +1,18 @@
-import type { ConformanceReport, ConformanceTestApi } from './conformance-suite';
+import type {
+  ConformanceAppSuite,
+  ConformanceReport,
+  ConformanceSkip,
+  ConformanceSuite,
+  ConformanceTestApi,
+} from './conformance-suite';
 import { conformanceSuites } from './conformance-suites';
 import type { CronEnqueueOnlyOptions } from './suites/cron-enqueue-only';
 import type { UserOwnedDataOptions } from './suites/user-owned-data';
 
 /**
  * The suites {@link runPlatformConformance} can run, by option key: each
- * entry is the suite's options, or `false` to opt out. An interface so a slice
+ * entry is the suite's options (the app passes them, or `{ skip: 'reason' }`
+ * to opt out; see {@link PlatformConformanceOptions.suites}). An interface so a slice
  * that ships a suite adds its key by module augmentation (the telemetry slice's
  * `telemetry`, declared in `@marinoscar/platform-api/telemetry/testing`) and
  * the runner is not edited.
@@ -14,7 +21,7 @@ import type { UserOwnedDataOptions } from './suites/user-owned-data';
  * ```ts
  * declare module '@marinoscar/platform-api/testing' {
  *   interface PlatformConformanceSuiteOptions {
- *     myFeature?: MyFeatureOptions | false;
+ *     myFeature?: MyFeatureOptions;
  *   }
  * }
  * ```
@@ -22,10 +29,10 @@ import type { UserOwnedDataOptions } from './suites/user-owned-data';
  * @stability experimental
  */
 export interface PlatformConformanceSuiteOptions {
-  /** The `cron-enqueue-only` suite: its options, or `false` to opt out. */
-  cronEnqueueOnly?: CronEnqueueOnlyOptions | false;
-  /** The `user-owned-data` suite: its options, or `false` to opt out. */
-  userOwnedData?: UserOwnedDataOptions | false;
+  /** The `cron-enqueue-only` suite: its options, or `{ skip: 'reason' }` to opt out. */
+  cronEnqueueOnly?: CronEnqueueOnlyOptions;
+  /** The `user-owned-data` suite: its options, or `{ skip: 'reason' }` to opt out. */
+  userOwnedData?: UserOwnedDataOptions;
 }
 
 /**
@@ -38,15 +45,24 @@ export interface PlatformConformanceOptions {
   /** Absolute directories holding the app's non-test TypeScript sources, for example `[join(__dirname, '../../src')]`. */
   sourceRoots: readonly string[];
   /**
-   * One entry per suite. Pass the suite's options to run it, or `false` to
-   * opt out (the opt-out stays visible in the test output). A suite left out
-   * does not run; an unknown key throws, so a typo cannot disable a check.
-   * A suite that ships with a slice is registered by importing that slice's
-   * testing entry (the telemetry suite: `@marinoscar/platform-api/telemetry/testing`).
+   * One entry per suite. Pass the suite's options to run it, or
+   * `{ skip: 'reason' }` to opt out: the reason is required (an empty one, or
+   * `false`, throws) and is printed in the run summary, so the opt-out stays
+   * visible. A suite left out does not run; an unknown key throws, so a typo
+   * cannot disable a check. A suite that ships with a slice is registered by
+   * importing that slice's testing entry (the telemetry suite:
+   * `@marinoscar/platform-api/telemetry/testing`).
    */
-  suites: PlatformConformanceSuiteOptions;
+  suites: {
+    [K in keyof PlatformConformanceSuiteOptions]?: Exclude<PlatformConformanceSuiteOptions[K], false> | ConformanceSkip;
+  };
   /** Defaults to the globals `describe`/`it`/`expect` (Jest, or Vitest with `globals: true`). */
   testApi?: ConformanceTestApi;
+  /**
+   * Where the summary table of suites run and skipped goes. Default: standard
+   * output, unless `testApi` is injected (then nothing is printed).
+   */
+  summaryOutput?: (table: string) => void;
 }
 
 /** `cronEnqueueOnly` for `cron-enqueue-only`: how the app spells a suite id. */
@@ -76,7 +92,7 @@ function globalTestApi(): ConformanceTestApi {
  *
  * @example
  * ```ts
- * // apps/api/test/jobs/cron-enqueue-only.spec.ts
+ * // apps/api/test/conformance.spec.ts
  * runPlatformConformance({
  *   sourceRoots: [join(__dirname, '..', '..', 'src')],
  *   suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
@@ -105,6 +121,7 @@ export function runPlatformConformance(options: PlatformConformanceOptions): voi
   }
 
   const api = options.testApi ?? globalTestApi();
+  const summary: ConformanceSummaryEntry[] = [];
 
   for (const [key, suiteOptions] of requested) {
     const suite = byOptionKey.get(key)!;
@@ -112,9 +129,29 @@ export function runPlatformConformance(options: PlatformConformanceOptions): voi
     if (suiteOptions === undefined) continue;
 
     if (suiteOptions === false) {
+      throw new Error(
+        `runPlatformConformance: suite "${suite.id}" is switched off with \`false\`. An opt-out needs a reason: \`${key}: { skip: 'why this app does not run it' }\`.`,
+      );
+    }
+
+    if (isSkip(suiteOptions)) {
+      const reason = typeof suiteOptions.skip === 'string' ? suiteOptions.skip.trim() : '';
+      if (reason === '') {
+        throw new Error(
+          `runPlatformConformance: suite "${suite.id}" is skipped without a reason. Pass \`${key}: { skip: 'why this app does not run it' }\`.`,
+        );
+      }
+      summary.push({ id: suite.id, status: 'skipped', reason });
       api.describe(suite.title, () => {
-        api.it(`${suite.id}: disabled by the app`, () => undefined);
+        api.it(`${suite.id}: skipped by the app (${reason})`, () => undefined);
       });
+      continue;
+    }
+
+    summary.push({ id: suite.id, status: 'run' });
+
+    if (isAppSuite(suite)) {
+      suite.register(api, { sourceRoots: options.sourceRoots }, suiteOptions);
       continue;
     }
 
@@ -133,4 +170,56 @@ export function runPlatformConformance(options: PlatformConformanceOptions): voi
       }
     });
   }
+
+  // The summary is printed at registration time, not registered as a test: a
+  // test would change the case list of every suite the app runs. A test API
+  // the caller injects (a recording fake) prints nothing unless `summaryOutput`
+  // says where.
+  if (summary.length > 0) {
+    const table = formatConformanceSummary(summary);
+    if (options.summaryOutput) options.summaryOutput(table);
+    else if (options.testApi === undefined) process.stdout.write(`\n${table}\n`);
+  }
+}
+
+/**
+ * One row of the run summary.
+ *
+ * @stability experimental
+ */
+export interface ConformanceSummaryEntry {
+  /** The suite id. */
+  id: string;
+  /** `run` when the app enabled it, `skipped` when it opted out with a reason. */
+  status: 'run' | 'skipped';
+  /** The app's reason, for a skipped suite. */
+  reason?: string;
+}
+
+/**
+ * The summary table `runPlatformConformance` prints: every suite the app
+ * enabled or opted out of, and why it was skipped.
+ *
+ * @param entries - one per suite, in the order the app listed them.
+ * @returns a plain-text table, one line per suite under a header.
+ *
+ * @stability experimental
+ */
+export function formatConformanceSummary(entries: readonly ConformanceSummaryEntry[]): string {
+  const width = Math.max('suite'.length, ...entries.map((entry) => entry.id.length));
+  const lines = entries.map(
+    (entry) => `${entry.id.padEnd(width)}  ${entry.status === 'run' ? 'run' : `skipped: ${entry.reason ?? ''}`}`,
+  );
+  const ran = entries.filter((entry) => entry.status === 'run').length;
+  return [`${'suite'.padEnd(width)}  status`, ...lines, `${ran} run, ${entries.length - ran} skipped`].join('\n');
+}
+
+/** An app suite registers its own tree; a scan suite has `check` and `cases`. */
+function isAppSuite(suite: ConformanceSuite<unknown> | ConformanceAppSuite<unknown>): suite is ConformanceAppSuite<unknown> {
+  return typeof (suite as ConformanceAppSuite<unknown>).register === 'function';
+}
+
+/** An opt-out is an object with a `skip` key (a suite's own options never name one). */
+function isSkip(value: unknown): value is ConformanceSkip {
+  return typeof value === 'object' && value !== null && 'skip' in value;
 }

@@ -682,7 +682,7 @@ Every job carries `orgId` (`jobs.org_id`, #734): the organization the work belon
 
 ### 8.3 Permanent cron exemptions
 
-Three crons do their work inline instead of enqueuing a job. The list is enforced by `apps/api/test/jobs/cron-enqueue-only.spec.ts`, which scans the app's and the packaged slices' sources and pins each exemption to its slice's root.
+Three crons do their work inline instead of enqueuing a job. The list is enforced by `apps/api/test/conformance.spec.ts`, which scans the app's and the packaged slices' sources and pins each exemption to its slice's root.
 
 | Task | Why it cannot be a job |
 |---|---|

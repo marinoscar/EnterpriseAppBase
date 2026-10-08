@@ -19,7 +19,7 @@ One governed path from a feature to a model, so no feature holds a provider SDK,
 | HTTP | `http/` | `/api/ai/responses` (and its SSE stream), runs, embeddings, images, audio, realtime |
 | Storage | `storage/` | Storage objects in (`AiStorageInputResolver`) and out (`AiOutputWriter`, under `ai-outputs/`), over `AI_OBJECT_STORE` |
 | Usage | `usage/` | The usage report (`/api/admin/ai/usage`, `/api/admin/ai/org-usage`, `/api/ai/usage/me`) and its retention purge |
-| Test kit | `testing/` (`/ai/testing`) | `FakeAiProvider`, the runtime harness, the adapter conformance kit, the orchestration-boundary suite |
+| Test kit | `testing/` (`/ai/testing`) | `FakeAiProvider`, the runtime harness, the adapter conformance kit, the conformance suites (`conformance/`: kill switch, RBAC matrix, secret egress, key policy, jobs server-only, no SDK leak, orchestration boundary) |
 
 Not here: the AI admin and user settings pages other than the Organization AI keys page (they stay in the reference app's `apps/web` for now; the org-key page is `@marinoscar/platform-web/ai`), orchestration graphs (an app's own, above the gateway), and object storage itself (`@marinoscar/platform-api/storage`, reached through the `AI_OBJECT_STORE` port).
 
@@ -54,7 +54,7 @@ ai/
     anthropic/               The Phase 3 adapter (Messages API, `responses` port only,
                              stateless). ONLY place `@anthropic-ai/sdk` is imported —
                              `anthropic-sdk-boundary.spec.ts` pins it; `core/no-provider-sdk.spec.ts`
-                             and `test/ai/ai-no-sdk-leak.spec.ts` keep every SDK out of the rest.
+                             and the `ai-no-sdk-leak` conformance suite keep every SDK out of the rest.
     gemini/                  The Phase 3 Gemini adapter (generateContent, `responses` +
                              `embeddings` ports, stateless, no hosted tools). ONLY place
                              `@google/genai` is imported — `gemini-sdk-boundary.spec.ts` pins it.
@@ -603,6 +603,20 @@ and the conformance kit every adapter must pass — is
 | `AI_METRICS` | token | `InjectionToken<AiMetrics>` | Bind the app's `app.ai.*` instruments; omit for none | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
 | `AI_TARGET_RESOLVER` | token | `InjectionToken<AiTargetResolver>` | Pick the provider and model per call (per feature, per organization) instead of the user's default model | experimental | [example](../../../../apps/api/src/examples/ai/example-target-resolver.ts) |
 | `registerAiFeature` | registry | `registerAiFeature({ id, label, needs, inputModalities?, providers?, requiresHostedTools?, defaultEffort? }): void` | Declare an AI feature before bootstrap; `forUser(userId, { feature })` then checks the model fits it, and `GET /api/ai/features` lists it | experimental | [example](../../../../apps/api/src/examples/ai/example-summary.feature.ts) |
+| `AiConformanceFixture` | option | `{ createAiApp; createContext; closeContext; createUser; openApiDocument; defaultOrgId; rolePermissions }` | Tell the AI conformance suites how the app boots, mints a user for a role and seeds its grants | experimental | [example](../../../../apps/api/test/conformance/ai-fixture.ts) |
+| `AiKillSwitchOptions` | option | `{ fixture; minAiRoutes?; minAdminAiRoutes?; minAiJobTypes? }` | Run the `ai-kill-switch` suite (`aiKillSwitch`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `aiKillSwitchSuite` | registry | `ConformanceAppSuite<AiKillSwitchOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `AiRbacMatrixOptions` | option | `{ fixture; minRoutes?; minPermissionedRoutes? }` | Run the `ai-rbac-matrix` suite (`aiRbacMatrix`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `aiRbacMatrixSuite` | registry | `ConformanceAppSuite<AiRbacMatrixOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `AiSecretEgressOptions` | option | `{ fixture }` | Run the `ai-secret-egress` suite (`aiSecretEgress`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `aiSecretEgressSuite` | registry | `ConformanceAppSuite<AiSecretEgressOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `AiKeyPolicyOptions` | option | `{ fixture }` | Run the `ai-key-policy` suite (`aiKeyPolicy`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `aiKeyPolicySuite` | registry | `ConformanceAppSuite<AiKeyPolicyOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `AiJobsServerOnlyOptions` | option | `{ fixture; minAiJobTypes? }` | Run the `ai-jobs-server-only` suite (`aiJobsServerOnly`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `aiJobsServerOnlySuite` | registry | `ConformanceAppSuite<AiJobsServerOnlyOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `AiNoSdkLeakOptions` | option | `{ apiTrees; webTrees; sdkOwner?; noSdkManifests; extraSdkPackages? }` | Run the `ai-no-sdk-leak` suite (`aiNoSdkLeak`) over the source trees and manifests the app ships | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `aiNoSdkLeakSuite` | registry | `ConformanceSuite<AiNoSdkLeakOptions>` | Call the suite's `check()` directly in a test | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `aiOrchestrationBoundarySuite` | registry | `ConformanceAppSuite<OrchestrationBoundaryOptions>` | Read the suite's id (`ai-orchestration-boundary`, option key `aiOrchestrationBoundary`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 
 Not extension points, but the surface a feature uses: `AiService.forUser(userId, { orgId?, feature? })` and its client (`respond`, `stream`, `openStream`, `respondStructured`, `runTools`, `startRun`, `embed`, `generateImage`, `editImage`, `transcribe`, `speak`, `createRealtimeSession`), `defineTool`, `AiError`, `AiEnabledGuard` and `AiOrgEnabledInterceptor` (for an app's own `/api/ai/*` controller), `UserAiKeysService.importKey` (migrating keys an app already holds) and `AiOrgKeyService` (an organization's keys, programmatically).
 
@@ -644,7 +658,7 @@ Every provider round-trip is an `ai.request` span (provider, model, operation, `
 ## Security notes
 
 - **Keys never leave the server.** A key is resolved per call and held only between resolution and the adapter call; no route, log line, span, `AiError`, usage row or `ai_runs.request` row carries one. The one secret returned is a realtime session's ephemeral provider secret (`POST /api/ai/realtime/sessions`), never a key. `ai-secret-egress.integration.spec.ts` sweeps every response for the user, organization and deployment sentinels.
-- **SDKs stay in their folder.** Only `providers/<provider>/` imports a provider SDK (`ai-no-sdk-leak.spec.ts`, each SDK-boundary spec).
+- **SDKs stay in their folder.** Only `providers/<provider>/` imports a provider SDK (the `ai-no-sdk-leak` conformance suite, each SDK-boundary spec).
 - **AI jobs are server-only.** No `ai.*` job type implements `nodeResultSchema`/`persistNodeResult`: a key is never brokered to a worker node.
 - **Orchestration stays above the gateway.** `@langchain/langgraph` and `@langchain/core` are allowed only under an app's orchestration directory, and `langchain`, `langsmith`, `@ai-sdk/*` and `@langchain/<provider>` never (`runOrchestrationBoundarySuite`).
 - **Tenant isolation.** `ai_runs` and `ai_usage_events` are under row-level security; `orgId` comes from the principal or the job, never request input. An organization's key is read only in that organization's scope.
@@ -652,12 +666,43 @@ Every provider round-trip is an `ai.request` span (provider, model, operation, `
 
 ## Conformance suite
 
-`@marinoscar/platform-api/ai/testing` carries:
+`@marinoscar/platform-api/ai/testing` carries two kinds of guard.
 
-| Suite / kit | What it pins |
+**Conformance suites** run in every app through `runPlatformConformance()` (importing `@marinoscar/platform-api/ai/testing` registers them). Each DISCOVERS its subject from the booted app, a registry or the source trees it is given: a future route, job type or adapter is covered with no edit. None names a path.
+
+| Suite id (option key) | What it pins | Options |
+|---|---|---|
+| `ai-kill-switch` (`aiKillSwitch`) | With `ai.enabled=false` (and with only the caller's organization off, `details.scope: 'org'`) every discovered `/api/ai/*` route except `GET /api/ai/config` answers `403 AI_DISABLED` before auth, `/api/admin/ai/*` stays reachable, and every `ai.*` job makes zero provider calls | `fixture` |
+| `ai-rbac-matrix` (`aiRbacMatrix`) | Every route crossed with Admin, Contributor, Viewer and anonymous is granted or denied exactly as the seeded permissions say (read from `x-rbac`); a PAT inherits its owner's grants | `fixture` |
+| `ai-secret-egress` (`aiSecretEgress`) | No response schema has a key-shaped property (only the realtime `clientSecret`); no sentinel key appears in any body, header, log line, audit row, usage row, run row, stored object or error | `fixture` |
+| `ai-key-policy` (`aiKeyPolicy`) | The administrator's key is never spent on a user's own inference, BYOK always wins, a keyless provider gets no key, over every synchronous and queued route | `fixture` |
+| `ai-jobs-server-only` (`aiJobsServerOnly`) | No `ai.*` job type is node-eligible (derived from `serverOnlyTypes()`) | `fixture` |
+| `ai-no-sdk-leak` (`aiNoSdkLeak`) | No provider SDK import outside its adapter directory, none in the app, the web or the contract, no manifest but the package's declares one | `apiTrees`, `webTrees`, `sdkOwner?`, `noSdkManifests` |
+| `ai-orchestration-boundary` (`aiOrchestrationBoundary`) | No file outside the allowed orchestration roots imports `@langchain/*`, and no banned orchestration package is installed or imported | `apiSourceRoots`, `webSourceRoots`, `packageJsonPaths`, `allowedRoots` |
+
+The five that boot the app take ONE `AiConformanceFixture` (how the app creates itself over a mocked database, mints a user for a role, returns its OpenAPI document and which grants it seeds); the reference app's is [`apps/api/test/conformance/ai-fixture.ts`](../../../../apps/api/test/conformance/ai-fixture.ts), built from the helpers its other integration specs use. `aiPackageProviderDirs(root)` lists the package's own adapter directories for `ai-no-sdk-leak` from the slice's layout. The web side (every AI card carries a permission the API enforces and `feature: 'ai'`) is the `settings-ai-cards` suite of [`@marinoscar/platform-web/settings/testing`](../../../platform-web/src/settings/README.md#conformance-suite).
+
+```ts
+import '@marinoscar/platform-api/ai/testing'; // registers the suites
+runPlatformConformance({
+  sourceRoots: [API_SOURCE_ROOT],
+  suites: {
+    aiKillSwitch: { fixture },
+    aiNoSdkLeak: { apiTrees: [{ name: 'app', root: API_SOURCE_ROOT, minFiles: 100 }], webTrees: [], noSdkManifests: [] },
+    aiOrchestrationBoundary: { apiSourceRoots: [API_SOURCE_ROOT], webSourceRoots: [], packageJsonPaths: [], allowedRoots: {} },
+    aiKeyPolicy: { skip: 'This app has no AI providers of its own.' },
+  },
+});
+```
+
+An app with AI disabled at build time still runs the suites and they must find the platform's routes (the vacuity floors: 10 consumer routes, 5 admin routes, 15 RBAC routes, 3 `ai.*` job types). Each suite is proved against a planted violation in `test/ai/testing/*.spec.ts`.
+
+**Kits** (not suites an app runs through the runner):
+
+| Kit | What it pins |
 |---|---|
-| `describeAiProviderConformance(name, factory, options?)` | Every adapter behaves the same for each port it carries (listing, key verification, classification, responses, streaming, structured output, the tool round-trip, embeddings, images, audio) and surfaces every error as an `AiError` |
-| `runOrchestrationBoundarySuite(options)` | No file outside the allowed orchestration roots imports `@langchain/*`, and no banned orchestration package is installed or imported |
+| `describeAiProviderConformance(name, factory, options?)` | Every adapter behaves the same for each port it carries (listing, key verification, classification, responses, streaming, structured output, the tool round-trip, embeddings, images, audio) |
+| `runOrchestrationBoundarySuite(options)` | The orchestration scan behind `ai-orchestration-boundary`, callable directly |
 | `createAiRuntimeHarness(options?)` | The real runtime over a scripted fake, in-memory tables and storage: for gate, key-policy and limit tests |
 
 ### Testing without a real provider
@@ -725,18 +770,15 @@ No test in this module — or in a fork's own feature tests — should need a
 real provider account or network access; every scenario above is reachable
 through `FakeAiProvider` and the harness.
 
-**Cross-cutting guard suites** (`apps/api/test/ai/`) are a
-different kind of test: each discovers its own subject (every `/api/ai/*`
-route, every `ai.*` job type, every file in `apps/api/src`/`apps/web/src`)
-from the real router/registry/filesystem rather than a hand-written list, so
-a future route, job type or provider adapter is covered automatically, with
-no edit to the suite — `ai-kill-switch.integration.spec.ts`,
-`ai-rbac-matrix.integration.spec.ts`, `ai-secret-egress.integration.spec.ts`,
-`ai-key-policy.integration.spec.ts`, `ai-jobs-server-only.spec.ts`, and
-`ai-no-sdk-leak.spec.ts`, `ai-orchestration-boundary.spec.ts` (which runs this
-slice's `runOrchestrationBoundarySuite`) (plus the web-side
-`apps/web/src/__tests__/config/aiSettingsRegistry.test.ts`). See
-`CLAUDE.md`'s "MANDATORY: AI Platform Rules" rule 4 for what each one pins.
+**Cross-cutting guard suites** are a different kind of test: each discovers
+its own subject (every `/api/ai/*` route, every `ai.*` job type, every file in
+the source trees it is given) from the real router, registry or filesystem
+rather than a hand-written list, so a future route, job type or provider adapter
+is covered automatically, with no edit to the suite. They are the `ai-*`
+conformance suites listed under [Conformance suite](#conformance-suite),
+run in the reference app from `apps/api/test/conformance.spec.ts` (plus the
+web-side `settings-ai-cards`). See `CLAUDE.md`'s "MANDATORY: AI Platform Rules"
+rule 4 for what each one pins.
 
 ## Upgrade notes
 
