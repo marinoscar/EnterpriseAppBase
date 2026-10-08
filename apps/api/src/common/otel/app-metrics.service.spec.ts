@@ -543,6 +543,8 @@ describe('AppMetricsService baseline (#680)', () => {
       sharingGroupMutations: 'app.sharing.group_mutations',
       // The AccessPolicy decision counter (#729, PP-7.2).
       sharingAccessDecisions: 'app.sharing.access_decisions',
+      // The public link-resolution counter (#730, PP-7.3).
+      sharingLinkResolutions: 'app.sharing.link_resolutions',
     });
     expect(Object.keys(APP_METRIC_NAMES).slice(0, 31)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });
@@ -634,6 +636,12 @@ describe('AppMetricsService baseline (#680)', () => {
         kind: 'counter',
         name: 'app.sharing.access_decisions',
         options: { description: 'AccessPolicy decisions on shareable records, by resource type, outcome and what decided them.', unit: '{decision}' },
+      },
+      // Added by the link shares (#730).
+      {
+        kind: 'counter',
+        name: 'app.sharing.link_resolutions',
+        options: { description: 'Public link-share resolutions, by outcome and resource type. Resolutions are counted, never audited.', unit: '{resolution}' },
       },
       { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
       { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },

@@ -9,8 +9,10 @@
 //                sets the transaction-local app.org_id / app.user_id. Every
 //                request-driven query.
 //   runAsSystem  PrismaSystemService.runAsSystem: the separate bypass pool, for
-//                the user purge (`purge`) and the read-only Doctor check
-//                `sharing.groups.orphaned` (`doctor`). Allowlisted in
+//                the user purge (`purge`), the read-only Doctor check
+//                `sharing.groups.orphaned` (`doctor`), the grants prune job
+//                (`retention`) and the one-row lookup of a link token by its
+//                hash (`link-resolution`, #730). Allowlisted in
 //                test/tenancy/system-injection-boundary.spec.ts.
 // =============================================================================
 
