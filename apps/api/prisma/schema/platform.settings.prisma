@@ -35,7 +35,7 @@ model UserSettings {
 // One organization's overrides of the org-overridable system settings
 // namespaces (#733): `{ "<namespace>": { "<field>": value } }`, only the fields
 // each namespace's `org.schema` allows. An org table: FORCEd row-level security
-// on org_id (`org_settings_org_isolation`, migration 0027_add_org_settings),
+// on org_id (`org_settings_org_isolation`, migration 0028_add_org_settings),
 // reached only through `runInOrg`. Its own `version` for If-Match.
 model OrgSettings {
   id              String   @id @default(uuid()) @db.Uuid
