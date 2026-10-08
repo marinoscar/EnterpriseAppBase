@@ -34,6 +34,13 @@ interface Harness {
 
 const settle = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Polls the latest frame until it contains `text` (ink renders asynchronously; a loaded machine is slower). */
+async function eventuallyContains(frame: () => string, text: string, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!frame().includes(text) && Date.now() < deadline) await settle(25);
+  expect(frame()).toContain(text);
+}
+
 async function mount(props: { onDone?: () => void; onLogin?: () => void } = {}): Promise<Harness> {
   const stdout = Object.assign(new PassThrough(), { columns: 110, rows: 60, isTTY: true });
   let output = '';
@@ -126,7 +133,7 @@ describe('AndroidScreen', () => {
       expect(screen.frame()).toContain('Publish  (upload the built APK)  — unavailable');
 
       await screen.press(DOWN, DOWN, DOWN, ENTER); // Publish
-      expect(screen.frame()).toContain('Not logged in. Choose "Log in".');
+      await eventuallyContains(screen.frame, 'Not logged in. Choose "Log in".');
 
       await screen.press(DOWN, DOWN, DOWN, ENTER); // Log in (last row)
       expect(onLogin).toHaveBeenCalledTimes(1);
