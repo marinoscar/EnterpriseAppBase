@@ -4,8 +4,8 @@ import {
   findEmailTemplate,
   isEmailTemplateName,
   renderEmailTemplate,
-  type EmailTemplateDataMap,
-  type EmailTemplateName,
+  type PlatformEmailTemplateDataMap,
+  type PlatformEmailTemplateName,
   type RenderedEmail,
 } from '../../../src/email/templates/index';
 import { configureTestEmail } from '../support';
@@ -14,7 +14,7 @@ configureTestEmail();
 
 // Since #737 the closed `EMAIL_TEMPLATES` / `EMAIL_TEMPLATE_NAMES` snapshots
 // are gone in favour of the registry; these are their equivalents here.
-const EMAIL_TEMPLATE_NAMES = emailTemplateRegistry.ids() as EmailTemplateName[];
+const EMAIL_TEMPLATE_NAMES = emailTemplateRegistry.ids() as PlatformEmailTemplateName[];
 const EMAIL_TEMPLATES = PLATFORM_EMAIL_TEMPLATES;
 
 // =============================================================================
@@ -37,7 +37,7 @@ const EMAIL_TEMPLATES = PLATFORM_EMAIL_TEMPLATES;
  * compile — the same "no half-registered template" guarantee `index.ts`
  * gives the registry itself, extended to this test file.
  */
-const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
+const SAMPLE_DATA: { [K in PlatformEmailTemplateName]: PlatformEmailTemplateDataMap[K] } = {
   'test-email': {
     recipientEmail: '<script>alert(document.cookie)</script>@example.com',
     providerKind: 'smtp',
@@ -129,7 +129,7 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
   },
 };
 
-function render(name: EmailTemplateName): RenderedEmail {
+function render(name: PlatformEmailTemplateName): RenderedEmail {
   const template = EMAIL_TEMPLATES[name] as (data: unknown) => RenderedEmail;
   return template(SAMPLE_DATA[name]);
 }
