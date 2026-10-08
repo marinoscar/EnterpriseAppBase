@@ -1,7 +1,7 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Req } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '../../identity/index';
+import { Auth, activeOrgIdOf, type RequestWithPrincipal } from '../../identity/index';
 import { AiConfigService } from './ai-config.service';
 import { AiPublicConfigDto } from './dto/ai-public-config.dto';
 
@@ -34,10 +34,12 @@ export class AiPublicController {
       'Readable by any signed-in user, and reachable while AI is disabled: this is how a ' +
       'client learns to hide its AI surfaces. Carries no key, key hint or configuration ' +
       'detail. An admin key serves a user only under `byok_with_org_fallback`. Answers may ' +
-      'lag an administrator’s change by up to five seconds.',
+      'lag an administrator’s change by up to five seconds. The answer is your active ' +
+      'organization’s EFFECTIVE policy (#739): an organization that switched AI or a provider ' +
+      'off, or narrowed the key policy, reads that way here.',
   })
   @ApiResponse({ status: 200, description: 'The AI capabilities', type: AiPublicConfigDto })
-  async getConfig() {
-    return this.aiConfig.describePublic();
+  async getConfig(@Req() request: RequestWithPrincipal) {
+    return this.aiConfig.describePublic(activeOrgIdOf(request));
   }
 }

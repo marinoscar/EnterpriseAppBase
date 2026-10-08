@@ -54,6 +54,12 @@ export const HARNESS_OTHER_USER = '22222222-2222-4222-8222-222222222222';
 export const HARNESS_ORG = '33333333-3333-4333-8333-333333333333';
 export const HARNESS_USER_KEY = 'sk-user-own-key-1111';
 export const HARNESS_ORG_KEY = 'sk-org-admin-key-9999';
+/**
+ * An ORGANIZATION's own key (#739, the org tier), as `setTenantKey` stores
+ * it: a sentinel that must never appear in a response, log line or row.
+ * (`HARNESS_ORG_KEY` is the deployment's key, historically named "org".)
+ */
+export const HARNESS_TENANT_KEY = 'sk-org-tenant-key-7777';
 export const HARNESS_PROVIDER = 'openai';
 export const HARNESS_MODEL = 'fake-model';
 /** The default catalog's embedding model (`FAKE_EMBEDDING_MODEL_CAPABILITIES`). */
@@ -405,10 +411,17 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     registry.register(fake);
   }
 
+  // #739: each organization's stored `ai` overrides (its org layer), by org id.
+  const orgLayers = new Map<string, Record<string, unknown>>();
+  const orgSettings = {
+    isEnabled: () => true,
+    getNamespace: jest.fn(async (orgId: string, key: string) => (key === 'ai' ? orgLayers.get(orgId) : undefined)),
+  };
   const aiConfig = new AiConfigService(
     { getAiPolicy: jest.fn(async () => policy) } as never,
     { getSecret, describe: describe_ } as never,
     registry,
+    orgSettings as never,
   );
   const userKeys = {
     getDecrypted: jest.fn(async (userId: string, provider: string) =>
@@ -420,8 +433,17 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
   const aiConfigWriters = new Set<string>();
   const configWriters = {
     holdsAiConfigWrite: jest.fn(async (userId: string) => aiConfigWriters.has(userId)),
+    // #739: `org_ai_config:write` in one organization, as `userId|orgId`.
+    holdsOrgAiConfigWrite: jest.fn(async (userId: string, orgId: string) => orgConfigWriters.has(`${userId}|${orgId}`)),
   };
-  const resolver = new AiKeyResolver(userKeys as never, aiConfig, configWriters as never);
+  // #739: each organization's own key for the fake provider, by org id.
+  const tenantKeys = new Map<string, string>();
+  const orgKeys = {
+    getKey: jest.fn(async (orgId: string, provider: string) => (provider === HARNESS_PROVIDER ? tenantKeys.get(orgId) ?? null : null)),
+    hasKey: jest.fn(async (orgId: string, provider: string) => provider === HARNESS_PROVIDER && tenantKeys.has(orgId)),
+  };
+  const orgConfigWriters = new Set<string>();
+  const resolver = new AiKeyResolver(userKeys as never, aiConfig, configWriters as never, orgKeys as never);
   const usableModels = new UsableModelsService(prisma as never, aiConfig, registry, resolver);
   const recorder = new AiUsageRecorder(prisma as never);
   const runs = new AiRunsService(prisma as never, jobs as never);
@@ -481,6 +503,20 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     setOrgKey(value: string | null) {
       orgKey = value;
     },
+    /**
+     * Set (or, with `null`, clear) an organization's own `ai` overrides, its
+     * org layer (#739): `{ enabled: false }` switches AI off for its members.
+     */
+    setOrgPolicy(orgId: string, overrides: Record<string, unknown> | null) {
+      if (overrides) orgLayers.set(orgId, overrides);
+      else orgLayers.delete(orgId);
+      aiConfig.invalidateCache();
+    },
+    /** Clear every organization's overrides. */
+    clearOrgPolicies() {
+      orgLayers.clear();
+      aiConfig.invalidateCache();
+    },
     configWriters,
     /** Grant (true) or revoke (false) `ai_config:write` for `userId` (#593). */
     setAiConfigWriter(userId: string, holds: boolean) {
@@ -490,6 +526,22 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}) {
     /** Nobody holds `ai_config:write` any more (the default). */
     clearAiConfigWriters() {
       aiConfigWriters.clear();
+      orgConfigWriters.clear();
+    },
+    orgKeys,
+    /** Store (or, with `null`, remove) an organization's own key for the fake provider (#739). */
+    setTenantKey(orgId: string, value: string | null) {
+      if (value === null) tenantKeys.delete(orgId);
+      else tenantKeys.set(orgId, value);
+    },
+    /** Remove every organization's own key. */
+    clearTenantKeys() {
+      tenantKeys.clear();
+    },
+    /** Grant (true) or revoke (false) `org_ai_config:write` for `userId` in `orgId` (#739). */
+    setOrgAiConfigWriter(userId: string, orgId: string, holds: boolean) {
+      if (holds) orgConfigWriters.add(`${userId}|${orgId}`);
+      else orgConfigWriters.delete(`${userId}|${orgId}`);
     },
     setDefaultModel(userId: string, value: { provider: string; modelId: string } | null) {
       settings.set(userId, { theme: 'system', ai: { defaultModel: value } });

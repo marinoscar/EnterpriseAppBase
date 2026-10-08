@@ -297,8 +297,9 @@ export class AiConfigService implements OnModuleInit {
    * ever `describe`s a key, never decrypts one. Lists REGISTERED providers
    * only: a settings slot with no adapter is nothing a user can call.
    */
-  async describePublic(): Promise<AiPublicConfig> {
-    const policy = await this.resolve();
+  async describePublic(orgId?: string): Promise<AiPublicConfig> {
+    // #739: the caller's organization's EFFECTIVE policy.
+    const policy = await this.resolveForOrg(orgId);
 
     if (!policy.enabled) {
       // Nothing is available while AI is off — background runs included.

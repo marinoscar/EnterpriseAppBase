@@ -58,7 +58,7 @@ import { Logger } from '@nestjs/common';
 
 import { createTestApp, closeTestApp, type TestContext } from '../helpers/test-app.helper';
 import { createMockAdminUser, createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
-import { CredentialsService } from '@marinoscar/platform-api/credentials';
+import { CredentialsService, OrgCredentialsService } from '@marinoscar/platform-api/credentials';
 import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
 import { AiConfigService } from '@marinoscar/platform-api/ai';
 import { FAKE_REALTIME_SECRET_PREFIX, FakeAiProvider } from '@marinoscar/platform-api/ai/testing';
@@ -86,7 +86,9 @@ import {
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
+  HARNESS_TENANT_KEY,
 } from '@marinoscar/platform-api/ai/testing';
+import { MOCK_DEFAULT_ORG_ID } from '../fixtures/test-data.factory';
 import { IN_MEMORY_PRESIGNED_SIGNATURE } from '@marinoscar/platform-api/ai/testing';
 import { createAiHttpTestApp, type AiHttpTestApp, ALL_KEYS, OTHER_USER_KEY, parseSse } from './ai-http.helper';
 import { aiConfigResponseSchema, aiKeyRemovalResponseSchema } from '@marinoscar/platform-api/ai';
@@ -109,8 +111,10 @@ import { aiRealtimeSessionResponseSchema } from '@marinoscar/platform-api/ai';
 const ADMIN_KEY_SENTINEL = 'sk-admin-egress-sentinel-Zq81xY';
 /** An MCP server credential, sent as a hosted `mcp` tool's `Authorization` header (#442). */
 const MCP_HEADER_SENTINEL = 'mcp-hdr-egress-sentinel-Wv73Kd';
+/** ⚠ An ORGANIZATION's own key (#739), set through /api/admin/ai/org-keys. */
+const ORG_KEY_SENTINEL = 'sk-org-tenant-egress-sentinel-Pq42Lm';
 /** Every value that must never appear anywhere this suite inspects. */
-const ALL_SENTINELS = [...ALL_KEYS, ADMIN_KEY_SENTINEL, IN_MEMORY_PRESIGNED_SIGNATURE, MCP_HEADER_SENTINEL];
+const ALL_SENTINELS = [...ALL_KEYS, ADMIN_KEY_SENTINEL, ORG_KEY_SENTINEL, IN_MEMORY_PRESIGNED_SIGNATURE, MCP_HEADER_SENTINEL];
 
 /** A hosted MCP tool carrying the header sentinel. */
 const MCP_TOOL = {
@@ -140,6 +144,8 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
   let storedAi: Record<string, unknown>;
   let storedAdminKey: string | null;
   let adminToken: string;
+  /** The org tier's store (#739): `orgId|purpose|name` -> secret. */
+  const storedOrgKeys = new Map<string, string>();
 
   // ---- Pino/Nest Logger capture, across BOTH contexts -----------------------
   let logLines: string[];
@@ -177,10 +183,43 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
             }),
           },
         },
+        {
+          // #739: an in-memory OrgCredentialsService with the real one's
+          // contract (plaintext out of getSecret only; describe/list masked).
+          provide: OrgCredentialsService,
+          useValue: {
+            getSecret: jest.fn(async (orgId: string, purpose: string, name: string) => storedOrgKeys.get(`${orgId}|${purpose}|${name}`) ?? null),
+            describe: jest.fn(async (orgId: string, purpose: string, name: string) =>
+              storedOrgKeys.has(`${orgId}|${purpose}|${name}`)
+                ? { purpose, name, hint: '••••42Lm', label: null, updatedByUserId: null, createdAt: new Date(), updatedAt: new Date() }
+                : null,
+            ),
+            list: jest.fn(async (orgId: string, purpose: string) =>
+              [...storedOrgKeys.keys()]
+                .filter((key) => key.startsWith(`${orgId}|${purpose}|`))
+                .map((key) => ({
+                  purpose,
+                  name: key.split('|')[2],
+                  hint: '••••42Lm',
+                  label: null,
+                  updatedByUserId: null,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                })),
+            ),
+            setSecret: jest.fn(async (orgId: string, purpose: string, name: string, secret: string) => {
+              storedOrgKeys.set(`${orgId}|${purpose}|${name}`, secret);
+              return { purpose, name, hint: '••••42Lm', label: null, updatedByUserId: null, createdAt: new Date(), updatedAt: new Date() };
+            }),
+            deleteSecret: jest.fn(async (orgId: string, purpose: string, name: string) => {
+              storedOrgKeys.delete(`${orgId}|${purpose}|${name}`);
+            }),
+          },
+        },
       ],
     });
 
-    adminFake = new FakeAiProvider({ id: 'openai', validKeys: [ADMIN_KEY_SENTINEL], models: ['gpt-mini'] });
+    adminFake = new FakeAiProvider({ id: 'openai', validKeys: [ADMIN_KEY_SENTINEL, ORG_KEY_SENTINEL], models: ['gpt-mini'] });
     adminCtx.app.get(AiProviderRegistry).register(adminFake);
   }, 60_000);
 
@@ -221,6 +260,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       logPromptContent: false,
     };
     storedAdminKey = null;
+    storedOrgKeys.clear();
 
     adminCtx.prismaMock.systemSettings.findUnique.mockImplementation(async () => ({
       id: 'settings-global',
@@ -1072,6 +1112,99 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         .expect(200);
 
       assertNoLeak('admin log output', logLines.join('\n'));
+    });
+  });
+
+  // #739: the org tier. An organization's own key serves its members (here
+  // under the deployment's `byok_with_org_fallback`) and is set through
+  // /api/admin/ai/org-keys; it must never come back out either.
+  describe('the organization tier: an org key serving a member, and the org-key routes (#739)', () => {
+    beforeEach(() => {
+      app.harness.setPolicy({ keyPolicy: 'byok_with_org_fallback' });
+    });
+
+    it('a member without a key is served by the org key: it reaches the provider and nothing else', async () => {
+      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, HARNESS_TENANT_KEY);
+      const member = await createMockTestUser(app.context, { roleName: 'contributor' });
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(member.accessToken))
+        .send({ model: HARNESS_MODEL, input: 'hello' })
+        .expect(200);
+
+      expect(app.harness.fake.apiKeys).toContain(HARNESS_TENANT_KEY);
+      assertNoLeak('org-tier response body', JSON.stringify(res.body));
+      assertNoLeak('org-tier response headers', JSON.stringify(res.headers));
+      assertNoLeak('ai_usage_events', JSON.stringify(app.harness.usageEvents));
+      assertNoLeak('log output', logLines.join('\n'));
+      expect(app.harness.usageEvents.at(-1)).toMatchObject({ keySource: 'org' });
+    });
+
+    it('a refused org-tier call (the provider rejects the org key) carries no sentinel in its error body', async () => {
+      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, HARNESS_TENANT_KEY);
+      app.script(() => {
+        throw new Error(`provider rejected key ${HARNESS_TENANT_KEY}`);
+      });
+      const member = await createMockTestUser(app.context, { roleName: 'contributor' });
+
+      const res = await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(member.accessToken))
+        .send({ model: HARNESS_MODEL, input: 'hello' });
+
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      assertNoLeak('org-tier error body', JSON.stringify(res.body));
+      assertNoLeak('log output', logLines.join('\n'));
+    });
+
+    it('PUT, GET and DELETE /api/admin/ai/org-keys: masked bodies, codes-only audit rows, clean logs', async () => {
+      const put = await request(adminCtx.app.getHttpServer())
+        .put('/api/admin/ai/org-keys/openai')
+        .set(authHeader(adminToken))
+        .send({ apiKey: ORG_KEY_SENTINEL })
+        .expect(200);
+      expect(put.body.data).toMatchObject({ provider: 'openai', configured: true });
+      expect([...storedOrgKeys.values()]).toContain(ORG_KEY_SENTINEL);
+
+      const list = await request(adminCtx.app.getHttpServer())
+        .get('/api/admin/ai/org-keys')
+        .set(authHeader(adminToken))
+        .expect(200);
+
+      const removed = await request(adminCtx.app.getHttpServer())
+        .delete('/api/admin/ai/org-keys/openai')
+        .set(authHeader(adminToken))
+        .expect(204);
+
+      for (const [label, body] of [
+        ['PUT org key body', put.body],
+        ['PUT org key headers', put.headers],
+        ['GET org keys body', list.body],
+        ['DELETE org key body', removed.body],
+      ] as const) {
+        assertNoLeak(label, JSON.stringify(body));
+      }
+
+      const auditCalls = adminCtx.prismaMock.auditEvent.create.mock.calls.map((call: any[]) => call[0].data);
+      expect(auditCalls.map((row: { action: string }) => row.action)).toEqual(
+        expect.arrayContaining(['org_ai_config:set_key', 'org_ai_config:delete_key']),
+      );
+      expect(auditCalls.every((row: { orgId?: string }) => typeof row.orgId === 'string')).toBe(true);
+      assertNoLeak('audit_events rows (org keys)', JSON.stringify(auditCalls));
+      assertNoLeak('admin log output (org keys)', logLines.join('\n'));
+    });
+
+    it('a rejected org key (AI_KEY_INVALID) stores nothing and its error body carries no sentinel', async () => {
+      const res = await request(adminCtx.app.getHttpServer())
+        .put('/api/admin/ai/org-keys/openai')
+        .set(authHeader(adminToken))
+        .send({ apiKey: `${ORG_KEY_SENTINEL}-wrong` })
+        .expect(400);
+
+      expect(res.body.details?.reason).toBe('AI_KEY_INVALID');
+      expect(storedOrgKeys.size).toBe(0);
+      assertNoLeak('rejected org key body', JSON.stringify(res.body));
     });
   });
 });

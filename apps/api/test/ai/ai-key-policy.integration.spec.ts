@@ -65,7 +65,9 @@ import {
   HARNESS_USER,
   HARNESS_USER_KEY,
   HARNESS_ORG_KEY,
+  HARNESS_TENANT_KEY,
 } from '@marinoscar/platform-api/ai/testing';
+import { MOCK_DEFAULT_ORG_ID } from '../fixtures/test-data.factory';
 import { createAiHttpTestApp, type AiHttpTestApp, parseSse } from './ai-http.helper';
 
 const BODY = { model: 'fake-model', input: 'hello' };
@@ -653,6 +655,72 @@ describe('AI key policy invariant — admin key never spent on a user’s own in
       );
 
       expect(source).toContain("keySource: 'admin_discovery'");
+    });
+  });
+
+  // ==========================================================================
+  // #739: the organization tier, over HTTP. The single-org cases above are
+  // unchanged (no organization key stored: rule 3, the deployment key).
+  // ==========================================================================
+  describe('the organization tier (#739)', () => {
+    async function respond(): Promise<request.Response> {
+      return request(app.context.app.getHttpServer()).post('/api/ai/responses').set(authHeader(holderToken)).send(BODY);
+    }
+
+    beforeEach(() => {
+      app.harness.removeUserKeys(HARNESS_USER);
+      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, HARNESS_TENANT_KEY);
+      app.harness.setOrgKey(HARNESS_ORG_KEY);
+      app.harness.orgKeys.getKey.mockClear();
+    });
+
+    it('the user key still wins over the org key', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok_with_org_fallback' });
+      app.harness.addUserKey(HARNESS_USER, HARNESS_USER_KEY, ['fake-model']);
+      expect((await respond()).status).toBe(200);
+      expect(app.harness.fake.apiKeys).toEqual([HARNESS_USER_KEY]);
+    });
+
+    it('under byok_with_org_fallback the org key serves (before the deployment key)', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok_with_org_fallback' });
+      expect((await respond()).status).toBe(200);
+      expect(app.harness.fake.apiKeys).toEqual([HARNESS_TENANT_KEY]);
+    });
+
+    it('under byok the org key is NOT returned to a non-admin', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok' });
+      const res = await respond();
+      expect(res.status).toBe(403);
+      expect(res.body.details.reason).toBe('AI_KEY_REQUIRED');
+      expect(app.harness.fake.apiKeys).toEqual([]);
+      expect(app.harness.orgKeys.getKey).not.toHaveBeenCalled();
+    });
+
+    it('under byok an org admin (org_ai_config:write in that org) is served by the org key', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok' });
+      app.harness.setOrgAiConfigWriter(HARNESS_USER, MOCK_DEFAULT_ORG_ID, true);
+      expect((await respond()).status).toBe(200);
+      expect(app.harness.fake.apiKeys).toEqual([HARNESS_TENANT_KEY]);
+    });
+
+    it('deployment fallback on and off: with no org key, deploymentKeyServesOrgs decides', async () => {
+      app.harness.setTenantKey(MOCK_DEFAULT_ORG_ID, null);
+      app.harness.setPolicy({ keyPolicy: 'byok_with_org_fallback', deploymentKeyServesOrgs: true });
+      expect((await respond()).status).toBe(200);
+      expect(app.harness.fake.apiKeys).toEqual([HARNESS_ORG_KEY]);
+
+      app.harness.setPolicy({ deploymentKeyServesOrgs: false });
+      const res = await respond();
+      expect(res.status).toBe(403);
+      expect(res.body.details.reason).toBe('AI_KEY_REQUIRED');
+    });
+
+    it('an organization that narrowed its keyPolicy to byok is served by neither administrator key', async () => {
+      app.harness.setPolicy({ keyPolicy: 'byok_with_org_fallback' });
+      app.harness.setOrgPolicy(MOCK_DEFAULT_ORG_ID, { keyPolicy: 'byok' });
+      const res = await respond();
+      expect(res.status).toBe(403);
+      expect(app.harness.fake.apiKeys).toEqual([]);
     });
   });
 });

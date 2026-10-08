@@ -45,12 +45,17 @@ export * from './core/index';
 
 // ---- configuration: policy, guard, the deployment's keys ----------------------------------------
 export * from './config/index';
+export { AiOrgEnabledInterceptor } from './config/ai-org-enabled.interceptor';
+export { AiConfigAdminService } from './config/ai-config-admin.service';
 
 // ---- keys ---------------------------------------------------------------------------------------
 export { AiKeyResolver } from './keys/ai-key-resolver.service';
-export type { AiKeySource, ResolvedAiKey } from './keys/ai-key-resolver.service';
+export type { AiKeyScope, AiKeySource, AiKeyTier, ResolvedAiKey } from './keys/ai-key-resolver.service';
 export { UsableModelsService } from './keys/usable-models.service';
 export { UserAiKeysService } from './keys/user-ai-keys.service';
+export { AiOrgKeyService, ORG_AI_KEY_AUDIT_ACTIONS } from './keys/org-key.service';
+export { AiOrgKeysController } from './keys/org-keys.controller';
+export { AiConfigWriterLookup } from './keys/ai-config-writer.lookup';
 export { AI_KEYS_RECHECK_TYPE } from './keys/ai-user-key.constants';
 
 // ---- the feature registry (rung 2) and the target resolver (rung 3) ----------------------------

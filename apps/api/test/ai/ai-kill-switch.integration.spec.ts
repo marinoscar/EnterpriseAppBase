@@ -44,6 +44,7 @@ import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
 import { createMockTestUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
 import { HARNESS_USER } from '@marinoscar/platform-api/ai/testing';
 import { createAiHttpTestApp, type AiHttpTestApp } from './ai-http.helper';
+import { MOCK_DEFAULT_ORG_ID } from '../fixtures/test-data.factory';
 
 interface AiRoute {
   path: string;
@@ -111,9 +112,15 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
           )
           .send({});
 
-        if (res.status !== 403 || res.body?.code !== 'FORBIDDEN' || res.body?.details?.reason !== 'AI_DISABLED') {
+        if (
+          res.status !== 403 ||
+          res.body?.code !== 'FORBIDDEN' ||
+          res.body?.details?.reason !== 'AI_DISABLED' ||
+          // #739: the deployment's switch names its scope.
+          res.body?.details?.scope !== 'system'
+        ) {
           failures.push(
-            `${route.method} ${route.path}: status=${res.status} code=${res.body?.code} reason=${res.body?.details?.reason}`,
+            `${route.method} ${route.path}: status=${res.status} code=${res.body?.code} reason=${res.body?.details?.reason} scope=${res.body?.details?.scope}`,
           );
         }
       }
@@ -156,6 +163,79 @@ describe('AI kill switch — cross-cutting conformance (#435)', () => {
       }
 
       expect(failures).toEqual([]);
+    });
+  });
+
+  // #739: an organization may switch AI off for its own members (its org
+  // layer, `ai.enabled: false`). Its members then get 403 AI_DISABLED with
+  // `details.scope: 'org'` on every consumer route except GET /api/ai/config
+  // — and /api/admin/ai/* stays reachable, so it can be turned back on.
+  describe("while the caller's ORGANIZATION has AI off (ai.enabled stays true)", () => {
+    beforeEach(() => {
+      app.harness.setOrgPolicy(MOCK_DEFAULT_ORG_ID, { enabled: false });
+    });
+
+    it("every /api/ai/* route except GET /api/ai/config answers 403 AI_DISABLED with details.scope 'org' to a member", async () => {
+      const member = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
+      const failures: string[] = [];
+
+      for (const route of aiRoutes) {
+        if (route.path === '/api/ai/config' && route.method === 'GET') continue;
+
+        const res = await request(app.context.app.getHttpServer())
+          [route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete'](concretePath(route.path))
+          .set(authHeader(member.accessToken))
+          .send({});
+
+        if (res.status !== 403 || res.body?.details?.reason !== 'AI_DISABLED' || res.body?.details?.scope !== 'org') {
+          failures.push(
+            `${route.method} ${route.path}: status=${res.status} reason=${res.body?.details?.reason} scope=${res.body?.details?.scope}`,
+          );
+        }
+      }
+
+      expect(failures).toEqual([]);
+    });
+
+    it('GET /api/ai/config reports enabled:false for that organization', async () => {
+      const member = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
+
+      const res = await request(app.context.app.getHttpServer())
+        .get('/api/ai/config')
+        .set(authHeader(member.accessToken))
+        .expect(200);
+
+      expect(res.body.data.enabled).toBe(false);
+    });
+
+    it('every /api/admin/ai/* route stays reachable to an administrator', async () => {
+      const admin = await createMockTestUser(app.context, { roleName: 'admin' });
+      const failures: string[] = [];
+
+      for (const route of adminAiRoutes) {
+        const res = await request(app.context.app.getHttpServer())
+          [route.method.toLowerCase() as 'get' | 'post' | 'put' | 'patch' | 'delete'](concretePath(route.path))
+          .set(authHeader(admin.accessToken))
+          .send({});
+
+        if (res.status === 403 && res.body?.details?.reason === 'AI_DISABLED') {
+          failures.push(`${route.method} ${route.path}: blocked by the org kill switch`);
+        }
+      }
+
+      expect(failures).toEqual([]);
+    });
+
+    it('another organization is unaffected: the switch is that organization only', async () => {
+      app.harness.setOrgPolicy(MOCK_DEFAULT_ORG_ID, null);
+      app.harness.setOrgPolicy('another-org', { enabled: false });
+      const holder = await createMockTestUser(app.context, { id: HARNESS_USER, roleName: 'contributor' });
+
+      await request(app.context.app.getHttpServer())
+        .post('/api/ai/responses')
+        .set(authHeader(holder.accessToken))
+        .send({ model: 'fake-model', input: 'hello' })
+        .expect(200);
     });
   });
 

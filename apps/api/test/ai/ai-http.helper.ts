@@ -25,6 +25,7 @@ import {
   createAiRuntimeHarness,
   HARNESS_OTHER_USER,
   HARNESS_ORG_KEY,
+  HARNESS_TENANT_KEY,
   HARNESS_USER_KEY,
   type AiRuntimeHarness,
   type AiRuntimeHarnessOptions,
@@ -36,7 +37,7 @@ import { resetPrismaMock } from '../mocks/prisma.mock';
 
 export const OTHER_USER_KEY = 'sk-other-user-key-never-leak-4242';
 /** Every key a response or frame must never contain. */
-export const ALL_KEYS = [HARNESS_USER_KEY, HARNESS_ORG_KEY, OTHER_USER_KEY];
+export const ALL_KEYS = [HARNESS_USER_KEY, HARNESS_ORG_KEY, HARNESS_TENANT_KEY, OTHER_USER_KEY];
 
 export interface AiHttpTestApp {
   context: TestContext;
@@ -121,6 +122,8 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
       harness.enqueued.length = 0;
       harness.storage.reset();
       harness.setOrgKey(null);
+      harness.clearOrgPolicies();
+      harness.clearTenantKeys();
       harness.clearAiConfigWriters();
       harness.removeUserKeys(HARNESS_OTHER_USER);
       harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults }, limits: {} });
