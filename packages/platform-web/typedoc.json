@@ -42,7 +42,9 @@
     "src/android-app/headless/index.ts",
     "src/android-app/ui/index.ts",
     "src/user-data/headless/index.ts",
-    "src/user-data/ui/index.ts"
+    "src/user-data/ui/index.ts",
+    "src/shell/headless/index.ts",
+    "src/shell/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

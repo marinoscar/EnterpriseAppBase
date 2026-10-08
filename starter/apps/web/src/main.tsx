@@ -1,18 +1,18 @@
-import { CssBaseline, ThemeProvider } from '@mui/material';
+import { ShellRoot } from '@marinoscar/platform-web/shell/ui';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
-import { createAppTheme } from './theme';
+import { APP_THEMES } from './theme';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider theme={createAppTheme()}>
-      <CssBaseline />
+    {/* The platform shell's theme root: the light / dark / system choice, MUI's theme and the baseline. */}
+    <ShellRoot themes={APP_THEMES}>
       <BrowserRouter>
         <App />
       </BrowserRouter>
-    </ThemeProvider>
+    </ShellRoot>
   </StrictMode>,
 );

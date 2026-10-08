@@ -16,8 +16,9 @@ import { appIdentityAdapters } from './platform/identityAdapters';
 // The notifications web slice (#738): its configuration first, for its side
 // effect, then the provider and the logout hook it exports.
 import './platform/notifications';
-import { NotificationProvider, removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
-import { AiConfigProvider } from './contexts/AiConfigContext';
+import { removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
+import { ShellProviders } from '@marinoscar/platform-web/shell/headless';
+import { APP_SHELL_PROVIDERS } from './platform/shellProviders';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { RequireAiEnabled } from './components/common/RequireAiEnabled';
 import { Layout } from './components/common/Layout';
@@ -35,26 +36,14 @@ import { MaintenanceGate } from './components/common/MaintenanceGate';
 import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { InstallPrompt } from './components/pwa/InstallPrompt';
 // The platform host every packaged page reads (#696).
-import { AppPlatformHostProvider, appPlatformApi } from './platform/platformHost';
-// Onboarding (#745): one GET /api/onboarding for the shell; the welcome
-// dialog (mounted in Layout), the user menu and both onboarding pages read it.
-import { OnboardingProvider } from '@marinoscar/platform-web/onboarding/headless';
+import { appPlatformApi } from './platform/platformHost';
+// Onboarding (#745): one GET /api/onboarding for the shell (its provider is in
+// `platform/shellProviders.tsx`); the welcome dialog (mounted in Layout), the
+// user menu and both onboarding pages read it.
 import './platform/onboarding';
-import { APP_NAME } from '@app/shared';
-// The telemetry slice (#704): its config provider, route guard and the app's
-// adapters (AI on/off, the model catalogue, the spinner).
-import {
-  RequireTelemetryEnabled,
-  TelemetryConfigProvider,
-  TelemetryWebAdaptersProvider,
-} from '@marinoscar/platform-web/telemetry/headless';
-import { appTelemetryAdapters } from './platform/telemetryAdapters';
-// The jobs slice (#854): the Jobs, Job Insights and Worker Nodes pages take the
-// app's table, spinner and client through these adapters.
-import { JobsWebAdaptersProvider } from '@marinoscar/platform-web/jobs/headless';
-import { appJobsAdapters } from './platform/jobsAdapters';
-import { DbBackupWebAdaptersProvider } from '@marinoscar/platform-web/db-backup/headless';
-import { appDbBackupAdapters } from './platform/dbBackupAdapters';
+// The telemetry slice (#704): its route guard. Its config provider and the
+// app's adapters are in `platform/shellProviders.tsx`.
+import { RequireTelemetryEnabled } from '@marinoscar/platform-web/telemetry/headless';
 
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
@@ -256,68 +245,23 @@ function AppRoutes() {
                 {/* Device activation page - without layout for full-screen experience */}
                 <Route path="/activate" element={<ActivateDevicePage />} />
 
-                {/* The notification centre (#127, epic #109) wraps the SHELL,
-                    not the whole app, and that scoping is the point:
-
-                      * It is INSIDE `RequireAuth`, so it only ever mounts for
-                        an authenticated user. Every endpoint it calls is
-                        `@Auth()`-guarded and every one resolves the recipient from
-                        the JWT, so mounting it on `/login` would buy a burst of
-                        401s and a stream that cannot connect.
-                      * It is around `Layout` specifically, because `Layout`'s
-                        `AppBar` is where the bell lives. `/activate` above sits
-                        outside the shell on purpose (full-screen device flow) and
-                        correspondingly gets no bell and opens no stream.
-
-                    ONE MOUNT POINT, so there is exactly one SSE connection per
-                    tab. A provider mounted per-page would open and close a stream
-                    on every navigation, which the server sees as a connection
-                    storm from a single user and the client experiences as a bell
-                    that resets its state every time the route changes. */}
-                {/* `AiConfigProvider` (#425, epic #419) sits beside the
-                    notification centre for the same two reasons: its endpoint
-                    is `@Auth()`, so it belongs inside `RequireAuth`, and ONE
-                    mount point means ONE `GET /api/ai/config` shared by the
-                    chrome (rail, bottom bar, menu, AppBar) and every routed
-                    page, instead of one request per consumer.
-                    `TelemetryConfigProvider` (#537, epic #528) is its twin for
-                    `GET /api/telemetry/config`; packaged since #704, it takes
-                    the app's transport as a prop because it sits ABOVE the
-                    platform host (which reads the feature it answers).
-                    `TelemetryWebAdaptersProvider` (#704) hands the packaged
-                    telemetry pages the app's AI hooks and spinner
-                    (`platform/telemetryAdapters.ts`); `JobsWebAdaptersProvider`
-                    (#854) hands the packaged jobs pages the app's table,
-                    spinner and client (`platform/jobsAdapters.ts`);
-                    `DbBackupWebAdaptersProvider` (#740) hands the packaged
-                    Database Backup page the app's table
-                    (`platform/dbBackupAdapters.ts`). */}
-                {/* `AppPlatformHostProvider` (#696) is the platform host every
-                    packaged page reads (`@marinoscar/platform-web`): the app's
-                    transport, the viewer's permissions and the feature map.
-                    Innermost, so the AI and telemetry feature flags it exposes
-                    come from the two providers above, and inside
-                    `RequireAuth` and `AuthProvider`, so the viewer is the
-                    signed-in user. See `platform/platformHost.tsx`. */}
+                {/* The providers around the signed-in shell (#868): one
+                    ordered list in `platform/shellProviders.tsx`, outermost
+                    first, which documents why each sits where it does — the
+                    notification centre (#127) wraps the SHELL so there is one
+                    SSE connection per tab, the AI and telemetry configs
+                    (#425, #537) are fetched once for the chrome and every
+                    page, the slices' adapters (#704, #854, #740), the
+                    platform host (#696) inside the feature providers so its
+                    flags are real, and onboarding (#745) innermost. All
+                    inside `RequireAuth`; `/activate` above sits outside the
+                    shell on purpose (full-screen device flow) and gets no
+                    bell and opens no stream. */}
                 <Route
                   element={
-                    <NotificationProvider>
-                      <AiConfigProvider>
-                        <TelemetryConfigProvider api={appPlatformApi}>
-                          <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
-                            <JobsWebAdaptersProvider adapters={appJobsAdapters}>
-                              <DbBackupWebAdaptersProvider adapters={appDbBackupAdapters}>
-                                <AppPlatformHostProvider>
-                                  <OnboardingProvider appName={APP_NAME}>
-                                    <Layout />
-                                  </OnboardingProvider>
-                                </AppPlatformHostProvider>
-                              </DbBackupWebAdaptersProvider>
-                            </JobsWebAdaptersProvider>
-                          </TelemetryWebAdaptersProvider>
-                        </TelemetryConfigProvider>
-                      </AiConfigProvider>
-                    </NotificationProvider>
+                    <ShellProviders providers={APP_SHELL_PROVIDERS}>
+                      <Layout />
+                    </ShellProviders>
                   }
                 >
                   <Route path="/" element={<HomePage />} />

@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: `PlatformApiClient` (the app's transport, as an interface) and `PlatformApiError` with `isPlatformApiError`; `PlatformViewer` (who is looking: user id, `hasPermission`, `isFeatureEnabled`); `PlatformWebHost` and `PlatformHostProvider` with `usePlatformHost`, `usePlatformApi`, `usePlatformViewer` and `useOptionalPlatformHost`; `PlatformSettingsPage`, the descriptor of a packaged admin or settings page; and `PlatformHttpClient` with `ApiError` (issue #727): the browser transport moved from the reference app's `services/api.ts`, which holds the access token, refreshes once on a 401 and retries, serialises refreshes across pages with a Web Lock, and signals a lost session. The identity slice's `AuthProvider` drives sessions through it.
+Does: `PlatformApiClient` (the app's transport, as an interface) and `PlatformApiError` with `isPlatformApiError`; `PlatformViewer` (who is looking: user id, `hasPermission`, `isFeatureEnabled`); `PlatformWebHost` and `PlatformHostProvider` with `usePlatformHost`, `usePlatformApi`, `usePlatformViewer` and `useOptionalPlatformHost`; `PlatformSettingsPage`, the descriptor of a packaged admin or settings page; and `PlatformHttpClient` with `ApiError` (issue #727): the browser transport moved from the reference app's `services/api.ts`, which holds the access token, refreshes once on a 401 and retries, serialises refreshes across pages with a Web Lock, and signals a lost session. The identity slice's `AuthProvider` drives sessions through it. `createPlatformApiClient` (issue #868) adapts that one client to `PlatformApiClient`, so an app hands the packaged pages the same transport `AuthProvider` drives instead of writing the adapter by hand.
 
 Does not: decide where the API lives or name the refresh lock (`PlatformHttpClient` takes both as options, so no app identity is baked in), interpret an error response beyond the error envelope (the app's `onErrorResponse` hook does, e.g. the reference app's maintenance recogniser), know the app's routes, layout, navigation or auth context, or register cards and routes itself. The app owns its registries (`ADMIN_SECTIONS`, `USER_SETTINGS_SECTIONS`) and its router (CLAUDE.md, Settings UI Pattern); this slice only describes what a packaged page needs.
 
@@ -23,10 +23,8 @@ Peers are those of the package ([README](../../README.md#install-and-peer-depend
 The reference app builds the host once from what it already has and mounts the provider around its shell, inside its auth provider ([`platformHost.tsx`](../../../../apps/web/src/platform/platformHost.tsx), [`App.tsx`](../../../../apps/web/src/App.tsx)):
 
 ```tsx
-export const appPlatformApi: PlatformApiClient = Object.freeze({
-  get: (path) => mapped(() => api.get(path)),            // ApiError -> PlatformApiError
-  // post, put, patch (ifMatch -> If-Match), delete
-});
+export const api = new PlatformHttpClient({ baseUrl: '/api', refreshLockName: `${APP_SLUG}-auth-refresh` });
+export const appPlatformApi = createPlatformApiClient(api, { postSse });   // ApiError -> PlatformApiError
 
 export function AppPlatformHostProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -55,7 +53,7 @@ export function AppPlatformHostProvider({ children }: { children: ReactNode }) {
 
 | Port | What it is for | How the reference app binds it |
 |---|---|---|
-| `PlatformApiClient` | Every API call of a packaged page | The app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError`. The optional `getBlob(path)` (#772) returns a download's raw body and headers (`PlatformBlobResponse`); the reference app maps it onto `responseType: 'blobWithHeaders'`. Every method takes `PlatformRequestOptions`: `signal`, `ifMatch` (the `If-Match` header) and `headers` (#731: a page's extra request headers, such as the link token's `x-link-token`); the reference app sends `headers` first, so `If-Match` and its own `Authorization` and `Content-Type` win |
+| `PlatformApiClient` | Every API call of a packaged page | `createPlatformApiClient(api, { postSse })` over the app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError`. The optional `getBlob(path)` (#772) returns a download's raw body and headers (`PlatformBlobResponse`); the adapter maps it (and `postBlob`) onto `responseType: 'blobWithHeaders'`. Every method takes `PlatformRequestOptions`: `signal`, `ifMatch` (the `If-Match` header) and `headers` (#731: a page's extra request headers, such as the link token's `x-link-token`); the adapter (`toHttpRequestOptions`) sends `headers` first, so `If-Match` and its own `Authorization` and `Content-Type` win |
 | `PlatformViewer` | Permission and feature questions a page asks of content (never of reachability: the route gate does that) | `usePermissions().hasPermission`, the auth context's user id, the shell's AI and telemetry flags |
 | `formatRelativeTime` | Consistent dates | `utils/relativeTime` |
 
@@ -78,8 +76,9 @@ The app stays the owner of `ADMIN_SECTIONS` / `USER_SETTINGS_SECTIONS` and of it
 | `PlatformHostProvider` | option | `PlatformHostProvider(props: { host: PlatformWebHost; children: ReactNode }): ReactElement` | Mount the app's host once, inside the auth provider, around the shell | experimental | [example](../../../../apps/web/src/platform/platformHost.tsx) |
 | `PlatformSettingsPage` | component | `{ id; card: { title; description; path; permission?; feature? }; Icon; Page }` | Turn a packaged page into one registry card and one route of the app | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 | `PlatformHttpClientOptions` | option | `{ baseUrl: string; refreshLockName: string; onErrorResponse?(status, body): void }` | Bind the browser transport to the app's API base, its refresh lock name and its own error-response handling | experimental | [example](../../../../apps/web/src/services/api.ts) |
+| `createPlatformApiClient` | option | `createPlatformApiClient(http: PlatformHttpClient, options?: { postSse? }): PlatformApiClient` | Hand the packaged pages the app's one HTTP client as their transport (build it once, at module scope) | experimental | [example](../../../../apps/web/src/platform/platformHost.tsx) |
 
-Supporting exports, all `@stability experimental` except `ApiError` (`stable`): `PlatformHttpClient` (options `PlatformHttpClientOptions`: `baseUrl`, `refreshLockName`, `onErrorResponse?`; per-request `PlatformHttpRequestOptions`: `skipAuth`, `responseType`), `ApiError`, `PlatformHttpBlobWithHeaders`, `PlatformHttpErrorBody`, `SessionExpiredListener`, `PlatformWebHost`, `PlatformApiClient`, `PlatformApiError`, `PlatformBlobResponse`, `isPlatformApiError`, `PlatformViewer`, `usePlatformHost` (throws outside the provider), `usePlatformApi`, `usePlatformViewer`, `useOptionalPlatformHost` (`null` outside the provider).
+Supporting exports, all `@stability experimental` except `ApiError` (`stable`): `PlatformHttpClient` (options `PlatformHttpClientOptions`: `baseUrl`, `refreshLockName`, `onErrorResponse?`; per-request `PlatformHttpRequestOptions`: `skipAuth`, `responseType`), `ApiError`, `PlatformHttpBlobWithHeaders`, `PlatformHttpErrorBody`, `SessionExpiredListener`, `PlatformWebHost`, `PlatformApiClient`, `PlatformApiError`, `PlatformBlobResponse`, `isPlatformApiError`, `PlatformViewer`, `usePlatformHost` (throws outside the provider), `usePlatformApi`, `usePlatformViewer`, `useOptionalPlatformHost` (`null` outside the provider), `PlatformApiClientOptions`, `toPlatformApiError` (an `ApiError` as a `PlatformApiError`, anything else unchanged), `toHttpRequestOptions` (`PlatformRequestOptions` as the client's request options).
 
 ## Data
 
@@ -110,6 +109,8 @@ Authorization stays in the API: `hasPermission` decides what a page shows, never
 None of its own. `apps/web/src/__tests__/config/platformPages.test.ts` in the reference app checks the registration rules for every packaged page it binds; the package's `test/core/` pins the provider and the error guard.
 
 ## Upgrade notes
+
+#868: `createPlatformApiClient(http, { postSse? })`, `toPlatformApiError` and `toHttpRequestOptions` moved here from the reference app's `platform/platformHost.tsx`. Replace a hand-written `PlatformApiClient` over a `PlatformHttpClient` with one call; behaviour is unchanged (the error mapping, `If-Match`, extra headers first, `getBlob`/`postBlob` as `blobWithHeaders`).
 
 #727: `PlatformHttpClient` and `ApiError` moved here from the reference app's `services/api.ts`. An app keeps one instance (`new PlatformHttpClient({ baseUrl, refreshLockName, onErrorResponse })`, or a subclass that fixes them, as `apps/web/src/services/api.ts` does) and passes it to the identity slice's `AuthProvider`; behaviour is unchanged.
 

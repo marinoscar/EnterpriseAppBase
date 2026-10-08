@@ -406,7 +406,7 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 
 | Rule | Detail |
 |---|---|
-| A package never creates a theme | The app owns the MUI theme |
+| A package never imposes a theme | The app owns the MUI theme. The shell slice's `createShellTheme` (#868) is a builder the app calls with its brand colour and token contracts, and `ShellRoot` / `ShellThemeProvider` apply only the themes the app passes; no packaged page or component applies a theme of its own |
 | Peer dependencies | React, MUI, Emotion and `@mui/x-charts` are `peerDependencies`; two MUI copies break theme context |
 | Token contract with defaults | `withTelemetryTokens(theme)` adds defaults for `palette.status.{ok,warn,crit,info,neutral}` and `palette.chart.series` (matching EvoPath's existing `PaletteChart { series }`), derived from the theme's own palette; see [telemetry.md §11.16](telemetry.md#1116-theme-tokens-686) |
 | Styling hooks | Components accept `sx`, `className` and `slots` |
@@ -420,6 +420,8 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 **Telemetry UI today** uses about 258 theme-token references and about 33 direct palette-role reads. Those 33 reads are routed through the token contract in wave 0 ([Roadmap](#roadmap)); done in #686, which also found one more (a quoted `warning.main` on the telemetry settings page).
 
 **Auth UX.** The package provides a headless `AuthProvider`, `useAuth`, `RequireAuth(permission)` and a callback route. The login page is composed from slots (logo, copy, providers) with `registerAuthProvider()` for additional sign-in methods.
+
+**App shell (#868).** The shell is packaged too: `@marinoscar/platform-web/shell` (`ShellLayout`, `ShellAppBar`, `ShellNavigationRail`, `ShellBottomNav`, `ShellUserMenu`, `ShellProviders`, the theme builder and context). The app declares its navigation once (`ShellNavigation`: destinations, the settings surfaces the compact AppBar drills into, the Console) and fills slots for its brand and its own controls (the AppBar's `actions` and `wideActions`, the user menu's `items` and `footer`, the layout's `banners` and `overlays`, or a whole `rail`, `bottomNav` or `appBar`). The five coupled breakpoint gates of the Settings UI Pattern stay together at `sm` inside the package, with no shared constant ([settings-ui.md](settings-ui.md#breakpoint-gates)). Packaged pages still never import the shell: they render inside whatever route element the app chooses. `@marinoscar/platform-web/core`'s `createPlatformApiClient` (#868) adapts the app's one `PlatformHttpClient` to the pages' `PlatformApiClient`, so an app keeps one transport. See the [shell README](../../packages/platform-web/src/shell/README.md).
 
 ## Extending a package (consumer guide)
 
