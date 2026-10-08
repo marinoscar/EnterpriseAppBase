@@ -300,9 +300,9 @@ A maintenance window takes the application out of service on purpose. While open
 
 ### 5.16 Encrypted credentials
 
-Secrets configured at runtime are encrypted with AES-256-GCM under `SECRETS_ENCRYPTION_KEY` before they are stored. `CredentialsService` holds deployment-owned secrets in `credentials`, addressed by `(purpose, name)`: the SMTP password, the VAPID private key, the storage secret access key and the AI org keys. `UserCredentialsService` holds user-owned secrets in `user_credentials` under an owner-bound cipher domain, so a row moved to another user fails authentication instead of decrypting. Users' AI provider keys live in their own table, `user_ai_keys`, under a dedicated cipher purpose. No API ever returns secret material; admin screens show a masked status.
+Secrets configured at runtime are encrypted with AES-256-GCM under `SECRETS_ENCRYPTION_KEY` before they are stored. `CredentialsService` holds deployment-owned secrets in `credentials`, addressed by `(purpose, name)`: the SMTP password, the VAPID private key, the storage secret access key and the AI org keys. `UserCredentialsService` holds user-owned secrets in `user_credentials` under an owner-bound cipher domain, so a row moved to another user fails authentication instead of decrypting. `OrgCredentialsService` (#735) holds organization-owned secrets in `org_credentials`, under row-level security and an org-bound cipher domain. Every purpose is declared with `registerCredentialPurpose` or `registerUserCredentialPurpose`, and `UserCredentialResolver` answers user, then organization, then deployment. Users' AI provider keys live in their own table, `user_ai_keys`, under a dedicated cipher purpose. No API ever returns secret material; admin screens show a masked status.
 
-- **Code:** `apps/api/src/credentials/`, `apps/api/src/user-credentials/`; the cipher and its startup check are in `@marinoscar/platform-api/core` (`packages/platform-api/src/core/crypto/`, [§5.22](#522-platform-core-marinoscarplatform-apicore))
+- **Code:** `@marinoscar/platform-api/credentials` (`packages/platform-api/src/credentials/`, [README](../packages/platform-api/src/credentials/README.md)); the app's purposes are `apps/api/src/platform/credentials/credential-purposes.manifest.ts`; the secret field is `@marinoscar/platform-web/credentials`; the cipher and its startup check are in `@marinoscar/platform-api/core` (`packages/platform-api/src/core/crypto/`, [§5.22](#522-platform-core-marinoscarplatform-apicore))
 - **Read more:** [specs/user-credentials.md](specs/user-credentials.md), [runbooks/rotate-secrets-encryption-key.md](runbooks/rotate-secrets-encryption-key.md), [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md)
 
 ### 5.17 Observability
@@ -436,6 +436,7 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Settings | `OrgSettings` | `org_settings` | One organization's overrides of the org-overridable system namespaces (one row per organization, its own `version`; FORCEd RLS on `org_id`, #733) |
 | Secrets | `Credential` | `credentials` | Encrypted deployment-owned secrets by `(purpose, name)` |
 | Secrets | `UserCredential` | `user_credentials` | Encrypted user-owned secrets, owner-bound cipher domain |
+| Secrets | `OrgCredential` | `org_credentials` | Encrypted organization-owned secrets by `(org_id, purpose, name)`, org-bound cipher domain; `org`, row-level security forced. Owned by the credentials slice (`@marinoscar/platform-db` fragment `credentials`, #735) |
 | Storage | `StorageObject` | `storage_objects` | File metadata, status, storage key, processing results |
 | Storage | `StorageObjectChunk` | `storage_object_chunks` | Multipart upload part tracking |
 | Notifications | `Notification` | `notifications` | In-app inbox rows |

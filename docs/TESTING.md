@@ -278,7 +278,7 @@ a plain `npm test` never needs a database.
 | `apps/api/test/integration/` | Cross-seam scenarios: queue/fleet concurrency, node lease boundary, backup round trip, restore round trip |
 | `apps/api/test/broadcasts/` | Broadcast model indexes and defaults, chunked fan-out |
 | `apps/api/test/ai/ai-usage.db.spec.ts` | Usage aggregation SQL |
-| `apps/api/test/user-credentials/` | Per-user credential store |
+| `apps/api/test/credentials/` | The credential stores: `user_credentials`, `org_credentials` under row-level security, ciphertexts written before the package move |
 | `apps/api/test/prisma/platform-*.db.spec.ts` | `platform db sync` installs byte copies whose `_prisma_migrations.checksum` equals the package file's sha256; Prisma's silence about an edited applied migration; the raw-SQL index list equals the catalogue |
 | `apps/api/src/db-backup/` | Cluster primitives for restore, the single-active-run index, the PostgreSQL job-role broker, run/job linkage |
 | `apps/api/test/tenancy/` | Row-level security (#725): `rls-isolation` (two organizations, an ordinary role the suite creates, `FORCE` on: scoped reads, writes and raw SQL never cross, an unscoped client fails closed, the system client sees both, concurrent scoped transactions never mix), `rls-coverage` (every `org` model has RLS forced and a listed policy; no unclassified `org_id`), `storage-org-isolation` (the real storage service answers 404 across organizations for the same user), `rls-overhead` (prints the per-query cost) |

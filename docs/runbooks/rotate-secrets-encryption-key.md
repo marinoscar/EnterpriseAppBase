@@ -4,16 +4,17 @@ Use this to rotate the key that encrypts stored credentials, or to recover
 after that key is lost. Audience: whoever holds the deployment's environment
 and database access.
 
-The key protects **three tables**:
+The key protects **four tables**:
 
 | Table | What it holds | Cipher domain |
 |---|---|---|
 | `credentials` | Deployment-owned secrets: SMTP password, Web Push private key, object-storage secret access key, AI admin/org keys | the row's `purpose` (`smtp`, `push_vapid`, `storage`, `ai`) |
 | `user_credentials` | Per-user secrets | owner-bound: `userCredentialPurpose(userId, purpose)` |
+| `org_credentials` | Per-organization secrets (#735); under FORCEd row-level security | organization-bound: `orgCredentialPurpose(orgId, purpose)` |
 | `user_ai_keys` | Each user's own AI provider key | the fixed string `ai_user_key`, shared by every user |
 
-**A rotation must re-encrypt all three.** A script that reads only
-`credentials` leaves every `user_credentials` and `user_ai_keys` row
+**A rotation must re-encrypt all four.** A script that reads only
+`credentials` leaves every `user_credentials`, `org_credentials` and `user_ai_keys` row
 decryptable only under the OLD key. The startup check counts only
 `credentials`, so nothing fails at boot; each affected user's key fails on its
 first read after cutover with a "must be re-entered" error.
@@ -45,13 +46,21 @@ Source of truth for every claim below:
 - `packages/platform-api/src/core/crypto/encryption-key-startup-check.ts` —
   boot-time validation (`verifyEncryptionKeyAtStartup`, called from
   `apps/api/src/main.ts`).
-- `apps/api/src/credentials/credentials.service.ts` — the deployment-owned store.
-- `apps/api/src/user-credentials/user-credentials.service.ts` — the per-user
-  store.
+- `packages/platform-api/src/credentials/credentials.service.ts` — the
+  deployment-owned store (`@marinoscar/platform-api/credentials`, moved out of
+  `apps/api/src/credentials/` by issue #735 with the same domains).
+- `packages/platform-api/src/credentials/user-credentials.service.ts` — the
+  per-user store.
+- `packages/platform-api/src/credentials/org-credentials.service.ts` — the
+  per-organization store, and `orgCredentialPurpose()` in the core cipher.
+  `org_credentials` is under row-level security: a script reads and writes it
+  only inside a transaction that first runs
+  `SELECT set_config('app.rls_bypass', 'on', true)` (the API's
+  `PrismaSystemService.runAsSystem`), or it sees no rows at all.
 - `apps/api/src/ai/keys/user-ai-keys.service.ts` — the AI BYOK store, which is
   **not** owner-bound (see step 6 below).
 - `packages/platform-db/schema/credentials.prisma` and `ai.prisma` — models
-  `Credential`, `UserCredential`, `UserAiKey`.
+  `Credential`, `UserCredential`, `OrgCredential`, `UserAiKey`.
 
 ---
 
@@ -79,16 +88,16 @@ Source of truth for every claim below:
 | Operation | Safe during rotation? |
 |---|---|
 | `CredentialsService.describe` / `.list`, `UserCredentialsService.describe` / `.list` (reads that never touch `secret`) | Yes — unaffected by a rotation running elsewhere |
-| Reading a credential via `getSecret` for existing, unrotated rows, in any of the three tables | Yes, as long as the app's configured key is still the OLD key |
+| Reading a credential via `getSecret` for existing, unrotated rows, in any of the four tables | Yes, as long as the app's configured key is still the OLD key |
 | **Writing a new credential** — `CredentialsService.setSecret` (the SMTP settings save, Web Push generate/rotate, a storage-configuration save at `/admin/settings/storage`, an AI admin key save at `/admin/settings/ai`), `UserCredentialsService.setSecret` (any feature built on the per-user store), or `UserAiKeysService`'s equivalent (a user setting/replacing their own AI provider key) | **No** — see section 4 |
 
 Reads that never touch the ciphertext (`describe`, `list`) are always safe,
-in every one of the three tables. The dangerous operation is a **write**
+in every one of the four tables. The dangerous operation is a **write**
 landing after your rotation script has already read a table but before
 you've flipped the deployment's env var — that new row is encrypted under
 the OLD key and your rotation script never saw it. This is why a maintenance
 window or a write-freeze matters more than read-availability during
-rotation, and why the freeze must cover all three write paths, not just
+rotation, and why the freeze must cover all four write paths, not just
 `CredentialsService.setSecret`.
 
 ## 3. The module-caching gotcha (read this before writing a script)
@@ -149,9 +158,12 @@ at all), and it applies equally to your script's own `console.log` calls.
 **Phase A — decrypt everything under the OLD key, from ALL THREE tables.**
 1. Set `SECRETS_ENCRYPTION_KEY` to the OLD key.
 2. Load `secret-cipher.ts` fresh (section 3).
-3. Read every row of all three tables:
+3. Read every row of all four tables:
    - `prisma.credential.findMany({ select: { id: true, purpose: true, name: true, secret: true } })`
    - `prisma.userCredential.findMany({ select: { id: true, userId: true, purpose: true, name: true, secret: true } })`
+   - `org_credentials`, **inside one transaction with the bypass flag** (row-level
+     security hides every row otherwise, and the read silently returns nothing):
+     `prisma.$transaction(async (tx) => { await tx.$executeRaw\`SELECT set_config('app.rls_bypass', 'on', true)\`; return tx.orgCredential.findMany({ select: { id: true, orgId: true, purpose: true, name: true, secret: true } }); })`
    - `prisma.userAiKey.findMany({ select: { id: true, secret: true } })`
 4. For each `credentials` row, call `decryptSecret(row.secret, row.purpose)`.
 5. For each `user_credentials` row, call
@@ -160,6 +172,10 @@ at all), and it applies equally to your script's own `console.log` calls.
    the wrong domain for this table (§3 of
    [`docs/specs/user-credentials.md`](../specs/user-credentials.md)); using
    it will fail decryption for every row.
+5b. For each `org_credentials` row, call
+   `decryptSecret(row.secret, orgCredentialPurpose(row.orgId, row.purpose))`
+   — the organization-bound domain, never the bare purpose and never a user
+   domain.
 6. For each `user_ai_keys` row, call
    `decryptSecret(row.secret, AI_USER_KEY_PURPOSE)` — the fixed string
    `'ai_user_key'` (`ai/keys/ai-user-key.constants.ts`), **the same string
@@ -189,36 +205,41 @@ at all), and it applies equally to your script's own `console.log` calls.
     the identical owner-bound domain used to decrypt it in step 5. Passing
     the bare purpose here would silently produce a ciphertext no future
     read (which always calls `userCredentialPurpose`) can ever decrypt.
+12b. For each held `org_credentials` plaintext, call
+    `encryptSecret(plaintext, orgCredentialPurpose(orgId, purpose))` — the
+    domain used to decrypt it in step 5b.
 13. For each held `user_ai_keys` plaintext, call
     `encryptSecret(plaintext, AI_USER_KEY_PURPOSE)` — the same shared,
     non-owner-bound string used in step 6.
 
 **Phase D — write the new ciphertext back.**
-14. For each row in each of the three tables,
+14. For each row in each of the four tables,
     `prisma.<model>.update({ where: { id }, data: { secret: newCiphertext } })`,
     addressed by `id` (not by a unique-key upsert — you are updating an
-    existing row, not creating one).
-15. Discard the in-memory plaintexts once every row, in all three tables, is
+    existing row, not creating one). The `org_credentials` updates run inside
+    a transaction with the bypass flag, as in step 3; without it each update
+    matches no row and reports success.
+15. Discard the in-memory plaintexts once every row, in all four tables, is
     confirmed rewritten.
 
 **Phase E — cut the deployment over.**
-16. Only after every row in all three tables is confirmed rewritten, update the deployment's
+16. Only after every row in all four tables is confirmed rewritten, update the deployment's
     actual `SECRETS_ENCRYPTION_KEY` environment variable to the NEW key.
 17. Restart the application normally. On boot,
     `verifyEncryptionKeyAtStartup` will validate the new key is
     well-formed and log that encrypted credential storage is available.
     Remember: **this check does not verify the key can decrypt existing
     rows, and it only ever counts the `credentials` table** — it says
-    nothing about `user_credentials` or `user_ai_keys` at all (see the
+    nothing about `user_credentials`, `org_credentials` or `user_ai_keys` at all (see the
     decision table in the encrypted credential storage section of
     `SECURITY-ARCHITECTURE.md`). A row missed
     in step 3 (written after your read pass, still under the OLD key), in
-    ANY of the three tables, will pass this boot check silently and only
+    ANY of the four tables, will pass this boot check silently and only
     fail later — as an `InternalServerErrorException` from
     `CredentialsService.getSecret`, `UserCredentialsService.getSecret`, or
     `UserAiKeysService`'s equivalent, the first time something tries to read
     it. This is exactly why section 2's write-freeze / maintenance window
-    matters, across all three write paths — there is no safety net at boot
+    matters, across all four write paths — there is no safety net at boot
     for a row rotation missed.
 18. Once you've confirmed the app is healthy against the new key, securely
     discard the old key from wherever it was staged for this rotation.
@@ -227,8 +248,8 @@ at all), and it applies equally to your script's own `console.log` calls.
 
 If the key protecting stored credentials is truly lost — not a rotation
 interrupted mid-way, but the key itself is gone and unrecoverable — every row
-encrypted under it, in **all three tables** (`credentials`,
-`user_credentials`, `user_ai_keys`), is **permanently unreadable**. This is
+encrypted under it, in **all four tables** (`credentials`,
+`user_credentials`, `org_credentials`, `user_ai_keys`), is **permanently unreadable**. This is
 expected, correct behavior of encryption at rest, not a bug: there is no
 backdoor and no recovery path through the cipher. `CredentialsService
 .getSecret`, `UserCredentialsService.getSecret`, and `UserAiKeysService`'s
@@ -294,6 +315,15 @@ ORDER BY user_id, purpose, name;
 SELECT user_id, provider, hint, verified_at, updated_at
 FROM user_ai_keys
 ORDER BY user_id, provider;
+
+-- org_credentials is under row-level security: run as the administrator, or
+-- in a transaction that sets app.rls_bypass first.
+BEGIN;
+SELECT set_config('app.rls_bypass', 'on', true);
+SELECT org_id, purpose, name, label, hint, updated_at
+FROM org_credentials
+ORDER BY org_id, purpose, name;
+COMMIT;
 ```
 
 Neither touches `secret` either, and both remain readable regardless of key
@@ -310,7 +340,8 @@ for that purpose.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| After cutover, one user's AI key or per-user credential "must be re-entered"; deployment secrets work | The script skipped `user_ai_keys` or `user_credentials`, or used the wrong cipher domain | Restore the OLD key, restart, and re-run the script over all three tables (steps 5, 6, 12, 13) |
+| After cutover, one user's AI key or per-user credential "must be re-entered"; deployment secrets work | The script skipped `user_ai_keys` or `user_credentials`, or used the wrong cipher domain | Restore the OLD key, restart, and re-run the script over all four tables (steps 5, 5b, 6, 12, 12b, 13) |
+| After cutover, an organization's credential "must be re-entered" | The script read `org_credentials` without the bypass flag (it saw no rows), or used the wrong domain | Restore the OLD key, restart, and re-run with the bypass transaction and `orgCredentialPurpose(orgId, purpose)` (steps 3, 5b, 12b, 14) |
 | Every row fails to decrypt in Phase A | The script's cipher module still holds a cached key | Reload the module between phases (section 3) |
 | A single deployment secret fails after cutover | It was written after the Phase A read, under the OLD key | Re-enter it through its admin page; freeze writes next time (section 2) |
 | Boot log says the key is malformed | The NEW key is not base64 of 32 bytes | Regenerate with `openssl rand -base64 32` |
@@ -319,12 +350,13 @@ for that purpose.
 ## 6. Summary checklist
 
 - [ ] New key generated with `openssl rand -base64 32` and stored outside the repo and the database
-- [ ] Maintenance window scheduled or credential writes frozen (across `credentials`, `user_credentials` AND `user_ai_keys` write paths)
+- [ ] Maintenance window scheduled or credential writes frozen (across `credentials`, `user_credentials`, `org_credentials` AND `user_ai_keys` write paths)
 - [ ] Rotation script written per section 4, decrypting under OLD key and re-encrypting under NEW key in the same process, with an explicit module-cache reload between the two phases
-- [ ] Script covers **all three tables** (`credentials`, `user_credentials`, `user_ai_keys`) — not only `credentials`
+- [ ] Script covers **all four tables** (`credentials`, `user_credentials`, `org_credentials`, `user_ai_keys`) — not only `credentials`
 - [ ] `user_credentials` rows use the owner-bound domain (`userCredentialPurpose(userId, purpose)`), not the bare purpose
+- [ ] `org_credentials` rows are read and written inside a bypass transaction, with the organization-bound domain (`orgCredentialPurpose(orgId, purpose)`)
 - [ ] No plaintext logged or written to disk at any point
-- [ ] All rows, in all three tables, confirmed rewritten under the new key before the deployment's env var is changed
+- [ ] All rows, in all four tables, confirmed rewritten under the new key before the deployment's env var is changed
 - [ ] Deployment's `SECRETS_ENCRYPTION_KEY` updated to the NEW key and app restarted
 - [ ] Boot log confirms `SECRETS_ENCRYPTION_KEY is configured; encrypted credential storage is available.`
 - [ ] Old key securely discarded once the app is confirmed healthy
