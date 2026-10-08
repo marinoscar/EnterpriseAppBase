@@ -18,6 +18,7 @@
     "src/identity/ui/index.ts",
     "src/settings/headless/index.ts",
     "src/settings/ui/index.ts",
+    "src/settings/testing/index.ts",
     "src/sharing/headless/index.ts",
     "src/sharing/ui/index.ts",
     "src/credentials/headless/index.ts",

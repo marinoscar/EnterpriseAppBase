@@ -63,6 +63,23 @@ describe('conformance suites name no path of the reference app', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('holds for the web suites too (packages/platform-web/src/settings/testing): they read the app’s data, not its files', () => {
+    // platform-web is a browser package without Node types, so this check lives here.
+    const WEB_SUITES = join(SRC, '..', '..', 'platform-web', 'src', 'settings', 'testing');
+    const webFiles = files(WEB_SUITES).filter((file) => file.endsWith('.suite.ts'));
+
+    expect(webFiles.length).toBeGreaterThanOrEqual(5);
+    const offenders = webFiles.flatMap((file) => {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      return FORBIDDEN.filter(({ pattern }) => pattern.test(code)).map(({ what }) => `${relative(WEB_SUITES, file)}: ${what}`);
+    });
+    expect(offenders).toEqual([]);
+
+    // A browser package reads no file: nothing imports node:fs.
+    const reading = webFiles.filter((file) => /from 'node:/.test(readFileSync(file, 'utf8'))).map((file) => relative(WEB_SUITES, file));
+    expect(reading).toEqual([]);
+  });
+
   it('the detector itself flags a planted path', () => {
     const planted = "const root = join(repo, 'apps/api/src');\n// fine in a comment: apps/web/src\nconst url = '/api/admin/ai/providers/openai/key';\nconst dir = 'ai/providers/openai/';";
 

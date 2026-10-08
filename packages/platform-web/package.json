@@ -75,6 +75,10 @@
       "types": "./dist/settings/ui/index.d.ts",
       "default": "./dist/settings/ui/index.js"
     },
+    "./settings/testing": {
+      "types": "./dist/settings/testing/index.d.ts",
+      "default": "./dist/settings/testing/index.js"
+    },
     "./sharing/headless": {
       "types": "./dist/sharing/headless/index.d.ts",
       "default": "./dist/sharing/headless/index.js"
