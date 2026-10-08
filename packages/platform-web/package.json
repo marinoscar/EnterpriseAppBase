@@ -107,6 +107,10 @@
       "types": "./dist/email/ui/index.d.ts",
       "default": "./dist/email/ui/index.js"
     },
+    "./jobs/headless": {
+      "types": "./dist/jobs/headless/index.d.ts",
+      "default": "./dist/jobs/headless/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
