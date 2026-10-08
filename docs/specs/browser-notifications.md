@@ -48,7 +48,7 @@ Events, channels and their renderers are registries
 |---|---|---|
 | Channels | `registry/platform-channels.ts` (`email`, `browser`, `push`); an app's in `app-registrations/notifications.ts` | `notificationChannelRegistry` |
 | Events | Next to the module that raises them: `auth/auth.notifications.ts`, `allowlist/allowlist.notifications.ts`, `users/users.notifications.ts`, `notifications/broadcasts/broadcasts.notifications.ts`, `notifications/ops/ops.notifications.ts`, `nodes/nodes.notifications.ts`, `db-backup/db-backup.notifications.ts`; an app's in `app-registrations/notifications.ts` | `notificationEventRegistry` |
-| Email templates | `email/templates/platform-email-templates.ts`; an app's in `app-registrations/notifications.ts` | `emailTemplateRegistry` |
+| Email templates | `@marinoscar/platform-api/email` (`platform-email-templates.ts`, `registerEmailTemplate`); an app's in `app-registrations/notifications.ts` | `emailTemplateRegistry` |
 | Event -> email template, event -> browser/push renderer | The `emailTemplate` and `browserTemplate` of each event's `registerNotification` entry; platform renderers in `notifications/channels/browser-templates.ts` | `eventEmailTemplateRegistry`, `eventBrowserTemplateRegistry` |
 | Channel transports | Platform: the `NOTIFICATION_CHANNEL_SENDERS` factory in `notifications.module.ts`. An app's: a provider that calls `NotificationChannelSenderRegistry.register(this)` in `onModuleInit` | `NotificationChannelSenderRegistry` (DI) |
 
@@ -410,7 +410,7 @@ is a permission: whoever can act on it.
 | `db_backup.backup_failed` | email, browser | no | `db_backup:read` | `DatabaseBackupRunnerService` on failure; the `db.backup.sweep` handler for stale runs |
 | `db_backup.restore_completed` | email, browser | **yes** | `db_backup:read` plus the triggering operator | `DatabaseRestoreService` after the database swap |
 
-Email templates: `apps/api/src/email/templates/{job-failed,node-offline,backup-failed,restore-completed}.email.ts`.
+Email templates: `packages/platform-api/src/email/templates/{job-failed,node-offline,backup-failed,restore-completed}.email.ts`.
 No migration, table or endpoint was needed.
 
 - **Why `restore_completed` is mandatory.** The live database was replaced and

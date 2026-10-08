@@ -88,7 +88,7 @@ A stored key that will not decrypt throws; it never falls through to the next ti
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `CredentialsModule` | token | `@Module` providing `CredentialsService` | Import it in a module that reads or writes a deployment credential | experimental | [example](../../../../apps/api/src/email/email.module.ts) |
+| `CredentialsModule` | token | `@Module` providing `CredentialsService` | Import it in a module that reads or writes a deployment credential | experimental | [example](../../../../apps/api/src/platform/email/email.config.ts) |
 | `UserCredentialsModule` | token | `@Module` providing `UserCredentialsService`, `UserCredentialResolver` | Import it where a user's own key is stored or resolved | experimental | [example](../../../../apps/api/src/platform/credentials/credentials.config.ts) |
 | `OrgCredentialsModule` | token | `@Module` providing `OrgCredentialsService` | Import it where an organization's own key is stored or read | experimental | [example](../../../../apps/api/src/platform/credentials/credentials.config.ts) |
 | `UserCredentialResolver` | token | `resolve(userId, purpose, name?, { orgId? }): Promise<{ source: 'user' \| 'org' \| 'system' \| 'none'; secret? }>` | Pick whose key pays for a call: user, then the purpose's fallback (org, system), then none | experimental | [example](../../../../apps/api/test/credentials/credentials-extension-points.spec.ts) |

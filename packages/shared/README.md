@@ -45,7 +45,7 @@ Keep this list current when you add one.
 | OpenAPI title, contact and docs link | `apps/api/src/openapi/document.ts` | `APP_NAME`, `REPO_URL` |
 | OpenAPI description prose | `apps/api/src/openapi/description.ts` | `APP_NAME`, `REPO_URL` |
 | API reference page heading and `<title>` | `apps/api/src/openapi/docs-page.ts`, `register-docs-routes.ts` | `APP_NAME` |
-| Email wordmark, footer and subjects | `apps/api/src/email/templates/layout.ts` | `APP_NAME` |
+| Email wordmark, footer and subjects | `apps/api/src/platform/email/email.options.ts` (`EmailModule.forRoot({ appName })`) | `APP_NAME` |
 | CLI banner, `--help`, device name | `apps/cli/src/branding.ts` (`CLI_DISPLAY_NAME`) | `APP_NAME` |
 | Web theme (`palette.primary.main`, light) | `apps/web/src/theme/light.ts` | `THEME_COLOR` |
 | Web app manifest | `apps/web/pwa/manifest.ts` | `APP_NAME`, `THEME_COLOR`, `BACKGROUND_COLOR` |

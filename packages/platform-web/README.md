@@ -17,6 +17,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-web/sharing/headless` and `@marinoscar/platform-web/sharing/ui`: the sharing hooks and client (groups, members, invites, grants, link grants, shared with me, the public link), the link-renderer registry, the share dialog, the group pages, the public `/s` page and the groups settings-page descriptor (#731). [README](src/sharing/README.md).
 - `@marinoscar/platform-web/credentials/headless` and `@marinoscar/platform-web/credentials/ui`: the write-only secret field `SecretField` and its unified helper text `savedSecretHelperText` (#735). [README](src/credentials/README.md).
 - `@marinoscar/platform-web/onboarding/headless` and `@marinoscar/platform-web/onboarding/ui`: `OnboardingProvider` and `useOnboarding`, the welcome dialog, the checklist, the Setup guide and Getting started pages, the Activation section, `FeatureUnavailableNotice` and its registry, and the "Getting started" menu item (#745). [README](src/onboarding/README.md).
+- `@marinoscar/platform-web/email/headless` and `@marinoscar/platform-web/email/ui`: the email settings hook `useEmailSettings` and the `/admin/settings/email` page `EmailSettingsPage` (#737). [README](src/email/README.md).
 
 ## Install and peer dependencies
 

@@ -99,7 +99,7 @@ scheduling for after the switch is flipped back is legitimate.
 **Rendering.** The body splits into paragraphs on blank lines; a single
 newline inside a paragraph is joined with a space (mail clients reflow). Empty
 paragraphs are dropped. `broadcast.email.ts` interpolates each paragraph as a
-value into the `html` tagged literal (`email/templates/safe-html.ts`), which
+value into the `html` tagged literal (`packages/platform-api/src/email/templates/safe-html.ts`), which
 escapes by construction; `SafeHtml.unsafeFromTrustedString` is never called.
 The browser/push template (`broadcastBrowserTemplate` in
 `notifications/channels/browser-templates.ts`, bound to both keys) is a projection that
@@ -470,7 +470,7 @@ API unit specs (`apps/api/src/`):
 - `email/email-rate-limit.spec.ts`, `email/base-email.provider.spec.ts`,
   `notifications/channels/email-notification.channel.spec.ts`: throttle
   classification.
-- `email/templates/broadcast.email.spec.ts`: escaping by construction.
+- `packages/platform-api/test/email/templates/broadcast.email.spec.ts`: escaping by construction.
 
 API integration and database suites (`apps/api/test/broadcasts/`):
 

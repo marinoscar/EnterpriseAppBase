@@ -21,9 +21,11 @@ in-app inbox, Web Push subscriptions and configuration, and admin broadcasts.
 | `broadcasts/` | Admin broadcasts: `/api/admin/broadcasts`, the audience, and the two fan-out job handlers under `broadcasts/handlers/`. A sibling module (`BroadcastsModule`), not part of `NotificationsModule`. `broadcasts.notifications.ts` declares its two events. |
 | `ops/` | `JobFailureNotifier`, a `job.settled` listener that raises `jobs.job_failed` to everyone holding the permission that can act on it. `ops.notifications.ts` declares that event. |
 
-Email templates live outside this folder, in
-[`../email/templates/`](../email/templates/index.ts); the platform's are
-listed in `platform-email-templates.ts`. Each platform module declares the
+Email templates live outside this folder: the platform's nine (and the
+template registry) in `@marinoscar/platform-api/email`
+([README](../../../../packages/platform-api/src/email/README.md)), the ones
+the identity and sharing slices own the words of in
+[`../platform/email/templates/`](../platform/email/templates/index.ts). Each platform module declares the
 events it raises in its own `<module>.notifications.ts`
 (`auth/`, `allowlist/`, `users/`, `nodes/`, `db-backup/`, plus `broadcasts/`
 and `ops/` here). This application's own channels, templates and
@@ -117,21 +119,23 @@ event's default".
 
 Write one template per channel the event declares.
 
-**Email.** Create the template module (`apps/api/src/email/templates/<name>.email.ts`
-on the platform). Export a payload interface and a pure function returning
-`{ subject, html, text }`.
+**Email.** Create the template module. Export a payload interface and a pure
+function `(data, ctx?) => { subject, html, text }` (the render context carries
+the product name and the layout; `resolveEmailRenderContext(ctx)`), all from
+`@marinoscar/platform-api/email`.
 
 - Build the body with the `html` tagged literal so every interpolation is
   escaped.
 - Pass it to `renderLayout`. Put any call-to-action URL through the layout,
   which applies `safeUrl`.
 - Hand-write the text part. There is no HTML-to-text helper.
-- Register it. A platform template goes in both `PlatformEmailTemplateDataMap`
-  and `PLATFORM_EMAIL_TEMPLATES` in
-  [`../email/templates/platform-email-templates.ts`](../email/templates/platform-email-templates.ts);
-  the compiler rejects half a registration. An application's goes in
-  `APP_EMAIL_TEMPLATES` and, for a typed `renderEmailTemplate`, augments
-  `EmailTemplateDataMap`.
+- Register it with `registerEmailTemplate(name, template)` (or an
+  `APP_EMAIL_TEMPLATES` entry in
+  [`../app-registrations/notifications.ts`](../app-registrations/notifications.ts)),
+  and type its data by augmenting `EmailTemplateDataMap` of
+  `@marinoscar/platform-api/email`. A name already registered throws
+  `DUPLICATE_ID`; `{ override: true }` replaces a platform template on
+  purpose. Template names are stable ids once an event maps to them.
 - Name it in the notification's `emailTemplate`. An event that declares
   `email` with no template is a recorded delivery failure, not a silent skip.
 
@@ -144,8 +148,8 @@ channel class (the declaration files import it, and the class imports the
 registry).
 
 Worked examples:
-[`test-email.email.ts`](../email/templates/test-email.email.ts),
-[`role-changed.email.ts`](../email/templates/role-changed.email.ts) and
+[`example-digest.email.ts`](../platform-extensions/email/examples/example-digest.email.ts),
+[`org-invitation.email.ts`](../platform/email/templates/org-invitation.email.ts) and
 [`../users/users.notifications.ts`](../users/users.notifications.ts).
 
 ### 3. Call `notify()` at the real trigger
