@@ -130,7 +130,7 @@ Importing `@marinoscar/platform-api/android-app/testing` registers the `android-
 ```ts
 import { RAW_SQL_INDEXES } from '@marinoscar/platform-db';
 import '@marinoscar/platform-api/android-app/testing';
-runPlatformConformance({ sourceRoots: [API_SOURCE_ROOT], suites: { 'android-app': { rawSqlIndexNames: RAW_SQL_INDEXES.map((i) => i.name) } } });
+runPlatformConformance({ sourceRoots: [API_SOURCE_ROOT], suites: { androidApp: { rawSqlIndexNames: RAW_SQL_INDEXES.map((i) => i.name) } } });
 ```
 
 | Case | Fails when |

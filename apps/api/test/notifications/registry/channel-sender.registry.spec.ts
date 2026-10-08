@@ -16,7 +16,7 @@ function fakeSender(channel: string): NotificationChannelSender {
   };
 }
 
-const ANDROID = { id: 'android_app', label: 'Android app', description: 'The paired Android app.' };
+const ANDROID = { id: 'pager_app', label: 'Pager app', description: 'The paired pager app.' };
 
 function platform(): NotificationChannelSenderRegistry {
   return new NotificationChannelSenderRegistry([
@@ -57,12 +57,12 @@ describe('NotificationChannelSenderRegistry', () => {
   it('accepts an app sender for a registered app channel and returns it', async () => {
     await withTemporaryEntries(notificationChannelRegistry, [ANDROID], () => {
       const registry = platform();
-      const android = fakeSender('android_app');
+      const android = fakeSender('pager_app');
 
       registry.register(android);
 
-      expect(registry.get('android_app')).toBe(android);
-      expect(registry.channels()).toEqual(['email', 'browser', 'push', 'android_app']);
+      expect(registry.get('pager_app')).toBe(android);
+      expect(registry.channels()).toEqual(['email', 'browser', 'push', 'pager_app']);
     });
   });
 
@@ -85,7 +85,7 @@ describe('NotificationChannelSenderRegistry', () => {
       const registry = platform();
       registry.onApplicationBootstrap();
 
-      const err = thrown(() => registry.register(fakeSender('android_app')));
+      const err = thrown(() => registry.register(fakeSender('pager_app')));
       expect(err.code).toBe('FROZEN');
       expect(registry.channels()).toEqual(['email', 'browser', 'push']);
     });

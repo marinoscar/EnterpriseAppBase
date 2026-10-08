@@ -57,6 +57,9 @@ export { AndroidAssetLinksDoctorCheck, decideAndroidAssetLinks } from './doctor/
 export { AndroidReleasesDoctorCheck, decideAndroidReleases } from './doctor/android-releases.doctor-check';
 export type { AndroidReleaseFacts } from './doctor/android-releases.doctor-check';
 
+// ---- the app's model registries ---------------------------------------------------
+export { ANDROID_APP_MODEL_OWNERSHIP, ANDROID_APP_USER_OWNED_MODELS } from './user-data';
+
 // ---- structural data ----------------------------------------------------------
 export { isUniqueViolation } from './data/android-app-db';
 export type {

@@ -17,7 +17,7 @@ import { ONE_CURRENT_RELEASE_INDEX } from '../releases/android-release.service';
 declare module '../../testing/index' {
   interface PlatformConformanceSuiteOptions {
     /** The android-app slice's suite: its options, or `false` to opt out. Registered by importing `@marinoscar/platform-api/android-app/testing`. */
-    'android-app'?: AndroidAppConformanceOptions | false;
+    androidApp?: AndroidAppConformanceOptions | false;
   }
 }
 

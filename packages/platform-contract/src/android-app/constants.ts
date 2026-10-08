@@ -289,3 +289,102 @@ export const TWA_LAUNCH_PARAMS = Object.freeze({
   APP_VERSION: 'appVersion',
   APP_VERSION_CODE: 'appVersionCode',
 } as const);
+
+/**
+ * The optional `android` block of `packages/shared/identity.json` (#746):
+ * every field overrides one derived default. A shipped app copies its legacy
+ * values here verbatim (MemoriaHub's `applicationId`, `deepLinkScheme`,
+ * `storagePrefix`, `apkStem`), because a changed `applicationId` is a
+ * different app and a changed `storagePrefix` loses the server address and
+ * the pairing on installed phones.
+ *
+ * @stability experimental
+ */
+export interface AndroidIdentityOverrides {
+  /** The Android application id. Default `com.<repo token>.android`. */
+  readonly applicationId?: string;
+  /** The custom URI scheme of the app's deep links. Default `<repo name>-android`. */
+  readonly deepLinkScheme?: string;
+  /** Prefix of on-device file names (encrypted preferences). Default the repo token. Never change it for a shipped app. */
+  readonly storagePrefix?: string;
+  /** Stem of APK file names (`<apkStem>-<versionName>.apk`). Default `<app slug>-android`. */
+  readonly apkStem?: string;
+}
+
+/**
+ * The fields of `packages/shared/identity.json` the Android identity derives
+ * from.
+ *
+ * @stability experimental
+ */
+export interface AndroidIdentitySource {
+  /** The display name. */
+  readonly productName: string;
+  /** `owner/name`. */
+  readonly repoSlug: string;
+  /** The optional overrides. */
+  readonly android?: AndroidIdentityOverrides;
+}
+
+/**
+ * The Android app's resolved identity.
+ *
+ * @stability experimental
+ */
+export interface AndroidIdentity {
+  /** The launcher label (the product name). */
+  readonly label: string;
+  /** The application id (also the default trusted package). */
+  readonly applicationId: string;
+  /** The deep-link scheme. */
+  readonly deepLinkScheme: string;
+  /** The on-device file-name prefix. */
+  readonly storagePrefix: string;
+  /** The APK file-name stem. */
+  readonly apkStem: string;
+}
+
+function slugifyName(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : 'app';
+}
+
+/**
+ * Resolves the Android identity from the product identity, exactly as
+ * `@marinoscar/platform-infra/android/platform-core/identity.gradle.kts` does
+ * at build time (EvoPath's Gradle rule): the repository name (after the `/`
+ * of `repoSlug`) lower-cased to letters and digits is the token (`app` when
+ * empty, `app`-prefixed when it starts with a digit); `applicationId` is
+ * `com.<token>.android`, `storagePrefix` the token, `deepLinkScheme` the
+ * lower-cased repository name with only scheme characters, plus `-android`,
+ * and `apkStem` the product slug plus `-android`. Each `android` override
+ * wins when non-empty.
+ *
+ * @param identity - `packages/shared/identity.json` (or the same shape).
+ * @returns the resolved identity.
+ *
+ * @example
+ * ```ts
+ * androidIdentity({ productName: 'Acme Hub', repoSlug: 'acme/acme-hub' }).applicationId; // 'com.acmehub.android'
+ * ```
+ *
+ * @stability experimental
+ */
+export function androidIdentity(identity: AndroidIdentitySource): AndroidIdentity {
+  const repoName = identity.repoSlug.split('/')[1] || identity.repoSlug;
+  let token = repoName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'app';
+  if (/^[0-9]/.test(token)) token = `app${token}`;
+  const scheme = `${repoName.toLowerCase().replace(/[^a-z0-9+.-]/g, '').replace(/^[+.-]+/, '') || 'app'}-android`;
+  const pick = (value: string | undefined, fallback: string): string => (value && value.trim() !== '' ? value.trim() : fallback);
+  const overrides = identity.android ?? {};
+  return Object.freeze({
+    label: identity.productName,
+    applicationId: pick(overrides.applicationId, `com.${token}.android`),
+    deepLinkScheme: pick(overrides.deepLinkScheme, scheme),
+    storagePrefix: pick(overrides.storagePrefix, token),
+    apkStem: pick(overrides.apkStem, `${slugifyName(identity.productName)}-android`),
+  });
+}

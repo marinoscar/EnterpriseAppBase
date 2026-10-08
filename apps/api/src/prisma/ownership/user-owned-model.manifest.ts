@@ -14,6 +14,7 @@ import { registerUserOwnedModels } from '@marinoscar/platform-api/core';
 import { SETTINGS_USER_OWNED_MODELS } from '@marinoscar/platform-api/settings';
 import { CREDENTIALS_USER_OWNED_MODELS } from '@marinoscar/platform-api/credentials';
 import { SHARING_USER_OWNED_MODELS } from '@marinoscar/platform-api/sharing';
+import { ANDROID_APP_USER_OWNED_MODELS } from '@marinoscar/platform-api/android-app';
 
 import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models';
 import { PLATFORM_USER_OWNED_MODELS } from './platform-user-owned-models';
@@ -25,6 +26,7 @@ registerUserOwnedModels(SHARING_USER_OWNED_MODELS);
 registerUserOwnedModels(SETTINGS_USER_OWNED_MODELS);
 // The credentials slice's three models (#735), declared by the package.
 registerUserOwnedModels(CREDENTIALS_USER_OWNED_MODELS);
+registerUserOwnedModels(ANDROID_APP_USER_OWNED_MODELS);
 
 // App-owned entries last.
 registerUserOwnedModels(APP_USER_OWNED_MODELS);

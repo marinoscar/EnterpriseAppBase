@@ -116,8 +116,8 @@ describe('notification registries (#678)', () => {
   // ==========================================================================
 
   describe('platform entries, in order', () => {
-    it('registers the three platform channels in the old literal order', () => {
-      expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
+    it('registers the three platform channels in the old literal order, then the Android app channel (#746)', () => {
+      expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push', 'android_app']);
     });
 
     it('registers the nine platform events in the old array order, then org.invitation (#726), groups.invitation (#728), sharing.shared_with_you (#729) and export.ready / export.failed (#744)', () => {
@@ -436,11 +436,11 @@ describe('notification registries (#678)', () => {
       let keys: string[] = [];
       jest.isolateModules(() => {
         jest.doMock('../../../src/app-registrations/notifications', () => ({
-          APP_NOTIFICATION_CHANNELS: [{ id: 'android_app', label: 'Android app', description: 'The paired app.' }],
+          APP_NOTIFICATION_CHANNELS: [{ id: 'pager_app', label: 'Pager app', description: 'The paired app.' }],
           APP_EMAIL_TEMPLATES: [{ name: 'coach-weekly-review', render: appEmail }],
           APP_NOTIFICATIONS: [
             {
-              event: { ...APP_EVENT, channels: ['email', 'android_app'] },
+              event: { ...APP_EVENT, channels: ['email', 'pager_app'] },
               emailTemplate: 'coach-weekly-review',
             },
           ],
@@ -453,7 +453,7 @@ describe('notification registries (#678)', () => {
     });
 
     it.each<[string, Record<string, unknown>, string]>([
-      ['an unregistered channel', { APP_NOTIFICATIONS: [{ event: { ...APP_EVENT, channels: ['android_app'] } }] }, 'INVALID_ENTRY'],
+      ['an unregistered channel', { APP_NOTIFICATIONS: [{ event: { ...APP_EVENT, channels: ['pager_app'] } }] }, 'INVALID_ENTRY'],
       ['an empty channel list', { APP_NOTIFICATIONS: [{ event: { ...APP_EVENT, channels: [] } }] }, 'INVALID_ENTRY'],
       ['a malformed key', { APP_NOTIFICATIONS: [{ event: { ...APP_EVENT, key: 'coach' } }] }, 'INVALID_ID'],
       [

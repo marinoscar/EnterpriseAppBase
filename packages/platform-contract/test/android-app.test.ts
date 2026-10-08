@@ -93,3 +93,23 @@ describe('push subscription platform (notifications contract)', () => {
     ).toBe(false);
   });
 });
+
+describe('androidIdentity', () => {
+  it("derives EvoPath's Gradle defaults from the repository name", async () => {
+    const { androidIdentity } = await import('../src/android-app/index.js');
+    expect(androidIdentity({ productName: 'Acme Hub', repoSlug: 'acme/acme-hub' })).toEqual({
+      label: 'Acme Hub',
+      applicationId: 'com.acmehub.android',
+      deepLinkScheme: 'acme-hub-android',
+      storagePrefix: 'acmehub',
+      apkStem: 'acme-hub-android',
+    });
+    expect(androidIdentity({ productName: '!!', repoSlug: 'o/9lives' })).toMatchObject({ applicationId: 'com.app9lives.android', apkStem: 'app-android' });
+  });
+
+  it("expresses MemoriaHub's legacy values through the android block", async () => {
+    const { androidIdentity } = await import('../src/android-app/index.js');
+    const legacy = { applicationId: 'legacy.example.cr', deepLinkScheme: 'legacy', storagePrefix: 'legacy', apkStem: 'legacy-android' };
+    expect(androidIdentity({ productName: 'Legacy', repoSlug: 'o/legacy-hub', android: legacy })).toEqual({ label: 'Legacy', ...legacy });
+  });
+});

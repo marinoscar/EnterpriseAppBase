@@ -46,7 +46,7 @@ async function attempt(defs: StorageKeyPrefixDef[]): Promise<RegistryError | und
 }
 
 describe('storageKeyPrefixRegistry', () => {
-  it('is the registry named storage-key-prefixes and holds the platform eight in purge order', () => {
+  it('is the registry named storage-key-prefixes and holds the platform nine in purge order', () => {
     expect(storageKeyPrefixRegistry.name).toBe('storage-key-prefixes');
     expect(storageKeyPrefixRegistry.ids()).toEqual([
       'uploads',
@@ -57,6 +57,7 @@ describe('storageKeyPrefixRegistry', () => {
       'storage-config-test',
       'exports-users',
       'exports-orgs',
+      'android-releases',
     ]);
   });
 
@@ -169,7 +170,7 @@ describe('storageKeyPrefixRegistry', () => {
 });
 
 describe('STORAGE_KEY_PREFIXES (the view)', () => {
-  it('holds the eight platform values, in the order the purge has always used, and is frozen', () => {
+  it('holds the nine platform values, in the order the purge has always used, and is frozen', () => {
     expect(STORAGE_KEY_PREFIXES).toEqual([
       'uploads/',
       'avatars/',
@@ -179,6 +180,7 @@ describe('STORAGE_KEY_PREFIXES (the view)', () => {
       'storage-config-test/',
       'exports/users/',
       'exports/orgs/',
+      'android-releases/',
     ]);
     expect(Object.isFrozen(STORAGE_KEY_PREFIXES)).toBe(true);
     expect(Object.getOwnPropertyDescriptor(STORAGE_KEY_PREFIXES, '0')).toHaveProperty('value');

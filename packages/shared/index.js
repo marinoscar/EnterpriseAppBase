@@ -220,3 +220,18 @@ exports.REPO_SLUG = identity.repoSlug;
  * `scripts/rename.mjs`, permanently. See docs/RENAMING.md.
  */
 exports.REPO_URL = `https://github.com/${exports.REPO_SLUG}`;
+
+/**
+ * The fields the Android companion's identity derives from (#746): the
+ * product name, the repository slug and the optional `android` block of
+ * `identity.json` (`{ applicationId?, deepLinkScheme?, storagePrefix?,
+ * apkStem? }`), frozen. Pass it to `androidIdentity()` of
+ * `@marinoscar/platform-contract/android-app`, which applies the same rule the
+ * Gradle build applies (`platform-core/identity.gradle.kts`), so the API, the
+ * web app, the CLI and the APK all name the same package.
+ */
+exports.ANDROID_IDENTITY_SOURCE = Object.freeze({
+  productName: identity.productName,
+  repoSlug: identity.repoSlug,
+  ...(identity.android ? { android: Object.freeze({ ...identity.android }) } : {}),
+});

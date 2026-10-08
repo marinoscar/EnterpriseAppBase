@@ -30,10 +30,19 @@ export {
   TRUSTED_APPS_ERROR_REASONS,
   TWA_LAUNCH_PARAMS,
   VERSION_NAME_PATTERN,
+  androidIdentity,
   normalizeSha256Fingerprint,
   trustedAppKey,
 } from './constants.js';
-export type { AndroidAppTestReason, AndroidAppTestStatus, AndroidReleaseReason, TrustedAppsErrorReason } from './constants.js';
+export type {
+  AndroidAppTestReason,
+  AndroidAppTestStatus,
+  AndroidIdentity,
+  AndroidIdentityOverrides,
+  AndroidIdentitySource,
+  AndroidReleaseReason,
+  TrustedAppsErrorReason,
+} from './constants.js';
 export {
   adminReleaseSchema,
   androidAppResponseSchema,
