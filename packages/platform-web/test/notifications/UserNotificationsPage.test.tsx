@@ -21,34 +21,35 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../utils/test-utils';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
 
-vi.mock('../../hooks/useUserSettings', () => ({
+vi.mock('../../src/settings/headless/use-user-settings.js', () => ({
   useUserSettings: vi.fn(),
 }));
 
-vi.mock('../../hooks/useNotificationEvents', () => ({
+vi.mock('../../src/notifications/headless/useNotificationEvents.js', () => ({
   useNotificationEvents: vi.fn(),
 }));
 
-vi.mock('../../hooks/useNotificationCapability', () => ({
+vi.mock('../../src/notifications/headless/useNotificationCapability.js', () => ({
   useNotificationCapability: vi.fn(),
 }));
 
-vi.mock('../../hooks/useNotificationConfig', () => ({
+vi.mock('../../src/notifications/headless/useNotificationConfig.js', () => ({
   useNotificationConfig: vi.fn(),
 }));
 
-import { useUserSettings } from '../../hooks/useUserSettings';
-import { useNotificationEvents } from '../../hooks/useNotificationEvents';
-import { useNotificationCapability } from '../../hooks/useNotificationCapability';
-import { useNotificationConfig } from '../../hooks/useNotificationConfig';
-import UserNotificationsPage from '../../pages/UserNotificationsPage';
-import type { NotificationEventDef, NotificationConfigResponse } from '../../types';
-import type { NotificationCapability } from '../../hooks/useNotificationCapability';
+import { useUserSettings } from '../../src/settings/headless/use-user-settings.js';
+import { useNotificationEvents } from '../../src/notifications/headless/useNotificationEvents.js';
+import { useNotificationCapability } from '../../src/notifications/headless/useNotificationCapability.js';
+import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
+import UserNotificationsPage from '../../src/notifications/ui/UserNotificationsPage.js';
+import type { NotificationEventDef, NotificationConfigResponse } from '../../src/notifications/headless/types.js';
+import type { NotificationCapability } from '../../src/notifications/headless/useNotificationCapability.js';
 
-const mockUseUserSettings = vi.mocked(useUserSettings);
+// Loosely typed: the page binds the hook to its own document type.
+const mockUseUserSettings = vi.mocked(useUserSettings as unknown as (...args: unknown[]) => any);
 const mockUseNotificationEvents = vi.mocked(useNotificationEvents);
 const mockUseNotificationCapability = vi.mocked(useNotificationCapability);
 const mockUseNotificationConfig = vi.mocked(useNotificationConfig);
@@ -86,7 +87,7 @@ const ROLE_CHANGED: NotificationEventDef = {
   mandatory: true,
 };
 
-function mockSettings(overrides: Partial<ReturnType<typeof useUserSettings>> = {}) {
+function mockSettings(overrides: Record<string, unknown> = {}) {
   mockUseUserSettings.mockReturnValue({
     settings: {
       theme: 'system',

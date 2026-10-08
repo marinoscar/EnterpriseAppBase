@@ -5,7 +5,7 @@ import {
   resolveNotificationCapability,
   type NotificationCapability,
   type NotificationCapabilityInputs,
-} from '../../hooks/useNotificationCapability';
+} from '../../src/notifications/headless/useNotificationCapability.js';
 
 /**
  * Issue #221, epic #215.

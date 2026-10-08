@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
 import {
   NotificationSettings,
   isEventChannelEnabled,
   preferenceWriteFor,
   browserChannelState,
   pushChannelState,
-} from '../../../components/settings/NotificationSettings';
-import type { NotificationEventDef, NotificationPreferences } from '../../../types';
-import type { NotificationCapability } from '../../../hooks/useNotificationCapability';
+} from '../../src/notifications/ui/NotificationSettings.js';
+import type { NotificationEventDef, NotificationPreferences } from '../../src/notifications/headless/types.js';
+import type { NotificationCapability } from '../../src/notifications/headless/useNotificationCapability.js';
 
 /**
  * Every state of the #221 union, written as a `Record` KEYED BY THE UNION and
@@ -799,7 +799,7 @@ describe('NotificationSettings component', () => {
           events={[PUSH_CAPABLE]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability={undefined as never}
         />,
       );
 
@@ -816,7 +816,7 @@ describe('NotificationSettings component', () => {
           events={[PUSH_CAPABLE]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability={undefined as never}
         />,
       );
 
@@ -831,7 +831,7 @@ describe('NotificationSettings component', () => {
           events={[PUSH_CAPABLE]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability={undefined as never}
           pushEnabled={false}
         />,
       );
@@ -847,7 +847,7 @@ describe('NotificationSettings component', () => {
           events={[PUSH_CAPABLE]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability={undefined as never}
         />,
       );
 
@@ -869,7 +869,7 @@ describe('NotificationSettings component', () => {
           events={[PUSH_CAPABLE]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability={undefined as never}
         />,
       );
 
@@ -887,7 +887,7 @@ describe('NotificationSettings component', () => {
           events={[PUSH_CAPABLE]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability={undefined as never}
           pushEnabled
         />,
       );
@@ -904,9 +904,8 @@ describe('NotificationSettings component', () => {
     // Issue #365: the account preference (`pushEnabled`) and this device's own
     // readiness (`browserCapability`) are independent axes. These use the
     // correct `browserCapability` prop (the ones above in this describe block
-    // pass a nonexistent `browserPermission` prop, which does not affect
-    // `NotificationSettings` at all - it silently falls through to the
-    // component's `browserCapability` default of `undefined`).
+    // pass `undefined`, the component's own default, which the app's suite
+    // used to reach by passing a nonexistent `browserPermission` prop).
     // ==========================================================================
 
     it('shows "Not enabled on this device" beside the push switch when pushEnabled but this device has not granted permission', () => {
@@ -948,7 +947,7 @@ describe('NotificationSettings component', () => {
           events={[WELCOME, WEEKLY_DIGEST, ROLE_CHANGED]}
           preferences={undefined}
           onToggle={onToggle}
-          browserPermission="granted"
+          browserCapability={undefined as never}
         />,
       );
 

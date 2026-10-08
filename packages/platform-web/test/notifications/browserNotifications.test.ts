@@ -2,8 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   requestBrowserNotificationPermission,
   showAppNotification,
-} from '../../services/browserNotifications';
-import type { AppNotification } from '../../types';
+} from '../../src/notifications/headless/browserNotifications.js';
+import type { AppNotification } from '../../src/notifications/headless/types.js';
 
 /**
  * Issue #127, epic #109. Issue #222 adds the service-worker delivery path.
@@ -363,8 +363,8 @@ describe('browserNotifications', () => {
 
         await showAppNotification(baseNotification);
 
-        const [, options] = ctor.mock.calls[0];
-        expect(options.tag).toBe('n1');
+        const [, options] = ctor!.mock.calls[0];
+        expect(options!.tag).toBe('n1');
       });
 
       it('clicking the toast focuses the window, then calls onClick with the notification, then closes the toast', async () => {
@@ -375,7 +375,7 @@ describe('browserNotifications', () => {
 
         await showAppNotification(baseNotification, onClick);
 
-        const instance = ctor.mock.results[0].value as FakeNotificationInstance;
+        const instance = ctor!.mock.results[0].value as FakeNotificationInstance;
         expect(instance.onclick).toBeInstanceOf(Function);
 
         const callOrder: string[] = [];
@@ -395,7 +395,7 @@ describe('browserNotifications', () => {
 
         await showAppNotification(baseNotification);
 
-        const instance = ctor.mock.results[0].value as FakeNotificationInstance;
+        const instance = ctor!.mock.results[0].value as FakeNotificationInstance;
         expect(instance.onclick).toBeNull();
       });
 

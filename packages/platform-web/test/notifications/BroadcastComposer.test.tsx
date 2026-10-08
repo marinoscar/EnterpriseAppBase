@@ -28,16 +28,16 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import { BroadcastComposer } from '../../../components/admin/BroadcastComposer';
-import type { NotificationConfigResponse } from '../../../types';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
+import { BroadcastComposer } from '../../src/notifications/ui/BroadcastComposer.js';
+import type { NotificationConfigResponse } from '../../src/notifications/headless/types.js';
 
-vi.mock('../../../hooks/useNotificationConfig', () => ({
+vi.mock('../../src/notifications/headless/useNotificationConfig.js', () => ({
   useNotificationConfig: vi.fn(),
 }));
 
-import { useNotificationConfig } from '../../../hooks/useNotificationConfig';
+import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
 
 const mockUseNotificationConfig = vi.mocked(useNotificationConfig);
 

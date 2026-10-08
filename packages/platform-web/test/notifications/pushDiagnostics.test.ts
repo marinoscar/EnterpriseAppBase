@@ -7,26 +7,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * modules are mocked since this module orchestrates them.
  */
 
-vi.mock('../../services/api', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../services/api')>();
+vi.mock('../../src/notifications/headless/api.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/notifications/headless/api.js')>();
   return {
     ...actual,
     subscribePushNotifications: vi.fn(),
   };
 });
 
-vi.mock('../../services/pushConfig', () => ({
+vi.mock('../../src/notifications/headless/pushConfig.js', () => ({
   sendPushTest: vi.fn(),
 }));
 
-vi.mock('../../services/browserNotifications', () => ({
+vi.mock('../../src/notifications/headless/browserNotifications.js', () => ({
   requestBrowserNotificationPermission: vi.fn(),
 }));
 
-import { ApiError, subscribePushNotifications } from '../../services/api';
-import { sendPushTest, type PushTestResult } from '../../services/pushConfig';
-import { requestBrowserNotificationPermission } from '../../services/browserNotifications';
-import { urlBase64ToUint8Array } from '../../services/pushSubscription';
+import { ApiError, subscribePushNotifications } from '../../src/notifications/headless/api.js';
+import { sendPushTest, type PushTestResult } from '../../src/notifications/headless/pushConfig.js';
+import { requestBrowserNotificationPermission } from '../../src/notifications/headless/browserNotifications.js';
+import { urlBase64ToUint8Array } from '../../src/notifications/headless/pushSubscription.js';
 import {
   DENIED_RECOVERY,
   PUSH_TEST_ACK_MESSAGE,
@@ -37,7 +37,7 @@ import {
   runPushTest,
   showLocalTestNotification,
   type DiagnosticStep,
-} from '../../services/pushDiagnostics';
+} from '../../src/notifications/headless/pushDiagnostics.js';
 
 const mockRegister = vi.mocked(subscribePushNotifications);
 const mockSendTest = vi.mocked(sendPushTest);
@@ -98,7 +98,7 @@ function setupEnv(opts: { existing?: ReturnType<typeof makeSubscription> | null;
       addEventListener: vi.fn((type: string, fn: (event: MessageEvent) => void) => {
         if (type === 'message') listeners.push(fn);
       }),
-      removeEventListener: vi.fn((type: string, fn: (event: MessageEvent) => void) => {
+      removeEventListener: vi.fn((_type: string, fn: (event: MessageEvent) => void) => {
         const i = listeners.indexOf(fn);
         if (i >= 0) listeners.splice(i, 1);
       }),

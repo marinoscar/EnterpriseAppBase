@@ -7,13 +7,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import type { PushConfigAdminView, PushTestResult } from '../../../services/pushConfig';
-import type { BrowserSnapshot, PushTestRun } from '../../../services/pushDiagnostics';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
+import type { PushConfigAdminView, PushTestResult } from '../../src/notifications/headless/pushConfig.js';
+import type { BrowserSnapshot, PushTestRun } from '../../src/notifications/headless/pushDiagnostics.js';
 
-vi.mock('../../../services/pushDiagnostics', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../services/pushDiagnostics')>();
+vi.mock('../../src/notifications/headless/pushDiagnostics.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/notifications/headless/pushDiagnostics.js')>();
   return {
     ...actual,
     collectBrowserSnapshot: vi.fn(),
@@ -22,11 +22,11 @@ vi.mock('../../../services/pushDiagnostics', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../services/pushSubscription', () => ({
+vi.mock('../../src/notifications/headless/pushSubscription.js', () => ({
   requestPermissionAndSyncPush: vi.fn().mockResolvedValue('granted'),
 }));
 
-vi.mock('../../../hooks/useNotificationConfig', () => ({
+vi.mock('../../src/notifications/headless/useNotificationConfig.js', () => ({
   useNotificationConfig: vi.fn(),
 }));
 
@@ -34,10 +34,10 @@ import {
   collectBrowserSnapshot,
   runPushTest,
   showLocalTestNotification,
-} from '../../../services/pushDiagnostics';
-import { requestPermissionAndSyncPush } from '../../../services/pushSubscription';
-import { useNotificationConfig } from '../../../hooks/useNotificationConfig';
-import { PushTestPanel } from '../../../components/admin/PushTestPanel';
+} from '../../src/notifications/headless/pushDiagnostics.js';
+import { requestPermissionAndSyncPush } from '../../src/notifications/headless/pushSubscription.js';
+import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
+import { PushTestPanel } from '../../src/notifications/ui/PushTestPanel.js';
 
 const mockSnapshot = vi.mocked(collectBrowserSnapshot);
 const mockRun = vi.mocked(runPushTest);

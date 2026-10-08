@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useNotificationConfig } from '../../hooks/useNotificationConfig';
-import { getNotificationConfig, ApiError } from '../../services/api';
-import type { NotificationConfigResponse } from '../../types';
+import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
+import { getNotificationConfig, ApiError } from '../../src/notifications/headless/api.js';
+import type { NotificationConfigResponse } from '../../src/notifications/headless/types.js';
 
 /**
  * Issue #227, epic #215. `useNotificationConfig` is a plain fetch-on-mount
@@ -15,7 +15,7 @@ import type { NotificationConfigResponse } from '../../types';
  * consistent with `useUserSettings.test.ts`.
  */
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../src/notifications/headless/api.js', () => ({
   getNotificationConfig: vi.fn(),
   ApiError: class ApiError extends Error {
     status: number;

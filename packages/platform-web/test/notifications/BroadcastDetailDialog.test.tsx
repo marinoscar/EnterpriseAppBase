@@ -10,9 +10,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { BroadcastDetailDialog } from '../../../components/admin/BroadcastDetailDialog';
-import type { BroadcastDetail } from '../../../services/broadcasts';
+import { render } from './test-utils.js';
+import { BroadcastDetailDialog } from '../../src/notifications/ui/BroadcastDetailDialog.js';
+import type { BroadcastDetail } from '../../src/notifications/headless/broadcasts.js';
 
 function detail(overrides: Partial<BroadcastDetail> = {}): BroadcastDetail {
   return {
@@ -33,6 +33,7 @@ function detail(overrides: Partial<BroadcastDetail> = {}): BroadcastDetail {
     recipientsDispatched: 1284,
     lastError: null,
     createdById: 'admin-user-id',
+    targetOrgId: null,
     createdAt: '2026-05-01T09:00:00.000Z',
     updatedAt: '2026-05-01T10:04:00.000Z',
     approximateDeliveryAttempts: [],

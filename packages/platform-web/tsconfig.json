@@ -22,5 +22,5 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*", "test/**/*", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist", "test/telemetry"]
+  "exclude": ["node_modules", "dist", "test/telemetry", "test/notifications"]
 }

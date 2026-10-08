@@ -13,30 +13,30 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import type { PushConfigAdminView } from '../../../services/pushConfig';
+import { userEvent } from '@testing-library/user-event';
+import { render, mockAdminUser } from './test-utils.js';
+import type { PushConfigAdminView } from '../../src/notifications/headless/pushConfig.js';
 
-vi.mock('../../../hooks/usePushConfig', () => ({
+vi.mock('../../src/notifications/headless/usePushConfig.js', () => ({
   usePushConfig: vi.fn(),
 }));
 
-vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
+vi.mock('../../src/identity/headless/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/identity/headless/index.js')>()),
   usePermissions: vi.fn(),
 }));
 
 // The diagnostics section has its own suite (`PushTestPanel.test.tsx`); here
 // it is a marker so the page's placement/gating of it can be asserted.
-vi.mock('../../../components/admin/PushTestPanel', () => ({
+vi.mock('../../src/notifications/ui/PushTestPanel.js', () => ({
   PushTestPanel: ({ canWrite }: { canWrite: boolean }) => (
     <div data-testid="push-test-panel" data-can-write={String(canWrite)} />
   ),
 }));
 
-import { usePushConfig } from '../../../hooks/usePushConfig';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import PushConfigPage from '../../../pages/Admin/PushConfigPage';
+import { usePushConfig } from '../../src/notifications/headless/usePushConfig.js';
+import { usePermissions } from '../../src/identity/headless/index.js';
+import PushConfigPage from '../../src/notifications/ui/PushConfigPage.js';
 
 const mockUsePushConfig = vi.mocked(usePushConfig);
 const mockUsePermissions = vi.mocked(usePermissions);

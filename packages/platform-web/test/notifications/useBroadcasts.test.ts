@@ -12,9 +12,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-vi.mock('../../services/broadcasts', async () => {
-  const actual = await vi.importActual<typeof import('../../services/broadcasts')>(
-    '../../services/broadcasts',
+vi.mock('../../src/notifications/headless/broadcasts.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/notifications/headless/broadcasts.js')>(
+    '../../src/notifications/headless/broadcasts.js',
   );
   return {
     ...actual,
@@ -23,9 +23,9 @@ vi.mock('../../services/broadcasts', async () => {
   };
 });
 
-import { cancelBroadcast, resumeBroadcast } from '../../services/broadcasts';
-import { ApiError } from '../../services/api';
-import { useBroadcastActions } from '../../hooks/useBroadcasts';
+import { cancelBroadcast, resumeBroadcast } from '../../src/notifications/headless/broadcasts.js';
+import { ApiError } from '../../src/notifications/headless/api.js';
+import { useBroadcastActions } from '../../src/notifications/headless/useBroadcasts.js';
 
 const mockResumeBroadcast = vi.mocked(resumeBroadcast);
 const mockCancelBroadcast = vi.mocked(cancelBroadcast);

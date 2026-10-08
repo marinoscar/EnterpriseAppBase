@@ -8,10 +8,10 @@ import {
   hasActivePushSubscription,
   ACTIVE_PUSH_SUBSCRIPTION_CACHE_MS,
   resetPushSubscriptionStateForTests,
-} from '../../services/pushSubscription';
-import { subscribePushNotifications, unsubscribePushNotifications } from '../../services/api';
-import { requestBrowserNotificationPermission } from '../../services/browserNotifications';
-import type { NotificationConfigResponse } from '../../types';
+} from '../../src/notifications/headless/pushSubscription.js';
+import { subscribePushNotifications, unsubscribePushNotifications } from '../../src/notifications/headless/api.js';
+import { requestBrowserNotificationPermission } from '../../src/notifications/headless/browserNotifications.js';
+import type { NotificationConfigResponse } from '../../src/notifications/headless/types.js';
 
 /**
  * Issue #365, epic #215. `services/pushSubscription.ts` is the missing half
@@ -27,12 +27,12 @@ import type { NotificationConfigResponse } from '../../types';
  * whole job is orchestrating calls to them, not re-implementing them.
  */
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../src/notifications/headless/api.js', () => ({
   subscribePushNotifications: vi.fn(),
   unsubscribePushNotifications: vi.fn(),
 }));
 
-vi.mock('../../services/browserNotifications', () => ({
+vi.mock('../../src/notifications/headless/browserNotifications.js', () => ({
   requestBrowserNotificationPermission: vi.fn(),
 }));
 

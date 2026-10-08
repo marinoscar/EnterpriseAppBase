@@ -6,12 +6,12 @@ import {
   NotificationProvider,
   useNotifications,
   RECENT_NOTIFICATION_COUNT,
-} from '../../contexts/NotificationContext';
+} from '../../src/notifications/headless/NotificationContext.js';
 import type {
   AppNotification,
   NotificationListResponse,
   UnreadCountResponse,
-} from '../../types';
+} from '../../src/notifications/headless/types.js';
 
 /**
  * `useNavigate` is stubbed to a spy so the "click bridge navigates" tests
@@ -35,7 +35,7 @@ vi.mock('react-router-dom', async () => {
  * The two REST-derived collections (`getNotifications`,
  * `getUnreadNotificationCount`) and the two write endpoints
  * (`markNotificationRead`, `markAllNotificationsRead`) are mocked directly
- * via `vi.mock('../../services/api', ...)`, keeping the real `ApiError`
+ * via `vi.mock('../../src/notifications/headless/api.js', ...)`, keeping the real `ApiError`
  * class so the 401-suppression branches still work correctly.
  * `connectNotificationStream` is mocked to capture its `handlers` so a test
  * can simulate `onOpen`/`onNotification` arriving without any real SSE
@@ -50,8 +50,8 @@ vi.mock('react-router-dom', async () => {
  */
 
 const isAuthenticatedMock = vi.fn<() => boolean>();
-vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
+vi.mock('../../src/identity/headless/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/identity/headless/index.js')>()),
   useAuth: () => ({ isAuthenticated: isAuthenticatedMock() }),
 }));
 
@@ -67,19 +67,19 @@ const connectNotificationStreamMock = vi.fn((handlers: CapturedHandlers) => {
   capturedHandlers = handlers;
   return { close: streamCloseMock };
 });
-vi.mock('../../services/notificationStream', () => ({
+vi.mock('../../src/notifications/headless/notificationStream.js', () => ({
   connectNotificationStream: (handlers: CapturedHandlers) =>
     connectNotificationStreamMock(handlers),
 }));
 
-const showAppNotificationMock = vi.fn(() => Promise.resolve('page'));
-vi.mock('../../services/browserNotifications', () => ({
+const showAppNotificationMock = vi.fn((..._args: unknown[]) => Promise.resolve('page'));
+vi.mock('../../src/notifications/headless/browserNotifications.js', () => ({
   showAppNotification: (...args: unknown[]) => showAppNotificationMock(...args),
 }));
 
 /** #625: does this browser hold a push subscription the SW push will land on? */
 const hasActivePushSubscriptionMock = vi.fn<(key: string | null) => Promise<boolean>>();
-vi.mock('../../services/pushSubscription', () => ({
+vi.mock('../../src/notifications/headless/pushSubscription.js', () => ({
   hasActivePushSubscription: (key: string | null) => hasActivePushSubscriptionMock(key),
 }));
 
@@ -89,9 +89,9 @@ const getUnreadNotificationCountMock = vi.fn();
 const markNotificationReadMock = vi.fn();
 const markAllNotificationsReadMock = vi.fn();
 
-vi.mock('../../services/api', async () => {
-  const actual = await vi.importActual<typeof import('../../services/api')>(
-    '../../services/api',
+vi.mock('../../src/notifications/headless/api.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/notifications/headless/api.js')>(
+    '../../src/notifications/headless/api.js',
   );
   return {
     ...actual,

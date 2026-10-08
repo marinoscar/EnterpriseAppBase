@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { useBrowserNotificationPermission } from '../../hooks/useBrowserNotificationPermission';
+import { useBrowserNotificationPermission } from '../../src/notifications/headless/useBrowserNotificationPermission.js';
 
 /**
  * Issue #126, epic #109. This hook OBSERVES the browser's notification

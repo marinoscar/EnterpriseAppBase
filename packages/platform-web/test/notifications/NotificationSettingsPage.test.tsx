@@ -16,29 +16,30 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import type { NotificationEventDef } from '../../../types';
+import { userEvent } from '@testing-library/user-event';
+import { render, mockAdminUser } from './test-utils.js';
+import type { NotificationEventDef } from '../../src/notifications/headless/types.js';
 
-vi.mock('../../../hooks/useSystemSettings', () => ({
+vi.mock('../../src/settings/headless/use-system-settings.js', () => ({
   useSystemSettings: vi.fn(),
 }));
 
-vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
+vi.mock('../../src/identity/headless/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/identity/headless/index.js')>()),
   usePermissions: vi.fn(),
 }));
 
-vi.mock('../../../hooks/useNotificationEvents', () => ({
+vi.mock('../../src/notifications/headless/useNotificationEvents.js', () => ({
   useNotificationEvents: vi.fn(),
 }));
 
-import { useSystemSettings } from '../../../hooks/useSystemSettings';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { useNotificationEvents } from '../../../hooks/useNotificationEvents';
-import NotificationSettingsPage from '../../../pages/Admin/NotificationSettingsPage';
+import { useSystemSettings } from '../../src/settings/headless/use-system-settings.js';
+import { usePermissions } from '../../src/identity/headless/index.js';
+import { useNotificationEvents } from '../../src/notifications/headless/useNotificationEvents.js';
+import NotificationSettingsPage from '../../src/notifications/ui/NotificationSettingsPage.js';
 
-const mockUseSystemSettings = vi.mocked(useSystemSettings);
+// Loosely typed: the page binds the hook to its own document type.
+const mockUseSystemSettings = vi.mocked(useSystemSettings as unknown as (...args: unknown[]) => any);
 const mockUsePermissions = vi.mocked(usePermissions);
 const mockUseNotificationEvents = vi.mocked(useNotificationEvents);
 

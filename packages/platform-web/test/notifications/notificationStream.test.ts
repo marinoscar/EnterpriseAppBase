@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { SseFrame, SseOptions } from '../../services/sse';
+import type { SseFrame, SseOptions } from '../../src/notifications/headless/sse.js';
 
 /**
  * Issue #127, epic #109. `notificationStream.ts` is thin by design: SSE
@@ -12,9 +12,9 @@ import type { SseFrame, SseOptions } from '../../services/sse';
 
 const connectSseMock = vi.fn();
 
-vi.mock('../../services/sse', async () => {
-  const actual = await vi.importActual<typeof import('../../services/sse')>(
-    '../../services/sse',
+vi.mock('../../src/notifications/headless/sse.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/notifications/headless/sse.js')>(
+    '../../src/notifications/headless/sse.js',
   );
   return {
     ...actual,
@@ -25,8 +25,8 @@ vi.mock('../../services/sse', async () => {
 const getAccessTokenMock = vi.fn<() => string | null>();
 const refreshTokenMock = vi.fn<() => Promise<boolean>>();
 
-vi.mock('../../services/api', () => ({
-  API_BASE_URL: 'http://localhost:3000/api',
+vi.mock('../../src/notifications/headless/api.js', () => ({
+  apiBaseUrl: () => 'http://localhost:3000/api',
   api: {
     getAccessToken: (...args: unknown[]) => getAccessTokenMock(...(args as [])),
     refreshToken: (...args: unknown[]) => refreshTokenMock(...(args as [])),
@@ -39,8 +39,8 @@ import {
   streamEventToNotification,
   connectNotificationStream,
   NOTIFICATION_SSE_EVENT,
-  NOTIFICATION_STREAM_URL,
-} from '../../services/notificationStream';
+  notificationStreamUrl,
+} from '../../src/notifications/headless/notificationStream.js';
 
 describe('parseNotificationEvent', () => {
   const valid = {
@@ -189,7 +189,8 @@ describe('connectNotificationStream', () => {
 
     expect(connectSseMock).toHaveBeenCalledTimes(1);
     const options = connectSseMock.mock.calls[0][0] as SseOptions;
-    expect(options.url).toBe(NOTIFICATION_STREAM_URL);
+    expect(options.url).toBe(notificationStreamUrl());
+    expect(options.url).toBe('http://localhost:3000/api/notifications/stream');
     expect(options.url.endsWith('/notifications/stream')).toBe(true);
   });
 

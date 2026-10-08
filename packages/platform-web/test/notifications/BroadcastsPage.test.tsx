@@ -23,21 +23,16 @@
  * making every assertion about the page wait on it.
  */
 
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
-import {
-  installLayoutStubs,
-  resetContainerWidth,
-  setInitialContainerWidth,
-} from '../../../components/datatable/__tests__/testUtils/layoutStubs';
-import { api } from '../../../services/api';
-import type { Broadcast } from '../../../services/broadcasts';
+import { userEvent } from '@testing-library/user-event';
+import { render, mockAdminUser, type MockUser } from './test-utils.js';
+import { WithMenuTable } from './menu-table.js';
+import type { Broadcast } from '../../src/notifications/headless/broadcasts.js';
 
-vi.mock('../../../hooks/useBroadcasts', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useBroadcasts')>(
-    '../../../hooks/useBroadcasts',
+vi.mock('../../src/notifications/headless/useBroadcasts.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/notifications/headless/useBroadcasts.js')>(
+    '../../src/notifications/headless/useBroadcasts.js',
   );
   return {
     ...actual,
@@ -49,9 +44,9 @@ vi.mock('../../../hooks/useBroadcasts', async () => {
 
 // The audience count and the detail read go straight to the service, not
 // through a hook, so they are stubbed at the module boundary.
-vi.mock('../../../services/broadcasts', async () => {
-  const actual = await vi.importActual<typeof import('../../../services/broadcasts')>(
-    '../../../services/broadcasts',
+vi.mock('../../src/notifications/headless/broadcasts.js', async () => {
+  const actual = await vi.importActual<typeof import('../../src/notifications/headless/broadcasts.js')>(
+    '../../src/notifications/headless/broadcasts.js',
   );
   return {
     ...actual,
@@ -66,9 +61,9 @@ import {
   useBroadcastActions,
   useBroadcasts,
   useVisiblePolling,
-} from '../../../hooks/useBroadcasts';
-import { getBroadcast, getBroadcastAudience } from '../../../services/broadcasts';
-import BroadcastsPage from '../../../pages/Admin/BroadcastsPage';
+} from '../../src/notifications/headless/useBroadcasts.js';
+import { getBroadcast, getBroadcastAudience } from '../../src/notifications/headless/broadcasts.js';
+import BroadcastsPage from '../../src/notifications/ui/BroadcastsPage.js';
 
 const mockUseBroadcasts = vi.mocked(useBroadcasts);
 const mockUseBroadcastActions = vi.mocked(useBroadcastActions);
@@ -99,6 +94,7 @@ function broadcast(overrides: Partial<Broadcast> = {}): Broadcast {
     recipientsDispatched: 0,
     lastError: null,
     createdById: 'admin-user-id',
+    targetOrgId: null,
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
     ...overrides,
@@ -175,9 +171,8 @@ function userWith(permissions: string[]): MockUser {
 const READ_ONLY = ['broadcasts:read'];
 const READ_WRITE = ['broadcasts:read', 'broadcasts:write'];
 
-function renderPage(permissions: string[] = READ_WRITE, width = 1400) {
-  setInitialContainerWidth(width);
-  return render(<BroadcastsPage />, { wrapperOptions: { user: userWith(permissions) } });
+function renderPage(permissions: string[] = READ_WRITE) {
+  return render(<WithMenuTable><BroadcastsPage /></WithMenuTable>, { wrapperOptions: { user: userWith(permissions) } });
 }
 
 /**
@@ -199,16 +194,8 @@ async function openRowMenu(user: ReturnType<typeof userEvent.setup>, rowTitle: s
 // ---------------------------------------------------------------------------
 
 describe('BroadcastsPage', () => {
-  beforeAll(() => {
-    installLayoutStubs();
-  });
-
   beforeEach(() => {
     vi.clearAllMocks();
-    resetContainerWidth(1400);
-    // The table persists its layout under `user_settings.dataTables`.
-    vi.spyOn(api, 'get').mockResolvedValue({ dataTables: {} } as never);
-    vi.spyOn(api, 'patch').mockResolvedValue({} as never);
     mockGetAudience.mockResolvedValue({ activeUsers: 1284 });
     mockGetBroadcast.mockResolvedValue({
       ...sentBroadcast,

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import { NotificationBell } from '../../../components/navigation/NotificationBell';
-import type { NotificationContextValue } from '../../../contexts/NotificationContext';
-import type { AppNotification } from '../../../types';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
+import { NotificationBell } from '../../src/notifications/ui/NotificationBell.js';
+import type { NotificationContextValue } from '../../src/notifications/headless/NotificationContext.js';
+import type { AppNotification } from '../../src/notifications/headless/types.js';
 
 /**
  * Issue #127, epic #109. `NotificationBell` reads `NotificationContext`
@@ -24,10 +24,10 @@ vi.mock('react-router-dom', async () => {
 });
 
 const useNotificationsMock = vi.fn<() => NotificationContextValue | null>();
-vi.mock('../../../contexts/NotificationContext', async () => {
+vi.mock('../../src/notifications/headless/NotificationContext.js', async () => {
   const actual = await vi.importActual<
-    typeof import('../../../contexts/NotificationContext')
-  >('../../../contexts/NotificationContext');
+    typeof import('../../src/notifications/headless/NotificationContext.js')
+  >('../../src/notifications/headless/NotificationContext.js');
   return { ...actual, useNotifications: () => useNotificationsMock() };
 });
 

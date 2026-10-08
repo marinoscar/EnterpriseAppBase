@@ -4,7 +4,9 @@
  * Two things are under test here, and the second is the subtler one:
  *
  *   1. EVERY CALL SENDS WHAT THE API TAKES. Each of the seven routes is
- *      exercised against msw and the REQUEST is asserted — method, path, query
+ *      exercised against a stubbed `fetch` behind the real HTTP client
+ *      (`routeFetch`, which replaced the app's msw server in #738) and the
+ *      REQUEST is asserted — method, path, query
  *      string, body — because the failure mode of a thin service module is not
  *      a crash, it is a request that is quietly the wrong shape and a 400 the
  *      page reports as "Failed to create broadcast".
@@ -19,19 +21,15 @@
  *      DST boundary, where the local offset on the two sides of the conversion
  *      is genuinely different.
  *
- * The limit constants are checked against the API's own DTO ON DISK rather than
- * against a copy, the same technique `services/maintenance.test.ts` uses for
- * the maintenance marker: the composer's character counters are built from
- * these numbers, and a counter that disagrees with the validator promises an
- * acceptance the API will refuse.
+ * The limit constants are the wire contract's own (#738): the composer's
+ * character counters are built from these numbers, and a counter that
+ * disagrees with the validator promises an acceptance the API will refuse, so
+ * they are asserted to BE the contract's values, which the API validates with.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { http, HttpResponse } from 'msw';
-import { server } from '../mocks/server';
+import * as contract from '@marinoscar/platform-contract/notifications';
+import { HttpResponse, routeFetch } from './test-utils.js';
 import {
   BROADCAST_BODY_MAX,
   BROADCAST_CHUNK_SIZE,
@@ -52,11 +50,9 @@ import {
   localInputToIso,
   resumeBroadcast,
   sendTestBroadcast,
-} from '../../services/broadcasts';
-import type { Broadcast, CreateBroadcastRequest } from '../../services/broadcasts';
+} from '../../src/notifications/headless/broadcasts.js';
+import type { Broadcast, CreateBroadcastRequest } from '../../src/notifications/headless/broadcasts.js';
 
-const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
-const BROADCASTS_DIR = resolve(API_SRC, 'notifications/broadcasts');
 
 function broadcast(overrides: Partial<Broadcast> = {}): Broadcast {
   return {
@@ -77,6 +73,7 @@ function broadcast(overrides: Partial<Broadcast> = {}): Broadcast {
     recipientsDispatched: 0,
     lastError: null,
     createdById: 'admin-user-id',
+    targetOrgId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -94,43 +91,24 @@ const composition: CreateBroadcastRequest = {
 // The mirrored constants
 // =============================================================================
 
-describe('the limits mirror the API DTO', () => {
-  const dto = readFileSync(resolve(BROADCASTS_DIR, 'dto/create-broadcast.dto.ts'), 'utf8');
-  const audienceModule = readFileSync(resolve(BROADCASTS_DIR, 'broadcast-audience.ts'), 'utf8');
-  const responseDto = readFileSync(
-    resolve(BROADCASTS_DIR, 'dto/broadcast-response.dto.ts'),
-    'utf8',
-  );
-
-  it('reads the API files it is comparing against', () => {
-    // Guards the reads above: if a path went stale, every assertion below
-    // would pass vacuously over an empty string.
-    expect(dto).toContain('BROADCAST_TITLE_MAX');
-    expect(audienceModule).toContain('BROADCAST_CHUNK_SIZE');
-  });
-
+describe('the limits are the wire contract\u2019s', () => {
   it('keeps the character ceilings identical, so a counter cannot promise a 400', () => {
-    expect(dto).toContain(`export const BROADCAST_TITLE_MAX = ${BROADCAST_TITLE_MAX};`);
-    // The API writes this one with a numeric separator (`2_000`), so the
-    // declaration is matched with the separators stripped rather than
-    // reconstructed — reconstructing the literal would be a second guess at the
-    // API's formatting, not a check of its value.
-    const bodyMaxOnDisk = /BROADCAST_BODY_MAX = ([\d_]+);/.exec(dto)?.[1];
-    expect(Number(bodyMaxOnDisk?.replaceAll('_', ''))).toBe(BROADCAST_BODY_MAX);
-    expect(dto).toContain(`export const BROADCAST_CTA_LABEL_MAX = ${BROADCAST_CTA_LABEL_MAX};`);
-    expect(dto).toContain(`export const BROADCAST_LINK_MAX = ${BROADCAST_LINK_MAX};`);
+    expect(BROADCAST_TITLE_MAX).toBe(contract.BROADCAST_TITLE_MAX);
+    expect(BROADCAST_BODY_MAX).toBe(contract.BROADCAST_BODY_MAX);
+    expect(BROADCAST_CTA_LABEL_MAX).toBe(contract.BROADCAST_CTA_LABEL_MAX);
+    expect(BROADCAST_LINK_MAX).toBe(contract.BROADCAST_LINK_MAX);
+    expect([BROADCAST_TITLE_MAX, BROADCAST_BODY_MAX, BROADCAST_CTA_LABEL_MAX, BROADCAST_LINK_MAX]).toEqual([
+      120, 2_000, 40, 500,
+    ]);
   });
 
-  it('keeps the chunk size identical — the cancel dialog states it as a number', () => {
-    expect(audienceModule).toContain(
-      `export const BROADCAST_CHUNK_SIZE = ${BROADCAST_CHUNK_SIZE};`,
-    );
+  it('keeps the chunk size identical \u2014 the cancel dialog states it as a number', () => {
+    expect(BROADCAST_CHUNK_SIZE).toBe(contract.BROADCAST_CHUNK_SIZE);
+    expect(BROADCAST_CHUNK_SIZE).toBe(200);
   });
 
   it('lists exactly the statuses the API declares', () => {
-    for (const status of BROADCAST_STATUSES) {
-      expect(responseDto, `${status} must be an API status`).toContain(`'${status}'`);
-    }
+    expect(BROADCAST_STATUSES).toEqual(contract.BROADCAST_STATUSES);
     expect(BROADCAST_STATUSES).toEqual([
       'draft',
       'scheduled',
@@ -287,19 +265,19 @@ describe('the eight calls', () => {
   });
 
   afterEach(() => {
-    server.resetHandlers();
+    vi.unstubAllGlobals();
   });
 
   it('GET / sends page, pageSize and status, and unwraps the flat pagination shape', async () => {
     let seen: URL | null = null;
-    server.use(
-      http.get('*/api/admin/broadcasts', ({ request }) => {
+    routeFetch({
+      'GET /api/admin/broadcasts': ({ request }) => {
         seen = new URL(request.url);
         return HttpResponse.json({
           data: { items: [broadcast()], total: 1, page: 2, pageSize: 50, totalPages: 1 },
         });
-      }),
-    );
+      },
+    });
 
     const result = await getBroadcasts({ page: 2, pageSize: 50, status: 'sent' });
 
@@ -316,14 +294,14 @@ describe('the eight calls', () => {
     // makes a request log unreadable — and, on an endpoint with an enum, one
     // that could be rejected outright.
     let seen: URL | null = null;
-    server.use(
-      http.get('*/api/admin/broadcasts', ({ request }) => {
+    routeFetch({
+      'GET /api/admin/broadcasts': ({ request }) => {
         seen = new URL(request.url);
         return HttpResponse.json({
           data: { items: [], total: 0, page: 1, pageSize: 20, totalPages: 0 },
         });
-      }),
-    );
+      },
+    });
 
     await getBroadcasts();
 
@@ -331,26 +309,24 @@ describe('the eight calls', () => {
   });
 
   it('GET /audience reads the active-user count', async () => {
-    server.use(
-      http.get('*/api/admin/broadcasts/audience', () =>
+    routeFetch({
+      'GET /api/admin/broadcasts/audience': () =>
         HttpResponse.json({ data: { activeUsers: 1284 } }),
-      ),
-    );
+    });
 
     await expect(getBroadcastAudience()).resolves.toEqual({ activeUsers: 1284 });
   });
 
   it('GET /:id returns the detail plus the approximate breakdown', async () => {
-    server.use(
-      http.get('*/api/admin/broadcasts/:id', ({ params }) =>
+    routeFetch({
+      'GET /api/admin/broadcasts/:id': ({ params }) =>
         HttpResponse.json({
           data: {
             ...broadcast({ id: params.id as string }),
             approximateDeliveryAttempts: [{ channel: 'email', status: 'sent', count: 12 }],
           },
         }),
-      ),
-    );
+    });
 
     const detail = await getBroadcast('abc');
 
@@ -362,14 +338,14 @@ describe('the eight calls', () => {
 
   it('POST / sends the composition verbatim and returns the row plus warnings', async () => {
     let body: unknown = null;
-    server.use(
-      http.post('*/api/admin/broadcasts', async ({ request }) => {
+    routeFetch({
+      'POST /api/admin/broadcasts': async ({ request }) => {
         body = await request.json();
         return HttpResponse.json({
           data: { broadcast: broadcast(), warnings: ['Browser notifications are disabled.'] },
         });
-      }),
-    );
+      },
+    });
 
     const result = await createBroadcast({
       ...composition,
@@ -401,8 +377,8 @@ describe('the eight calls', () => {
     // send is for.
     let body: unknown = null;
     let path: string | null = null;
-    server.use(
-      http.post('*/api/admin/broadcasts/test', async ({ request }) => {
+    routeFetch({
+      'POST /api/admin/broadcasts/test': async ({ request }) => {
         path = new URL(request.url).pathname;
         body = await request.json();
         return HttpResponse.json({
@@ -412,8 +388,8 @@ describe('the eight calls', () => {
             sentToUserId: 'admin-user-id',
           },
         });
-      }),
-    );
+      },
+    });
 
     const result = await sendTestBroadcast(composition);
 
@@ -423,8 +399,8 @@ describe('the eight calls', () => {
   });
 
   it('POST /:id/cancel takes no body and returns the updated row', async () => {
-    server.use(
-      http.post('*/api/admin/broadcasts/:id/cancel', ({ params }) =>
+    routeFetch({
+      'POST /api/admin/broadcasts/:id/cancel': ({ params }) =>
         HttpResponse.json({
           data: broadcast({
             id: params.id as string,
@@ -432,8 +408,7 @@ describe('the eight calls', () => {
             canceledAt: '2026-01-01T01:00:00.000Z',
           }),
         }),
-      ),
-    );
+    });
 
     const result = await cancelBroadcast('11111111-1111-4111-8111-111111111111');
 
@@ -443,15 +418,15 @@ describe('the eight calls', () => {
   it('POST /:id/resume takes no body and returns the updated row (issue #459)', async () => {
     let path: string | null = null;
     let method: string | null = null;
-    server.use(
-      http.post('*/api/admin/broadcasts/:id/resume', ({ request, params }) => {
+    routeFetch({
+      'POST /api/admin/broadcasts/:id/resume': ({ request, params }) => {
         path = new URL(request.url).pathname;
         method = request.method;
         return HttpResponse.json({
           data: broadcast({ id: params.id as string, status: 'sending' }),
         });
-      }),
-    );
+      },
+    });
 
     const result = await resumeBroadcast('11111111-1111-4111-8111-111111111111');
 
@@ -462,12 +437,12 @@ describe('the eight calls', () => {
 
   it('DELETE /:id resolves on the API’s 204', async () => {
     let method: string | null = null;
-    server.use(
-      http.delete('*/api/admin/broadcasts/:id', ({ request }) => {
+    routeFetch({
+      'DELETE /api/admin/broadcasts/:id': ({ request }) => {
         method = request.method;
-        return new HttpResponse(null, { status: 204 });
-      }),
-    );
+        return new Response(null, { status: 204 });
+      },
+    });
 
     await expect(deleteBroadcast('abc')).resolves.toBeUndefined();
     expect(method).toBe('DELETE');

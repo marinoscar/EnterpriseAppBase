@@ -144,7 +144,7 @@
     "prepack": "node ../../scripts/copy-license.mjs",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry && tsc --noEmit -p test/notifications",
     "docs": "typedoc --options typedoc.json",
     "test": "vitest",
     "test:run": "vitest run"

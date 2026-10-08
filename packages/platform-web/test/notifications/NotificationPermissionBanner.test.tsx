@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
 import {
   NotificationPermissionBanner,
   NOTIFICATION_SETTINGS_PATH,
   BANNER_DISMISSED_STORAGE_KEY,
-} from '../../../components/notifications/NotificationPermissionBanner';
-import type { NotificationCapability } from '../../../hooks/useNotificationCapability';
-import type { NotificationConfigResponse } from '../../../types';
+} from '../../src/notifications/ui/NotificationPermissionBanner.js';
+import type { NotificationCapability } from '../../src/notifications/headless/useNotificationCapability.js';
+import type { NotificationConfigResponse } from '../../src/notifications/headless/types.js';
 
 /**
  * Issue #365, epic #215. The app-wide banner rendered by `Layout.tsx` under

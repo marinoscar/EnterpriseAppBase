@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { usePushSubscriptionSync } from '../../hooks/usePushSubscriptionSync';
-import { useNotificationConfig } from '../../hooks/useNotificationConfig';
-import { useNotificationCapability } from '../../hooks/useNotificationCapability';
+import { usePushSubscriptionSync } from '../../src/notifications/headless/usePushSubscriptionSync.js';
+import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
+import { useNotificationCapability } from '../../src/notifications/headless/useNotificationCapability.js';
 import {
   claimAutoPermissionPrompt,
   requestPermissionAndSyncPush,
   syncPushSubscription,
-} from '../../services/pushSubscription';
-import type { NotificationConfigResponse } from '../../types';
-import type { NotificationCapability } from '../../hooks/useNotificationCapability';
+} from '../../src/notifications/headless/pushSubscription.js';
+import type { NotificationConfigResponse } from '../../src/notifications/headless/types.js';
+import type { NotificationCapability } from '../../src/notifications/headless/useNotificationCapability.js';
 
 /**
  * Issue #365, epic #215. `usePushSubscriptionSync` composes two existing,
@@ -22,15 +22,15 @@ import type { NotificationCapability } from '../../hooks/useNotificationCapabili
  * same two hooks.
  */
 
-vi.mock('../../hooks/useNotificationConfig', () => ({
+vi.mock('../../src/notifications/headless/useNotificationConfig.js', () => ({
   useNotificationConfig: vi.fn(),
 }));
 
-vi.mock('../../hooks/useNotificationCapability', () => ({
+vi.mock('../../src/notifications/headless/useNotificationCapability.js', () => ({
   useNotificationCapability: vi.fn(),
 }));
 
-vi.mock('../../services/pushSubscription', () => ({
+vi.mock('../../src/notifications/headless/pushSubscription.js', () => ({
   claimAutoPermissionPrompt: vi.fn(),
   requestPermissionAndSyncPush: vi.fn(),
   syncPushSubscription: vi.fn(),
