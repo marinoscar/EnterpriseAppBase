@@ -1,6 +1,6 @@
 # Settings UI
 
-> **Status:** shipped · **Code:** `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`, `apps/web/src/components/settings/SettingsHub.tsx`, `apps/web/src/components/navigation/` · **API:** none of its own (cards mirror the permissions of `/api/system-settings`, `/api/users`, `/api/admin/*`; see `/api/docs`) · **Admin UI:** `/admin/settings` · **User UI:** `/settings`
+> **Status:** shipped · **Code:** `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`, `packages/platform-web/src/settings/ui/SettingsHub.tsx` (`@marinoscar/platform-web/settings/ui`, since #733), `apps/web/src/components/navigation/` · **API:** none of its own (cards mirror the permissions of `/api/system-settings`, `/api/users`, `/api/admin/*`; see `/api/docs`) · **Admin UI:** `/admin/settings` · **User UI:** `/settings`
 
 Every settings surface in the app, admin or per-user, is a searchable, permission-gated **hub** built from a declarative section registry. The hub, the Console navigation rail and the AppBar title resolver all read the same registry, so a settings page exists for all three or for none. This document is the *why* behind the rules in `CLAUDE.md`'s "MANDATORY: Settings UI Pattern" section; it does not restate them as rules.
 
@@ -95,6 +95,21 @@ Two consequences:
 
 `SettingsHub.tsx` takes `sections`, `hubKey`, `title`, `subtitle` and `features` as props and names neither surface internally. `UserSettingsHubPage.tsx` is the worked example: a binding with no rendering logic of its own. It contributes the registry, a scroll-restoration key (`hubKey`) namespaced so the two hubs never clobber each other's scroll offset, surface-specific prose, and the feature map it reads from `useAiConfig()`. A hub copied from the admin one would duplicate two responsive treatments and an empty state: four places to fix every future bug.
 
+Since #733 the hub is platform structure: `SettingsHub`, `SettingsCardDef`, `SettingsSectionDef`, `visibleSettingsSections`, `settingsPageTitle` and `isFeatureEnabled` live in `@marinoscar/platform-web/settings/ui` (moved without behavioural change), while the registries, the routes and the binding pages stay in the app. Two props are the app's seams: `hasPermission` (default: the platform host viewer's) and `useScrollRestoration` (the app's hook; default none).
+
+### An open feature key
+
+`feature` is typed `SettingsFeatureKey`, `keyof SettingsFeatureRegistry`. The platform declares `ai` and `telemetry`; an app adds its own key by module augmentation and registers how to read it, a hook that reads the app's context and never fetches:
+
+```ts
+declare module '@marinoscar/platform-web/settings/headless' {
+  interface SettingsFeatureRegistry { orgs: true }
+}
+registerSettingsFeature('orgs', useOrgsFeature);
+```
+
+`useSettingsFeatures()` asks every registered resolver in registration order, so the hub, the rail and the AppBar read one map. The set is fixed once it rendered (register at module scope). The reference app registers `ai`, `telemetry` and its own `orgs` in `apps/web/src/hooks/useSettingsFeatures.ts`.
+
 ### Breakpoint gates
 
 Five places in the shell decide, independently, whether the viewport is "compact" (below `sm`, 600px). All five move together. `apps/web/src/components/common/Layout.tsx` carries the canonical list in a comment.
@@ -104,7 +119,7 @@ Five places in the shell decide, independently, whether the viewport is "compact
 | 1 | `Layout.tsx` `showRail` | `useMediaQuery(theme.breakpoints.up('sm'))` | Mounts or unmounts `NavigationRail` |
 | 2 | `BottomNav.tsx` self-gate | `useMediaQuery(theme.breakpoints.down('sm'))` | Returns `null` outside compact width, even if mounted |
 | 3 | `Layout.tsx` `<main>` padding | `pb: { xs: 10, sm: 3 }` | Clears the fixed bottom bar |
-| 4 | `SettingsHub.tsx` `isCompactWindow` | `down('sm')` | Drill-down list vs. card grid |
+| 4 | `SettingsHub.tsx` `isCompactWindow` (`packages/platform-web/src/settings/ui/`, since #733) | `down('sm')` | Drill-down list vs. card grid |
 | 5 | `AppBar.tsx` `isCompactWindow` | `down('sm')` | Back arrow plus resolved title vs. wordmark toolbar |
 
 `Layout` only mounts `BottomNav` when `!showRail`; gate 2 is belt and braces so the bar's output never appears at the wrong width.
@@ -124,12 +139,16 @@ The boundary is `sm` (600px), never `md` (900px). 600px is Material 3's compact/
 - **Keyboard focus is visible on every navigation control**, via an explicit `&.Mui-focusVisible` outline in `NavigationRail.tsx`.
 - **The collapse toggle is a real `<button>` with `aria-expanded`.**
 
+### The Organization settings card
+
+`Organization settings` (#733) is the third card of the appended `Organizations` group: `/admin/settings/organization-settings`, `org_settings:read` (the org permission `org-settings.controller.ts` of `@marinoscar/platform-api/settings` enforces), `feature: 'orgs'`. A card next to `Organization`, never a tab on it: "how this organization is configured" is a different question from "who belongs to it". The page renders a form generated from the namespace descriptors of `GET /api/org-settings` (boolean, enum, number and string fields; any other shape links to the owning slice's page) and disables every control without `org_settings:write`, and the controls of a namespace whose own write permission the caller lacks.
+
 ## 3. Configuration and permissions
 
 - **Settings:** none. The registries are code.
 - **Environment variables:** none.
 - **Permissions:** each card names one, per the mirror table in §2. The full permission matrix lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
-- **Feature map:** `features.ai` comes from `GET /api/ai/config` (via `useAiConfig()`), reachable by any authenticated user; `features.telemetry` from `GET /api/telemetry/config`; `features.orgs` from the signed-in user's `tenancyMode` on `GET /api/auth/me` (`useOrgsFeature()`, #726). `useSettingsFeatures()` merges the three.
+- **Feature map:** `features.ai` comes from `GET /api/ai/config` (via `useAiConfig()`), reachable by any authenticated user; `features.telemetry` from `GET /api/telemetry/config`; `features.orgs` from the signed-in user's `tenancyMode` on `GET /api/auth/me` (`useOrgsFeature()`, #726). `useSettingsFeatures()` (the open feature registry of `@marinoscar/platform-web/settings/headless`, #733) merges the three.
 - **API surface:** none of its own.
 
 ## 4. Extending it in a fork
@@ -143,9 +162,10 @@ To add a settings page:
 5. Nest a sub-page's path under its parent (`/admin/settings/ai/models`) so `settingsPageTitle`'s longest-prefix rule titles it correctly.
 6. If the card introduces a permission string new to either registry, add it to `DEFAULT_PERMISSIONS` in `apps/web/visual/main.tsx` in the same change (see §5).
 7. Do not add a new tab to an existing settings page. Add a tab only for parallel content inside one destination (§2, Cards vs. tabs).
-8. A new settings **surface** (a third hub) is another binding over `SettingsHub.tsx`, never a copy of it.
+8. A new settings **surface** (a third hub) is another binding over `SettingsHub` (`@marinoscar/platform-web/settings/ui`), never a copy of it.
+9. A new deployment feature is a `SettingsFeatureRegistry` augmentation plus one `registerSettingsFeature` call (§2, An open feature key).
 
-**The API side of a new setting.** A page that edits a new block of the `global` system settings document, or a new per-user preference, needs a settings **namespace** on the API first. Declare it once, beside the owning module, and register it through the API's namespace registries (`apps/api/src/settings/registry/`): the request-body DTOs, the stored schema, the defaults and the service's PATCH merge are all derived from that one declaration, so the page's PUT or PATCH cannot be silently stripped by a schema somebody forgot. A fork declares its namespaces, or fields inside a platform namespace, in `apps/api/src/app-registrations/settings.ts`. The recipe is [settings/registry/README.md](../../apps/api/src/settings/registry/README.md). The card's `permission` stays the controller's (`system_settings:read` for `/api/system-settings`); a namespace adds no permission.
+**The API side of a new setting.** A page that edits a new block of the `global` system settings document, or a new per-user preference, needs a settings **namespace** on the API first. Declare it once, beside the owning module, and register it through the namespace registries of `@marinoscar/platform-api/settings`, listed in the app's manifests (`apps/api/src/settings/registry/`): the request-body DTOs, the stored schema, the defaults and the service's PATCH merge are all derived from that one declaration, so the page's PUT or PATCH cannot be silently stripped by a schema somebody forgot. A fork declares its namespaces, or fields inside a platform namespace, in `apps/api/src/app-registrations/settings.ts`. The recipe is [settings/registry/README.md](../../apps/api/src/settings/registry/README.md). The card's `permission` stays the controller's (`system_settings:read` for `/api/system-settings`); a namespace adds no permission. A namespace an organization may override declares an `org` block, and then appears on the `Organization settings` page without any web change ([settings slice README](../../packages/platform-api/src/settings/README.md#merge-modes-of-an-org-layer)).
 
 ## 5. Guardrails
 
@@ -192,3 +212,4 @@ Manually:
 - #499: `ai:use` withdrawn from Viewer, so the AI Keys card is permission-gated.
 - #677: the API's settings namespaces became registries; §4 points UI authors at the API-side recipe.
 - #726 (PP-6.7): the `orgs` feature (multi-organization mode) and the appended Organizations group: `Organization` (`org_members:read`, Members and Invites tabs) and `Organizations` (`organizations:read`). `console` reachability gains `org_members:read`.
+- #733 (PP-8.1): `SettingsHub` and the registry helpers moved into `@marinoscar/platform-web/settings/ui` (breakpoint gate 4 with it, unchanged); the feature key became open (`SettingsFeatureRegistry`, `registerSettingsFeature`); the `Organization settings` card appended to the Organizations group.

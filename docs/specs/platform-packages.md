@@ -336,7 +336,7 @@ Rules:
 | notifications | `Notification`, `NotificationDelivery`, `PushSubscription`, `NotificationBroadcast` |
 | storage | `StorageObject`, `StorageObjectChunk` |
 | db-backup | `DatabaseBackupRun` |
-| settings | `SystemSettings`, `UserSettings` |
+| settings | `SystemSettings`, `UserSettings`, `OrgSettings` |
 | credentials | `Credential`, `UserCredential` |
 | sharing | `Group`, `GroupMember`, `GroupInvite` (#728; `Grant` follows in #729) |
 
@@ -815,7 +815,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 
 | Slice | Change |
 |---|---|
-| Settings | Resolve system, then org, then user |
+| Settings | Resolve system, then org, then user. Implemented (#733): `SettingsResolver.resolveSystem(key, { orgId })` applies an organization's `org_settings` row (FORCEd RLS) to the namespaces that declare an `org` block (`override`, or a restricting merge); `/api/org-settings` (`org_settings:read`, `org_settings:write`, org scope) edits it |
 | AI | Keys, caps and usage per org; bring-your-own-key stays per user |
 | Storage | Object key prefixes include the org |
 | Jobs | Jobs carry `org_id`; per-org fairness later |

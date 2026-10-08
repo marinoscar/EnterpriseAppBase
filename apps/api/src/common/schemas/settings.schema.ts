@@ -1343,15 +1343,10 @@ export const systemRetentionPatchSchema = z.object({
  * any depth and ignoring case, so an app namespace is held to the same rule as
  * `storage`, `ai` and `telemetry` without a proof of its own.
  */
-export const SETTINGS_SECRET_FIELD_NAMES = [
-  'secretAccessKey',
-  'secretKey',
-  'sessionToken',
-  'secret',
-  'password',
-  'apiKey',
-  'token',
-] as const;
+// The list itself is the settings slice's since #733 (it gained `privateKey`):
+// one source for the registries, the row store and the conformance suite.
+import { SETTINGS_SECRET_FIELD_NAMES } from '@marinoscar/platform-api/settings';
+export { SETTINGS_SECRET_FIELD_NAMES };
 
 type StorageSecretFieldNames = (typeof SETTINGS_SECRET_FIELD_NAMES)[number];
 

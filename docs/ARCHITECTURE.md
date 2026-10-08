@@ -183,7 +183,7 @@ The `global` system settings document and the optional user settings are built f
 
 In the web app, every settings page is a card in a registry: `ADMIN_SECTIONS` (`/admin/settings`) or `USER_SETTINGS_SECTIONS` (`/settings`). The shared `SettingsHub` component, the Console navigation rail and the AppBar title resolver all read those registries, so they never disagree about which pages exist. A card's `permission` is the exact string the API controller enforces; a card's `feature` hides it while a platform feature (today only AI) is off. Tabs are reserved for parallel content inside one page.
 
-- **Code:** `apps/api/src/settings/` (namespace registries: `apps/api/src/settings/registry/`), `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`, `apps/web/src/components/settings/SettingsHub.tsx`
+- **Code:** `@marinoscar/platform-api/settings` (`packages/platform-api/src/settings/`: the registries, the services, `/api/system-settings`, `/api/user-settings`, `/api/org-settings`, `SettingsResolver`, `SystemSettingsRowStore`), the app's composition `apps/api/src/settings/registry/` (manifests) and binding `apps/api/src/platform/settings/`, `@marinoscar/platform-web/settings` (`SettingsHub`, the registry helpers, the hooks), `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`
 - **UI:** `/settings`, `/admin/settings` (inventory in [§9.2](#92-settings-pages))
 - **Permissions:** `system_settings:read/write`, `user_settings:read/write`
 - **Read more:** [specs/settings-ui.md](specs/settings-ui.md), [settings/registry/README.md](../apps/api/src/settings/registry/README.md)
@@ -433,6 +433,7 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | RBAC | `UserRole` | `user_roles` | User-to-SYSTEM-role assignments (org roles live on `memberships.role_id`) |
 | Settings | `SystemSettings` | `system_settings` | Keyed JSONB rows for deployment settings |
 | Settings | `UserSettings` | `user_settings` | One JSONB settings document per user |
+| Settings | `OrgSettings` | `org_settings` | One organization's overrides of the org-overridable system namespaces (one row per organization, its own `version`; FORCEd RLS on `org_id`, #733) |
 | Secrets | `Credential` | `credentials` | Encrypted deployment-owned secrets by `(purpose, name)` |
 | Secrets | `UserCredential` | `user_credentials` | Encrypted user-owned secrets, owner-bound cipher domain |
 | Storage | `StorageObject` | `storage_objects` | File metadata, status, storage key, processing results |
@@ -686,6 +687,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/doctor` | Doctor | Observability | `system_settings:read` | none (reports on AI and telemetry while they are off) |
 | `/admin/settings/organization` | Organization | Organizations | `org_members:read` (org) | `orgs` (multi-org mode) |
 | `/admin/settings/organizations` | Organizations | Organizations | `organizations:read` (system) | `orgs` (multi-org mode) |
+| `/admin/settings/organization-settings` | Organizations | Organization settings | `org_settings:read` (org; writes `org_settings:write`) | `orgs` (multi-org mode) |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
@@ -696,7 +698,7 @@ Cards gate reachability; pages gate their own write controls (for example, a `jo
 
 ### 9.3 Layout and breakpoint
 
-The layout switches between a phone treatment (bottom navigation, compact AppBar, drill-down settings list) and a wider treatment (navigation rail, card grid) at MUI's `sm` breakpoint, 600px. Five gates move together: `showRail` in `apps/web/src/components/common/Layout.tsx`, the self-gate in `components/navigation/BottomNav.tsx`, `<main>`'s bottom padding in `Layout.tsx`, and `isCompactWindow` in both `components/settings/SettingsHub.tsx` and `components/navigation/AppBar.tsx`. Change one only after checking all five. See [specs/settings-ui.md](specs/settings-ui.md).
+The layout switches between a phone treatment (bottom navigation, compact AppBar, drill-down settings list) and a wider treatment (navigation rail, card grid) at MUI's `sm` breakpoint, 600px. Five gates move together: `showRail` in `apps/web/src/components/common/Layout.tsx`, the self-gate in `components/navigation/BottomNav.tsx`, `<main>`'s bottom padding in `Layout.tsx`, and `isCompactWindow` in both `SettingsHub.tsx` (`packages/platform-web/src/settings/ui/`, since #733) and `components/navigation/AppBar.tsx`. Change one only after checking all five. See [specs/settings-ui.md](specs/settings-ui.md).
 
 ### 9.4 Contexts and API client
 

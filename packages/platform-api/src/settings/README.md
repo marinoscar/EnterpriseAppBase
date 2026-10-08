@@ -105,7 +105,7 @@ The `settings` fragment of `@marinoscar/platform-db` (`schema/settings.prisma`):
 |---|---|---|
 | `SystemSettings` | `system_settings` | Deployment-level, no RLS. One row per key. Keys in use in the reference app: `global` (every registered namespace), `email` (the email slice's transport), `telemetry_connection` (the telemetry store's connection). |
 | `UserSettings` | `user_settings` | One row per user (`user_id` unique, `Cascade`). User-owned (`purge: 'delete'`, exported). |
-| `OrgSettings` | `org_settings` | One row per organization (`org_id` unique, FK to `organizations`, `Cascade`; `updated_by_user_id` `SetNull`). FORCEd row-level security, policy `org_settings_org_isolation`. Migration `0027_add_org_settings`. |
+| `OrgSettings` | `org_settings` | One row per organization (`org_id` unique, FK to `organizations`, `Cascade`; `updated_by_user_id` `SetNull`). FORCEd row-level security, policy `org_settings_org_isolation`. Migration `0028_add_org_settings`. |
 
 An app may reference none of these columns: read and write settings through the services. Secrets never go in any of them; they go in the encrypted credential store (`CredentialsService`).
 
