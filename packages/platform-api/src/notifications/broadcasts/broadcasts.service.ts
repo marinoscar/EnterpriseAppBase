@@ -46,6 +46,7 @@ import {
   Logger,
   NotFoundException,
   Inject,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NotificationBroadcastRow as NotificationBroadcast, NotificationsJsonValue, NotificationsInputJsonValue, NotificationsWhere } from '../data/notifications-db';
@@ -110,6 +111,25 @@ export interface BroadcastDetail extends NotificationBroadcast {
   approximateDeliveryAttempts: BroadcastDeliveryCount[];
 }
 
+/**
+ * Who is asking, as the broadcast routes see it (#738): a holder of the
+ * SYSTEM permissions (`broadcasts:*`), who may target every user or any one
+ * organization and sees every broadcast; or a holder of only the ORG
+ * permissions (`org_broadcasts:*`), confined to the caller's active
+ * organization: its target is forced, a body naming another is a 422, and a
+ * broadcast of another organization is a 404.
+ *
+ * @stability experimental
+ */
+export type BroadcastScope = { readonly kind: 'system' } | { readonly kind: 'org'; readonly orgId: string };
+
+/**
+ * The deployment-wide scope: what every caller had before #738.
+ *
+ * @stability experimental
+ */
+export const SYSTEM_BROADCAST_SCOPE: BroadcastScope = Object.freeze({ kind: 'system' as const });
+
 export interface BroadcastCreateResult {
   broadcast: NotificationBroadcast;
   warnings: string[];
@@ -145,18 +165,26 @@ export class BroadcastsService {
    * frozen when the fan-out starts, so for a SCHEDULED broadcast this is an
    * estimate — an honest one, and the only one available at compose time.
    */
-  async audience(): Promise<{ activeUsers: number }> {
+  async audience(
+    scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE,
+    targetOrgId?: string,
+  ): Promise<{ activeUsers: number }> {
+    const target = await this.resolveTarget(scope, targetOrgId);
     const activeUsers = await this.prisma.user.count({
-      where: audienceWhere(new Date()),
+      where: audienceWhere(new Date(), target),
     });
 
     return { activeUsers };
   }
 
   /** Newest first, paginated, optionally filtered by status. */
-  async list(query: BroadcastListQuery): Promise<BroadcastListResult> {
+  async list(query: BroadcastListQuery, scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE): Promise<BroadcastListResult> {
     const { page, pageSize, status } = query;
-    const where: NotificationsWhere = status ? { status } : {};
+    const where: NotificationsWhere = {
+      ...(status ? { status } : {}),
+      // #738: an org-scoped caller lists its own organization's broadcasts only.
+      ...(scope.kind === 'org' ? { targetOrgId: scope.orgId } : {}),
+    };
 
     const [items, total] = await Promise.all([
       this.prisma.notificationBroadcast.findMany({
@@ -172,8 +200,8 @@ export class BroadcastsService {
   }
 
   /** One broadcast, plus the approximate delivery breakdown. */
-  async get(id: string): Promise<BroadcastDetail> {
-    const broadcast = await this.requireBroadcast(id);
+  async get(id: string, scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE): Promise<BroadcastDetail> {
+    const broadcast = await this.requireBroadcast(id, scope);
 
     return {
       ...broadcast,
@@ -201,9 +229,15 @@ export class BroadcastsService {
    * job. It is visible in the admin list, nothing was sent to anybody, and it
    * can be deleted and recomposed. The other ordering's failure is invisible.
    */
-  async create(dto: CreateBroadcastInput, adminUserId: string): Promise<BroadcastCreateResult> {
+  async create(
+    dto: CreateBroadcastInput,
+    adminUserId: string,
+    scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE,
+  ): Promise<BroadcastCreateResult> {
     // DERIVED, NEVER ACCEPTED FROM THE CLIENT. See the file header, rule 1.
     const eventKey = dto.critical ? BROADCAST_CRITICAL_EVENT_KEY : BROADCAST_EVENT_KEY;
+    // The audience's organization (#738), authorized by the caller's scope.
+    const targetOrgId = await this.resolveTarget(scope, dto.targetOrgId);
 
     const broadcast = await this.prisma.notificationBroadcast.create({
       data: {
@@ -216,6 +250,7 @@ export class BroadcastsService {
         status: 'scheduled',
         scheduledFor: dto.scheduledFor ?? null,
         createdById: adminUserId,
+        ...(targetOrgId ? { targetOrgId } : {}),
       },
     });
 
@@ -245,6 +280,7 @@ export class BroadcastsService {
       channels: dto.channels,
       scheduledFor: dto.scheduledFor?.toISOString() ?? null,
       recipientsTargeted: broadcast.recipientsTargeted,
+      ...(targetOrgId ? { targetOrgId } : {}),
     });
 
     this.logger.log(
@@ -284,7 +320,12 @@ export class BroadcastsService {
    * is not in the status they require), and the `jobs` rows are audit history
    * of what the fan-out actually did.
    */
-  async cancel(id: string, adminUserId: string): Promise<NotificationBroadcast> {
+  async cancel(
+    id: string,
+    adminUserId: string,
+    scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE,
+  ): Promise<NotificationBroadcast> {
+    await this.assertInScope(id, scope);
     const canceled = await this.prisma.notificationBroadcast.updateMany({
       where: { id, status: { in: [...CANCELABLE_STATUSES] } },
       data: { status: 'canceled', canceledAt: new Date() },
@@ -347,7 +388,12 @@ export class BroadcastsService {
    * `recipientsDispatched` is kept, not reset: it is cumulative across the
    * whole fan-out, resume included.
    */
-  async resume(id: string, adminUserId: string): Promise<NotificationBroadcast> {
+  async resume(
+    id: string,
+    adminUserId: string,
+    scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE,
+  ): Promise<NotificationBroadcast> {
+    await this.assertInScope(id, scope);
     const resumed = await this.prisma.notificationBroadcast.updateMany({
       where: { id, status: 'failed', audienceCutoff: { not: null } },
       data: { status: 'sending', finishedAt: null, lastError: null },
@@ -438,8 +484,8 @@ export class BroadcastsService {
    * later, which is why cancel does NOT delete — but keeping it is their
    * decision to reverse, not ours to enforce.
    */
-  async remove(id: string, adminUserId: string): Promise<void> {
-    const broadcast = await this.requireBroadcast(id);
+  async remove(id: string, adminUserId: string, scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE): Promise<void> {
+    const broadcast = await this.requireBroadcast(id, scope);
 
     if (broadcast.status === 'sending') {
       throw new ConflictException(
@@ -512,14 +558,48 @@ export class BroadcastsService {
   // ==========================================================================
 
   /** The row, or a 404. One place, so no route invents its own message. */
-  private async requireBroadcast(id: string): Promise<NotificationBroadcast> {
+  private async requireBroadcast(id: string, scope: BroadcastScope = SYSTEM_BROADCAST_SCOPE): Promise<NotificationBroadcast> {
     const broadcast = await this.prisma.notificationBroadcast.findUnique({ where: { id } });
 
-    if (!broadcast) {
+    // #738: another organization's broadcast does not exist for an org-scoped
+    // caller (404, not 403: its existence is not theirs to learn).
+    if (!broadcast || (scope.kind === 'org' && broadcast.targetOrgId !== scope.orgId)) {
       throw new NotFoundException(`Broadcast ${id} not found`);
     }
 
     return broadcast;
+  }
+
+  /**
+   * An org-scoped caller may act only on its organization's broadcasts (#738).
+   * A no-op for the system scope, so the conditional writes keep their single
+   * round trip there.
+   */
+  private async assertInScope(id: string, scope: BroadcastScope): Promise<void> {
+    if (scope.kind === 'org') await this.requireBroadcast(id, scope);
+  }
+
+  /**
+   * The organization a broadcast (or an audience count) addresses (#738).
+   *
+   * - org scope: the caller's active organization, always. A body naming any
+   *   other is a 422, never silently rewritten.
+   * - system scope: the body's `targetOrgId` when given (the organization must
+   *   exist: 422 otherwise), else `null`, every active user.
+   */
+  private async resolveTarget(scope: BroadcastScope, requested: string | undefined): Promise<string | null> {
+    if (scope.kind === 'org') {
+      if (requested !== undefined && requested !== scope.orgId) {
+        throw new UnprocessableEntityException(
+          'targetOrgId must be your active organization: org_broadcasts permissions address only the organization you are working in',
+        );
+      }
+      return scope.orgId;
+    }
+    if (requested === undefined) return null;
+    const exists = await this.prisma.organization.findUnique({ where: { id: requested }, select: { id: true } });
+    if (!exists) throw new UnprocessableEntityException(`targetOrgId ${requested} is not an organization`);
+    return requested;
   }
 
   /**

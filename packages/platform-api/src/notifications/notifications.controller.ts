@@ -24,7 +24,7 @@ import {
 import type { Observable } from 'rxjs';
 
 import { ApiDataResponse } from '../core/index';
-import { Auth, CurrentUser } from '../identity/index';
+import { Auth, CurrentUser, type RequestUser } from '../identity/index';
 import { listNotificationEvents } from './notification-events';
 import { policyChannels } from './notification-policy';
 import { NotificationPolicyService } from './notification-policy.service';
@@ -127,12 +127,14 @@ export class NotificationsController {
     isArray: true,
     description: 'The notification event registry',
   })
-  async listEvents(): Promise<NotificationEventResponse[]> {
+  async listEvents(@CurrentUser() user?: RequestUser): Promise<NotificationEventResponse[]> {
     // THE SAME POLICY THE DISPATCHER WILL APPLY, from the same function (#226).
     // `resolveChannels` calls `policyChannels` too, which is what makes it
     // impossible for this matrix to offer a channel delivery would refuse — or
     // to hide one it would use. See notification-policy.ts.
-    const policy = await this.policy.getPolicy();
+    // The caller's organization's policy (#738): the org layer may only
+    // tighten the deployment's, so the matrix offers what delivery would use.
+    const policy = await this.policy.getPolicy(user?.activeOrgId ?? null);
 
     // Mapped field by field rather than returned directly, for three reasons:
     //
@@ -211,8 +213,9 @@ export class NotificationsController {
   @ApiDataResponse(NotificationConfigDto, {
     description: 'This deployment’s notification capabilities',
   })
-  async config(): Promise<NotificationConfigResponse> {
-    const policy = await this.policy.getPolicy();
+  async config(@CurrentUser() user?: RequestUser): Promise<NotificationConfigResponse> {
+    // The policy in force for the caller's active organization (#738).
+    const policy = await this.policy.getPolicy(user?.activeOrgId ?? null);
 
     // Both now resolve the ACTIVE key pair through `PushConfigService`
     // (#355): an admin-configured, enabled one from `/admin/push-config`

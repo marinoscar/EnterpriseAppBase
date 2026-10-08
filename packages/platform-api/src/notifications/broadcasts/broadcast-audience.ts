@@ -122,15 +122,25 @@ export const BROADCAST_SEND_CONCURRENCY = 5;
  * the interval is closed at the boundary it owns. Nothing hinges on it beyond
  * being stated once rather than guessed at each call site.
  *
- * NOTE WHAT IS ABSENT: there is no role filter, no segment and no user picker.
- * "All active users" is the entire targeting model of epic #319 and is listed
- * in its out-of-scope section. When targeting arrives, it arrives as extra
- * clauses HERE — one edit, and the count and the paging move together by
- * construction.
+ * ORGANIZATION TARGETING (#738) arrived exactly as this comment always said
+ * targeting would: as one extra clause HERE, so the count and the paging move
+ * together by construction. With `targetOrgId` set, the audience is the
+ * active users holding an ACTIVE membership of that organization (`Membership`,
+ * #721); evaluated live per page, like `isActive`, so a member removed
+ * mid-fan-out stops receiving it. Without it, every active user, as before.
+ * There is still no role filter, no segment and no user picker.
+ *
+ * @param cutoff - the frozen audience cutoff.
+ * @param targetOrgId - the broadcast's organization, or `null`/absent for a
+ *   system broadcast.
+ * @returns the `users` filter.
+ *
+ * @stability stable
  */
-export function audienceWhere(cutoff: Date): NotificationsWhere {
+export function audienceWhere(cutoff: Date, targetOrgId: string | null = null): NotificationsWhere {
   return {
     isActive: true,
     createdAt: { lte: cutoff },
+    ...(targetOrgId ? { memberships: { some: { orgId: targetOrgId, status: 'active' } } } : {}),
   };
 }

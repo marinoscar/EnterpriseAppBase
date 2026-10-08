@@ -317,6 +317,9 @@ const BROADCAST_SELECT = {
   status: true,
   audienceCutoff: true,
   cursorUserId: true,
+  // #738: the audience's organization, re-read from the row on every chunk
+  // (the payload carries only the broadcast id, unchanged).
+  targetOrgId: true,
 } as const;
 
 type ChunkBroadcast = Pick<NotificationBroadcast, keyof typeof BROADCAST_SELECT>;
@@ -453,7 +456,7 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
     // cursor is a durable column rather than an in-memory index.
     const users = await this.prisma.user.findMany({
       where: {
-        ...audienceWhere(broadcast.audienceCutoff),
+        ...audienceWhere(broadcast.audienceCutoff, broadcast.targetOrgId ?? null),
         ...(broadcast.cursorUserId ? { id: { gt: broadcast.cursorUserId } } : {}),
       },
       select: { id: true },
@@ -483,6 +486,10 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
       // no array-of-enum ergonomics worth the migration, and an unrecognised
       // string here is simply an element the intersection drops.
       channels: broadcast.channels as NotificationChannel[],
+      // #738: an org broadcast is dispatched under that organization's policy
+      // (the org layer may only tighten it); a system broadcast leaves each
+      // recipient's own organization in charge.
+      ...(broadcast.targetOrgId ? { orgId: broadcast.targetOrgId } : {}),
     };
 
     // The cursor this execution paged from — the compare side of the progress

@@ -46,12 +46,29 @@
 // The split earns its keep here more than anywhere else in this API: reading
 // this surface shows what has been announced, while writing it sends a message
 // to every active user — the highest-consequence action the application has.
+//
+// -----------------------------------------------------------------------------
+// ORG BROADCASTS (#738): TWO SCOPES, ONE SET OF ROUTES
+// -----------------------------------------------------------------------------
+//
+// `org_broadcasts:read|write` (ORG scope, `org_admin`) reach the same routes
+// for the caller's ACTIVE organization only. Each route therefore declares
+// `@Auth({ anyPermissions: [system, org] })` (the guard admits either; the
+// system role requirement is dropped, since an org administrator holds no
+// system role) and the handler resolves the caller's `BroadcastScope` from
+// which one they hold: the system permission wins, so an operator who is also
+// an org admin keeps the deployment-wide view. The service enforces the
+// scope: an org-scoped caller's target is forced to its active organization
+// (any other `targetOrgId` is a 422), it lists only that organization's
+// broadcasts, and another organization's broadcast is a 404.
 // =============================================================================
 
 import {
   Body,
   Controller,
+  createParamDecorator,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -59,18 +76,20 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  type ExecutionContext,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth, CurrentUser } from '../../identity/index';
-import { PERMISSIONS, ROLES } from '../notifications.constants';
+import { Auth, CurrentUser, activeOrgIdOf, principalOf } from '../../identity/index';
+import { PERMISSIONS } from '../notifications.constants';
 import { ApiDataResponse } from '../../core/index';
 import { BROADCAST_CHUNK_SIZE } from './broadcast-audience';
-import { BroadcastsService } from './broadcasts.service';
+import { BroadcastsService, type BroadcastScope } from './broadcasts.service';
 import { BroadcastListQueryDto } from './dto/broadcast-list-query.dto';
 import {
   BROADCAST_STATUSES,
   BroadcastAudienceDto,
+  BroadcastAudienceQueryDto,
   BroadcastCreateResultDto,
   BroadcastDetailDto,
   BroadcastDto,
@@ -78,6 +97,42 @@ import {
 } from './dto/broadcast-response.dto';
 import { CreateBroadcastDto, TestBroadcastDto } from './dto/create-broadcast.dto';
 
+/** The caller's effective permissions and active organization. */
+interface BroadcastCaller {
+  permissions: readonly string[];
+  orgId: string | null;
+}
+
+const BroadcastCallerParam = createParamDecorator((_data: unknown, ctx: ExecutionContext): BroadcastCaller => {
+  const request = ctx.switchToHttp().getRequest();
+  const permissions: readonly string[] =
+    principalOf(request)?.permissions ?? (request.user as { permissions?: string[] } | undefined)?.permissions ?? [];
+  return { permissions, orgId: activeOrgIdOf(request) ?? null };
+});
+
+/**
+ * The scope a caller acts in (#738): system when it holds the system
+ * permission for this action, else its active organization when it holds the
+ * org one. The guard already admitted one of the two.
+ */
+function scopeOf(caller: BroadcastCaller, action: 'read' | 'write'): BroadcastScope {
+  const system = action === 'read' ? PERMISSIONS.BROADCASTS_READ : PERMISSIONS.BROADCASTS_WRITE;
+  const org = action === 'read' ? PERMISSIONS.ORG_BROADCASTS_READ : PERMISSIONS.ORG_BROADCASTS_WRITE;
+  if (caller.permissions.includes(system)) return { kind: 'system' };
+  if (caller.permissions.includes(org) && caller.orgId) return { kind: 'org', orgId: caller.orgId };
+  throw new ForbiddenException(`Missing permissions: one of ${system}, ${org} (with an active organization)`);
+}
+
+const READ = [PERMISSIONS.BROADCASTS_READ, PERMISSIONS.ORG_BROADCASTS_READ];
+const WRITE = [PERMISSIONS.BROADCASTS_WRITE, PERMISSIONS.ORG_BROADCASTS_WRITE];
+
+/**
+ * `/api/admin/broadcasts`: compose, schedule, list, cancel, resume and delete
+ * broadcasts, for the whole deployment (`broadcasts:*`) or the caller's
+ * active organization (`org_broadcasts:*`).
+ *
+ * @stability experimental
+ */
 @ApiTags('Notification Broadcasts')
 @Controller('admin/broadcasts')
 export class BroadcastsController {
@@ -88,7 +143,7 @@ export class BroadcastsController {
   // -------------------------------------------------------------------------
 
   @Get('audience')
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_READ] })
+  @Auth({ anyPermissions: READ })
   @ApiOperation({
     summary: 'Count the users a broadcast would reach',
     description:
@@ -98,13 +153,27 @@ export class BroadcastsController {
       'is an estimate for a SCHEDULED broadcast: the real audience is frozen at a cutoff ' +
       'stamped when sending begins, so users created or deactivated in between change it.',
   })
+  @ApiQuery({
+    name: 'targetOrgId',
+    required: false,
+    type: String,
+    format: 'uuid',
+    description:
+      'Count the active members of this organization instead of every active user (#738). ' +
+      'An `org_broadcasts:read` holder may only name their active organization (any other is a 422); ' +
+      'their count is always that organization\'s.',
+  })
   @ApiResponse({ status: 200, description: 'Current audience size', type: BroadcastAudienceDto })
-  async audience(): Promise<unknown> {
-    return this.broadcasts.audience();
+  @ApiResponse({ status: 422, description: 'targetOrgId is not an organization, or not the caller\'s' })
+  async audience(
+    @Query() query: BroadcastAudienceQueryDto,
+    @BroadcastCallerParam() caller: BroadcastCaller,
+  ): Promise<unknown> {
+    return this.broadcasts.audience(scopeOf(caller, 'read'), query.targetOrgId);
   }
 
   @Post('test')
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_WRITE] })
+  @Auth({ anyPermissions: WRITE })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Send this composition to yourself',
@@ -121,13 +190,15 @@ export class BroadcastsController {
   @ApiResponse({ status: 400, description: 'Validation error' })
   async test(
     @Body() dto: TestBroadcastDto,
-    @CurrentUser('id') adminUserId: string
+    @CurrentUser('id') adminUserId: string,
+    @BroadcastCallerParam() caller: BroadcastCaller,
   ): Promise<unknown> {
+    scopeOf(caller, 'write');
     return this.broadcasts.sendTest(dto, adminUserId);
   }
 
   @Get()
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_READ] })
+  @Auth({ anyPermissions: READ })
   @ApiOperation({
     summary: 'List broadcasts',
     description:
@@ -139,12 +210,15 @@ export class BroadcastsController {
   @ApiQuery({ name: 'pageSize', required: false, type: Number, description: 'Max 100.' })
   @ApiQuery({ name: 'status', required: false, enum: BROADCAST_STATUSES })
   @ApiDataResponse(BroadcastDto, { pagination: 'flat', description: 'Paginated broadcast list' })
-  async list(@Query() query: BroadcastListQueryDto): Promise<unknown> {
-    return this.broadcasts.list(query);
+  async list(
+    @Query() query: BroadcastListQueryDto,
+    @BroadcastCallerParam() caller: BroadcastCaller,
+  ): Promise<unknown> {
+    return this.broadcasts.list(query, scopeOf(caller, 'read'));
   }
 
   @Post()
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_WRITE] })
+  @Auth({ anyPermissions: WRITE })
   @ApiOperation({
     summary: 'Create and queue a broadcast',
     description:
@@ -160,11 +234,13 @@ export class BroadcastsController {
   })
   @ApiResponse({ status: 201, description: 'The queued broadcast', type: BroadcastCreateResultDto })
   @ApiResponse({ status: 400, description: 'Validation error' })
+  @ApiResponse({ status: 422, description: 'targetOrgId is not an organization, or not the caller\'s' })
   async create(
     @Body() dto: CreateBroadcastDto,
-    @CurrentUser('id') adminUserId: string
+    @CurrentUser('id') adminUserId: string,
+    @BroadcastCallerParam() caller: BroadcastCaller,
   ): Promise<unknown> {
-    return this.broadcasts.create(dto, adminUserId);
+    return this.broadcasts.create(dto, adminUserId, scopeOf(caller, 'write'));
   }
 
   // -------------------------------------------------------------------------
@@ -172,7 +248,7 @@ export class BroadcastsController {
   // -------------------------------------------------------------------------
 
   @Get(':id')
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_READ] })
+  @Auth({ anyPermissions: READ })
   @ApiOperation({
     summary: 'Get one broadcast',
     description:
@@ -186,12 +262,15 @@ export class BroadcastsController {
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
   @ApiResponse({ status: 200, description: 'The broadcast', type: BroadcastDetailDto })
   @ApiResponse({ status: 404, description: 'Broadcast not found' })
-  async get(@Param('id', ParseUUIDPipe) id: string): Promise<unknown> {
-    return this.broadcasts.get(id);
+  async get(
+    @Param('id', ParseUUIDPipe) id: string,
+    @BroadcastCallerParam() caller: BroadcastCaller,
+  ): Promise<unknown> {
+    return this.broadcasts.get(id, scopeOf(caller, 'read'));
   }
 
   @Post(':id/cancel')
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_WRITE] })
+  @Auth({ anyPermissions: WRITE })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Cancel a scheduled, in-flight or failed broadcast',
@@ -222,13 +301,14 @@ export class BroadcastsController {
   })
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('id') adminUserId: string
+    @CurrentUser('id') adminUserId: string,
+    @BroadcastCallerParam() caller: BroadcastCaller,
   ): Promise<unknown> {
-    return this.broadcasts.cancel(id, adminUserId);
+    return this.broadcasts.cancel(id, adminUserId, scopeOf(caller, 'write'));
   }
 
   @Post(':id/resume')
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_WRITE] })
+  @Auth({ anyPermissions: WRITE })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Resume a failed broadcast',
@@ -251,13 +331,14 @@ export class BroadcastsController {
   @ApiResponse({ status: 409, description: 'The broadcast is not failed' })
   async resume(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('id') adminUserId: string
+    @CurrentUser('id') adminUserId: string,
+    @BroadcastCallerParam() caller: BroadcastCaller,
   ): Promise<unknown> {
-    return this.broadcasts.resume(id, adminUserId);
+    return this.broadcasts.resume(id, adminUserId, scopeOf(caller, 'write'));
   }
 
   @Delete(':id')
-  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.BROADCASTS_WRITE] })
+  @Auth({ anyPermissions: WRITE })
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Delete a broadcast',
@@ -274,8 +355,9 @@ export class BroadcastsController {
   @ApiResponse({ status: 409, description: 'The broadcast is currently sending' })
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('id') adminUserId: string
+    @CurrentUser('id') adminUserId: string,
+    @BroadcastCallerParam() caller: BroadcastCaller,
   ): Promise<void> {
-    await this.broadcasts.remove(id, adminUserId);
+    await this.broadcasts.remove(id, adminUserId, scopeOf(caller, 'write'));
   }
 }

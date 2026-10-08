@@ -189,6 +189,8 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
         audienceCutoff: true,
         cursorUserId: true,
         recipientsDispatched: true,
+        // #738: the audience's organization; null for a system broadcast.
+        targetOrgId: true,
       },
     });
 
@@ -299,7 +301,7 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
       return;
     }
 
-    const handedOff = await this.handOff(broadcastId, now);
+    const handedOff = await this.handOff(broadcastId, now, broadcast.targetOrgId ?? null);
 
     if (!handedOff) {
       this.logger.log(
@@ -346,6 +348,7 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
       audienceCutoff: Date | null;
       cursorUserId: string | null;
       recipientsDispatched: number;
+      targetOrgId?: string | null;
     }
   ): Promise<void> {
     const noOp = (why: string): void => {
@@ -387,7 +390,7 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
 
     // The STORED cutoff, never a fresh `now`: the claim froze the audience,
     // and resuming against a later instant would silently widen it.
-    const handedOff = await this.handOff(broadcast.id, broadcast.audienceCutoff);
+    const handedOff = await this.handOff(broadcast.id, broadcast.audienceCutoff, broadcast.targetOrgId ?? null);
 
     if (!handedOff) {
       this.logger.log(
@@ -416,7 +419,8 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
    */
   private async handOff(
     broadcastId: string,
-    cutoff: Date
+    cutoff: Date,
+    targetOrgId: string | null
   ): Promise<{ recipientsTargeted: number; chunkJobId: string } | null> {
     // Counted with the SAME predicate the chunks page with — see
     // `broadcast-audience.ts` for why that is one exported function and not
@@ -428,7 +432,7 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
     // by later pages, so `recipientsDispatched` may legitimately finish below
     // this number. The column means "targeted at send time"; the schema says
     // so too.
-    const recipientsTargeted = await this.prisma.user.count({ where: audienceWhere(cutoff) });
+    const recipientsTargeted = await this.prisma.user.count({ where: audienceWhere(cutoff, targetOrgId) });
 
     // CONDITIONAL on `sending`, like every other write that races a cancel. If
     // an admin cancelled between the claim and here, this matches nothing and

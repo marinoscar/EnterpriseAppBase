@@ -216,6 +216,12 @@ export class EmailNotificationChannel implements NotificationChannelSender {
       html: rendered.email.html,
       text: rendered.email.text,
       ...(rendered.email.headers ? { headers: rendered.email.headers } : {}),
+      // The layout's inline parts (the configured brand mark, #737), which the
+      // HTML references by `cid:`. Forwarded since #738; without them the logo
+      // renders as a broken image.
+      ...(rendered.email.attachments && rendered.email.attachments.length > 0
+        ? { attachments: rendered.email.attachments }
+        : {}),
     };
 
     // No try/catch: `send` never throws, and that is implemented once in

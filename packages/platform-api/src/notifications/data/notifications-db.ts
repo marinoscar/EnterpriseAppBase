@@ -322,6 +322,8 @@ export interface NotificationsTx {
   auditEvent: NotificationsForeignDelegate;
   /** `jobs` (jobs fragment): the broadcast delete guard reads its own jobs. */
   job: NotificationsForeignDelegate;
+  /** `organizations` (identity fragment): a broadcast's target must exist. */
+  organization: NotificationsForeignDelegate;
 }
 
 /**

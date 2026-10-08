@@ -105,7 +105,6 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
   });
 
   it.each([
-    '../../notifications/notifications.system-settings',
     '../../platform/jobs/jobs.system-settings',
     '../../platform/jobs/nodes.system-settings',
     '../../db-backup/db-backup.system-settings',
@@ -114,7 +113,6 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
     '../../ai/ai.system-settings',
     '../../platform/telemetry/telemetry.system-settings',
     '../../common/retention/retention.system-settings',
-    '../../notifications/notifications.user-settings',
     '../../ai/ai.user-settings',
   ])('the declaration file %s is a leaf: loaded first, every schema it names is defined', (path) => {
     jest.isolateModules(() => {
@@ -124,6 +122,20 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
       for (const declaration of declarations) {
         for (const field of ['storedSchema', 'schema', 'patchSchema', 'putSchema', 'wirePatchSchema']) {
           if (field in declaration) expect({ field, defined: declaration[field] !== undefined }).toEqual({ field, defined: true });
+        }
+      }
+    });
+  });
+
+  // The notifications declarations are the package's since #738: loaded first
+  // on its own, every schema they name is defined.
+  it('the packaged notifications declarations are leaves: loaded first, every schema they name is defined', () => {
+    jest.isolateModules(() => {
+      const mod = require('@marinoscar/platform-api/notifications') as Record<string, Record<string, unknown>>;
+      for (const declaration of [mod.NOTIFICATIONS_SYSTEM_SETTINGS, mod.NOTIFICATIONS_USER_SETTINGS]) {
+        expect(declaration).toBeDefined();
+        for (const field of ['storedSchema', 'schema', 'patchSchema', 'putSchema', 'wirePatchSchema']) {
+          if (field in declaration!) expect({ field, defined: declaration![field] !== undefined }).toEqual({ field, defined: true });
         }
       }
     });
