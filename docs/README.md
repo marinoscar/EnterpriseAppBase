@@ -45,6 +45,7 @@ In this order:
 | [specs/doctor.md](specs/doctor.md) | The admin Doctor: read-only configuration and health checks, and the redacted support bundle | you add a check or a support-bundle section, or read the Doctor's report |
 | [specs/data-export.md](specs/data-export.md) | Data export: export sources and writers, the `user-data` and `org-data` exports, signed downloads, expiry, redaction and the secret-egress proof | you add an export source or format, or change what a user or organization export contains |
 | [specs/onboarding.md](specs/onboarding.md) | First-run onboarding: the welcome dialog, the derived Setup guide and Get started checklists, the step and fact registries, activation metrics and feature notices | you add an onboarding step, a fact, an activation milestone or a feature notice |
+| [specs/user-data-reset.md](specs/user-data-reset.md) | User data reset, factory reset and organization offboarding: the registry-driven per-user deletion with scopes, the delete order from the schema, the three jobs, the Danger Zone and factory reset pages | you add a model with an owner column (its keep-or-delete hint), a category, a scope, a factory reset step or an offboarding precondition |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
@@ -85,6 +86,7 @@ In this order:
 | [runbooks/multi-org.md](runbooks/multi-org.md) | Running in multi-organization mode: setting `TENANCY_MODE=multi`, creating the first organization, inviting its administrator, managing members and invitations |
 | [runbooks/android-app.md](runbooks/android-app.md) | Installing the Android app, trusting its signing key so it opens full screen, pairing a native capability, Android troubleshooting |
 | [runbooks/android-release.md](runbooks/android-release.md) | Releasing an APK: keystore, versioning, `appctl android release`, the terminal menu, the deploy step, the web upload, CI, rollback |
+| [runbooks/factory-reset.md](runbooks/factory-reset.md) | Factory resetting a deployment (backup first, run, verify, recover) and offboarding an organization |
 
 ## Developer recipes in the code
 
