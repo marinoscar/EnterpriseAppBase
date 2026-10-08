@@ -275,7 +275,7 @@ export function AndroidScreen({ onDone, onLogin }: AndroidScreenProps): ReactNod
             `APK:       ${result.apkPath} (${formatBytes(result.metadata.sizeBytes)})`,
             `Metadata:  ${result.metadataPath}`,
             builtForLine(result.server),
-            ...(result.server.serverUrl === undefined ? [NO_SERVER_URL_WARNING] : []),
+            ...(result.server.serverUrl === undefined ? [NO_SERVER_URL_WARNING()] : []),
             result.verified
               ? `apksigner: verified (${result.metadata.signingSha256})`
               : 'apksigner: not found — signature NOT verified',
