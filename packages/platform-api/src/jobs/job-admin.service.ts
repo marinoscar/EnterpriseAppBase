@@ -105,7 +105,7 @@ import { JOB_CLOCK, JobClock, systemJobClock } from './job-clock';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
 import { JobStuckService, stuckRunningWhere } from './job-stuck.service';
-import { jobTypeLabel } from './job-type-labels';
+import { jobTypeLabel } from './job-type-label';
 import {
   JobListQuery,
   PROCESSED_WITHIN_MS,

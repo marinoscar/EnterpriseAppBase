@@ -51,6 +51,8 @@ export class AiCatalogRefreshHandler implements JobHandler, OnModuleInit {
 
   readonly type = AI_CATALOG_REFRESH_TYPE;
 
+  readonly label = 'AI model catalog refresh';
+
   /** One `listModels` round trip plus one transaction: five minutes is generous. */
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 5 * 60_000, maxAttempts: 3 };
 

@@ -13,7 +13,7 @@ import type { Job } from '@prisma/client';
 import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
 import type { JobHandler } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { JOB_TYPE_LABELS } from '@marinoscar/platform-api/jobs';
+import { jobTypeLabel } from '@marinoscar/platform-api/jobs';
 import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import { AI_OUTPUTS_KEY_PREFIX } from '../../storage/storage-key-prefixes';
 import { AiError } from '../core/ai-error';
@@ -63,7 +63,7 @@ describe('AiAudioSpeechHandler', () => {
       handler.onModuleInit();
 
       expect(registry.get('ai.audio.speech')).toBe(handler);
-      expect(JOB_TYPE_LABELS['ai.audio.speech']).toBe('AI speech synthesis');
+      expect(jobTypeLabel('ai.audio.speech')).toBe('AI speech synthesis');
     });
 
     it("is server-only — a user's key must never leave the server", () => {

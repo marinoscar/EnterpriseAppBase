@@ -65,6 +65,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { JobHandler } from './job-handler.interface';
+import { recordHandlerLabel } from './job-type-label';
 
 @Injectable()
 export class JobHandlerRegistry {
@@ -105,6 +106,8 @@ export class JobHandlerRegistry {
     }
 
     this.handlers.set(handler.type, handler);
+    // The handler's display label, if it declares one (#734; `jobTypeLabel`).
+    recordHandlerLabel(handler.type, handler.label);
   }
 
   /**

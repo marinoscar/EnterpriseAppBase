@@ -183,6 +183,7 @@ export class DatabaseBackupRunHandler implements JobHandler, OnModuleInit {
    * one of the two can own the definition. See `BACKUP_JOB_TYPE`.
    */
   readonly type = BACKUP_JOB_TYPE;
+  readonly label = 'Database backup';
 
   /**
    * The two numbers this type is unlike the rest of the queue in — and there

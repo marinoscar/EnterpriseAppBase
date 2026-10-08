@@ -50,6 +50,8 @@ export class AiUsagePurgeHandler implements JobHandler, OnModuleInit {
 
   readonly type = AI_USAGE_PURGE_TYPE;
 
+  readonly label = 'AI usage purge';
+
   /** Deletes only; thirty minutes covers millions of rows. Retried like any housekeeping job. */
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 30 * 60_000, maxAttempts: 3 };
 

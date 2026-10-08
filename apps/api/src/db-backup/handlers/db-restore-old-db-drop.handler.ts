@@ -67,6 +67,8 @@ export class DatabaseRestoreOldDbDropHandler implements JobHandler, OnModuleInit
 
   readonly type = DB_RESTORE_OLD_DB_DROP_TYPE;
 
+  readonly label = 'Restore cleanup';
+
   constructor(
     private readonly registry: JobHandlerRegistry,
     private readonly settings: SystemSettingsService,

@@ -55,6 +55,7 @@ export class ExampleEchoHandler implements JobHandler, OnModuleInit {
    * disappears from the dashboard with no migration.
    */
   readonly type = 'example.echo';
+  readonly label = 'Example echo';
 
   constructor(private readonly registry: JobHandlerRegistry) {}
 

@@ -130,6 +130,8 @@ export class NodeFleetSweepHandler implements JobHandler, OnModuleInit {
 
   readonly type = NODE_FLEET_SWEEP_TYPE;
 
+  readonly label = 'Fleet sweep';
+
   constructor(
     private readonly registry: JobHandlerRegistry,
     @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,

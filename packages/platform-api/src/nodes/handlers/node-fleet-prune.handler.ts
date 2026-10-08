@@ -151,6 +151,8 @@ export class NodeFleetPruneHandler implements JobHandler, OnModuleInit {
 
   readonly type = NODE_FLEET_PRUNE_TYPE;
 
+  readonly label = 'Fleet prune';
+
   constructor(
     private readonly registry: JobHandlerRegistry,
     @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,

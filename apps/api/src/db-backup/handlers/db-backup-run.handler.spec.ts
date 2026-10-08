@@ -42,7 +42,6 @@ import {
 import type { JobHandler } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { LEASE_GRACE_MS, resolveJobLeaseMs } from '@marinoscar/platform-api/jobs';
-import { JOB_TYPE_LABELS } from '@marinoscar/platform-api/jobs';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { BACKUP_JOB_TYPE } from '../db-backup-runner.service';
 import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';
@@ -122,7 +121,8 @@ describe('DatabaseBackupRunHandler', () => {
   });
 
   it('has a dashboard label, so a 2am reader sees a phrase and not a dotted key', () => {
-    expect(JOB_TYPE_LABELS[BACKUP_JOB_TYPE]).toBe('Database backup');
+    // The handler's own `label` (#734).
+    expect(handler.label).toBe('Database backup');
   });
 
   describe('the profile the queue actually reads', () => {

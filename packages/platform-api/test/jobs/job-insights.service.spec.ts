@@ -23,13 +23,18 @@ import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import { type Sql } from '../../src/jobs/data/prisma-runtime';
 import type { ConfigService } from '@nestjs/config';
 
-import { JobInsightsService, FALLBACK_JOB_DURATION_MS } from './job-insights.service';
-import { JobClock } from './job-clock';
+import { JobInsightsService, FALLBACK_JOB_DURATION_MS } from '../../src/jobs/job-insights.service';
+import { JobClock } from '../../src/jobs/job-clock';
 import {
   MAX_INSIGHTS_WINDOW_DAYS,
   THROUGHPUT_WINDOW_MS,
   jobInsightsQuerySchema,
-} from './dto/job-insights.dto';
+} from '../../src/jobs/dto/job-insights.dto';
+import { registerJobTypeLabel } from '../../src/jobs/job-type-label';
+
+// The fixture type is the reference app's worked example; its label lives on
+// that handler since #734 (no closed label map), so the spec registers it.
+registerJobTypeLabel('example.echo', 'Example echo');
 
 const NOW = new Date('2026-03-01T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;

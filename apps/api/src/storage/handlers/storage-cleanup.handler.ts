@@ -83,6 +83,8 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
 
   readonly type = STORAGE_CLEANUP_TYPE;
 
+  readonly label = 'Stale upload cleanup';
+
   constructor(
     private readonly registry: JobHandlerRegistry,
     // Cross-organization sweep: the SYSTEM client (reason `purge`), because a

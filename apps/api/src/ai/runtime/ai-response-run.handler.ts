@@ -102,6 +102,8 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
 
   readonly type = AI_RESPONSE_RUN_TYPE;
 
+  readonly label = 'AI background response';
+
   readonly profile: JobExecutionProfile = { maxRuntimeMs: MAX_RUNTIME_MS, maxAttempts: 1 };
 
   constructor(

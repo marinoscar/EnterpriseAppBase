@@ -125,6 +125,8 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
 
   readonly type = DB_BACKUP_SWEEP_TYPE;
 
+  readonly label = 'Backup sweep';
+
   constructor(
     private readonly registry: JobHandlerRegistry,
     private readonly prisma: PrismaService,

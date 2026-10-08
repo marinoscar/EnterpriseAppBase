@@ -14,7 +14,7 @@ import type { Job } from '@prisma/client';
 import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
 import type { JobHandler } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { JOB_TYPE_LABELS } from '@marinoscar/platform-api/jobs';
+import { jobTypeLabel } from '@marinoscar/platform-api/jobs';
 import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import { AiError } from '../core/ai-error';
 import {
@@ -66,7 +66,7 @@ describe('AiAudioTranscribeHandler', () => {
       handler.onModuleInit();
 
       expect(registry.get('ai.audio.transcribe')).toBe(handler);
-      expect(JOB_TYPE_LABELS['ai.audio.transcribe']).toBe('AI audio transcription');
+      expect(jobTypeLabel('ai.audio.transcribe')).toBe('AI audio transcription');
     });
 
     it("is server-only — a user's key must never leave the server", () => {

@@ -41,6 +41,7 @@ import type { AiTranscriptionRunOutput } from './ai-runtime.types';
 @Injectable()
 export class AiAudioTranscribeHandler extends AiMediaRunHandler {
   readonly type = AI_AUDIO_TRANSCRIBE_TYPE;
+  readonly label = 'AI audio transcription';
 
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 15 * 60_000, maxAttempts: 2 };
 

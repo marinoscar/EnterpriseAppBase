@@ -84,6 +84,8 @@ export class TelemetryRetentionHandler implements TelemetryJobHandler, OnModuleI
 
   readonly type = TELEMETRY_RETENTION_TYPE;
 
+  readonly label = 'Telemetry retention';
+
   /** One metadata statement; a minute is generous. Retried like any housekeeping job. */
   readonly profile: TelemetryJobExecutionProfile = { maxRuntimeMs: 60_000, maxAttempts: 3 };
 

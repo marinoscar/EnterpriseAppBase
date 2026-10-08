@@ -33,6 +33,8 @@ export class NotificationInboxPurgeHandler implements JobHandler, OnModuleInit {
 
   readonly type = NOTIFICATION_INBOX_PURGE_TYPE;
 
+  readonly label = 'Notification inbox purge';
+
   /** Deletes only; thirty minutes covers millions of rows. Retried like any housekeeping job. */
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 30 * 60_000, maxAttempts: 3 };
 

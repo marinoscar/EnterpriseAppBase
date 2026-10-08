@@ -38,6 +38,8 @@ export class AuditEventsPurgeHandler implements JobHandler, OnModuleInit {
 
   readonly type = AUDIT_EVENTS_PURGE_TYPE;
 
+  readonly label = 'Audit log purge';
+
   /** Deletes only; thirty minutes covers millions of rows. Retried like any housekeeping job. */
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 30 * 60_000, maxAttempts: 3 };
 

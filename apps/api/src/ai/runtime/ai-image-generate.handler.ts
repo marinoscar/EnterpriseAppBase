@@ -53,6 +53,7 @@ import type { AiImageRunOutput } from './ai-runtime.types';
 @Injectable()
 export class AiImageGenerateHandler extends AiMediaRunHandler {
   readonly type = AI_IMAGE_GENERATE_TYPE;
+  readonly label = 'AI image generation';
 
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 10 * 60_000, maxAttempts: 1 };
 

@@ -50,6 +50,7 @@ import type { AiSpeechRunOutput } from './ai-runtime.types';
 @Injectable()
 export class AiAudioSpeechHandler extends AiMediaRunHandler {
   readonly type = AI_AUDIO_SPEECH_TYPE;
+  readonly label = 'AI speech synthesis';
 
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 5 * 60_000, maxAttempts: 2 };
 

@@ -82,6 +82,8 @@ export class StorageObjectProcessHandler implements JobHandler, OnModuleInit {
 
   readonly type = STORAGE_OBJECT_PROCESS_TYPE;
 
+  readonly label = 'Object processing';
+
   constructor(
     private readonly registry: JobHandlerRegistry,
     private readonly prisma: PrismaService,

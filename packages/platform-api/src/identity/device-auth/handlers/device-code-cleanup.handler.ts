@@ -39,6 +39,8 @@ export class DeviceCodeCleanupHandler implements IdentityJobHandler, OnModuleIni
 
   readonly type = DEVICE_CODE_CLEANUP_TYPE;
 
+  readonly label = 'Device code cleanup';
+
   constructor(
     @Inject(IDENTITY_JOBS) private readonly jobs: IdentityJobsPort,
     private readonly deviceAuth: DeviceAuthService

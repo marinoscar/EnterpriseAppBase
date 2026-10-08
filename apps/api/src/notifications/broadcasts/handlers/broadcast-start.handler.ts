@@ -135,6 +135,8 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
 
   readonly type = BROADCAST_START_TYPE;
 
+  readonly label = 'Broadcast start';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jobs: JobsService,

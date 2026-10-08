@@ -25,13 +25,18 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import { PrismaClientKnownRequestError } from '../../src/jobs/data/prisma-runtime';
 
-import { JobAdminService, RETRY_FAILED_BATCH_LIMIT, STATS_CACHE_TTL_MS } from './job-admin.service';
-import { JobClock } from './job-clock';
-import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
-import { stuckRunningWhere } from './job-stuck.service';
-import type { JobStuckService } from './job-stuck.service';
-import type { JobHandlerRegistry } from './job-handler.registry';
-import { jobListQuerySchema } from './dto/job-list-query.dto';
+import { JobAdminService, RETRY_FAILED_BATCH_LIMIT, STATS_CACHE_TTL_MS } from '../../src/jobs/job-admin.service';
+import { JobClock } from '../../src/jobs/job-clock';
+import { ACTIVE_DEDUP_INDEX_NAME } from '../../src/jobs/jobs.service';
+import { stuckRunningWhere } from '../../src/jobs/job-stuck.service';
+import type { JobStuckService } from '../../src/jobs/job-stuck.service';
+import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { jobListQuerySchema } from '../../src/jobs/dto/job-list-query.dto';
+import { registerJobTypeLabel } from '../../src/jobs/job-type-label';
+
+// The fixture type is the reference app's worked example; its label lives on
+// that handler since #734 (no closed label map), so the spec registers it.
+registerJobTypeLabel('example.echo', 'Example echo');
 
 const NOW = new Date('2026-03-01T12:00:00.000Z');
 

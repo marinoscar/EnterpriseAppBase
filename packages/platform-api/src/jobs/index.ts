@@ -125,7 +125,7 @@ export {
 // ---- the admin read side ---------------------------------------------------------------------
 export { JobAdminService } from './job-admin.service';
 export { JobInsightsService } from './job-insights.service';
-export { JOB_TYPE_LABELS, jobTypeLabel } from './job-type-labels';
+export { jobTypeLabel, jobTypeLabels, registerJobTypeLabel } from './job-type-label';
 
 // ---- permissions, as data for the app's permission registry -----------------------------------
 export { JOBS_PERMISSIONS } from './jobs.permissions';

@@ -174,6 +174,8 @@ export class JobHistoryPurgeHandler implements JobHandler, OnModuleInit {
 
   readonly type = JOB_HISTORY_PURGE_TYPE;
 
+  readonly label = 'Job history purge';
+
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly systemSettings: SystemSettingsService,

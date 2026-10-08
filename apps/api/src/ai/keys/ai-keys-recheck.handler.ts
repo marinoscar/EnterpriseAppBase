@@ -47,6 +47,8 @@ export class AiKeysRecheckHandler implements JobHandler, OnModuleInit {
 
   readonly type = AI_KEYS_RECHECK_TYPE;
 
+  readonly label = 'AI key recheck';
+
   /**
    * Two bounded provider calls per stale key, 50 keys a page: thirty minutes
    * covers thousands of keys. Three attempts, like the catalog refresh.

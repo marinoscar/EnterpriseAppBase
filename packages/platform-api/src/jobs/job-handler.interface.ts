@@ -206,6 +206,16 @@ export interface JobHandler {
   readonly type: string;
 
   /**
+   * The type's display label (`'Fleet sweep'`): a short phrase in sentence
+   * case, sized for a table cell, shown next to `type` in the admin job list,
+   * the insights page and the fleet's job types (`jobTypeLabel`). Optional:
+   * an unlabelled type shows its type string. A type whose handler is not
+   * loaded in a process registers its label with `registerJobTypeLabel`.
+   * Unlike `type`, a label may change at any time.
+   */
+  readonly label?: string;
+
+  /**
    * Runs the job.
    *
    * THROW TO FAIL — the worker turns a rejection into `Job.lastError` plus a

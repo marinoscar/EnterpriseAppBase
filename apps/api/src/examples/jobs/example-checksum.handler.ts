@@ -117,6 +117,7 @@ export class ExampleChecksumHandler implements JobHandler, OnModuleInit {
    * on. Delete the class and the type disappears with no migration.
    */
   readonly type = 'example.checksum';
+  readonly label = 'Example checksum';
 
   /**
    * THE FIRST OF THE TWO MEMBERS THAT MAKE THIS TYPE NODE-ELIGIBLE.

@@ -341,6 +341,8 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
 
   readonly type = BROADCAST_CHUNK_TYPE;
 
+  readonly label = 'Broadcast delivery';
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
