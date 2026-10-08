@@ -318,6 +318,15 @@ describe('UserAiKeysPage', () => {
       expect(within(listbox).queryByRole('option', { name: /text-embedding/ })).not.toBeInTheDocument();
     });
 
+    it('hides the picker when the app picks models per feature (perUserDefaultModel: false, #739)', async () => {
+      useConfig({ ...mockAiPublicConfigByok, perUserDefaultModel: false });
+      useKeys(mockUserAiKeys);
+      await renderPage({ fetchConfig: true });
+
+      await screen.findByRole('region', { name: 'Models you can use' });
+      expect(screen.queryByRole('combobox', { name: 'Default model' })).not.toBeInTheDocument();
+    });
+
     it('warns when the saved default is no longer available', async () => {
       server.use(
         http.get('*/api/user-settings', () =>

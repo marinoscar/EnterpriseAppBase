@@ -119,13 +119,18 @@ export default function UserAiKeysPage() {
               providerNames={providerNames}
             />
 
-            <DefaultAiModelPicker
-              models={usable.models}
-              value={settings?.ai?.defaultModel}
-              onChange={saveDefaultModel}
-              disabled={settingsLoading || usable.isLoading || !settings}
-              providerNames={providerNames}
-            />
+            {/* #739: hidden when the app's AI features pick their own model
+                (`AiModule.forRoot({ perUserDefaultModel: false })`); absent
+                from an older API means shown. */}
+            {config.perUserDefaultModel !== false && (
+              <DefaultAiModelPicker
+                models={usable.models}
+                value={settings?.ai?.defaultModel}
+                onChange={saveDefaultModel}
+                disabled={settingsLoading || usable.isLoading || !settings}
+                providerNames={providerNames}
+              />
+            )}
 
             <MyAiUsageSection />
           </Stack>

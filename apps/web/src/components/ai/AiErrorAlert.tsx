@@ -57,6 +57,11 @@ function describeLimit(limit: string, max: number | undefined): string {
       return `${n !== null ? `${n} tokens` : 'tokens'} per day on the organization's key`;
     case 'perModel.requestsPerMinutePerUser':
       return `${requests} per minute for this model`;
+    // #739: one organization's whole daily volume, whoever's key pays.
+    case 'perOrg.requestsPerDay':
+      return `${requests} per day for your organization`;
+    case 'perOrg.outputTokensPerDay':
+      return `${n !== null ? `${n} output token${max === 1 ? '' : 's'}` : 'output tokens'} per day for your organization`;
     default:
       return n !== null ? `${limit}: ${n}` : limit;
   }
