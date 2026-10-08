@@ -172,6 +172,16 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'and deletion. A caller sees only the objects they uploaded.',
       },
       {
+        name: 'Exports',
+        description:
+          'Data exports: a copy of the caller\'s own data (`user-data`, every role through ' +
+          '`user_settings:read`) or of an organization\'s (`org-data`, its administrators through ' +
+          '`org_members:read`), as JSON, a zip of CSVs or an Excel workbook. A request queues an ' +
+          '`export.run` job (`202`); the export id is the job id and its status is derived. A ready ' +
+          'export read by id carries a short-lived signed download; files expire after the ' +
+          'retention period. The permission is the source\'s, checked per request.',
+      },
+      {
         name: 'Storage Configuration',
         description:
           'Which object store this deployment writes to, and with whose credential: provider, ' +
