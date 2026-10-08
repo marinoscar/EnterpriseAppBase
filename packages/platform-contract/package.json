@@ -140,6 +140,16 @@
         "default": "./dist/cjs/storage/index.js"
       }
     },
+    "./notifications": {
+      "import": {
+        "types": "./dist/esm/notifications/index.d.ts",
+        "default": "./dist/esm/notifications/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/notifications/index.d.ts",
+        "default": "./dist/cjs/notifications/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [
