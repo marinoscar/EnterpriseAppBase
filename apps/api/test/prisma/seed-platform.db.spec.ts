@@ -116,6 +116,8 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
       'groups:admin',
       'groups:read',
       'groups:write',
+      'org_broadcasts:read',
+      'org_broadcasts:write',
       'org_invites:read',
       'org_invites:write',
       'org_members:read',
@@ -157,8 +159,9 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     // grants moved to org_admin, so 4 more grants in all. #726 (PP-6.7): the
     // two system organizations:* permissions, granted to admin. #728 and #729:
     // the six org groups:* and sharing:* permissions, 12 grants in all. #733:
-    // the two org_settings:* permissions, granted to org_admin.
-    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 45 permissions', '✓ Seeded 59 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
+    // the two org_settings:* permissions, granted to org_admin. #738: the two
+    // org_broadcasts:* permissions, granted to org_admin.
+    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 47 permissions', '✓ Seeded 61 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
       expect(firstRun).toContain(line);
     }
   });
