@@ -3,12 +3,10 @@
  * sees it.
  *
  * Issue #376, epic #372 — the client half of the controller merged in #375
- * (`apps/api/src/storage/config/`). Shaped after `services/pushConfig.ts` and
- * `services/dbBackup.ts`: `services/api.ts` stays the transport (the
- * `ApiService` instance, the refresh dance, the maintenance recogniser), and
- * this module holds the four `/admin/storage-config` calls next to the types
- * they produce. The tail of `services/api.ts` is legacy; nothing new goes
- * there.
+ * (`@marinoscar/platform-api/storage`, `config/`). In
+ * `@marinoscar/platform-web/storage` since #736: the four calls take the
+ * app's transport (`PlatformApiClient`, the platform host's `api`), which
+ * keeps the auth header, the refresh dance and the maintenance recogniser.
  *
  * =============================================================================
  * THE SECRET ACCESS KEY ONLY EVER TRAVELS ONE WAY
@@ -38,7 +36,23 @@
  * diagnosis; both reject only when the call itself fails.
  */
 
-import { api } from './api';
+import {
+  MISSING_STORAGE_CONFIG_FIELDS,
+  STORAGE_BUCKET_OUTCOMES,
+  STORAGE_BUCKET_STEP_IDS,
+  STORAGE_BUCKET_STEP_STATUSES,
+  STORAGE_PROVIDER_KINDS,
+  STORAGE_SWITCH_CONFIRMATION,
+  STORAGE_TEST_CHECK_CODES,
+  STORAGE_TEST_CHECK_IDS,
+  STORAGE_TEST_CHECK_STATUSES,
+} from '@marinoscar/platform-contract/storage';
+
+import type { PlatformApiClient } from '../../core/index.js';
+
+// The value lists are the contract's (`@marinoscar/platform-contract/storage`,
+// #736), re-exported here so the page and its tests keep one import; the types
+// below are the page's own view of the same shapes.
 
 /**
  * Which object store this deployment talks to.
@@ -47,7 +61,7 @@ import { api } from './api';
  * `apps/api/src/common/schemas/settings.schema.ts`, as a const tuple so the
  * union and the list a form iterates are one declaration rather than two.
  */
-export const STORAGE_PROVIDER_KINDS = ['s3', 'r2', 's3compatible'] as const;
+export { STORAGE_PROVIDER_KINDS };
 export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
 
 /**
@@ -58,14 +72,7 @@ export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
  * bucket are the same kind of problem. Mirrors
  * `MISSING_STORAGE_CONFIG_FIELDS`.
  */
-export const MISSING_STORAGE_CONFIG_FIELDS = [
-  'bucket',
-  'region',
-  'endpoint',
-  'accountId',
-  'accessKeyId',
-  'secretAccessKey',
-] as const;
+export { MISSING_STORAGE_CONFIG_FIELDS };
 export type MissingStorageConfigField = (typeof MISSING_STORAGE_CONFIG_FIELDS)[number];
 
 /**
@@ -138,7 +145,7 @@ export interface StorageConfigInput {
  * `RESTORE`/`ROLLBACK`/`ROTATE` are: the dialog compares what an admin typed
  * against this, never against a string re-typed in a component.
  */
-export const STORAGE_SWITCH_CONFIRMATION = 'SWITCH';
+export { STORAGE_SWITCH_CONFIRMATION };
 
 /** The `details` a `409 STORAGE_LOCATION_IN_USE` carries — what is about to be stranded. */
 export interface StorageLocationInUseDetails {
@@ -158,15 +165,10 @@ export const STORAGE_LOCATION_IN_USE_CODE = 'STORAGE_LOCATION_IN_USE';
 // ---------------------------------------------------------------------------
 
 /** The four checks, in the order the API reports them. */
-export const STORAGE_TEST_CHECK_IDS = [
-  'credentials',
-  'bucket',
-  'roundTrip',
-  'presignedUrl',
-] as const;
+export { STORAGE_TEST_CHECK_IDS };
 export type StorageTestCheckId = (typeof STORAGE_TEST_CHECK_IDS)[number];
 
-export const STORAGE_TEST_CHECK_STATUSES = ['passed', 'failed', 'skipped'] as const;
+export { STORAGE_TEST_CHECK_STATUSES };
 export type StorageTestCheckStatus = (typeof STORAGE_TEST_CHECK_STATUSES)[number];
 
 /**
@@ -178,24 +180,7 @@ export type StorageTestCheckStatus = (typeof STORAGE_TEST_CHECK_STATUSES)[number
  * together: they need opposite actions, and offering "Create bucket" for the
  * second would ask an admin to create a bucket that already exists.
  */
-export const STORAGE_TEST_CHECK_CODES = [
-  'ok',
-  'not_configured',
-  'credentials_rejected',
-  'endpoint_unreachable',
-  'bucket_missing',
-  'bucket_forbidden',
-  'bucket_region_mismatch',
-  'write_denied',
-  'read_denied',
-  'read_mismatch',
-  'delete_denied',
-  'presign_unreachable',
-  'presign_rejected',
-  'presign_mismatch',
-  'not_attempted',
-  'unknown_error',
-] as const;
+export { STORAGE_TEST_CHECK_CODES };
 export type StorageTestCheckCode = (typeof STORAGE_TEST_CHECK_CODES)[number];
 
 export interface StorageConnectionCheck {
@@ -235,15 +220,10 @@ export function reportsBucketMissing(result: StorageConnectionTestResult | null)
 // POST /bucket
 // ---------------------------------------------------------------------------
 
-export const STORAGE_BUCKET_STEP_IDS = [
-  'create',
-  'publicAccessBlock',
-  'encryption',
-  'cors',
-] as const;
+export { STORAGE_BUCKET_STEP_IDS };
 export type StorageBucketStepId = (typeof STORAGE_BUCKET_STEP_IDS)[number];
 
-export const STORAGE_BUCKET_STEP_STATUSES = ['passed', 'failed', 'skipped'] as const;
+export { STORAGE_BUCKET_STEP_STATUSES };
 export type StorageBucketStepStatus = (typeof STORAGE_BUCKET_STEP_STATUSES)[number];
 
 /**
@@ -254,13 +234,7 @@ export type StorageBucketStepStatus = (typeof STORAGE_BUCKET_STEP_STATUSES)[numb
  * deployment's real values, and rendering that as a failure would tell an
  * administrator their correct setup is broken.
  */
-export const STORAGE_BUCKET_OUTCOMES = [
-  'created',
-  'already_exists',
-  'partial',
-  'guided',
-  'failed',
-] as const;
+export { STORAGE_BUCKET_OUTCOMES };
 export type StorageBucketOutcome = (typeof STORAGE_BUCKET_OUTCOMES)[number];
 
 export interface StorageBucketStep {
@@ -298,67 +272,48 @@ export interface StorageBucketProvisionResult {
 
 const BASE = '/admin/storage-config';
 
-/** `GET` — `storage_config:read`. */
-export async function getStorageConfig(): Promise<StorageConfigView> {
-  return api.get<StorageConfigView>(BASE);
+/**
+ * The four `/admin/storage-config` calls over one transport.
+ *
+ * `PUT`'s `expectedVersion` is passed through as-is, INCLUDING `0` (the check
+ * is `!== undefined`, never a truthiness test), so the very first save on a
+ * fresh deployment still asserts "nothing is stored yet". `409` means two
+ * different things: a version mismatch (reload and re-apply) and
+ * `STORAGE_LOCATION_IN_USE` (re-send with `confirmSwitch`); the error's `code`
+ * tells them apart. `test` and `provisionBucket` ALWAYS answer HTTP 200: read
+ * `success` / `outcome`, never the status.
+ *
+ * @stability experimental
+ */
+export interface StorageConfigClient {
+  /** `GET` (`storage_config:read`). */
+  get(): Promise<StorageConfigView>;
+  /** `PUT` (`storage_config:write`): full replace of the seven settings fields; `If-Match` is the loaded version. */
+  update(input: StorageConfigInput, expectedVersion?: number, options?: { confirmSwitch?: boolean }): Promise<StorageConfigView>;
+  /** `POST /test` (`storage_config:write`): runs against the configuration in the body, saved or not. */
+  test(input: StorageConfigInput): Promise<StorageConnectionTestResult>;
+  /** `POST /bucket` (`storage_config:write`): creates and hardens the bucket the body names; safe to repeat. */
+  provisionBucket(input: StorageConfigInput): Promise<StorageBucketProvisionResult>;
 }
 
 /**
- * `PUT` — `storage_config:write`. Full replace of the seven settings fields.
+ * Builds the storage-config client over a transport.
  *
- * `expectedVersion` is passed through as-is, INCLUDING `0` — the check is
- * `!== undefined`, never a truthiness test, so the very first save on a fresh
- * deployment still asserts "nothing is stored yet" rather than being the one
- * unguarded write. Copied from `updateDbBackupConfig`'s sibling in
- * `services/pushConfig.ts`.
+ * @param api - the app's transport.
+ * @returns the client.
  *
- * `409` twice over, and the two mean different things: a version mismatch
- * (reload and re-apply) and `STORAGE_LOCATION_IN_USE` (re-send with
- * `confirmation`). The `code` on the `ApiError` tells them apart.
+ * @stability experimental
  */
-export async function updateStorageConfig(
-  input: StorageConfigInput,
-  expectedVersion?: number,
-  options: { confirmSwitch?: boolean } = {},
-): Promise<StorageConfigView> {
-  return api.put<StorageConfigView>(
-    BASE,
-    options.confirmSwitch
-      ? { ...input, confirmation: STORAGE_SWITCH_CONFIRMATION }
-      : input,
-    {
-      headers:
-        expectedVersion === undefined
-          ? undefined
-          : { 'If-Match': String(expectedVersion) },
-    },
-  );
-}
-
-/**
- * `POST /test` — `storage_config:write`, and ALWAYS HTTP 200.
- *
- * Runs against the configuration in the BODY, saved or not, so a new bucket can
- * be proved before the deployment is committed to it. Read `success`; a
- * resolved promise is a completed diagnosis, not a working configuration.
- */
-export async function testStorageConfig(
-  input: StorageConfigInput,
-): Promise<StorageConnectionTestResult> {
-  return api.post<StorageConnectionTestResult>(`${BASE}/test`, input);
-}
-
-/**
- * `POST /bucket` — `storage_config:write`, and ALWAYS HTTP 200.
- *
- * Creates the bucket the submitted configuration names and applies the four
- * settings this application needs. Read `outcome`; `guided` is not an error.
- * Safe to repeat — an existing bucket owned by this account is left alone and
- * the hardening steps still run, which is the repair path for a bucket created
- * by hand with no CORS rule.
- */
-export async function provisionStorageBucket(
-  input: StorageConfigInput,
-): Promise<StorageBucketProvisionResult> {
-  return api.post<StorageBucketProvisionResult>(`${BASE}/bucket`, input);
+export function createStorageConfigClient(api: PlatformApiClient): StorageConfigClient {
+  return {
+    get: () => api.get<StorageConfigView>(BASE),
+    update: (input, expectedVersion, options = {}) =>
+      api.put<StorageConfigView>(
+        BASE,
+        options.confirmSwitch ? { ...input, confirmation: STORAGE_SWITCH_CONFIRMATION } : input,
+        expectedVersion === undefined ? undefined : { ifMatch: String(expectedVersion) },
+      ),
+    test: (input) => api.post<StorageConnectionTestResult>(`${BASE}/test`, input),
+    provisionBucket: (input) => api.post<StorageBucketProvisionResult>(`${BASE}/bucket`, input),
+  };
 }

@@ -1,10 +1,11 @@
 /**
  * The storage-config wire contract (issue #376, epic #372).
  *
- * The failure mode of a thin service module is not a crash — it is a request
- * that is quietly the wrong shape and a 400 the page reports as "Failed to save
- * the storage configuration". So each of the four routes is exercised against
- * msw and the REQUEST is asserted: method, path, headers, body.
+ * The failure mode of a thin client is not a crash — it is a request that is
+ * quietly the wrong shape and a 400 the page reports as "Failed to save the
+ * storage configuration". So each of the four routes is exercised against the
+ * platform test host (moved from the reference app's msw test in #736) and the
+ * REQUEST is asserted: method, path, If-Match, body.
  *
  * Three of those assertions are load-bearing rather than routine:
  *
@@ -21,39 +22,35 @@
  *      answer; a client that threw on `success: false` would make the page's
  *      entire reason for existing unreachable.
  *
- * The confirmation literal and the provider kinds are checked against the API's
- * own DTOs ON DISK rather than against a copy, the same technique
- * `services/broadcasts.test.ts` and `services/maintenance.test.ts` use: a
- * dialog comparing against a drifted literal would offer a confirmation the API
- * will refuse.
+ * The confirmation literal and the value lists are checked against the wire
+ * contract the API validates with (`@marinoscar/platform-contract/storage`,
+ * #736) rather than against a copy: a dialog comparing against a drifted
+ * literal would offer a confirmation the API will refuse.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { http, HttpResponse } from 'msw';
-import { server } from '../mocks/server';
+import { describe, it, expect } from 'vitest';
+import {
+  storageBucketProvisionResultSchema,
+  storageConfigResponseSchema,
+  storageConnectionCheckSchema,
+  updateStorageConfigSchema,
+} from '@marinoscar/platform-contract/storage';
+
 import {
   MISSING_STORAGE_CONFIG_FIELDS,
   STORAGE_BUCKET_OUTCOMES,
   STORAGE_PROVIDER_KINDS,
   STORAGE_SWITCH_CONFIRMATION,
   STORAGE_TEST_CHECK_CODES,
-  getStorageConfig,
-  provisionStorageBucket,
+  createStorageConfigClient,
   reportsBucketMissing,
-  testStorageConfig,
-  updateStorageConfig,
-} from '../../services/storageConfig';
+} from '../../src/storage/headless/index.js';
 import type {
   StorageConfigInput,
   StorageConfigView,
   StorageConnectionTestResult,
-} from '../../services/storageConfig';
-
-const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
-const CONFIG_DIR = resolve(API_SRC, 'storage/config');
+} from '../../src/storage/headless/index.js';
+import { createTestPlatformHost, type TestPlatformHost } from '../../src/testing/index.js';
 
 const storedConfig: StorageConfigView = {
   provider: 's3compatible',
@@ -87,92 +84,82 @@ const input: StorageConfigInput = {
   forcePathStyle: null,
 };
 
-interface Captured {
-  body: Record<string, unknown>;
-  ifMatch: string | null;
-}
-
-function captureWrite(
-  method: 'put' | 'post',
-  path: string,
-  response: unknown,
-): { seen: Captured | null } {
-  const box: { seen: Captured | null } = { seen: null };
-  server.use(
-    http[method](path, async ({ request }) => {
-      box.seen = {
-        body: (await request.json()) as Record<string, unknown>,
-        ifMatch: request.headers.get('If-Match'),
-      };
-      return HttpResponse.json({ data: response });
-    }),
-  );
-  return box;
-}
-
-describe('services/storageConfig — the wire contract', () => {
-  beforeEach(() => {
-    server.resetHandlers();
+/** A host answering every storage-config route with `response`; its `requests` are what the client sent. */
+function hostFor(response: unknown): TestPlatformHost {
+  return createTestPlatformHost({
+    responses: {
+      'GET /admin/storage-config': response,
+      'PUT /admin/storage-config': response,
+      'POST /admin/storage-config/test': response,
+      'POST /admin/storage-config/bucket': response,
+    },
   });
+}
 
+/** The body and If-Match of the last request the host received. */
+function last(host: TestPlatformHost): { body: Record<string, unknown>; ifMatch: string | null } {
+  const request = host.requests.at(-1)!;
+  return { body: request.body as Record<string, unknown>, ifMatch: request.ifMatch ?? null };
+}
+
+describe('the storage-config client — the wire contract', () => {
   it('GET reads /admin/storage-config and unwraps the envelope', async () => {
-    server.use(
-      http.get('*/api/admin/storage-config', () => HttpResponse.json({ data: storedConfig })),
-    );
+    const host = hostFor(storedConfig);
 
-    await expect(getStorageConfig()).resolves.toEqual(storedConfig);
+    await expect(createStorageConfigClient(host.api).get()).resolves.toEqual(storedConfig);
+    expect(host.requests.at(-1)).toMatchObject({ method: 'GET', path: '/admin/storage-config' });
   });
 
   it('PUT sends the seven fields and the current version as If-Match', async () => {
-    const captured = captureWrite('put', '*/api/admin/storage-config', storedConfig);
+    const capturedHost = hostFor(storedConfig);
 
-    await updateStorageConfig(input, 7);
+    await createStorageConfigClient(capturedHost.api).update(input, 7);
 
-    expect(captured.seen?.ifMatch).toBe('7');
-    expect(captured.seen?.body).toEqual(input);
+    expect(last(capturedHost).ifMatch).toBe('7');
+    expect(last(capturedHost).body).toEqual(input);
     // No confirmation unless it was asked for.
-    expect(captured.seen?.body).not.toHaveProperty('confirmation');
+    expect(last(capturedHost).body).not.toHaveProperty('confirmation');
   });
 
   it('sends If-Match: 0, because 0 is an assertion and not an absence', async () => {
-    const captured = captureWrite('put', '*/api/admin/storage-config', storedConfig);
+    const capturedHost = hostFor(storedConfig);
 
-    await updateStorageConfig(input, 0);
+    await createStorageConfigClient(capturedHost.api).update(input, 0);
 
-    expect(captured.seen?.ifMatch).toBe('0');
+    expect(last(capturedHost).ifMatch).toBe('0');
   });
 
   it('omits If-Match entirely when no version is given', async () => {
-    const captured = captureWrite('put', '*/api/admin/storage-config', storedConfig);
+    const capturedHost = hostFor(storedConfig);
 
-    await updateStorageConfig(input);
+    await createStorageConfigClient(capturedHost.api).update(input);
 
-    expect(captured.seen?.ifMatch).toBeNull();
+    expect(last(capturedHost).ifMatch).toBeNull();
   });
 
   it('adds the SWITCH literal only when the caller confirms', async () => {
-    const captured = captureWrite('put', '*/api/admin/storage-config', storedConfig);
+    const capturedHost = hostFor(storedConfig);
 
-    await updateStorageConfig(input, 7, { confirmSwitch: true });
+    await createStorageConfigClient(capturedHost.api).update(input, 7, { confirmSwitch: true });
 
-    expect(captured.seen?.body.confirmation).toBe(STORAGE_SWITCH_CONFIRMATION);
+    expect(last(capturedHost).body.confirmation).toBe(STORAGE_SWITCH_CONFIRMATION);
   });
 
   it('serialises forcePathStyle: null as null, never dropping it', async () => {
-    const captured = captureWrite('put', '*/api/admin/storage-config', storedConfig);
+    const capturedHost = hostFor(storedConfig);
 
-    await updateStorageConfig({ ...input, forcePathStyle: null }, 7);
+    await createStorageConfigClient(capturedHost.api).update({ ...input, forcePathStyle: null }, 7);
 
-    expect(Object.prototype.hasOwnProperty.call(captured.seen!.body, 'forcePathStyle')).toBe(true);
-    expect(captured.seen?.body.forcePathStyle).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(last(capturedHost).body, 'forcePathStyle')).toBe(true);
+    expect(last(capturedHost).body.forcePathStyle).toBeNull();
   });
 
   it('carries an explicit false through as false', async () => {
-    const captured = captureWrite('put', '*/api/admin/storage-config', storedConfig);
+    const capturedHost = hostFor(storedConfig);
 
-    await updateStorageConfig({ ...input, forcePathStyle: false }, 7);
+    await createStorageConfigClient(capturedHost.api).update({ ...input, forcePathStyle: false }, 7);
 
-    expect(captured.seen?.body.forcePathStyle).toBe(false);
+    expect(last(capturedHost).body.forcePathStyle).toBe(false);
   });
 
   it('posts the submitted configuration to /test, and resolves a FAILED diagnosis rather than throwing', async () => {
@@ -195,11 +182,11 @@ describe('services/storageConfig — the wire contract', () => {
       ],
       attemptedAt: '2026-01-01T00:00:00.000Z',
     };
-    const captured = captureWrite('post', '*/api/admin/storage-config/test', failing);
+    const capturedHost = hostFor(failing);
 
-    const result = await testStorageConfig(input);
+    const result = await createStorageConfigClient(capturedHost.api).test(input);
 
-    expect(captured.seen?.body).toEqual(input);
+    expect(last(capturedHost).body).toEqual(input);
     expect(result.success).toBe(false);
   });
 
@@ -219,23 +206,23 @@ describe('services/storageConfig — the wire contract', () => {
       corsOrigin: null,
       attemptedAt: '2026-01-01T00:00:00.000Z',
     };
-    const captured = captureWrite('post', '*/api/admin/storage-config/bucket', guided);
+    const capturedHost = hostFor(guided);
 
-    const result = await provisionStorageBucket(input);
+    const result = await createStorageConfigClient(capturedHost.api).provisionBucket(input);
 
-    expect(captured.seen?.body).toEqual(input);
+    expect(last(capturedHost).body).toEqual(input);
     expect(result.outcome).toBe('guided');
     expect(result.guidance?.commands).toContain('create-bucket');
   });
 
   it('omits secretAccessKey when the caller did not supply one, and sends it when they did', async () => {
-    const blank = captureWrite('put', '*/api/admin/storage-config', storedConfig);
-    await updateStorageConfig(input, 7);
-    expect(Object.prototype.hasOwnProperty.call(blank.seen!.body, 'secretAccessKey')).toBe(false);
+    const blankHost = hostFor(storedConfig);
+    await createStorageConfigClient(blankHost.api).update(input, 7);
+    expect(Object.prototype.hasOwnProperty.call(last(blankHost).body, 'secretAccessKey')).toBe(false);
 
-    const typed = captureWrite('put', '*/api/admin/storage-config', storedConfig);
-    await updateStorageConfig({ ...input, secretAccessKey: 'typed-secret' }, 7);
-    expect(typed.seen?.body.secretAccessKey).toBe('typed-secret');
+    const typedHost = hostFor(storedConfig);
+    await createStorageConfigClient(typedHost.api).update({ ...input, secretAccessKey: 'typed-secret' }, 7);
+    expect(last(typedHost).body.secretAccessKey).toBe('typed-secret');
   });
 });
 
@@ -278,47 +265,27 @@ describe('reportsBucketMissing', () => {
   });
 });
 
-describe('the constants mirror the API DTOs on disk', () => {
-  // Read off the API workspace rather than restated, so a rename on either side
-  // fails here rather than as a 400 the page reports as a generic failure.
-  const updateDto = readFileSync(resolve(CONFIG_DIR, 'dto/update-storage-config.dto.ts'), 'utf8');
-  const testDto = readFileSync(resolve(CONFIG_DIR, 'dto/storage-connection-test.dto.ts'), 'utf8');
-  const bucketDto = readFileSync(
-    resolve(CONFIG_DIR, 'dto/storage-bucket-provision.dto.ts'),
-    'utf8',
-  );
-  const storageConfigSource = readFileSync(resolve(CONFIG_DIR, 'storage-config.ts'), 'utf8');
-
+describe('the constants mirror the wire contract the API validates with', () => {
   it('uses the API’s own confirmation literal', () => {
-    expect(updateDto).toContain(
-      `export const STORAGE_SWITCH_CONFIRMATION = '${STORAGE_SWITCH_CONFIRMATION}'`,
-    );
+    expect(updateStorageConfigSchema.shape.confirmation.unwrap().value).toBe(STORAGE_SWITCH_CONFIRMATION);
   });
 
   it('lists every provider kind the API accepts', () => {
-    for (const kind of STORAGE_PROVIDER_KINDS) {
-      expect(updateDto.includes(kind) || storageConfigSource.includes(`'${kind}'`)).toBe(true);
-    }
+    expect([...STORAGE_PROVIDER_KINDS]).toEqual(updateStorageConfigSchema.shape.provider.options);
     expect([...STORAGE_PROVIDER_KINDS]).toEqual(['s3', 'r2', 's3compatible']);
   });
 
   it('lists every check code the API can report, bucket_missing and bucket_forbidden included', () => {
-    for (const code of STORAGE_TEST_CHECK_CODES) {
-      expect(testDto, `${code} is not a code the API declares`).toContain(`'${code}'`);
-    }
+    expect([...STORAGE_TEST_CHECK_CODES]).toEqual(storageConnectionCheckSchema.shape.code.options);
     expect(STORAGE_TEST_CHECK_CODES).toContain('bucket_missing');
     expect(STORAGE_TEST_CHECK_CODES).toContain('bucket_forbidden');
   });
 
   it('lists every bucket outcome, including guided', () => {
-    for (const outcome of STORAGE_BUCKET_OUTCOMES) {
-      expect(bucketDto, `${outcome} is not an outcome the API declares`).toContain(`'${outcome}'`);
-    }
+    expect([...STORAGE_BUCKET_OUTCOMES]).toEqual(storageBucketProvisionResultSchema.shape.outcome.options);
   });
 
   it('lists every field the API can report as missing', () => {
-    for (const field of MISSING_STORAGE_CONFIG_FIELDS) {
-      expect(storageConfigSource).toContain(`'${field}'`);
-    }
+    expect([...MISSING_STORAGE_CONFIG_FIELDS]).toEqual(storageConfigResponseSchema.shape.missing.element.options);
   });
 });

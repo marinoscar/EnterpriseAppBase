@@ -2,7 +2,7 @@
  * The AI platform's HTTP surface (epic #419, umbrella #418), as the web app
  * sees it.
  *
- * Issue #425. Shaped after `services/storageConfig.ts`: `services/api.ts`
+ * Issue #425. Shaped after the storage-config client (`@marinoscar/platform-web/storage/headless`, `storage-config.ts`): `services/api.ts`
  * stays the transport (the `ApiService` instance, the refresh dance, the
  * maintenance recogniser) and this module holds every Phase 1 AI call next to
  * the types it produces. The tail of `services/api.ts` is legacy; nothing new

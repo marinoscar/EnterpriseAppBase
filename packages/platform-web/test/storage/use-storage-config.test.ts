@@ -1,5 +1,8 @@
 /**
- * `hooks/useStorageConfig.ts` — issue #376, epic #372.
+ * `useStorageConfig` — issue #376, epic #372; in
+ * `@marinoscar/platform-web/storage/headless` since #736 (moved from the
+ * reference app; the four calls are the storage-config client's, stubbed
+ * here exactly as the app's service functions were).
  *
  * Four things are worth asserting here that no page test can:
  *
@@ -25,39 +28,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-vi.mock('../../services/storageConfig', async () => {
-  const actual = await vi.importActual<typeof import('../../services/storageConfig')>(
-    '../../services/storageConfig',
-  );
-  return {
-    ...actual,
-    getStorageConfig: vi.fn(),
-    updateStorageConfig: vi.fn(),
-    testStorageConfig: vi.fn(),
-    provisionStorageBucket: vi.fn(),
-  };
-});
+const mockGet = vi.fn();
+const mockUpdate = vi.fn();
+const mockTest = vi.fn();
+const mockProvision = vi.fn();
 
-import {
-  getStorageConfig,
-  provisionStorageBucket,
-  testStorageConfig,
-  updateStorageConfig,
-  STORAGE_SWITCH_CONFIRMATION,
-} from '../../services/storageConfig';
+vi.mock('../../src/storage/headless/storage-config.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/storage/headless/storage-config.js')>()),
+  createStorageConfigClient: () => ({ get: mockGet, update: mockUpdate, test: mockTest, provisionBucket: mockProvision }),
+}));
+
+import { STORAGE_SWITCH_CONFIRMATION, useStorageConfig } from '../../src/storage/headless/index.js';
 import type {
   StorageBucketProvisionResult,
   StorageConfigInput,
   StorageConfigView,
   StorageConnectionTestResult,
-} from '../../services/storageConfig';
-import { ApiError } from '../../services/api';
-import { useStorageConfig } from '../../hooks/useStorageConfig';
+} from '../../src/storage/headless/index.js';
+import type { PlatformApiClient } from '../../src/core/index.js';
+import { createTestApiError } from '../../src/testing/index.js';
 
-const mockGet = vi.mocked(getStorageConfig);
-const mockUpdate = vi.mocked(updateStorageConfig);
-const mockTest = vi.mocked(testStorageConfig);
-const mockProvision = vi.mocked(provisionStorageBucket);
+/** The hook needs a transport; the client built from it is stubbed above. */
+const api = {} as PlatformApiClient;
+
+/** `apiError(message, status, code, details)` of the app, as the platform test helper builds it. */
+const apiError = (message: string, status: number, code?: string, details?: unknown) =>
+  createTestApiError(status, message, code, details);
 
 const storedConfig: StorageConfigView = {
   provider: 's3',
@@ -134,7 +130,7 @@ const createdBucket: StorageBucketProvisionResult = {
 };
 
 async function renderLoaded() {
-  const view = renderHook(() => useStorageConfig());
+  const view = renderHook(() => useStorageConfig({ api }));
   await waitFor(() => expect(view.result.current.isLoading).toBe(false));
   return view;
 }
@@ -155,7 +151,7 @@ describe('useStorageConfig', () => {
   });
 
   it('names a 403 on load rather than surfacing a bare message', async () => {
-    mockGet.mockRejectedValueOnce(new ApiError('Forbidden', 403));
+    mockGet.mockRejectedValueOnce(apiError('Forbidden', 403));
     const { result } = await renderLoaded();
     expect(result.current.loadError).toMatch(/do not have permission/i);
   });
@@ -175,7 +171,7 @@ describe('useStorageConfig', () => {
     });
 
     it('resolves false and records the message when the save fails', async () => {
-      mockUpdate.mockRejectedValueOnce(new ApiError('Bucket name is not valid', 400));
+      mockUpdate.mockRejectedValueOnce(apiError('Bucket name is not valid', 400));
       const { result } = await renderLoaded();
 
       let ok: boolean | undefined;
@@ -189,7 +185,7 @@ describe('useStorageConfig', () => {
     });
 
     it('treats a plain 409 as a version conflict: reload the form, explain, do not ask for a word', async () => {
-      mockUpdate.mockRejectedValueOnce(new ApiError('Storage settings version mismatch', 409));
+      mockUpdate.mockRejectedValueOnce(apiError('Storage settings version mismatch', 409));
       const { result } = await renderLoaded();
       mockGet.mockResolvedValue({ ...storedConfig, version: 9 });
 
@@ -213,7 +209,7 @@ describe('useStorageConfig', () => {
         total: 15,
       };
       mockUpdate.mockRejectedValueOnce(
-        new ApiError('12 stored object(s) still point at s3/old.', 409, 'STORAGE_LOCATION_IN_USE', details),
+        apiError('12 stored object(s) still point at s3/old.', 409, 'STORAGE_LOCATION_IN_USE', details),
       );
       const { result } = await renderLoaded();
       const getCallsBefore = mockGet.mock.calls.length;
@@ -234,7 +230,7 @@ describe('useStorageConfig', () => {
 
     it('re-sends with confirmSwitch when the page confirms, and clears the prompt on success', async () => {
       mockUpdate.mockRejectedValueOnce(
-        new ApiError('in use', 409, 'STORAGE_LOCATION_IN_USE', undefined),
+        apiError('in use', 409, 'STORAGE_LOCATION_IN_USE', undefined),
       );
       const { result } = await renderLoaded();
 
@@ -267,7 +263,7 @@ describe('useStorageConfig', () => {
     });
 
     it('records a rejected CALL as a probe error, and never fabricates a result', async () => {
-      mockTest.mockRejectedValueOnce(new ApiError('Internal server error', 500));
+      mockTest.mockRejectedValueOnce(apiError('Internal server error', 500));
       const { result } = await renderLoaded();
 
       await act(async () => {

@@ -31,27 +31,34 @@
  * admin has to decode from a message.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { ApiError } from '../services/api';
-import {
-  getStorageConfig,
-  provisionStorageBucket,
-  testStorageConfig,
-  updateStorageConfig,
-  STORAGE_LOCATION_IN_USE_CODE,
-} from '../services/storageConfig';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { isPlatformApiError, useOptionalPlatformHost } from '../../core/index.js';
+import type { PlatformApiClient } from '../../core/index.js';
+import { STORAGE_LOCATION_IN_USE_CODE, createStorageConfigClient } from './storage-config.js';
 import type {
   StorageBucketProvisionResult,
   StorageConfigInput,
   StorageConfigView,
   StorageConnectionTestResult,
   StorageLocationInUseDetails,
-} from '../services/storageConfig';
-import { useIsMounted } from './useIsMounted';
+} from './storage-config.js';
+
+/** A mounted guard for every `setState` past an `await`. */
+function useIsMounted(): () => boolean {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return useCallback(() => mounted.current, []);
+}
 
 /** 403 is named explicitly — it is the one failure an admin can act on themselves. */
 function messageFor(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
+  if (isPlatformApiError(err)) {
     if (err.status === 403) {
       return 'You do not have permission to manage the storage configuration';
     }
@@ -60,52 +67,108 @@ function messageFor(err: unknown, fallback: string): string {
   return fallback;
 }
 
-/** What `save` reports when the API refused for want of the typed confirmation. */
+/**
+ * What `save` reports when the API refused for want of the typed confirmation.
+ *
+ * @stability experimental
+ */
 export interface StorageSwitchRequired {
+  /** The API's message. */
   message: string;
   /** `null` when the API answered without the structured `details` block. */
   details: StorageLocationInUseDetails | null;
 }
 
-interface UseStorageConfigReturn {
+/**
+ * Options of {@link useStorageConfig}.
+ *
+ * @stability experimental
+ */
+export interface UseStorageConfigOptions {
+  /** The transport. Default: the `PlatformHostProvider`'s (keep its identity stable). */
+  api?: PlatformApiClient;
+}
+
+/**
+ * What {@link useStorageConfig} returns.
+ *
+ * @stability experimental
+ */
+export interface UseStorageConfigReturn {
+  /** The stored configuration, or `null` until loaded. */
   config: StorageConfigView | null;
+  /** Whether a load is in flight. */
   isLoading: boolean;
   /** Failure to LOAD. Distinct from the write errors: "nothing to show" vs. "your change did not stick". */
   loadError: string | null;
 
+  /** Whether a save is in flight. */
   isSaving: boolean;
+  /** Why the last save did not land, or `null`. */
   saveError: string | null;
   /**
    * Set when the last save was refused with `STORAGE_LOCATION_IN_USE`. NOT an
    * error — the save is legitimate and the API is asking for the typed word.
    */
   switchRequired: StorageSwitchRequired | null;
+  /** Clears `switchRequired`. */
   clearSwitchRequired: () => void;
   /**
    * `PUT`. Pass `confirmSwitch` to re-send with the `SWITCH` literal after the
    * admin has typed it. Resolves `true` when the save landed.
    */
   save: (input: StorageConfigInput, options?: { confirmSwitch?: boolean }) => Promise<boolean>;
+  /** Clears `saveError`. */
   clearSaveError: () => void;
 
   /** True while EITHER probe is in flight — only one ever is. */
   isProbing: boolean;
   /** The last failure of the probe CALL itself (403, 500, dropped). Never a diagnosis. */
   probeError: string | null;
+  /** Clears `probeError`. */
   clearProbeError: () => void;
   /** The last connection test, pass or fail, until the page clears it. */
   testResult: StorageConnectionTestResult | null;
+  /** Clears `testResult`. */
   clearTestResult: () => void;
   /** The last bucket-creation attempt, whatever its outcome. */
   bucketResult: StorageBucketProvisionResult | null;
+  /** Clears `bucketResult`. */
   clearBucketResult: () => void;
+  /** Runs the connection test against `input` (saved or not); the diagnosis lands in `testResult`. */
   test: (input: StorageConfigInput) => Promise<void>;
+  /** Creates and hardens the bucket `input` names; the outcome lands in `bucketResult`. */
   createBucket: (input: StorageConfigInput) => Promise<void>;
 
+  /** Reloads the configuration. */
   refresh: () => Promise<void>;
 }
 
-export function useStorageConfig(): UseStorageConfigReturn {
+/**
+ * Load, save, test and provision the deployment's object-storage
+ * configuration (`storage_config:read` to load, `storage_config:write` for the
+ * rest). See the file header for the 409 and probe contracts.
+ *
+ * @param options - the transport, when the hook runs outside the host provider.
+ * @returns the configuration, the flags and the actions.
+ * @throws Error when there is neither a host nor an `api` option.
+ *
+ * @example
+ * ```tsx
+ * const { config, save, test, testResult } = useStorageConfig();
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
+export function useStorageConfig(options: UseStorageConfigOptions = {}): UseStorageConfigReturn {
+  const host = useOptionalPlatformHost();
+  const api = options.api ?? host?.api;
+  if (!api) {
+    throw new Error('useStorageConfig needs a transport: mount PlatformHostProvider (@marinoscar/platform-web/core) or pass { api }.');
+  }
+  const client = useMemo(() => createStorageConfigClient(api), [api]);
+
   const [config, setConfig] = useState<StorageConfigView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -123,7 +186,7 @@ export function useStorageConfig(): UseStorageConfigReturn {
     try {
       setIsLoading(true);
       setLoadError(null);
-      const data = await getStorageConfig();
+      const data = await client.get();
       if (isMounted()) setConfig(data);
     } catch (err) {
       if (isMounted()) {
@@ -132,7 +195,7 @@ export function useStorageConfig(): UseStorageConfigReturn {
     } finally {
       if (isMounted()) setIsLoading(false);
     }
-  }, [isMounted]);
+  }, [client, isMounted]);
 
   useEffect(() => {
     void fetchConfig();
@@ -161,11 +224,11 @@ export function useStorageConfig(): UseStorageConfigReturn {
         // `?? 0` rather than omitting the header: 0 is the API's way of
         // asserting "I believe nothing is stored yet", so even the first save
         // on a fresh deployment is guarded.
-        const data = await updateStorageConfig(input, config?.version ?? 0, options);
+        const data = await client.update(input, config?.version ?? 0, options);
         if (isMounted()) setConfig(data);
         return true;
       } catch (err) {
-        if (err instanceof ApiError && err.status === 409) {
+        if (isPlatformApiError(err) && err.status === 409) {
           // THE SAVE IS FINE, THE APP IS ASKING FOR A WORD. Not an error, not a
           // reload — re-sending the identical body with the confirmation is the
           // whole remedy, so the form must be left exactly as the admin left it.
@@ -202,7 +265,7 @@ export function useStorageConfig(): UseStorageConfigReturn {
         if (isMounted()) setIsSaving(false);
       }
     },
-    [config, fetchConfig, isMounted],
+    [client, config, fetchConfig, isMounted],
   );
 
   /**
@@ -240,19 +303,19 @@ export function useStorageConfig(): UseStorageConfigReturn {
       setBucketResult(null);
       setTestResult(null);
       await runProbe(
-        () => testStorageConfig(input),
+        () => client.test(input),
         setTestResult,
         'The connection test could not be run',
       );
     },
-    [runProbe],
+    [client, runProbe],
   );
 
   const createBucket = useCallback(
     async (input: StorageConfigInput) => {
       setBucketResult(null);
       await runProbe(
-        () => provisionStorageBucket(input),
+        () => client.provisionBucket(input),
         (result) => {
           setBucketResult(result);
           // The test that offered this button described a bucket that no
@@ -267,7 +330,7 @@ export function useStorageConfig(): UseStorageConfigReturn {
         'The bucket could not be created',
       );
     },
-    [runProbe],
+    [client, runProbe],
   );
 
   const clearSaveError = useCallback(() => setSaveError(null), []);

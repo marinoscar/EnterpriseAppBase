@@ -95,7 +95,7 @@ const NotificationSettingsPage = lazy(
 const PushConfigPage = lazy(() => import('./pages/Admin/PushConfigPage'));
 // Issue #376, epic #372 — the object-storage configuration, its connection
 // test and its bucket provisioner.
-const StorageConfigPage = lazy(() => import('./pages/Admin/StorageConfigPage'));
+const StorageConfigPage = lazy(() => import('@marinoscar/platform-web/storage/ui'));
 // Issue #258, epic #254 — the maintenance window's switch and its layers.
 // `Admin`-prefixed locally to keep it distinct from `pages/MaintenancePage`,
 // which is the screen a BLOCKED user sees rather than the page that opens and

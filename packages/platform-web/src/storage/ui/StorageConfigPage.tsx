@@ -65,6 +65,7 @@ import {
   Alert,
   AlertTitle,
   Box,
+  CircularProgress,
   Button,
   Chip,
   Container,
@@ -92,11 +93,8 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutlined';
 import NetworkCheckIcon from '@mui/icons-material/NetworkCheck';
 import { Navigate } from 'react-router-dom';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { useStorageConfig } from '../../hooks/useStorageConfig';
-import { LoadingSpinner } from '../../components/common/LoadingSpinner';
-import { StorageSwitchConfirmDialog } from '../../components/admin/StorageSwitchConfirmDialog';
-import { reportsBucketMissing } from '../../services/storageConfig';
+import { usePlatformViewer } from '../../core/index.js';
+import { reportsBucketMissing, useStorageConfig } from '../headless/index.js';
 import type {
   StorageBucketProvisionResult,
   StorageConfigInput,
@@ -104,7 +102,8 @@ import type {
   StorageConnectionCheck,
   StorageProviderKind,
   StorageSecretStatus,
-} from '../../services/storageConfig';
+} from '../headless/index.js';
+import { StorageSwitchConfirmDialog } from './StorageSwitchConfirmDialog.js';
 
 /**
  * The form's own state: the seven settings fields, flat, exactly as the wire
@@ -127,7 +126,7 @@ interface StorageFormState {
   forcePathStyle: boolean | null;
 }
 
-/** Mirrors `deriveR2Endpoint` / `R2_ENDPOINT_HOST_SUFFIX` in `apps/api/src/storage/config/storage-config.ts`. */
+/** Mirrors `deriveR2Endpoint` / `R2_ENDPOINT_HOST_SUFFIX` in `@marinoscar/platform-api/storage` (`config/storage-config.ts`). */
 const R2_ENDPOINT_HOST_SUFFIX = 'r2.cloudflarestorage.com';
 
 function deriveR2Endpoint(accountId: string): string {
@@ -434,8 +433,20 @@ const BUCKET_OUTCOME_TITLES: Record<StorageBucketProvisionResult['outcome'], str
   failed: 'The bucket could not be created',
 };
 
+/**
+ * The `/admin/settings/storage` page: the deployment's object-storage
+ * configuration (`storage_config:read` to view, `storage_config:write` for
+ * every control), the connection test, bucket provisioning and the typed
+ * `SWITCH` confirmation. Reads the viewer's permissions from the
+ * `PlatformHostProvider`.
+ *
+ * @returns the page.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export default function StorageConfigPage() {
-  const { hasPermission } = usePermissions();
+  const { hasPermission } = usePlatformViewer();
   const {
     config,
     isLoading,
@@ -483,7 +494,11 @@ export default function StorageConfigPage() {
   const canWrite = hasPermission('storage_config:write');
 
   if (isLoading || (!form && !loadError)) {
-    return <LoadingSpinner />;
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+        <CircularProgress size={40} />
+      </Box>
+    );
   }
 
   const errors = form ? validate(form) : {};

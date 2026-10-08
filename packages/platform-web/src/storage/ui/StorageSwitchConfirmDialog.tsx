@@ -37,17 +37,26 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { STORAGE_SWITCH_CONFIRMATION } from '../../services/storageConfig';
-import type { StorageLocationInUseDetails } from '../../services/storageConfig';
+import { STORAGE_SWITCH_CONFIRMATION } from '../headless/index.js';
+import type { StorageLocationInUseDetails } from '../headless/index.js';
 
+/**
+ * Props of {@link StorageSwitchConfirmDialog}.
+ *
+ * @stability experimental
+ */
 export interface StorageSwitchConfirmDialogProps {
+  /** Whether the dialog is shown. */
   open: boolean;
   /** The API's own message — rendered verbatim; it carries the real counts. */
   message: string;
   /** The structured `details`, when the API sent them. `null` is tolerated. */
   details: StorageLocationInUseDetails | null;
+  /** Whether the confirmed save is in flight. */
   isWorking: boolean;
+  /** Called once the admin typed the confirmation word and confirmed. */
   onConfirm: () => void;
+  /** Called on cancel. */
   onClose: () => void;
 }
 
@@ -60,6 +69,15 @@ function describeLocation(
   return `${location.provider} · ${location.bucket}${where}`;
 }
 
+/**
+ * The typed `SWITCH` confirmation the storage page shows when a save would
+ * strand objects in the current location (`STORAGE_LOCATION_IN_USE`).
+ *
+ * @param props - see {@link StorageSwitchConfirmDialogProps}.
+ * @returns the dialog.
+ *
+ * @stability experimental
+ */
 export function StorageSwitchConfirmDialog({
   open,
   message,

@@ -115,6 +115,14 @@
       "types": "./dist/jobs/ui/index.d.ts",
       "default": "./dist/jobs/ui/index.js"
     },
+    "./storage/headless": {
+      "types": "./dist/storage/headless/index.d.ts",
+      "default": "./dist/storage/headless/index.js"
+    },
+    "./storage/ui": {
+      "types": "./dist/storage/ui/index.d.ts",
+      "default": "./dist/storage/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
