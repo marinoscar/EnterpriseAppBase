@@ -13,7 +13,7 @@
 #     -f vps.telemetry.compose.yml \
 #     up -d
 #
-# The CLI's `deploy` builds that list itself (apps/cli/src/deploy/compose-files.ts,
+# The CLI's `deploy` builds that list itself (packages/platform-cli/src/engine/deploy/compose-files.ts,
 # from the @marinoscar/platform-infra/telemetry manifest) from the groups
 # recorded at install time; nobody types it by hand.
 #

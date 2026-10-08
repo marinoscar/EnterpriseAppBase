@@ -99,7 +99,7 @@ function slugify(name: string): string {
   return slug.length > 0 ? slug : NEUTRAL_SLUG;
 }
 
-/** The env prefix rule of `apps/cli/src/branding.ts` (`appctl` to `APPCTL_`). */
+/** The env prefix rule of `@marinoscar/platform-cli` (`packages/platform-cli/src/engine/identity.ts`: `appctl` to `APPCTL_`). */
 function toEnvPrefix(cliName: string): string {
   const upper = cliName.toUpperCase().replace(/[^A-Z0-9]/g, '_');
   return /^[0-9]/.test(upper) ? `_${upper}_` : `${upper}_`;

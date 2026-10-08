@@ -28,7 +28,7 @@ services:
   # `up` starts empty. Fixed, test-only credentials for the three accounts.
   greptime-test:
     image: greptime/greptimedb:v1.2.1
-    container_name: my-app-greptime-test
+    container_name: @@PLATFORM_TEST_CONTAINER@@-greptime
     command:
       - standalone
       - start
