@@ -2,8 +2,13 @@
 import { configureEmailRendering, createEmailRenderContext } from '../../src/email/templates/render-context';
 import { registerPlatformEmailTemplates } from '../../src/email/templates/email-template.registry';
 
-/** The product name the byte-for-byte fixtures were captured with (the reference app's). */
-export const TEST_APP_NAME = 'My App';
+/**
+ * The product name of the byte-for-byte fixtures: captured with the reference
+ * app's name and stored with this neutral one (the name is only ever
+ * interpolated), so a renamed fork's identity scan and rename codemod leave
+ * them alone.
+ */
+export const TEST_APP_NAME = 'Fixture App';
 
 /** Configures rendering with the default layout and registers the platform templates, as `EmailModule.forRoot` does. */
 export function configureTestEmail(): void {

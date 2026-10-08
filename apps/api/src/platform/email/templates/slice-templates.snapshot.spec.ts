@@ -15,8 +15,9 @@ import '../../../notifications/registry';
 // the email slice's layout. Their fixtures were captured before the email
 // module moved into `@marinoscar/platform-api/email`; this proves the move
 // changed nothing they send. Rendered with an explicit context whose product
-// name is the one the fixtures were captured with, so a renamed fork keeps
-// passing.
+// name is a neutral one (the fixtures store it in place of the reference
+// app's; it is only ever interpolated), so a renamed fork keeps passing and
+// the identity scan and rename codemod leave the fixtures alone.
 // =============================================================================
 
 const HOSTILE = `<script>alert("x")</script> & 'quotes'`;
@@ -64,7 +65,7 @@ const CASES: ReadonlyArray<{ template: string; label: string; data: unknown }> =
   },
 ];
 
-const CONTEXT = createEmailRenderContext({ appName: 'My App' });
+const CONTEXT = createEmailRenderContext({ appName: 'Fixture App' });
 
 describe('slice-owned email templates: byte-identical output', () => {
   it.each(CASES.map((c) => [`${c.template}.${c.label}`, c] as const))('%s', (name, c) => {
