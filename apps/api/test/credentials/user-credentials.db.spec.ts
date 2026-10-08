@@ -20,12 +20,24 @@ import { randomUUID } from 'node:crypto';
 import { InternalServerErrorException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 
-import { UserCredentialsService } from '@marinoscar/platform-api/credentials';
+import {
+  UserCredentialsService,
+  registerUserCredentialPurpose,
+  userCredentialPurposeRegistry,
+} from '@marinoscar/platform-api/credentials';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('user-credentials.db.spec');
 
 const ORIGINAL_KEY = process.env.SECRETS_ENCRYPTION_KEY;
+
+// The store refuses a write to an undeclared purpose (#735): declare the two
+// this suite writes, as an app's manifest would.
+for (const purpose of ['webhook', 'other']) {
+  if (!userCredentialPurposeRegistry.has(purpose)) {
+    registerUserCredentialPurpose({ purpose, label: purpose, description: `Test purpose ${purpose}.`, system: null });
+  }
+}
 
 describeWithDb('user_credentials (real Postgres)', () => {
   let client: PrismaClient;

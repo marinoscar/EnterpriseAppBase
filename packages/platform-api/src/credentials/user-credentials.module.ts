@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from './credentials.module';
+import { OrgCredentialsModule } from './org-credentials.module';
+import { userCredentialPurposeRegistry } from './registry';
 import {
   USER_CREDENTIAL_PURPOSE_REGISTRY,
   UserCredentialResolver,
 } from './user-credential.resolver';
-import { USER_CREDENTIAL_PURPOSES } from './user-credential-purposes';
 import { UserCredentialsService } from './user-credentials.service';
 
 // =============================================================================
@@ -18,8 +19,10 @@ import { UserCredentialsService } from './user-credentials.service';
 // surface is added by the feature that needs it, in its own module.
 //
 // The purpose registry is provided under a token rather than imported by the
-// resolver directly, so tests (and, if ever needed, a fork) can supply their
-// own list without editing the production one.
+// resolver directly, so tests can supply their own list. The production value
+// is the static registry's entries (`registerUserCredentialPurpose`, #735),
+// read when the provider is built: after every manifest ran at import time.
+// `OrgCredentialsModule` is imported so the resolver has its `org` tier.
 // =============================================================================
 
 /**
@@ -36,11 +39,11 @@ import { UserCredentialsService } from './user-credentials.service';
  * @stability experimental
  */
 @Module({
-  imports: [CredentialsModule],
+  imports: [CredentialsModule, OrgCredentialsModule],
   providers: [
     UserCredentialsService,
     UserCredentialResolver,
-    { provide: USER_CREDENTIAL_PURPOSE_REGISTRY, useValue: USER_CREDENTIAL_PURPOSES },
+    { provide: USER_CREDENTIAL_PURPOSE_REGISTRY, useFactory: () => userCredentialPurposeRegistry.list() },
   ],
   exports: [UserCredentialsService, UserCredentialResolver],
 })

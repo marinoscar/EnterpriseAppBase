@@ -8,6 +8,7 @@ import {
 
 import { PLATFORM_PRISMA, decryptSecret, encryptSecret } from '../core/index';
 import type { CredentialsPrisma, CredentialsQueryArgs } from './data/credentials-db';
+import { writablePurposeProblem } from './registry';
 import {
   assertCredentialAddress,
   assertCredentialPurpose,
@@ -246,6 +247,9 @@ export class CredentialsService {
    *
    * @throws BadRequestException if a blank secret is written to an address
    *         that does not exist yet (see the first-write note inline).
+   * @throws InternalServerErrorException for a purpose not registered with
+   *         the `system` tier (`registerCredentialPurpose`): a programming
+   *         error, which must fail in tests rather than for a user.
    */
   async setSecret(
     purpose: string,
@@ -254,6 +258,8 @@ export class CredentialsService {
     meta: CredentialMeta = {},
   ): Promise<void> {
     this.assertAddress(purpose, name);
+    const problem = writablePurposeProblem(purpose, 'system');
+    if (problem) throw new InternalServerErrorException(problem);
 
     // Only the metadata keys the caller actually passed. Building this by hand
     // rather than spreading `meta` keeps an unknown property on the incoming

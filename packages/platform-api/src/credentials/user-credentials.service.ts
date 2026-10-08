@@ -21,6 +21,7 @@ import {
   isBlankSecret,
 } from './credential-internals';
 import type { CredentialsDelegate, CredentialsPrisma, CredentialsQueryArgs, UserCredentialRow } from './data/credentials-db';
+import { userCredentialPurposeRegistry } from './registry';
 import type {
   UserCredentialInfo,
   UserCredentialMeta,
@@ -220,6 +221,8 @@ export class UserCredentialsService {
    * the plaintext; callers do not supply it.
    *
    * @throws BadRequestException on a blank secret with nothing stored yet.
+   * @throws InternalServerErrorException for a purpose not registered with
+   *         `registerUserCredentialPurpose` (a programming error).
    */
   async setSecret(
     userId: string,
@@ -229,6 +232,13 @@ export class UserCredentialsService {
     meta: UserCredentialMeta = {},
   ): Promise<void> {
     this.assertAddress(userId, purpose, name);
+    if (!userCredentialPurposeRegistry.has(purpose)) {
+      // A programming error (500), not a caller's: the purpose was never
+      // declared with `registerUserCredentialPurpose`.
+      throw new InternalServerErrorException(
+        `User credential purpose "${purpose}" is not registered (registerUserCredentialPurpose).`,
+      );
+    }
 
     // Only the metadata keys the caller actually passed — `undefined` means
     // "leave it", `null` means "clear it".

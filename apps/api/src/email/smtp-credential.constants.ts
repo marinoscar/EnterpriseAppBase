@@ -15,7 +15,7 @@
 // module CommonJS begins loading second sees `undefined` where a constructor
 // parameter type should be, and Nest fails to resolve the dependency at boot.
 //
-// So the shared value lives in a leaf module that imports nothing. The
+// So the shared value lives in a leaf module that imports nothing at run time. The
 // provider re-exports both names, so `SMTP_CREDENTIAL_PURPOSE` and
 // `SMTP_CREDENTIAL_NAME` remain importable from exactly where #122 put them
 // and the `../email` barrel is unchanged.
@@ -26,6 +26,8 @@
 // by a character produces a credential that saves without complaint and can
 // never be decrypted back. There is deliberately nothing to keep in sync.
 // =============================================================================
+
+import type { CredentialPurposeDef } from '@marinoscar/platform-api/credentials';
 
 /**
  * Credential store address for the SMTP password: the sub-key domain.
@@ -52,3 +54,14 @@ export const SMTP_CREDENTIAL_NAME = 'default';
  * says what it is for rather than only `smtp/default`.
  */
 export const SMTP_CREDENTIAL_LABEL = 'SMTP password';
+
+/**
+ * The `smtp` purpose's declaration for the credential purpose registry (#735),
+ * registered by `platform/credentials/credential-purposes.manifest.ts`.
+ */
+export const SMTP_CREDENTIAL_PURPOSE_DEF = {
+  purpose: SMTP_CREDENTIAL_PURPOSE,
+  owner: 'email',
+  label: 'SMTP password',
+  tiers: ['system'],
+} as const satisfies CredentialPurposeDef;

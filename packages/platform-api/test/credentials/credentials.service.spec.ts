@@ -4,6 +4,7 @@ import { BadRequestException, InternalServerErrorException } from '@nestjs/commo
 import { PLATFORM_PRISMA } from '../../src/core/index';
 import { CredentialsService } from '../../src/credentials/credentials.service';
 import { createMockCredentialsPrisma, type MockCredentialsPrisma } from './fakes';
+import './purposes';
 
 // =============================================================================
 // CredentialsService — tests (issue #115, epic #108)

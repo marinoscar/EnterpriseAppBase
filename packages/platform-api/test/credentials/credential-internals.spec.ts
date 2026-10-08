@@ -5,6 +5,7 @@ import { deriveHint as reExportedDeriveHint } from '../../src/credentials/index'
 import { CredentialsService } from '../../src/credentials/credentials.service';
 import { UserCredentialsService } from '../../src/credentials/user-credentials.service';
 import type { CredentialsPrisma } from '../../src/credentials/data/credentials-db';
+import './purposes';
 
 // =============================================================================
 // Shared credential-store internals — tests (issue #387)

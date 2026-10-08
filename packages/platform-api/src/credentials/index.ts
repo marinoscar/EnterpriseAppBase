@@ -8,18 +8,37 @@ export { CredentialsModule } from './credentials.module';
 export { CredentialsService } from './credentials.service';
 export type { CredentialInfo, CredentialMeta } from './interfaces/credential-info.interface';
 
-// ---- a user's own store and the resolver --------------------------------------------
+// ---- an organization's store (#735) --------------------------------------------------
+export { OrgCredentialsModule } from './org-credentials.module';
+export { OrgCredentialsService } from './org-credentials.service';
+export type { OrgCredentialInfo, OrgCredentialMeta } from './interfaces/org-credential-info.interface';
+
+// ---- a user's own store and the resolver (user -> org -> system) --------------------
 export { UserCredentialsModule } from './user-credentials.module';
 export { UserCredentialsService } from './user-credentials.service';
 export { USER_CREDENTIAL_PURPOSE_REGISTRY, UserCredentialResolver } from './user-credential.resolver';
-export type { ResolvedCredential, ResolvedCredentialSource } from './user-credential.resolver';
+export type { ResolveCredentialOptions, ResolvedCredential, ResolvedCredentialSource } from './user-credential.resolver';
+export type { UserCredentialInfo, UserCredentialMeta } from './interfaces/user-credential-info.interface';
+
+// ---- the purpose registries (rung 2) ------------------------------------------------
 export {
   DEFAULT_USER_CREDENTIAL_NAME,
-  USER_CREDENTIAL_PURPOSES,
+  credentialPurposeRegistry,
+  danglingCredentialAddresses,
+  fallbackOf,
   findUserCredentialPurpose,
-} from './user-credential-purposes';
-export type { SystemCredentialAddress, UserCredentialPurposeDef } from './user-credential-purposes';
-export type { UserCredentialInfo, UserCredentialMeta } from './interfaces/user-credential-info.interface';
+  registerCredentialPurpose,
+  registerUserCredentialPurpose,
+  userCredentialPurposeRegistry,
+} from './registry';
+export type {
+  CredentialFallbackTier,
+  CredentialPurposeDef,
+  CredentialTier,
+  OrgCredentialAddress,
+  SystemCredentialAddress,
+  UserCredentialPurposeDef,
+} from './registry';
 
 // ---- shared helpers -------------------------------------------------------------------
 export { deriveHint } from './credential-internals';
