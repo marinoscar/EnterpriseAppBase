@@ -122,6 +122,14 @@
       "types": "./dist/notifications/testing/index.d.ts",
       "default": "./dist/notifications/testing/index.js"
     },
+    "./exports": {
+      "types": "./dist/exports/index.d.ts",
+      "default": "./dist/exports/index.js"
+    },
+    "./exports/testing": {
+      "types": "./dist/exports/testing/index.d.ts",
+      "default": "./dist/exports/testing/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -158,6 +166,7 @@
     "@opentelemetry/sdk-node": "^0.221.0",
     "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
+    "archiver": "^5.3.2",
     "exceljs": "^4.4.0",
     "hyparquet-writer": "^0.16.10",
     "nodemailer": "^9.0.6",
@@ -205,6 +214,7 @@
     "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^7.8.0",
     "@prisma/client-runtime-utils": "^7.8.0",
+    "@types/archiver": "^5.3.4",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.15.32",
     "@types/nodemailer": "^8.0.1",

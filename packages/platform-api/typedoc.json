@@ -29,7 +29,9 @@
     "src/storage/index.ts",
     "src/storage/testing/index.ts",
     "src/notifications/index.ts",
-    "src/notifications/testing/index.ts"
+    "src/notifications/testing/index.ts",
+    "src/exports/index.ts",
+    "src/exports/testing/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"
