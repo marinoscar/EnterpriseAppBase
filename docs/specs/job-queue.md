@@ -637,4 +637,4 @@ In a running app:
 - #607: `trace_context` — the enqueuing span's `traceparent`, parent of the server worker's job span and handed to nodes on claim.
 - #520: post-upload object processing becomes the `storage.object.process` job, replacing the `storage.object.uploaded` `@OnEvent` listener; `test/jobs/on-event-no-io.spec.ts` added as its tripwire.
 - PP-1.11 (#682): `jobs.enqueued` wake-up through the event bus; idle sleeps tracked apart from job timers; the poll stays the fallback.
-- PP-8.2 (#734): the queue becomes `@marinoscar/platform-api/jobs` (`JobsModule.forRoot()`, host ports), the HTTP shapes move to `@marinoscar/platform-contract/jobs`; `JOB_TYPE_LABELS` becomes the label registry; `jobs.org_id` (migrations `0031`, `0032`), `JobScope.run`, `org.id` on job spans; the cron exemptions move to the package paths.
+- PP-8.2 (#734): the queue becomes `@marinoscar/platform-api/jobs` (`JobsModule.forRoot()`, host ports), the HTTP shapes move to `@marinoscar/platform-contract/jobs`; `JOB_TYPE_LABELS` becomes the label registry; `jobs.org_id` (migrations `0030`, `0031`), `JobScope.run`, `org.id` on job spans; the cron exemptions move to the package paths.

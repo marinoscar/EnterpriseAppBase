@@ -88,7 +88,7 @@ Supporting exports (experimental unless noted): the services (`JobsService`, `Jo
 
 ## Data
 
-The `jobs` fragment of `@marinoscar/platform-db` owns `Job` (`jobs`), `JobStatsRollup` (`job_stats_rollup`), `WorkerNode`, `NodeCredential` and `JobNodeSecret` (the last three are the nodes slice's tables). Migrations: `0008_add_jobs` onward in the base history; #734 adds `0031_add_jobs_org_id` and `0032_add_jobs_org_id_status_index`.
+The `jobs` fragment of `@marinoscar/platform-db` owns `Job` (`jobs`), `JobStatsRollup` (`job_stats_rollup`), `WorkerNode`, `NodeCredential` and `JobNodeSecret` (the last three are the nodes slice's tables). Migrations: `0008_add_jobs` onward in the base history; #734 adds `0030_add_jobs_org_id` and `0031_add_jobs_org_id_status_index`.
 
 - **`jobs.org_id`**: nullable UUID, FK `organizations(id)` `ON DELETE SET NULL`, index `jobs_org_id_status_idx (org_id, status)` built `CONCURRENTLY` in a migration of its own. `NULL` is a deployment-wide (system) job: housekeeping, fleet sweeps, backups. Deleting an organization keeps its job history; offboarding (#743) cancels the organization's pending jobs explicitly before deleting it.
 - **No row-level security on `jobs`**, deliberately. The claim is one cross-organization statement (`FOR UPDATE SKIP LOCKED` over the whole queue), and per-org RLS would need the bypass connection for every claim, renewal and settle. Isolation is enforced at the API: the admin routes are system routes (`jobs:read` / `jobs:write`). A handler that touches tenant tables uses `JobScope.run`.
@@ -139,7 +139,7 @@ New as a package subpath in this version (the code moved from `apps/api/src/jobs
 
 - Import from `@marinoscar/platform-api/jobs` instead of `../jobs/...`; mount `JobsModule.forRoot({ imports: [<host module>] })` and bind the ports.
 - `JOB_TYPE_LABELS` is gone: give each handler a `readonly label`, or call `registerJobTypeLabel`.
-- `jobs.org_id` arrives with migrations `0031` and `0032` (`npm run db:sync`, then `prisma:migrate`). Existing rows are system jobs (`NULL`).
+- `jobs.org_id` arrives with migrations `0030` and `0031` (`npm run db:sync`, then `prisma:migrate`). Existing rows are system jobs (`NULL`).
 - `GET /api/admin/jobs` gains an optional `orgId` filter and an `orgId` field (additive).
 - The cron-enqueue-only exemption paths changed; an app's own exemption list must name the new paths with their `root`.
 

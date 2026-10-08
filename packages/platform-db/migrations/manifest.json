@@ -299,8 +299,8 @@
     "slice": "credentials"
   },
   {
-    "dir": "0031_add_jobs_org_id",
-    "id": "0031_add_jobs_org_id",
+    "dir": "0030_add_jobs_org_id",
+    "id": "0030_add_jobs_org_id",
     "requires": [
       "identity"
     ],
@@ -309,8 +309,8 @@
     "slice": "jobs"
   },
   {
-    "dir": "0032_add_jobs_org_id_status_index",
-    "id": "0032_add_jobs_org_id_status_index",
+    "dir": "0031_add_jobs_org_id_status_index",
+    "id": "0031_add_jobs_org_id_status_index",
     "requires": [
       "identity"
     ],
