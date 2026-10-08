@@ -86,7 +86,7 @@ describe('an app channel and an app event, with no package edit (#738)', () => {
   });
 
   it('binds the step-by-step event to both renderers', () => {
-    expect(eventBrowserTemplateRegistry.get(EXAMPLE_SHIPMENT_SENT_EVENT.key)?.render({ orderId: 'A 1' })).toEqual({
+    expect(eventBrowserTemplateRegistry.get(EXAMPLE_SHIPMENT_SENT_EVENT.key)?.render({ orderId: 'A 1' } as never)).toEqual({
       title: 'Shipment sent',
       body: 'Order A 1 is on its way.',
       link: '/orders/A%201',
