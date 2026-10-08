@@ -45,6 +45,7 @@ export interface FakeDelegate {
   updateMany: Fn;
   delete: Fn;
   deleteMany: Fn;
+  groupBy: Fn;
 }
 
 function delegate(): FakeDelegate {
@@ -58,6 +59,7 @@ function delegate(): FakeDelegate {
     updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     delete: jest.fn().mockResolvedValue({}),
     deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    groupBy: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -65,6 +67,7 @@ export interface FakeTx {
   group: FakeDelegate;
   groupMember: FakeDelegate;
   groupInvite: FakeDelegate;
+  grant: FakeDelegate;
   user: FakeDelegate;
   membership: FakeDelegate;
   invite: FakeDelegate;
@@ -78,6 +81,7 @@ export function fakeTx(): FakeTx {
     group: delegate(),
     groupMember: delegate(),
     groupInvite: delegate(),
+    grant: delegate(),
     user: delegate(),
     membership: delegate(),
     invite: delegate(),
