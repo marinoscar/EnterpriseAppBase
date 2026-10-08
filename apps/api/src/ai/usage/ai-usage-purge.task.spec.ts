@@ -19,6 +19,8 @@ describe('AiUsagePurgeTask', () => {
       type: AI_USAGE_PURGE_TYPE,
       reason: 'backfill',
       priority: 100,
+      // A system job (#734): housekeeping never takes an ambient organization.
+      orgId: null,
     });
   });
 

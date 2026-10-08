@@ -53,7 +53,7 @@ describe('RetentionPurgeTask', () => {
       'audit.events.purge',
       'ai.runs.purge',
     ]) {
-      expect(enqueue).toHaveBeenCalledWith({ type, reason: 'backfill', priority: 100 });
+      expect(enqueue).toHaveBeenCalledWith({ type, reason: 'backfill', priority: 100, orgId: null });
     }
   });
 

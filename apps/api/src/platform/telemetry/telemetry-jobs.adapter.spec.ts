@@ -31,6 +31,8 @@ describe('TelemetryJobsAdapter (TELEMETRY_JOBS)', () => {
       type: 'telemetry.retention.apply',
       reason: 'backfill',
       priority: HOUSEKEEPING_PRIORITY,
+      // A system job (#734): housekeeping never takes an ambient organization.
+      orgId: null,
     });
     expect(HOUSEKEEPING_PRIORITY).toBe(100);
     expect(logger.log).toHaveBeenCalledWith('Queued telemetry retention job job-1');
