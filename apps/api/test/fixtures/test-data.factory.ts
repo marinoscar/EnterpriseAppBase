@@ -319,6 +319,17 @@ export const mockPermissions = {
     name: 'org_broadcasts:write',
     description: 'Compose, schedule, cancel and send notification broadcasts to the active organization',
   },
+  // The user-data slice (#743, PP-9.1). SYSTEM scope, admin only.
+  systemFactoryReset: {
+    id: randomUUID(),
+    name: 'system:factory_reset',
+    description: 'Factory reset: delete every other user and all application data, keeping configuration and backups',
+  },
+  orgsOffboard: {
+    id: randomUUID(),
+    name: 'orgs:offboard',
+    description: 'Offboard an organization: delete it with all its data, members and invitations',
+  },
 };
 
 // `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
@@ -673,6 +684,8 @@ export const rolePermissionsMap = {
     mockPermissions.telemetryQuery,
     mockPermissions.organizationsRead,
     mockPermissions.organizationsWrite,
+    mockPermissions.systemFactoryReset,
+    mockPermissions.orgsOffboard,
     mockPermissions.groupsRead,
     mockPermissions.groupsWrite,
     mockPermissions.groupsAdmin,

@@ -286,3 +286,25 @@ describe('handlers', () => {
     await expect(purge.process({ id: 'x', payload: { userId: 'not-a-uuid' } } as any)).rejects.toThrow(/payload/);
   });
 });
+
+describe('user removal hooks', () => {
+  it('resolve their provider across modules and prefix their counts with the hook id', async () => {
+    const fake = createFakeDb(seed());
+    const purge = { purgeUser: jest.fn(async () => ({ membershipsRemoved: 2, adminsPromoted: 1, groupsDeleted: 0, groupsOrphaned: 0 })) };
+    const moduleRef = { get: jest.fn(() => purge) };
+    const options = resolveUserDataModuleOptions({
+      datamodel,
+      userRemovalHooks: [{ id: 'sharing.group-memberships', inject: 'GroupMembershipPurge', run: async (p: typeof purge, userId: string) => ({ ...(await p.purgeUser(userId)) }) }],
+    });
+    const runner = new UserPurgeRunner(fake as any, {} as any, new UserDataPlanService(options), {} as any, { record: jest.fn() } as any, options, moduleRef as any);
+    await expect(runner.runRemovalHooks(USER)).resolves.toMatchObject({ 'sharing.group-memberships.membershipsRemoved': 2, 'sharing.group-memberships.adminsPromoted': 1 });
+    expect(moduleRef.get).toHaveBeenCalledWith('GroupMembershipPurge', { strict: false });
+    expect(purge.purgeUser).toHaveBeenCalledWith(USER);
+  });
+
+  it('fail loudly when the provider is missing', async () => {
+    const options = resolveUserDataModuleOptions({ datamodel, userRemovalHooks: [{ id: 'h', inject: 'Missing', run: async () => ({}) }] });
+    const runner = new UserPurgeRunner({} as any, {} as any, new UserDataPlanService(options), {} as any, { record: jest.fn() } as any, options, { get: () => undefined } as any);
+    await expect(runner.runRemovalHooks(USER)).rejects.toThrow(/not available/);
+  });
+});
