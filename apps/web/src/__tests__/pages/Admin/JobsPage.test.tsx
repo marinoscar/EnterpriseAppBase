@@ -16,11 +16,14 @@
  *   * the permission split: `jobs:read` reaches the page, `jobs:write` is what
  *     puts any control on it;
  *   * the polling wiring (its BEHAVIOUR is asserted against a real
- *     `visibilitychange` in `__tests__/hooks/useJobs.test.ts`).
+ *     `visibilitychange` in `packages/platform-web/test/jobs/use-jobs.test.ts`).
  *
- * The hooks are mocked, as `UserList.test.tsx` mocks `useUsers`: the fetch
- * layer has its own suite, and driving it through msw here would test the
- * transport twice while making every assertion about the page wait on it.
+ * The page is the packaged one (`@marinoscar/platform-web/jobs/ui`, #854),
+ * rendered through the app's own DataTable (the jobs adapters the test wrapper
+ * mounts). The hooks are mocked by mocking the slice's headless entry, which
+ * the page imports: the fetch layer has its own suite in the package, and
+ * driving it through msw here would test the transport twice while making
+ * every assertion about the page wait on it.
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
@@ -33,12 +36,10 @@ import {
   setInitialContainerWidth,
 } from '../../../components/datatable/__tests__/testUtils/layoutStubs';
 import { api } from '../../../services/api';
-import type { Job, JobStats } from '../../../services/jobs';
+import type { Job, JobStats } from '@marinoscar/platform-web/jobs/headless';
 
-vi.mock('../../../hooks/useJobs', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useJobs')>(
-    '../../../hooks/useJobs',
-  );
+vi.mock('@marinoscar/platform-web/jobs/headless', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@marinoscar/platform-web/jobs/headless')>();
   return {
     ...actual,
     useJobs: vi.fn(),
@@ -54,8 +55,8 @@ import {
   useJobStats,
   useJobs,
   useVisiblePolling,
-} from '../../../hooks/useJobs';
-import JobsPage from '../../../pages/Admin/JobsPage';
+} from '@marinoscar/platform-web/jobs/headless';
+import { JobsPage } from '@marinoscar/platform-web/jobs/ui';
 
 const mockUseJobs = vi.mocked(useJobs);
 const mockUseJobStats = vi.mocked(useJobStats);
@@ -90,6 +91,7 @@ function job(overrides: Partial<Job> = {}): Job {
     claimedByNodeId: null,
     leaseExpiresAt: null,
     executor: null,
+    orgId: null,
     ...overrides,
   };
 }

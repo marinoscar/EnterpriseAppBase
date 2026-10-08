@@ -3,7 +3,7 @@
  * packaged telemetry pages see this app's AI switch, its model catalogue (as
  * the four fields the picker shows) and its spinner. Also pins the one type
  * the slice no longer takes from the app: the deploy job's status set is the
- * queue's (`services/jobs.ts`).
+ * queue's (`JOB_STATUSES`, `@marinoscar/platform-contract/jobs`).
  */
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -13,7 +13,7 @@ import { useTelemetryWebAdapters } from '@marinoscar/platform-web/telemetry/head
 
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { appTelemetryAdapters, toAssistantModelOption } from '../../platform/telemetryAdapters';
-import type { JobStatusName } from '../../services/jobs';
+import type { JobStatusName } from '@marinoscar/platform-web/jobs/headless';
 import { mockAiModels } from '../mocks/fixtures/ai';
 import { createWrapper, mockAdminUser } from '../utils/test-utils';
 

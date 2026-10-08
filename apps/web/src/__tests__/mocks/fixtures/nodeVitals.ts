@@ -2,7 +2,7 @@
  * Shared worker-node VITALS fixtures — issue #606 (API side #604).
  *
  * Shapes follow `NodeVitalsDto` in `@marinoscar/platform-contract/nodes`;
- * types are the web client's own (`services/nodes.ts`). Every field of a vitals
+ * types are the jobs slice's (`@marinoscar/platform-web/jobs/headless`, #854). Every field of a vitals
  * snapshot is optional on the wire, so `partialVitals` exists to prove the UI
  * renders an ABSENT field as "not reported", never as zero.
  *
@@ -10,7 +10,7 @@
  * 512 MB RSS, heap 256 MB of 1 GB (25%), disk 50 GB free of 100 GB (50%),
  * slots 1/4.
  */
-import type { NodeVitals, WorkerNode } from '../../../services/nodes';
+import type { NodeVitals, WorkerNode } from '@marinoscar/platform-web/jobs/headless';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;

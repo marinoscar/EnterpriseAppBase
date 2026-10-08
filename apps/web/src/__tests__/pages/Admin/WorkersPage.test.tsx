@@ -19,11 +19,14 @@
  *   * the permission split: `nodes:read` reaches the page, `nodes:write` is
  *     what puts any control on it;
  *   * the polling wiring (its BEHAVIOUR is asserted against a real
- *     `visibilitychange` in `__tests__/hooks/useWorkerNodes.test.ts`).
+ *     `visibilitychange` in `packages/platform-web/test/jobs/use-worker-nodes.test.ts`).
  *
- * The hooks are mocked, as `JobsPage.test.tsx` mocks `useJobs`: the fetch layer
- * has its own suite, and driving it through msw here would test the transport
- * twice while making every assertion about the page wait on it.
+ * The page is the packaged one (`@marinoscar/platform-web/jobs/ui`, #854),
+ * rendered through the app's own DataTable. The hooks are mocked, as
+ * `JobsPage.test.tsx` mocks `useJobs`, by mocking the slice's headless entry:
+ * the fetch layer has its own suite in the package, and driving it through msw
+ * here would test the transport twice while making every assertion about the
+ * page wait on it.
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
@@ -40,12 +43,10 @@ import type {
   NodeCredential,
   NodeCredentialCreated,
   WorkerNode,
-} from '../../../services/nodes';
+} from '@marinoscar/platform-web/jobs/headless';
 
-vi.mock('../../../hooks/useWorkerNodes', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useWorkerNodes')>(
-    '../../../hooks/useWorkerNodes',
-  );
+vi.mock('@marinoscar/platform-web/jobs/headless', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@marinoscar/platform-web/jobs/headless')>();
   return {
     ...actual,
     useWorkerNodes: vi.fn(),
@@ -61,8 +62,8 @@ import {
   useNodeCredentials,
   useVisiblePolling,
   useWorkerNodes,
-} from '../../../hooks/useWorkerNodes';
-import WorkersPage from '../../../pages/Admin/WorkersPage';
+} from '@marinoscar/platform-web/jobs/headless';
+import { WorkersPage } from '@marinoscar/platform-web/jobs/ui';
 import { fullVitals, lowDiskVitals } from '../../mocks/fixtures/nodeVitals';
 
 const mockUseWorkerNodes = vi.mocked(useWorkerNodes);

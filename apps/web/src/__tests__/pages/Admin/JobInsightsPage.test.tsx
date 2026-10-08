@@ -11,6 +11,12 @@
  *
  * The `none` case is asserted NEGATIVELY as well as positively — the duration
  * must be absent from the document, not merely accompanied by a caveat.
+ *
+ * The page is the packaged one (`@marinoscar/platform-web/jobs/ui`, #854),
+ * rendered through the app's DataTable; its hook is mocked through the slice's
+ * headless entry. The per-type merge (`buildTypeInsightRows`) is a pure
+ * function of the page and is asserted in the package
+ * (`packages/platform-web/test/jobs/insights-rows.test.ts`).
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
@@ -23,19 +29,15 @@ import {
   setInitialContainerWidth,
 } from '../../../components/datatable/__tests__/testUtils/layoutStubs';
 import { api } from '../../../services/api';
-import type { JobInsights } from '../../../services/jobs';
+import type { JobInsights } from '@marinoscar/platform-web/jobs/headless';
 
-vi.mock('../../../hooks/useJobInsights', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useJobInsights')>(
-    '../../../hooks/useJobInsights',
-  );
+vi.mock('@marinoscar/platform-web/jobs/headless', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@marinoscar/platform-web/jobs/headless')>();
   return { ...actual, useJobInsights: vi.fn() };
 });
 
-import { useJobInsights } from '../../../hooks/useJobInsights';
-import JobInsightsPage, {
-  buildTypeInsightRows,
-} from '../../../pages/Admin/JobInsightsPage';
+import { useJobInsights } from '@marinoscar/platform-web/jobs/headless';
+import { JobInsightsPage } from '@marinoscar/platform-web/jobs/ui';
 
 const mockUseJobInsights = vi.mocked(useJobInsights);
 
@@ -290,45 +292,6 @@ describe('JobInsightsPage', () => {
       expect(within(table).getByText('1.5 s')).toBeInTheDocument(); // p50
       expect(within(table).getByText('8.0 s')).toBeInTheDocument(); // p95
       expect(within(table).getByText('1.8 s')).toBeInTheDocument(); // average
-    });
-
-    it('merges history and lifetime into one row per type', () => {
-      const rows = buildTypeInsightRows(insights());
-
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({
-        type: 'image.thumbnail',
-        samples: 38,
-        lifetimeTotal: 912,
-        lifetimeSucceeded: 900,
-      });
-    });
-
-    it('keeps a type that has lifetime totals but no runs inside the window', () => {
-      // Its percentiles are null (the window has nothing to sort), but dropping
-      // the row would hide a job type from a page whose whole purpose is
-      // per-type comparison.
-      const rows = buildTypeInsightRows(
-        insights({
-          history: {
-            ...insights().history,
-            byType: [],
-          },
-        }),
-      );
-
-      expect(rows).toHaveLength(1);
-      expect(rows[0].samples).toBe(0);
-      expect(rows[0].p95Ms).toBeNull();
-      expect(rows[0].lifetimeTotal).toBe(912);
-    });
-
-    it('keeps a type new in this window that has no lifetime rollup yet', () => {
-      const rows = buildTypeInsightRows(insights({ lifetime: [] }));
-
-      expect(rows).toHaveLength(1);
-      expect(rows[0].samples).toBe(38);
-      expect(rows[0].lifetimeTotal).toBe(0);
     });
 
     it('states that all-time figures carry no percentiles, and why', () => {
