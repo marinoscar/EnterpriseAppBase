@@ -25,8 +25,8 @@
 # NO PRODUCT, APP OR REPOSITORY NAME APPEARS IN THIS FILE
 # -----------------------------------------------------------------------------
 # A Dockerfile cannot call TypeScript, so the environment-variable names below
-# are the one unavoidable second copy of what `apps/cli/src/node/worker-env.ts`
-# declares. `worker-env.test.ts` guards that duplication in BOTH directions:
+# are the one unavoidable second copy of what `workerEnv()` declares
+# (@marinoscar/platform-cli, `node/worker-env.ts`), with this app's prefix. `worker-env.test.ts` guards that duplication in BOTH directions:
 # a variable renamed in the map but not here fails, and a variable added here
 # that no code reads fails too.
 # =============================================================================
@@ -56,8 +56,9 @@ COPY packages/shared ./packages/shared/
 # telemetry compose file list from its manifest. The CLI's `prebuild` builds
 # its dist/ in the build stage.
 COPY packages/platform-infra ./packages/platform-infra/
-# And @marinoscar/platform-cli (issue #706): the node span relay and the CLI
-# registries. Built by the same `prebuild`.
+# And @marinoscar/platform-cli (#706, #715): the whole CLI, node engine
+# included, that apps/cli composes with createCli. Built by the same
+# `prebuild`; its runtime dependencies (commander, ink, ...) come with it.
 COPY packages/platform-cli ./packages/platform-cli/
 RUN npm ci --workspace=cli --include-workspace-root --ignore-scripts
 
