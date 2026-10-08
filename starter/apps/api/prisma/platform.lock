@@ -192,6 +192,12 @@
       "originId": "platform:0032_add_broadcast_target_org",
       "sha256": "9f266799b1e3769233ea72873ce55394340da9f8ef1312a7e0b7b2ae410152e2",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261008170001_add_android_app",
+      "originId": "platform:0033_add_android_app",
+      "sha256": "7f343a96417825c1372388c199ad2dbecfcf8632a4ebc5080afb29c82109b719",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "0.1.0-next.3"

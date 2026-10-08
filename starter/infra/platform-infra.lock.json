@@ -27,7 +27,8 @@
         "infra/nginx/csp.conf": "e470f258feb62e44afb00f0deda04ea0046a9faa0310aa4a74090773ac429a58",
         "infra/nginx/csp.dev.conf": "7b4f5c022e0f9c1bfe665b47730f035611ca72b114c053482b4d7d103e48f6b9",
         "infra/nginx/platform/security-headers.conf": "1a390bbd1562e92f7a73b3c8b55387a3a73de3fa1a35907b3bd1f6bda88011ca",
-        "infra/nginx/platform/sse-proxy.conf": "09d146b21acf14a29c8b5b4341b764d23c9be8319ff5d02359bd2c6d0d1cabe0"
+        "infra/nginx/platform/sse-proxy.conf": "09d146b21acf14a29c8b5b4341b764d23c9be8319ff5d02359bd2c6d0d1cabe0",
+        "infra/nginx/platform/android-app.conf": "f8afebca96460e907d25586cb3fa7754adf82e6e1088cfc1c4a3ac099fe1962e"
       }
     },
     "env": {
