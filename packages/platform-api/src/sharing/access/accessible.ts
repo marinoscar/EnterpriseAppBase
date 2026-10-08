@@ -94,7 +94,10 @@ export interface AccessibleWhereOptions extends AccessibleFieldOptions {
    * its alias and columns. Default: alias `r`, columns `owner_user_id`,
    * `owner_group_id`, `id`, `org_id`.
    */
-  sql?: { alias?: string } & AccessibleColumnOptions;
+  sql?: {
+    /** The table's alias in the caller's query. Default `r`. */
+    alias?: string;
+  } & AccessibleColumnOptions;
   /** The threshold. Default {@link SHARED_IDS_INLINE_LIMIT}; lower it in tests only. */
   inlineLimit?: number;
 }
@@ -233,6 +236,7 @@ function sharedGrantWhere(p: Prepared, principal: Principal, now: Date): Record<
  * });
  * ```
  *
+ * @extensionPoint hook
  * @stability stable
  */
 export async function accessibleWhere(principal: Principal, type: string, opts: AccessibleWhereOptions): Promise<AccessibleWhere> {
@@ -296,6 +300,7 @@ export async function accessibleWhere(principal: Principal, type: string, opts: 
  *   ORDER BY r.created_at DESC LIMIT ${pageSize} OFFSET ${offset}`;
  * ```
  *
+ * @extensionPoint hook
  * @stability stable
  */
 export function accessibleSql(principal: Principal, type: string, alias: string, opts: AccessibleSqlOptions = {}): Sql {
@@ -347,6 +352,12 @@ export function accessibleSql(principal: Principal, type: string, alias: string,
  * @returns the record ids.
  * @throws Error for an unknown type or role.
  *
+ * @example
+ * ```ts
+ * const ids = await sharedResourceIds(me, 'transcript', { tx, minRole: 'editor', limit: 200 });
+ * ```
+ *
+ * @extensionPoint hook
  * @stability stable
  */
 export async function sharedResourceIds(principal: Principal, type: string, opts: { tx: unknown; minRole?: string; limit?: number }): Promise<string[]> {

@@ -125,8 +125,19 @@ type GrantContribution = Pick<GrantRow, 'resourceType' | 'resourceId' | 'grantee
 
 /**
  * Decides what a principal may do with a record of a registered resource
- * type. Inject it; never cache a decision beyond the request.
+ * type. Inject it (the module exports it); never cache a decision beyond the
+ * request.
  *
+ * @example
+ * ```ts
+ * constructor(private readonly access: AccessPolicy) {}
+ * async get(principal: Principal, id: string) {
+ *   await this.access.require(principal, 'read', { type: 'transcript', id });
+ *   // ... load and return it
+ * }
+ * ```
+ *
+ * @extensionPoint token
  * @stability stable
  */
 @Injectable()

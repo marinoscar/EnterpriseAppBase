@@ -126,11 +126,12 @@ export type { GroupAccess } from './groups/group-membership.service';
 export { GROUP_INVITES_CLOCK, GroupInvitesService, inviteStatus } from './groups/group-invites.service';
 export { SharingEffects } from './groups/sharing-effects';
 export type { CommittedChange, SharingEmittedEvent } from './groups/sharing-effects';
-export type { GroupRow } from './data/sharing-tx';
+export type { GrantRow, GroupRow } from './data/sharing-tx';
 export { MemberLookupThrottle } from './groups/member-lookup-throttle';
 export type { MemberLookupThrottleOptions } from './groups/member-lookup-throttle';
 export { ORPHANED_GROUPS_SAMPLE, GroupsOrphanedDoctorCheck, decideOrphanedGroups } from './doctor/groups-orphaned.doctor-check';
 export { GRANTS_CLOCK, GrantsService, deleteGrantsForResources, toGrantDto } from './grants/grants.service';
+export type { GrantWithGrantee } from './grants/grants.service';
 
 // ---- the grants prune job (server-only) and its enqueue-only cron (#729) ------------
 export { GRANTS_PRUNE_CHUNK, GRANTS_PRUNE_CLOCK, GRANTS_PRUNE_JOB_TYPE, GrantsPruneHandler } from './jobs/grants-prune.handler';

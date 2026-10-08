@@ -76,10 +76,26 @@ const DELETE_CHUNK = 1000;
 /** The audit actions of grants, `grant:<verb>`. */
 type GrantAuditAction = 'grant:create' | 'grant:update' | 'grant:revoke';
 
-/** A grant row with the grantee columns the response shows. */
-type GrantWithGrantee = GrantRow & {
-  granteeUser: Pick<UserRow, 'email' | 'displayName' | 'providerDisplayName'> | null;
-  granteeGroup: { name: string } | null;
+/**
+ * A `grants` row with the grantee columns the response shows.
+ *
+ * @stability experimental
+ */
+export type GrantWithGrantee = GrantRow & {
+  /** The user grantee's columns, or `null`. */
+  granteeUser: {
+    /** The e-mail address. */
+    email: string;
+    /** The chosen display name, or `null`. */
+    displayName: string | null;
+    /** The identity provider's display name, or `null`. */
+    providerDisplayName: string | null;
+  } | null;
+  /** The group grantee's columns, or `null`. */
+  granteeGroup: {
+    /** The group's name. */
+    name: string;
+  } | null;
 };
 
 const GRANTEE_COLUMNS = {
@@ -185,6 +201,9 @@ export class GrantsService {
    *   await tx.transcript.delete({ where: { id } });
    * });
    * ```
+   *
+   * @extensionPoint hook
+   * @stability stable
    */
   deleteForResources(tx: unknown, type: string, ids: readonly string[]): Promise<number> {
     return deleteGrantsForResources(tx, type, ids);

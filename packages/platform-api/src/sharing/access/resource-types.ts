@@ -115,7 +115,14 @@ export interface ResourceTypeDef<TRole extends string = string> {
    * Roles allowed per grantee kind. Default: `user` and `group` get every
    * role; `link` gets none (link shares are off unless listed, #730).
    */
-  readonly grantable?: { readonly user?: readonly TRole[]; readonly group?: readonly TRole[]; readonly link?: readonly TRole[] };
+  readonly grantable?: {
+    /** Roles a user may be granted. */
+    readonly user?: readonly TRole[];
+    /** Roles a group may be granted. */
+    readonly group?: readonly TRole[];
+    /** Roles a link may carry (#730); none by default. */
+    readonly link?: readonly TRole[];
+  };
   /** Cap on the active grants of one record. Default 500. */
   readonly maxGrantsPerResource?: number;
   /** How a denial surfaces. Default `'not_found'` (kvox and MemoriaHub both hide existence). */
@@ -146,7 +153,11 @@ export interface ResourceTypeDef<TRole extends string = string> {
   describe?(ids: readonly string[], tx: PrismaTx): Promise<Map<string, ResourceDescription>>;
 }
 
-/** The default cap on the active grants of one record. */
+/**
+ * The default cap on the active grants of one record (`maxGrantsPerResource`).
+ *
+ * @stability experimental
+ */
 export const DEFAULT_MAX_GRANTS_PER_RESOURCE = 500;
 
 /** The largest cap a type may declare. */
