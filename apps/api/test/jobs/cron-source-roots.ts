@@ -44,6 +44,9 @@ export const EXPORTS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 
 /** The packaged AI slice's source root (#739: the catalogue refresh, key recheck and usage purge crons). */
 export const AI_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'ai');
 
+/** The packaged db-backup slice's source root (#740: the backup schedule tick). */
+export const DB_BACKUP_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'db-backup');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -55,4 +58,5 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   NOTIFICATIONS_SLICE_SOURCE_ROOT,
   EXPORTS_SLICE_SOURCE_ROOT,
   AI_SLICE_SOURCE_ROOT,
+  DB_BACKUP_SLICE_SOURCE_ROOT,
 ];

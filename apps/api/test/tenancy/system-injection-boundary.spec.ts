@@ -37,9 +37,10 @@ const ALLOWLIST: Record<string, string> = {
   'platform/ai/ai-host.module.ts':
     'retention and admin-aggregate: the AI slice\'s AI_SYSTEM_PRISMA port (its two retention purges, the deployment-wide usage report and the catalogue sync\'s organization-less usage row)',
   'health/doctor/rls-role.doctor-check.ts': 'doctor: read-only catalogue reads',
-  'db-backup/doctor/backup-rls.doctor-check.ts': 'doctor: read-only row counts',
   'platform/exports/exports-host.module.ts':
     'export and purge: the exports slice\'s EXPORTS_SYSTEM_DATA port (#744): the user-data and org-data sources read one user\'s or one organization\'s rows with an explicit filter (export), the status and download routes find the file\'s row (export), and export.purge deletes expired export files (purge)',
+  'platform/db-backup/db-backup-host.module.ts':
+    'doctor: the db-backup slice\'s DB_BACKUP_SYSTEM_DATA port (#740): the backup.rls-bypass check\'s read-only row counts',
   'platform/sharing/sharing-data.adapter.ts':
     'purge and doctor: the sharing slice\'s user purge (GroupMembershipPurge) and its read-only orphaned-groups check',
 };
