@@ -138,7 +138,11 @@ export interface SharingConformanceOptions {
   readonly minRoutes?: number;
 }
 
-/** The partial unique indexes the slice relies on (they exist only in migration SQL). */
+/**
+ * The partial unique indexes the slice relies on (they exist only in migration SQL).
+ *
+ * @stability experimental
+ */
 export const SHARING_RAW_SQL_INDEXES: readonly string[] = Object.freeze([
   'grants_active_user_uniq_idx',
   'grants_active_group_uniq_idx',
@@ -232,7 +236,12 @@ const toPosix = (path: string): string => path.split(sep).join('/');
 export function checkNoDirectSharingAccess(
   roots: readonly string[],
   exempt: Readonly<Record<string, string>> = {},
-): { findings: SharingConformanceFinding[]; files: number } {
+): {
+  /** The violations. */
+  findings: SharingConformanceFinding[];
+  /** How many source files were scanned. */
+  files: number;
+} {
   const findings: SharingConformanceFinding[] = [];
   const used = new Set<string>();
   let files = 0;
@@ -284,7 +293,12 @@ export function checkNoDirectSharingAccess(
  *
  * @stability experimental
  */
-export function modelsWithOwnerGroupColumn(schemaPath: string): { models: string[]; withColumn: string[] } {
+export function modelsWithOwnerGroupColumn(schemaPath: string): {
+  /** Every model name. */
+  models: string[];
+  /** The models with an `owner_group_id` column. */
+  withColumn: string[];
+} {
   const text = readSchemaText(schemaPath)
     .split('\n')
     .map((line) => line.replace(/\/\/.*$/, ''))
@@ -313,7 +327,14 @@ export function checkGroupOwnershipRegistered(
   schemaPath: string,
   groupOwnedModels: Readonly<Record<string, string>> = {},
   registered: readonly string[] = groupOwnedResourceRegistry.list().map((def) => def.type),
-): { findings: SharingConformanceFinding[]; models: number; withColumn: number } {
+): {
+  /** The violations. */
+  findings: SharingConformanceFinding[];
+  /** How many models the schema holds. */
+  models: number;
+  /** How many of them have an `owner_group_id` column. */
+  withColumn: number;
+} {
   const { models, withColumn } = modelsWithOwnerGroupColumn(schemaPath);
   const findings: SharingConformanceFinding[] = [];
   const known = new Set(registered);
@@ -496,7 +517,12 @@ function migrationsText(dir: string): { files: number; text: string } {
 export function checkSharingRawSqlIndexes(
   migrationsDir: string,
   indexes: readonly string[] = SHARING_RAW_SQL_INDEXES,
-): { findings: SharingConformanceFinding[]; files: number } {
+): {
+  /** The violations. */
+  findings: SharingConformanceFinding[];
+  /** How many SQL files were read. */
+  files: number;
+} {
   const { files, text } = migrationsText(migrationsDir);
   const findings: SharingConformanceFinding[] = [];
   for (const name of indexes) {

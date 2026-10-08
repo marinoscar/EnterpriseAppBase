@@ -21,7 +21,16 @@ None beyond the package's own peer, `zod` (`^4.4.3`).
 
 ## Quick start
 
-Completed in #732 (the sharing README and reference examples). The API's own DTOs are the working example today: `packages/platform-api/src/sharing/dto/groups.dto.ts` wraps every schema with `createZodDto`.
+Validate a payload before sending it, and type what comes back (the API's DTOs wrap these schemas with `createZodDto`; the web slice's client and the reference examples, `apps/web/src/__tests__/examples/sharing/fixtures.ts`, build on the inferred types):
+
+```ts
+import { buildLinkUrl, createGrantSchema, LINK_TOKEN_HEADER, type GrantDto } from '@marinoscar/platform-contract/sharing';
+
+const body = createGrantSchema.parse({ resourceType: 'note', resourceId: id, role: 'viewer', grantee: { kind: 'user', email: 'ana@example.com' } });
+const grant = await api.post<GrantDto>('/grants', body);
+await api.get('/public/albums/current', { headers: { [LINK_TOKEN_HEADER]: token } }); // never in a URL
+buildLinkUrl('https://app.example.com', token); // https://app.example.com/s#lnk_...
+```
 
 ## Configuration
 
@@ -29,7 +38,7 @@ None. Schemas and constants take no options; the routes, their permissions and t
 
 ## Extension-point catalog
 
-None. The schemas are the wire contract of the API slice; an app that needs more fields on a group keeps them in `metadata` (`groupMetadataSchema`), never in a new column. Reviewed again in #732.
+None. The schemas are the wire contract of the API slice, not a seam: an app that needs more fields on a group keeps them in `metadata` (`groupMetadataSchema`), never in a new column, and a grant's role is a plain string the app's resource type declares (`registerResourceType` in the [API slice](../../../platform-api/src/sharing/README.md#extension-point-catalog)), so no schema is extended per app.
 
 ## Data
 
@@ -73,7 +82,7 @@ The e-mail schema trims and lower-cases, so the API compares addresses exactly. 
 
 ## Conformance suite
 
-Completed in #732 (the sharing conformance suite).
+None in this package: schemas cannot be misused outside the code that calls them. The sharing conformance suite is the API slice's (`@marinoscar/platform-api/sharing/testing`, see its [README](../../../platform-api/src/sharing/README.md#conformance-suite)).
 
 ## Upgrade notes
 
@@ -81,7 +90,12 @@ New in this version; nothing to migrate from.
 
 ## Troubleshooting
 
-Completed in #732.
+| Symptom | Cause | Fix |
+|---|---|---|
+| `ZodError` on a resource type or role | not lower-case snake_case of at most 64 characters (`SHARING_IDENTIFIER_PATTERN`) | use the type id the API registered (`example_note`, not `Note`) |
+| `ZodError` on `createGrantSchema` `grantee` | a user grantee with both or neither of `email` and `userId` | send exactly one |
+| `ZodError` on `expiresAt` | not an ISO instant with an offset | send `new Date(...).toISOString()` |
+| A link token fails `LINK_TOKEN_PATTERN` | not `lnk_` and 43 base64url characters (an imported legacy token keeps its 43 old characters behind `lnk_`) | read it from the URL fragment exactly |
 
 ## Links
 

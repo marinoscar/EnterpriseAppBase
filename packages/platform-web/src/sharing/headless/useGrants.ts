@@ -22,6 +22,7 @@ import type { ResourceRef, SharingResource } from './types.js';
  * const grants = useGrants({ type: 'transcript', id });
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function useGrants(resource: ResourceRef, options: { enabled?: boolean; client?: SharingClient } = {}): SharingResource<GrantList> {
@@ -71,6 +72,7 @@ export interface ShareActions {
  * await share.shareWithEmail('ana@example.com', 'viewer');
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function useShareActions(resource: ResourceRef, options: { client?: SharingClient } = {}): ShareActions {

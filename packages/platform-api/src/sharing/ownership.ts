@@ -174,6 +174,7 @@ export function activeGroupsOf(principal: Principal, minGroupRole?: GroupRole): 
  * });
  * ```
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function ownedByMeOrMyGroups(
