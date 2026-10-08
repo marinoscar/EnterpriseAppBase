@@ -33,7 +33,7 @@ import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.he
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
-import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
+import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import { createMockStorageProvider } from '../mocks/storage-provider.mock';
 
 interface StorageRoute {

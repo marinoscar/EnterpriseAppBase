@@ -17,7 +17,7 @@
 
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
-import { STORAGE_SETTINGS_PATH, StorageNotConfiguredError } from '../../storage/config/storage-not-configured.error';
+import { STORAGE_SETTINGS_PATH, StorageNotConfiguredError } from '@marinoscar/platform-api/storage';
 import { AiError } from '../core/ai-error';
 
 /** The `AiError` a job records for a storage failure, or `null` when `err` is not one. */

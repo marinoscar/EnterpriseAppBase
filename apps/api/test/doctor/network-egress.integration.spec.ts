@@ -38,7 +38,7 @@ import { DeploymentNetworkService } from '../../src/common/deployment/deployment
 import { EmailSettingsService } from '@marinoscar/platform-api/email';
 import { PushConfigService } from '../../src/notifications/push-config.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import { StorageConfigAdminService } from '../../src/storage/config/storage-config-admin.service';
+import { StorageConfigAdminService } from '@marinoscar/platform-api/storage';
 import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser, createMockViewerUser } from '../helpers/auth-mock.helper';

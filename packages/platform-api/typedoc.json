@@ -25,7 +25,9 @@
     "src/email/index.ts",
     "src/email/testing/index.ts",
     "src/jobs/index.ts",
-    "src/nodes/index.ts"
+    "src/nodes/index.ts",
+    "src/storage/index.ts",
+    "src/storage/testing/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

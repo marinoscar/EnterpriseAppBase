@@ -22,7 +22,7 @@ import { APP_CREDENTIAL_PURPOSES, APP_USER_CREDENTIAL_PURPOSES } from '../../app
 import { SES_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';
 import { SMTP_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';
 import { PUSH_VAPID_CREDENTIAL_PURPOSE_DEF } from '../../notifications/push-vapid-credential.constants';
-import { STORAGE_CREDENTIAL_PURPOSE_DEF } from '../../storage/storage-credential.constants';
+import { STORAGE_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/storage';
 
 registerCredentialPurpose(AI_CREDENTIAL_PURPOSE_DEF);
 registerCredentialPurpose(STORAGE_CREDENTIAL_PURPOSE_DEF);

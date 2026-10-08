@@ -45,7 +45,7 @@
     "prisma:typecheck": "tsc -p prisma/tsconfig.json",
     "db:compose": "platform db compose",
     "db:compose:check": "platform db compose --check",
-    "storage:purge": "node dist/storage/purge/storage-purge.main.js"
+    "storage:purge": "node dist/storage-purge.main.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

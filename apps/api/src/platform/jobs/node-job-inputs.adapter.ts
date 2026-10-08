@@ -17,7 +17,7 @@ import type { Job } from '@marinoscar/platform-api/jobs';
 import { NodeJobInputError, type NodeJobInputObject, type NodeJobInputs } from '@marinoscar/platform-api/nodes';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { JobInputResolutionError, resolveStorageObjectInput } from '../../storage/storage-job-input';
+import { JobInputResolutionError, resolveStorageObjectInput } from '@marinoscar/platform-api/storage';
 
 /** The reference app's {@link NodeJobInputs}: storage objects, in the job's organization. */
 @Injectable()

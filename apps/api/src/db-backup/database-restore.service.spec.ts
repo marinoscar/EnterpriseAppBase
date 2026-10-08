@@ -43,7 +43,7 @@ import type { NotificationsService } from '../notifications/notifications.servic
 import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '../storage/providers/storage-provider.interface';
+import type { StorageProvider } from '@marinoscar/platform-api/storage';
 import type { AdminConnection, AdminQueryClient } from './admin-connection.util';
 import {
   DatabaseRestoreService,

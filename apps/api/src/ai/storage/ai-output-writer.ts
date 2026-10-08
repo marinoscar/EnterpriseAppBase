@@ -37,10 +37,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { StorageConfigService } from '../../storage/config/storage-config.service';
-import { StorageNotConfiguredError } from '../../storage/config/storage-not-configured.error';
-import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/providers/storage-provider.interface';
-import { AI_OUTPUTS_KEY_PREFIX } from '../../storage/storage-key-prefixes';
+import { StorageConfigService } from '@marinoscar/platform-api/storage';
+import { StorageNotConfiguredError } from '@marinoscar/platform-api/storage';
+import { STORAGE_PROVIDER, type StorageProvider } from '@marinoscar/platform-api/storage';
+import { AI_OUTPUTS_KEY_PREFIX } from '../../platform/storage/storage-key-prefixes';
 
 /** The folder one run's outputs live in: `ai-outputs/<userId>/<runId>/`. */
 export function aiOutputKeyPrefix(userId: string, runId: string): string {

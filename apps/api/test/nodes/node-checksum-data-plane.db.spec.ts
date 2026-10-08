@@ -83,8 +83,8 @@ import type {
   StorageUploadOptions,
   StorageUploadResult,
   UploadPart,
-} from '../../src/storage/providers';
-import { STORAGE_OBJECT_SUBJECT_TYPE } from '../../src/storage/storage-job-input';
+} from '@marinoscar/platform-api/storage';
+import { STORAGE_OBJECT_SUBJECT_TYPE } from '@marinoscar/platform-api/storage';
 import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
 import { NodeOffloadService } from '@marinoscar/platform-api/jobs';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';

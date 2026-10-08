@@ -1,4 +1,4 @@
-import type { StorageKeyPrefixDef } from '../storage/storage-key-prefix.registry';
+import type { StorageKeyPrefixDef } from '@marinoscar/platform-api/storage';
 
 /**
  * This app's own object-storage key prefixes (issue #679). Upstream keeps this

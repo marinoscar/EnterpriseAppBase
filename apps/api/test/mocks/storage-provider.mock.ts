@@ -6,7 +6,7 @@ import {
   UploadPart,
   SignedUrlOptions,
   StorageUploadOptions,
-} from '../../src/storage/providers';
+} from '@marinoscar/platform-api/storage';
 
 /**
  * Creates a mock storage provider for testing

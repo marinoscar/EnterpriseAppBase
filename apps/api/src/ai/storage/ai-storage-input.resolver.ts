@@ -39,8 +39,8 @@ import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nest
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { resolveOrgId } from '@marinoscar/platform-api/identity';
-import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/providers/storage-provider.interface';
-import { mimeTypeMatches, normaliseMimeType } from '../../storage/mime-type-match';
+import { STORAGE_PROVIDER, type StorageProvider } from '@marinoscar/platform-api/storage';
+import { mimeTypeMatches, normaliseMimeType } from '@marinoscar/platform-api/storage';
 import { AiError } from '../core/ai-error';
 import type { AiBinaryPayload } from '../core/types/media.types';
 

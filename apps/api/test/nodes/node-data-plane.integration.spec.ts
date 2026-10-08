@@ -36,7 +36,7 @@
 import { Logger } from '@nestjs/common';
 import request from 'supertest';
 
-import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
+import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import { createMockStorageProvider } from '../mocks/storage-provider.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser, createMockViewerUser } from '../helpers/auth-mock.helper';

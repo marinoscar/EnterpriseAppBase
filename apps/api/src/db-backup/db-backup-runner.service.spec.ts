@@ -11,8 +11,8 @@ import { ACTIVE_DEDUP_INDEX_NAME, type JobsService } from '@marinoscar/platform-
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '../storage/providers/storage-provider.interface';
-import type { StorageConfigService } from '../storage/config/storage-config.service';
+import type { StorageProvider } from '@marinoscar/platform-api/storage';
+import type { StorageConfigService } from '@marinoscar/platform-api/storage';
 import type {
   StorageProviderKind,
   SystemDatabaseBackupValue,

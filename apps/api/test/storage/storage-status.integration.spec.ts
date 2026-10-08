@@ -8,8 +8,8 @@
 import request from 'supertest';
 
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
-import { StorageConfigService } from '../../src/storage/config/storage-config.service';
-import { StorageStatusController } from '../../src/storage/status/storage-status.controller';
+import { StorageConfigService } from '@marinoscar/platform-api/storage';
+import { StorageStatusController } from '@marinoscar/platform-api/storage';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {
   authHeader,

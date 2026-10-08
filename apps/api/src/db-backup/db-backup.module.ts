@@ -4,7 +4,7 @@ import { MaintenanceModule } from '../common/maintenance/maintenance.module';
 import { JobsModule } from '../platform/jobs/jobs.config';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../platform/settings/settings.config';
-import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { StorageProvidersModule } from '@marinoscar/platform-api/storage';
 import { DatabaseRestoreService } from './database-restore.service';
 import { DatabaseBackupAdminService } from './db-backup-admin.service';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';

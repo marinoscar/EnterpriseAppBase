@@ -106,6 +106,14 @@
       "types": "./dist/nodes/index.d.ts",
       "default": "./dist/nodes/index.js"
     },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "default": "./dist/storage/index.js"
+    },
+    "./storage/testing": {
+      "types": "./dist/storage/testing/index.d.ts",
+      "default": "./dist/storage/testing/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -126,7 +134,10 @@
     "test:greptime": "jest --config ./test/jest.config.js --testRegex '\\.greptime\\.spec\\.ts$' --runInBand"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.975.0",
     "@aws-sdk/client-sesv2": "^3.1121.0",
+    "@aws-sdk/lib-storage": "^3.975.0",
+    "@aws-sdk/s3-request-presigner": "^3.975.0",
     "@marinoscar/platform-contract": "0.1.0-next.3",
     "@opentelemetry/auto-instrumentations-node": "^0.79.0",
     "@opentelemetry/core": "^2.10.0",

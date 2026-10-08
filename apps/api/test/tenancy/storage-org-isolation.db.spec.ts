@@ -20,10 +20,10 @@ import { Readable } from 'node:stream';
 
 import { NotFoundException } from '@nestjs/common';
 
-import { ObjectProcessingService } from '../../src/storage/processing/object-processing.service';
-import { ObjectsService } from '../../src/storage/objects/objects.service';
+import { ObjectProcessingService } from '@marinoscar/platform-api/storage';
+import { ObjectsService } from '@marinoscar/platform-api/storage';
 import type { JobsService } from '@marinoscar/platform-api/jobs';
-import type { StorageConfigService } from '../../src/storage/config/storage-config.service';
+import type { StorageConfigService } from '@marinoscar/platform-api/storage';
 import { resolveDbSuite } from '../jobs/db-test-support';
 import { createRlsDatabase, rlsServices, seedTwoOrgs, ORG_A, ORG_B, type RlsDatabase, type TwoOrgFixture } from '../helpers/rls-database.helper';
 
