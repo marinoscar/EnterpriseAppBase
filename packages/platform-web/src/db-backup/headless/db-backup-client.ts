@@ -58,7 +58,22 @@
  * than against a string typed a second time in a component.
  */
 
-import { api } from './api';
+import {
+  BACKUP_FREQUENCIES,
+  BACKUP_STATUSES,
+  BACKUP_TRIGGERS,
+  RESTORE_CONFIRMATION,
+  RESTORE_GATE_IDS,
+  RESTORE_ROLLBACK_MODES,
+  RESTORE_SCHEMA_OVERRIDE_FIELD,
+  RESTORE_STATUSES,
+  ROLLBACK_CONFIRMATION,
+} from '@marinoscar/platform-contract/db-backup';
+
+import type { PlatformApiClient } from '../../core/index.js';
+
+// The value lists are the contract's (`@marinoscar/platform-contract/db-backup`,
+// #740): the API's enums are built from the same tuples.
 
 // =============================================================================
 // Enumerations — the API's own, restated so a bad value cannot compile
@@ -76,13 +91,7 @@ import { api } from './api';
  *                 archive may or may not exist. See the table module for why
  *                 that difference is drawn on screen and not just in the enum.
  */
-export const DB_BACKUP_RUN_STATUSES = [
-  'pending',
-  'running',
-  'completed',
-  'failed',
-  'stale',
-] as const;
+export const DB_BACKUP_RUN_STATUSES = BACKUP_STATUSES;
 export type DbBackupRunStatus = (typeof DB_BACKUP_RUN_STATUSES)[number];
 
 /**
@@ -90,11 +99,11 @@ export type DbBackupRunStatus = (typeof DB_BACKUP_RUN_STATUSES)[number];
  * immediately before a swap, and an operator must be able to tell it from a
  * backup they asked for — it is the archive a rollback falls back to.
  */
-export const DB_BACKUP_TRIGGERS = ['manual', 'scheduled', 'pre_restore'] as const;
+export const DB_BACKUP_TRIGGERS = BACKUP_TRIGGERS;
 export type DbBackupTrigger = (typeof DB_BACKUP_TRIGGERS)[number];
 
 /** `databaseBackup.frequency`. */
-export const DB_BACKUP_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;
+export const DB_BACKUP_FREQUENCIES = BACKUP_FREQUENCIES;
 export type DbBackupFrequency = (typeof DB_BACKUP_FREQUENCIES)[number];
 
 /**
@@ -107,7 +116,7 @@ export type DbBackupFrequency = (typeof DB_BACKUP_FREQUENCIES)[number];
  *   `drop_database`   — drop it. Rolling back means restoring the pre-restore
  *                       dump: HOURS.
  */
-export const RESTORE_ROLLBACK_MODES = ['retain_database', 'drop_database'] as const;
+export { RESTORE_ROLLBACK_MODES };
 export type RestoreRollbackMode = (typeof RESTORE_ROLLBACK_MODES)[number];
 
 /**
@@ -125,29 +134,15 @@ export type EffectiveRollbackMode = 'retain_database' | 'pre_restore_dump';
  * archive has never been restored, which is what makes the rollback route a
  * 400 rather than a no-op.
  */
-export const RESTORE_STATUSES = [
-  'restoring',
-  'verifying',
-  'swapping',
-  'completed',
-  'failed',
-  'rolled_back',
-] as const;
+export { RESTORE_STATUSES };
 export type RestoreStatus = (typeof RESTORE_STATUSES)[number];
 
 /**
- * The pre-flight gates, by id. Every one of them is reported on every restore
- * attempt, passes included — see `RestorePreflight.gates`.
+ * The pre-flight gates, by id (`rls_bypass` since #740). Every one of them is
+ * reported on every restore attempt, passes included — see
+ * `RestorePreflight.gates`.
  */
-export const RESTORE_GATE_IDS = [
-  'pg_client_version',
-  'admin_connection',
-  'createdb_privilege',
-  'extensions',
-  'disk_space',
-  'replicas',
-  'schema_compatibility',
-] as const;
+export { RESTORE_GATE_IDS };
 export type RestoreGateId = (typeof RESTORE_GATE_IDS)[number];
 
 /** What KIND of thing a gate checks; it decides what a failure can be answered with. */
@@ -160,8 +155,7 @@ export type RestoreGateVerdict = 'pass' | 'warning' | 'block';
  * The exact strings the API's Zod literals require
  * (`db-backup-restore.dto.ts`). Two different words, deliberately.
  */
-export const RESTORE_CONFIRMATION = 'RESTORE';
-export const ROLLBACK_CONFIRMATION = 'ROLLBACK';
+export { RESTORE_CONFIRMATION, ROLLBACK_CONFIRMATION };
 
 /**
  * The one value `block.overrideParameter` can name today, and the field the
@@ -172,10 +166,10 @@ export const ROLLBACK_CONFIRMATION = 'ROLLBACK';
  * to create a database. The dialog therefore offers the override only when the
  * block names this parameter, never as a general "force" switch.
  */
-export const OVERRIDE_SCHEMA_CHECK_PARAMETER = 'overrideSchemaCheck';
+export const OVERRIDE_SCHEMA_CHECK_PARAMETER: typeof RESTORE_SCHEMA_OVERRIDE_FIELD = RESTORE_SCHEMA_OVERRIDE_FIELD;
 
 // =============================================================================
-// Response shapes — mirrors of `apps/api/src/db-backup/dto/`
+// Response shapes — mirrors of `@marinoscar/platform-contract/db-backup`
 // =============================================================================
 
 /**
@@ -475,96 +469,116 @@ export type RollbackRestoreResult =
 
 const BASE = '/admin/db-backup';
 
-/** `GET config` — the policy, plus `nextRunAt` and `activeRunId`. */
-export async function getDbBackupConfig(): Promise<DbBackupConfig> {
-  return api.get<DbBackupConfig>(`${BASE}/config`);
-}
-
 /**
- * `PUT config` — the policy as it now stands.
+ * The `/api/admin/db-backup` routes, as the page and the hooks call them.
+ * Build one with {@link createDbBackupApi} over the app's transport.
  *
- * A 400 here is INFORMATION, not a client bug: the API refuses a timezone this
- * runtime cannot resolve (it checks by performing the very projection
- * `nextRunAt` publishes) and a `storageProvider` this deployment does not have.
- * Nothing in this app second-guesses either with a list of its own — a
- * hand-kept IANA list would rot, and the runtime's own ICU data is the
- * authority on what it can schedule against. The page renders the API's
- * message.
+ * @stability experimental
  */
-export async function updateDbBackupConfig(
-  input: UpdateDbBackupConfigInput,
-): Promise<DbBackupConfig> {
-  return api.put<DbBackupConfig>(`${BASE}/config`, input);
+export interface DbBackupApi {
+  /** `GET config` — the policy, plus `nextRunAt` and `activeRunId`. */
+  getDbBackupConfig(): Promise<DbBackupConfig>;
+  /**
+   * `PUT config` — the policy as it now stands.
+   *
+   * A 400 here is INFORMATION, not a client bug: the API refuses a timezone this
+   * runtime cannot resolve (it checks by performing the very projection
+   * `nextRunAt` publishes) and a `storageProvider` this deployment does not have.
+   * Nothing in this app second-guesses either with a list of its own — a
+   * hand-kept IANA list would rot, and the runtime's own ICU data is the
+   * authority on what it can schedule against. The page renders the API's
+   * message.
+   */
+  updateDbBackupConfig(input: UpdateDbBackupConfigInput): Promise<DbBackupConfig>;
+  /**
+   * `POST runs` — take a backup now. Answers 202 with the claimed run while the
+   * dump is still streaming, or 409 with `details.activeRunId` when one is
+   * already going.
+   */
+  startBackupRun(): Promise<DbBackupRun>;
+  /** `GET runs` — newest first, paginated, optionally filtered by status or trigger. */
+  getBackupRuns(params?: DbBackupRunListParams): Promise<DbBackupRunListResponse>;
+  /** `GET runs/{id}` — one run, in the same shape the list returns. */
+  getBackupRun(id: string): Promise<DbBackupRun>;
+  /** `GET runs/{id}/download` — a signed, expiring URL. 400 unless the run is `completed`. */
+  getBackupDownloadUrl(id: string): Promise<BackupDownloadUrl>;
+  /** `POST runs/{id}/cancel` — ⚠ read `outcome`, not only the status code. */
+  cancelBackupRun(id: string): Promise<CancelBackupResult>;
+  /** `DELETE runs/{id}` — the row and its archive. 400 while the run is active. */
+  deleteBackupRun(id: string): Promise<DeleteBackupResult>;
+  /**
+   * `POST runs/{id}/restore` — REPLACES THE PRODUCTION DATABASE.
+   *
+   * The confirmation literal is sent from the constant above rather than typed
+   * here a second time, and `overrideSchemaCheck` is omitted unless it is
+   * actually being set: sending `false` explicitly is the same request as
+   * omitting it, and a flag in the body of a destructive call that changes
+   * nothing is a flag somebody will later read as "an override was requested".
+   */
+  startRestore(id: string, options?: { overrideSchemaCheck?: boolean }): Promise<StartRestoreResult>;
+  /** `POST runs/{id}/rollback` — ⚠ read `mode`: the two routes back differ by hours. */
+  rollbackRestore(id: string): Promise<RollbackRestoreResult>;
 }
 
 /**
- * `POST runs` — take a backup now. Answers 202 with the claimed run while the
- * dump is still streaming, or 409 with `details.activeRunId` when one is
- * already going.
- */
-export async function startBackupRun(): Promise<DbBackupRun> {
-  return api.post<DbBackupRun>(`${BASE}/runs`);
-}
-
-/** `GET runs` — newest first, paginated, optionally filtered by status or trigger. */
-export async function getBackupRuns(
-  params: DbBackupRunListParams = {},
-): Promise<DbBackupRunListResponse> {
-  const query = new URLSearchParams();
-  if (params.page) query.set('page', String(params.page));
-  if (params.pageSize) query.set('pageSize', String(params.pageSize));
-  if (params.status) query.set('status', params.status);
-  if (params.trigger) query.set('trigger', params.trigger);
-
-  return api.get<DbBackupRunListResponse>(`${BASE}/runs?${query}`);
-}
-
-/** `GET runs/{id}` — one run, in the same shape the list returns. */
-export async function getBackupRun(id: string): Promise<DbBackupRun> {
-  return api.get<DbBackupRun>(`${BASE}/runs/${id}`);
-}
-
-/** `GET runs/{id}/download` — a signed, expiring URL. 400 unless the run is `completed`. */
-export async function getBackupDownloadUrl(id: string): Promise<BackupDownloadUrl> {
-  return api.get<BackupDownloadUrl>(`${BASE}/runs/${id}/download`);
-}
-
-/** `POST runs/{id}/cancel` — ⚠ read `outcome`, not only the status code. */
-export async function cancelBackupRun(id: string): Promise<CancelBackupResult> {
-  return api.post<CancelBackupResult>(`${BASE}/runs/${id}/cancel`);
-}
-
-/** `DELETE runs/{id}` — the row and its archive. 400 while the run is active. */
-export async function deleteBackupRun(id: string): Promise<DeleteBackupResult> {
-  return api.delete<DeleteBackupResult>(`${BASE}/runs/${id}`);
-}
-
-/**
- * `POST runs/{id}/restore` — REPLACES THE PRODUCTION DATABASE.
+ * The db-backup client over a {@link PlatformApiClient} (the platform host's
+ * transport: the reference app's `api` service). Keep the result's identity
+ * stable (`useMemo`), as the hooks do.
  *
- * The confirmation literal is sent from the constant above rather than typed
- * here a second time, and `overrideSchemaCheck` is omitted unless it is
- * actually being set: sending `false` explicitly is the same request as
- * omitting it, and a flag in the body of a destructive call that changes
- * nothing is a flag somebody will later read as "an override was requested".
+ * @param api - the transport.
+ * @returns the client.
+ *
+ * @stability experimental
  */
-export async function startRestore(
-  id: string,
-  options: { overrideSchemaCheck?: boolean } = {},
-): Promise<StartRestoreResult> {
-  const body: { confirmation: string; overrideSchemaCheck?: boolean } = {
-    confirmation: RESTORE_CONFIRMATION,
+export function createDbBackupApi(api: PlatformApiClient): DbBackupApi {
+  return {
+    async getDbBackupConfig(): Promise<DbBackupConfig> {
+      return api.get<DbBackupConfig>(`${BASE}/config`);
+    },
+    async updateDbBackupConfig(input: UpdateDbBackupConfigInput): Promise<DbBackupConfig> {
+      return api.put<DbBackupConfig>(`${BASE}/config`, input);
+    },
+    async startBackupRun(): Promise<DbBackupRun> {
+      return api.post<DbBackupRun>(`${BASE}/runs`);
+    },
+    async getBackupRuns(params: DbBackupRunListParams = {}): Promise<DbBackupRunListResponse> {
+      const query = new URLSearchParams();
+      if (params.page) query.set('page', String(params.page));
+      if (params.pageSize) query.set('pageSize', String(params.pageSize));
+      if (params.status) query.set('status', params.status);
+      if (params.trigger) query.set('trigger', params.trigger);
+
+      return api.get<DbBackupRunListResponse>(`${BASE}/runs?${query}`);
+    },
+    async getBackupRun(id: string): Promise<DbBackupRun> {
+      return api.get<DbBackupRun>(`${BASE}/runs/${id}`);
+    },
+    async getBackupDownloadUrl(id: string): Promise<BackupDownloadUrl> {
+      return api.get<BackupDownloadUrl>(`${BASE}/runs/${id}/download`);
+    },
+    async cancelBackupRun(id: string): Promise<CancelBackupResult> {
+      return api.post<CancelBackupResult>(`${BASE}/runs/${id}/cancel`);
+    },
+    async deleteBackupRun(id: string): Promise<DeleteBackupResult> {
+      return api.delete<DeleteBackupResult>(`${BASE}/runs/${id}`);
+    },
+    async startRestore(
+      id: string,
+      options: { overrideSchemaCheck?: boolean } = {},
+    ): Promise<StartRestoreResult> {
+      const body: { confirmation: string; overrideSchemaCheck?: boolean } = {
+        confirmation: RESTORE_CONFIRMATION,
+      };
+      if (options.overrideSchemaCheck) body.overrideSchemaCheck = true;
+
+      return api.post<StartRestoreResult>(`${BASE}/runs/${id}/restore`, body);
+    },
+    async rollbackRestore(id: string): Promise<RollbackRestoreResult> {
+      return api.post<RollbackRestoreResult>(`${BASE}/runs/${id}/rollback`, {
+        confirmation: ROLLBACK_CONFIRMATION,
+      });
+    },
   };
-  if (options.overrideSchemaCheck) body.overrideSchemaCheck = true;
-
-  return api.post<StartRestoreResult>(`${BASE}/runs/${id}/restore`, body);
-}
-
-/** `POST runs/{id}/rollback` — ⚠ read `mode`: the two routes back differ by hours. */
-export async function rollbackRestore(id: string): Promise<RollbackRestoreResult> {
-  return api.post<RollbackRestoreResult>(`${BASE}/runs/${id}/rollback`, {
-    confirmation: ROLLBACK_CONFIRMATION,
-  });
 }
 
 // =============================================================================

@@ -67,13 +67,13 @@ import {
 import {
   DB_BACKUP_FREQUENCIES,
   RESTORE_ROLLBACK_MODES,
-} from '../../services/dbBackup';
+} from '../headless/index.js';
 import type {
   DbBackupConfig,
   DbBackupFrequency,
   RestoreRollbackMode,
   UpdateDbBackupConfigInput,
-} from '../../services/dbBackup';
+} from '../headless/index.js';
 
 /** The editable half of `DbBackupConfig` — the computed fields are not settable. */
 type ConfigForm = Required<

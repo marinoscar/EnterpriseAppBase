@@ -50,19 +50,12 @@
  * The page decides that; this module only makes it possible.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError } from '../services/api';
-import {
-  cancelBackupRun,
-  deleteBackupRun,
-  getBackupDownloadUrl,
-  getBackupRuns,
-  getDbBackupConfig,
-  rollbackRestore,
-  startBackupRun,
-  startRestore,
-  updateDbBackupConfig,
-} from '../services/dbBackup';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { isPlatformApiError, useOptionalPlatformHost } from '../../core/index.js';
+import { useVisiblePolling } from '../../jobs/headless/index.js';
+import { useIsMounted } from '../internal/use-is-mounted.js';
+import { createDbBackupApi } from './db-backup-client.js';
 import type {
   BackupDownloadUrl,
   CancelBackupResult,
@@ -73,12 +66,44 @@ import type {
   RollbackRestoreResult,
   StartRestoreResult,
   UpdateDbBackupConfigInput,
-} from '../services/dbBackup';
-import { useIsMounted } from './useIsMounted';
-import { useVisiblePolling } from './useVisiblePolling';
+  DbBackupApi,
+} from './db-backup-client.js';
 
-// One implementation, in `hooks/useVisiblePolling.ts` — see the file header.
+// One implementation, the jobs slice's (`@marinoscar/platform-web/jobs/headless`)
+// — see the file header.
 export { useVisiblePolling };
+
+/**
+ * Options of the db-backup hooks.
+ *
+ * @stability experimental
+ */
+export interface UseDbBackupOptions {
+  /** The client. Default: {@link createDbBackupApi} over the `PlatformHostProvider`'s transport (keep its identity stable). */
+  api?: DbBackupApi;
+}
+
+/**
+ * The db-backup client the hooks and the page use: `explicit`, else one built
+ * over the platform host's transport.
+ *
+ * @param explicit - a client to use instead (keep its identity stable).
+ * @returns the client.
+ * @throws Error when neither is available.
+ *
+ * @stability experimental
+ */
+export function useDbBackupApi(explicit?: DbBackupApi): DbBackupApi {
+  const hostApi = useOptionalPlatformHost()?.api;
+  const fromHost = useMemo(() => (hostApi ? createDbBackupApi(hostApi) : null), [hostApi]);
+  const api = explicit ?? fromHost;
+  if (!api) {
+    throw new Error(
+      'useDbBackupApi: no db-backup client. Mount PlatformHostProvider (@marinoscar/platform-web/core) or pass `api`.',
+    );
+  }
+  return api;
+}
 
 /**
  * How often the page re-asks, while its tab is in front.
@@ -99,7 +124,7 @@ export const DB_BACKUP_POLL_INTERVAL_MS = 10_000;
  * whole reason this page can be honest about a restart.
  */
 function isUnreachable(err: unknown): boolean {
-  return !(err instanceof ApiError);
+  return !isPlatformApiError(err);
 }
 
 /**
@@ -112,7 +137,7 @@ function isUnreachable(err: unknown): boolean {
  * operator to ask for the wrong permission is worse than telling them nothing.
  */
 function messageFor(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
+  if (isPlatformApiError(err)) {
     if (err.status === 403) return 'You do not have permission to manage database backups';
     // The API's own sentence wins; `fallback` covers a body with no message at
     // all, which is what a proxy-generated error looks like.
@@ -142,7 +167,8 @@ export interface UseDbBackupConfigResult {
   refresh: () => Promise<void>;
 }
 
-export function useDbBackupConfig(): UseDbBackupConfigResult {
+export function useDbBackupConfig(options: UseDbBackupOptions = {}): UseDbBackupConfigResult {
+  const client = useDbBackupApi(options.api);
   const [config, setConfig] = useState<DbBackupConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -158,7 +184,7 @@ export function useDbBackupConfig(): UseDbBackupConfigResult {
     async (showLoading: boolean) => {
       if (showLoading) setIsLoading(true);
       try {
-        const data = await getDbBackupConfig();
+        const data = await client.getDbBackupConfig();
         if (isMounted()) {
           setConfig(data);
           setLoadError(null);
@@ -178,7 +204,7 @@ export function useDbBackupConfig(): UseDbBackupConfigResult {
         if (isMounted() && showLoading) setIsLoading(false);
       }
     },
-    [isMounted],
+    [client, isMounted],
   );
 
   useEffect(() => {
@@ -205,7 +231,7 @@ export function useDbBackupConfig(): UseDbBackupConfigResult {
       setIsSaving(true);
       setSaveError(null);
       try {
-        const data = await updateDbBackupConfig(input);
+        const data = await client.updateDbBackupConfig(input);
         if (isMounted()) setConfig(data);
         return true;
       } catch (err) {
@@ -215,7 +241,7 @@ export function useDbBackupConfig(): UseDbBackupConfigResult {
         if (isMounted()) setIsSaving(false);
       }
     },
-    [isMounted],
+    [client, isMounted],
   );
 
   return {
@@ -247,7 +273,8 @@ export interface UseDbBackupRunsResult {
   refresh: () => Promise<void>;
 }
 
-export function useDbBackupRuns(): UseDbBackupRunsResult {
+export function useDbBackupRuns(options: UseDbBackupOptions = {}): UseDbBackupRunsResult {
+  const client = useDbBackupApi(options.api);
   const [runs, setRuns] = useState<DbBackupRun[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -271,7 +298,7 @@ export function useDbBackupRuns(): UseDbBackupRunsResult {
       // table unusable.
       if (showLoading) setIsLoading(true);
       try {
-        const response = await getBackupRuns(params);
+        const response = await client.getBackupRuns(params);
         if (isMounted()) {
           setRuns(response.items);
           setTotal(response.total);
@@ -294,7 +321,7 @@ export function useDbBackupRuns(): UseDbBackupRunsResult {
         if (isMounted() && showLoading) setIsLoading(false);
       }
     },
-    [isMounted],
+    [client, isMounted],
   );
 
   const fetchRuns = useCallback(
@@ -359,7 +386,8 @@ export interface UseDbBackupActionsResult {
  * way"; an `unavailable` rollback is a 200 that means the window closed. The
  * page renders the mode; this hook only reports the failure to get one.
  */
-export function useDbBackupActions(onChanged?: () => void): UseDbBackupActionsResult {
+export function useDbBackupActions(onChanged?: () => void, options: UseDbBackupOptions = {}): UseDbBackupActionsResult {
+  const client = useDbBackupApi(options.api);
   const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useIsMounted();
@@ -383,34 +411,34 @@ export function useDbBackupActions(onChanged?: () => void): UseDbBackupActionsRe
   );
 
   const startBackup = useCallback(
-    () => run(() => startBackupRun(), 'Failed to start a backup'),
-    [run],
+    () => run(() => client.startBackupRun(), 'Failed to start a backup'),
+    [client, run],
   );
 
   const cancelRun = useCallback(
-    (id: string) => run(() => cancelBackupRun(id), 'Failed to cancel the backup'),
-    [run],
+    (id: string) => run(() => client.cancelBackupRun(id), 'Failed to cancel the backup'),
+    [client, run],
   );
 
   const deleteRun = useCallback(
-    (id: string) => run(() => deleteBackupRun(id), 'Failed to delete the backup'),
-    [run],
+    (id: string) => run(() => client.deleteBackupRun(id), 'Failed to delete the backup'),
+    [client, run],
   );
 
   const downloadUrlFor = useCallback(
-    (id: string) => run(() => getBackupDownloadUrl(id), 'Failed to get a download link'),
-    [run],
+    (id: string) => run(() => client.getBackupDownloadUrl(id), 'Failed to get a download link'),
+    [client, run],
   );
 
   const restore = useCallback(
     (id: string, options: { overrideSchemaCheck?: boolean } = {}) =>
-      run(() => startRestore(id, options), 'Failed to start the restore'),
-    [run],
+      run(() => client.startRestore(id, options), 'Failed to start the restore'),
+    [client, run],
   );
 
   const rollback = useCallback(
-    (id: string) => run(() => rollbackRestore(id), 'Failed to roll back the restore'),
-    [run],
+    (id: string) => run(() => client.rollbackRestore(id), 'Failed to roll back the restore'),
+    [client, run],
   );
 
   const clearError = useCallback(() => setError(null), []);

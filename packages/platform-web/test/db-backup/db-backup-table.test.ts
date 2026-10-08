@@ -36,14 +36,14 @@ import {
   formatRunSize,
   readIsFilter,
   shortChecksum,
-} from '../../../pages/Admin/dbBackupTable';
+} from '../../src/db-backup/ui/dbBackupTable.js';
 import {
   DB_BACKUP_RUN_STATUSES,
   DB_BACKUP_TRIGGERS,
   RESTORE_STATUSES,
-} from '../../../services/dbBackup';
-import type { DbBackupRun } from '../../../services/dbBackup';
-import type { DataTableColumn } from '../../../components/datatable';
+} from '../../src/db-backup/headless/index.js';
+import type { DbBackupRun } from '../../src/db-backup/headless/index.js';
+import type { JobsTableColumn as DataTableColumn } from '../../src/jobs/headless/index.js';
 
 const NOW = new Date('2026-01-01T12:00:00.000Z');
 

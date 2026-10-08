@@ -115,7 +115,7 @@ import {
   OVERRIDE_SCHEMA_CHECK_PARAMETER,
   RESTORE_CONFIRMATION,
   ROLLBACK_CONFIRMATION,
-} from '../../services/dbBackup';
+} from '../headless/index.js';
 import type {
   DbBackupConfig,
   DbBackupRun,
@@ -123,8 +123,8 @@ import type {
   RestorePreflight,
   RollbackRestoreResult,
   StartRestoreResult,
-} from '../../services/dbBackup';
-import { formatBytes } from '../../pages/Admin/dbBackupTable';
+} from '../headless/index.js';
+import { formatBytes } from './dbBackupTable.js';
 
 export type RestoreDialogIntent = 'restore' | 'rollback';
 

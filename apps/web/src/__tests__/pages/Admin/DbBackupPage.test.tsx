@@ -58,12 +58,13 @@ import type {
   DbBackupRun,
   RestorePreflight,
   StartRestoreResult,
-} from '../../../services/dbBackup';
+} from '@marinoscar/platform-web/db-backup/headless';
 
-vi.mock('../../../hooks/useDbBackup', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useDbBackup')>(
-    '../../../hooks/useDbBackup',
-  );
+// The page is the packaged one since #740 (`@marinoscar/platform-web/db-backup/ui`);
+// mocking the headless entry replaces the hooks it renders with, exactly as
+// the jobs page suites do (#854).
+vi.mock('@marinoscar/platform-web/db-backup/headless', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@marinoscar/platform-web/db-backup/headless')>();
   return {
     ...actual,
     useDbBackupConfig: vi.fn(),
@@ -77,8 +78,8 @@ import {
   useDbBackupActions,
   useDbBackupConfig,
   useDbBackupRuns,
-} from '../../../hooks/useDbBackup';
-import DbBackupPage from '../../../pages/Admin/DbBackupPage';
+} from '@marinoscar/platform-web/db-backup/headless';
+import DbBackupPage from '@marinoscar/platform-web/db-backup/ui';
 import { shortId } from '@marinoscar/platform-web/jobs/headless';
 
 const mockUseConfig = vi.mocked(useDbBackupConfig);

@@ -60,25 +60,28 @@ import SyncIcon from '@mui/icons-material/Sync';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Box, Chip, LinearProgress, Stack, Tooltip, Typography } from '@mui/material';
 import type { ChipProps } from '@mui/material';
-import type { DataTableColumn, DataTableFilterModel } from '../../components/datatable';
+import type { JobsTableColumn as DataTableColumn, JobsTableFilter } from '../../jobs/headless/index.js';
+
+/** The table's filter model: the jobs slice's (#854). */
+type DataTableFilterModel = JobsTableFilter[];
 import {
   DB_BACKUP_RUN_STATUSES,
   DB_BACKUP_TRIGGERS,
   isBackupRunActive,
   parseByteCount,
-} from '../../services/dbBackup';
+} from '../headless/index.js';
 import type {
   DbBackupRun,
   DbBackupRunStatus,
   DbBackupTrigger,
   RestoreStatus,
-} from '../../services/dbBackup';
+} from '../headless/index.js';
 // Imported from the jobs slice's formatters (#854) rather than re-implemented. Both are
 // three-line functions, which is exactly why copying them is tempting and
 // wrong: two formatters drift into one page reading "1500ms" beside another
 // reading "1.5s" for the same number, and an operator who has just come from
 // the jobs page must not have to re-read the timestamp format.
-import { formatDateTime, formatDuration, shortId } from '@marinoscar/platform-web/jobs/headless';
+import { formatDateTime, formatDuration, shortId } from '../../jobs/headless/index.js';
 
 /**
  * Persistence key for `user_settings.dataTables`. A constant, never derived

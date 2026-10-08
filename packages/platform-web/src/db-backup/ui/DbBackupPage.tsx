@@ -126,21 +126,25 @@ import DownloadIcon from '@mui/icons-material/Download';
 import RestoreIcon from '@mui/icons-material/Restore';
 import UndoIcon from '@mui/icons-material/Undo';
 import { Navigate } from 'react-router-dom';
-import { DataTable } from '../../components/datatable';
-import type { DataTableFilterModel, DataTableRowAction } from '../../components/datatable';
-import { DbBackupConfigPanel } from '../../components/admin/DbBackupConfigPanel';
-import { DbBackupRestoreDialog } from '../../components/admin/DbBackupRestoreDialog';
-import type { RestoreDialogIntent } from '../../components/admin/DbBackupRestoreDialog';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
+import type { JobsTableFilter, JobsTableRowAction as DataTableRowAction } from '../../jobs/headless/index.js';
+import { usePlatformViewer } from '../../core/index.js';
+import { DB_BACKUP_PAGE_DESCRIPTION, DB_BACKUP_PAGE_TITLE } from './copy.js';
+import { DbBackupConfigPanel } from './DbBackupConfigPanel.js';
+import { DbBackupRestoreDialog } from './DbBackupRestoreDialog.js';
+import type { RestoreDialogIntent } from './DbBackupRestoreDialog.js';
+import { DbBackupTable as DataTable } from './table.js';
+
+/** The table's filter model: the jobs slice's (#854). */
+type DataTableFilterModel = JobsTableFilter[];
 import {
   DB_BACKUP_POLL_INTERVAL_MS,
   useDbBackupActions,
+  useDbBackupApi,
   useDbBackupConfig,
   useDbBackupRuns,
   useVisiblePolling,
-} from '../../hooks/useDbBackup';
+} from '../headless/index.js';
 import {
-  getBackupRuns,
   isBackupCancelable,
   isBackupDeletable,
   isBackupDownloadable,
@@ -148,8 +152,8 @@ import {
   isBackupRunActive,
   isRestoreInFlight,
   isRollbackAvailable,
-} from '../../services/dbBackup';
-import type { DbBackupRun, DbBackupRunListParams } from '../../services/dbBackup';
+} from '../headless/index.js';
+import type { DbBackupRun, DbBackupRunListParams } from '../headless/index.js';
 import {
   STATUS_COLUMN_ID,
   TABLE_ID,
@@ -160,15 +164,31 @@ import {
   formatBytes,
   formatRunDuration,
   readIsFilter,
-} from './dbBackupTable';
+} from './dbBackupTable.js';
 
-/** Mirrors the `Database Backup` card in `config/adminSections.tsx`, word for word. */
-const PAGE_TITLE = 'Database Backup';
-const PAGE_DESCRIPTION =
-  'Schedule backups, review what has been taken, and restore the database from one.';
+// The same words as the admin card (`dbBackupAdminSections`), from one place.
+const PAGE_TITLE = DB_BACKUP_PAGE_TITLE;
+const PAGE_DESCRIPTION = DB_BACKUP_PAGE_DESCRIPTION;
 
+/**
+ * The `/admin/settings/db-backup` page: the backup policy, the run history and
+ * the restore and rollback actions. Gated on `db_backup:read` (the card's
+ * permission); writes need `db_backup:write`, and restoring `db_backup:restore`
+ * plus a deployment that offers it (`restore.available`: off in `saas`), and
+ * are DISABLED with the reason rather than hidden.
+ *
+ * Needs `PlatformHostProvider` (the transport and the viewer's permissions)
+ * and, for the responsive table, the jobs slice's `JobsWebAdaptersProvider`
+ * with a `DataTable` (a plain table otherwise).
+ *
+ * @returns the page.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export default function DbBackupPage() {
-  const { hasPermission } = usePermissions();
+  const { hasPermission } = usePlatformViewer();
+  const dbBackupApi = useDbBackupApi();
 
   const {
     config,
@@ -592,7 +612,7 @@ export default function DbBackupPage() {
                 // Replays THIS page's own query, so an export can only ever
                 // contain what the user's own list request already returns.
                 fetchAllRows: async ({ page: exportPage, pageSize: exportPageSize }) => {
-                  const response = await getBackupRuns({
+                  const response = await dbBackupApi.getBackupRuns({
                     ...query,
                     page: exportPage + 1,
                     pageSize: exportPageSize,

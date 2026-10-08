@@ -38,7 +38,6 @@ import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
 import CloudOutlinedIcon from '@mui/icons-material/CloudOutlined';
 // Operations (#266, epic #254). One icon per card; the Jobs, Job Insights and
 // Worker Nodes cards bring their own from the packaged jobs slice (#854).
-import BackupOutlinedIcon from '@mui/icons-material/BackupOutlined';
 // Broadcasts (#325, epic #319) — the one Operations card that is not a view
 // onto machinery, but an action taken through it.
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
@@ -56,6 +55,7 @@ import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 // Access and Organizations (#727): the identity slice's cards, as data.
 import { identityAdminSections } from '@marinoscar/platform-web/identity/ui';
 // The jobs slice's Operations cards (#854): Jobs, Job Insights, Worker Nodes.
+import { dbBackupAdminSections } from '@marinoscar/platform-web/db-backup/ui';
 import { jobsAdminSections } from '@marinoscar/platform-web/jobs/ui';
 // Setup guide (#745; a packaged page: card and icon from its descriptor).
 import { setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
@@ -331,41 +331,14 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       // Writes (`jobs:write`, `nodes:write`) are gated inside the pages: the
       // card gate is about REACHABILITY.
       ...jobsAdminSections.operations,
-      {
-        // Declared inert by #266 alongside the whole group; ROUTED by #287,
-        // the last issue of the epic, which ships the page. Flipping a card is
-        // the two-field edit the section header describes — a `path` appears
-        // and `disabled` disappears — and both consumers pick it up from that
-        // alone: the hub swaps its "Coming soon" chip for a real
-        // `CardActionArea`, and the Console rail, which skipped the row
-        // entirely, starts drawing it. Both of those move pixels, so the
-        // visual baselines were regenerated with this change.
-        //
-        // `permission` is UNCHANGED and was already right: `db_backup:read` is
-        // the literal string `db-backup/db-backup.controller.ts` enforces on
-        // its config read, its run list and its run detail
-        // (`PERMISSIONS.DB_BACKUP_READ`). NOT `system_settings:read`:
-        // `roles.constants.ts` reserves a dedicated
-        // `db_backup:read/write/restore` triple for this surface precisely so
-        // backup access can be granted without handing over the settings
-        // document, and mirroring the settings permission here would quietly
-        // undo that.
-        //
-        // Scheduling, cancelling and deleting need `db_backup:write`, and
-        // restoring or rolling back need `db_backup:restore` — a THIRD
-        // permission, kept separate by the API so it can be withheld from
-        // someone who may schedule backups but must not be able to replace the
-        // database. The PAGE gates both internally by disabling its controls;
-        // the card gate is about REACHABILITY, and "is this deployment being
-        // backed up, and what have we got" is worth reading for anyone
-        // answering "can we recover from this".
-        title: 'Database Backup',
-        description:
-          'Schedule backups, review what has been taken, and restore the database from one.',
-        Icon: BackupOutlinedIcon,
-        path: '/admin/settings/db-backup',
-        permission: 'db_backup:read',
-      },
+      // The `Database Backup` card (#287), the db-backup slice's since #740
+      // (`dbBackupAdminSections.operations`), at the position it always had.
+      // `permission: 'db_backup:read'` is the literal string
+      // `DatabaseBackupController` (`packages/platform-api/src/db-backup/`)
+      // enforces on its config read, its run list and its run detail; the
+      // page gates `db_backup:write` and `db_backup:restore` internally by
+      // disabling its controls (the card gate is about REACHABILITY).
+      ...dbBackupAdminSections.operations,
       {
         // Issue #325, epic #319. `broadcasts:read` is the literal string
         // `notifications/broadcasts/broadcasts.controller.ts`

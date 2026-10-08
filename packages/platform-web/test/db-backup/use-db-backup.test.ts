@@ -30,44 +30,46 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-vi.mock('../../services/dbBackup', async () => {
-  const actual = await vi.importActual<typeof import('../../services/dbBackup')>(
-    '../../services/dbBackup',
-  );
-  return {
-    ...actual,
-    getDbBackupConfig: vi.fn(),
-    updateDbBackupConfig: vi.fn(),
-    getBackupRuns: vi.fn(),
-    startBackupRun: vi.fn(),
-    cancelBackupRun: vi.fn(),
-    deleteBackupRun: vi.fn(),
-    getBackupDownloadUrl: vi.fn(),
-    startRestore: vi.fn(),
-    rollbackRestore: vi.fn(),
-  };
-});
-
-import {
-  getBackupRuns,
-  getDbBackupConfig,
-  startRestore,
-  updateDbBackupConfig,
-} from '../../services/dbBackup';
-import type { DbBackupConfig, DbBackupRun } from '../../services/dbBackup';
-import { ApiError } from '../../services/api';
-import { useVisiblePolling as sharedUseVisiblePolling } from '../../hooks/useVisiblePolling';
+import type { DbBackupApi, DbBackupConfig, DbBackupRun } from '../../src/db-backup/headless/index.js';
+import { useVisiblePolling as sharedUseVisiblePolling } from '../../src/jobs/headless/index.js';
 import {
   useDbBackupActions,
   useDbBackupConfig,
   useDbBackupRuns,
   useVisiblePolling,
-} from '../../hooks/useDbBackup';
+} from '../../src/db-backup/headless/index.js';
 
-const mockGetConfig = vi.mocked(getDbBackupConfig);
-const mockUpdateConfig = vi.mocked(updateDbBackupConfig);
-const mockGetRuns = vi.mocked(getBackupRuns);
-const mockStartRestore = vi.mocked(startRestore);
+/** The hooks' client, as a set of mocks (#740: the client is injected, not a module). */
+const api = {
+  getDbBackupConfig: vi.fn(),
+  updateDbBackupConfig: vi.fn(),
+  getBackupRuns: vi.fn(),
+  getBackupRun: vi.fn(),
+  startBackupRun: vi.fn(),
+  cancelBackupRun: vi.fn(),
+  deleteBackupRun: vi.fn(),
+  getBackupDownloadUrl: vi.fn(),
+  startRestore: vi.fn(),
+  rollbackRestore: vi.fn(),
+} satisfies Record<keyof DbBackupApi, unknown>;
+const client = api as unknown as DbBackupApi;
+
+/** What the app's transport rejects with when the API answered: a `PlatformApiError`. */
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+const mockGetConfig = api.getDbBackupConfig;
+const mockUpdateConfig = api.updateDbBackupConfig;
+const mockGetRuns = api.getBackupRuns;
+const mockStartRestore = api.startRestore;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -144,10 +146,9 @@ function setTabHidden(hidden: boolean) {
 }
 
 describe('the backup poll', () => {
-  it('is the app\'s ONE `useVisiblePolling`, not a copy', () => {
-    // Identity, not behaviour — see the file header. (The jobs and workers
-    // pages moved into @marinoscar/platform-web/jobs with that slice's own
-    // copy, #854; a package cannot import the app.)
+  it('is the jobs slice\'s ONE `useVisiblePolling`, not a copy', () => {
+    // Identity, not behaviour — see the file header. Since #740 the backup
+    // page's poll is the jobs slice's (`@marinoscar/platform-web/jobs/headless`).
     expect(useVisiblePolling).toBe(sharedUseVisiblePolling);
   });
 
@@ -207,7 +208,7 @@ describe('useDbBackupConfig', () => {
   });
 
   it('loads the policy on mount', async () => {
-    const { result } = renderHook(() => useDbBackupConfig());
+    const { result } = renderHook(() => useDbBackupConfig({ api: client }));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.config).toEqual(config);
@@ -216,7 +217,7 @@ describe('useDbBackupConfig', () => {
   });
 
   it('adopts the policy the API hands back, so `nextRunAt` is never the client’s arithmetic', async () => {
-    const { result } = renderHook(() => useDbBackupConfig());
+    const { result } = renderHook(() => useDbBackupConfig({ api: client }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     const saved = { ...config, timeOfDay: '05:00', nextRunAt: '2026-01-02T05:00:00.000Z' };
@@ -232,7 +233,7 @@ describe('useDbBackupConfig', () => {
   });
 
   it('surfaces the API’s own 400 message rather than inventing client-side validation', async () => {
-    const { result } = renderHook(() => useDbBackupConfig());
+    const { result } = renderHook(() => useDbBackupConfig({ api: client }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     mockUpdateConfig.mockRejectedValue(
@@ -252,7 +253,7 @@ describe('useDbBackupConfig', () => {
   });
 
   it('keeps the loaded policy on screen when a refresh fails', async () => {
-    const { result } = renderHook(() => useDbBackupConfig());
+    const { result } = renderHook(() => useDbBackupConfig({ api: client }));
     await waitFor(() => expect(result.current.config).toEqual(config));
 
     mockGetConfig.mockRejectedValue(new TypeError('Failed to fetch'));
@@ -279,7 +280,7 @@ describe('useDbBackupRuns', () => {
     // (its filters and its pagination), so a hook that fetched on mount would
     // issue an unfiltered request that the page's own effect immediately
     // replaces — two requests for one view, the first of them wrong.
-    const { result } = renderHook(() => useDbBackupRuns());
+    const { result } = renderHook(() => useDbBackupRuns({ api: client }));
 
     await act(async () => {
       await result.current.fetchRuns({ page: 2, pageSize: 50, status: 'failed' });
@@ -295,7 +296,7 @@ describe('useDbBackupRuns', () => {
 
   it('reports an API failure as a message and NOT as unreachable', async () => {
     mockGetRuns.mockRejectedValue(new ApiError('Something broke', 500));
-    const { result } = renderHook(() => useDbBackupRuns());
+    const { result } = renderHook(() => useDbBackupRuns({ api: client }));
     await act(async () => {
       await result.current.fetchRuns();
     });
@@ -311,7 +312,7 @@ describe('useDbBackupRuns', () => {
   it('reports a transport failure with no response as UNREACHABLE', async () => {
     // What the browser produces while the API process is gone mid-swap.
     mockGetRuns.mockRejectedValue(new TypeError('Failed to fetch'));
-    const { result } = renderHook(() => useDbBackupRuns());
+    const { result } = renderHook(() => useDbBackupRuns({ api: client }));
     await act(async () => {
       await result.current.fetchRuns();
     });
@@ -323,7 +324,7 @@ describe('useDbBackupRuns', () => {
 
   it('names a 403 by its remedy, which is a permission and not a retry', async () => {
     mockGetRuns.mockRejectedValue(new ApiError('Forbidden', 403));
-    const { result } = renderHook(() => useDbBackupRuns());
+    const { result } = renderHook(() => useDbBackupRuns({ api: client }));
     await act(async () => {
       await result.current.fetchRuns();
     });
@@ -372,7 +373,7 @@ describe('useDbBackupActions', () => {
     mockStartRestore.mockResolvedValue(guided);
 
     const onChanged = vi.fn();
-    const { result } = renderHook(() => useDbBackupActions(onChanged));
+    const { result } = renderHook(() => useDbBackupActions(onChanged, { api: client }));
 
     let outcome: unknown = null;
     await act(async () => {
@@ -385,7 +386,7 @@ describe('useDbBackupActions', () => {
 
   it('omits `overrideSchemaCheck` unless it is actually being set', async () => {
     mockStartRestore.mockResolvedValue({} as never);
-    const { result } = renderHook(() => useDbBackupActions());
+    const { result } = renderHook(() => useDbBackupActions(undefined, { api: client }));
 
     await act(async () => {
       await result.current.restore(run.id);
@@ -404,7 +405,7 @@ describe('useDbBackupActions', () => {
         activeRunId: 'other',
       }),
     );
-    const { result } = renderHook(() => useDbBackupActions());
+    const { result } = renderHook(() => useDbBackupActions(undefined, { api: client }));
 
     let outcome: unknown = 'unset';
     await act(async () => {

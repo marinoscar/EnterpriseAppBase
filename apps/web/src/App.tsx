@@ -124,7 +124,7 @@ const WorkersPage = lazy(() =>
 // Issue #287, epic #254 — the backup policy, the run history and the restore
 // dialog. Lazy for the same reason: a DataTable, a policy form and the restore
 // dialog that nobody who never opens the Console will ever mount.
-const DbBackupPage = lazy(() => import('./pages/Admin/DbBackupPage'));
+const DbBackupPage = lazy(() => import('@marinoscar/platform-web/db-backup/ui'));
 // Issue #325, epic #319 — the admin broadcast list and its composer. Lazy for
 // the same reason: a DataTable, a composer dialog and a detail dialog that
 // nobody who never opens the Console will ever mount.

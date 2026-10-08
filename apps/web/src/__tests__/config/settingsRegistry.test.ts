@@ -839,7 +839,7 @@ describe('the Operations group (#266)', () => {
       'utf8',
     );
     const dbBackupController = readFileSync(
-      resolve(API_SRC, 'db-backup/db-backup.controller.ts'),
+      resolve(PLATFORM_API_SRC, 'db-backup/db-backup.controller.ts'),
       'utf8',
     );
 
