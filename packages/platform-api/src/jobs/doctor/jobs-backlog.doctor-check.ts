@@ -1,8 +1,9 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Inject } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { PrismaService } from '../../prisma/prisma.service';
+import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/index';
+import { DoctorCheckRegistry } from '../../doctor/index';
+import { type JobsPrisma } from '../data/jobs-db';
+import { PLATFORM_PRISMA } from '../../core/index';
 import { JobAdminService } from '../job-admin.service';
 import { JOBS_SETTINGS_PATH } from './jobs-worker.doctor-check';
 
@@ -69,7 +70,7 @@ export class JobsBacklogDoctorCheck implements DoctorCheck, OnModuleInit {
   constructor(
     private readonly registry: DoctorCheckRegistry,
     private readonly jobAdmin: JobAdminService,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
   ) {}
 
   onModuleInit(): void {

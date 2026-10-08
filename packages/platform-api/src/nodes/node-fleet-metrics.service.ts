@@ -82,21 +82,23 @@
 // is not known at the point it records `app.jobs.reaped`.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional, Inject } from '@nestjs/common';
 import type { BatchObservableResult, Meter, ObservableGauge } from '@opentelemetry/api';
 
 import {
-  AppMetricsService,
-  createRegisteredGauge,
-  GAUGE_CACHE_TTL_MS,
+  MetricsHostService,
   OTHER_LABEL,
-  fallbackAppMetrics,
+  createRegisteredGauge,
   shapeLabel,
   type AppGaugeContext,
-  type AppMetricKey,
-} from '../common/otel/app-metrics.service';
-import { NodeOffloadService } from '../jobs/node-offload.service';
-import { PrismaService } from '../prisma/prisma.service';
+  type AppMetricKeyLike as AppMetricKey,
+} from '../otel-core/index';
+
+/** How long one fleet snapshot is reused across collections and callbacks (the app gauges' TTL). */
+export const GAUGE_CACHE_TTL_MS = 30_000;
+import { NodeOffloadService } from '../jobs/index';
+import { type JobsPrisma } from '../jobs/index';
+import { PLATFORM_PRISMA } from '../core/index';
 import { deriveNodeHealth, NodeLifecycleService, type NodeHealth } from './node-lifecycle.service';
 
 /** Vitals older than this many stale windows are not exported. */
@@ -223,7 +225,7 @@ function describe(error: unknown): string {
 @Injectable()
 export class NodeFleetMetrics implements OnModuleInit {
   private readonly logger = new Logger(NodeFleetMetrics.name);
-  private readonly metrics: AppMetricsService;
+  private readonly metrics: MetricsHostService;
 
   private registered = false;
   private context: AppGaugeContext | null = null;
@@ -231,12 +233,12 @@ export class NodeFleetMetrics implements OnModuleInit {
   private inFlight: Promise<FleetSnapshot | null> | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly lifecycle: NodeLifecycleService,
     private readonly offload: NodeOffloadService,
-    @Optional() metrics?: AppMetricsService,
+    @Optional() metrics?: MetricsHostService,
   ) {
-    this.metrics = metrics ?? fallbackAppMetrics();
+    this.metrics = metrics ?? new MetricsHostService();
   }
 
   onModuleInit(): void {

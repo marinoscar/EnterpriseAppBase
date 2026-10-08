@@ -22,7 +22,7 @@ import { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { JobStuckService, stuckRunningWhere } from './job-stuck.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
-import type { PrismaService } from '../prisma/prisma.service';
+import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 const THRESHOLD = new Date('2026-01-01T12:00:00.000Z');
@@ -53,7 +53,7 @@ function makeService(overrides: {
 
   const prisma = {
     job: { findMany, updateMany, updateManyAndReturn },
-  } as unknown as PrismaService;
+  } as unknown as JobsPrisma;
 
   const events = { emit: jest.fn() };
 

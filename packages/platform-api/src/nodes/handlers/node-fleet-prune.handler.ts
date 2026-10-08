@@ -93,13 +93,12 @@
 // is the clearest possible case of work that does not belong off-machine.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Job } from '@prisma/client';
-import { Prisma } from '@prisma/client';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { type Job, type JobsPrisma, type JobsWhere } from '../../jobs/index';
+import { PLATFORM_PRISMA } from '../../core/index';
 
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { PrismaService } from '../../prisma/prisma.service';
+import { JobHandler } from '../../jobs/index';
+import { JobHandlerRegistry } from '../../jobs/index';
 import { NodeLifecycleService } from '../node-lifecycle.service';
 
 /**
@@ -131,7 +130,7 @@ export interface PruneOfflineNodesResult {
  * Exported so the delete can re-assert exactly what the select matched, without
  * a second hand-written copy that can drift from it.
  */
-export function prunableOfflineNodeWhere(cutoff: Date): Prisma.WorkerNodeWhereInput {
+export function prunableOfflineNodeWhere(cutoff: Date): JobsWhere {
   return {
     status: 'offline',
     OR: [
@@ -154,7 +153,7 @@ export class NodeFleetPruneHandler implements JobHandler, OnModuleInit {
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly lifecycle: NodeLifecycleService
   ) {}
 

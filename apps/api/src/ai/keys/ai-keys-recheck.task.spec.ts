@@ -9,7 +9,7 @@
 // =============================================================================
 
 import type { AiConfigService, AiPolicy } from '../config/ai-config.service';
-import type { JobsService } from '../../jobs/jobs.service';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { AiKeysRecheckTask } from './ai-keys-recheck.task';
 

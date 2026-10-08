@@ -58,8 +58,9 @@
 // `health` column and there must not be one.
 // =============================================================================
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { WorkerNode } from '@prisma/client';
+import { Injectable, Logger, NotFoundException, Inject } from '@nestjs/common';
+import { type JobsPrisma, type WorkerNode } from '../jobs/index';
+import { PLATFORM_PRISMA } from '../core/index';
 
 import {
   AdminNodeCredentialDto,
@@ -69,7 +70,6 @@ import {
 } from './dto/node-admin.dto';
 import { deriveNodeHealth, NodeLifecycleService } from './node-lifecycle.service';
 import { NodeCredentialService } from './node-credential.service';
-import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * The owner columns every admin response carries, selected explicitly.
@@ -96,7 +96,7 @@ export class NodesAdminService {
   private readonly logger = new Logger(NodesAdminService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly lifecycle: NodeLifecycleService,
     private readonly credentials: NodeCredentialService
   ) {}

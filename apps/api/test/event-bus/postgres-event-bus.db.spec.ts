@@ -19,9 +19,9 @@ import { PostgresEventBus } from '../../src/common/event-bus/postgres-event-bus'
 import { ConfigService } from '@nestjs/config';
 import { Job } from '@prisma/client';
 
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JobWorker } from '../../src/jobs/job.worker';
-import { JobsService } from '../../src/jobs/jobs.service';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobWorker } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 

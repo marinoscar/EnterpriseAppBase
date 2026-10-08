@@ -133,12 +133,13 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  Inject,
 } from '@nestjs/common';
-import { Job, JobNodeSecret } from '@prisma/client';
+import { type Job, type JobNodeSecret, type JobsPrisma } from '../jobs/index';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { JobHandlerRegistry } from '../jobs/job-handler.registry';
-import type { JobSecretBroker } from '../jobs/job-secret-broker';
-import { PrismaService } from '../prisma/prisma.service';
+import { JobHandlerRegistry } from '../jobs/index';
+import type { JobSecretBroker } from '../jobs/index';
 import { NodeJobSecretRequestDto, NodeJobSecretResponseDto } from './dto/node-job-secret.dto';
 import { NodeLifecycleService } from './node-lifecycle.service';
 import { NodesService } from './nodes.service';
@@ -207,7 +208,7 @@ export class NodeSecretBrokerService {
   private readonly logger = new Logger(NodeSecretBrokerService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     // REUSED, never reimplemented: `assertJobHeldByNode` is the only reason
     // this route is safe. See the file header.
     private readonly nodes: NodesService,

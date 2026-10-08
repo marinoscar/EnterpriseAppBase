@@ -11,11 +11,11 @@
 import { Logger } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobSettledEvent } from '../../jobs/events/job-settled.event';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JOB_TYPE_LABELS } from '../../jobs/job-type-labels';
-import { RateLimitError } from '../../jobs/rate-limit.error';
+import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JOB_TYPE_LABELS } from '@marinoscar/platform-api/jobs';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import { AiError } from '../core/ai-error';
 import {
   createAiRuntimeHarness,

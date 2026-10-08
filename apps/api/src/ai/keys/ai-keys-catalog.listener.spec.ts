@@ -2,7 +2,7 @@
 // AiKeysCatalogListener (issue #431, epic #419)
 // =============================================================================
 
-import type { JobsService } from '../../jobs/jobs.service';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
 import { AiKeysCatalogListener } from './ai-keys-catalog.listener';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));

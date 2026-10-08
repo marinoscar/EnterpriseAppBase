@@ -32,12 +32,11 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaClient, type Job } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JobStuckService } from '../../src/jobs/job-stuck.service';
-import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
-import { NodeFleetPruneHandler } from '../../src/nodes/handlers/node-fleet-prune.handler';
-import { NodeFleetSweepHandler } from '../../src/nodes/handlers/node-fleet-sweep.handler';
-import type { NotificationsService } from '../../src/notifications/notifications.service';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobStuckService } from '@marinoscar/platform-api/jobs';
+import { NodeLifecycleService } from '@marinoscar/platform-api/nodes';
+import { NodeFleetPruneHandler } from '@marinoscar/platform-api/nodes';
+import { NodeFleetSweepHandler } from '@marinoscar/platform-api/nodes';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
@@ -93,11 +92,10 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
     const lifecycle = new NodeLifecycleService(settings);
     const prismaService = prisma as unknown as PrismaService;
 
-    // #288's notifier, stubbed: this suite is about what real Postgres does to
-    // the rows, not about what the sweep tells anybody.
-    const notifications = {
-      notifyPermissionHolders: async () => undefined,
-    } as unknown as NotificationsService;
+    // The sweep's `nodes.node.offline` emitter (#288; an event since #734),
+    // stubbed: this suite is about what real Postgres does to the rows, not
+    // about what the sweep tells anybody.
+    const events = { emit: () => true } as unknown as EventEmitter2;
 
     // ⚠ #353 (epic #345) MOVED BOTH SWEEPS ONTO HANDLERS. This suite is about
     // what real Postgres does to the rows, which is a property of the work and
@@ -105,7 +103,7 @@ describeWithDb('Worker-node fleet lifecycle (real Postgres)', () => {
     // enqueue.
     const registry = new JobHandlerRegistry();
 
-    sweep = new NodeFleetSweepHandler(registry, prismaService, lifecycle, config, notifications);
+    sweep = new NodeFleetSweepHandler(registry, prismaService, lifecycle, events);
     prune = new NodeFleetPruneHandler(registry, prismaService, lifecycle);
     reaper = new JobStuckService(
       prismaService,

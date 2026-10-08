@@ -63,13 +63,14 @@
 // =============================================================================
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { Job, JobReason, Prisma } from '@prisma/client';
+import { type Job, JobReason, type JobsCreateData, type JobsInputJsonValue, type JobsPrisma, type JobsTx } from './data/jobs-db';
+import { PrismaClientKnownRequestError } from './data/prisma-runtime';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
+import { JOBS_METRICS, NOOP_JOBS_METRICS, type JobsMetrics } from './ports';
 import { buildDedupKey } from './job-keys';
 import { captureJobTraceContext } from './job-trace-context';
-import { EVENT_BUS, type EventBus } from '../common/event-bus/event-bus.interface';
+import { JOBS_EVENT_BUS, type JobsEventBus } from './ports';
 import { JOBS_ENQUEUED_CHANNEL, type JobsEnqueuedMessage } from './job-wake';
 
 /**
@@ -128,7 +129,7 @@ export interface EnqueueJobInput {
    * a row named in the payload should be re-read at run time rather than
    * carried inside a payload that has gone stale.
    */
-  payload?: Prisma.InputJsonValue | null;
+  payload?: JobsInputJsonValue | null;
 
   /** Ascending = more urgent. Defaults to the column default (`0`). */
   priority?: number;
@@ -175,7 +176,7 @@ export interface EnqueueJobInput {
  * never to "an unrelated conflict is silently swallowed".
  */
 export function isActiveDedupConflict(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+  if (!(error instanceof PrismaClientKnownRequestError) || error.code !== 'P2002') {
     return false;
   }
 
@@ -254,7 +255,7 @@ function resolveDedupKey(input: EnqueueJobInput): string | null {
 function buildJobCreateData(
   input: EnqueueJobInput,
   dedupKey: string | null
-): Prisma.JobCreateInput {
+): JobsCreateData {
   return {
     type: input.type,
     reason: input.reason,
@@ -281,15 +282,15 @@ export class JobsService {
   private readonly logger = new Logger(JobsService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     // #600. Optional so hand-built instances in tests need no stub; the global
     // `AppMetricsModule` always provides it in the application.
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() @Inject(JOBS_METRICS) private readonly metrics: JobsMetrics = NOOP_JOBS_METRICS,
     // PP-1.11 (#682): wakes idle workers, on this replica and others, when a
     // job is due now. Optional for the same reason as `metrics`; the global
     // `EventBusModule` always provides it in the application. Without it,
     // workers simply find the job on their next poll.
-    @Optional() @Inject(EVENT_BUS) private readonly bus?: EventBus,
+    @Optional() @Inject(JOBS_EVENT_BUS) private readonly bus?: JobsEventBus,
   ) {}
 
   /**
@@ -425,7 +426,7 @@ export class JobsService {
    * dedup key. Callers must classify it with {@link isActiveDedupConflict}
    * rather than assuming every failure here is a duplicate.
    */
-  async enqueueWithin(tx: Prisma.TransactionClient, input: EnqueueJobInput): Promise<Job> {
+  async enqueueWithin(tx: JobsTx, input: EnqueueJobInput): Promise<Job> {
     const created = await tx.job.create({ data: buildJobCreateData(input, resolveDedupKey(input)) });
     // Counted when the INSERT succeeds inside the caller's transaction; a
     // later rollback of that transaction is not un-counted (rare, and the

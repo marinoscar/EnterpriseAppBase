@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Job } from '@prisma/client';
 
-import type { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';

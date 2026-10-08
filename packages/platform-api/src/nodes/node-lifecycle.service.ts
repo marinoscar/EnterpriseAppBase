@@ -60,10 +60,8 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 
-import { SystemNodesValue } from '../common/schemas/settings.schema';
-import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import { readJobSecretBrokerEnabled } from '../jobs/node-offload.service';
+import { SystemSettingsService } from '../settings/index';
+import { DEFAULT_NODES_POLICY, readJobSecretBrokerEnabled, type NodesPolicy } from '../jobs/index';
 
 /**
  * The derived liveness verdict for one node.
@@ -157,11 +155,11 @@ export class NodeLifecycleService {
    * the good half, because falling back on both would silently change the
    * threshold an operator is watching.
    */
-  async getPolicy(): Promise<SystemNodesValue> {
-    const defaults = DEFAULT_SYSTEM_SETTINGS.nodes;
+  async getPolicy(): Promise<NodesPolicy> {
+    const defaults = DEFAULT_NODES_POLICY;
 
     try {
-      const policy = await this.systemSettings.getNodesPolicy();
+      const policy = (await this.systemSettings.getNodesPolicy()) as Partial<NodesPolicy> | null | undefined;
 
       return {
         staleHeartbeatSeconds: positive(policy?.staleHeartbeatSeconds, defaults.staleHeartbeatSeconds),
@@ -204,14 +202,14 @@ export class NodeLifecycleService {
    * `NodeStaleOfflineTask` for why this is a multiple of the stale window and
    * not a setting of its own.
    */
-  staleCutoff(policy: SystemNodesValue, now: Date): Date {
+  staleCutoff(policy: NodesPolicy, now: Date): Date {
     return new Date(
       now.getTime() - policy.staleHeartbeatSeconds * policy.offlineStaleMultiplier * 1000
     );
   }
 
   /** The instant before which an `offline` node's record has outlived its retention. */
-  retentionCutoff(policy: SystemNodesValue, now: Date): Date {
+  retentionCutoff(policy: NodesPolicy, now: Date): Date {
     return new Date(now.getTime() - policy.offlineRetentionDays * 24 * 60 * 60 * 1000);
   }
 }

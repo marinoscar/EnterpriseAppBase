@@ -7,7 +7,7 @@ import {
 import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { AppModule } from '../../src/app.module';
-import { JobWorker } from '../../src/jobs/job.worker';
+import { JobWorker } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { PrismaSystemService } from '../../src/prisma/prisma-system.service';
 import { prismaMock } from '../mocks/prisma.mock';

@@ -42,7 +42,7 @@ import {
 import {
   DownloadUrlResponseDto,
 } from './dto/download-url-response.dto';
-import { isActiveDedupConflict, JobsService } from '../../jobs/jobs.service';
+import { isActiveDedupConflict, JobsService } from '@marinoscar/platform-api/jobs';
 import { ObjectProcessingService } from '../processing/object-processing.service';
 import { buildProcessedMetadata } from '../processing/processing-metadata';
 import { STORAGE_OBJECT_PROCESS_TYPE } from '../handlers/storage-object-process.handler';

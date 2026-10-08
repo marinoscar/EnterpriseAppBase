@@ -20,7 +20,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { NodeCredentialService, NODE_TOKEN_PREFIX } from './node-credential.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
 
@@ -67,7 +67,7 @@ describe('NodeCredentialService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NodeCredentialService,
-        { provide: PrismaService, useValue: mockPrisma },
+        { provide: JobsPrisma, useValue: mockPrisma },
       ],
     }).compile();
 

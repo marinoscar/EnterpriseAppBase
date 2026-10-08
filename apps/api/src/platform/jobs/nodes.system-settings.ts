@@ -12,25 +12,17 @@ import {
   systemNodesPatchSchema,
   systemNodesSchema,
   type SystemNodesValue,
-} from '../common/schemas/settings.schema';
-import { nodesSettingsPatchSchema, nodesSettingsSchema } from '../common/schemas/system-settings-wire.schemas';
-import { nodesResponseSchema } from '../common/schemas/system-settings-response.schemas';
+} from '../../common/schemas/settings.schema';
+import { nodesSettingsPatchSchema, nodesSettingsSchema } from '../../common/schemas/system-settings-wire.schemas';
+import { nodesResponseSchema } from '../../common/schemas/system-settings-response.schemas';
 import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
+import { DEFAULT_NODES_POLICY } from '@marinoscar/platform-api/jobs';
 
-const NODES_SYSTEM_DEFAULTS: SystemNodesValue = {
-  staleHeartbeatSeconds: 90,
-  offlineStaleMultiplier: 4,
-  offlineRetentionDays: 30,
-  // ⚠ OFF, AND THE DEFAULT IS THE POINT (#349, epic #345). A fresh
-  // deployment does not hand its worker fleet credentials to its own
-  // database because somebody registered a node; an administrator turns
-  // this on deliberately, having decided that those machines are inside the
-  // trust boundary. Fail-closed also means a settings row that cannot be
-  // read degrades to "no credentials for anyone", which is the safe
-  // direction — unlike the fleet's other three values, where degrading to
-  // the shipped policy is the safe direction.
-  jobSecretBrokerEnabled: false,
-};
+// The shipped values are the jobs slice's (`DEFAULT_NODES_POLICY`, #734): the
+// numbers `NodeLifecycleService` falls back on and a fresh row's are one
+// definition. The broker stays OFF by default (#349): an administrator turns it
+// on deliberately, having decided the fleet is inside the trust boundary.
+const NODES_SYSTEM_DEFAULTS: SystemNodesValue = { ...DEFAULT_NODES_POLICY };
 
 export const NODES_SYSTEM_SETTINGS = {
   key: 'nodes',

@@ -61,9 +61,8 @@
 // =============================================================================
 
 import { Logger } from '@nestjs/common';
-import type { Job } from '@prisma/client';
+import { type Job, type JobsPrisma } from './data/jobs-db';
 
-import type { PrismaService } from '../prisma/prisma.service';
 import type { JobsService } from './jobs.service';
 
 /**
@@ -85,7 +84,7 @@ export const HOUSEKEEPING_PRIORITY = 100;
 /** What one enqueue attempt needs. All four are required. */
 export interface HousekeepingEnqueueOptions {
   jobs: JobsService;
-  prisma: PrismaService;
+  prisma: JobsPrisma;
   /** The caller's own logger, so the line is attributed to the task. */
   logger: Logger;
   /** The `JobHandler.type` to queue. */

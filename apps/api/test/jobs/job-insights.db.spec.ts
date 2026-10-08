@@ -50,9 +50,9 @@
 import type { ConfigService } from '@nestjs/config';
 import { Prisma, PrismaClient } from '@prisma/client';
 
-import { JobHistoryPurgeHandler } from '../../src/jobs/handlers/job-history-purge.handler';
-import { JobInsightsService } from '../../src/jobs/job-insights.service';
-import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHistoryPurgeHandler } from '@marinoscar/platform-api/jobs';
+import { JobInsightsService } from '@marinoscar/platform-api/jobs';
+import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { Job } from '@prisma/client';

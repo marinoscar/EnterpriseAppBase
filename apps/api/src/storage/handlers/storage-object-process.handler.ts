@@ -51,9 +51,9 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import type { Job, StorageObject } from '@prisma/client';
 
-import { JOB_SETTLED_EVENT, type JobSettledEvent } from '../../jobs/events/job-settled.event';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JOB_SETTLED_EVENT, type JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { resolveJobOrgId } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ObjectProcessingService } from '../processing/object-processing.service';

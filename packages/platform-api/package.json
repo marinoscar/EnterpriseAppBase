@@ -98,6 +98,18 @@
       "types": "./dist/email/testing/index.d.ts",
       "default": "./dist/email/testing/index.js"
     },
+    "./jobs": {
+      "types": "./dist/jobs/index.d.ts",
+      "default": "./dist/jobs/index.js"
+    },
+    "./jobs/testing": {
+      "types": "./dist/jobs/testing/index.d.ts",
+      "default": "./dist/jobs/testing/index.js"
+    },
+    "./nodes": {
+      "types": "./dist/nodes/index.d.ts",
+      "default": "./dist/nodes/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -149,6 +161,7 @@
     "@nestjs/swagger": "^11.2.5",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^7.8.0",
+    "@prisma/client-runtime-utils": "^7.8.0",
     "fastify": "^5",
     "nestjs-zod": "^5.4.0",
     "passport": "^0.7.0",
@@ -175,6 +188,7 @@
     "@nestjs/testing": "^11.1.12",
     "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^7.8.0",
+    "@prisma/client-runtime-utils": "^7.8.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.15.32",
     "@types/nodemailer": "^8.0.1",

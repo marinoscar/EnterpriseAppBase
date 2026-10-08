@@ -23,7 +23,7 @@
 import request from 'supertest';
 import { registerResourceType, type ResourceOwnerInfo } from '@marinoscar/platform-api/sharing';
 
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { NotificationsService } from '../../src/notifications/notifications.service';
 import { authHeader, createMockTestUser, type TestUser } from '../helpers/auth-mock.helper';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';

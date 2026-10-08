@@ -15,7 +15,7 @@
 
 import request from 'supertest';
 
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { aiRunSchema, aiRunStartedSchema } from '../../src/ai/http/dto/ai-response.dto';
 import { classifyOpenAiModel, OPENAI_TTS1_VOICES } from '../../src/ai/providers/openai/openai-model-catalog';
 import { aiOutputKeyPrefix } from '../../src/ai/storage/ai-output-writer';

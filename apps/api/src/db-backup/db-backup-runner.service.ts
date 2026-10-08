@@ -12,10 +12,10 @@ import {
 } from '@prisma/client';
 
 import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract';
-import { enqueueHousekeepingJob } from '../jobs/housekeeping.enqueue';
-import { buildDedupKey } from '../jobs/job-keys';
+import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
+import { buildDedupKey } from '@marinoscar/platform-api/jobs';
 import { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
-import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
+import { isActiveDedupConflict, JobsService } from '@marinoscar/platform-api/jobs';
 import { resolveApiVersion } from '../openapi/version';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';

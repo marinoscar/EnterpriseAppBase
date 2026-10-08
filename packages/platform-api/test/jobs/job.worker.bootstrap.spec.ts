@@ -27,7 +27,7 @@ import { Injectable, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Job } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
 import { ClaimOptions, JobClaimService } from './job-claim.service';
 import { JobHandler } from './job-handler.interface';
@@ -39,7 +39,6 @@ import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
 import { platformHostModule } from '../platform/platform-host.module';
 import { doctorModule } from '../doctor/doctor.config';
-import { PrismaService } from '../prisma/prisma.service';
 
 /** How long the handler below stalls before registering itself. */
 const REGISTRATION_DELAY_MS = 40;
@@ -116,7 +115,7 @@ describe('JobWorker lifecycle (real module graph)', () => {
       .useValue({ canActivate: () => true })
       // The graph must RESOLVE, not reach a database: this suite is about
       // lifecycle ordering and never runs a job.
-      .overrideProvider(PrismaService)
+      .overrideProvider(JobsPrisma)
       .useValue({})
       // The claim is the observation point. Recording `eligibleTypes` is
       // recording exactly what the registry contained at the moment the

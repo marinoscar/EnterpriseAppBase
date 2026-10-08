@@ -1,27 +1,26 @@
-import { Module } from '@nestjs/common';
+import { DynamicModule, Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
-import { SettingsModule } from '../platform/settings/settings.config';
-import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
-import { ExampleChecksumHandler } from './handlers/example-checksum.handler';
-import { ExampleEchoHandler } from './handlers/example-echo.handler';
+import { JobsBacklogDoctorCheck } from './doctor/jobs-backlog.doctor-check';
+import { JobsWorkerDoctorCheck } from './doctor/jobs-worker.doctor-check';
 import { JobHistoryPurgeHandler } from './handlers/job-history-purge.handler';
 import { JobAdminController } from './job-admin.controller';
 import { JobAdminService } from './job-admin.service';
-import { JobInsightsService } from './job-insights.service';
 import { JobClaimService } from './job-claim.service';
 import { JobHandlerRegistry } from './job-handler.registry';
+import { JobInsightsService } from './job-insights.service';
 import { JobLeaseService } from './job-lease.service';
 import { JobStuckService } from './job-stuck.service';
+import { configureJobTempPrefix } from './job-temp';
 import { JobTerminalService } from './job-terminal.service';
 import { JobWorker } from './job.worker';
-import { NodeOffloadService } from './node-offload.service';
+import { JOBS_OPTIONS, jobsConfigOverlay, resolveJobsModuleOptions, type JobsModuleOptions } from './jobs.options';
 import { JobsService } from './jobs.service';
+import { NodeOffloadService } from './node-offload.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { JobHistoryPurgeTask } from './tasks/job-history-purge.task';
 import { JobStuckResetTask } from './tasks/job-stuck-reset.task';
 import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
-import { JobsBacklogDoctorCheck } from './doctor/jobs-backlog.doctor-check';
-import { JobsWorkerDoctorCheck } from './doctor/jobs-worker.doctor-check';
 
 // =============================================================================
 // JobsModule (issues #259 - #265, epic #254)
@@ -80,33 +79,12 @@ import { JobsWorkerDoctorCheck } from './doctor/jobs-worker.doctor-check';
 // code references, not user data, and a module that can reach it can already
 // reach the handler classes it would register.
 //
-// `ExampleEchoHandler` is exported so a fork can see the worked example wired
-// the same way its own handlers will be, and so tests can resolve it from
-// this module rather than reconstructing it. It is provided HERE rather than
-// in a feature module only because it belongs to no feature; a real handler
-// lives with the feature it serves (see `handlers/README.md`, step 3).
-//
-// `ExampleChecksumHandler` (#269) is the same, for the NODE-ELIGIBLE half of
-// the same lesson, and it is the reason `StorageProvidersModule` now appears
-// in the import list. It needs `STORAGE_PROVIDER` for its server-side
-// `process` — a node-eligible type must still be runnable by the in-process
-// worker, or a deployment with no fleet could not execute a type it can
-// enqueue.
-//
-// ⚠ `StorageProvidersModule` AND NOT `StorageModule`, deliberately. The
-// provider module contributes ONE token and no controllers; `StorageModule`
-// would pull `ObjectsController`, `ObjectsService` and the upload-processing
-// pipeline into the queue's graph, and would make the queue depend on the
-// interactive storage API rather than on the ability to read bytes. The node
-// plane makes the identical choice for the identical reason — see
-// `nodes.module.ts`. The direction is still acyclic: nothing under
-// `src/storage/providers/` imports `JobsModule`.
-//
-// Until #269 this template shipped NO node-eligible handler, which made the
-// whole fleet untestable end to end: `NodesService.claimJobs` intersects with
-// the registry's node-eligible types, so with none registered, every claim by
-// every node correctly returned an empty list and no data-plane defect could
-// be observed. `example.checksum` is what closes that loop.
+// The worked examples (`example.echo`, server-only, and `example.checksum`,
+// node-eligible, #269) are NOT here since #734: they are the reference app's
+// (`apps/api/src/examples/jobs/`, registered by its `ExamplesModule`), which
+// is where a fork's own handlers live too. That also took the queue's only
+// dependency on object storage (`StorageProvidersModule`, for the checksum's
+// server-side `process`) out of this slice.
 //
 // `JobsService` is exported because EVERY feature module that queues work
 // needs it — that is step 4 of the extension recipe, and there is no other
@@ -147,7 +125,8 @@ import { JobsWorkerDoctorCheck } from './doctor/jobs-worker.doctor-check';
 // should have. Contrast every export above, each of which exists because some
 // other module genuinely cannot do its job without it.
 //
-// `PrismaService` is not imported here: `PrismaModule` is `@Global()`.
+// The database is the core port `PLATFORM_PRISMA`, bound globally by the
+// app's `PlatformHostModule`; it needs no import here.
 // `EventEmitter2` is likewise global — `EventEmitterModule.forRoot()` in
 // `app.module.ts` — so the settled event needs no import either.
 //
@@ -176,57 +155,93 @@ import { JobsWorkerDoctorCheck } from './doctor/jobs-worker.doctor-check';
 // is exported so a fork can resolve it in a test without rebuilding this
 // module.
 //
-// `SettingsModule` IS NOW IMPORTED, and it is the only new module dependency:
-// the reaper reads `jobs.stuckThresholdMinutes` and the purge reads
+// The reaper reads `jobs.stuckThresholdMinutes` and the purge reads
 // `jobs.history.*`, both through `SystemSettingsService`'s narrow
-// `getJobsPolicy()` accessor. The direction is acyclic — settings depends on
-// nothing here — and it mirrors `NotificationsModule`, which imports
-// `SettingsModule` for exactly the same kind of read.
+// `getJobsPolicy()` accessor. `SettingsModule.forRoot()` is global
+// (`@marinoscar/platform-api/settings`), so it needs no import here either.
+//
+// -----------------------------------------------------------------------------
+// PACKAGED (#734): ONE `forRoot`, GLOBAL
+// -----------------------------------------------------------------------------
+//
+// `JobsModule.forRoot(options)` is called once per app and is GLOBAL: every
+// feature module whose handler self-registers injects `JobHandlerRegistry`
+// (and `JobsService`) without importing anything, and so does the nodes
+// slice. A module that still lists the configured module in its `imports`
+// (the reference app does, for readability) gets the same single instance.
 // =============================================================================
 
-@Module({
-  imports: [SettingsModule, StorageProvidersModule],
-  controllers: [JobAdminController],
-  providers: [
-    JobAdminService,
-    JobInsightsService,
-    JobHandlerRegistry,
-    // The one answer to "what may a node claim here, right now" (#352).
-    // EXPORTED below, because its second reader is in the nodes module: the
-    // node plane takes the set and `JobWorker`'s `system` mode takes its
-    // COMPLEMENT, which is what makes the two a partition rather than two
-    // derivations that agreed by luck until a runtime gate appeared. See
-    // `node-offload.service.ts`.
-    NodeOffloadService,
-    ExampleEchoHandler,
-    ExampleChecksumHandler,
-    JobHistoryPurgeHandler,
-    JobsService,
-    JobClaimService,
-    JobLeaseService,
-    ProviderThrottleService,
-    JobTerminalService,
-    JobStuckService,
-    JobWorker,
-    JobStuckResetTask,
-    JobHistoryPurgeTask,
-    TempFileJanitorTask,
-    // Doctor checks (#634) — they inject the @Global doctor registry.
-    JobsWorkerDoctorCheck,
-    JobsBacklogDoctorCheck,
-  ],
-  exports: [
-    JobHandlerRegistry,
-    NodeOffloadService,
-    ExampleEchoHandler,
-    ExampleChecksumHandler,
-    JobHistoryPurgeHandler,
-    JobsService,
-    JobClaimService,
-    JobLeaseService,
-    ProviderThrottleService,
-    JobTerminalService,
-    JobStuckService,
-  ],
-})
-export class JobsModule {}
+
+const EXPORTED = [
+  JobHandlerRegistry,
+  NodeOffloadService,
+  JobHistoryPurgeHandler,
+  JobsService,
+  JobClaimService,
+  JobLeaseService,
+  ProviderThrottleService,
+  JobTerminalService,
+  JobStuckService,
+] as const;
+
+const INTERNAL = [
+  JobAdminService,
+  JobInsightsService,
+  JobWorker,
+  JobStuckResetTask,
+  JobHistoryPurgeTask,
+  TempFileJanitorTask,
+  JobsWorkerDoctorCheck,
+  JobsBacklogDoctorCheck,
+] as const;
+
+/**
+ * The jobs slice: the background queue (enqueue with dedup, the atomic claim,
+ * leases, the terminal state machine, provider throttling), the in-process
+ * worker pool, the lease reaper, the temp-file janitor, the job-history purge,
+ * the `/api/admin/jobs` routes and the `jobs.*` Doctor checks.
+ *
+ * @stability experimental
+ */
+@Module({})
+export class JobsModule {
+  /**
+   * The slice for one app. Call once.
+   *
+   * @param options - see {@link JobsModuleOptions}.
+   * @returns the dynamic module (global). It provides and exports
+   *   `JobHandlerRegistry`, `JobsService`, `JobClaimService`,
+   *   `JobLeaseService`, `JobTerminalService`, `JobStuckService`,
+   *   `ProviderThrottleService`, `NodeOffloadService`,
+   *   `JobHistoryPurgeHandler` and `JOBS_OPTIONS`.
+   * @throws Error when an option is invalid.
+   *
+   * @example
+   * ```ts
+   * JobsModule.forRoot({ appName: APP_NAME, imports: [JobsHostModule] });
+   * ```
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  static forRoot(options: JobsModuleOptions = {}): DynamicModule {
+    const resolved = resolveJobsModuleOptions(options);
+    if (resolved.appName !== undefined) configureJobTempPrefix(resolved.appName);
+
+    // Only when something is overridden: `forRoot({})` reads the app's own
+    // global `ConfigService`, exactly as before the move.
+    const overlay =
+      Object.keys(resolved.overrides).length > 0
+        ? [{ provide: ConfigService, useValue: jobsConfigOverlay(resolved.overrides) }]
+        : [];
+
+    return {
+      module: JobsModule,
+      global: true,
+      imports: [...resolved.imports],
+      controllers: [JobAdminController],
+      providers: [{ provide: JOBS_OPTIONS, useValue: resolved }, ...overlay, ...EXPORTED, ...INTERNAL],
+      exports: [JOBS_OPTIONS, ...EXPORTED],
+    };
+  }
+}

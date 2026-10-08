@@ -10,10 +10,9 @@
 // batching loop's exit conditions, and the disabled switch.
 // =============================================================================
 
-import { Job, JobStatus } from '@prisma/client';
+import { type Job, JobStatus, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
 import { foldDeltas, JobHistoryPurgeHandler, purgeableWhere } from './job-history-purge.handler';
-import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { JobHandler } from '../job-handler.interface';
 import type { JobHandlerRegistry } from '../job-handler.registry';
@@ -47,7 +46,7 @@ function makeHandler(options: {
     // Runs the callback against a fake `tx`. It proves the ORDER of the calls
     // and the arguments, not the atomicity — that is the database suite's job.
     $transaction: jest.fn(async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
-  } as unknown as PrismaService;
+  } as unknown as JobsPrisma;
 
   const systemSettings = {
     getJobsPolicy: jest.fn().mockResolvedValue({

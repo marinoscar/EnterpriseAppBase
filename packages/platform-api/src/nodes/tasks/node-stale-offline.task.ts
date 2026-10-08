@@ -37,13 +37,16 @@
 // `app.module.ts` is what makes `@Cron` fire.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+
+import { NODES_OPTIONS, type ResolvedNodesModuleOptions } from '../nodes.options';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import { JobsService } from '../../jobs/jobs.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { enqueueHousekeepingJob } from '../../jobs/index';
+import { JobsService } from '../../jobs/index';
+import { type JobsPrisma } from '../../jobs/index';
+import { PLATFORM_PRISMA } from '../../core/index';
 import { NODE_FLEET_SWEEP_TYPE } from '../handlers/node-fleet-sweep.handler';
 
 @Injectable()
@@ -52,8 +55,12 @@ export class NodeStaleOfflineTask {
 
   constructor(
     private readonly jobs: JobsService,
-    private readonly prisma: PrismaService,
-    private readonly config: ConfigService
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
+    private readonly config: ConfigService,
+    // `NodesModule.forRoot({ tasks })` (#734): a per-process override of the
+    // environment switch below. Absent (and in a hand-built test) the
+    // environment decides, exactly as before.
+    @Optional() @Inject(NODES_OPTIONS) private readonly options?: ResolvedNodesModuleOptions
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
@@ -90,6 +97,6 @@ export class NodeStaleOfflineTask {
    * enqueues onto one row — the switch just saves the duplicated queries.
    */
   private enabled(): boolean {
-    return this.config.get<boolean>('nodes.staleOfflineEnabled') !== false;
+    return this.options?.tasks.staleOffline ?? this.config.get<boolean>('nodes.staleOfflineEnabled') !== false;
   }
 }

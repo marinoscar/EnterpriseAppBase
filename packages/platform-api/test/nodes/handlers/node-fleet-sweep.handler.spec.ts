@@ -26,13 +26,12 @@
 
 import { ConfigService } from '@nestjs/config';
 
-import type { Job } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
 import { NodeFleetSweepHandler } from './node-fleet-sweep.handler';
 import type { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import type { NodeLifecycleService } from '../node-lifecycle.service';
 import type { NotificationsService } from '../../notifications/notifications.service';
-import type { PrismaService } from '../../prisma/prisma.service';
 
 /** The row the worker hands `process`. Only `id` is read, for the log line. */
 const JOB = { id: 'job-1' } as Job;
@@ -43,7 +42,7 @@ type SweptNode = { id: string; name: string; lastHeartbeatAt: Date | null };
 
 function makeHandler(config: Record<string, unknown> = {}, transitioned: SweptNode[] = []) {
   const updateManyAndReturn = jest.fn().mockResolvedValue(transitioned);
-  const prisma = { workerNode: { updateManyAndReturn } } as unknown as PrismaService;
+  const prisma = { workerNode: { updateManyAndReturn } } as unknown as JobsPrisma;
   const lifecycle = {
     getPolicy: jest.fn().mockResolvedValue(POLICY),
     staleCutoff: (policy: typeof POLICY, now: Date) =>

@@ -36,11 +36,11 @@ import {
   BROADCAST_EMAIL_PROVIDER_KEY,
 } from './broadcast-chunk.handler';
 import { BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';
-import { JobClock } from '../../../jobs/job-clock';
-import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
-import type { JobsService } from '../../../jobs/jobs.service';
-import { JobTerminalService } from '../../../jobs/job-terminal.service';
-import { ProviderThrottleService } from '../../../jobs/provider-throttle.service';
+import { JobClock } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
+import { JobTerminalService } from '@marinoscar/platform-api/jobs';
+import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
 import type { NotificationsService } from '../../notifications.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 

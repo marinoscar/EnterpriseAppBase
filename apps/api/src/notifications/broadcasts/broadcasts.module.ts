@@ -74,7 +74,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { JobsModule } from '../../jobs/jobs.module';
+import { JobsModule } from '../../platform/jobs/jobs.config';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { SettingsModule } from '../../platform/settings/settings.config';
 import { NotificationsModule } from '../notifications.module';

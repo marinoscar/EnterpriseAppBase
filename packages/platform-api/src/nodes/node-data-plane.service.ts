@@ -85,7 +85,6 @@
 // transfer is one cheap call rather than a re-claim.
 // =============================================================================
 
-import { NODE_OUTPUTS_KEY_PREFIX } from '../storage/storage-key-prefixes';
 import {
   BadRequestException,
   Inject,
@@ -94,18 +93,18 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Job } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../jobs/index';
+import { PLATFORM_PRISMA } from '../core/index';
 import { randomUUID } from 'node:crypto';
 
-import { JobHandlerRegistry } from '../jobs/job-handler.registry';
-import { PrismaService } from '../prisma/prisma.service';
-import { resolveJobOrgId } from '@marinoscar/platform-api/identity';
-import { STORAGE_PROVIDER } from '../storage/providers/storage-provider.interface';
-import type { StorageProvider } from '../storage/providers/storage-provider.interface';
+import { JobHandlerRegistry } from '../jobs/index';
 import {
-  JobInputResolutionError,
-  resolveStorageObjectInput,
-} from '../storage/storage-job-input';
+  NODE_JOB_INPUTS,
+  NODE_OBJECT_STORE,
+  NodeJobInputError,
+  type NodeJobInputs,
+  type NodeObjectStore,
+} from './ports';
 import {
   NodeDownloadUrlDto,
   NodeDownloadUrlResponseDto,
@@ -152,11 +151,14 @@ export const NODE_SIGNED_URL_MIN_TTL_SECONDS = 60;
  * single prefix listing and a lifecycle rule can be applied to node output
  * without touching a single user upload.
  */
-// Derived from the shared list, with the trailing slash stripped because this
-// constant is joined as `${PREFIX}/${jobId}/...`. The slash lives in one place
-// (`storage-key-prefixes.ts`) precisely so a purge cannot end up asking for
-// `node-outputs//`, match nothing, and report success.
-export const NODE_OUTPUT_KEY_PREFIX = NODE_OUTPUTS_KEY_PREFIX.replace(/\/$/, '');
+// Without the trailing slash, because this constant is joined as
+// `${PREFIX}/${jobId}/...`. The storage slice's key-prefix registry lists the
+// same namespace as `node-outputs/` (the reference app:
+// `storage/storage-key-prefixes.ts`, where `storage-key-prefixes.spec.ts`
+// pins the two together), so a purge can never ask for `node-outputs//`,
+// match nothing, and report success. The slice cannot register it itself
+// until the storage registry is packaged (#736).
+export const NODE_OUTPUT_KEY_PREFIX = 'node-outputs';
 
 /**
  * What a server-derived storage key is allowed to contain.
@@ -184,16 +186,21 @@ export class NodeDataPlaneService {
   private readonly logger = new Logger(NodeDataPlaneService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly config: ConfigService,
     private readonly nodes: NodesService,
-    @Inject(STORAGE_PROVIDER)
-    private readonly storage: StorageProvider,
+    // #734: the data plane's whole storage capability, two calls, bound by
+    // the app (`NODE_OBJECT_STORE`); and which object a held job reads
+    // (`NODE_JOB_INPUTS`), resolved by the app in the job's organization.
+    @Inject(NODE_OBJECT_STORE)
+    private readonly storage: NodeObjectStore,
     // The registry, for exactly one question: does this job's type want to
     // choose its own output key (#348)? Injected rather than imported so the
     // answer comes from the handlers actually registered in THIS process —
     // the same source `serverOnlyTypes()` and the claim already read.
-    private readonly registry: JobHandlerRegistry
+    private readonly registry: JobHandlerRegistry,
+    @Inject(NODE_JOB_INPUTS)
+    private readonly inputs: NodeJobInputs
   ) {}
 
   // ===========================================================================
@@ -389,8 +396,8 @@ export class NodeDataPlaneService {
    * The job's input object, or a clean 422 naming exactly what is missing.
    *
    * THIS IS THE `ENOENT … open ''` FIX, EXPRESSED OVER HTTP.
-   * `resolveStorageObjectInput` refuses to produce an empty path and throws
-   * one of three named reasons instead (see `storage-job-input.ts`); this
+   * `NodeJobInputs.resolve` refuses to produce an empty path and throws
+   * one of three named reasons instead (`NodeJobInputError`); this
    * method's only job is to turn that into a status code a node can act on.
    *
    * WHY 422 AND NOT 400, 404 OR 500 — the status is the instruction, exactly
@@ -412,12 +419,12 @@ export class NodeDataPlaneService {
    */
   private async resolveInput(job: Job) {
     try {
-      // The job's organization: a node principal has none, but the job it holds
-      // does (payload `orgId`; a pre-#725 job gets the single-mode default).
-      const orgId = await resolveJobOrgId(this.prisma, job);
-      return await resolveStorageObjectInput(this.prisma.forOrg(orgId), job);
+      // The app resolves it in the job's organization: a node principal has
+      // none, but the job it holds does (payload `orgId`; a pre-#725 job gets
+      // the single-mode default).
+      return await this.inputs.resolve(job);
     } catch (error) {
-      if (!(error instanceof JobInputResolutionError)) {
+      if (!(error instanceof NodeJobInputError)) {
         throw error;
       }
 

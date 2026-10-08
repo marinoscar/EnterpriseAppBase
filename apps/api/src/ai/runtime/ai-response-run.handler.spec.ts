@@ -7,10 +7,10 @@ import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
 import { recordTenancyMode, MissingOrgScopeError } from '@marinoscar/platform-api/identity';
-import { JobSettledEvent } from '../../jobs/events/job-settled.event';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { RateLimitError } from '../../jobs/rate-limit.error';
+import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import { AiError } from '../core/ai-error';
 import { defineTool } from '../core/tools';
 import type { AiResponse } from '../core/types/responses.types';

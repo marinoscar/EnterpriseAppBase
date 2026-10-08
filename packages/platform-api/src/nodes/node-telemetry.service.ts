@@ -43,12 +43,13 @@
 // — crons, which are most of the background work.
 // =============================================================================
 
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, Inject } from '@nestjs/common';
 import { Attributes, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 
-import { resolveServiceName } from '../common/otel/telemetry-identity';
-import { jobParentContext } from '../jobs/job-trace-context';
-import { PrismaService } from '../prisma/prisma.service';
+import { resolveServiceName } from '../otel-core/index';
+import { jobParentContext } from '../jobs/index';
+import { type JobsPrisma } from '../jobs/index';
+import { PLATFORM_PRISMA } from '../core/index';
 import { NodeSpan, NodeTelemetryDto } from './dto/node-telemetry.dto';
 import { NodeSettlementLedger } from './node-settlement-ledger';
 import { NodeTelemetryRateLimiter } from './node-telemetry-rate-limiter';
@@ -81,7 +82,7 @@ export class NodeTelemetryService {
   private readonly logger = new Logger(NodeTelemetryService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly nodes: NodesService,
     private readonly ledger: NodeSettlementLedger,
     private readonly limiter: NodeTelemetryRateLimiter

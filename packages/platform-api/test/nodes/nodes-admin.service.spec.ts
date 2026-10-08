@@ -22,7 +22,7 @@ import { NotFoundException } from '@nestjs/common';
 import { NodesAdminService } from './nodes-admin.service';
 import type { NodeCredentialService } from './node-credential.service';
 import type { NodeLifecycleService } from './node-lifecycle.service';
-import type { PrismaService } from '../prisma/prisma.service';
+import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
 const POLICY = { staleHeartbeatSeconds: 90, offlineStaleMultiplier: 4, offlineRetentionDays: 30 };
 
@@ -67,7 +67,7 @@ function makeService(nodes: ReturnType<typeof nodeRow>[], grouped: unknown[] = [
       count: jest.fn().mockResolvedValue(0),
       findMany: jest.fn().mockResolvedValue([]),
     },
-  } as unknown as PrismaService;
+  } as unknown as JobsPrisma;
 
   const lifecycle = { getPolicy: jest.fn().mockResolvedValue(POLICY) } as unknown as NodeLifecycleService;
 

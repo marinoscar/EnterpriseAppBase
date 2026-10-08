@@ -24,7 +24,7 @@
 
 import { Job, PrismaClient, Prisma } from '@prisma/client';
 
-import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobClaimService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from './db-test-support';
 

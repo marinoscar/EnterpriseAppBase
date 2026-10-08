@@ -22,11 +22,10 @@
 // forever, with nothing in any log connecting it to the job it came from.
 // =============================================================================
 
-import { JobNodeSecret } from '@prisma/client';
+import { type JobNodeSecret, type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import type { JobSecretBroker } from '../jobs/job-secret-broker';
-import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import { NodeLifecycleService } from './node-lifecycle.service';
 import { NodeSecretBrokerService } from './node-secret-broker.service';
@@ -66,7 +65,7 @@ describe('NodeSecretBrokerService', () => {
     (prisma.jobNodeSecret.updateMany as jest.Mock).mockResolvedValue({ count: 1 });
 
     service = new NodeSecretBrokerService(
-      prisma as unknown as PrismaService,
+      prisma as unknown as JobsPrisma,
       // Never reached: nothing here issues, and issuing is covered over real
       // HTTP where the guard's four conditions are what matter.
       {} as unknown as NodesService,

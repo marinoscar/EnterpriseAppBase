@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job } from '@prisma/client';
 
-import { JobHandler } from '../job-handler.interface';
-import { JobHandlerRegistry } from '../job-handler.registry';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 
 /**
  * Example handler that demonstrates the job queue's extension point (issue

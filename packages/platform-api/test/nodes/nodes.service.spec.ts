@@ -41,7 +41,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Job, WorkerNode } from '@prisma/client';
+import { type Job, type JobsPrisma, type WorkerNode } from '../../src/jobs/data/jobs-db';
 import { z } from 'zod';
 
 import { JobClaimService } from '../jobs/job-claim.service';
@@ -49,7 +49,6 @@ import { JobHandlerRegistry } from '../jobs/job-handler.registry';
 import { JobLeaseService } from '../jobs/job-lease.service';
 import { JobTerminalService } from '../jobs/job-terminal.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
-import { PrismaService } from '../prisma/prisma.service';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import {
   ClaimJobsDto,
@@ -186,7 +185,7 @@ describe('NodesService', () => {
     } as unknown as SystemSettingsService);
 
     service = new NodesService(
-      prisma as unknown as PrismaService,
+      prisma as unknown as JobsPrisma,
       config,
       claims as unknown as JobClaimService,
       terminal as unknown as JobTerminalService,
@@ -197,7 +196,7 @@ describe('NodesService', () => {
       // predicate with this suite still green, which is the one thing these
       // cases exist to prevent. The assertions below still read
       // `prisma.job.updateMany`, because that is still where the write lands.
-      new JobLeaseService(prisma as unknown as PrismaService),
+      new JobLeaseService(prisma as unknown as JobsPrisma),
       registry,
       // The narrow settings accessor (#349). Stubbed to the SHIPPED DEFAULT —
       // brokering off — because that is what a deployment that has never

@@ -64,10 +64,10 @@
 // behind one door for no shared code at all.
 // =============================================================================
 
-import { Injectable } from '@nestjs/common';
-import { Job, Prisma } from '@prisma/client';
+import { Injectable, Inject } from '@nestjs/common';
+import { type Job, type JobsPrisma, type JobsWhere } from './data/jobs-db';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { PrismaService } from '../prisma/prisma.service';
 
 /**
  * Identifies WHICH CLAIM is asking to renew.
@@ -175,7 +175,7 @@ export interface LeaseHolder {
  * deploy it can extend a new replica's lease exactly as before. That hole
  * closes when the last old replica is gone; nothing here can close it earlier.
  */
-export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): Prisma.JobWhereInput {
+export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): JobsWhere {
   const { nodeId, claimToken } = holder;
 
   return {
@@ -228,7 +228,7 @@ export function heldLeaseWhere(jobId: string, holder: LeaseHolder = {}): Prisma.
  */
 export function heldClaimWhere(
   job: Pick<Job, 'id' | 'claimToken' | 'claimedByNodeId'>
-): Prisma.JobWhereInput {
+): JobsWhere {
   return {
     id: job.id,
     status: 'running',
@@ -239,7 +239,7 @@ export function heldClaimWhere(
 
 @Injectable()
 export class JobLeaseService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma) {}
 
   /**
    * Pushes the lease on `jobId` out by `leaseMs` from now.

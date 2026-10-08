@@ -168,9 +168,10 @@
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import { type JobsPrisma } from './data/jobs-db';
+import { sql } from './data/prisma-runtime';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { PrismaService } from '../prisma/prisma.service';
 import { JOB_CLOCK, JobClock, systemJobClock } from './job-clock';
 import { countOf, foldTypeCounts, sumCounts, zeroCounts } from './job-counts.util';
 import { jobTypeLabel } from './job-type-labels';
@@ -222,7 +223,7 @@ const OUTSTANDING_STATUSES: readonly JobStatusName[] = ['pending', 'running'];
  * plain `number` all the way to the wire, which is the same class of concern
  * that made `JobStatsRollup.sumDurationMs` a `Float` and not a `BigInt`.
  */
-const DURATION_MS = Prisma.sql`((EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000)::double precision)`;
+const DURATION_MS = sql`((EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000)::double precision)`;
 
 /**
  * The three predicates `jobs_succeeded_duration_idx` is partial on, verbatim.
@@ -231,7 +232,7 @@ const DURATION_MS = Prisma.sql`((EXTRACT(EPOCH FROM (finished_at - started_at)) 
  * them and kept in the other — the failure mode being a query that still
  * returns the correct answer while sequentially scanning the table.
  */
-const TIMED_SUCCESS = Prisma.sql`
+const TIMED_SUCCESS = sql`
   status = 'succeeded'::"JobStatus"
   AND started_at IS NOT NULL
   AND finished_at IS NOT NULL
@@ -258,7 +259,7 @@ interface LifetimeDurationRow {
 @Injectable()
 export class JobInsightsService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly config: ConfigService,
     @Optional() @Inject(JOB_CLOCK) private readonly clock: JobClock = systemJobClock
   ) {}
@@ -347,7 +348,7 @@ export class JobInsightsService {
       total += count;
     }
 
-    const liveByType = foldTypeCounts(byTypeRows);
+    const liveByType = foldTypeCounts(byTypeRows as Parameters<typeof foldTypeCounts>[0]);
 
     const byType = [...liveByType.entries()]
       .map(([type, counts]) => ({
@@ -448,7 +449,7 @@ export class JobInsightsService {
    * about.
    */
   private windowedDurations(windowStart: Date, throughputSince: Date): Promise<HistoryRow[]> {
-    return this.prisma.$queryRaw<HistoryRow[]>(Prisma.sql`
+    return this.prisma.$queryRaw<HistoryRow[]>(sql`
       SELECT
         GROUPING(type)::int AS is_overall,
         type,
@@ -480,7 +481,7 @@ export class JobInsightsService {
    * with no event to explain it.
    */
   private lifetimeLiveDurations(): Promise<LifetimeDurationRow[]> {
-    return this.prisma.$queryRaw<LifetimeDurationRow[]>(Prisma.sql`
+    return this.prisma.$queryRaw<LifetimeDurationRow[]>(sql`
       SELECT
         type,
         sum(${DURATION_MS})::double precision AS sum_ms,

@@ -22,11 +22,11 @@ import { ConfigService } from '@nestjs/config';
 import { NodeStaleOfflineTask } from './node-stale-offline.task';
 import { NODE_FLEET_SWEEP_TYPE } from '../handlers/node-fleet-sweep.handler';
 import type { JobsService } from '../../jobs/jobs.service';
-import type { PrismaService } from '../../prisma/prisma.service';
+import { type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
 function makeTask(config: Record<string, unknown> = {}, active: unknown = null) {
   const findFirst = jest.fn().mockResolvedValue(active);
-  const prisma = { job: { findFirst } } as unknown as PrismaService;
+  const prisma = { job: { findFirst } } as unknown as JobsPrisma;
   const enqueue = jest.fn().mockResolvedValue({ id: 'job-1' });
   const jobs = { enqueue } as unknown as JobsService;
   const configService = {

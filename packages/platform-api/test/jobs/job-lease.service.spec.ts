@@ -22,14 +22,14 @@
 // =============================================================================
 
 import { JobLeaseService, heldClaimWhere, heldLeaseWhere } from './job-lease.service';
-import type { PrismaService } from '../prisma/prisma.service';
+import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
 const JOB_ID = '3f1a0f4e-0000-4000-8000-000000000001';
 const NODE_ID = '3f1a0f4e-0000-4000-8000-0000000000aa';
 const CLAIM_TOKEN = '3f1a0f4e-0000-4000-8000-0000000000cc';
 
 function makeService(updateMany = jest.fn().mockResolvedValue({ count: 1 })) {
-  const prisma = { job: { updateMany } } as unknown as PrismaService;
+  const prisma = { job: { updateMany } } as unknown as JobsPrisma;
 
   return { service: new JobLeaseService(prisma), updateMany };
 }

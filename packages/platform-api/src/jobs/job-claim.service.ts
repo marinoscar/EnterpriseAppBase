@@ -229,11 +229,12 @@
 // pairing down from the test side.
 // =============================================================================
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Job, Prisma } from '@prisma/client';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
+import { type Job, type JobsPrisma } from './data/jobs-db';
+import { raw, sql } from './data/prisma-runtime';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
+import { JOBS_METRICS, NOOP_JOBS_METRICS, type JobsMetrics } from './ports';
 
 /**
  * Which side of the system is executing a claimed job. Written to
@@ -334,7 +335,7 @@ export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
  * The `RETURNING` list: `jobs.created_at AS "createdAt", …` for every field
  * above.
  *
- * `Prisma.raw` is used because a column list is SQL structure, not a value,
+ * `raw` is used because a column list is SQL structure, not a value,
  * and structure cannot be parameterised. It is safe here for a reason that
  * has nothing to do with trust in the caller: the ONLY input is the
  * module-level constant above, evaluated once at import time, with no path
@@ -349,7 +350,7 @@ export const JOB_CLAIM_COLUMNS: Readonly<Record<keyof Job, string>> = {
  * list looks the same", so a column added to `Job` later cannot be the one
  * that quietly reintroduces the ambiguity.
  */
-const CLAIM_RETURNING = Prisma.raw(
+const CLAIM_RETURNING = raw(
   Object.entries(JOB_CLAIM_COLUMNS)
     .map(([field, column]) => `jobs.${column} AS "${field}"`)
     .join(', ')
@@ -378,9 +379,9 @@ export class JobClaimService {
   private readonly logger = new Logger(JobClaimService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     // #600. Optional: see `fallbackAppMetrics`.
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics(),
+    @Optional() @Inject(JOBS_METRICS) private readonly metrics: JobsMetrics = NOOP_JOBS_METRICS,
   ) {}
 
   /**
@@ -448,7 +449,7 @@ export class JobClaimService {
     // look fine on whatever data you happen to try it on. The file header has
     // the measurements and points at the regression tests.
     //
-    // Every value below is a real bound parameter (`Prisma.sql`'s tagged
+    // Every value below is a real bound parameter (`sql`'s tagged
     // template turns each `${}` into a placeholder) — nothing is interpolated
     // into the SQL text. The explicit casts are there because a placeholder
     // carries no type of its own: `::"JobStatus"` for the enum comparisons,
@@ -456,7 +457,7 @@ export class JobClaimService {
     // `::double precision[]` for the leases so the multiplication against
     // `interval '1 millisecond'` resolves regardless of how the driver sends
     // the numbers.
-    const rows = await this.prisma.$queryRaw<Job[]>(Prisma.sql`
+    const rows = await this.prisma.$queryRaw<Job[]>(sql`
       WITH picked AS MATERIALIZED (
         SELECT id FROM jobs
         WHERE status = 'pending'::"JobStatus"

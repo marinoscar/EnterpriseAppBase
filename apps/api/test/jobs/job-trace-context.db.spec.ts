@@ -13,8 +13,8 @@
 
 import { PrismaClient } from '@prisma/client';
 
-import { JobClaimService } from '../../src/jobs/job-claim.service';
-import { JobsService } from '../../src/jobs/jobs.service';
+import { JobClaimService } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { installTestTracing, TestTracing } from '../helpers/otel-tracing.helper';
 import { createDbClient, resolveDbSuite } from './db-test-support';

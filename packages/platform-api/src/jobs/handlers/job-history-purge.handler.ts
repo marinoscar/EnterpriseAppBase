@@ -110,11 +110,12 @@
 // reaper's business, or an operator's — never the purge's.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Job, JobStatus, Prisma } from '@prisma/client';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { type Job, JobStatus, type JobsPrisma, type JobsWhere } from '../data/jobs-db';
+import { PLATFORM_PRISMA } from '../../core/index';
 
-import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { SystemSettingsService } from '../../settings/index';
+import type { JobsPolicy } from '../jobs.policy';
 import { JobHandler } from '../job-handler.interface';
 import { JobHandlerRegistry } from '../job-handler.registry';
 
@@ -174,7 +175,7 @@ export class JobHistoryPurgeHandler implements JobHandler, OnModuleInit {
   readonly type = JOB_HISTORY_PURGE_TYPE;
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly systemSettings: SystemSettingsService,
     private readonly registry: JobHandlerRegistry
   ) {}
@@ -196,7 +197,7 @@ export class JobHistoryPurgeHandler implements JobHandler, OnModuleInit {
    * cutoff.
    */
   async process(job: Job): Promise<void> {
-    const policy = await this.systemSettings.getJobsPolicy();
+    const policy = (await this.systemSettings.getJobsPolicy()) as JobsPolicy;
 
     if (!policy.history.purgeEnabled) {
       // CHECKED HERE AS WELL AS IN THE SCHEDULING TASK, deliberately. The task
@@ -329,7 +330,7 @@ export class JobHistoryPurgeHandler implements JobHandler, OnModuleInit {
  *
  * Exported for the tests, which assert on the shape rather than the query.
  */
-export function purgeableWhere(cutoff: Date): Prisma.JobWhereInput {
+export function purgeableWhere(cutoff: Date): JobsWhere {
   return {
     status: { in: [...TERMINAL_STATUSES] },
     OR: [{ finishedAt: { lt: cutoff } }, { finishedAt: null, createdAt: { lt: cutoff } }],

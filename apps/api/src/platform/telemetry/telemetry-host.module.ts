@@ -13,7 +13,7 @@ import { Module } from '@nestjs/common';
 
 import { AiModule } from '../../ai/ai.module';
 import { CredentialsModule, CredentialsService } from '@marinoscar/platform-api/credentials';
-import { JobsModule } from '../../jobs/jobs.module';
+import { JobsModule } from '../jobs/jobs.config';
 import { SettingsModule } from '../settings/settings.config';
 import {
   TELEMETRY_AI,

@@ -97,9 +97,10 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { Job, Prisma } from '@prisma/client';
+import { type Job, type JobsBatchPayload, type JobsPrisma, type JobsUpdateData, type JobsWhere } from './data/jobs-db';
+import { PrismaClientKnownRequestError } from './data/prisma-runtime';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { PrismaService } from '../prisma/prisma.service';
 import { JOB_CLOCK, JobClock, systemJobClock } from './job-clock';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
@@ -281,7 +282,7 @@ const RETRY_RESET = {
   claimToken: null,
   leaseExpiresAt: null,
   executor: null,
-} as const satisfies Prisma.JobUncheckedUpdateManyInput;
+} as const satisfies JobsUpdateData;
 
 @Injectable()
 export class JobAdminService {
@@ -291,7 +292,7 @@ export class JobAdminService {
   private statsCache: { at: number; value: JobStatsResult } | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly stuck: JobStuckService,
     private readonly registry: JobHandlerRegistry,
     @Optional() @Inject(JOB_CLOCK) private readonly clock: JobClock = systemJobClock
@@ -367,7 +368,7 @@ export class JobAdminService {
       total += count;
     }
 
-    const byType = [...foldTypeCounts(byTypeRows).entries()]
+    const byType = [...foldTypeCounts(byTypeRows as Parameters<typeof foldTypeCounts>[0]).entries()]
       .map(([type, counts]) => ({
         type,
         label: jobTypeLabel(type),
@@ -435,8 +436,8 @@ export class JobAdminService {
    * can be asserted directly by a test, rather than only through a query the
    * test has to reconstruct.
    */
-  private buildListWhere(query: JobListQuery): Prisma.JobWhereInput {
-    const where: Prisma.JobWhereInput = {};
+  private buildListWhere(query: JobListQuery): JobsWhere {
+    const where: JobsWhere = {};
 
     if (query.type) where.type = query.type;
     if (query.subjectType) where.subjectType = query.subjectType;
@@ -488,7 +489,7 @@ export class JobAdminService {
    * second call finds no candidates and reports zeroes.
    */
   async retryFailed(type?: string): Promise<RetryFailedResult> {
-    const scope: Prisma.JobWhereInput = { status: 'failed', ...(type ? { type } : {}) };
+    const scope: JobsWhere = { status: 'failed', ...(type ? { type } : {}) };
 
     const candidates = await this.prisma.job.findMany({
       where: scope,
@@ -581,7 +582,7 @@ export class JobAdminService {
     if (!existing) throw jobNotFound(id);
     if (existing.status === 'running') throw jobIsRunning(id, 'retried');
 
-    let updated: Prisma.BatchPayload;
+    let updated: JobsBatchPayload;
 
     try {
       updated = await this.prisma.job.updateMany({
@@ -712,7 +713,7 @@ export class JobAdminService {
  * re-thrown.
  */
 function isActiveDedupConflict(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+  if (!(error instanceof PrismaClientKnownRequestError) || error.code !== 'P2002') {
     return false;
   }
 

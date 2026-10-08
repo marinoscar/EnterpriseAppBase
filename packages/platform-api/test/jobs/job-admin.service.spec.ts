@@ -22,7 +22,8 @@
 // =============================================================================
 
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
+import { PrismaClientKnownRequestError } from '../../src/jobs/data/prisma-runtime';
 
 import { JobAdminService, RETRY_FAILED_BATCH_LIMIT, STATS_CACHE_TTL_MS } from './job-admin.service';
 import { JobClock } from './job-clock';
@@ -30,7 +31,6 @@ import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
 import { stuckRunningWhere } from './job-stuck.service';
 import type { JobStuckService } from './job-stuck.service';
 import type { JobHandlerRegistry } from './job-handler.registry';
-import type { PrismaService } from '../prisma/prisma.service';
 import { jobListQuerySchema } from './dto/job-list-query.dto';
 
 const NOW = new Date('2026-03-01T12:00:00.000Z');
@@ -103,7 +103,7 @@ function makeService(overrides: Partial<Harness['job']> = {}): Harness {
 
   return {
     service: new JobAdminService(
-      { job } as unknown as PrismaService,
+      { job } as unknown as JobsPrisma,
       stuck as unknown as JobStuckService,
       registry as unknown as JobHandlerRegistry,
       clock
@@ -147,7 +147,7 @@ function row(overrides: Record<string, unknown> = {}) {
 
 /** The unique violation Postgres raises when a retry re-enters the dedup index. */
 function dedupConflict(target: string = ACTIVE_DEDUP_INDEX_NAME) {
-  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+  return new PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
     clientVersion: 'test',
     meta: { target: [target] },
@@ -652,7 +652,7 @@ describe('JobAdminService.retryFailed', () => {
     });
 
     // Swallowing it would report success for a write that did not happen.
-    await expect(service.retryFailed()).rejects.toThrow(Prisma.PrismaClientKnownRequestError);
+    await expect(service.retryFailed()).rejects.toThrow(PrismaClientKnownRequestError);
   });
 
   it('re-throws anything that is not a P2002', async () => {

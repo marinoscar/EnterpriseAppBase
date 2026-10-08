@@ -104,10 +104,10 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Job, Prisma } from '@prisma/client';
+import { type Job, type JobsPrisma, type JobsUpdateData } from './data/jobs-db';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
+import { JOBS_METRICS, NOOP_JOBS_METRICS, type JobsMetrics } from './ports';
 import { computeBackoffMs, JOB_RANDOM } from './backoff.util';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
 import { emitJobSettled } from './job-settled.emit';
@@ -187,7 +187,7 @@ type TerminalWrite =
   | { kind: 'write-failed' };
 
 /** The data shape a terminal write carries: plain column values only. */
-type TerminalWriteData = Prisma.JobUncheckedUpdateManyInput;
+type TerminalWriteData = JobsUpdateData;
 
 /**
  * Does `row` already hold every value `data` would write?
@@ -218,7 +218,7 @@ export function rowMatchesWrite(row: Job, data: TerminalWriteData): boolean {
     // Prisma ignores an `undefined` field, so it wrote nothing to compare.
     if (expected === undefined) return true;
 
-    const actual = (row as Record<string, unknown>)[key];
+    const actual = (row as unknown as Record<string, unknown>)[key];
 
     if (expected instanceof Date) {
       return actual instanceof Date && actual.getTime() === expected.getTime();
@@ -308,7 +308,7 @@ export class JobTerminalService {
   private readonly rand: () => number;
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly config: ConfigService,
     private readonly throttle: ProviderThrottleService,
     private readonly events: EventEmitter2,
@@ -324,7 +324,7 @@ export class JobTerminalService {
     @Optional() @Inject(JOB_CLOCK) clock?: JobClock,
     @Optional() @Inject(JOB_RANDOM) rand?: () => number,
     // #600. Optional: see `fallbackAppMetrics`.
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics()
+    @Optional() @Inject(JOBS_METRICS) private readonly metrics: JobsMetrics = NOOP_JOBS_METRICS
   ) {
     this.clock = clock ?? systemJobClock;
     this.rand = rand ?? Math.random;

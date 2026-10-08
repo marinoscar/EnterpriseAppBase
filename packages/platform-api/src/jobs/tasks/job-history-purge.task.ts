@@ -1,8 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { type JobsPrisma } from '../data/jobs-db';
+import { PLATFORM_PRISMA } from '../../core/index';
+import { SystemSettingsService } from '../../settings/index';
+import type { JobsPolicy } from '../jobs.policy';
 import { JOB_HISTORY_PURGE_TYPE } from '../handlers/job-history-purge.handler';
 import { JobsService } from '../jobs.service';
 
@@ -80,7 +82,7 @@ export class JobHistoryPurgeTask {
   private readonly logger = new Logger(JobHistoryPurgeTask.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly systemSettings: SystemSettingsService,
     private readonly jobs: JobsService
   ) {}
@@ -88,7 +90,7 @@ export class JobHistoryPurgeTask {
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async handleCron(): Promise<void> {
     try {
-      const policy = await this.systemSettings.getJobsPolicy();
+      const policy = (await this.systemSettings.getJobsPolicy()) as JobsPolicy;
 
       if (!policy.history.purgeEnabled) {
         this.logger.debug(

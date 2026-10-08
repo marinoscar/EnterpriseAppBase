@@ -53,12 +53,12 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Job, PrismaClient } from '@prisma/client';
 
-import { RateLimitError } from '../../src/jobs/rate-limit.error';
-import { JobTerminalService } from '../../src/jobs/job-terminal.service';
-import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../src/jobs/events/job-settled.event';
-import { JobStuckService } from '../../src/jobs/job-stuck.service';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
+import { JobTerminalService } from '@marinoscar/platform-api/jobs';
+import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import { JobStuckService } from '@marinoscar/platform-api/jobs';
 import { BroadcastFailureListener } from '../../src/notifications/broadcasts/broadcast-failure.listener';
 import { BroadcastsService } from '../../src/notifications/broadcasts/broadcasts.service';
 import { BroadcastChunkHandler, BROADCAST_CHUNK_TYPE } from '../../src/notifications/broadcasts/handlers/broadcast-chunk.handler';
@@ -72,7 +72,7 @@ import {
   BROADCAST_SEND_CONCURRENCY,
   BROADCAST_SUBJECT_TYPE,
 } from '../../src/notifications/broadcasts/broadcast-audience';
-import { JobsService } from '../../src/jobs/jobs.service';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { NotifyOptions } from '../../src/notifications/notification.types';
 import type { PrismaService } from '../../src/prisma/prisma.service';

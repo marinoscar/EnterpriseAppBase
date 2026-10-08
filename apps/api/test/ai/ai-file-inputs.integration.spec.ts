@@ -21,7 +21,7 @@ import { AI_STORAGE_INPUT_FILE_MAX_BYTES } from '../../src/ai/core/types/file-in
 import { aiRunStartedSchema } from '../../src/ai/http/dto/ai-response.dto';
 import { HARNESS_MODEL, HARNESS_OTHER_USER, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
 import { IN_MEMORY_PRESIGNED_SIGNATURE } from '../../src/ai/testing/in-memory-ai-storage';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, createAiHttpTestApp, parseSse } from './ai-http.helper';
 

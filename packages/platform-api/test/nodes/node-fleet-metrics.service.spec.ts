@@ -3,7 +3,7 @@ import { MeterProvider, MetricReader, type MetricData } from '@opentelemetry/sdk
 
 import { AppMetricsService, GAUGE_CACHE_TTL_MS, OTHER_LABEL } from '../common/otel/app-metrics.service';
 import type { NodeOffloadService } from '../jobs/node-offload.service';
-import type { PrismaService } from '../prisma/prisma.service';
+import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import {
   MAX_EXPORTED_NODES,
   NodeFleetMetrics,
@@ -116,7 +116,7 @@ function setup(
   });
 
   const fleet = new NodeFleetMetrics(
-    prisma as unknown as PrismaService,
+    prisma as unknown as JobsPrisma,
     lifecycle as unknown as NodeLifecycleService,
     offload as unknown as NodeOffloadService,
     appMetrics,
@@ -387,7 +387,7 @@ describe('NodeFleetMetrics gauge descriptors (#680 baseline)', () => {
       gaugeContext: () => ({ meter, now: () => NOW, gateOpen: () => false }),
     } as unknown as AppMetricsService;
     const fleet = new NodeFleetMetrics(
-      {} as unknown as PrismaService,
+      {} as unknown as JobsPrisma,
       {} as unknown as NodeLifecycleService,
       {} as unknown as NodeOffloadService,
       metrics,

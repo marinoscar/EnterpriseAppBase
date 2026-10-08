@@ -17,7 +17,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { JobsService } from '../../jobs/jobs.service';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AI_CATALOG_SUBJECT_TYPE } from '../catalog/ai-catalog.service';
 import { AiConfigService, providerPolicy } from '../config/ai-config.service';

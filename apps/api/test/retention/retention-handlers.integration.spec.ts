@@ -8,8 +8,8 @@
 // the derivation the node plane reads) and carrying the declared profile.
 // =============================================================================
 
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { jobTypeLabel } from '../../src/jobs/job-type-labels';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { jobTypeLabel } from '@marinoscar/platform-api/jobs';
 import { RETENTION_PURGES } from '../../src/common/retention/retention-purge.task';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 

@@ -19,7 +19,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import { SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
-import { Job } from '@prisma/client';
+import { type Job } from '../../src/jobs/data/jobs-db';
 import { z } from 'zod';
 
 import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';

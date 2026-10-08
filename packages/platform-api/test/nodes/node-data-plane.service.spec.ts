@@ -36,13 +36,12 @@
 
 import { BadRequestException, ConflictException, UnprocessableEntityException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Job, StorageObject } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
 import { createMockStorageProvider } from '../../test/mocks/storage-provider.mock';
 import type { JobHandler } from '../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../jobs/job-handler.registry';
-import { PrismaService } from '../prisma/prisma.service';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../storage/storage-job-input';
 import { NodeDownloadUrlDto, NodeUploadUrlDto } from './dto/node-data-plane.dto';
@@ -137,7 +136,7 @@ describe('NodeDataPlaneService', () => {
     registry = new JobHandlerRegistry();
 
     service = new NodeDataPlaneService(
-      prisma as unknown as PrismaService,
+      prisma as unknown as JobsPrisma,
       config,
       nodes as unknown as NodesService,
       storage,

@@ -28,7 +28,7 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Job, Prisma } from '@prisma/client';
+import { type Job, type JobsPrisma, type JobsUpdateData } from '../../src/jobs/data/jobs-db';
 
 import { JobClock } from './job-clock';
 import { JobSettledEvent, JOB_SETTLED_EVENT } from './events/job-settled.event';
@@ -38,7 +38,6 @@ import { heldClaimWhere } from './job-lease.service';
 import { JobTerminalService, rowMatchesWrite } from './job-terminal.service';
 import { ProviderThrottleService } from './provider-throttle.service';
 import { CLASSIFY_RATE_LIMIT, RateLimitError, type RateLimitClassification } from './rate-limit.error';
-import type { PrismaService } from '../prisma/prisma.service';
 import type { AppMetricsService } from '../common/otel/app-metrics.service';
 
 /** Pinned "now". Every expected timestamp below is derived from it. */
@@ -119,11 +118,11 @@ describe('JobTerminalService', () => {
   let service: JobTerminalService;
 
   /** The `data` payload of the Nth `prisma.job.updateManyAndReturn` call. */
-  const written = (call = 0): Prisma.JobUncheckedUpdateManyInput => update.mock.calls[call][0].data;
+  const written = (call = 0): JobsUpdateData => update.mock.calls[call][0].data;
 
-  /** A `PrismaService` stub carrying the two job methods the service calls. */
+  /** A `JobsPrisma` stub carrying the two job methods the service calls. */
   const prismaStub = () =>
-    ({ job: { updateManyAndReturn: update, findUnique } }) as unknown as PrismaService;
+    ({ job: { updateManyAndReturn: update, findUnique } }) as unknown as JobsPrisma;
 
   beforeEach(() => {
     clock = fakeClock();

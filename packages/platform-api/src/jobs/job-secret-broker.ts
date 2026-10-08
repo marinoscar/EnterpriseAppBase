@@ -93,7 +93,7 @@
 // knows exactly ONE handle per job — would clean up exactly one of them.
 // =============================================================================
 
-import { Job } from '@prisma/client';
+import { type Job } from './data/jobs-db';
 
 /**
  * Whether a broker could mint anything right now, and what to do if not.

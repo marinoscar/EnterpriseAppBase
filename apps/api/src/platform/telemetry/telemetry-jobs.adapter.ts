@@ -17,10 +17,10 @@
 import { Injectable, type Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JobsService } from '../../jobs/jobs.service';
+import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { TelemetryJobHandler, TelemetryJobRecord, TelemetryJobsPort } from '@marinoscar/platform-api/telemetry';
 

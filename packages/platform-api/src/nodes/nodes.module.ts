@@ -155,14 +155,34 @@
 //
 // `PrismaModule` is not imported here: it is `@Global()`. `ConfigService`
 // likewise, via `ConfigModule.forRoot({ isGlobal: true })`.
+// -----------------------------------------------------------------------------
+// PACKAGED (#734): `NodesModule.forRoot()`, AND THREE EDGES CUT
+// -----------------------------------------------------------------------------
+//
+// The paragraphs above describe the module as it was in the app. Packaged, it
+// keeps every provider and both controllers, and loses three imports:
+//
+//   - `JobsModule` is no longer imported: `JobsModule.forRoot()` is global,
+//     so the claim, lease, terminal and registry services are injected as
+//     before, from the app's one configured queue.
+//   - `StorageProvidersModule` is replaced by the `NODE_OBJECT_STORE` and
+//     `NODE_JOB_INPUTS` ports (`ports.ts`): the data plane mints signed URLs
+//     and names a job's input object, nothing more, and storage depends on
+//     jobs, so the reverse edge would be a cycle.
+//   - `NotificationsModule` is replaced by the `nodes.node.offline` event
+//     (`events/node-offline.event.ts`): the fleet sweep emits it after its
+//     write commits and the app's listener raises `nodes.node_offline`.
+//
+// `SettingsModule.forRoot()` is global too, so `SystemSettingsService` needs
+// no import either. The app binds the two ports in a `@Global()` module it
+// passes as `options.imports`.
 // =============================================================================
 
-import { Module } from '@nestjs/common';
+import { DynamicModule, Module } from '@nestjs/common';
 
-import { JobsModule } from '../jobs/jobs.module';
-import { NotificationsModule } from '../notifications/notifications.module';
-import { SettingsModule } from '../platform/settings/settings.config';
-import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { NodesFleetDoctorCheck } from './doctor/nodes-fleet.doctor-check';
+import { NodeFleetPruneHandler } from './handlers/node-fleet-prune.handler';
+import { NodeFleetSweepHandler } from './handlers/node-fleet-sweep.handler';
 import { NodeDataPlaneService } from './node-data-plane.service';
 import { NodeFleetMetrics } from './node-fleet-metrics.service';
 import { NodeLifecycleService } from './node-lifecycle.service';
@@ -173,49 +193,66 @@ import { NodeTelemetryService } from './node-telemetry.service';
 import { NodesAdminController } from './nodes-admin.controller';
 import { NodesAdminService } from './nodes-admin.service';
 import { NodesController } from './nodes.controller';
+import { NODES_OPTIONS, resolveNodesModuleOptions, type NodesModuleOptions } from './nodes.options';
 import { NodesService } from './nodes.service';
 import { NodeSecretRevoker } from './ops/node-secret-revoker';
-import { NodeFleetPruneHandler } from './handlers/node-fleet-prune.handler';
-import { NodeFleetSweepHandler } from './handlers/node-fleet-sweep.handler';
 import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
 import { NodeSecretSweepTask } from './tasks/node-secret-sweep.task';
 import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
-import { NodesFleetDoctorCheck } from './doctor/nodes-fleet.doctor-check';
 
-@Module({
-  imports: [
-    JobsModule,
-    SettingsModule,
-    StorageProvidersModule,
-    NotificationsModule,
-  ],
-  controllers: [NodesController, NodesAdminController],
-  providers: [
-    NodesService,
-    NodeDataPlaneService,
-    NodeSecretBrokerService,
-    NodesAdminService,
-    NodeLifecycleService,
-    NodeStaleOfflineTask,
-    NodeOfflinePruneTask,
-    // #353 (epic #345): the two fleet sweeps are queue jobs now. The tasks
-    // above only enqueue; these two do the work on a worker slot.
-    NodeFleetSweepHandler,
-    NodeFleetPruneHandler,
-    NodeSecretSweepTask,
-    NodeSecretRevoker,
-    // #606: the `app.nodes.*` observable gauges. Here, not in the global
-    // `AppMetricsModule`, because the callback reads `NodeOffloadService` and
-    // the fleet policy; it borrows the meter and gate from `AppMetricsService`.
-    NodeFleetMetrics,
-    // #608: the span relay. The ledger is SHARED with `NodesService`, which
-    // records each node settle into it; the relay reads it to attribute spans
-    // that arrive after `claimedByNodeId` has been cleared.
-    NodeTelemetryService,
-    NodeSettlementLedger,
-    NodeTelemetryRateLimiter,
-    // Doctor check (#634).
-    NodesFleetDoctorCheck,
-  ],
-})
-export class NodesModule {}
+/**
+ * The nodes slice: the worker-node control plane (`/api/nodes`: register,
+ * heartbeat, claim, lease renewal, result and failure, the brokered job
+ * secret), its data plane (signed URLs), the fleet admin routes
+ * (`/api/admin/nodes`), the fleet sweep and prune, the brokered-secret sweep,
+ * the fleet gauges and the `nodes.fleet` Doctor check. Needs
+ * `JobsModule.forRoot()` in the same app.
+ *
+ * @stability experimental
+ */
+@Module({})
+export class NodesModule {
+  /**
+   * The slice for one app. Call once, next to `JobsModule.forRoot()`.
+   *
+   * @param options - see {@link NodesModuleOptions}.
+   * @returns the dynamic module. It provides `NODES_OPTIONS`.
+   * @throws Error when an option is invalid.
+   *
+   * @example
+   * ```ts
+   * NodesModule.forRoot({ imports: [JobsHostModule] });
+   * ```
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  static forRoot(options: NodesModuleOptions = {}): DynamicModule {
+    const resolved = resolveNodesModuleOptions(options);
+    return {
+      module: NodesModule,
+      imports: [...resolved.imports],
+      controllers: [NodesController, NodesAdminController],
+      providers: [
+        { provide: NODES_OPTIONS, useValue: resolved },
+        NodesService,
+        NodeDataPlaneService,
+        NodeSecretBrokerService,
+        NodesAdminService,
+        NodeLifecycleService,
+        NodeStaleOfflineTask,
+        NodeOfflinePruneTask,
+        NodeFleetSweepHandler,
+        NodeFleetPruneHandler,
+        NodeSecretSweepTask,
+        NodeSecretRevoker,
+        NodeFleetMetrics,
+        NodeTelemetryService,
+        NodeSettlementLedger,
+        NodeTelemetryRateLimiter,
+        NodesFleetDoctorCheck,
+      ],
+      exports: [NODES_OPTIONS],
+    };
+  }
+}

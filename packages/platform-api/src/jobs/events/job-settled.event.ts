@@ -45,7 +45,7 @@
 //     future.
 // =============================================================================
 
-import { Job } from '@prisma/client';
+import { type Job } from '../data/jobs-db';
 
 /**
  * A job reached a terminal state.

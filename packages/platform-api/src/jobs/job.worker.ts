@@ -94,10 +94,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Context, Span, SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
-import { Job } from '@prisma/client';
+import { type Job } from './data/jobs-db';
 
-import { EVENT_BUS, type EventBus } from '../common/event-bus/event-bus.interface';
-import { resolveServiceName } from '../common/otel/telemetry-identity';
+import { JOBS_EVENT_BUS, type JobsEventBus } from './ports';
+import { resolveServiceName } from '../otel-core/index';
 
 import { JobClaimService } from './job-claim.service';
 import { JobClock, JOB_CLOCK, systemJobClock } from './job-clock';
@@ -412,7 +412,7 @@ export class JobWorker implements OnApplicationBootstrap, OnModuleDestroy {
     // THE WAKE-UP (PP-1.11, #682). Optional and last, so every hand-built
     // worker in the suites stays valid; the global `EventBusModule` always
     // provides it in the application. Without it the pool simply polls.
-    @Optional() @Inject(EVENT_BUS) private readonly bus?: EventBus
+    @Optional() @Inject(JOBS_EVENT_BUS) private readonly bus?: JobsEventBus
   ) {
     this.clock = clock ?? systemJobClock;
   }

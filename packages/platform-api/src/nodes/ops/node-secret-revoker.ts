@@ -81,7 +81,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import {
   JOB_SETTLED_EVENT,
   type JobSettledEvent,
-} from '../../jobs/events/job-settled.event';
+} from '../../jobs/index';
 import { NodeSecretBrokerService } from '../node-secret-broker.service';
 
 @Injectable()

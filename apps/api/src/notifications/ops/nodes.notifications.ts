@@ -13,8 +13,8 @@
 // `NOTIFICATION_EVENTS` array in notifications/notification-events.ts (#288).
 // =============================================================================
 
-import { nodeOfflineBrowserTemplate } from '../notifications/channels/browser-templates';
-import type { NotificationRegistration } from '../notifications/registry/bindings.registry';
+import { nodeOfflineBrowserTemplate } from '../channels/browser-templates';
+import type { NotificationRegistration } from '../registry/bindings.registry';
 
 export const NODES_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {

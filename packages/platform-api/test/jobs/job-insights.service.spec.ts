@@ -19,12 +19,12 @@
 // assertion passes just as happily for a window that is out by a factor of 24.
 // =============================================================================
 
-import { Prisma } from '@prisma/client';
+import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
+import { type Sql } from '../../src/jobs/data/prisma-runtime';
 import type { ConfigService } from '@nestjs/config';
 
 import { JobInsightsService, FALLBACK_JOB_DURATION_MS } from './job-insights.service';
 import { JobClock } from './job-clock';
-import type { PrismaService } from '../prisma/prisma.service';
 import {
   MAX_INSIGHTS_WINDOW_DAYS,
   THROUGHPUT_WINDOW_MS,
@@ -83,7 +83,7 @@ function makeHarness(options: {
   counts?: number[];
   concurrency?: number;
 } = {}) {
-  const rawCalls: Prisma.Sql[] = [];
+  const rawCalls: Sql[] = [];
   const byStatus = options.byStatus ?? [];
   const byType = options.byType ?? [];
   const history = options.history ?? [];
@@ -102,7 +102,7 @@ function makeHarness(options: {
   const rollupFindMany = jest.fn().mockResolvedValue(options.rollups ?? []);
   const rollupDeleteMany = jest.fn().mockResolvedValue({ count: 0 });
 
-  const queryRaw = jest.fn().mockImplementation(async (sql: Prisma.Sql) => {
+  const queryRaw = jest.fn().mockImplementation(async (sql: Sql) => {
     rawCalls.push(sql);
 
     return rawCalls.length === 1 ? history : lifetimeDurations;
@@ -112,7 +112,7 @@ function makeHarness(options: {
     job: { groupBy, count },
     jobStatsRollup: { findMany: rollupFindMany, deleteMany: rollupDeleteMany },
     $queryRaw: queryRaw,
-  } as unknown as PrismaService;
+  } as unknown as JobsPrisma;
 
   const clock: JobClock = { now: () => NOW.getTime(), sleep: async () => undefined };
 
@@ -705,7 +705,7 @@ describe('JobInsightsService', () => {
         deleteMany: jest.fn(),
       },
       $queryRaw: jest.fn().mockImplementation(() => observe([])),
-    } as unknown as PrismaService;
+    } as unknown as JobsPrisma;
 
     const service = new JobInsightsService(
       prisma,

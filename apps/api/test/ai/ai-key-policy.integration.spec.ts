@@ -55,7 +55,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { AI_KEYLESS_API_KEY } from '../../src/ai/core/provider-adapter.interface';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
 import {
   HARNESS_EMBEDDING_MODEL,

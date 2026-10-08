@@ -51,9 +51,9 @@
 // =============================================================================
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Job, WorkerNode } from '@prisma/client';
+import { type Job, type WorkerNode } from '../../jobs/index';
 
-import { normalizeTraceparent } from '../../jobs/job-trace-context';
+import { normalizeTraceparent } from '../../jobs/index';
 
 /** One worker node, as the fleet sees it. */
 export class WorkerNodeDto {

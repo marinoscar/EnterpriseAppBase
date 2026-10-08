@@ -1,8 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/index';
+import { DoctorCheckRegistry } from '../../doctor/index';
 import { JobWorkerMode, parseWorkerMode, resolveWorkerConcurrency } from '../job.worker';
 
 export const JOBS_SETTINGS_PATH = '/admin/settings/jobs';

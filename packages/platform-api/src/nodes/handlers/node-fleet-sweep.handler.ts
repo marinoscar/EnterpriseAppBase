@@ -107,16 +107,14 @@
 // which nothing notices a fleet-wide outage.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Job } from '@prisma/client';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { type Job, type JobsPrisma } from '../../jobs/index';
+import { PLATFORM_PRISMA } from '../../core/index';
 
-import { PERMISSIONS } from '../../common/constants/roles.constants';
-import type { NodeOfflineEmailData } from '@marinoscar/platform-api/email';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { NotificationsService } from '../../notifications/notifications.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { JobHandler } from '../../jobs/index';
+import { JobHandlerRegistry } from '../../jobs/index';
+import { NODE_OFFLINE_EVENT, NodeOfflineEvent } from '../events/node-offline.event';
 import { NodeLifecycleService } from '../node-lifecycle.service';
 
 /**
@@ -134,13 +132,13 @@ export class NodeFleetSweepHandler implements JobHandler, OnModuleInit {
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly lifecycle: NodeLifecycleService,
-    private readonly config: ConfigService,
-    // #288 (epic #254). `NodesModule` imports `NotificationsModule` for this
-    // one method. The direction is one-way and acyclic: notifications reach
-    // Prisma, email and settings, and none of those reaches nodes.
-    private readonly notifications: NotificationsService
+    // #288 (epic #254); #734: the sweep announces each node it flipped as a
+    // `nodes.node.offline` event and the app's listener dispatches the
+    // notification, so this slice imports nothing from notifications.
+    // `EventEmitter2` is global (`EventEmitterModule.forRoot()` in the app).
+    private readonly events: EventEmitter2
   ) {}
 
   /** Self-registration — the only wiring a handler needs. */
@@ -237,10 +235,9 @@ export class NodeFleetSweepHandler implements JobHandler, OnModuleInit {
     //
     // The statement above is the sweep. Everything below is reporting, it is
     // fire-and-forget, and it must not be able to affect either — which is why
-    // `notifyPermissionHolders` is called (never awaited for delivery, never
-    // able to reject) and why the whole loop sits behind a `try` of its own. A
-    // notifier that threw here would abort `sweep()` AFTER the rows had already
-    // been flipped, and the caller would log "fleet sweep failed" about a sweep
+    // each event is emitted behind a `try` of its own. A listener that threw
+    // here would otherwise abort `sweep()` AFTER the rows had already been
+    // flipped, and the caller would log "fleet sweep failed" about a sweep
     // that succeeded.
     this.announceOffline(transitioned, policy.staleHeartbeatSeconds * policy.offlineStaleMultiplier);
 
@@ -248,12 +245,13 @@ export class NodeFleetSweepHandler implements JobHandler, OnModuleInit {
   }
 
   /**
-   * Raise `nodes.node_offline` once per node this tick actually flipped.
+   * Emit `nodes.node.offline` once per node this tick actually flipped; the
+   * app's listener raises the `nodes.node_offline` notification.
    *
-   * NEVER THROWS, and never delays the sweep. `notifyPermissionHolders` is the
-   * DETACHED entry point: it schedules the audience query and every send and
-   * returns, so a mail server having a bad day cannot slow a ten-minute cron or
-   * hold a database connection while it does.
+   * NEVER THROWS, and never delays the sweep. The listener dispatches through
+   * the notifier's DETACHED entry point: it schedules the audience query and
+   * every send and returns, so a mail server having a bad day cannot slow a
+   * ten-minute cron or hold a database connection while it does.
    *
    * ONE MESSAGE PER NODE, not one summarising the batch. The reader's next
    * action is per node ("is that one meant to be up?"), and a digest that says
@@ -267,62 +265,26 @@ export class NodeFleetSweepHandler implements JobHandler, OnModuleInit {
     if (nodes.length === 0) return;
 
     const markedOfflineAt = new Date();
-    const appUrl = this.appUrl();
+    const staleAfterMinutes = Math.max(1, Math.round(staleAfterSeconds / 60));
 
-    try {
-      for (const node of nodes) {
-        // ANNOTATED WITH THE TEMPLATE'S OWN TYPE ON PURPOSE:
-        // `notifyPermissionHolders` takes `data: unknown`, so this annotation
-        // is the ONLY place the payload's shape is checked at all.
-        const payload: NodeOfflineEmailData = {
-          nodeId: node.id,
-          nodeName: node.name,
-          lastHeartbeatAt: node.lastHeartbeatAt,
-          markedOfflineAt,
-          staleAfterMinutes: Math.max(1, Math.round(staleAfterSeconds / 60)),
-          appUrl,
-        };
-
-        // THE AUDIENCE IS `nodes:read` — the exact string
-        // `nodes-admin.controller.ts` enforces, so the people told about a dead
-        // node are by construction the people the API would let look at it.
-        // ⚠ `.catch()` DESPITE THE DISPATCHER CONTRACTING NEVER TO REJECT.
-        // That contract belongs to `NotificationsService`, not here, and an
-        // unhandled rejection inside a `@Cron` tick has no caller to surface
-        // it — it becomes a process-level `unhandledRejection` attributed to a
-        // sweep that succeeded. The `try/catch` around this loop cannot see a
-        // rejected promise; only this can.
-        void this.notifications
-          .notifyPermissionHolders(
-            'nodes.node_offline',
-            PERMISSIONS.NODES_READ,
-            payload
-          )
-          .catch((error: unknown) => {
-            this.logger.error(
-              `Dispatching 'nodes.node_offline' for ${node.id} rejected, which ` +
-                `the dispatcher contracts never to do: ` +
-                `${error instanceof Error ? error.message : String(error)}`
-            );
-          });
+    // ONE EVENT PER NODE (#734). The slice no longer dispatches the
+    // `nodes.node_offline` notification itself: the notifications slice sits
+    // above it, so the app's listener does (`NODE_OFFLINE_EVENT`). Each emit
+    // is guarded on its own: a listener that throws must not stop the others
+    // from hearing about the remaining nodes, and must not abort a sweep that
+    // already succeeded.
+    for (const node of nodes) {
+      try {
+        this.events.emit(
+          NODE_OFFLINE_EVENT,
+          new NodeOfflineEvent(node.id, node.name, node.lastHeartbeatAt, markedOfflineAt, staleAfterMinutes)
+        );
+      } catch (error) {
+        this.logger.error(
+          `A '${NODE_OFFLINE_EVENT}' listener threw for node ${node.id}; the node is ` +
+            `still marked offline: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
-    } catch (error) {
-      this.logger.error(
-        `Could not raise 'nodes.node_offline'; the ${nodes.length} node(s) are ` +
-          `still marked offline: ${error instanceof Error ? error.message : String(error)}`
-      );
     }
-  }
-
-  /**
-   * The application root, trailing slashes trimmed, or `undefined`.
-   *
-   * Same shape as `UsersService.appUrl()`. `undefined` rather than a guess: the
-   * template omits its CTA entirely rather than rendering a button that goes
-   * nowhere.
-   */
-  private appUrl(): string | undefined {
-    const appUrl = this.config.get<string>('appUrl');
-    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
   }
 }

@@ -69,7 +69,7 @@ import {
 } from '../../src/db-backup/admin-connection.util';
 import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
 import type { StorageConfigService } from '../../src/storage/config/storage-config.service';
-import { JobsService } from '../../src/jobs/jobs.service';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { DB_RESTORE_RUN_TYPE } from '../../src/db-backup/database-restore.service';
 import { BACKUP_ARCHIVE_FORMAT } from '../../src/db-backup/db-backup-storage';
 import {

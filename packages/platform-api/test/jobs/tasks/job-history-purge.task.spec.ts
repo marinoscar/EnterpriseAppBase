@@ -9,17 +9,16 @@
 // constant dedup key.
 // =============================================================================
 
-import { Job } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
 import { JobHistoryPurgeTask } from './job-history-purge.task';
 import { JOB_HISTORY_PURGE_TYPE } from '../handlers/job-history-purge.handler';
 import type { JobsService } from '../jobs.service';
-import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 function makeTask(options: { purgeEnabled?: boolean; active?: unknown; enqueue?: jest.Mock }) {
   const findFirst = jest.fn().mockResolvedValue(options.active ?? null);
-  const prisma = { job: { findFirst } } as unknown as PrismaService;
+  const prisma = { job: { findFirst } } as unknown as JobsPrisma;
 
   const getJobsPolicy = jest.fn().mockResolvedValue({
     history: { retentionDays: 30, purgeEnabled: options.purgeEnabled ?? true },

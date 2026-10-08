@@ -34,9 +34,9 @@ import { BACKUP_JOB_TYPE } from '../../src/db-backup/db-backup-runner.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { ConfigService } from '@nestjs/config';
 
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JobWorker } from '../../src/jobs/job.worker';
-import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobWorker } from '@marinoscar/platform-api/jobs';
+import { NodeOffloadService } from '@marinoscar/platform-api/jobs';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser } from '../helpers/auth-mock.helper';
 import { closeTestApp, createTestApp, TestContext } from '../helpers/test-app.helper';

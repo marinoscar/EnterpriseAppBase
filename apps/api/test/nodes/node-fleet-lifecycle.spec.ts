@@ -41,12 +41,12 @@
 import { ConfigService } from '@nestjs/config';
 import type { Job } from '@prisma/client';
 
-import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 
-import { NodeFleetPruneHandler } from '../../src/nodes/handlers/node-fleet-prune.handler';
-import { NodeFleetSweepHandler } from '../../src/nodes/handlers/node-fleet-sweep.handler';
-import type { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
-import type { NotificationsService } from '../../src/notifications/notifications.service';
+import { NodeFleetPruneHandler } from '@marinoscar/platform-api/nodes';
+import { NodeFleetSweepHandler } from '@marinoscar/platform-api/nodes';
+import type { NodeLifecycleService } from '@marinoscar/platform-api/nodes';
+import type { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 
 /** The shipped policy: stale after 90s, offline after 4 x that, forgotten after 30 days. */
@@ -169,13 +169,12 @@ const lifecycle = {
 const config = { get: () => undefined } as unknown as ConfigService;
 
 /**
- * #288's notifier, stubbed. This suite is about the two sweeps' row semantics;
- * what the sweep tells anybody about them is asserted in
- * `src/nodes/handlers/node-fleet-sweep.handler.spec.ts`.
+ * The sweep's `nodes.node.offline` emitter (#288; an event since #734),
+ * stubbed. This suite is about the two sweeps' row semantics; what the sweep
+ * tells anybody about them is asserted in the nodes slice's
+ * `node-fleet-sweep.handler.spec.ts` and `node-offline-event.integration.spec.ts`.
  */
-const notifications = {
-  notifyPermissionHolders: async () => undefined,
-} as unknown as NotificationsService;
+const events = { emit: () => true } as unknown as EventEmitter2;
 
 /**
  * The registry each handler self-registers into. A stub: this suite constructs
@@ -194,7 +193,7 @@ function tasks(store: FakeNodeStore) {
   const prisma = store.asPrisma();
 
   return {
-    sweep: new NodeFleetSweepHandler(registry, prisma, lifecycle, config, notifications),
+    sweep: new NodeFleetSweepHandler(registry, prisma, lifecycle, events),
     prune: new NodeFleetPruneHandler(registry, prisma, lifecycle),
   };
 }

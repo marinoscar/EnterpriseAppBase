@@ -37,7 +37,7 @@ import request from 'supertest';
 
 import { createOpenApiDocument } from '../../src/openapi/document';
 import { forEachOperation, MutableDocument } from '../../src/openapi/types';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiProviderRegistry } from '../../src/ai/core';

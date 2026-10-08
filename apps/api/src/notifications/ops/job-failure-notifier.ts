@@ -7,7 +7,7 @@ import type { JobFailedEmailData } from '@marinoscar/platform-api/email';
 import {
   JOB_SETTLED_EVENT,
   type JobSettledEvent,
-} from '../../jobs/events/job-settled.event';
+} from '@marinoscar/platform-api/jobs';
 import { describeThrown } from '../describe-thrown';
 import { NotificationsService } from '../notifications.service';
 

@@ -38,11 +38,11 @@ import { z } from 'zod';
 import {
   resolveJobProfile,
   resolveMaxAttempts,
-} from '../../jobs/job-execution-profile';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { LEASE_GRACE_MS, resolveJobLeaseMs } from '../../jobs/job.worker';
-import { JOB_TYPE_LABELS } from '../../jobs/job-type-labels';
+} from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { LEASE_GRACE_MS, resolveJobLeaseMs } from '@marinoscar/platform-api/jobs';
+import { JOB_TYPE_LABELS } from '@marinoscar/platform-api/jobs';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { BACKUP_JOB_TYPE } from '../db-backup-runner.service';
 import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';

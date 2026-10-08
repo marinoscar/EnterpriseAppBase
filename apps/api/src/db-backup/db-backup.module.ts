@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { MaintenanceModule } from '../common/maintenance/maintenance.module';
-import { JobsModule } from '../jobs/jobs.module';
+import { JobsModule } from '../platform/jobs/jobs.config';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SettingsModule } from '../platform/settings/settings.config';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';

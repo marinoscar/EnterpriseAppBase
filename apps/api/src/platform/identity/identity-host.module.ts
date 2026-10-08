@@ -13,8 +13,8 @@ import {
 
 import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
 import { AppMetricsService } from '../../common/otel/app-metrics.service';
-import { JobsModule } from '../../jobs/jobs.module';
-import { NodeCredentialService } from '../../nodes/node-credential.service';
+import { JobsModule } from '../jobs/jobs.config';
+import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { IdentityJobsAdapter } from './identity-jobs.adapter';
 import { NotificationsIdentityNotifier } from './identity-notifier.adapter';

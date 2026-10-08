@@ -18,20 +18,20 @@
 // real database will not reliably do.
 // =============================================================================
 
-import { Job, Prisma } from '@prisma/client';
+import { type Job, type JobsPrisma, type JobsTx } from '../../src/jobs/data/jobs-db';
+import { PrismaClientKnownRequestError } from '../../src/jobs/data/prisma-runtime';
 
 import { propagation } from '@opentelemetry/api';
 
 import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
 import { buildDedupKey } from './job-keys';
 import { isActiveDedupConflict, JobsService } from './jobs.service';
-import type { PrismaService } from '../prisma/prisma.service';
 import type { EventBus } from '../common/event-bus/event-bus.interface';
 import { JOBS_ENQUEUED_CHANNEL } from './job-wake';
 
 /** A P2002 shaped the way `@prisma/adapter-pg` reports one. */
 function adapterConflict(constraintFields: string[], indexName: string) {
-  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+  return new PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
     clientVersion: 'test',
     meta: {
@@ -51,7 +51,7 @@ function adapterConflict(constraintFields: string[], indexName: string) {
 
 /** A P2002 shaped the way the classic (non-adapter) query engine reports one. */
 function classicConflict(target: string[] | string) {
-  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+  return new PrismaClientKnownRequestError('Unique constraint failed', {
     code: 'P2002',
     clientVersion: 'test',
     meta: { target },
@@ -92,7 +92,7 @@ describe('isActiveDedupConflict', () => {
   });
 
   it('does not treat a non-P2002 Prisma error, or a plain Error, as a dedup conflict', () => {
-    const notFound = new Prisma.PrismaClientKnownRequestError('nope', {
+    const notFound = new PrismaClientKnownRequestError('nope', {
       code: 'P2025',
       clientVersion: 'test',
     });
@@ -114,7 +114,7 @@ describe('JobsService', () => {
     update = jest.fn();
     service = new JobsService({
       job: { create, findFirst, update },
-    } as unknown as PrismaService);
+    } as unknown as JobsPrisma);
 
     // Silence the service's own logging; the assertions are about behaviour.
     jest.spyOn(service['logger'], 'debug').mockImplementation(() => undefined);
@@ -230,7 +230,7 @@ describe('JobsService', () => {
 
     it('enqueueWithin stores it too — one builder, both paths', async () => {
       const txCreate = jest.fn().mockResolvedValue(jobRow());
-      const tx = { job: { create: txCreate } } as unknown as Prisma.TransactionClient;
+      const tx = { job: { create: txCreate } } as unknown as JobsTx;
 
       await tracing.tracer.startActiveSpan('POST /api/things', async (span) => {
         await service.enqueueWithin(tx, { type: 'example.echo', reason: 'upload' });
@@ -364,7 +364,7 @@ describe('JobsService', () => {
       // Letting a failed annotation propagate would fail a job whose real
       // work already succeeded, turning a missing note into a needless retry.
       update.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('Record not found', {
+        new PrismaClientKnownRequestError('Record not found', {
           code: 'P2025',
           clientVersion: 'test',
         })
@@ -393,7 +393,7 @@ describe('JobsService — jobs.enqueued wake-up (PP-1.11, #682)', () => {
     findFirst = jest.fn();
     publish = jest.fn().mockResolvedValue(undefined);
     service = new JobsService(
-      { job: { create, findFirst } } as unknown as PrismaService,
+      { job: { create, findFirst } } as unknown as JobsPrisma,
       undefined,
       { publish } as unknown as EventBus,
     );
@@ -437,7 +437,7 @@ describe('JobsService — jobs.enqueued wake-up (PP-1.11, #682)', () => {
   });
 
   it('enqueueWithin never publishes: the row is invisible until the caller commits', async () => {
-    const tx = { job: { create: jest.fn().mockResolvedValue(jobRow()) } } as unknown as Prisma.TransactionClient;
+    const tx = { job: { create: jest.fn().mockResolvedValue(jobRow()) } } as unknown as JobsTx;
 
     await service.enqueueWithin(tx, { type: 'example.echo', reason: 'upload' });
 

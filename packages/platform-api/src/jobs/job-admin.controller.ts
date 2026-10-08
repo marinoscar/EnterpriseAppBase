@@ -92,9 +92,9 @@ import {
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '@marinoscar/platform-api/identity';
-import { PERMISSIONS, ROLES } from '../common/constants/roles.constants';
-import { ApiDataResponse } from '../common/decorators/api-data-response.decorator';
+import { Auth } from '../identity/index';
+import { PERMISSIONS, ROLES } from './jobs.constants';
+import { ApiDataResponse } from '../core/index';
 import { JobAdminService } from './job-admin.service';
 import { JobInsightsService } from './job-insights.service';
 import {

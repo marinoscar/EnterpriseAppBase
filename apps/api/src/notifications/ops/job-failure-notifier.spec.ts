@@ -5,11 +5,11 @@ import type { Job } from '@prisma/client';
 
 import { JobFailureNotifier } from './job-failure-notifier';
 import { NotificationsService } from '../notifications.service';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JobTerminalService } from '../../jobs/job-terminal.service';
-import { ProviderThrottleService } from '../../jobs/provider-throttle.service';
-import { RateLimitError } from '../../jobs/rate-limit.error';
-import type { JobClock } from '../../jobs/job-clock';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobTerminalService } from '@marinoscar/platform-api/jobs';
+import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
+import type { JobClock } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 // =============================================================================

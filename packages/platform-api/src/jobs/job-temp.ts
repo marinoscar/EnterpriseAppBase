@@ -21,12 +21,15 @@
 // carries a prefix, and the janitor removes ONLY files that carry it.
 //
 // -----------------------------------------------------------------------------
-// THE PREFIX IS DERIVED FROM `APP_NAME`, NOT WRITTEN OUT
+// THE PREFIX IS DERIVED FROM THE APP'S NAME, NOT WRITTEN OUT
 // -----------------------------------------------------------------------------
 //
 // This repository is a template: nothing in it may hard-code an application,
 // product or repository name, and `packages/shared`'s `APP_NAME` is the one
-// line a fork edits to rebrand. Slugifying it here means the prefix rebrands
+// line a fork edits to rebrand. The package cannot import it (a package never
+// imports an app), so the app passes it: `JobsModule.forRoot({ appName })`
+// calls `configureJobTempPrefix` once, at import time, before any handler or
+// the janitor runs (issue #734). Slugifying it here means the prefix rebrands
 // with everything else, and — the reason that actually matters — two
 // applications built from this template running on the SAME host get DIFFERENT
 // prefixes, so neither janitor can ever delete the other's in-flight temp
@@ -52,8 +55,6 @@ import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { APP_NAME } from '@app/shared';
-
 /**
  * What the prefix degrades to when `APP_NAME` slugifies to nothing (all
  * punctuation, all non-Latin script, empty).
@@ -77,16 +78,47 @@ function slugify(name: string): string {
 }
 
 /**
+ * The prefix for an application name: `'<slug>-job-'`, or `'app-job-'` when
+ * the name slugifies to nothing (or none is given).
+ *
+ * @param appName - the application's display name.
+ * @returns the prefix.
+ *
+ * @stability stable
+ */
+export function jobTempPrefixFor(appName: string | undefined): string {
+  return `${slugify(appName ?? '')}-job-`;
+}
+
+/**
  * The prefix EVERY temp file created by a job handler must carry.
  *
- * Computed once at import time — `APP_NAME` is a build-time constant, so
- * recomputing it per call would buy nothing.
+ * A live binding: `'app-job-'` until the app configures its name
+ * (`JobsModule.forRoot({ appName })`, at import time), then that name's
+ * prefix. Read it where it is used, never copy it into a constant of your own.
  *
  * Import this rather than writing your own scratch-file name: a file without
  * this prefix is a file the janitor will never clean up, and one whose
  * abandoned copies accumulate for the life of the host.
+ *
+ * @stability stable
  */
-export const JOB_TEMP_PREFIX = `${slugify(APP_NAME)}-job-`;
+export let JOB_TEMP_PREFIX = jobTempPrefixFor(undefined);
+
+/**
+ * Sets {@link JOB_TEMP_PREFIX} from the application's name. Called by
+ * `JobsModule.forRoot({ appName })`; call it yourself only in a process that
+ * runs handlers without the module (a script).
+ *
+ * @param appName - the application's display name (`APP_NAME`).
+ * @returns the prefix now in effect.
+ *
+ * @stability experimental
+ */
+export function configureJobTempPrefix(appName: string): string {
+  JOB_TEMP_PREFIX = jobTempPrefixFor(appName);
+  return JOB_TEMP_PREFIX;
+}
 
 /**
  * The directory temp files live in, read on EVERY call rather than captured in

@@ -13,7 +13,7 @@
 
 import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Job } from '@prisma/client';
+import { type Job } from '../../src/jobs/data/jobs-db';
 
 import { JOB_SETTLED_EVENT, JobSettledEvent } from './events/job-settled.event';
 import { emitJobSettled } from './job-settled.emit';

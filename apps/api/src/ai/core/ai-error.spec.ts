@@ -1,7 +1,7 @@
 import { ArgumentsHost, HttpException } from '@nestjs/common';
 
 import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
-import { CLASSIFY_RATE_LIMIT, classifyRateLimit, RateLimitError } from '../../jobs/rate-limit.error';
+import { CLASSIFY_RATE_LIMIT, classifyRateLimit, RateLimitError } from '@marinoscar/platform-api/jobs';
 import { AI_ERROR_CODES, AI_ERROR_STATUS, AiError, aiErrorLogDetails, isAiErrorCode } from './ai-error';
 
 const SECRET = 'sk-test-SENTINEL-DO-NOT-LEAK-1234567890';

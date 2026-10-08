@@ -10,7 +10,25 @@
 // Recipe: common/permissions/README.md.
 // =============================================================================
 
-import type { PermissionDeclarationMap } from '../common/permissions/permission.types';
+/**
+ * One permission the jobs slice declares, in the shape an app's
+ * permission registry takes (structurally the reference app's
+ * `PermissionDeclaration`).
+ *
+ * @typeParam Id - the permission string.
+ *
+ * @stability stable
+ */
+export interface JobsPermissionDeclaration<Id extends string = string> {
+  /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
+  readonly id: Id;
+  /** Seeded into `permissions.description`. */
+  readonly description: string;
+  /** `'system'`: these operate the deployment, never one organization. */
+  readonly scope: 'system' | 'org';
+  /** Role ids seeded into `role_permissions`; the seed only adds grants. */
+  readonly defaultGrants: readonly string[];
+}
 
 // #256, epic #254 — ADMIN ONLY, including the read halves. Contributor and
 // Viewer are deliberately left off: the queue, the fleet and the backup
@@ -19,6 +37,18 @@ import type { PermissionDeclarationMap } from '../common/permissions/permission.
 // issue can widen a specific read to Contributor with an argument for that
 // one surface; starting narrow is the direction that can be relaxed
 // without a migration, since these are rows.
+/**
+ * The jobs slice's permissions, keyed by the `PERMISSIONS` constant name the
+ * reference app derives from them. System scope, granted to `admin`. Register
+ * them with the app's permission registry.
+ *
+ * @example
+ * ```ts
+ * registerPermissions(JOBS_PERMISSIONS);
+ * ```
+ *
+ * @stability stable
+ */
 export const JOBS_PERMISSIONS = {
   // Jobs — the background queue (#256, epic #254)
   JOBS_READ: {
@@ -33,4 +63,4 @@ export const JOBS_PERMISSIONS = {
     scope: 'system',
     defaultGrants: ['admin'],
   },
-} as const satisfies PermissionDeclarationMap;
+} as const satisfies Record<string, JobsPermissionDeclaration>;

@@ -15,10 +15,10 @@
 // handed back untouched.
 // =============================================================================
 
-import { Job, Prisma } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
+import { type Sql } from '../../src/jobs/data/prisma-runtime';
 
 import { JobClaimService, JOB_CLAIM_COLUMNS } from './job-claim.service';
-import type { PrismaService } from '../prisma/prisma.service';
 
 describe('JobClaimService', () => {
   let queryRaw: jest.Mock;
@@ -26,7 +26,7 @@ describe('JobClaimService', () => {
 
   beforeEach(() => {
     queryRaw = jest.fn();
-    service = new JobClaimService({ $queryRaw: queryRaw } as unknown as PrismaService);
+    service = new JobClaimService({ $queryRaw: queryRaw } as unknown as JobsPrisma);
   });
 
   const options = {
@@ -78,7 +78,7 @@ describe('JobClaimService', () => {
         ],
       });
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       // Every runtime value is a bound parameter — INCLUDING the two arrays
       // the per-type lease join is built from. Asserting on `values` rather
@@ -107,7 +107,7 @@ describe('JobClaimService', () => {
       queryRaw.mockResolvedValue([]);
       await service.claim(options);
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       expect(statement.sql).toContain('FOR UPDATE SKIP LOCKED');
       expect(statement.sql).toContain('attempts = attempts + 1');
@@ -120,7 +120,7 @@ describe('JobClaimService', () => {
       queryRaw.mockResolvedValue([]);
       await service.claim(options);
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       for (const [field, column] of Object.entries(JOB_CLAIM_COLUMNS)) {
         expect(statement.sql).toContain(`${column} AS "${field}"`);
@@ -136,7 +136,7 @@ describe('JobClaimService', () => {
       queryRaw.mockResolvedValue([]);
       await service.claim(options);
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       for (const [field, column] of Object.entries(JOB_CLAIM_COLUMNS)) {
         expect(statement.sql).toContain(`jobs.${column} AS "${field}"`);
@@ -166,7 +166,7 @@ describe('JobClaimService', () => {
         ],
       });
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       expect(statement.sql).toContain('unnest(');
       expect(statement.sql).toContain('AS l(type, lease_ms)');
@@ -185,7 +185,7 @@ describe('JobClaimService', () => {
         { type: 'c.d', leaseMs: 2_000 },
       ] });
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       // Parameter 0 is the CTE's `type = ANY(...)`; parameter 4 is the
       // `unnest` type array. Same value, not merely the same length.
@@ -208,7 +208,7 @@ describe('JobClaimService', () => {
         leases: [{ type: 'covered', leaseMs: 1_000 }],
       });
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       expect(statement.values[5]).toEqual([1_000, 3_600_000]);
     });
@@ -230,7 +230,7 @@ describe('JobClaimService', () => {
         ],
       });
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       expect(statement.values[4]).toEqual(['dupe', 'other']);
       expect(statement.values[5]).toEqual([1_000, 2_000]);
@@ -242,7 +242,7 @@ describe('JobClaimService', () => {
       queryRaw.mockResolvedValue([]);
       await service.claim(options);
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       expect(statement.sql).toContain('FOR UPDATE SKIP LOCKED');
       expect(statement.sql).toContain('ORDER BY priority ASC, created_at ASC');
@@ -262,7 +262,7 @@ describe('JobClaimService', () => {
       queryRaw.mockResolvedValue([]);
       await service.claim(options);
 
-      const [statement] = queryRaw.mock.calls[0] as [Prisma.Sql];
+      const [statement] = queryRaw.mock.calls[0] as [Sql];
 
       expect(statement.sql).toContain('WITH picked AS MATERIALIZED');
       expect(statement.sql).toContain('jobs.id = p.id');

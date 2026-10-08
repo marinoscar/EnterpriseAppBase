@@ -40,13 +40,20 @@
 // =============================================================================
 
 import { Global, Module } from '@nestjs/common';
-import { PrismaModule } from '../prisma/prisma.module';
 import { NodeCredentialController } from './node-credential.controller';
 import { NodeCredentialService } from './node-credential.service';
 
+/**
+ * The `nod_` credential family (`/api/node-credentials`) and the global
+ * `NodeCredentialService` the identity slice's `IDENTITY_NODE_CREDENTIALS`
+ * port is bound to, so `JwtAuthGuard` can authenticate a worker node. Static
+ * and dependency-light on purpose (see above); the database is the core port
+ * `PLATFORM_PRISMA`.
+ *
+ * @stability experimental
+ */
 @Global()
 @Module({
-  imports: [PrismaModule],
   controllers: [NodeCredentialController],
   providers: [NodeCredentialService],
   exports: [NodeCredentialService],

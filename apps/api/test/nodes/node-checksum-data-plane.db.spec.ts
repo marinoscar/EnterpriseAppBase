@@ -60,20 +60,21 @@ import { Readable } from 'node:stream';
 
 import { z } from 'zod';
 
-import { ExampleChecksumHandler } from '../../src/jobs/handlers/example-checksum.handler';
-import type { JobHandler } from '../../src/jobs/job-handler.interface';
-import { JobClaimService } from '../../src/jobs/job-claim.service';
-import { JobLeaseService } from '../../src/jobs/job-lease.service';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JobTerminalService } from '../../src/jobs/job-terminal.service';
-import { JobsService } from '../../src/jobs/jobs.service';
-import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
-import { ClaimJobsDto, NodeJobResultDto } from '../../src/nodes/dto/node-control-plane.dto';
-import { NodeDownloadUrlDto, NodeUploadUrlDto } from '../../src/nodes/dto/node-data-plane.dto';
-import { NodeDataPlaneService } from '../../src/nodes/node-data-plane.service';
+import { ExampleChecksumHandler } from '../../src/examples/jobs/example-checksum.handler';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobClaimService } from '@marinoscar/platform-api/jobs';
+import { JobLeaseService } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobTerminalService } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
+import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
+import { ClaimJobsDto, NodeJobResultDto } from '@marinoscar/platform-api/nodes';
+import { NodeDownloadUrlDto, NodeUploadUrlDto } from '@marinoscar/platform-api/nodes';
+import { NodeJobInputsAdapter } from '../../src/platform/jobs/node-job-inputs.adapter';
+import { NodeDataPlaneService } from '@marinoscar/platform-api/nodes';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import { JobStuckService } from '../../src/jobs/job-stuck.service';
-import { NodesService } from '../../src/nodes/nodes.service';
+import { JobStuckService } from '@marinoscar/platform-api/jobs';
+import { NodesService } from '@marinoscar/platform-api/nodes';
 import type {
   MultipartUploadInit,
   SignedPutUrlOptions,
@@ -85,7 +86,7 @@ import type {
 } from '../../src/storage/providers';
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../../src/storage/storage-job-input';
 import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
-import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import { NodeOffloadService } from '@marinoscar/platform-api/jobs';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 const { describeWithDb } = resolveDbSuite('node-checksum-data-plane.db.spec');
@@ -375,7 +376,9 @@ describeWithDb('example.checksum end to end on a worker node (real Postgres)', (
         getNodesPolicy: async () => ({ ...DEFAULT_SYSTEM_SETTINGS.nodes }),
       } as unknown as SystemSettingsService)
     );
-    dataPlane = new NodeDataPlaneService(service, config, nodes, storage, registry);
+    // The app's `NODE_JOB_INPUTS` binding (#734): the job's input object, in
+    // its organization, exactly as the data plane resolved it before.
+    dataPlane = new NodeDataPlaneService(service, config, nodes, storage, registry, new NodeJobInputsAdapter(service));
     // The REAL reaper (#364's own precedent is `job-lease-renewal.db.spec.ts`),
     // over this suite's own registry and client — the claim → lapse → reap →
     // re-claim sequence below has to run through the shipped code path, not a

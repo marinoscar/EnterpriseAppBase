@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 
-import { HOUSEKEEPING_PRIORITY } from '../../jobs/housekeeping.enqueue';
-import { JOB_TYPE_LABELS, jobTypeLabel } from '../../jobs/job-type-labels';
+import { HOUSEKEEPING_PRIORITY } from '@marinoscar/platform-api/jobs';
+import { JOB_TYPE_LABELS, jobTypeLabel } from '@marinoscar/platform-api/jobs';
 import { TelemetryJobsAdapter } from './telemetry-jobs.adapter';
 
 // The TELEMETRY_JOBS adapter (issue #703). The housekeeping semantics the

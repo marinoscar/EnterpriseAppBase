@@ -10,11 +10,10 @@
 
 import { ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
-import { WorkerNode } from '@prisma/client';
+import { type JobsPrisma, type WorkerNode } from '../../src/jobs/data/jobs-db';
 
 import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
 import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { PrismaService } from '../prisma/prisma.service';
 import { NodeTelemetryDto } from './dto/node-telemetry.dto';
 import { NodeSettlementLedger } from './node-settlement-ledger';
 import {
@@ -73,7 +72,7 @@ describe('NodeTelemetryService', () => {
     ledger = new NodeSettlementLedger();
     limiter = new NodeTelemetryRateLimiter();
     service = new NodeTelemetryService(
-      prisma as unknown as PrismaService,
+      prisma as unknown as JobsPrisma,
       nodes as unknown as NodesService,
       ledger,
       limiter

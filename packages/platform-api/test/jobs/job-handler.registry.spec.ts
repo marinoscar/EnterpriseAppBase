@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Job } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import { z } from 'zod';
 
 import { ExampleEchoHandler } from './handlers/example-echo.handler';
@@ -15,7 +15,6 @@ import configuration from '../config/configuration';
 import { PrismaModule } from '../prisma/prisma.module';
 import { platformHostModule } from '../platform/platform-host.module';
 import { doctorModule } from '../doctor/doctor.config';
-import { PrismaService } from '../prisma/prisma.service';
 
 // -----------------------------------------------------------------------------
 // Test doubles for the three node-eligibility shapes.
@@ -220,7 +219,7 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
       // guards) into this graph. Nothing here serves a request.
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
-      .overrideProvider(PrismaService)
+      .overrideProvider(JobsPrisma)
       .useValue({})
       // `JobWorker` (#262) is the one provider in `JobsModule` that RUNS on
       // its own: `init()` below reaches `onApplicationBootstrap` and it would

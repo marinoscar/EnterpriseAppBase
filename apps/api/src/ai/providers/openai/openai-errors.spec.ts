@@ -17,7 +17,7 @@ import {
 import { ContentFilterFinishReasonError, LengthFinishReasonError } from 'openai/core/error';
 
 import { AiError, AiErrorCode, isAiErrorCode } from '../../core/ai-error';
-import { RateLimitError as QueueRateLimitError } from '../../../jobs/rate-limit.error';
+import { RateLimitError as QueueRateLimitError } from '@marinoscar/platform-api/jobs';
 import {
   classifyOpenAiErrorCode,
   mapOpenAiError,

@@ -58,7 +58,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { SystemSettingsService } from '../settings/index';
 import type { JobHandler } from './job-handler.interface';
 import { JobHandlerRegistry } from './job-handler.registry';
 import type { JobSecretBroker } from './job-secret-broker';
@@ -194,7 +194,7 @@ export class NodeOffloadService {
    */
   private async brokerEnabled(): Promise<boolean> {
     try {
-      return readJobSecretBrokerEnabled(await this.settings.getNodesPolicy());
+      return readJobSecretBrokerEnabled((await this.settings.getNodesPolicy()) as { jobSecretBrokerEnabled?: unknown } | null);
     } catch (error) {
       this.logger.warn(
         `Could not read nodes.jobSecretBrokerEnabled; withholding every type that needs a ` +

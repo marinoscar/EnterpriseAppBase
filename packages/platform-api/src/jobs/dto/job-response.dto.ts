@@ -39,7 +39,7 @@
 // other schema in this API reaches the OpenAPI document.
 // =============================================================================
 
-import { JobReason, JobStatus } from '@prisma/client';
+import { JobReason, JobStatus } from '../data/jobs-db';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 

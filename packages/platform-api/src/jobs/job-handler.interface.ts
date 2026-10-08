@@ -173,7 +173,7 @@
 // job's key derived long before that job starts.
 // =============================================================================
 
-import { Job } from '@prisma/client';
+import { type Job } from './data/jobs-db';
 import type { z } from 'zod';
 
 import type { JobExecutionProfile } from './job-execution-profile';

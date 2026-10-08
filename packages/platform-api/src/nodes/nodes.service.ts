@@ -130,24 +130,25 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  Inject,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Job, NodeStatus, Prisma, WorkerNode } from '@prisma/client';
+import { type Job, type JobsInputJsonValue, type JobsPrisma, NodeStatus, type WorkerNode } from '../jobs/index';
+import { PLATFORM_PRISMA } from '../core/index';
 import { z } from 'zod';
 
-import { JobClaimService } from '../jobs/job-claim.service';
+import { JobClaimService } from '../jobs/index';
 import {
   buildClaimLeases,
   resolveJobProfile,
   resolveRenewIntervalMs,
-} from '../jobs/job-execution-profile';
-import { JobHandlerRegistry } from '../jobs/job-handler.registry';
-import { NodeOffloadService } from '../jobs/node-offload.service';
-import { JobLeaseService } from '../jobs/job-lease.service';
-import { jobTypeLabel } from '../jobs/job-type-labels';
-import { JobSettleOutcome, JobTerminalService } from '../jobs/job-terminal.service';
-import { resolveJobLeaseMs } from '../jobs/job.worker';
-import { PrismaService } from '../prisma/prisma.service';
+} from '../jobs/index';
+import { JobHandlerRegistry } from '../jobs/index';
+import { NodeOffloadService } from '../jobs/index';
+import { JobLeaseService } from '../jobs/index';
+import { jobTypeLabel } from '../jobs/index';
+import { JobSettleOutcome, JobTerminalService } from '../jobs/index';
+import { resolveJobLeaseMs } from '../jobs/index';
 import {
   ClaimJobsDto,
   HeartbeatNodeDto,
@@ -247,7 +248,7 @@ export class NodesService {
   private readonly logger = new Logger(NodesService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly config: ConfigService,
     private readonly claims: JobClaimService,
     private readonly terminal: JobTerminalService,
@@ -331,7 +332,7 @@ export class NodesService {
           createdById: userId,
           ...(dto.capabilities === undefined
             ? {}
-            : { capabilities: dto.capabilities as Prisma.InputJsonValue }),
+            : { capabilities: dto.capabilities as JobsInputJsonValue }),
         },
       });
 
@@ -409,7 +410,7 @@ export class NodesService {
         ...(existing.status === NodeStatus.disabled ? {} : { status: NodeStatus.online }),
         ...(dto.capabilities === undefined
           ? {}
-          : { capabilities: dto.capabilities as Prisma.InputJsonValue }),
+          : { capabilities: dto.capabilities as JobsInputJsonValue }),
       },
     });
   }
@@ -495,13 +496,13 @@ export class NodesService {
         ...(dto.concurrency === undefined ? {} : { concurrency: dto.concurrency }),
         ...(dto.capabilities === undefined
           ? {}
-          : { capabilities: dto.capabilities as Prisma.InputJsonValue }),
+          : { capabilities: dto.capabilities as JobsInputJsonValue }),
         // The snapshot and its timestamp move together or not at all: a
         // heartbeat without `vitals` (every pre-#604 node) leaves the last
         // snapshot and its age intact rather than blanking the fleet page.
         ...(dto.vitals === undefined
           ? {}
-          : { lastVitals: dto.vitals as Prisma.InputJsonValue, lastVitalsAt: now }),
+          : { lastVitals: dto.vitals as JobsInputJsonValue, lastVitalsAt: now }),
       },
     });
   }

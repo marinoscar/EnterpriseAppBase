@@ -59,15 +59,15 @@
 // docs/specs/worker-nodes.md.
 // =============================================================================
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, Logger, NotFoundException, Inject } from '@nestjs/common';
+import { type JobsPrisma, type JobsWhere, type NodeCredential } from '../jobs/index';
+import { PLATFORM_PRISMA } from '../core/index';
 import { createHash, randomBytes } from 'node:crypto';
-import { PrismaService } from '../prisma/prisma.service';
 import {
   AuthenticatedUser,
   stampCredential,
   PRINCIPAL_USER_INCLUDE,
-} from '@marinoscar/platform-api/identity';
+} from '../identity/index';
 import { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
 
 /**
@@ -145,7 +145,7 @@ export interface NodeCredentialCreated {
 export class NodeCredentialService {
   private readonly logger = new Logger(NodeCredentialService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma) {}
 
   /**
    * Hashes a raw token the one way this service ever hashes one.
@@ -307,7 +307,7 @@ export class NodeCredentialService {
    * an admin is scanning for anomalies would hide the anomaly on page two.
    */
   async listAllCredentials(): Promise<AdminNodeCredentialRow[]> {
-    return this.prisma.nodeCredential.findMany({
+    return (await this.prisma.nodeCredential.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -319,7 +319,7 @@ export class NodeCredentialService {
         revokedAt: true,
         user: CREDENTIAL_OWNER_SELECT,
       },
-    });
+    })) as unknown as AdminNodeCredentialRow[];
   }
 
   /**
@@ -350,7 +350,7 @@ export class NodeCredentialService {
    * authorization is decided.
    */
   private async revokeMatching(
-    where: Prisma.NodeCredentialWhereInput,
+    where: JobsWhere,
     actor: string,
   ): Promise<void> {
     const credential = await this.prisma.nodeCredential.findFirst({ where });
@@ -395,14 +395,14 @@ export class NodeCredentialService {
     // Looked up BY HASH, never by prefix or id. `tokenHash` is `@unique`, so
     // this is a single index probe regardless of how many credentials exist —
     // which matters because this runs on every authenticated worker request.
-    const credential = await this.prisma.nodeCredential.findUnique({
+    const credential = (await this.prisma.nodeCredential.findUnique({
       where: { tokenHash },
       include: {
         // System roles and memberships with their org roles (PP-6.3, #723):
         // the graph every credential path loads (auth/principal.factory.ts).
         user: { include: PRINCIPAL_USER_INCLUDE },
       },
-    });
+    })) as (NodeCredential & { user: { isActive: boolean } }) | null;
 
     // Unknown token. Also covers a token from a deleted user: the row went
     // with the account (`onDelete: Cascade`), so there is nothing to find.

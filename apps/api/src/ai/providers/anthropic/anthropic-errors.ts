@@ -40,7 +40,7 @@ import {
 } from '@anthropic-ai/sdk';
 
 import { AiError, AiErrorCode } from '../../core/ai-error';
-import { parseRetryAfterMs } from '../../../jobs/rate-limit.error';
+import { parseRetryAfterMs } from '@marinoscar/platform-api/jobs';
 
 export const ANTHROPIC_PROVIDER_ID = 'anthropic';
 

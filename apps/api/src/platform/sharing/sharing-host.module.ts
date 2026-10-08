@@ -23,7 +23,7 @@ import {
 import { OrganizationsModule, TenancyService } from '@marinoscar/platform-api/identity';
 
 import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
-import { JobsModule } from '../../jobs/jobs.module';
+import { JobsModule } from '../jobs/jobs.config';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { SharingDataAdapter } from './sharing-data.adapter';
 import { SharingJobsAdapter } from './sharing-jobs.adapter';

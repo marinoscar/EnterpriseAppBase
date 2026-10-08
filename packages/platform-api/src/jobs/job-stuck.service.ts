@@ -108,15 +108,15 @@
 // settlement and emits nothing.
 // =============================================================================
 
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Prisma } from '@prisma/client';
+import { type JobsPrisma, type JobsWhere } from './data/jobs-db';
+import { PLATFORM_PRISMA } from '../core/index';
 
-import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
-import { PrismaService } from '../prisma/prisma.service';
-import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { DEFAULT_JOBS_POLICY, type JobsPolicy } from './jobs.policy';
+import { JOBS_METRICS, NOOP_JOBS_METRICS, type JobsMetrics } from './ports';
+import { SystemSettingsService } from '../settings/index';
 import { resolveLeaseHorizonMs, resolveMaxAttempts } from './job-execution-profile';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { emitJobSettled } from './job-settled.emit';
@@ -237,7 +237,7 @@ export function stuckRunningWhere(
   threshold: Date,
   now: Date,
   leaseHorizon: Date
-): Prisma.JobWhereInput {
+): JobsWhere {
   return {
     status: 'running',
     OR: [
@@ -259,7 +259,7 @@ export class JobStuckService {
   private readonly logger = new Logger(JobStuckService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly config: ConfigService,
     private readonly systemSettings: SystemSettingsService,
     // Injected for ONE question, the same one `JobTerminalService` injects it
@@ -274,7 +274,7 @@ export class JobStuckService {
     // `BroadcastFailureListener` never hear about the jobs that died hardest.
     private readonly events: EventEmitter2,
     // #600. Optional: see `fallbackAppMetrics`.
-    @Optional() private readonly metrics: AppMetricsService = fallbackAppMetrics()
+    @Optional() @Inject(JOBS_METRICS) private readonly metrics: JobsMetrics = NOOP_JOBS_METRICS
   ) {}
 
   /**
@@ -295,8 +295,8 @@ export class JobStuckService {
    */
   async getStuckThresholdMinutes(): Promise<number> {
     try {
-      const policy = await this.systemSettings.getJobsPolicy();
-      const minutes = policy.stuckThresholdMinutes;
+      const policy = (await this.systemSettings.getJobsPolicy()) as Partial<JobsPolicy> | null | undefined;
+      const minutes = policy?.stuckThresholdMinutes;
 
       if (typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0) {
         return minutes;
@@ -304,11 +304,11 @@ export class JobStuckService {
     } catch (error) {
       this.logger.warn(
         `Could not read jobs.stuckThresholdMinutes; falling back to ` +
-          `${DEFAULT_SYSTEM_SETTINGS.jobs.stuckThresholdMinutes} minutes: ${describe(error)}`
+          `${DEFAULT_JOBS_POLICY.stuckThresholdMinutes} minutes: ${describe(error)}`
       );
     }
 
-    return DEFAULT_SYSTEM_SETTINGS.jobs.stuckThresholdMinutes;
+    return DEFAULT_JOBS_POLICY.stuckThresholdMinutes;
   }
 
   /**
@@ -584,7 +584,7 @@ export class JobStuckService {
    * to be abandoned.
    */
   private attemptBudgets(): Array<{
-    typeFilter: Prisma.JobWhereInput;
+    typeFilter: JobsWhere;
     maxAttempts: number;
   }> {
     const fallback = resolveMaxAttempts(this.config, undefined);
@@ -616,7 +616,7 @@ export class JobStuckService {
         maxAttempts: fallback,
       },
       ...[...overrides.entries()].map(([maxAttempts, types]) => ({
-        typeFilter: { type: { in: types } } as Prisma.JobWhereInput,
+        typeFilter: { type: { in: types } } as JobsWhere,
         maxAttempts,
       })),
     ];

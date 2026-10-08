@@ -24,10 +24,10 @@ import {
   BROADCAST_START_TYPE,
   broadcastFirstChunkDedupKey,
 } from './broadcast-start.handler';
-import { buildDedupKey } from '../../../jobs/job-keys';
-import type { JobHandler } from '../../../jobs/job-handler.interface';
-import type { JobsService } from '../../../jobs/jobs.service';
-import type { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
+import { buildDedupKey } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
+import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';
 import { BROADCAST_CHUNK_TYPE } from './broadcast-chunk.handler';

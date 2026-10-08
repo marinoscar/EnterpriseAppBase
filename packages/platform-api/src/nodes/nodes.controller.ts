@@ -92,8 +92,8 @@ import {
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth, CurrentUser } from '@marinoscar/platform-api/identity';
-import { PERMISSIONS } from '../common/constants/roles.constants';
+import { Auth, CurrentUser } from '../identity/index';
+import { PERMISSIONS } from './nodes.constants';
 import {
   ClaimJobsDto,
   HeartbeatNodeDto,

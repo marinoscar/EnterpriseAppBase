@@ -78,9 +78,9 @@ import { resolveStorageObjectInput } from '../../storage/storage-job-input';
 import {
   ExampleChecksumResult,
   exampleChecksumResultSchema,
-} from '../contracts/example-checksum.contract';
-import { JobHandler } from '../job-handler.interface';
-import { JobHandlerRegistry } from '../job-handler.registry';
+} from './example-checksum.contract';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 
 /**
  * Where the computed checksum lands inside `StorageObject.metadata`.

@@ -14,7 +14,7 @@
 
 import request from 'supertest';
 
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { aiRunSchema, aiRunStartedSchema } from '../../src/ai/http/dto/ai-response.dto';
 import { aiOutputKeyPrefix } from '../../src/ai/storage/ai-output-writer';
 import {

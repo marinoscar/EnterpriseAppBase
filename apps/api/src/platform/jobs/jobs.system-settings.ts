@@ -12,10 +12,11 @@ import {
   systemJobsPatchSchema,
   systemJobsSchema,
   type SystemJobsValue,
-} from '../common/schemas/settings.schema';
-import { jobsSettingsPatchSchema, jobsSettingsSchema } from '../common/schemas/system-settings-wire.schemas';
-import { jobsResponseSchema } from '../common/schemas/system-settings-response.schemas';
+} from '../../common/schemas/settings.schema';
+import { jobsSettingsPatchSchema, jobsSettingsSchema } from '../../common/schemas/system-settings-wire.schemas';
+import { jobsResponseSchema } from '../../common/schemas/system-settings-response.schemas';
 import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
+import { DEFAULT_JOBS_POLICY } from '@marinoscar/platform-api/jobs';
 
 // THE ONE PLACE THESE NUMBERS LIVE (the operations namespaces, #256). None of
 // the schemas carries a `.default()`, deliberately: a default in zod is applied
@@ -28,12 +29,12 @@ import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings'
 // disabled, and so does the maintenance window. A default that started doing
 // something on upgrade would be a behaviour change smuggled in by a schema-only
 // issue.
+// The shipped values are the jobs slice's (`DEFAULT_JOBS_POLICY`, #734), so the
+// numbers the reaper and the purge fall back on and the ones a fresh row is
+// written with are one definition.
 const JOBS_SYSTEM_DEFAULTS: SystemJobsValue = {
-  history: {
-    retentionDays: 30,
-    purgeEnabled: true,
-  },
-  stuckThresholdMinutes: 30,
+  history: { ...DEFAULT_JOBS_POLICY.history },
+  stuckThresholdMinutes: DEFAULT_JOBS_POLICY.stuckThresholdMinutes,
 };
 
 export const JOBS_SYSTEM_SETTINGS = {

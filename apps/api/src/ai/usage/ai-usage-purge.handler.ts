@@ -23,9 +23,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 

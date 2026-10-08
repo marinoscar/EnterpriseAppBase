@@ -49,7 +49,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { NotificationBroadcast, Prisma } from '@prisma/client';
 
-import { JobsService } from '../../jobs/jobs.service';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { BroadcastEmailData } from '@marinoscar/platform-api/email';

@@ -2,8 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import { JobsService } from '../../jobs/jobs.service';
+import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';

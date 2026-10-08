@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
 import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { PrismaService } from '../../prisma/prisma.service';
+import { type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 import { JobAdminService } from '../job-admin.service';
 import { JobsBacklogDoctorCheck, decideJobsBacklog } from './jobs-backlog.doctor-check';
 import { JobsWorkerDoctorCheck, decideJobsWorker } from './jobs-worker.doctor-check';
@@ -89,7 +89,7 @@ describe('jobs doctor checks', () => {
       const check = new JobsBacklogDoctorCheck(
         new DoctorCheckRegistry(),
         { stats } as unknown as JobAdminService,
-        { job: { count, findFirst } } as unknown as PrismaService,
+        { job: { count, findFirst } } as unknown as JobsPrisma,
       );
 
       const outcome = await check.run();

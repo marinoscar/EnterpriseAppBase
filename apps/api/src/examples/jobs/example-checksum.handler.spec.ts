@@ -32,7 +32,7 @@ import { createMockStorageProvider } from '../../../test/mocks/storage-provider.
 import { PrismaService } from '../../prisma/prisma.service';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
 import { STORAGE_OBJECT_SUBJECT_TYPE } from '../../storage/storage-job-input';
-import { JobHandlerRegistry } from '../job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { CHECKSUM_METADATA_KEY, ExampleChecksumHandler } from './example-checksum.handler';
 
 describe('ExampleChecksumHandler', () => {

@@ -21,12 +21,11 @@
 // a property of the pair rather than of this task.
 // =============================================================================
 
-import type { Job } from '@prisma/client';
+import { type Job, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
 import { NodeFleetPruneHandler, prunableOfflineNodeWhere } from './node-fleet-prune.handler';
 import type { JobHandlerRegistry } from '../../jobs/job-handler.registry';
 import type { NodeLifecycleService } from '../node-lifecycle.service';
-import type { PrismaService } from '../../prisma/prisma.service';
 
 /** The row the worker hands `process`. Only `id` is read, for the log line. */
 const JOB = { id: 'job-1' } as Job;
@@ -60,7 +59,7 @@ function makeHandler({ candidates = [], busy = [], config = {} }: FakeOptions = 
   const prisma = {
     workerNode: { findMany: findManyNodes, deleteMany },
     job: { findMany: findManyJobs },
-  } as unknown as PrismaService;
+  } as unknown as JobsPrisma;
 
   const lifecycle = {
     getPolicy: jest.fn().mockResolvedValue(POLICY),
