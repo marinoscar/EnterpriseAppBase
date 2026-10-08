@@ -34,6 +34,7 @@ export { AllowlistTable } from './users/AllowlistTable.js';
 export { buildUserColumns } from './users/userListColumns.js';
 export { OrganizationPage } from './org/OrganizationPage.js';
 export { OrganizationsPage } from './org/OrganizationsPage.js';
+export type { OrganizationsPageProps } from './org/OrganizationsPage.js';
 export { OrgMembersPanel } from './org/OrgMembersPanel.js';
 export { OrgInvitesPanel } from './org/OrgInvitesPanel.js';
 export { identityAdminSections, identityUserSettingsSections } from './settings.js';

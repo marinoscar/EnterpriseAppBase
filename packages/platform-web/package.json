@@ -163,6 +163,14 @@
       "types": "./dist/android-app/ui/index.d.ts",
       "default": "./dist/android-app/ui/index.js"
     },
+    "./user-data/headless": {
+      "types": "./dist/user-data/headless/index.d.ts",
+      "default": "./dist/user-data/headless/index.js"
+    },
+    "./user-data/ui": {
+      "types": "./dist/user-data/ui/index.d.ts",
+      "default": "./dist/user-data/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
