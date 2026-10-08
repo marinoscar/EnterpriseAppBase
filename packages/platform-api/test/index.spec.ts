@@ -72,6 +72,8 @@ describe('@marinoscar/platform-api', () => {
       './db-backup/testing': { types: './dist/db-backup/testing/index.d.ts', default: './dist/db-backup/testing/index.js' },
       './android-app': { types: './dist/android-app/index.d.ts', default: './dist/android-app/index.js' },
       './android-app/testing': { types: './dist/android-app/testing/index.d.ts', default: './dist/android-app/testing/index.js' },
+      './user-data': { types: './dist/user-data/index.d.ts', default: './dist/user-data/index.js' },
+      './user-data/testing': { types: './dist/user-data/testing/index.d.ts', default: './dist/user-data/testing/index.js' },
       './package.json': './package.json',
     });
   });
