@@ -3,32 +3,24 @@
 // =============================================================================
 //
 // Pure data: this module's permissions and their default role grants. Imports
-// only types and has no side effect; `common/permissions/permission.manifest.ts`
+// only types and has no side effect; the manifest slice (`registerPlatformPermissions()`)
 // registers it, and `common/constants/roles.constants.ts` derives `PERMISSIONS`
 // from it. After a change, run `npm run catalog:permissions --workspace=api` and
 // commit the regenerated `prisma/catalog/permissions.json`.
 // Recipe: common/permissions/README.md.
 // =============================================================================
 
+import type { PermissionDeclaration } from '../core/index';
+
 /**
- * One permission the jobs slice declares, in the shape an app's
- * permission registry takes (structurally the reference app's
- * `PermissionDeclaration`).
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
  *
  * @typeParam Id - the permission string.
  *
  * @stability stable
  */
-export interface JobsPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /** `'system'`: these operate the deployment, never one organization. */
-  readonly scope: 'system' | 'org';
-  /** Role ids seeded into `role_permissions`; the seed only adds grants. */
-  readonly defaultGrants: readonly string[];
-}
+export type JobsPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 // #256, epic #254 — ADMIN ONLY, including the read halves. Contributor and
 // Viewer are deliberately left off: the queue, the fleet and the backup

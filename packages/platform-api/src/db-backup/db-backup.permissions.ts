@@ -11,25 +11,17 @@
 // hold one (#723, #740).
 // =============================================================================
 
+import type { PermissionDeclaration } from '../core/index';
+
 /**
- * One permission the db-backup slice declares, in the shape an app's
- * permission registry takes (structurally the reference app's
- * `PermissionDeclaration`).
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
  *
  * @typeParam Id - the permission string.
  *
  * @stability stable
  */
-export interface DbBackupPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /** Always `'system'`: these operate the whole deployment. */
-  readonly scope: 'system' | 'org';
-  /** Role ids seeded into `role_permissions`; the seed only adds grants. */
-  readonly defaultGrants: readonly string[];
-}
+export type DbBackupPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 // Default grants: ADMIN ONLY, including the read half, for the reason given on
 // `JOBS_PERMISSIONS` in the jobs slice (#256, epic #254: the queue, the fleet

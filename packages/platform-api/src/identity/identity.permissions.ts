@@ -5,10 +5,10 @@
 //
 // Identity DECLARES its roles and permissions here and beside the module that
 // enforces each (`users/users.permissions.ts`, `allowlist/allowlist.permissions.ts`,
-// `organizations/organizations.permissions.ts`). It registers nothing: the
-// app's permission registry (the reference app: `common/permissions/`)
-// registers these maps next to every other slice's, with their scopes, and
-// seeds them. The shapes are structurally the app's declaration types.
+// `organizations/organizations.permissions.ts`), typed with core's declaration
+// types. It registers nothing: `registerPlatformPermissions()` of
+// `@marinoscar/platform-api/manifest` registers these maps next to every other
+// slice's, in seed order, into core's role and permission registries.
 //
 // TWO KINDS OF ROLE (spec: "Tenancy and access model" -> Roles):
 //   - SYSTEM roles operate the deployment and are held in `user_roles`: `admin`.
@@ -22,68 +22,51 @@
 // position in the catalog.
 // =============================================================================
 
+import type { PermissionDeclaration, PermissionDeclarationMap, PermissionScope, RoleDeclaration, RoleDeclarationMap } from '../core/index';
+
 import { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 import { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
 import { USERS_PERMISSIONS } from './users/users.permissions';
 
 /**
- * What a role or a permission operates: the deployment (`'system'`, held
- * through `user_roles`) or one organization (`'org'`, held through the role on
- * the user's membership of the current organization). A role is granted only
- * permissions of its own scope.
+ * What a role or a permission operates: core's `PermissionScope`.
  *
  * @stability stable
  */
-export type IdentityPermissionScope = 'system' | 'org';
+export type IdentityPermissionScope = PermissionScope;
 
 /**
- * A role every deployment seeds into `roles`.
+ * A role every deployment seeds into `roles`: core's `RoleDeclaration`.
  *
  * @typeParam Id - the role name.
  *
  * @stability stable
  */
-export interface IdentityRoleDeclaration<Id extends string = string> {
-  /** The role name, e.g. `'admin'`. Never rename one that has been seeded. */
-  readonly id: Id;
-  /** Seeded into `roles.description`. */
-  readonly description: string;
-  /** `'system'` (assigned in `user_roles`) or `'org'` (assigned on a membership). */
-  readonly scope: IdentityPermissionScope;
-}
+export type IdentityRoleDeclaration<Id extends string = string> = RoleDeclaration<Id>;
 
 /**
  * A permission every deployment seeds into `permissions`, with its default
- * role grants.
+ * role grants: core's `PermissionDeclaration`.
  *
  * @typeParam Id - the permission string.
  *
  * @stability stable
  */
-export interface IdentityPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string `@Auth({ permissions })` enforces. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /** `'system'` or `'org'`; every role in `defaultGrants` has the same scope. */
-  readonly scope: IdentityPermissionScope;
-  /** Role ids seeded into `role_permissions`; the seed only adds grants. */
-  readonly defaultGrants: readonly string[];
-}
+export type IdentityPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 /**
  * A map of permission declarations keyed by constant name (`USERS_READ`).
  *
  * @stability stable
  */
-export type IdentityPermissionDeclarationMap = Readonly<Record<string, IdentityPermissionDeclaration>>;
+export type IdentityPermissionDeclarationMap = PermissionDeclarationMap;
 
 /**
  * A map of role declarations keyed by constant name (`ADMIN`).
  *
  * @stability stable
  */
-export type IdentityRoleDeclarationMap = Readonly<Record<string, IdentityRoleDeclaration>>;
+export type IdentityRoleDeclarationMap = RoleDeclarationMap;
 
 /**
  * The platform roles: one system role (`admin`) and three org roles.

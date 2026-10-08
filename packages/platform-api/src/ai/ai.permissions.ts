@@ -9,24 +9,17 @@
 // commit the regenerated `prisma/catalog/permissions.json`.
 // =============================================================================
 
+import type { PermissionDeclaration } from '../core/index';
+
 /**
- * One permission the AI slice declares, in the shape an app's permission
- * registry takes (structurally the reference app's `PermissionDeclaration`).
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
  *
  * @typeParam Id - the permission string.
  *
  * @stability stable
  */
-export interface AiPermissionDeclaration<Id extends string = string> {
-  /** `'<resource>:<action>'`: the exact string the slice's routes enforce. */
-  readonly id: Id;
-  /** Seeded into `permissions.description`. */
-  readonly description: string;
-  /** `'system'` for the deployment-wide policy, `'org'` for one organization's. */
-  readonly scope: 'system' | 'org';
-  /** Role ids seeded into `role_permissions`; the seed only adds grants. */
-  readonly defaultGrants: readonly string[];
-}
+export type AiPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
 
 /**
  * The AI slice's permissions, keyed by the `PERMISSIONS` constant name the
