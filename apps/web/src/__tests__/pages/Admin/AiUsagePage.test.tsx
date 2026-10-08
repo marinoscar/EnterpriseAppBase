@@ -183,6 +183,19 @@ describe('AiUsagePage', () => {
     expect(mockUseAiUsage).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'keySource' }));
   });
 
+  it('breaks usage down by organization (#739)', async () => {
+    setUsage(withData);
+    const user = renderPage();
+
+    await user.click(screen.getByRole('combobox', { name: 'Group by' }));
+    await user.click(screen.getByRole('option', { name: 'Organization' }));
+    expect(screen.getByRole('heading', { name: 'Usage by organization' })).toBeInTheDocument();
+    const table = screen.getByTestId('admin-ai-usage-breakdown-table');
+    expect(within(table).getByText('Acme')).toBeInTheDocument();
+    expect(within(table).getByText('No organization')).toBeInTheDocument();
+    expect(mockUseAiUsage).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'org' }));
+  });
+
   it('asks for the chosen range on both reads (30 days by default)', async () => {
     setUsage(withData);
     const user = renderPage();

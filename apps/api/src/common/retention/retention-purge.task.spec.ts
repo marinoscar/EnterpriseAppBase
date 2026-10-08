@@ -1,5 +1,5 @@
 import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
-import { AI_RUNS_PURGE_TYPE } from '../../ai/runtime/ai-runs-purge.handler';
+import { AI_RUNS_PURGE_TYPE } from '@marinoscar/platform-api/ai';
 import { NOTIFICATION_DELIVERIES_PURGE_TYPE } from './notification-deliveries-purge.handler';
 import { NOTIFICATION_INBOX_PURGE_TYPE } from './notification-inbox-purge.handler';
 import { AUDIT_EVENTS_PURGE_TYPE } from './audit-events-purge.handler';

@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { AI_SSE_HEARTBEAT_MS } from '../../src/ai/http/ai-sse';
+import { AI_SSE_HEARTBEAT_MS } from '@marinoscar/platform-api/ai';
 
 const repoRoot = resolve(__dirname, '..', '..', '..', '..');
 const conf = readFileSync(resolve(repoRoot, 'infra/nginx/nginx.conf'), 'utf8');

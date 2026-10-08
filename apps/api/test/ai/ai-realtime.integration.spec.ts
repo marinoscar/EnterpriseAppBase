@@ -12,8 +12,8 @@
 
 import request from 'supertest';
 
-import { aiRealtimeSessionResponseSchema } from '../../src/ai/http/dto/ai-realtime.dto';
-import { FAKE_REALTIME_SECRET_PREFIX } from '../../src/ai/testing/fake-ai-provider';
+import { aiRealtimeSessionResponseSchema } from '@marinoscar/platform-api/ai';
+import { FAKE_REALTIME_SECRET_PREFIX } from '@marinoscar/platform-api/ai/testing';
 import {
   HARNESS_EMBEDDING_MODEL,
   HARNESS_IMAGE_MODEL,
@@ -23,7 +23,7 @@ import {
   HARNESS_TRANSCRIPTION_MODEL,
   HARNESS_USER,
   HARNESS_USER_KEY,
-} from '../../src/ai/testing/ai-runtime-harness';
+} from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, createAiHttpTestApp } from './ai-http.helper';
 

@@ -20,9 +20,10 @@ import {
 } from '@marinoscar/platform-api/storage';
 
 import { BACKUP_KEY_PREFIX } from '../../db-backup/db-backup-storage';
-import { aiOutputKeyPrefix } from '../../ai/storage/ai-output-writer';
+import { aiOutputKeyPrefix } from '@marinoscar/platform-api/ai';
 import { STORAGE_KEY_PREFIXES } from './storage-key-prefix.view';
-import { AI_OUTPUTS_KEY_PREFIX, DATABASE_BACKUPS_KEY_PREFIX } from './storage-key-prefixes';
+import { AI_OUTPUTS_KEY_PREFIX } from '@marinoscar/platform-api/ai';
+import { DATABASE_BACKUPS_KEY_PREFIX } from './storage-key-prefixes';
 
 /**
  * These assertions exist because of one concrete failure, recorded in the
@@ -220,7 +221,7 @@ describe('STORAGE_KEY_PREFIXES', () => {
           'platform-api/storage/storage-key-prefixes.ts:AVATARS_KEY_PREFIX',
           'platform/storage/storage-key-prefixes.ts:DATABASE_BACKUPS_KEY_PREFIX',
           'platform-api/nodes/node-data-plane.service.ts:NODE_OUTPUT_KEY_PREFIX',
-          'platform/storage/storage-key-prefixes.ts:AI_OUTPUTS_KEY_PREFIX',
+          'platform-api/ai/storage/ai-output-writer.ts:AI_OUTPUTS_KEY_PREFIX',
           'platform-api/storage/storage-key-prefixes.ts:STORAGE_TEST_KEY_PREFIX',
         ]),
       );
@@ -321,7 +322,6 @@ describe("the app's storage-key-prefixes.ts stays a no-import leaf", () => {
     expect(required).toEqual([]);
     expect(fakeModule.exports).toEqual({
       DATABASE_BACKUPS_KEY_PREFIX: 'database-backups/',
-      AI_OUTPUTS_KEY_PREFIX: 'ai-outputs/',
     });
   });
 

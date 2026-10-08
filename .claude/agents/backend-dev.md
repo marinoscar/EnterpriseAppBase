@@ -13,7 +13,7 @@ All business logic and every authorization decision live here; the web app only 
 - [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md): Fastify, Prisma and Passport gotchas; debugging.
 - [docs/API.md](../../docs/API.md): envelope, errors, pagination, If-Match, SSE, how OpenAPI is produced.
 - [docs/SECURITY-ARCHITECTURE.md](../../docs/SECURITY-ARCHITECTURE.md): credential kinds and the auth flow.
-- The spec for the feature you touch in [docs/specs/](../../docs/specs/), and its module README when one exists: [jobs](../../apps/api/src/jobs/handlers/README.md), [ai](../../apps/api/src/ai/README.md), [notifications](../../packages/platform-api/src/notifications/README.md), [device-auth](../../packages/platform-api/src/identity/device-auth/README.md).
+- The spec for the feature you touch in [docs/specs/](../../docs/specs/), and its module README when one exists: [jobs](../../apps/api/src/jobs/handlers/README.md), [ai](../../packages/platform-api/src/ai/README.md), [notifications](../../packages/platform-api/src/notifications/README.md), [device-auth](../../packages/platform-api/src/identity/device-auth/README.md).
 
 ## Rules that apply to this domain
 
@@ -22,7 +22,7 @@ All business logic and every authorization decision live here; the web app only 
 - **Validation is Zod.** Define a schema, wrap it with `createZodDto` from `nestjs-zod`; the global `ZodValidationPipe` (`app.module.ts`) parses every body and query. Do not use class-validator.
 - **Long-running work is a queue job.** Implement `JobHandler`, self-register, enqueue through `JobsService`. A `@Cron` only decides and enqueues. Prefer node eligibility (`nodeResultSchema` + `persistNodeResult`); declare `profile` as `{ maxRuntimeMs, maxAttempts }` only. See [job-queue spec](../../docs/specs/job-queue.md) and the [handler recipe](../../apps/api/src/jobs/handlers/README.md).
 - **Node secrets are brokered per job.** A node never persists a job-scoped credential; declare a `nodeSecretBroker`. See [worker-nodes spec](../../docs/specs/worker-nodes.md).
-- **AI goes through `AiService.forUser(userId)`.** Provider SDKs are imported only under `ai/providers/<provider>/`. `ai.*` job types are server-only. `/api/ai/*` routes sit behind `AiEnabledGuard` plus `ai:use`; `/api/admin/ai/*` use `ai_config:*` and never the guard. See the [AI README](../../apps/api/src/ai/README.md) and [ai-platform spec](../../docs/specs/ai-platform.md).
+- **AI goes through `AiService.forUser(userId)`.** Provider SDKs are imported only under `ai/providers/<provider>/`. `ai.*` job types are server-only. `/api/ai/*` routes sit behind `AiEnabledGuard` plus `ai:use`; `/api/admin/ai/*` use `ai_config:*` and never the guard. See the [AI README](../../packages/platform-api/src/ai/README.md) and [ai-platform spec](../../docs/specs/ai-platform.md).
 - **Runtime configuration, not environment variables.** Object storage, AI providers and keys, Web Push (VAPID) and SMTP live in system settings plus the encrypted credential store (`apps/api/src/credentials/`). Never add an env var for any of them. See [storage-providers](../../docs/specs/storage-providers.md) and [user-credentials](../../docs/specs/user-credentials.md).
 - **Notifications are registry entries.** Declare the event in `notifications/notification-events.ts`, call `notify()` after the write commits and outside any transaction. See the [notifications README](../../packages/platform-api/src/notifications/README.md).
 - **OpenAPI is generated.** Annotate controllers and DTOs; never hand-write per-endpoint docs. See [API.md](../../docs/API.md).

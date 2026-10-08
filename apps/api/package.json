@@ -48,14 +48,12 @@
     "storage:purge": "node dist/storage-purge.main.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
     "@app/shared": "*",
     "@aws-sdk/client-s3": "^3.975.0",
     "@aws-sdk/lib-storage": "^3.975.0",
     "@aws-sdk/s3-request-presigner": "^3.975.0",
     "@fastify/cookie": "~11.0.2",
     "@fastify/multipart": "^10.0.0",
-    "@google/genai": "^2.24.0",
     "@marinoscar/platform-api": "0.1.0-next.3",
     "@marinoscar/platform-contract": "0.1.0-next.3",
     "@marinoscar/platform-db": "0.1.0-next.3",
@@ -78,7 +76,6 @@
     "exceljs": "^4.4.0",
     "hyparquet-writer": "^0.16.10",
     "nestjs-zod": "^5.4.0",
-    "openai": "^7.23.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",

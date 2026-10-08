@@ -34,16 +34,16 @@ import type {
 } from '@marinoscar/platform-contract/telemetry';
 
 import type { SystemTelemetryValue } from '../../src/common/schemas/settings.schema';
-import { AiError } from '../../src/ai/core/ai-error';
-import type { AiInputItem, AiResponseRequest } from '../../src/ai/core/types/responses.types';
+import { AiError } from '@marinoscar/platform-api/ai';
+import type { AiInputItem, AiResponseRequest } from '@marinoscar/platform-api/ai';
 import {
   createAiRuntimeHarness,
   HARNESS_MODEL,
   HARNESS_PROVIDER,
   HARNESS_USER,
   type AiRuntimeHarnessOptions,
-} from '../../src/ai/testing/ai-runtime-harness';
-import type { FakeAiScriptedResponse } from '../../src/ai/testing/fake-ai-provider';
+} from '@marinoscar/platform-api/ai/testing';
+import type { FakeAiScriptedResponse } from '@marinoscar/platform-api/ai/testing';
 import { TelemetryAiAdapter } from '../../src/platform/telemetry/telemetry-ai.adapter';
 import { TelemetryAppInfoAdapter } from '../../src/platform/telemetry/telemetry-app-info.adapter';
 

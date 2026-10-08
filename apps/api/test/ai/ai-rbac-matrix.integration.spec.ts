@@ -116,7 +116,8 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
     // adjust its own expectation downward and slip through undetected. This
     // pins each route's declaration against a fixed, external expectation
     // instead: every `/api/admin/ai/*` route names `ai_config:read` or
-    // `ai_config:write` and nothing else; every `/api/ai/*` route names
+    // `ai_config:write` and nothing else (the organization's own surfaces
+    // under `/api/admin/ai/org-*`, #739, name `org_ai_config:*` instead); every `/api/ai/*` route names
     // `ai:use` and nothing else, except `GET /api/ai/config`, which names no
     // permission at all (any signed-in user).
     const failures: string[] = [];
@@ -132,8 +133,13 @@ describe('AI RBAC matrix — every /api/ai/* and /api/admin/ai/* route x every r
       if (route.path.startsWith('/api/admin/ai')) {
         const ok =
           route.permissions.length === 1 &&
-          (route.permissions[0] === 'ai_config:read' || route.permissions[0] === 'ai_config:write');
-        if (!ok) failures.push(`${route.method} ${route.path}: expected exactly one ai_config:* permission, got ${JSON.stringify(route.permissions)}`);
+          (route.permissions[0] === 'ai_config:read' ||
+            route.permissions[0] === 'ai_config:write' ||
+            // #739: an organization's own AI keys and usage, org scope
+            // (`/api/admin/ai/org-keys`, `/api/admin/ai/org-usage`).
+            (route.path.startsWith('/api/admin/ai/org-') &&
+              (route.permissions[0] === 'org_ai_config:read' || route.permissions[0] === 'org_ai_config:write')));
+        if (!ok) failures.push(`${route.method} ${route.path}: expected exactly one ai_config:* (or, under /api/admin/ai/org-*, org_ai_config:*) permission, got ${JSON.stringify(route.permissions)}`);
         continue;
       }
 

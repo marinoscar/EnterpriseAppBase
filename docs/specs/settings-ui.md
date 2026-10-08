@@ -81,8 +81,9 @@ A card's `permission` is the literal string the API controller enforces. The hub
 | `nodes:read` | `apps/api/src/nodes/nodes-admin.controller.ts` |
 | `db_backup:read` | `apps/api/src/db-backup/db-backup.controller.ts` |
 | `['broadcasts:read', 'org_broadcasts:read']` | `packages/platform-api/src/notifications/broadcasts/broadcasts.controller.ts` (Broadcasts card; ANY OF the two: the controller declares `@Auth({ anyPermissions })` with the system and the org pair, #738) |
-| `ai_config:read` | `apps/api/src/ai/config/ai-admin.controller.ts` (AI, AI Models, AI Usage) |
-| `ai:use` | `apps/api/src/ai/keys/user-ai-keys.controller.ts` (user `AI Keys` card) |
+| `ai_config:read` | `packages/platform-api/src/ai/config/ai-admin.controller.ts` (AI, AI Models, AI Usage) |
+| `org_ai_config:read` | `packages/platform-api/src/ai/keys/org-keys.controller.ts` (Organization AI keys) |
+| `ai:use` | `packages/platform-api/src/ai/keys/user-ai-keys.controller.ts` (user `AI Keys` card) |
 | `groups:read` | `packages/platform-api/src/sharing/groups/groups.controller.ts` (user `Groups` card; an ORG permission, `SHARING_PERMISSIONS.GROUPS_READ`) |
 | `org_members:read` | `packages/platform-api/src/identity/organizations/org-members.controller.ts` (Organization card; an ORG permission, held through `org_admin`). `org_invites:read` (`org-invites.controller.ts`) gates the Invites **tab** |
 | `organizations:read` | `packages/platform-api/src/identity/organizations/organizations-admin.controller.ts` (Organizations card; a SYSTEM permission) |

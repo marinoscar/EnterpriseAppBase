@@ -171,6 +171,22 @@ describe('AiErrorAlert', () => {
       ).toBe('Limit reached (1 request per minute for this model)');
     });
 
+    it('a per-organization limit (#739) is worded for the organization, with no own-key way out', () => {
+      const requests = aiErrorCopy({
+        code: 'AI_RATE_LIMITED',
+        message: 'x',
+        limit: 'perOrg.requestsPerDay',
+        max: 5_000,
+        window: 'day',
+      });
+      expect(requests.title).toBe('Limit reached (5,000 requests per day for your organization)');
+      expect(requests.body).toMatch(/Daily limits reset at midnight UTC\./);
+      expect(requests.action).toBeUndefined();
+      expect(
+        aiErrorCopy({ code: 'AI_RATE_LIMITED', message: 'x', limit: 'perOrg.outputTokensPerDay', max: 1 }).title,
+      ).toBe('Limit reached (1 output token per day for your organization)');
+    });
+
     it('formats the back-off in seconds, minutes or hours, rounding up', () => {
       expect(formatRetryAfter(1)).toBe('1 second');
       expect(formatRetryAfter(89_000)).toBe('89 seconds');

@@ -139,6 +139,14 @@
       "types": "./dist/exports/ui/index.d.ts",
       "default": "./dist/exports/ui/index.js"
     },
+    "./ai/headless": {
+      "types": "./dist/ai/headless/index.d.ts",
+      "default": "./dist/ai/headless/index.js"
+    },
+    "./ai/ui": {
+      "types": "./dist/ai/ui/index.d.ts",
+      "default": "./dist/ai/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

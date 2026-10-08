@@ -11,6 +11,7 @@ import {
 import { settingsPageTitle, visibleSettingsSections } from '@marinoscar/platform-web/settings/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 import { readApiPermissionConstants } from '../utils/apiPermissions';
+import { ORG_AI_KEYS_DESCRIPTION } from '@marinoscar/platform-web/ai/ui';
 import {
   USER_SETTINGS_SECTIONS,
   USER_HUB_PATH,
@@ -1119,7 +1120,40 @@ describe('the AI group (#425)', () => {
     expect(ADMIN_SECTIONS[3]).toBe(aiSection);
     expect(ADMIN_SECTIONS.slice(4).map((section) => section.label)).toEqual(['Observability', 'Organizations']);
     // `AI Usage` (#444) is appended after `AI Models`, never inserted.
-    expect(aiSection?.cards.map((card) => card.title)).toEqual(['AI', 'AI Models', 'AI Usage']);
+    // `Organization AI keys` (#739) is appended after `AI Usage`.
+    expect(aiSection?.cards.map((card) => card.title)).toEqual([
+      'AI',
+      'AI Models',
+      'AI Usage',
+      'Organization AI keys',
+    ]);
+  });
+
+  it('gates Organization AI keys (#739) on org_ai_config:read, feature-gated, nested under the AI route', () => {
+    const card = cards.get('Organization AI keys');
+    expect(card).toMatchObject({
+      path: '/admin/settings/ai/organization-keys',
+      permission: 'org_ai_config:read',
+      feature: 'ai',
+      description: ORG_AI_KEYS_DESCRIPTION,
+    });
+    expect(card?.alwaysShow).toBeUndefined();
+
+    const visible = (held: string[], features: { ai?: boolean; orgs?: boolean }) =>
+      visibleSettingsSections(ADMIN_SECTIONS, (p) => held.includes(p), '', features).flatMap((section) =>
+        section.cards.map((c) => c.title),
+      );
+    // An org admin holding only the org permission sees exactly this card, in
+    // single-org and multi-org mode alike, and only while AI is on.
+    expect(visible(['org_ai_config:read'], { ai: true })).toEqual(['Organization AI keys']);
+    expect(visible(['org_ai_config:read'], { ai: true, orgs: true })).toEqual(['Organization AI keys']);
+    expect(visible(['org_ai_config:read'], { ai: false })).toEqual([]);
+    expect(visible(['ai_config:read'], { ai: true })).not.toContain('Organization AI keys');
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/ai/organization-keys', {
+        ai: true,
+      }),
+    ).toBe('Organization AI keys');
   });
 
   it('gates both cards on ai_config:read — the admin AI controller’s read permission', () => {

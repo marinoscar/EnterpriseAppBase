@@ -20,7 +20,7 @@
 // and `RoleName` below. Recipe: common/permissions/README.md.
 // =============================================================================
 
-import { AI_PERMISSIONS } from '../../ai/ai.permissions';
+import { AI_PERMISSIONS } from '@marinoscar/platform-api/ai';
 import {
   ALLOWLIST_PERMISSIONS,
   USERS_PERMISSIONS,

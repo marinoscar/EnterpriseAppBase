@@ -96,9 +96,11 @@ describe('Organization settings (/api/org-settings)', () => {
         });
         // `notifications` is the reference app's own org-overridable namespace
         // since #738 (an org may only tighten the browser policy); the two
-        // examples follow it.
+        // examples follow it. `ai` is the AI slice's (#739: an org may only
+        // tighten the AI policy).
         expect(response.body.data.namespaces.map((n: { key: string }) => n.key)).toEqual([
           'notifications',
+          'ai',
           'exportPolicy',
           'workspaceLabel',
         ]);

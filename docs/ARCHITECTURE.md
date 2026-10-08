@@ -78,7 +78,7 @@ Every API request passes through the same stages, in this order:
 | 1 | nginx | `infra/nginx/nginx.conf` | Adds security headers, routes `/api` to the API. `/api/notifications/stream` and `/api/ai/responses/stream` are unbuffered for SSE. |
 | 2 | Request ID | `apps/api/src/common/middleware/request-id.middleware.ts` | Assigns a request ID and captures trace context for log correlation. |
 | 3 | Maintenance gate | `apps/api/src/common/maintenance/maintenance.guard.ts` | The application's only global guard (`APP_GUARD`). Answers `503` while a maintenance window is open, except on routes marked `@AllowDuringMaintenance()`. |
-| 4 | Feature gate | `apps/api/src/ai/…` (`AiEnabledGuard`) | Controller-level, on `/api/ai/*` consumer controllers only. Answers `403 AI_DISABLED` while AI is switched off. |
+| 4 | Feature gate | `packages/platform-api/src/ai/…` (`AiEnabledGuard`) | Controller-level, on `/api/ai/*` consumer controllers only. Answers `403 AI_DISABLED` while AI is switched off. |
 | 5 | Authentication | `packages/platform-api/src/identity/auth/guards/jwt-auth.guard.ts` | Applied by `@Auth()`. Accepts a session JWT, a `pat_` personal access token, or a `nod_` node credential (confined to `/api/nodes/*`). Rejects deactivated users and a credential whose org is no longer an active membership (#724). Sets `request.user` (the loaded graph) and `request.principal` (ADR 0001's `Principal`: user id, `activeOrgId` (absent for a system-scoped node), memberships with role and status, roles, permissions, credential kind `session`/`device`/`pat`/`node`), read with `@CurrentUser()` and `@CurrentPrincipal()`. Skipped on routes marked `@Public()`. |
 | 6 | Roles | `packages/platform-api/src/identity/auth/guards/roles.guard.ts` | Applied by `@Auth({ roles })`. The caller needs any one listed role. |
 | 7 | Permissions | `packages/platform-api/src/identity/auth/guards/permissions.guard.ts` | Applied by `@Auth({ permissions })`. The caller needs all listed permissions, read from `request.principal.permissions` (the active org's). `@Auth({ anyPermissions })` (#738) admits a caller holding at least one of the listed permissions; the broadcast routes use it for their system and org permission pairs. |
@@ -245,12 +245,13 @@ In a real terminal with no arguments it opens an interactive ink menu. `appctl d
 
 The AI platform is an admin-governed, bring-your-own-key capability over five providers: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`. It offers responses (plain, streaming, structured output, function-calling tool loops), embeddings, image generation and editing, transcription, text-to-speech and realtime voice sessions, plus background runs and usage reporting.
 
-A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That client runs one gate pipeline for every call: kill switch, provider and model enablement, capability match, key resolution (the user's own key, or the org key under `byok_with_org_fallback` or for a holder of `ai_config:write`), rate limits and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `apps/api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
+The platform is the `@marinoscar/platform-api/ai` slice (with `@marinoscar/platform-contract/ai` and `@marinoscar/platform-web/ai`, #739), configured once by the app (`apps/api/src/platform/ai/ai.config.ts`, which binds its host ports). A feature uses AI by injecting `AiService` and calling `forUser(userId, { orgId, feature })`. That client runs one gate pipeline for every call: kill switch (the deployment's, then the organization's own), provider and model enablement, capability match (and fit to a registered AI feature), key resolution (the user's own key; then the organization's own key, then the deployment's, under the effective `byok_with_org_fallback` or for an administrator), rate limits (per user, per org key, per organization, per model) and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `packages/platform-api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
 
-- **Code:** `apps/api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
-- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; admin-only Playground `/ai`
-- **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer)
-- **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../apps/api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
+- **Code:** `packages/platform-api/src/ai/` (`core/`, `providers/`, `runtime/`, `catalog/`, `keys/`, `usage/`, `config/`, `http/`)
+- **UI:** admin `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`, `/admin/settings/ai/organization-keys`; user `/settings/ai`; admin-only Playground `/ai`
+- **Permissions:** `ai_config:read/write` (admin), `ai:use` (consumer), `org_ai_config:read/write` (the organization's own keys, policy and usage)
+- **Data:** `ai_models`, `user_ai_keys`, `ai_runs` and `ai_usage_events` (the latter two carry `org_id` under row-level security); an organization's keys in `org_credentials` (purpose `ai`)
+- **Read more:** [specs/ai-platform.md](specs/ai-platform.md), [AI module README](../packages/platform-api/src/ai/README.md), [runbooks/ai-configuration.md](runbooks/ai-configuration.md)
 
 ### 5.11 Notifications, email and Web Push
 
@@ -577,6 +578,8 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `ai_config:read` | system | ✓ | | | | View AI configuration, model catalog, usage report |
 | `ai_config:write` | system | ✓ | | | | Change AI configuration, admin keys, models; refresh the catalog |
 | `ai:use` | org | | ✓ | ✓ | | Call AI and manage own AI keys (`/api/ai/*` except `GET /api/ai/config`) |
+| `org_ai_config:read` | org | | ✓ | | | View the organization's own AI provider keys (masked, `GET /api/admin/ai/org-keys`), its AI usage (`GET /api/admin/ai/org-usage`) and the `ai` overrides in `/api/org-settings`; the `Organization AI keys` card |
+| `org_ai_config:write` | org | | ✓ | | | Set or remove the organization's own AI provider keys (`PUT`/`DELETE /api/admin/ai/org-keys/:provider`); tighten its `ai` policy in `/api/org-settings` (AI off, `byok`, lower per-org caps, providers off); serves the org key to its holder under `byok` |
 | `telemetry:read` | system | ✓ | | | | View the telemetry policy and store status; reach `/admin/settings/telemetry` |
 | `telemetry:write` | system | ✓ | | | | Change telemetry policy (retention, query bounds, the AI assistant); save, test or reset the GreptimeDB connection |
 | `telemetry:query` | system | ✓ | | | | Run explorer queries, export results, use the telemetry AI assistant (with `ai:use`), view the telemetry dashboard |
@@ -712,6 +715,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/ai` | AI | AI | `ai_config:read` | none (the page that turns AI on) |
 | `/admin/settings/ai/models` | AI Models | AI | `ai_config:read` | `ai` |
 | `/admin/settings/ai/usage` | AI Usage | AI | `ai_config:read` | `ai` |
+| `/admin/settings/ai/organization-keys` | Organization AI keys | AI | `org_ai_config:read` (org) | `ai` |
 | `/admin/settings/telemetry` | Telemetry | Observability | `telemetry:read` | none (the page that turns telemetry on) |
 | `/admin/settings/telemetry/explorer` | Telemetry Explorer | Observability | `telemetry:query` | `telemetry` |
 | `/admin/settings/telemetry/dashboard` | Telemetry Dashboard | Observability | `telemetry:query` | `telemetry` |
@@ -860,7 +864,7 @@ Health endpoints (public, reachable during maintenance):
 | A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) (UI), [settings/registry/README.md](../apps/api/src/settings/registry/README.md) (API namespace) |
 | A background job type | [jobs/handlers/README.md](../packages/platform-api/src/jobs/handlers/README.md) |
 | A notification event, email template or channel | [notifications/README.md](../packages/platform-api/src/notifications/README.md) (app entries in `app-registrations/notifications.ts`) |
-| AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
+| AI in a feature | [ai/README.md](../packages/platform-api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |

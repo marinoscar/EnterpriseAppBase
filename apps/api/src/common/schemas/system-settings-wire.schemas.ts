@@ -17,20 +17,6 @@
 import { z } from 'zod';
 import {
   BACKUP_TIME_OF_DAY_PATTERN,
-  AI_KEY_POLICIES,
-  AI_USAGE_RETENTION_MAX_DAYS,
-  AI_MCP_ALLOWED_HOST_PATTERN,
-  AI_MCP_ALLOWED_HOSTS_MAX,
-  AI_LIMIT_MODEL_KEY_MAX,
-  AI_LIMIT_MODEL_KEY_PATTERN,
-  AI_LIMITS_PER_MODEL_MAX,
-  AI_LIMIT_VALUE_MAX,
-  AI_AZURE_API_VERSION_PATTERN,
-  AI_AZURE_ENDPOINT_SCHEMES,
-  AI_COMPATIBLE_ENDPOINT_SCHEMES,
-  AI_OPENAI_API_STYLES,
-  aiAzureDeploymentsSchema,
-  aiEndpointUrlSchema,
   TELEMETRY_INSTANCE_ID_PATTERN,
   RETENTION_MAX_DAYS,
 } from './settings.schema';
@@ -130,103 +116,15 @@ export const maintenanceSettingsSchema = z.object({
 // since #736, re-exported here unchanged.
 export { storageSettingsPatchSchema, storageSettingsSchema } from '@marinoscar/platform-contract/storage';
 
-// =============================================================================
-// AI platform policy on the wire (#423, epic #419, umbrella #418)
-// =============================================================================
-//
-// Restated here rather than imported, for the reason at the top of this file.
-// Optional in the PUT body like the operations namespaces and `storage`
-// above, and for the identical reason: this block ships ahead of every
-// client that knows it exists.
-//
-// NO API KEY FIELD, ON EITHER SCHEMA, EVER. A user's own key is
-// `UserAiKey.secret`, written through its own dedicated endpoint (#428), not
-// through this document; an org-wide fallback key belongs in the encrypted
-// credential store. See `common/schemas/settings.schema.ts`, which carries
-// the argument and a compile-time proof of the absence.
-//
-// Bounds mirror `systemAiSchema` exactly.
+// AI platform policy on the wire (#423; in `@marinoscar/platform-contract/ai`
+// since #739): the PUT and PATCH branches and the shared `limits` block.
+export {
+  aiLimitValueSchema,
+  aiLimitsSettingsSchema,
+  aiSettingsPatchSchema,
+  aiSettingsSchema,
+} from '@marinoscar/platform-contract/ai';
 
-// `ai.limits` (#450). Every field optional — absent means unlimited. Used by
-// the PUT body and (whole, since a PATCH replaces it wholesale) the PATCH body.
-export const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE_MAX);
-export const aiLimitsSettingsSchema = z.object({
-  perUser: z
-    .object({
-      requestsPerMinute: aiLimitValueSchema.optional(),
-      requestsPerDay: aiLimitValueSchema.optional(),
-    })
-    .optional(),
-  orgKey: z
-    .object({
-      requestsPerDayPerUser: aiLimitValueSchema.optional(),
-      tokensPerDayPerUser: aiLimitValueSchema.optional(),
-    })
-    .optional(),
-  perModel: z
-    .record(
-      z.string().max(AI_LIMIT_MODEL_KEY_MAX).regex(AI_LIMIT_MODEL_KEY_PATTERN),
-      z.object({
-        maxOutputTokens: aiLimitValueSchema.optional(),
-        requestsPerMinutePerUser: aiLimitValueSchema.optional(),
-      }),
-    )
-    .refine((value) => Object.keys(value).length <= AI_LIMITS_PER_MODEL_MAX, {
-      message: `At most ${AI_LIMITS_PER_MODEL_MAX} per-model limits`,
-    })
-    .optional(),
-});
-
-export const aiSettingsSchema = z.object({
-  enabled: z.boolean(),
-  keyPolicy: z.enum(AI_KEY_POLICIES),
-  providers: z.object({
-    openai: z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().url().optional(),
-    }),
-    anthropic: z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().url().optional(),
-    }),
-    gemini: z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().url().optional(),
-    }),
-    // #448 — see `systemAiAzureProviderSchema` / `systemAiCompatibleProviderSchema`.
-    'azure-openai': z.object({
-      enabled: z.boolean(),
-      baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).optional(),
-      apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).optional(),
-      apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
-      deployments: aiAzureDeploymentsSchema.optional(),
-    }),
-    'openai-compatible': z.object({
-      enabled: z.boolean(),
-      baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).optional(),
-      apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
-      requiresKey: z.boolean().optional(),
-    }),
-  }),
-  defaults: z.object({
-    maxOutputTokensCap: z.number().int().positive().optional(),
-    allowBackgroundRuns: z.boolean(),
-    allowRealtime: z.boolean(),
-  }),
-  logPromptContent: z.boolean(),
-  usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
-  hostedTools: z.object({
-    web_search: z.boolean(),
-    file_search: z.boolean(),
-    code_interpreter: z.boolean(),
-    image_generation: z.boolean(),
-    mcp: z.boolean(),
-    mcpAllowedHosts: z
-      .array(z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN))
-      .max(AI_MCP_ALLOWED_HOSTS_MAX),
-  }),
-  limits: aiLimitsSettingsSchema,
-});
 
 // =============================================================================
 // Telemetry policy on the wire (epic #528, story #533)
@@ -357,83 +255,6 @@ export const maintenanceSettingsPatchSchema = z.object({
   startedById: z.string().uuid().nullable().optional(),
 });
 
-// #423, epic #419. Optional at the namespace level and field by field
-// inside, one level into each `providers.<id>` and `defaults`, matching
-// `storage` above — `{ "ai": { "enabled": true } }` must be a legal body,
-// or the admin page has to send the whole namespace to flip one switch.
-// NO API KEY FIELD — see the section header above.
-export const aiSettingsPatchSchema = z.object({
-  enabled: z.boolean().optional(),
-  keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
-  providers: z
-    .object({
-      openai: z
-        .object({
-          enabled: z.boolean().optional(),
-          // Absent leaves it alone; explicit `null` removes the override.
-          baseUrl: z.string().url().nullable().optional(),
-        })
-        .optional(),
-      anthropic: z
-        .object({
-          enabled: z.boolean().optional(),
-          baseUrl: z.string().url().nullable().optional(),
-        })
-        .optional(),
-      gemini: z
-        .object({
-          enabled: z.boolean().optional(),
-          baseUrl: z.string().url().nullable().optional(),
-        })
-        .optional(),
-      // #448. `null` removes an optional field (back to its default);
-      // `deployments` replaces wholesale when present.
-      'azure-openai': z
-        .object({
-          enabled: z.boolean().optional(),
-          baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).nullable().optional(),
-          apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).nullable().optional(),
-          apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
-          deployments: aiAzureDeploymentsSchema.nullable().optional(),
-        })
-        .optional(),
-      'openai-compatible': z
-        .object({
-          enabled: z.boolean().optional(),
-          baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).nullable().optional(),
-          apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
-          requiresKey: z.boolean().nullable().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
-  defaults: z
-    .object({
-      // Absent leaves it alone; explicit `null` removes the cap.
-      maxOutputTokensCap: z.number().int().positive().nullable().optional(),
-      allowBackgroundRuns: z.boolean().optional(),
-      allowRealtime: z.boolean().optional(),
-    })
-    .optional(),
-  logPromptContent: z.boolean().optional(),
-  usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
-  // #442. Booleans field by field; `mcpAllowedHosts` replaces wholesale.
-  hostedTools: z
-    .object({
-      web_search: z.boolean().optional(),
-      file_search: z.boolean().optional(),
-      code_interpreter: z.boolean().optional(),
-      image_generation: z.boolean().optional(),
-      mcp: z.boolean().optional(),
-      mcpAllowedHosts: z
-        .array(z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN))
-        .max(AI_MCP_ALLOWED_HOSTS_MAX)
-        .optional(),
-    })
-    .optional(),
-  // #450. Replaces wholesale when present — see `systemAiPatchSchema`.
-  limits: aiLimitsSettingsSchema.optional(),
-});
 
 // Epic #528, story #533. Optional at the namespace level and field by field
 // inside, one level into `query` and `assistant`, matching `ai` above —

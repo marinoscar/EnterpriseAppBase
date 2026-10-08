@@ -266,6 +266,7 @@ describe('AppMetricsService', () => {
         inputTokens: 120,
         outputTokens: 30,
         latencyMs: 1500,
+        feature: 'example_summary',
       });
       service.aiUsage({
         provider: 'openai',
@@ -282,8 +283,9 @@ describe('AppMetricsService', () => {
 
       expect(points(all, 'app.ai.requests')).toEqual(
         expect.arrayContaining([
-          { attributes: { ...base, status: 'succeeded', key_source: 'org' }, value: 1 },
-          { attributes: { ...base, status: 'failed', key_source: UNKNOWN_LABEL }, value: 1 },
+          // #739: the registered feature, or `none` for a call that named none.
+          { attributes: { ...base, status: 'succeeded', key_source: 'org', feature: 'example_summary' }, value: 1 },
+          { attributes: { ...base, status: 'failed', key_source: UNKNOWN_LABEL, feature: 'none' }, value: 1 },
         ]),
       );
       expect(metric(all, 'app.ai.tokens').descriptor.unit).toBe('{token}');

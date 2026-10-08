@@ -199,6 +199,18 @@ export const mockPermissions = {
     name: 'ai:use',
     description: 'Use AI features',
   },
+  // #739: one organization's AI keys, usage and policy overrides (org scope,
+  // `org_admin`), mirrored from the AI slice's declarations.
+  orgAiConfigRead: {
+    id: randomUUID(),
+    name: 'org_ai_config:read',
+    description: "View this organization's AI keys, usage and AI policy overrides",
+  },
+  orgAiConfigWrite: {
+    id: randomUUID(),
+    name: 'org_ai_config:write',
+    description: "Set or remove this organization's AI provider keys and tighten its AI policy",
+  },
   // Telemetry (epic #528, story #533), mirrored from `prisma/seed-data.ts`:
   // all three are Admin-only, matching `db_backup:*`/`ai_config:*` above — a
   // fixture that were more generous than the seed would make an integration
@@ -671,6 +683,8 @@ export const rolePermissionsMap = {
     mockPermissions.orgSettingsWrite,
     mockPermissions.orgBroadcastsRead,
     mockPermissions.orgBroadcastsWrite,
+    mockPermissions.orgAiConfigRead,
+    mockPermissions.orgAiConfigWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -724,6 +738,8 @@ const ORG_SCOPED_PERMISSIONS = new Set([
   'org_settings:write',
   'org_broadcasts:read',
   'org_broadcasts:write',
+  'org_ai_config:read',
+  'org_ai_config:write',
 ]);
 
 /**

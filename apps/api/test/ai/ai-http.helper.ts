@@ -16,27 +16,28 @@
 
 import type { AddressInfo } from 'node:net';
 
-import { AiConfigService, type AiPolicy } from '../../src/ai/config/ai-config.service';
-import { AiService } from '../../src/ai/runtime/ai.service';
-import { AiRunsService } from '../../src/ai/runtime/ai-runs.service';
-import { AiOutputWriter } from '../../src/ai/storage/ai-output-writer';
-import { AiStorageInputResolver } from '../../src/ai/storage/ai-storage-input.resolver';
+import { AiConfigService, type AiPolicy } from '@marinoscar/platform-api/ai';
+import { AiService } from '@marinoscar/platform-api/ai';
+import { AiRunsService } from '@marinoscar/platform-api/ai';
+import { AiOutputWriter } from '@marinoscar/platform-api/ai';
+import { AiStorageInputResolver } from '@marinoscar/platform-api/ai';
 import {
   createAiRuntimeHarness,
   HARNESS_OTHER_USER,
   HARNESS_ORG_KEY,
+  HARNESS_TENANT_KEY,
   HARNESS_USER_KEY,
   type AiRuntimeHarness,
   type AiRuntimeHarnessOptions,
-} from '../../src/ai/testing/ai-runtime-harness';
-import type { FakeAiScript } from '../../src/ai/testing/fake-ai-provider';
+} from '@marinoscar/platform-api/ai/testing';
+import type { FakeAiScript } from '@marinoscar/platform-api/ai/testing';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 
 export const OTHER_USER_KEY = 'sk-other-user-key-never-leak-4242';
 /** Every key a response or frame must never contain. */
-export const ALL_KEYS = [HARNESS_USER_KEY, HARNESS_ORG_KEY, OTHER_USER_KEY];
+export const ALL_KEYS = [HARNESS_USER_KEY, HARNESS_ORG_KEY, HARNESS_TENANT_KEY, OTHER_USER_KEY];
 
 export interface AiHttpTestApp {
   context: TestContext;
@@ -121,6 +122,8 @@ export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): P
       harness.enqueued.length = 0;
       harness.storage.reset();
       harness.setOrgKey(null);
+      harness.clearOrgPolicies();
+      harness.clearTenantKeys();
       harness.clearAiConfigWriters();
       harness.removeUserKeys(HARNESS_OTHER_USER);
       harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults }, limits: {} });

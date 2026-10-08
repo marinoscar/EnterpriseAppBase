@@ -17,7 +17,7 @@
 import { registerCredentialPurpose, registerUserCredentialPurpose } from '@marinoscar/platform-api/credentials';
 import { TELEMETRY_GREPTIME_CREDENTIAL_PURPOSE } from '@marinoscar/platform-api/telemetry';
 
-import { AI_CREDENTIAL_PURPOSE_DEF } from '../../ai/config/ai-credential.constants';
+import { AI_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/ai';
 import { APP_CREDENTIAL_PURPOSES, APP_USER_CREDENTIAL_PURPOSES } from '../../app-registrations/credentials';
 import { SES_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';
 import { SMTP_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';

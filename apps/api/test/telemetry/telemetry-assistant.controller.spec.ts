@@ -9,8 +9,8 @@ import {
 } from '@marinoscar/platform-api/telemetry';
 import type { TelemetryAssistantEmit } from '@marinoscar/platform-contract/telemetry';
 
-import { AiError } from '../../src/ai/core/ai-error';
-import { AI_SSE_HEADERS } from '../../src/ai/http/ai-sse';
+import { AiError } from '@marinoscar/platform-api/ai';
+import { AI_SSE_HEADERS } from '@marinoscar/platform-api/ai';
 import { RBAC_EXTENSION_KEY, PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../src/common/constants/roles.constants';
 import { telemetryControllers } from '../../src/platform/telemetry/telemetry.config';

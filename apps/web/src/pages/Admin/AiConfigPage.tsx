@@ -94,12 +94,17 @@ import type {
   AiLimits,
 } from '../../services/ai';
 
-/** The four deployment-wide limit fields (#450); per-model limits live on the AI Models page. */
+/**
+ * The deployment-wide limit fields (#450; the per-organization pair #739);
+ * per-model limits live on the AI Models page.
+ */
 const LIMIT_FIELDS = [
   'perUserRequestsPerMinute',
   'perUserRequestsPerDay',
   'orgKeyRequestsPerDayPerUser',
   'orgKeyTokensPerDayPerUser',
+  'perOrgRequestsPerDay',
+  'perOrgOutputTokensPerDay',
 ] as const;
 type LimitField = (typeof LIMIT_FIELDS)[number];
 
@@ -120,6 +125,14 @@ const LIMIT_COPY: Record<LimitField, { label: string; help: string }> = {
     label: 'Organization key: tokens per day, per user',
     help: 'Input plus output tokens the organization key pays for.',
   },
+  perOrgRequestsPerDay: {
+    label: 'Requests per day, per organization',
+    help: "Every AI call made in one organization, whoever's key pays.",
+  },
+  perOrgOutputTokensPerDay: {
+    label: 'Output tokens per day, per organization',
+    help: "Output tokens of every call made in one organization, whoever's key pays.",
+  },
 };
 
 /** The form's own state — strings for the number field so "blank" is representable. */
@@ -127,6 +140,8 @@ interface AiFormState {
   enabled: boolean;
   keyPolicy: AiKeyPolicy;
   logPromptContent: boolean;
+  /** #739: whether the deployment's keys pay for organizations without their own. */
+  deploymentKeyServesOrgs: boolean;
   maxOutputTokensCap: string;
   allowBackgroundRuns: boolean;
   allowRealtime: boolean;
@@ -185,6 +200,8 @@ function toFormState(config: AiAdminConfig): AiFormState {
     enabled: config.enabled,
     keyPolicy: config.keyPolicy,
     logPromptContent: config.logPromptContent,
+    // Absent from an API older than #739 — read as on (the behaviour before it).
+    deploymentKeyServesOrgs: config.deploymentKeyServesOrgs ?? true,
     maxOutputTokensCap:
       config.defaults.maxOutputTokensCap === null ? '' : String(config.defaults.maxOutputTokensCap),
     allowBackgroundRuns: config.defaults.allowBackgroundRuns,
@@ -203,6 +220,8 @@ function toFormState(config: AiAdminConfig): AiFormState {
       perUserRequestsPerDay: limitText(config.limits?.perUser?.requestsPerDay),
       orgKeyRequestsPerDayPerUser: limitText(config.limits?.orgKey?.requestsPerDayPerUser),
       orgKeyTokensPerDayPerUser: limitText(config.limits?.orgKey?.tokensPerDayPerUser),
+      perOrgRequestsPerDay: limitText(config.limits?.perOrg?.requestsPerDay),
+      perOrgOutputTokensPerDay: limitText(config.limits?.perOrg?.outputTokensPerDay),
     },
     providers,
   };
@@ -222,10 +241,15 @@ function toLimits(form: AiFormState, config: AiAdminConfig): AiLimits {
     requestsPerDayPerUser: limitValue(form.limits.orgKeyRequestsPerDayPerUser),
     tokensPerDayPerUser: limitValue(form.limits.orgKeyTokensPerDayPerUser),
   });
+  const perOrg = compact({
+    requestsPerDay: limitValue(form.limits.perOrgRequestsPerDay),
+    outputTokensPerDay: limitValue(form.limits.perOrgOutputTokensPerDay),
+  });
   const perModel = config.limits?.perModel;
   return {
     ...(perUser ? { perUser } : {}),
     ...(orgKey ? { orgKey } : {}),
+    ...(perOrg ? { perOrg } : {}),
     ...(perModel && Object.keys(perModel).length > 0 ? { perModel } : {}),
   };
 }
@@ -253,6 +277,7 @@ function toInput(form: AiFormState, config: AiAdminConfig): AiAdminConfigInput {
     enabled: form.enabled,
     keyPolicy: form.keyPolicy,
     logPromptContent: form.logPromptContent,
+    deploymentKeyServesOrgs: form.deploymentKeyServesOrgs,
     defaults: {
       maxOutputTokensCap: cap ? Number(cap) : null,
       allowBackgroundRuns: form.allowBackgroundRuns,
@@ -527,6 +552,25 @@ export default function AiConfigPage() {
                   )}
                 </Alert>
               )}
+              {/* #739: whether the deployment's keys also pay for an
+                  organization that has stored no key of its own (on the
+                  Organization AI keys page). */}
+              <FormControlLabel
+                sx={{ mt: 2 }}
+                control={
+                  <Switch
+                    checked={form.deploymentKeyServesOrgs}
+                    onChange={(e) => update('deploymentKeyServesOrgs', e.target.checked)}
+                    disabled={!canWrite}
+                    slotProps={{ input: { 'aria-label': "Deployment keys serve organizations" } }}
+                  />
+                }
+                label="Deployment keys serve organizations"
+              />
+              <FormHelperText sx={{ mt: 0 }}>
+                On: an organization without its own key uses the keys stored below. Off: each
+                organization must store its own key on its Organization AI keys page.
+              </FormHelperText>
 
               <Divider sx={{ my: 3 }} />
 

@@ -106,6 +106,11 @@ vi.mock('../pages/UserAppearancePage', () => ({
 // the packaged notifications pages (#738); its own suite, in
 // packages/platform-web/test/notifications, proves it renders correctly.
 
+// #739: the AI slice's packaged Organization AI keys page, as a placeholder.
+vi.mock('@marinoscar/platform-web/ai/ui', () => ({
+  default: () => <h1>Organization AI keys</h1>,
+}));
+
 const API_BASE = '*/api';
 
 /** Overrides `GET /auth/me` for one test, so the route tree sees this user. */
@@ -541,6 +546,38 @@ describe('App', () => {
         ).not.toBeInTheDocument();
       },
     );
+
+    describe('/admin/settings/ai/organization-keys (#739)', () => {
+      const ORG_AI = ['user_settings:read', 'org_ai_config:read', 'org_ai_config:write'];
+
+      it('renders the page for a holder of org_ai_config:read once AI is enabled', async () => {
+        aiOn();
+        signInAs(ORG_AI);
+        renderAt('/admin/settings/ai/organization-keys');
+
+        await waitFor(
+          () => expect(screen.getByRole('heading', { level: 1, name: 'Organization AI keys' })).toBeInTheDocument(),
+          { timeout: 5000 },
+        );
+      });
+
+      it('redirects to / while AI is disabled', async () => {
+        signInAs(ORG_AI);
+        renderAt('/admin/settings/ai/organization-keys');
+
+        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), { timeout: 5000 });
+        expect(screen.queryByRole('heading', { level: 1, name: 'Organization AI keys' })).not.toBeInTheDocument();
+      });
+
+      it('redirects to / without org_ai_config:read, even for a deployment AI admin', async () => {
+        aiOn();
+        signInAs(AI_ALL, ['admin']);
+        renderAt('/admin/settings/ai/organization-keys');
+
+        await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), { timeout: 5000 });
+        expect(screen.queryByRole('heading', { level: 1, name: 'Organization AI keys' })).not.toBeInTheDocument();
+      });
+    });
 
     it('keeps /admin/settings/ai reachable while AI is disabled — it is where AI is switched on', async () => {
       signInAs(AI_ALL, ['admin']);

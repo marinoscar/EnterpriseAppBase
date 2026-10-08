@@ -18,9 +18,9 @@ import { randomUUID } from 'node:crypto';
 
 import type { Job, PrismaClient } from '@prisma/client';
 
-import { AiProviderRegistry } from '../../src/ai/core/provider-registry';
-import { AiUsagePurgeHandler } from '../../src/ai/usage/ai-usage-purge.handler';
-import { AiUsageService } from '../../src/ai/usage/ai-usage.service';
+import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
+import { AiUsagePurgeHandler } from '@marinoscar/platform-api/ai';
+import { AiUsageService } from '@marinoscar/platform-api/ai';
 import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('ai-usage.db.spec');

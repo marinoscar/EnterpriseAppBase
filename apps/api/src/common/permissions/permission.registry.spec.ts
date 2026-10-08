@@ -181,9 +181,9 @@ describe('permission registry', () => {
       expect(permissionRegistry.ids()).toEqual(Object.values(PERMISSIONS));
     });
 
-    it('declares 47 permissions and 4 roles, each exactly once', () => {
-      expect(permissionRegistry.size).toBe(47);
-      expect(new Set(Object.values(PERMISSIONS)).size).toBe(47);
+    it('declares 49 permissions and 4 roles, each exactly once', () => {
+      expect(permissionRegistry.size).toBe(49);
+      expect(new Set(Object.values(PERMISSIONS)).size).toBe(49);
       expect(roleRegistry.size).toBe(4);
     });
   });
@@ -233,6 +233,9 @@ describe('permission registry', () => {
         'storage:read',
         'storage:write',
         'ai:use',
+        // #739: an organization's own AI configuration.
+        'org_ai_config:read',
+        'org_ai_config:write',
         'org_members:read',
         'org_members:write',
         'org_invites:read',

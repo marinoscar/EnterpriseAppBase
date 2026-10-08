@@ -23,10 +23,11 @@ import { readApiPermissionConstants } from '../utils/apiPermissions';
  * covered with no edit to this file.
  */
 
-const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+// The AI slice's controllers live in `@marinoscar/platform-api/ai` since #739.
+const PLATFORM_API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/platform-api/src');
 
 function readApiSource(relPath: string): string {
-  return readFileSync(resolve(API_SRC, relPath), 'utf8');
+  return readFileSync(resolve(PLATFORM_API_SRC, relPath), 'utf8');
 }
 
 // The API's `PERMISSIONS` constants as `KEY: 'id'` lines, followed through
@@ -34,6 +35,10 @@ function readApiSource(relPath: string): string {
 const rolesConstants = readApiPermissionConstants();
 const aiAdminController = readApiSource('ai/config/ai-admin.controller.ts');
 const userAiKeysController = readApiSource('ai/keys/user-ai-keys.controller.ts');
+const orgAiKeysController = readApiSource('ai/keys/org-keys.controller.ts');
+
+/** #739: the one admin AI card about the ACTIVE ORGANIZATION, gated on the org permission. */
+const ORG_AI_KEYS_PATH = '/admin/settings/ai/organization-keys';
 
 /** Every admin + user card whose destination is part of the AI surface. */
 function allAiTaggedCards() {
@@ -66,11 +71,24 @@ describe('AI settings registry — literal permission parity with the API (#435)
   describe('admin cards under /admin/settings/ai/*', () => {
     it('every one declares a permission the AI admin controller actually enforces, never invented', () => {
       const { admin } = allAiTaggedCards();
-      const offenders = admin.filter(
-        (card) => card.permission !== 'ai_config:read' && card.permission !== 'ai_config:write',
-      );
+      const offenders = admin
+        .filter((card) => card.path !== ORG_AI_KEYS_PATH)
+        .filter((card) => card.permission !== 'ai_config:read' && card.permission !== 'ai_config:write');
 
       expect(offenders.map((c) => c.title)).toEqual([]);
+    });
+
+    it('the Organization AI keys card (#739) declares org_ai_config:read, the literal the org keys controller enforces', () => {
+      const { admin } = allAiTaggedCards();
+      const orgCard = admin.find((card) => card.path === ORG_AI_KEYS_PATH);
+
+      expect(orgCard).toMatchObject({ permission: 'org_ai_config:read', feature: 'ai' });
+      expect(rolesConstants).toContain("ORG_AI_CONFIG_READ: 'org_ai_config:read'");
+      expect(rolesConstants).toContain("ORG_AI_CONFIG_WRITE: 'org_ai_config:write'");
+      expect(orgAiKeysController).toContain('PERMISSIONS.ORG_AI_CONFIG_READ');
+      expect(orgAiKeysController).toContain('PERMISSIONS.ORG_AI_CONFIG_WRITE');
+      // Never behind AiEnabledGuard: `/api/admin/ai/*` stays reachable while AI is off.
+      expect(orgAiKeysController).not.toMatch(/@UseGuards\([^)]*AiEnabledGuard/);
     });
 
     it('ai-admin.controller.ts really does enforce PERMISSIONS.AI_CONFIG_READ on a GET route', () => {
@@ -142,6 +160,7 @@ describe('AI settings registry — literal permission parity with the API (#435)
       expect(titles).not.toContain('AI');
       expect(titles).not.toContain('AI Models');
       expect(titles).not.toContain('AI Usage');
+      expect(titles).not.toContain('Organization AI keys');
     });
   });
 });

@@ -477,7 +477,7 @@ the package; they need the built packages (`npm run build:packages`) and, for
 the last two, a migrated database. See
 [DEVELOPMENT.md](DEVELOPMENT.md#authoring-a-platform-migration).
 
-Related guards in the same spirit: `apps/api/src/ai/core/no-provider-sdk.spec.ts`
+Related guards in the same spirit: `packages/platform-api/src/ai/core/no-provider-sdk.spec.ts`
 (no SDK in `ai/core`), the per-provider `*-sdk-boundary.spec.ts` files,
 `apps/api/test/prisma/seed-data.spec.ts` (seed self-consistency without a
 database), `apps/api/test/prisma/scoped-access.db.spec.ts` (a user-scoped

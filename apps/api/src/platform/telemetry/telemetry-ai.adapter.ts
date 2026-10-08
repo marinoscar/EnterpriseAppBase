@@ -14,11 +14,11 @@
 
 import { Injectable } from '@nestjs/common';
 
-import { AiConfigService } from '../../ai/config/ai-config.service';
-import { AiError } from '../../ai/core/ai-error';
-import { defineTool, type AiDefinedTool } from '../../ai/core/tools';
-import type { AiInputItem } from '../../ai/core/types/responses.types';
-import { AiService } from '../../ai/runtime/ai.service';
+import { AiConfigService } from '@marinoscar/platform-api/ai';
+import { AiError } from '@marinoscar/platform-api/ai';
+import { defineTool, type AiDefinedTool } from '@marinoscar/platform-api/ai';
+import type { AiInputItem } from '@marinoscar/platform-api/ai';
+import { AiService } from '@marinoscar/platform-api/ai';
 import type {
   TelemetryAiError,
   TelemetryAiPort,

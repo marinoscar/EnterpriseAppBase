@@ -68,81 +68,10 @@ export const maintenanceResponseSchema = z.object({
 // `@marinoscar/platform-contract/storage` since #736, re-exported unchanged.
 export { storageResponseSchema } from '@marinoscar/platform-contract/storage';
 
-// #423, epic #419, umbrella #418 — the AI platform policy, published for
-// the same reason the operations namespaces and `storage` above are: a
-// block this response omits is a block no client can echo back in a PUT.
-//
-// THERE IS NO API KEY FIELD AND THERE MUST NEVER BE ONE. A user's own key
-// is `UserAiKey.secret`, in its own table; an org-wide fallback key belongs
-// in the encrypted credential store. See
-// `common/schemas/settings.schema.ts` for the full argument and its
-// compile-time proof.
-export const aiResponseSchema = z.object({
-  enabled: z.boolean(),
-  keyPolicy: z.enum(['byok', 'byok_with_org_fallback']),
-  providers: z.object({
-    openai: z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().optional(),
-    }),
-    anthropic: z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().optional(),
-    }),
-    gemini: z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().optional(),
-    }),
-    'azure-openai': z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().optional(),
-      apiVersion: z.string().optional(),
-      apiStyle: z.enum(['responses', 'chat_completions']).optional(),
-      deployments: z.record(z.string(), z.string()).optional(),
-    }),
-    'openai-compatible': z.object({
-      enabled: z.boolean(),
-      baseUrl: z.string().optional(),
-      apiStyle: z.enum(['responses', 'chat_completions']).optional(),
-      requiresKey: z.boolean().optional(),
-    }),
-  }),
-  defaults: z.object({
-    maxOutputTokensCap: z.number().optional(),
-    allowBackgroundRuns: z.boolean(),
-    allowRealtime: z.boolean(),
-  }),
-  logPromptContent: z.boolean(),
-  usageRetentionDays: z.number().int(),
-  hostedTools: z.object({
-    web_search: z.boolean(),
-    file_search: z.boolean(),
-    code_interpreter: z.boolean(),
-    image_generation: z.boolean(),
-    mcp: z.boolean(),
-    mcpAllowedHosts: z.array(z.string()),
-  }),
-  limits: z.object({
-    perUser: z
-      .object({ requestsPerMinute: z.number().int().optional(), requestsPerDay: z.number().int().optional() })
-      .optional(),
-    orgKey: z
-      .object({
-        requestsPerDayPerUser: z.number().int().optional(),
-        tokensPerDayPerUser: z.number().int().optional(),
-      })
-      .optional(),
-    perModel: z
-      .record(
-        z.string(),
-        z.object({
-          maxOutputTokens: z.number().int().optional(),
-          requestsPerMinutePerUser: z.number().int().optional(),
-        }),
-      )
-      .optional(),
-  }),
-});
+// #423 — the AI platform policy's response branch, in
+// `@marinoscar/platform-contract/ai` since #739.
+export { aiResponseSchema } from '@marinoscar/platform-contract/ai';
+
 
 // #681 — the retention policy, one `{ enabled, days }` per governed table.
 // Published for the same reason as every block above.

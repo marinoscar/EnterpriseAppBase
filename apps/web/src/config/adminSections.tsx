@@ -501,6 +501,27 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         permission: 'ai_config:read',
         feature: 'ai',
       },
+      {
+        // Issue #739 (PP-8.6). APPENDED to the AI group (append-only, as
+        // above): the ACTIVE ORGANIZATION's own provider keys and its
+        // effective AI policy. `org_ai_config:read` is the literal ORG
+        // permission `@marinoscar/platform-api/ai`'s `org-keys.controller.ts`
+        // enforces on `GET /api/admin/ai/org-keys`, held through the
+        // `org_admin` membership role; writes are gated inside the page
+        // (`org_ai_config:write`). A card of its own, never a tab on the AI
+        // page: "which key does my organization pay with" is a different
+        // question from "how is AI configured for the deployment". In the AI
+        // group rather than Organizations because it exists in a single-org
+        // deployment too (the one organization may hold its own key), and the
+        // Organizations group is multi-org only. Nested under the AI route
+        // (longest prefix titles it) and feature-gated like AI Models.
+        title: 'Organization AI keys',
+        description: "Set your organization's own AI provider keys and see its effective AI policy.",
+        Icon: VpnKeyOutlinedIcon,
+        path: '/admin/settings/ai/organization-keys',
+        permission: 'org_ai_config:read',
+        feature: 'ai',
+      },
     ],
   },
   {

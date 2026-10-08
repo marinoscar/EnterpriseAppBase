@@ -1,6 +1,6 @@
 # AI Platform
 
-> **Status:** shipped · **Code:** `apps/api/src/ai/`, `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [apps/api/src/ai/README.md](../../apps/api/src/ai/README.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/ai/` (`@marinoscar/platform-api/ai`, configured in `apps/api/src/platform/ai/ai.config.ts`), `packages/platform-contract/src/ai/`, `packages/platform-web/src/ai/` (Organization AI keys), `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md)
 
 The AI platform gives an app built from this template one admin-governed,
 bring-your-own-key (BYOK), multi-provider AI capability. Feature code injects
@@ -88,26 +88,44 @@ Configuration lives in four places, split by sensitivity:
 
 ### 2.2 Keys and key resolution
 
-Two keys can pay for a call:
+Three keys can pay for a call:
 
-- **Admin (org) key:** one per provider. Catalog discovery and the admin
-  connection test use it. It serves user requests **only** under
-  `byok_with_org_fallback`, and for a holder of `ai_config:write` under either
-  policy.
+- **Deployment key** (historically "the org key"): one per provider, in the
+  deployment credential store (`credentials`, purpose `ai`). Catalog
+  discovery and the admin connection test use it. It serves user requests
+  only under `byok_with_org_fallback`, and for a holder of `ai_config:write`
+  under either policy, and only while `ai.deploymentKeyServesOrgs` is on
+  (default `true`, #739).
+- **Organization key** (#739): one per organization and provider, in the
+  organization credential store (`org_credentials`, purpose `ai`, tier
+  `org`), set by the organization's own administrator at
+  `/admin/settings/ai/organization-keys` (`org_ai_config:write`). It serves
+  the organization's members under the effective fallback policy, and a
+  holder of `org_ai_config:write` in that organization under either policy.
 - **User (BYOK) key:** one per user and provider, verified and checked for
   reachable models when it is set.
 
-`AiKeyResolver.resolve(userId, provider)` is the only implementation of the
-rule. Every caller goes through it:
+`AiKeyResolver.resolve(userId, provider, { orgId })` is the only
+implementation of the rule. Every caller goes through it; `orgId` is the
+principal's active organization, or a background job's own:
 
 ```ts
-resolve(userId, provider): Promise<{ apiKey: string; keySource: 'user' | 'org' | 'none' }>
-// 0. provider slot has requiresKey: false            -> { none }  (AI_KEYLESS_API_KEY marker)
-// 1. user key exists                                 -> { user }
-// 2. user holds ai_config:write AND org key exists   -> { org }  (either policy)
-// 3. 'byok_with_org_fallback' AND org key exists     -> { org }
-// 4. otherwise                                       -> throw AiError('AI_KEY_REQUIRED')
+resolve(userId, provider, { orgId }): Promise<{ apiKey; keySource: 'user' | 'org' | 'none'; tier: 'user' | 'org' | 'deployment' | 'none' }>
+// 0. provider slot has requiresKey: false                         -> { none }  (AI_KEYLESS_API_KEY marker)
+// 1. user key exists                                              -> { user }
+// 2. org key exists AND (effective fallback OR org_ai_config:write in orgId)  -> { org, tier: org }
+// 3. deploymentKeyServesOrgs AND deployment key exists
+//    AND (effective fallback OR ai_config:write)                  -> { org, tier: deployment }
+// 4. otherwise                                                    -> throw AiError('AI_KEY_REQUIRED')
 ```
+
+"Effective" is the deployment policy narrowed by the organization's own
+`ai` layer (§2.19a): an organization on `byok` never falls back, whatever
+the deployment allows. `keySource` stays `org` for both administrator-managed
+tiers (the usage report and the `orgKey.*` limits count them together); the
+tier is the span attribute `ai.key.tier`. A fork that migrates keys it
+already holds calls `UserAiKeysService.importKey(userId, provider, key)`,
+which stores the key unverified and queues its recheck.
 
 - **Under `byok` the org key is never returned to a non-administrator.** This
   is the platform's core security invariant: strict `byok` promises every
@@ -173,7 +191,7 @@ export interface AiProviderAdapter {
 
 ### 2.4 The gate pipeline
 
-`AiService` (`apps/api/src/ai/runtime/ai.service.ts`) runs every call through
+`AiService` (`packages/platform-api/src/ai/runtime/ai.service.ts`) runs every call through
 the same steps. Each operation has its own `prepare…` step and shares the key
 and usage steps.
 
@@ -200,7 +218,7 @@ enqueue and the whole pipeline again when the job executes.
 Requests and responses follow the OpenAI Responses API shape. It is the
 richest widely used shape, and mapping down to a simpler provider is
 tractable where mapping up is not. Types live in
-`apps/api/src/ai/core/types/`.
+`packages/platform-api/src/ai/core/types/`.
 
 ```ts
 export type AiInputItem =
@@ -545,6 +563,35 @@ is the single-model check and the one origin of `AI_MODEL_NOT_ENABLED`,
 - The catalog cron enqueues nothing while disabled.
 - The web app hides every AI card, route and navigation entry.
 
+### 2.19a The organization tier (#739)
+
+An organization narrows the deployment's AI policy through the settings
+slice's org layer of the `ai` namespace (`orgAiSettingsSchema`, edited at
+Organization settings with `org_ai_config:write`). The merge,
+`tightenAiPolicy`, can only tighten: switch AI off for the organization's
+members, narrow `byok_with_org_fallback` to `byok`, switch providers off, and
+set `limits.perOrg` caps lower than the deployment's. `AiConfigService
+.resolveForOrg(orgId)` is the effective policy every gate reads.
+
+- **Org kill switch.** `AiOrgEnabledInterceptor` sits on every consumer
+  controller behind `AiEnabledGuard`: while the caller's organization has AI
+  off it answers `403 AI_DISABLED` with `details.scope: 'org'` (the
+  deployment switch says `details.scope: 'system'`). `GET /api/ai/config`
+  reports the effective policy.
+- **Per-org caps.** `limits.perOrg.requestsPerDay` and
+  `limits.perOrg.outputTokensPerDay` count the whole organization's calls
+  since UTC midnight, whoever's key pays (§2.22).
+- **Per-org usage.** `GET /api/admin/ai/usage` takes `orgId` and
+  `groupBy=org` (deployment administrators); `GET /api/admin/ai/org-usage`
+  is the active organization's own report (`org_ai_config:read`).
+- **Features and targets.** `registerAiFeature({ id, label, needs, ... })`
+  declares what a feature needs from a model; `forUser(userId, { feature })`
+  refuses a model that does not fit it, and `GET /api/ai/features` lists every
+  feature with whether the caller has a usable model for it. An app that
+  picks models per feature binds `AI_TARGET_RESOLVER` (and may set
+  `AiModule.forRoot({ perUserDefaultModel: false })`, which hides the
+  per-user default-model picker).
+
 ### 2.20 Jobs
 
 Every `ai.*` job type is **server-only, forever**. None carries
@@ -592,7 +639,7 @@ shape:
 
 ```ts
 { range: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' },   // UTC days, inclusive
-  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource',
+  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource' | 'org',   // 'org': admin report only (#739)
   totals: Bucket, series: Array<Bucket & { key: string; label: string }> }
 // Bucket = { requests, failed, inputTokens, outputTokens, reasoningTokens, cachedInputTokens,
 //            units: Record<string, number>, orgKeyRequests, orgKeyInputTokens, orgKeyOutputTokens }
@@ -602,7 +649,10 @@ shape:
   `400 AI_USAGE_RANGE_INVALID`. `day` series are zero-filled; others are
   ordered by `requests`. The `user` label is the email.
 - The admin report is not behind `AiEnabledGuard`. `/me` allows `groupBy`
-  `day` or `model` only and is scoped to the caller in SQL.
+  `day` or `model` only and is scoped to the caller in SQL. Each row carries
+  its `orgId`; `GET /api/admin/ai/org-usage` is the same report confined to
+  the caller's active organization (no `org` grouping), for its
+  `org_admin`.
 - Rows are purged after `ai.usageRetentionDays` (default 180) by
   `ai.usage.purge`.
 - `ai_runs` rows (which hold the full prompt in `request`) are purged after
@@ -634,7 +684,11 @@ never carry prompt text or keys.
 | `orgKey.tokensPerDayPerUser` | UTC day | input + output tokens of those calls |
 | `perModel['<provider>:<modelId>'].requestsPerMinutePerUser` | sliding 60 s | the user's calls to that model |
 | `perModel['<provider>:<modelId>'].maxOutputTokens` | — | an output cap (gate step 5) |
+| `perOrg.requestsPerDay` (#739) | UTC day | every call made in the organization, whoever's key pays; `details.scope: 'org'` |
+| `perOrg.outputTokensPerDay` (#739) | UTC day | output tokens of those calls |
 
+- An organization's own `ai` layer may set `perOrg` lower than the
+  deployment's (or set one the deployment left unlimited), never higher.
 - Numbers are positive integers ≤ 10⁹. `perModel` keys match
   `^[a-z0-9-]+:.+$`, at most 500 entries.
 - `limits` is **one value**: a `PUT` that sends it replaces it whole (`{}`
@@ -782,6 +836,9 @@ features call them for ordinary users.
 
 - `ai_config:read` / `ai_config:write` — deployment-wide AI configuration.
   Seeded Admin only.
+- `org_ai_config:read` / `org_ai_config:write` (#739, org scope) — the
+  organization's own keys, usage report and `ai` layer. Granted to the
+  `org_admin` membership role.
 - `ai:use` — call AI with one's own key (or the org fallback). Seeded to
   Admin and Contributor, **not Viewer**. Viewer is the default role for new
   signups; an administrator grants `ai:use` to a Viewer explicitly or promotes
@@ -789,7 +846,10 @@ features call them for ordinary users.
 
 **Settings UI:** the admin `AI` group has **AI** (`/admin/settings/ai`, no
 `feature`, so it stays reachable to switch AI on), **AI Models** and **AI
-Usage** (both `feature: 'ai'`), all gated on `ai_config:read`. The user card
+Usage** (both `feature: 'ai'`), all gated on `ai_config:read`, then
+**Organization AI keys** (`/admin/settings/ai/organization-keys`,
+`org_ai_config:read`, `feature: 'ai'`; the page is
+`@marinoscar/platform-web/ai`). The user card
 **AI Keys** (`/settings/ai`) is gated on `ai:use` with `feature: 'ai'`.
 
 **Admin API** (`/api/admin/ai/*`, tag `AI Administration`, not behind
@@ -805,7 +865,11 @@ Usage** (both `feature: 'ai'`), all gated on `ai_config:read`. The user card
 | `GET /api/admin/ai/models` | Paginated catalog, filterable | `ai_config:read` |
 | `PATCH /api/admin/ai/models/{id}` | Enable/disable, override capabilities (`admin_override`); 409 for deprecated, 400 unclassified without capabilities | `ai_config:write` |
 | `POST /api/admin/ai/models/refresh` | Enqueue `ai.catalog.refresh`; 409 without admin key unless keyless | `ai_config:write` |
-| `GET /api/admin/ai/usage` | Usage report, any `groupBy`, filters `userId`/`provider`/`model` | `ai_config:read` |
+| `GET /api/admin/ai/usage` | Usage report, any `groupBy` (including `org`), filters `userId`/`provider`/`model`/`orgId` | `ai_config:read` |
+| `GET /api/admin/ai/org-usage` | The active organization's usage report | `org_ai_config:read` |
+| `GET /api/admin/ai/org-keys` | The active organization's keys, masked, one per registered provider | `org_ai_config:read` |
+| `PUT /api/admin/ai/org-keys/{provider}` | Set the organization's key; verified first, 400 `AI_KEY_INVALID` stores nothing; audited | `org_ai_config:write` |
+| `DELETE /api/admin/ai/org-keys/{provider}` | Remove it; 204, idempotent; audited | `org_ai_config:write` |
 
 **Consumer API** (`/api/ai/*`, tag `AI`, `AiEnabledGuard` + `ai:use` unless
 noted):
@@ -818,6 +882,7 @@ noted):
 | `DELETE /api/ai/keys/{provider}` | Remove key; 204, idempotent |
 | `POST /api/ai/keys/{provider}/test` | `credentials`, `list_models` only (no billed call); always 200 |
 | `GET /api/ai/models` | Usable models (§2.18) |
+| `GET /api/ai/features` | Registered AI features, each with `usable` for the caller (§2.19a) |
 | `POST /api/ai/responses` | One response |
 | `POST /api/ai/responses/stream` | Same, as SSE (§2.6) |
 | `POST /api/ai/embeddings` | Embeddings (§2.11) |
@@ -833,7 +898,7 @@ noted):
 ## 4. Extending it in a fork
 
 To **use** AI in a feature, follow the recipe in
-[apps/api/src/ai/README.md](../../apps/api/src/ai/README.md): import
+[packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md): import
 `AiModule`, inject `AiService`, call `forUser(userId)`.
 
 To **add a provider**, implement an adapter against the existing contract.
@@ -845,7 +910,7 @@ classifier), or compose the OpenAI pieces as `providers/azure-openai/` and
 `providers/openai-compatible/` do for an OpenAI-wire server.
 
 1. **Implement `AiProviderAdapter`** (`ai/core/provider-adapter.interface.ts`)
-   in `apps/api/src/ai/providers/<provider>/`: `id` (permanent once jobs,
+   in `packages/platform-api/src/ai/providers/<provider>/`: `id` (permanent once jobs,
    usage or keys reference it), `displayName`, `listModels`, `verifyKey`,
    `classifyModel`, and only the ports the provider genuinely supports.
    Declare `supportsPreviousResponseId: false` if it stores no responses and
@@ -871,7 +936,7 @@ classifier), or compose the OpenAI pieces as `providers/azure-openai/` and
    status, provider error type and request id in `details`, never provider
    text.
 5. **Run the conformance kit** (`describeAiProviderConformance`,
-   `apps/api/src/ai/testing/conformance.ts`) over a mocked transport that
+   `packages/platform-api/src/ai/testing/conformance.ts`) over a mocked transport that
    validates what the real API validates (the real SDK with an injected
    `fetch`). It asserts: `listModels` returns ids; `verifyKey` maps ok and
    invalid correctly; `classifyModel` returns schema-valid capabilities or
@@ -905,19 +970,21 @@ guardrails below discover all of these automatically.
 | Sentinel keys (admin, this user, another user) never appear in bodies, headers, logs, audit `meta`, usage rows, run rows or errors; the ephemeral secret only in `data.clientSecret` | `apps/api/test/ai/ai-secret-egress.integration.spec.ts` |
 | The byok/fallback/keyless resolution rule over every inference route, sync and queued | `apps/api/test/ai/ai-key-policy.integration.spec.ts` |
 | Every `ai.*` job type is in `JobHandlerRegistry.serverOnlyTypes()` | `apps/api/test/ai/ai-jobs-server-only.spec.ts` |
-| No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src` or `apps/web/src` | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` |
-| No provider SDK in `ai/core` | `apps/api/src/ai/core/no-provider-sdk.spec.ts` |
-| Each SDK confined to its folder(s) | `apps/api/src/ai/providers/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
+| No file outside `ai/providers/<provider>/` imports a provider SDK, in `apps/api/src`, `apps/web/src` or `packages/platform-api/src` | `apps/api/test/ai/ai-no-sdk-leak.spec.ts` |
+| `@langchain/*` only under the allowed orchestration roots; no banned orchestration package installed or imported | `apps/api/test/ai/ai-orchestration-boundary.spec.ts` (`runOrchestrationBoundarySuite` from `/ai/testing`) |
+| The organization tier: the org kill switch, org keys never served under an effective `byok` to a non-administrator, org-key sentinels never egress | the kill-switch, key-policy and secret-egress suites above, plus `apps/api/test/ai/ai-org-keys.integration.spec.ts` and `ai-org-usage.db.spec.ts` |
+| No provider SDK in `ai/core` | `packages/platform-api/src/ai/core/no-provider-sdk.spec.ts` |
+| Each SDK confined to its folder(s) | `packages/platform-api/src/ai/providers/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
 | AI registry cards carry the exact permission their controller enforces | `apps/web/src/__tests__/config/aiSettingsRegistry.test.ts` |
-| Resolution matrix; org key never returned under `byok` | `apps/api/src/ai/keys/ai-key-resolver.service.spec.ts` |
-| Capability support derived from ports only | `apps/api/src/ai/core/provider-registry.spec.ts` |
-| `AiError` never serializes key material | `apps/api/src/ai/core/ai-error.spec.ts` |
-| Catalog sync never overwrites `admin_override`, never enables, deprecates without deleting | `apps/api/src/ai/catalog/ai-catalog.service.spec.ts` |
+| Resolution matrix; org key never returned under `byok` | `packages/platform-api/src/ai/keys/ai-key-resolver.service.spec.ts` |
+| Capability support derived from ports only | `packages/platform-api/src/ai/core/provider-registry.spec.ts` |
+| `AiError` never serializes key material | `packages/platform-api/src/ai/core/ai-error.spec.ts` |
+| Catalog sync never overwrites `admin_override`, never enables, deprecates without deleting | `packages/platform-api/src/ai/catalog/ai-catalog.service.spec.ts` |
 | AI crons only enqueue | `apps/api/test/jobs/cron-enqueue-only.spec.ts` |
 | Streaming nginx location unbuffered | `apps/api/test/ai/ai-stream-nginx.spec.ts` |
 | Seed grants (Viewer lacks `ai:use`) | `apps/api/test/prisma/seed-data.spec.ts` |
 | One provider slot per id | `apps/api/src/common/schemas/settings-parity.spec.ts` |
-| Each adapter passes the conformance kit | `apps/api/src/ai/testing/fake-ai-provider.conformance.spec.ts`, `apps/api/src/ai/providers/*/*.adapter.conformance.spec.ts` |
+| Each adapter passes the conformance kit | `packages/platform-api/src/ai/testing/fake-ai-provider.conformance.spec.ts`, `packages/platform-api/src/ai/providers/*/*.adapter.conformance.spec.ts` |
 
 ## 6. Design decisions
 
@@ -1002,3 +1069,8 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
   terminal run code.
 - #516: removed the unseeded `storage:read_any` bypass from the storage-input
   resolver; it is ownership-only.
+- #739 (PP-8.6): packaged as `@marinoscar/platform-api/ai`,
+  `@marinoscar/platform-contract/ai` and `@marinoscar/platform-web/ai`; added
+  the organization tier (org keys, the org layer and kill switch,
+  `deploymentKeyServesOrgs`, per-org caps and usage), the feature registry,
+  `AI_TARGET_RESOLVER` and `importKey`.

@@ -24,17 +24,17 @@ import http from 'node:http';
 import request from 'supertest';
 
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
-import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';
-import { AiError } from '../../src/ai/core/ai-error';
-import type { AiStreamEvent } from '../../src/ai/core/types/responses.types';
-import { AiResponsesController } from '../../src/ai/http/ai-responses.controller';
+import { AiEnabledGuard } from '@marinoscar/platform-api/ai';
+import { AiError } from '@marinoscar/platform-api/ai';
+import type { AiStreamEvent } from '@marinoscar/platform-api/ai';
+import { AiResponsesController } from '@marinoscar/platform-api/ai';
 import {
   HARNESS_MODEL,
   HARNESS_ORG_KEY,
   HARNESS_OTHER_USER,
   HARNESS_USER,
   HARNESS_USER_KEY,
-} from '../../src/ai/testing/ai-runtime-harness';
+} from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser, TestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, createAiHttpTestApp, parseSse } from './ai-http.helper';
 

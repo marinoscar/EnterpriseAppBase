@@ -1774,6 +1774,8 @@ describe('SystemSettingsService', () => {
         },
         // Absent from the stored row (written before #450) -> no limits.
         limits: {},
+        // Absent from the stored row (written before #739) -> the default.
+        deploymentKeyServesOrgs: true,
       });
     });
 

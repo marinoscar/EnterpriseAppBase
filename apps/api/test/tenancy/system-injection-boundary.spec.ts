@@ -34,10 +34,8 @@ const ALLOWLIST: Record<string, string> = {
     'purge and admin-aggregate: the storage slice\'s STORAGE_SYSTEM_DATA port (#736): the stale-upload sweep (purge), the stranded-object count (admin-aggregate), the public avatar route (admin-aggregate) and the previous avatar removed across an org switch (purge)',
   'platform/settings/settings-profile-images.adapter.ts':
     'admin-aggregate: the settings slice\'s profile-image port validates the user\'s own avatar row across an org switch',
-  'ai/runtime/ai-runs-purge.handler.ts': 'retention',
-  'ai/usage/ai-usage-purge.handler.ts': 'retention',
-  'ai/usage/ai-usage.service.ts': 'admin-aggregate: deployment-wide usage report',
-  'ai/catalog/ai-catalog.service.ts': 'admin-aggregate: the catalogue sync\'s organization-less usage row',
+  'platform/ai/ai-host.module.ts':
+    'retention and admin-aggregate: the AI slice\'s AI_SYSTEM_PRISMA port (its two retention purges, the deployment-wide usage report and the catalogue sync\'s organization-less usage row)',
   'health/doctor/rls-role.doctor-check.ts': 'doctor: read-only catalogue reads',
   'db-backup/doctor/backup-rls.doctor-check.ts': 'doctor: read-only row counts',
   'platform/exports/exports-host.module.ts':
@@ -66,7 +64,9 @@ describe('PrismaSystemService injection boundary', () => {
     .sort();
 
   it('finds the injections (guards against a scan that matches nothing)', () => {
-    expect(mentions.length).toBeGreaterThanOrEqual(10);
+    // Fewer since the storage (#736) and AI (#739) slices moved their
+    // bypass-client users into the packages (each binds its own port).
+    expect(mentions.length).toBeGreaterThanOrEqual(8);
   });
 
   it('is mentioned only by allowlisted files', () => {

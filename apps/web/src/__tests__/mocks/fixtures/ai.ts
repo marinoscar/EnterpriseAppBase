@@ -621,6 +621,11 @@ const USAGE_SERIES: Record<AiUsageGroupBy, AiUsageSeriesEntry[]> = {
     // A keyless OpenAI-compatible server (#448): nobody's key paid.
     usageEntry('none', 'none', { requests: 4, inputTokens: 900, outputTokens: 300 }),
   ],
+  // #739: per organization; `none` is the organization-less catalogue-sync rows.
+  org: [
+    usageEntry('8c1e7f4a-3b2d-4c5e-9f60-1a2b3c4d5e6f', 'Acme', { requests: 100, failed: 4, inputTokens: 40_000, outputTokens: 11_000 }),
+    usageEntry('none', 'No organization', { requests: 24, failed: 2, inputTokens: 8_900, outputTokens: 1_800 }),
+  ],
 };
 
 /** A populated report for any grouping — the default MSW answer. */

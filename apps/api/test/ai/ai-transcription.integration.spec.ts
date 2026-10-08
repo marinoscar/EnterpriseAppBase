@@ -19,13 +19,13 @@
 import request from 'supertest';
 
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { aiRunSchema, aiRunStartedSchema } from '../../src/ai/http/dto/ai-response.dto';
+import { aiRunSchema, aiRunStartedSchema } from '@marinoscar/platform-api/ai';
 import {
   HARNESS_MODEL,
   HARNESS_OTHER_USER,
   HARNESS_TRANSCRIPTION_MODEL,
   HARNESS_USER,
-} from '../../src/ai/testing/ai-runtime-harness';
+} from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, createAiHttpTestApp } from './ai-http.helper';
 

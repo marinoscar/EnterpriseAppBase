@@ -11,7 +11,7 @@
 
 import { Module } from '@nestjs/common';
 
-import { AiModule } from '../../ai/ai.module';
+import { AiModule } from '../ai/ai.config';
 import { CredentialsModule, CredentialsService } from '@marinoscar/platform-api/credentials';
 import { JobsModule } from '../jobs/jobs.config';
 import { SettingsModule } from '../settings/settings.config';

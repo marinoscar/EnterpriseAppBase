@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ONBOARDING_DATA, ONBOARDING_FEATURES } from '@marinoscar/platform-api/onboarding';
 
-import { AiConfigModule } from '../../ai/config/ai-config.module';
+import { AiConfigModule } from '@marinoscar/platform-api/ai';
 import { OnboardingDataAdapter } from './onboarding-data.adapter';
 import { OnboardingFeaturesAdapter } from './onboarding-features.adapter';
 

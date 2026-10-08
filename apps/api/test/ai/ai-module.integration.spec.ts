@@ -18,10 +18,10 @@
 
 import { Test } from '@nestjs/testing';
 
-import { AiModule } from '../../src/ai/ai.module';
-import { AiProviderRegistry } from '../../src/ai/core';
-import { AiCoreModule } from '../../src/ai/core/ai-core.module';
-import { OpenAiProviderModule } from '../../src/ai/providers/openai/openai.module';
+import { AiModule } from '@marinoscar/platform-api/ai';
+import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
+import { AiCoreModule } from '@marinoscar/platform-api/ai';
+import { OpenAiProviderModule } from '@marinoscar/platform-api/ai';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { createTestApp, TestContext } from '../helpers/test-app.helper';
 

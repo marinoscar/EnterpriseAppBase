@@ -37,10 +37,10 @@ import {
 } from '../helpers/auth-mock.helper';
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { AiProviderRegistry } from '../../src/ai/core';
-import { FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';
-import { AiAdminController } from '../../src/ai/config/ai-admin.controller';
-import { AiConfigService } from '../../src/ai/config/ai-config.service';
+import { AiProviderRegistry } from '@marinoscar/platform-api/ai';
+import { FAKE_TEXT_MODEL_CAPABILITIES, FakeAiProvider } from '@marinoscar/platform-api/ai/testing';
+import { AiAdminController } from '@marinoscar/platform-api/ai';
+import { AiConfigService } from '@marinoscar/platform-api/ai';
 
 const BASE = '/api/admin/ai';
 

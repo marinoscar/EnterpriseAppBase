@@ -132,6 +132,12 @@ export interface AiPublicConfig {
    * older API that omits it still works: absent means "none".
    */
   hostedTools?: Record<AiHostedToolType, boolean>;
+  /**
+   * Whether users may pick their own default model (#739). `false` in an app
+   * whose AI features pick their model themselves: hide the picker. Optional
+   * so an older API that omits it still works — absent means `true`.
+   */
+  perUserDefaultModel?: boolean;
 }
 
 /** The provider-hosted tool types (#442). */
@@ -172,6 +178,8 @@ export interface AiLimits {
   orgKey?: { requestsPerDayPerUser?: number; tokensPerDayPerUser?: number };
   /** Keyed `<provider>:<modelId>` — see {@link aiModelLimitKey}. At most 500 entries. */
   perModel?: Record<string, AiModelLimits>;
+  /** Each organization's whole daily volume, whoever's key pays (#739). */
+  perOrg?: { requestsPerDay?: number; outputTokensPerDay?: number };
 }
 
 /** The largest value any `ai.limits` field accepts. */
@@ -313,6 +321,11 @@ export interface AiAdminConfig {
   hostedTools?: AiHostedToolsSettings;
   /** Rate limits and output caps (#450); `{}` — or absent, from an older API — means unlimited. */
   limits?: AiLimits;
+  /**
+   * Whether the deployment's provider keys pay for calls in an organization
+   * with no key of its own (#739). Absent from an older API — read as `true`.
+   */
+  deploymentKeyServesOrgs?: boolean;
   providers: AiAdminProvider[];
   version: number;
   updatedAt: string | null;
@@ -346,6 +359,8 @@ export interface AiAdminConfigInput {
    * is lifted too.
    */
   limits?: AiLimits;
+  /** Omit to keep the stored value (#739). */
+  deploymentKeyServesOrgs?: boolean;
   /** Each entry carries only `enabled` plus that provider's `settingsFields` — see {@link aiProviderSettingsToInput}. */
   providers: Record<string, AiProviderSettingsInput>;
 }
@@ -367,13 +382,14 @@ export function aiAdminConfigToInput(config: AiAdminConfig): AiAdminConfigInput 
     defaults: { ...config.defaults },
     ...(config.hostedTools ? { hostedTools: config.hostedTools } : {}),
     limits: config.limits ?? {},
+    ...(config.deploymentKeyServesOrgs !== undefined ? { deploymentKeyServesOrgs: config.deploymentKeyServesOrgs } : {}),
     providers,
   };
 }
 
 /**
  * `limits` with one model's `perModel` entry replaced — or removed, when
- * `entry` sets nothing. Every other entry, and `perUser`/`orgKey`, is kept.
+ * `entry` sets nothing. Every other entry, and `perUser`/`orgKey`/`perOrg`, is kept.
  */
 export function withModelLimits(limits: AiLimits | undefined, key: string, entry: AiModelLimits): AiLimits {
   const perModel = { ...(limits?.perModel ?? {}) };
@@ -1136,8 +1152,8 @@ export async function createAiEmbeddings(req: AiEmbeddingsRequest): Promise<AiEm
 // the same shape; only the scope (everyone vs. the caller) and the allowed
 // `groupBy` values differ.
 
-/** `groupBy` values `GET /admin/ai/usage` accepts. */
-export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource'] as const;
+/** `groupBy` values `GET /admin/ai/usage` accepts (`org`: #739). */
+export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource', 'org'] as const;
 export type AiUsageGroupBy = (typeof AI_USAGE_ADMIN_GROUP_BY)[number];
 
 /** `groupBy` values `GET /ai/usage/me` accepts — a user sees only their own rows. */
@@ -1198,6 +1214,8 @@ export interface AiUsageQuery extends Partial<AiUsageRange> {
   userId?: string;
   provider?: string;
   model?: string;
+  /** One organization's rows only (#739); `none` for the organization-less catalogue-sync rows. */
+  orgId?: string;
 }
 
 export interface AiMyUsageQuery extends Partial<AiUsageRange> {

@@ -12,9 +12,9 @@
 
 import request from 'supertest';
 
-import { AI_EMBEDDINGS_MAX_INPUTS } from '../../src/ai/core/types/media.types';
-import { aiEmbeddingsResponseSchema } from '../../src/ai/http/dto/ai-embeddings.dto';
-import { HARNESS_EMBEDDING_MODEL, HARNESS_MODEL, HARNESS_USER } from '../../src/ai/testing/ai-runtime-harness';
+import { AI_EMBEDDINGS_MAX_INPUTS } from '@marinoscar/platform-api/ai';
+import { aiEmbeddingsResponseSchema } from '@marinoscar/platform-api/ai';
+import { HARNESS_EMBEDDING_MODEL, HARNESS_MODEL, HARNESS_USER } from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser } from '../helpers/auth-mock.helper';
 import { ALL_KEYS, AiHttpTestApp, createAiHttpTestApp } from './ai-http.helper';
 

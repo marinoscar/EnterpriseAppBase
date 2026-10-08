@@ -7,7 +7,7 @@ emergency. Audience: administrators holding `ai_config:read`/`ai_config:write`.
 Why the platform is shaped this way is
 [`docs/specs/ai-platform.md`](../specs/ai-platform.md). Adding AI to a feature,
 or a new provider adapter, is
-[`apps/api/src/ai/README.md`](../../apps/api/src/ai/README.md).
+[`packages/platform-api/src/ai/README.md`](../../packages/platform-api/src/ai/README.md).
 
 Everything here happens in the admin UI at `/admin/settings/ai` (and
 `/admin/settings/ai/models`, `/admin/settings/ai/usage`) or through
@@ -16,21 +16,27 @@ any of it, and there must never be one.
 
 Source of truth for every claim below:
 
-- `apps/api/src/ai/config/ai-admin.controller.ts` — every `/api/admin/ai/*`
+- `packages/platform-api/src/ai/config/ai-admin.controller.ts` — every `/api/admin/ai/*`
   route this runbook calls.
-- `apps/api/src/ai/config/ai-config-admin.service.ts` — the configuration
+- `packages/platform-api/src/ai/config/ai-config-admin.service.ts` — the configuration
   save path and its refusals.
 - `apps/api/src/common/schemas/settings.schema.ts` — the `ai` system-settings
   namespace: `enabled`, `keyPolicy`, `providers`, `defaults`, `hostedTools`,
   `limits`.
-- `apps/api/src/ai/keys/` — `AiKeyResolver` (the key policy) and the user BYOK
+- `packages/platform-api/src/ai/keys/` — `AiKeyResolver` (the key policy) and the user BYOK
   store.
-- `apps/api/src/ai/core/ai-error.ts` — every `AiErrorCode` in the
+- `packages/platform-api/src/ai/core/ai-error.ts` — every `AiErrorCode` in the
   troubleshooting table.
-- `apps/api/src/ai/providers/<provider>/` — each provider adapter and its
+- `packages/platform-api/src/ai/providers/<provider>/` — each provider adapter and its
   model classifier.
 - `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`,
-  `AiUsagePage.tsx` — the admin UI.
+  `AiUsagePage.tsx` — the admin UI; `packages/platform-web/src/ai/ui/OrgAiKeysPage.tsx`
+  — the Organization AI keys page.
+- `packages/platform-api/src/ai/keys/org-keys.controller.ts` and
+  `usage/ai-usage-admin.controller.ts` — the organization's own routes
+  (`/api/admin/ai/org-keys`, `/api/admin/ai/org-usage`).
+- `packages/platform-contract/src/ai/schemas.ts` — the namespace's schemas,
+  its org layer (`orgAiSettingsSchema`) and the tighten-only merge.
 
 ---
 
@@ -556,6 +562,8 @@ optional, and an absent field is no limit at all.
 | `orgKey.tokensPerDayPerUser` | Input + output tokens each user may spend **on the organization key** per UTC day. |
 | `perModel["openai:<modelId>"].requestsPerMinutePerUser` | Each user's calls to that one model in any 60 seconds. |
 | `perModel["openai:<modelId>"].maxOutputTokens` | Caps every call's output tokens for that model. Combined with **Max output tokens** (the deployment cap) — the smaller wins — and applied even when the caller asked for no limit. |
+| `perOrg.requestsPerDay` | Every call made in one organization per UTC day, whoever's key pays (#739). An organization may set a lower value of its own. |
+| `perOrg.outputTokensPerDay` | Output tokens of every call made in one organization per UTC day. |
 
 Configure them in the **Limits** section of `/admin/settings/ai` (per-model
 fields are in the model's override dialog on `/admin/settings/ai/models`), or
@@ -647,6 +655,40 @@ this switch the same way you would treat verbose request logging anywhere
 else in the app: on only for as long as you are actively debugging, and off
 by default.
 
+## 15. Organizations: their own keys, policy, caps and usage
+
+In a deployment with organizations (#739), each organization's
+administrator (the `org_admin` membership role, which holds
+`org_ai_config:read`/`org_ai_config:write`) can, for their organization only:
+
+1. **Store the organization's own provider keys** at **Admin, Settings, AI,
+   Organization AI keys** (`/admin/settings/ai/organization-keys`). Each key
+   is verified with the provider before it is stored, then shown only by its
+   last four characters. Under the fallback policy it pays for the
+   organization's members who have no key of their own, before the
+   deployment's key; under `byok` it pays only for the organization's
+   administrators' own calls. Every change is audited
+   (`org_ai_config:set_key`, `org_ai_config:delete_key`).
+2. **Tighten the AI policy** at Organization settings (the `ai` override):
+   switch AI off for the organization (members then get `403 AI_DISABLED`
+   with `details.scope: "org"`), narrow the key policy to `byok`, switch
+   providers off, and set lower daily caps (`limits.perOrg`). An
+   organization can never loosen the deployment's policy.
+3. **Read its own usage** through `GET /api/admin/ai/org-usage`.
+
+As the deployment administrator:
+
+- **Decide whether the deployment's keys pay for organizations** with
+  **Deployment keys serve organizations** on `/admin/settings/ai`
+  (`ai.deploymentKeyServesOrgs`, default on, the behaviour before
+  organizations had keys). Off: an organization without its own key gets
+  `AI_KEY_REQUIRED` (unless its members bring their own).
+- **Cap each organization's daily volume** with **Requests per day, per
+  organization** and **Output tokens per day, per organization**
+  (`ai.limits.perOrg`, section 12).
+- **See usage per organization** on **AI Usage**, grouped by
+  **Organization**.
+
 ## Troubleshooting
 
 Every failure this platform raises is an `AiError` with a stable `code`,
@@ -658,9 +700,9 @@ reference; the full one is in [`docs/specs/ai-platform.md`](../specs/ai-platform
 
 | `details.reason` | HTTP | What it means | What to check |
 |---|---|---|---|
-| `AI_DISABLED` | 403 | The kill switch is off. | Section 3 — enable AI at `/admin/settings/ai`. |
+| `AI_DISABLED` | 403 | The kill switch is off: `details.scope` is `system` (the deployment's) or `org` (the caller's organization's own override). | `system`: section 3 — enable AI at `/admin/settings/ai`. `org`: the organization's administrator clears its `ai` override (section 15). |
 | `AI_PROVIDER_DISABLED` | 403 | AI is on, but this specific provider is not. | Enable the provider on `/admin/settings/ai`. |
-| `AI_KEY_REQUIRED` | 403 | No key resolves for this user/provider under the active policy. | Under `byok`: the user has no key (section 8). Under `byok_with_org_fallback`: neither the user nor the deployment has one (sections 4, 9). |
+| `AI_KEY_REQUIRED` | 403 | No key resolves for this user/provider under the effective policy. | Under `byok` (or an organization narrowed to it): the user has no key (section 8). Under `byok_with_org_fallback`: neither the user, the organization nor the deployment has one, or **Deployment keys serve organizations** is off (sections 4, 9, 15). |
 | `AI_KEY_INVALID` | 400 | A submitted key was rejected by the provider. | The key is wrong, revoked, or scoped incorrectly at the provider. Nothing was stored. |
 | `AI_MODEL_NOT_ENABLED` | 403 | The model is unknown, not admin-enabled, or deprecated. | Enable it (or pick an enabled one) on `/admin/settings/ai/models` (section 6). |
 | `AI_MODEL_NOT_REACHABLE` | 403 | The model is enabled, but the resolved key can't reach it. | The key's own tier/org restrictions — try `POST /api/ai/keys/:provider/test`, or refresh reachability by re-testing/re-saving the key. |

@@ -19,7 +19,7 @@ import {
   HARNESS_MODEL,
   HARNESS_OTHER_USER,
   HARNESS_USER,
-} from '../../src/ai/testing/ai-runtime-harness';
+} from '@marinoscar/platform-api/ai/testing';
 import { authHeader, createMockTestUser, TestUser } from '../helpers/auth-mock.helper';
 import { AiHttpTestApp, createAiHttpTestApp, OTHER_USER_KEY } from './ai-http.helper';
 

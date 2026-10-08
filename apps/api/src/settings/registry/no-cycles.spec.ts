@@ -110,10 +110,8 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
     '../../db-backup/db-backup.system-settings',
     '../../common/maintenance/maintenance.system-settings',
     '../../platform/storage/storage.system-settings',
-    '../../ai/ai.system-settings',
     '../../platform/telemetry/telemetry.system-settings',
     '../../common/retention/retention.system-settings',
-    '../../ai/ai.user-settings',
   ])('the declaration file %s is a leaf: loaded first, every schema it names is defined', (path) => {
     jest.isolateModules(() => {
       const mod = require(path) as Record<string, Record<string, unknown>>;

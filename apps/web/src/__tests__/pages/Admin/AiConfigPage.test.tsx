@@ -229,6 +229,8 @@ describe('AiConfigPage', () => {
         enabled: true,
         keyPolicy: 'byok',
         logPromptContent: false,
+        // #739: absent from the stored config reads as on, and is sent explicitly.
+        deploymentKeyServesOrgs: true,
         // A full replace: a cleared cap and an absent base URL are sent as
         // explicit nulls, never omitted and never '' or 0.
         // `allowRealtime` absent from the stored config reads as off (#449).
@@ -246,6 +248,25 @@ describe('AiConfigPage', () => {
         providers: { openai: { enabled: true, baseUrl: null } },
       });
       expect(await screen.findByText('AI configuration saved')).toBeInTheDocument();
+    });
+
+    it('sends the deployment-key switch and the per-organization limits (#739)', async () => {
+      const user = userEvent.setup();
+      const hook = setHook();
+      renderPage();
+
+      await user.click(screen.getByRole('switch', { name: 'Deployment keys serve organizations' }));
+      await user.type(screen.getByLabelText('Requests per day, per organization'), '5000');
+      await user.type(screen.getByLabelText('Output tokens per day, per organization'), '2000000');
+      await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      expect(hook.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deploymentKeyServesOrgs: false,
+          limits: { perOrg: { requestsPerDay: 5000, outputTokensPerDay: 2000000 } },
+        }),
+      );
     });
 
     it('warns when the org-fallback policy is chosen, naming keyless providers', async () => {

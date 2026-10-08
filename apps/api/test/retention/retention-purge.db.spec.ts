@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { Job, PrismaClient } from '@prisma/client';
 
-import { AiRunsPurgeHandler } from '../../src/ai/runtime/ai-runs-purge.handler';
+import { AiRunsPurgeHandler } from '@marinoscar/platform-api/ai';
 import { AuditEventsPurgeHandler } from '../../src/common/retention/audit-events-purge.handler';
 import { purgeInBatches, retentionCutoff } from '../../src/common/retention/batched-purge';
 import type { SystemRetentionValue } from '../../src/common/schemas/settings.schema';

@@ -68,6 +68,8 @@ const BREAKDOWN_OPTIONS: { value: BreakdownGroupBy; label: string; column: strin
   { value: 'model', label: 'Model', column: 'Model' },
   { value: 'provider', label: 'Provider', column: 'Provider' },
   { value: 'keySource', label: 'Key source', column: 'Key source' },
+  // #739: which organization the calls were made for.
+  { value: 'org', label: 'Organization', column: 'Organization' },
 ];
 
 /** `keySource` values as a reader says them. Unknown values render as themselves. */

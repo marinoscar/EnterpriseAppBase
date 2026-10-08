@@ -63,6 +63,8 @@ const SHARING_PERMISSIONS = ['groups:read', 'groups:write', 'groups:admin', 'sha
 const ORG_SETTINGS_PERMISSIONS = ['org_settings:read', 'org_settings:write'];
 /** The notifications slice's org permissions (#738), granted to org_admin: declared after the split too. */
 const ORG_BROADCASTS_PERMISSIONS = ['org_broadcasts:read', 'org_broadcasts:write'];
+/** The AI slice's org permissions (#739), granted to org_admin: declared after the split too. */
+const ORG_AI_PERMISSIONS = ['org_ai_config:read', 'org_ai_config:write'];
 const SEED_INPUT = platformSeedInputFrom(SEED_SNAPSHOT, {});
 
 interface LockFile {
@@ -79,7 +81,7 @@ const splitMigrationDir = lock.migrations.find((m) => m.originId === MIGRATION_O
  */
 function preSplitCatalog() {
   const permissions = SEED_INPUT.permissions.filter(
-    (p) => !ORG_PERMISSIONS.includes(p.name) && !LATER_PERMISSIONS.includes(p.name) && !SHARING_PERMISSIONS.includes(p.name) && !ORG_SETTINGS_PERMISSIONS.includes(p.name) && !ORG_BROADCASTS_PERMISSIONS.includes(p.name),
+    (p) => !ORG_PERMISSIONS.includes(p.name) && !LATER_PERMISSIONS.includes(p.name) && !SHARING_PERMISSIONS.includes(p.name) && !ORG_SETTINGS_PERMISSIONS.includes(p.name) && !ORG_BROADCASTS_PERMISSIONS.includes(p.name) && !ORG_AI_PERMISSIONS.includes(p.name),
   );
   return {
     roles: SEED_INPUT.roles.filter((r) => r.name !== 'org_admin'),
@@ -261,9 +263,10 @@ describeWithDb('system/org role split against real Postgres', () => {
       // Plus the system permissions declared after the split (#726), which the
       // seed that follows the migration grants to admin, and the sharing org
       // permissions (#728), the org_settings permissions (#733) and the
-      // org_broadcasts permissions (#738) its org_admin membership receives.
+      // org_broadcasts permissions (#738) its org_admin membership receives, and the org_ai_config
+      // permissions (#739).
       expect(access.permissions.sort()).toEqual(
-        [...before.get('admin')!, ...ORG_PERMISSIONS, ...LATER_PERMISSIONS, ...SHARING_PERMISSIONS, ...ORG_SETTINGS_PERMISSIONS, ...ORG_BROADCASTS_PERMISSIONS].sort(),
+        [...before.get('admin')!, ...ORG_PERMISSIONS, ...LATER_PERMISSIONS, ...SHARING_PERMISSIONS, ...ORG_SETTINGS_PERMISSIONS, ...ORG_BROADCASTS_PERMISSIONS, ...ORG_AI_PERMISSIONS].sort(),
       );
       expect(access.roles).toEqual(['admin', 'org_admin']);
     });

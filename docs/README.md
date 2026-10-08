@@ -92,7 +92,7 @@ READMEs that live next to the code they describe.
 | [../packages/platform-api/src/jobs/handlers/README.md](../packages/platform-api/src/jobs/handlers/README.md) | Adding a job type |
 | [../apps/api/src/jobs/contracts/README.md](../apps/api/src/jobs/contracts/README.md) | Result schemas a worker node posts back for a node-eligible type |
 | [../packages/platform-cli/src/engine/node/executors/README.md](../packages/platform-cli/src/engine/node/executors/README.md) | The CLI side of a node-eligible job type |
-| [../apps/api/src/ai/README.md](../apps/api/src/ai/README.md) | Using AI from a feature; the AI module's map |
+| [../packages/platform-api/src/ai/README.md](../packages/platform-api/src/ai/README.md) | Using AI from a feature; the AI slice's map (`@marinoscar/platform-api/ai`) |
 | [../packages/platform-api/src/notifications/README.md](../packages/platform-api/src/notifications/README.md) | Adding a notification or a channel; the notifications slice (API; its web and contract READMEs are linked from it) |
 | [../apps/api/src/examples/storage/README.md](../apps/api/src/examples/storage/README.md) | Post-upload storage object processors (the `ObjectProcessorRegistry` recipe) |
 | [../packages/platform-api/src/identity/device-auth/README.md](../packages/platform-api/src/identity/device-auth/README.md) | Device flow reference: schemas, fields, security rationale |
